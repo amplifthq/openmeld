@@ -556,7 +556,7 @@ export function createAgentProfileCreationRequestService(input: {
         configuration.agentControllerPermissionMode
       );
 
-      requireWebAgentRunTarget(body.source, configuration);
+      requireConfiguredAgentRunTarget(body.source, configuration);
       requirePersonalRemoteAgentSelfOwnership(
         configuration.agentControllerRef,
         request.requesterUserId,
@@ -919,17 +919,17 @@ function requirePersonalRemoteAgentSelfOwnership(
   }
 }
 
-function requireWebAgentRunTarget(
+function requireConfiguredAgentRunTarget(
   source: AgentProfileCreationRequestSource,
   configuration: AgentProfileCreationConfiguration
 ) {
   if (
-    source === "web" &&
+    (source === "web" || source === "center_agent") &&
     configuration.agentControllerRef !== HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
     !(configuration.agentControllerRef && configuration.targetComputerId)
   ) {
     throw new AgentProfileCreationRequestStateError(
-      "Choose a local agent on a connected computer to continue."
+      "Choose a local agent on a connected computer or a Remote Agent to continue."
     );
   }
 }

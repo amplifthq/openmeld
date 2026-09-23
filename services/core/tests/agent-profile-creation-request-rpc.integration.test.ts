@@ -1,5 +1,9 @@
 import { createExecutionContext, env } from "cloudflare:test";
-import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
+import {
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import type { RuntimeTransportLookupOwnerServiceResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 
@@ -41,6 +45,83 @@ async function rpcRetryAgentProfileCreationRequest(
 }
 
 describe("Agent Profile creation request RPC", () => {
+  it("keeps distinct target Spaces separate while replaying the same canonical Center creation intent", async () => {
+    const fixture = await seedFixture();
+    const bindings = {
+      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn() },
+    } as unknown as CoreBindings;
+    const command = centerCreationCommand(fixture);
+    const first = await submitCenterAgentRequest(bindings, {
+      ...command,
+      requestedSpaceId: "space-a",
+    });
+    const same = await submitCenterAgentRequest(bindings, {
+      ...command,
+      profileName: ` ${command.profileName} `,
+      requestedSpaceId: "space-a",
+      configuration: Object.fromEntries(
+        Object.entries(command.configuration).reverse()
+      ) as typeof command.configuration,
+    });
+    expect(same).toMatchObject({
+      replayed: true,
+      request: { id: first.request.id },
+    });
+    const other = await submitCenterAgentRequest(bindings, {
+      ...command,
+      requestedSpaceId: "space-b",
+    });
+    expect(other.replayed).toBe(false);
+    expect(other.request.id).not.toBe(first.request.id);
+    expect(other.request).toMatchObject({
+      requestedSpaceId: "space-b",
+      status: "approved",
+      createdAgentProfileId: null,
+    });
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT count(*) AS count FROM agent_profile_creation_requests WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(rows?.count).toBe(2);
+  });
+
+  it("rejects a Center working request with no run target before persisting identity or execution", async () => {
+    const fixture = await seedFixture();
+    const send = vi.fn();
+    const bindings = {
+      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
+    } as unknown as CoreBindings;
+    await expect(
+      submitCenterAgentRequest(bindings, {
+        ...centerCreationCommand(fixture),
+        configuration: undefined,
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile_creation_request.state_conflict",
+    });
+    expect(send).not.toHaveBeenCalled();
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT count(*) AS count FROM agent_profile_creation_requests WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(rows?.count).toBe(0);
+  });
+
+  it("rejects contradictory Remote and Local selection without silently changing the requested runtime", async () => {
+    const fixture = await seedFixture();
+    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    await expect(
+      submitCenterAgentRequest(bindings, {
+        ...centerCreationCommand(fixture),
+        localAgentConnectionCandidateId: "local-candidate",
+      })
+    ).rejects.toMatchObject({ code: "invalid_payload", status: 400 });
+  });
+
   it("recovers a durable accepted request after notification loss and executes duplicate deliveries only once", async () => {
     const fixture = await seedFixture();
     const send = vi
@@ -420,6 +501,7 @@ describe("Agent Profile creation request RPC", () => {
     // member. The launch hold must not confuse Agent identity with ownership.
     const own = await submitCenterAgentRequest(bindings, {
       ...intent,
+      configuration: centerCreationCommand(fixture).configuration,
       targetOwnerUserId: fixture.requesterUserId,
       context: {
         activeOrganizationId: fixture.organizationId,
@@ -652,6 +734,31 @@ function createModelGuardLocalRuntimes(): Awaited<
         platformFamily: "macOS",
       },
     ],
+  };
+}
+
+function centerCreationCommand(
+  fixture: Awaited<ReturnType<typeof seedFixture>>
+) {
+  return {
+    configuration: {
+      ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+    },
+    context: {
+      activeOrganizationId: fixture.organizationId,
+      actorContext: {
+        callerPrincipalId: fixture.centerAgentProfileId,
+        openMeldProfileId: fixture.centerAgentProfileId,
+        profileKind: "agent" as const,
+        profileName: "Center Agent",
+        requestId: fixture.suffix,
+      },
+    },
+    onBehalfOf: { profileId: fixture.requesterProfileId },
+    profileName: "Research Partner",
+    sessionStrategy: "new" as const,
+    targetOwnerUserId: fixture.requesterUserId,
   };
 }
 

@@ -4,6 +4,7 @@ import {
   agentActivityOverviewResponseSchema,
   agentActivitySessionInventoryResponseSchema,
   agentControllerCollaborationModeSchema,
+  agentProfileCreationConfigurationSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentReplyPlacementSchema,
   agentTaskHandleSchema,
@@ -129,6 +130,7 @@ import {
   feedbackIssueRecordSchema,
   getActiveSpaceWakeProgressResponseSchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   inspectExecutionRecoveryResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
   listCenterAgentRoutinesResponseSchema,
@@ -843,9 +845,10 @@ const agentProfileCreationConfigurationToolInputSchema = strictObject({
   openCodePermission: openCodePermissionSchema,
   reasoningLevel: optionalNonEmptyStringSchema,
 });
-const agentProfileCreationConnectionSelectionToolInputSchema = strictObject({
-  candidateId: trimmedNonEmptyStringSchema,
-});
+const agentProfileCreationConnectionSelectionToolInputSchema = union([
+  strictObject({ candidateId: trimmedNonEmptyStringSchema }),
+  strictObject({ kind: literal("remote") }),
+]);
 const createAgentProfileRequestToolInputSchema = strictObject({
   ...createAgentProfileRequestCommonInputEntries,
   configuration: optional(agentProfileCreationConfigurationToolInputSchema),
@@ -887,22 +890,34 @@ function resolveNewAgentProfileCreationRequestInput(input: {
     );
   }
   const {
-    configuration: requestedConfiguration,
+    configuration: _requestedConfiguration,
     connectionSelection,
     sessionSelection: _sessionSelection,
     ...newSessionInput
   } = input.input;
-  if (!(requestedConfiguration || connectionSelection)) {
-    return newSessionInput;
+  if (!connectionSelection) {
+    throw new Error(
+      'Select Remote or one Local Agent candidate in connectionSelection. Use { kind: "remote" } for Remote or { candidateId } for a discovered Local Agent.'
+    );
+  }
+  if ("kind" in connectionSelection) {
+    const configuration = agentProfileCreationConfigurationSchema.safeParse({
+      ...input.selectedConfiguration,
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      targetComputerId: null,
+    });
+    if (!configuration.success) {
+      throw new Error(
+        configuration.error.issues[0]?.message ??
+          "Invalid Remote Agent configuration."
+      );
+    }
+    return { ...newSessionInput, configuration: configuration.data };
   }
   return {
     ...newSessionInput,
-    configuration: {
-      ...input.selectedConfiguration,
-    },
-    ...(connectionSelection
-      ? { localAgentConnectionCandidateId: connectionSelection.candidateId }
-      : {}),
+    configuration: input.selectedConfiguration,
+    localAgentConnectionCandidateId: connectionSelection.candidateId,
   };
 }
 
@@ -4922,9 +4937,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     }),
     toolDefinition({
       name: "openmeld_create_agent_profile_request",
-      description: TEAMMATE_AGENT_REQUESTS_ENABLED
-        ? 'The single creation entry point for a new working Agent Profile, whether it is owned by the represented member or a teammate. Use openmeld_read_organization_directory first and pass the exact target member user ID. For a new local Agent, read saved creation defaults, list Projects and local agent connection candidates, put the concrete Project, model, reasoning, permission, collaboration, and OpenCode choices in configuration, and copy one exact candidateId into connectionSelection. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. Omit requestedSpaceId when no Space is needed; when present, successful setup adds the Agent to that Space through the normal membership mutation. Do not assemble a new Agent Profile through the primitive create, enable, connect, workspace, or Project tools.'
-        : "Create a working Agent owned by the verified represented member only. Creating for another member is not available. Read saved creation defaults and current local agent connection candidates; preserve exact candidate and native Session identifiers. Resume and Fork require the member's own eligible Session. Optional requestedSpaceId uses normal Space membership authority. Creation runs in the background; use the creation progress tools to check completion or retry setup. Do not bypass this flow with primitive identity or Binding tools.",
+      description:
+        (TEAMMATE_AGENT_REQUESTS_ENABLED
+          ? "Create a working Agent through the owner-authorized creation request. Remote Agents remain self-owned only. "
+          : "Create a working Agent owned by the verified represented member only. Creating for another member is not available. ") +
+        'For a new Agent, connectionSelection must be { kind: "remote" } for Remote or { candidateId } from a current Local Agent candidate. Remote accepts configuration.modelId, or the Core default model when omitted; it does not use Local Project, permission, collaboration, OpenCode, or reasoning settings. Local configuration expresses those supported settings and saved preferences. Resume and Fork use the member\'s eligible sessionSelection instead: preserve nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row. Fork requires canFork; Resume requires canResume and an unbound Session. Optional requestedSpaceId uses normal Space membership authority. Returns a durable creation request: approved or pending is not completed; createdAgentProfileId proves identity creation, not current reply readiness. A failed request may already contain that identity; recover its setup rather than creating another. Completed means requested setup finished, not that a Wake ran. Use creation progress/retry tools and current readiness evidence when needed; no automatic parent continuation is promised. Primitive identity creation remains identity-only.',
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(

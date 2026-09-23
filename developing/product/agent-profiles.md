@@ -212,6 +212,30 @@ state machine rather than implementing separate approval rules.
 
 Each request freezes its creation intent.
 
+The Center Agent working-creation tool explicitly selects Remote with
+`connectionSelection: { kind: "remote" }`, or Local with a current
+`{ candidateId }`. Remote selection maps to the existing
+`hosted:remote-agent` configuration and personal Binding flow; `modelId` may
+select a supported model or remain omitted for Core's default. The shared
+configuration contract rejects Local-only settings on Remote requests instead
+of dropping them. Resume/Fork retain their exact eligible Local Session
+selection. Core rejects contradictory Remote/Local selections.
+
+Web and Center working-creation requests require a run target before a new
+request or identity is persisted. CLI/manual identity-only creation remains
+valid with its limited semantics. `createdAgentProfileId` proves identity
+creation; `completed` means the requested setup finished, not that the Agent can
+reply now or that a Wake ran. Current reply readiness stays Core-owned and is
+checked when needed. A failed setup retains its created identity and existing
+retry path. No new watcher, mandatory Wake, or parent continuation is added.
+
+Center-generated idempotency keys hash the existing normalized creation intent,
+including the target Space, plus the originating request ID. Deep JSON key order
+and normalized name/default notation do not define another intent. The same
+intent owner governs both the hash and replay comparison. Existing durable
+requests retain their recorded IDs and recovery paths; do not infer a failed
+creation from a missing response or replace an already-created identity.
+
 Web recovery keeps a failed creation's context. **Review setup** opens that
 request rather than ordinary New Agent. Before identity creation, an owner can
 choose a current Computer for the same local controller while retaining the

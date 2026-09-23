@@ -1030,12 +1030,18 @@ describe("remote agent system prompt", () => {
     );
   });
 
-  it("uses the shared Agent Profile creation request for every creation surface", () => {
+  it("explains Local and Remote creation contracts without requiring the same setup workflow", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "use openmeld_create_agent_profile_request as the single creation entry point"
+      "openmeld_create_agent_profile_request accepts Local and Remote selection"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Omit requestedSpaceId when the task does not need a Space"
+      'connectionSelection { kind: "remote" }'
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "createdAgentProfileId is an identity fact, not a canReply fact"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Omit requestedSpaceId when no Space is needed"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).not.toContain(
       "Then use openmeld_create_configured_agent_profile"

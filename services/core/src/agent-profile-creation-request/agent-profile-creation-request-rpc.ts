@@ -1,5 +1,6 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import {
+  agentProfileCreationIntentSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentProfileCreationRequestSelectorSchema,
   centerAgentCreateConfiguredAgentProfileBodySchema,
@@ -36,6 +37,7 @@ import type {
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetCurrentAgentProfileWorkspaceResponse,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { resolveAgentActivitySessionInventoryExecutionSelection } from "../agent-activity/activity-session-inventory-repository";
 import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { projectCenterAgentLocalAgentConnectionCandidates } from "../center-agent/application/product-operations";
@@ -161,24 +163,23 @@ export async function rpcCenterAgentCreateAgentProfileCreationRequest(
       organizationId: prepared.organizationId,
       targetOwnerUserId: input.targetOwnerUserId,
     });
-  return await rpcCreateAgentProfileCreationRequest(env, {
+  const body = {
     configuration,
-    context: prepared.context,
-    idempotencyKey: await buildCenterAgentCreationRequestIdempotencyKey({
-      configuration,
-      context: prepared.context,
-      nativeSessionId: input.nativeSessionId ?? null,
-      profileName: input.profileName,
-      sessionStrategy: input.sessionStrategy,
-      targetOwnerUserId: input.targetOwnerUserId,
-    }),
     nativeSessionId: input.nativeSessionId,
-    organizationId: prepared.organizationId,
     profileName: input.profileName,
     requestedSpaceId: input.requestedSpaceId,
     sessionStrategy: input.sessionStrategy,
-    source: "center_agent",
+    source: "center_agent" as const,
     targetOwnerUserId: input.targetOwnerUserId,
+  };
+  return await rpcCreateAgentProfileCreationRequest(env, {
+    ...body,
+    context: prepared.context,
+    idempotencyKey: await buildCenterAgentCreationRequestIdempotencyKey({
+      body,
+      context: prepared.context,
+    }),
+    organizationId: prepared.organizationId,
   });
 }
 
@@ -191,6 +192,12 @@ async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
 }): Promise<AgentProfileCreationConfiguration | undefined> {
   if (!input.localAgentConnectionCandidateId) {
     return input.configuration;
+  }
+  if (
+    input.configuration?.agentControllerRef ===
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
+    throw invalidPayload("Choose Remote or a Local Agent candidate, not both.");
   }
   const targetContext = await buildMemberHumanContext({
     env: input.env,
@@ -661,28 +668,22 @@ async function prepareCenterAgentRepresentedMemberRequest(input: {
 }
 
 async function buildCenterAgentCreationRequestIdempotencyKey(input: {
-  configuration?: AgentProfileCreationConfiguration;
+  body: Omit<CreateAgentProfileCreationRequestBody, "idempotencyKey">;
   context: OpenMeldRequestContext;
-  nativeSessionId: string | null;
-  profileName: string;
-  sessionStrategy: AgentProfileCreationSessionStrategy;
-  targetOwnerUserId: string;
 }): Promise<string> {
-  const payload = JSON.stringify({
-    configuration: input.configuration,
-    nativeSessionId: input.nativeSessionId,
-    profileName: input.profileName,
-    requestId: input.context.actorContext.requestId,
-    sessionStrategy: input.sessionStrategy,
-    targetOwnerUserId: input.targetOwnerUserId,
+  // The intent owner drops transport fields, including this placeholder key.
+  // Hash exactly what replay equality compares, including the target Space.
+  const intent = agentProfileCreationIntentSchema.safeParse({
+    ...input.body,
+    idempotencyKey: "center-agent",
   });
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(payload)
-  );
-  const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
+  if (!intent.success) {
+    throw invalidPayload(intent.error.issues[0]?.message);
+  }
+  const fingerprint = await digestCanonicalJson({
+    requestId: input.context.actorContext.requestId,
+    intent: intent.data,
+  });
   return `center-agent:agent-profile-request:${fingerprint}`;
 }
 
