@@ -34,6 +34,7 @@ import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-bindi
 import {
   buildRemoteAgentConversationContinuityContext,
   buildRemoteAgentWorkerSubmitTurnRequestV4,
+  isRemoteAgentRoutineRunConversation,
   resolveRemoteAgentLogicalConversationId,
   resolveRemoteAgentRuntimeConversationId,
 } from "./remote-agent-conversation-continuity";
@@ -76,6 +77,23 @@ const CENTER_AGENT_PAUSED_ADMISSION_RESPONSE = {
 } as const;
 const REMOTE_AGENT_ADMISSION_FALLBACK_PUBLIC_COPY =
   "Center Agent could not start this request. Please try again.";
+
+const ROUTINE_RUN_HISTORY_LIMIT_RESPONSE = {
+  message:
+    "This Routine Run could not continue after its execution history reached the safety limit.",
+  reasonCode: REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
+} as const;
+
+function cannotResumeRoutineRunGeneration(input: {
+  generation: RemoteAgentConversationGeneration;
+  request: RemoteAgentWorkerSubmitTurnRequest;
+}): boolean {
+  return (
+    input.generation.generation > 0 &&
+    input.generation.startedAtMs === null &&
+    isRemoteAgentRoutineRunConversation(input.request)
+  );
+}
 
 export function resolveRemoteAgentAdmissionPublicCopy(input: {
   conversationKind: "message_channel" | "slack" | "space";
@@ -201,6 +219,14 @@ export async function submitRemoteAgentWorkerAdmission(input: {
         ),
         organizationId: input.organizationId,
       });
+      if (
+        cannotResumeRoutineRunGeneration({ generation, request: input.request })
+      ) {
+        return {
+          response: ROUTINE_RUN_HISTORY_LIMIT_RESPONSE,
+          status: "rejected",
+        };
+      }
       request = await prepareGenerationRequest({
         ...input,
         generation,
@@ -230,32 +256,50 @@ export async function submitRemoteAgentWorkerAdmission(input: {
     return { error: parsed.error, status: "protocol_error" };
   }
   if ("outcome" in parsed.data) {
-    if (
-      parsed.data.reasonCode ===
-        REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE &&
-      request.v === 4 &&
-      generation
-    ) {
-      const rolloverAdmission = await rolloverRemoteAgentConversation({
-        ...input,
-        currentGeneration: generation,
-        request,
-      });
-      if (rolloverAdmission.status !== "acknowledged") {
-        return rolloverAdmission;
-      }
-      return await finishAcknowledgedAdmission({
-        ...input,
-        ack: rolloverAdmission.ack,
-        request: rolloverAdmission.request,
-      });
-    }
-    return { response: parsed.data, status: "rejected" };
+    return await handleRejectedWorkerOutcome({
+      admissionInput: input,
+      generation,
+      request,
+      response: parsed.data,
+    });
   }
   return await finishAcknowledgedAdmission({
     ...input,
     ack: parsed.data,
     request,
+  });
+}
+
+async function handleRejectedWorkerOutcome(input: {
+  admissionInput: Parameters<typeof submitRemoteAgentWorkerAdmission>[0];
+  generation: RemoteAgentConversationGeneration | null;
+  request: RemoteAgentWorkerSubmitTurnRequest;
+  response: Extract<
+    RemoteAgentWorkerSubmitTurnResponse,
+    { outcome: "rejected" }
+  >;
+}): Promise<RemoteAgentWorkerAdmission> {
+  if (
+    input.response.reasonCode !==
+      REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE ||
+    isRemoteAgentRoutineRunConversation(input.request) ||
+    input.request.v !== 4 ||
+    !input.generation
+  ) {
+    return { response: input.response, status: "rejected" };
+  }
+  const rolloverAdmission = await rolloverRemoteAgentConversation({
+    ...input.admissionInput,
+    currentGeneration: input.generation,
+    request: input.request,
+  });
+  if (rolloverAdmission.status !== "acknowledged") {
+    return rolloverAdmission;
+  }
+  return await finishAcknowledgedAdmission({
+    ...input.admissionInput,
+    ack: rolloverAdmission.ack,
+    request: rolloverAdmission.request,
   });
 }
 

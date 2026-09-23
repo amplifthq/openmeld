@@ -1652,6 +1652,16 @@ For a Space turn, the Space owner resolves the exact dispatch's frozen main or
 thread placement and returns only bounded text Signals before that dispatch's
 source Signal; the generic main-timeline reader is not a continuity source for
 a thread.
+Routine Runs use a Run-scoped execution conversation independent of the frozen
+Space or channel where their result is published. Their standing instructions,
+turn envelope, and explicitly authorized reads supply the current Run's input;
+destination conversation history is never silently replayed as Routine
+continuity. This applies to both Center and personal Agent Routines. The
+ordinary Space rollover source-signal path remains for actual Space turns.
+If one Run's own canonical history reaches the safety limit, admission returns
+an explicit limit failure rather than fabricating a destination source signal
+or discarding unfinished execution context. Persisted pre-change Routine
+requests keep their original runtime identity during recovery.
 Concurrent callers converge on the same active generation. Runtime generations
 are invisible implementation details: the member remains in the same DM,
 Space, or provider conversation and is never asked to start a new one.
