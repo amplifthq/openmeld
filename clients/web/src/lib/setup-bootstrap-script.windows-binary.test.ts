@@ -41,7 +41,7 @@ describe.skipIf(process.platform !== "win32")(
 
 		beforeAll(async () => {
 			root = await mkdtemp(join(tmpdir(), "openmeld bootstrap 中文 "));
-			await promisify(execFile)(
+			const prepared = await promisify(execFile)(
 				resolveWindowsPowerShellPath(),
 				[
 					"-NoProfile",
@@ -61,7 +61,20 @@ describe.skipIf(process.platform !== "win32")(
 					publisher,
 				],
 				{ env, timeout: 60_000, windowsHide: true }
-			);
+			).catch((error) => {
+				console.error(
+					"[windows signing fixture preparation]",
+					JSON.stringify({
+						code: error.code,
+						signal: error.signal,
+						killed: error.killed,
+						stdout: error.stdout,
+						stderr: error.stderr,
+					})
+				);
+				throw error;
+			});
+			console.info("[windows signing fixture preparation]", prepared.stdout);
 			bytes = await readFile(join(root, "fixture.exe"));
 		}, 70_000);
 
@@ -80,7 +93,7 @@ describe.skipIf(process.platform !== "win32")(
 				await promisify(execFile)(
 					resolveWindowsPowerShellPath(),
 					powerShellEncodedArguments(
-						`$ErrorActionPreference='Stop'; foreach ($store in @('My','Root')) { $p = "Cert:\\CurrentUser\\$store\\${thumbprint}"; if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force } }`
+						String.raw`$ErrorActionPreference='Stop'; $root = 'Cert:\LocalMachine\Root\${thumbprint}'; if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Force }; $key = 'Cert:\CurrentUser\My\${thumbprint}'; if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -DeleteKey -Force }`
 					),
 					{ env, timeout: 30_000, windowsHide: true }
 				);

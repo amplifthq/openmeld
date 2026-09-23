@@ -258,14 +258,12 @@ run; that does not establish the cause or resolution of its historical timeout.
 Running maintenance handoff, ordinary-user login/reboot, real account/agent
 inference, signed distribution and installed Desktop acceptance remain separate.
 
-## References
-
 Web binary acquisition now shares the native signature/publisher function with
 CLI/Desktop. Its readable command still uses a child PowerShell so setup cannot
 exit the caller's terminal. Local command/bootstrap tests passed 63 cases and Web
 TypeScript passed. A native, ephemeral-runner-only signed fixture now exercises
 download, publisher/hash rejection, install receipt, Unicode/quote forwarding,
-stderr and original exit status; it is pending run 35905445352. This fixture
+stderr and original exit status. This fixture
 does not sign or certify an OpenMeld production release.
 
 The platform tabs now use the same shared label rendering, with Beta in a
@@ -273,6 +271,29 @@ trailing slot. An isolated Chrome presentation check rendered the actual setup
 card: both labels are 12px, the badge remains 10px, and mouse/arrow-key changes
 switch the command and instructions. This proves the card presentation only,
 not a signed-in connection or a completed setup operation.
+
+[Run 35905445352, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35905445352)
+checked head `4aca079d50a78c10bee3efd0621ba6b3d91fd5be` at merge checkout
+`6fb2c5896ec6a532cf1818242972650d581c4c66` against base
+`6c3ae1a6d155f9987a9fbccacb9c460f341238f4`. The native-artifacts job passed
+all carrier/installer/Service/Host and stopped-migration gates; its
+[artifact](https://github.com/amplifthq/openmeld/actions/runs/35905445352/artifacts/10771610334)
+contains those results. Native-contracts failed: the new signing fixture's
+preparation process failed after its 60-second deadline, before any of its three
+bootstrap cases executed. The original npm bootstrap 10/10, Desktop managed
+acquisition/environment 6/6, package boundary tests and updater/signature 16/16
+passed. Later legacy task-host checks were skipped, not passed.
+
+The failed preparation did not retain substage or exit metadata, so its exact
+wait is unproved. The fixture now records compilation, certificate creation,
+trust import and signing stages plus subprocess exit/timeout output. It uses
+only the disposable hosted runner's machine Root store to avoid interactive
+current-user Root trust; exact owned certificate/private-key cleanup remains
+mandatory. No product trust setting changes. The fixture preparation deadline
+remains 60 seconds; the bootstrap deadline remains 30 seconds. Full Web build
+passed after syncing main. Native bootstrap acceptance is still pending.
+
+## References
 
 - [Product model](../product/product-model.md), [Service owner](local-openmeld-service.md), [transport owner](agent-transport-contract.md), [Desktop owner](../clients/desktop.md), [CLI release](../engineering/cli-binary-release.md), [delivery](../engineering/agent-native-delivery.md).
 - [Task Scheduler security contexts](https://learn.microsoft.com/en-us/windows/win32/taskschd/security-contexts-for-running-tasks) and [logon types](https://learn.microsoft.com/en-us/windows/win32/api/taskschd/ne-taskschd-task_logon_type).

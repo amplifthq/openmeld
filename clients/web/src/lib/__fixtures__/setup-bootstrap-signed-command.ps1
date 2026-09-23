@@ -26,11 +26,18 @@ public static class SetupFixture {
 }
 '@
 $exe = Join-Path $Root 'fixture.exe'
+[Console]::Out.WriteLine('fixture stage: compile')
 Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly $exe -OutputType ConsoleApplication -ReferencedAssemblies 'System.Web.Extensions.dll'
+[Console]::Out.WriteLine('fixture stage: create certificate')
 $certificate = New-SelfSignedCertificate -Subject "CN=$Publisher" -Type CodeSigningCert -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(1)
 # Save the exact identity before importing trust, including for failed setup cleanup.
 [IO.File]::WriteAllText((Join-Path $Root 'certificate-thumbprint.txt'), $certificate.Thumbprint)
-$store = New-Object Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser')
+[Console]::Out.WriteLine('fixture stage: trust certificate on ephemeral runner')
+# CurrentUser Root can require interactive trust UI. The disposable hosted
+# runner is an administrator; use its machine test store, never a user PC.
+$store = New-Object Security.Cryptography.X509Certificates.X509Store('Root','LocalMachine')
 try { $store.Open('ReadWrite'); $store.Add($certificate) } finally { $store.Close() }
+[Console]::Out.WriteLine('fixture stage: sign')
 $signature = Set-AuthenticodeSignature -LiteralPath $exe -Certificate $certificate -HashAlgorithm SHA256
 if ($signature.Status -ne 'Valid') { throw "Fixture signing failed: $($signature.Status): $($signature.StatusMessage)" }
+[Console]::Out.WriteLine('fixture stage: ready')
