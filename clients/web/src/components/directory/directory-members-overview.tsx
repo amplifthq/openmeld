@@ -4,6 +4,7 @@ import type {
 	CenterAgentMemberResearchBatch,
 	MessageChannelProvider,
 	ModelCatalog,
+	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -453,7 +454,8 @@ function useDirectoryMembersOverviewModel(
 		isError: documentsQuery.isError,
 		isSuccess: documentsQuery.isSuccess,
 	});
-	const computersStatus = resolveDirectoryProjectionStatus(computersQuery);
+	const { data: organizationComputers, status: computersStatus } =
+		resolveUsableOrganizationComputers(computersQuery);
 	const currentUserInventoryStatus = resolveDirectoryProjectionStatus(
 		input.recovery.localRuntimesQuery
 	);
@@ -469,7 +471,7 @@ function useDirectoryMembersOverviewModel(
 		currentComputerServiceState: currentComputerServiceProjection.serviceState,
 		currentUserId: input.currentUserId,
 		directory: input.directoryQuery.data ?? null,
-		organizationComputers: computersQuery.data ?? null,
+		organizationComputers,
 		ownedComputers: input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
 	});
 	const memberRows = isPersonalWorkspace
@@ -677,6 +679,25 @@ function resolveDirectoryProjectionStatus(input: {
 		return "loading";
 	}
 	return input.isError ? "failed" : "ready";
+}
+
+function resolveUsableOrganizationComputers(input: {
+	data: OrganizationComputersResponse | undefined;
+	isError: boolean;
+	isPending: boolean;
+	isStale: boolean;
+}): {
+	data: OrganizationComputersResponse | null;
+	status: DirectoryProjectionStatus;
+} {
+	const status = resolveDirectoryProjectionStatus({
+		isError: input.isError || input.isStale,
+		isPending: input.isPending,
+	});
+	return {
+		data: status === "ready" ? (input.data ?? null) : null,
+		status,
+	};
 }
 
 function DirectoryInvitePanel(input: {

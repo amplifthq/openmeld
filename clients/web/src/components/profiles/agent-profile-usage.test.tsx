@@ -142,6 +142,11 @@ describe("Agent usage dashboard", () => {
 			client.invalidateQueries({ queryKey: key }).catch(console.error);
 		});
 		expect(screen.getByRole("meter").getAttribute("aria-valuenow")).toBe("25");
+		await waitFor(() => {
+			expect(screen.getByRole("meter").getAttribute("aria-label")).toContain(
+				", Stale,"
+			);
+		});
 		expect(
 			within(screen.getByRole("region", { name: "Usage limits" })).queryByRole(
 				"status",

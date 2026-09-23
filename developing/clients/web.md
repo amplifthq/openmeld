@@ -2365,6 +2365,18 @@ cross-tab invalidations. These are configured values, not evidence that an Agent
 can Wake or that a particular model executed work. Agent pages retain their
 Core-owned runtime overview and Wakeability checks.
 
+Entering People starts the Profile Directory and personal sidebar-preference
+reads as early as route intent allows, without holding navigation for either
+response. Known member rows and Team cards remain visible while personal
+sidebar preferences load; until those preferences arrive, the list uses its
+default Human-presence sections and saved-group actions stay unavailable. The
+account-and-Organization-scoped browser read cache may restore sidebar layout,
+then refresh it through the existing revisioned server read. It does not persist
+the Profile Directory's mixed identity, activity, and Agent configuration
+response. Human presence, Computer state, and Agent runtime/usage projections
+retain their separate current-read and unknown-state rules; saved layout never
+supplies those facts.
+
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
 bounded actual-interaction report; Core re-verifies the active member and that
