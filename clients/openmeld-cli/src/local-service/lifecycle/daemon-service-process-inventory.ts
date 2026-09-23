@@ -431,6 +431,7 @@ export async function listWindowsProcesses(): Promise<ListedProcess[]> {
     "$ErrorActionPreference='Stop'; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine) | ConvertTo-Json -Compress";
   // execFile owns incremental UTF-8 decoding and bounded output. A timeout or
   // unreadable process table rejects; it never proves that the Service is absent.
+  const startedAt = Date.now();
   const { stdout: output } = await promisify(execFile)(
     resolveWindowsPowerShellPath(),
     powerShellEncodedArguments(script),
@@ -440,7 +441,17 @@ export async function listWindowsProcesses(): Promise<ListedProcess[]> {
       timeout: 10_000,
       maxBuffer: 8 * 1024 * 1024,
     }
-  );
+  ).catch((error: unknown) => {
+    const failure = error as {
+      code?: unknown;
+      signal?: unknown;
+      killed?: unknown;
+    };
+    throw new Error(
+      `Windows process inventory failed after ${Date.now() - startedAt}ms (code=${String(failure.code ?? "unknown")}, signal=${String(failure.signal ?? "none")}, killed=${String(failure.killed ?? false)}).`,
+      { cause: error }
+    );
+  });
   return parseWindowsProcessInventory(output);
 }
 
