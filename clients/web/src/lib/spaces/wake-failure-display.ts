@@ -168,7 +168,7 @@ function resolveNonCurrentOwnerLocalServiceFailureBody(input: {
 		return `${input.targetName} could not complete this Wake on ${controllerDisplayName}. Ask ${ownerDisplayName} to reconnect the computer and check the local agent, then wake the Agent again.`;
 	}
 	if (ownerDisplayName) {
-		return `${input.targetName} could not complete this Wake. Ask ${ownerDisplayName} to reconnect the computer and check the local agent, then wake the Agent again.`;
+		return `${input.targetName} could not complete this Wake on ${formatPossessiveName(ownerDisplayName)} computer. Ask ${ownerDisplayName} to reconnect the computer and check the local agent, then wake the Agent again.`;
 	}
 	return `${input.targetName} could not complete this Wake. Ask the Agent owner to reconnect the computer and check the local agent, then wake the Agent again.`;
 }
