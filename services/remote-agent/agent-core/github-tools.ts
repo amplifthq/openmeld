@@ -2264,16 +2264,17 @@ async function withGitHubIssueSpaceTaskBinding(input: {
       actionInput: input.actionInput,
       data: input.result.data,
       eventIdentity: input.operationId,
-      now: await readStableGitHubIssueObservationAt({
-        data: input.result.data,
-        operationId: input.operationId,
-        scope: [
-          input.toolContext.context.activeOrganizationId ?? "",
-          input.toolContext.context.actorContext.openMeldProfileId,
-          typeof connectionName === "string" ? connectionName : "",
-        ].join(":"),
-        storage: input.storage,
-      }),
+      now: () =>
+        readStableGitHubIssueObservationAt({
+          data: input.result.data,
+          operationId: input.operationId,
+          scope: [
+            input.toolContext.context.activeOrganizationId ?? "",
+            input.toolContext.context.actorContext.openMeldProfileId,
+            typeof connectionName === "string" ? connectionName : "",
+          ].join(":"),
+          storage: input.storage,
+        }),
       ports: input.coreWorker,
       toolContext: input.toolContext,
     });

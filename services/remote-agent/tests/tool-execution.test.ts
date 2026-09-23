@@ -79,21 +79,34 @@ describe("Remote Agent tool execution", () => {
     expect(JSON.stringify(result)).toContain("Do not repeat a write");
   });
 
-  it("does not turn a returned failure into success when only its presentation is oversized", () => {
-    expect(
-      toBoundedRemoteAgentToolResult({
-        toolName: "example_action",
-        value: {
-          status: "failed",
-          success: false,
-          detail: "x".repeat(200_000),
-        },
-      })
-    ).toMatchObject({
+  it.each([
+    "completed",
+    "failed",
+  ] as const)("preserves a %s receipt even when preceding metadata consumes the budget", (status) => {
+    const receipt = {
+      operationId: "write-receipt-in-the-middle",
+      providerExecutionId: "provider-receipt-in-the-middle",
+      status,
+      success: status === "completed",
+      replayed: false,
+    };
+    const result = toBoundedRemoteAgentToolResult({
+      toolName: "example_action",
+      value: {
+        metadata: "m".repeat(7980),
+        ...receipt,
+        detail: "x".repeat(200_000),
+      },
+    });
+    expect(result).toMatchObject({
       toolExecution: "returned",
-      resultMetadata: { status: "failed", success: false },
+      resultMetadata: receipt,
       presentation: { kind: "partial" },
     });
+    const preview = (result as { resultPreview: unknown }).resultPreview;
+    expect(JSON.stringify(preview)).not.toContain(receipt.operationId);
+    expect(JSON.stringify(preview)).not.toContain(receipt.providerExecutionId);
+    expect(isRemoteAgentToolResultWithinLimit(result)).toBe(true);
   });
 
   it("preserves every semantic field in a bounded structured result", () => {

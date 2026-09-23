@@ -355,8 +355,10 @@ Model-visible tool results must cross an OpenMeld-owned bounded persistence
 boundary before Flue stores them in the conversation session. A returned tool
 result that exceeds that boundary becomes an explicit partial-evidence envelope,
 not an execution exception. Direct calls and Code Mode share this boundary.
-The envelope copies complete bounded top-level fields, including available
-operation receipts, and exposes small Unicode-safe beginning/end JSON excerpts.
+The envelope reserves its bounded metadata budget for standard top-level
+receipt and outcome fields before other fields, irrespective of provider field
+order. It copies only complete values and exposes small Unicode-safe
+beginning/end JSON excerpts.
 `toolExecution: returned` is not a derived business-success state. The original
 outcome and any provider-side completeness fields remain authoritative.
 Omitted content is not retained in another store or shared Computer; the envelope
@@ -2367,6 +2369,10 @@ member research, unlinked Message Channel identity, and Routine restrictions
 remain enforced. Verified ordinary retries use the frozen operation and output
 schema without requiring today's catalog or selecting another connection.
 These contracts apply to direct tools and Code Mode, not a required task plan.
+The issue-to-Task binding owner acquires a stable observation timestamp only
+for an applicable issue creation or closure in a shared Space. Ordinary reads
+and unrelated writes do not create issue-observation records; existing operation
+receipts and the stable timestamp used to replay actual bindings are unchanged.
 
 Before every new action operation that is eligible to run, Remote Agent asks
 Core to resolve an active connection inside the turn Organization. A Routine

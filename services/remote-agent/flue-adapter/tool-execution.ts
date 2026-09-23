@@ -290,8 +290,29 @@ function boundedCompleteResultFields(value: JsonValue): JsonValue {
     return {};
   }
   const fields: [string, JsonValue][] = [];
+  // Preserve the standard receipt/outcome fields before optional metadata can
+  // consume their budget. Copy only present, complete values; infer no outcome.
+  const keys = new Set([
+    "status",
+    "outcome",
+    "success",
+    "replayed",
+    "operationId",
+    "providerExecutionId",
+    "requestId",
+    "reasonCode",
+    "errorCode",
+    ...Object.keys(value),
+  ]);
   let remainingBytes = 8000;
-  for (const [key, item] of Object.entries(value)) {
+  for (const key of keys) {
+    if (!Object.hasOwn(value, key)) {
+      continue;
+    }
+    const item = value[key];
+    if (item === undefined) {
+      continue;
+    }
     const bytes = new TextEncoder().encode(
       JSON.stringify({ [key]: item })
     ).byteLength;

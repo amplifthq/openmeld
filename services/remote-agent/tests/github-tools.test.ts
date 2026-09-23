@@ -359,6 +359,7 @@ describe("Remote Agent GitHub tools", () => {
     "requester",
   ] as const)("discovers and reads upstream job logs using only the selected %s identity", async (githubActor) => {
     const request = createSubmitTurnRequest();
+    const storage = await createStorage(request);
     const sender = requireMemberSender(request.turnEnvelope.sender);
     const selected = connectionSelection({
       ownerDisplayName: "Ashley",
@@ -405,7 +406,7 @@ describe("Remote Agent GitHub tools", () => {
         fetch: fetchMock,
       },
       coreWorker: { centerAgentResolveConnectorConnection: resolveConnection },
-      storage: await createStorage(request),
+      storage,
     });
     await expect(
       executeTool(tools, "github_list_actions", { githubActor, limit: 1 })
@@ -452,6 +453,17 @@ describe("Remote Agent GitHub tools", () => {
           githubActor === "organization" ? "shared" : "requester",
       })
     );
+    await expect(
+      executeTool(tools, "github_execute_action", {
+        githubActor,
+        actionId: JOB_LOG_ACTION.id,
+        input: { owner: "amplifthq", repo: "openmeld", jobId: 123 },
+        operationId: "job-logs-123-refreshed",
+      })
+    ).resolves.toMatchObject({ data: logs, status: "completed" });
+    expect(
+      await storage.list({ prefix: "github-space-task-observation:" })
+    ).toEqual(new Map());
   });
 
   it.each([
@@ -2790,6 +2802,9 @@ describe("Remote Agent GitHub tools", () => {
       "https://connectors.example.test/v1/actions/github.create_issue",
       "https://connectors.example.test/v1/actions/github.update_issue",
     ]);
+    expect(
+      (await storage.list({ prefix: "github-space-task-observation:" })).size
+    ).toBe(1);
   });
 
   it.each([
