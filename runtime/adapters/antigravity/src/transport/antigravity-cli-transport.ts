@@ -20,6 +20,8 @@ import {
   type AntigravityStreamEvent,
   parseAntigravityOutputLine,
 } from "../output/antigravity-output-parser.js";
+import { prepareAntigravityDeliveryScope } from "./antigravity-delivery-only.js";
+import { ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA } from "./antigravity-space-action.js";
 
 const AUTH_FAILURE_PATTERN =
   /auth(?:entication)? required|not signed in|sign in/iu;
@@ -55,7 +57,7 @@ export class AntigravityCliTransportError extends Error {
   }
 }
 
-export async function invokeAntigravityCliTransport(input: {
+type AntigravityCliTransportInput = {
   agentControllerPermissionMode?: AdapterDispatchRequest["agentControllerPermissionMode"];
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
@@ -68,17 +70,49 @@ export async function invokeAntigravityCliTransport(input: {
   sessionId: string | null;
   timeoutMs: number | null;
   workdir: string;
-}): Promise<AntigravityCliTransportResult> {
-  if (isDispatchSpaceActionDeliveryOnly(input.env)) {
-    // A structured-output schema constrains the result, not the actions before
-    // it. Never rerun the full agent merely to repair a missing final action.
+};
+
+export async function invokeAntigravityCliTransport(
+  input: AntigravityCliTransportInput
+): Promise<AntigravityCliTransportResult> {
+  if (!isDispatchSpaceActionDeliveryOnly(input.env)) {
+    return await invokeNativeAntigravity(input);
+  }
+  if (input.jsonSchema !== ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA) {
     throw new AntigravityCliTransportError({
       code: "space.action.delivery_only_unsupported",
       errorType: "config",
       message:
-        "This Antigravity CLI path cannot verify delivery-only execution. No correction turn was started; the original conversation and permission mode are unchanged.",
+        "The current structured final-action schema is missing. No correction turn was started.",
     });
   }
+  let scope: Awaited<ReturnType<typeof prepareAntigravityDeliveryScope>>;
+  try {
+    scope = await prepareAntigravityDeliveryScope(input);
+  } catch {
+    throw new AntigravityCliTransportError({
+      code: "space.action.delivery_only_unverified",
+      errorType: "config",
+      message:
+        "Antigravity could not verify the native delivery-only configuration. No correction turn was started.",
+    });
+  }
+  try {
+    const result = await invokeNativeAntigravity({
+      ...input,
+      env: scope.env,
+      sessionId: null,
+      deliveryAgentName: scope.agentName,
+    });
+    return { ...result, sessionId: input.sessionId ?? result.sessionId };
+  } finally {
+    await scope.close();
+  }
+}
+
+async function invokeNativeAntigravity(
+  input: AntigravityCliTransportInput & { deliveryAgentName?: string }
+): Promise<AntigravityCliTransportResult> {
   const prompt = normalizeOptionalText(input.prompt);
   if (!prompt) {
     throw new AntigravityCliTransportError({
@@ -88,13 +122,16 @@ export async function invokeAntigravityCliTransport(input: {
     });
   }
   const invocation = buildCliLaunchInvocation({
-    args: buildAntigravityArgs({
-      agentControllerPermissionMode: input.agentControllerPermissionMode,
-      conversationPolicy: input.conversationPolicy,
-      jsonSchema: input.jsonSchema,
-      prompt,
-      sessionId: normalizeOptionalText(input.sessionId),
-    }),
+    args: [
+      ...buildAntigravityArgs({
+        agentControllerPermissionMode: input.agentControllerPermissionMode,
+        conversationPolicy: input.conversationPolicy,
+        jsonSchema: input.jsonSchema,
+        prompt,
+        sessionId: normalizeOptionalText(input.sessionId),
+      }),
+      ...(input.deliveryAgentName ? ["--agent", input.deliveryAgentName] : []),
+    ],
     launchContract: input.launchContract,
   });
   const invokedAtMs = Date.now();

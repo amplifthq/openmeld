@@ -2134,8 +2134,8 @@ must return `space.action.delivery_only_unsupported` or
 `space.action.delivery_only_unverified` before sending a correction prompt. The
 existing terminal failure path remains responsible for a visible failure. This
 does not disable normal reply/silence tools or their correctable input errors.
-Current Cursor ACP and Antigravity CLI correction paths take this
-explicit safe-stop branch; their ordinary modes are not silently changed to
+The current Cursor ACP correction path takes this
+explicit safe-stop branch; its ordinary mode is not silently changed to
 Ask/Plan. A new native restriction may replace that branch only with actual
 controller evidence, not a headless-only flag or an output schema alone.
 
@@ -2158,6 +2158,15 @@ dispatch MCP connection. This keeps large-result continuation readable and
 preserves real rejection/receipt semantics. Connection loss requires receipt
 reconciliation before another final action; cancellation and session end fence
 further calls. Config inspection itself must not execute ambient plugins.
+
+Antigravity CLI correction uses a verified native custom Agent in an owned
+temporary home. The native finish tool emits the supplied structured final
+action; private text never becomes a substitute publication. File, command,
+web and delegate tools are absent, and the fresh process has no old background
+tasks. Native settings and credential/policy sources remain available without
+rewriting the original configuration. Ambient hooks/plugins/MCPs and external
+runtime overrides are rejected before prompting. The normal action validator
+and recorder remain the only writer, and canonical continuity is preserved.
 
 Grok ACP correction uses a fresh native agent with only delivery-tool dispatch
 wrappers. Its tool profile does not by itself prohibit file-backed arguments;

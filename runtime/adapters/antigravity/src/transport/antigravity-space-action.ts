@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
-import { resolveDispatchSpaceActionMcpServer } from "@openmeld/adapter-core";
+import {
+  isDispatchSpaceActionDeliveryOnly,
+  resolveDispatchSpaceActionMcpServer,
+} from "@openmeld/adapter-core";
 
 export const ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA = JSON.stringify({
   additionalProperties: false,
@@ -42,7 +45,7 @@ export async function withAntigravityDispatchSpaceAction<
   }
 
   const result = await input.run({
-    prompt: `${input.prompt}\n\n${buildSpaceActionInstructions(input.workdir)}`,
+    prompt: `${input.prompt}\n\n${buildSpaceActionInstructions(input.workdir, isDispatchSpaceActionDeliveryOnly(input.env))}`,
     jsonSchema: ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA,
   });
   await recordStructuredSpaceAction({
@@ -52,14 +55,19 @@ export async function withAntigravityDispatchSpaceAction<
   return result;
 }
 
-function buildSpaceActionInstructions(workdir: string): string {
+function buildSpaceActionInstructions(
+  workdir: string,
+  deliveryOnly: boolean
+): string {
   return [
     "OpenMeld Antigravity invocation contract:",
     `The working folder for this invocation is ${JSON.stringify(workdir)}. Resolve relative task paths there.`,
     "For this OpenMeld Wake, do not run a Space Action CLI command and do not inspect its environment variables.",
     "The structured outcome below is the complete reply/publication contract. Reading the OpenMeld CLI Skill is not required to reply; consult it only for additional OpenMeld operations requested by the user.",
     "If the request can be answered without tools, return the structured outcome immediately; do not inspect the workspace or run a command just to orient yourself.",
-    "Complete the user's work under the normal Antigravity permission policy.",
+    deliveryOnly
+      ? "Correct delivery only; do not repeat business work. Call the native finish tool with the deliberate public action required by its schema. Plain private text is not a published answer."
+      : "Complete the user's work under the normal Antigravity permission policy.",
     "At the end, return exactly one structured outcome using the required JSON schema: reply for a public message, limitation, error explanation, or request for help; silent only when no public communication is appropriate.",
     "Put the explicit public reply or silence reason in text. Private analysis is not a public reply.",
     "Include only validated profile IDs from the provided target reference lists; otherwise leave all target arrays empty.",

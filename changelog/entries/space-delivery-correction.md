@@ -34,8 +34,9 @@ controller can enforce a restricted operation scope. Claude, Codex, OpenCode
 and OpenClaw have native correction paths with explicit permission and receipt
 checks. Grok Build can correct delivery in a separate native session with only
 final tools, preserving native approvals and blocking file-backed tool inputs. OpenClaw also uses the common paged reads and correctable tool errors.
-Current Cursor ACP and Antigravity CLI paths stop safely when a final
-action is missing, rather than rerunning business work with full capabilities.
-Their normal reply tools remain available. This is not a promise of automatic
+Antigravity can correct a final action in a fresh native session without business
+tools, and requires the actual structured result rather than copying private text.
+Current Cursor ACP paths stop safely when a final action is missing, rather than
+rerunning business work with full capabilities. Normal reply tools remain available. This is not a promise of automatic
 correction on every controller or version.
 

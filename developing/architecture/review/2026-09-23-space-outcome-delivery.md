@@ -55,14 +55,37 @@ remains the only writer; no private prose is automatically published.
 | OpenClaw local | Fresh native session and temporary verified plugin configuration | Shared current schemas and persistent dispatch MCP connection; business tools/external plugins disabled, explicit deny preserved, original canonical session unchanged. |
 | Cursor ACP | Explicit safe stop before controller/session execution | Current adapter has no verified delivery-only scope; it does not replace the user's mode with Ask/Plan. Normal reply and input correction remain supported. |
 | Grok Build ACP | Fresh native restricted-agent session and temporary config snapshot | Verified native tool/permission sources, preserved selected mode and original deny/ask rules, delivery MCP only. File-backed use_tool input is denied natively. Incompatible ambient hooks/plugins/configuration still stop before a prompt. |
-| Antigravity CLI | Explicit safe stop before controller/session execution | JSON output constraints do not restrict prior business actions. Normal structured final outcomes remain supported. |
+| Antigravity CLI | Fresh restricted native agent with the existing structured final-action writer | The global native profile is verified in an owned temporary home, preserves native configuration and selected mode, permits finish but not business tools, and rejects ambient hooks/plugins/MCP. Private prose cannot substitute for a native structured result. |
 
-The Cursor and Antigravity rows are implemented compatibility guards, **not
-successful automatic correction**. This follows the agreed rule that an unverified carrier
+The Cursor row remains an implemented compatibility guard, **not successful
+automatic correction**. This follows the agreed rule that an unverified carrier
 must not rerun business work. Independent review must keep this product limit
 visible; do not close #1250 or mark Ready on a claim that all seven carriers have
-equivalent successful recovery. Extending those two native paths requires
+equivalent successful recovery. Extending the remaining Cursor path requires
 new verified operation boundaries rather than weakening the guard.
+
+## Antigravity CLI implementation checkpoint
+
+Actual AGY CLI 1.2.9 now has conditional isolated delivery correction. A global
+custom Agent definition in an owned temporary native home permits the native
+finish tool required by --json-schema, without command/file/web/delegation
+tools. The CLI also retains its process-local task manager; this new process
+has no old task state or tool that can start a task. Native tests include a rogue
+run_command request despite its absence from the catalog; no command executes.
+
+The ordinary structured-action validator/writer is reused. The canonical
+conversation is not resumed or replaced. Native configuration/credential and
+policy sources are retained; mutable CLI configuration and project metadata are
+copied, not rewritten in the original home. Raw conversation stores are excluded.
+Ambient hooks, plugins, MCPs, external runtime overrides or unknown versions
+stop before a prompt rather than silently weakening native settings.
+
+The complete adapter suite passed 37/37, including seven actual-executable
+scenarios: Default, Plan, Bypass, a forbidden command, private text without a
+native structured result, an ambient hook and an ambient MCP. Every native run
+uses a temporary home, dummy Gemini credentials and a loopback provider; no real
+Space is used. Schema-constrained completion requires the native finish tool:
+a JSON-looking text response alone is deliberately not published.
 
 ## Grok ACP implementation checkpoint
 
@@ -99,6 +122,7 @@ OPENMELD_TEST_CLAUDE_BIN=/absolute/path/to/claude node --test runtime/adapters/c
 OPENMELD_TEST_OPENCODE_BIN=/absolute/path/to/opencode node --test runtime/adapters/opencode/test/delivery-only-native.test.js
 OPENMELD_TEST_OPENCLAW_BIN=/absolute/path/to/openclaw node --test runtime/adapters/openclaw/test/delivery-only-native.test.js
 OPENMELD_TEST_GROK_BUILD_BIN=/absolute/path/to/grok node --test runtime/adapters/grok-build/test/delivery-only-native.test.js
+OPENMELD_TEST_ANTIGRAVITY_BIN=/absolute/path/to/agy node --test runtime/adapters/antigravity/test/delivery-only-native.test.js
 ```
 
 Use the actual executable, not an unrelated terminal wrapper. On this workstation
