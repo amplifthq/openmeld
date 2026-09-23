@@ -325,8 +325,10 @@ all carrier/installer/Service/Host and stopped-migration gates; its
 contains those results. Native-contracts failed: the new signing fixture's
 preparation process failed after its 60-second deadline, before any of its three
 bootstrap cases executed. The original npm bootstrap 10/10, Desktop managed
-acquisition/environment 6/6, package boundary tests and updater/signature 16/16
-passed. Later legacy task-host checks were skipped, not passed.
+acquisition/environment 6/6 and updater/signature 16/16 passed. The separate
+package boundary step also failed: direct Node loading of the source signature
+verifier could not resolve its relative `windows-artifact-script.js` import.
+Later legacy task-host checks were skipped, not passed.
 
 The failed preparation did not retain substage or exit metadata, so its exact
 wait is unproved. The fixture now records compilation, certificate creation,
@@ -336,6 +338,15 @@ current-user Root trust; exact owned certificate/private-key cleanup remains
 mandatory. No product trust setting changes. The fixture preparation deadline
 remains 60 seconds; the bootstrap deadline remains 30 seconds. Full Web build
 passed after syncing main. Native bootstrap acceptance is still pending.
+
+The same source import failure appeared in PR Feedback runs
+[35905445265](https://github.com/amplifthq/openmeld/actions/runs/35905445265) and
+[35907980758](https://github.com/amplifthq/openmeld/actions/runs/35907980758).
+Commit `249a4564d6083b7319a9c7ada9fbfb87d91d2197` uses the existing package
+export, preserving both source and bundled consumers without changing signature
+policy. The previously failing Node entry passed all 13 cases locally, and the
+local-service package built successfully. Hosted evidence for this correction
+must use a later head; earlier native artifact successes do not certify it.
 
 ## References
 
