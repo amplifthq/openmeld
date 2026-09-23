@@ -12549,8 +12549,15 @@ export async function rpcCenterAgentCreateSpace(
       code: "invalid_payload",
     });
   }
+  // The Center Agent has no owning member, so the represented member must
+  // become the initial human owner. Resolve it before any Space write.
+  const representedOwner = await resolveCenterAgentSpaceOwner({
+    authorization,
+    onBehalfOfProfileId: parsed.data.onBehalfOf?.profileId ?? null,
+  });
   const created = await createSpaceWithResolvedId(env, {
     spaceId: resolveNewSpaceId(env.OPENMELD_SPACES).toString(),
+    initialOwnerUserIds: [representedOwner.ownerUserId],
     ...(parsed.data.name === undefined ? {} : { name: parsed.data.name }),
     ...(typeof parsed.data.purpose === "string"
       ? { purpose: parsed.data.purpose }
@@ -12567,6 +12574,11 @@ export async function rpcCenterAgentCreateSpace(
       : { password: parsed.data.password }),
     visibility: parsed.data.visibility,
     context: authorization.context,
+  });
+  await rpcAddSpaceMembers(env, {
+    context: authorization.context,
+    members: [representedOwner.member],
+    spaceId: created.spaceId,
   });
   const attribution = await writeCenterAgentAuditEntry({
     action: "create_space",
@@ -12588,6 +12600,45 @@ export async function rpcCenterAgentCreateSpace(
     );
   }
   return validated.data;
+}
+
+async function resolveCenterAgentSpaceOwner(input: {
+  authorization: Awaited<
+    ReturnType<typeof requireCurrentDesignatedCenterAgentCaller>
+  >;
+  onBehalfOfProfileId: string | null;
+}): Promise<{ member: ResolvedSpaceMemberProfile; ownerUserId: string }> {
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization: input.authorization,
+    onBehalfOfProfileId: input.onBehalfOfProfileId,
+  });
+  const ownerUserId = attribution.onBehalfOf?.userId;
+  if (!(ownerUserId && input.onBehalfOfProfileId)) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "Choose the member who will own this Space.",
+      status: 403,
+    });
+  }
+  const member = await readResolvedOrganizationDirectorySpaceMember({
+    db: input.authorization.db,
+    organizationId: input.authorization.activeOrganization.organizationId,
+    profileId: input.onBehalfOfProfileId,
+  });
+  if (
+    !(
+      member &&
+      member.profileKind === "human" &&
+      member.ownerUserId === ownerUserId
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "Choose a current Organization member to own this Space.",
+      status: 403,
+    });
+  }
+  return { member, ownerUserId };
 }
 
 export async function rpcCenterAgentCreateAgentProfile(
@@ -21726,6 +21777,7 @@ async function createSpaceWithResolvedId(
   env: CoreBindings,
   input: {
     spaceId: string;
+    initialOwnerUserIds?: string[];
     name?: string;
     purpose?: string;
     guide?: string;
@@ -21769,6 +21821,9 @@ async function createSpaceWithResolvedId(
       password: input.password,
       visibility: input.visibility,
       context,
+      ...(input.initialOwnerUserIds
+        ? { initialOwnerUserIds: input.initialOwnerUserIds }
+        : {}),
     });
     return {
       spaceId: normalizedSpaceId,
@@ -21778,6 +21833,9 @@ async function createSpaceWithResolvedId(
 
   const meta = await spaceStub.rpcPatchMeta({
     spaceId: normalizedSpaceId,
+    ...(input.initialOwnerUserIds
+      ? { initialOwnerUserIds: input.initialOwnerUserIds }
+      : {}),
     ...(input.name ? { name: input.name } : {}),
     ...(typeof input.purpose === "string" ? { purpose: input.purpose } : {}),
     creator,
