@@ -270,10 +270,10 @@ html[data-space-self-message-alignment="left"]
 }
 
 /* Offset the name line's font ascent inset so its visible text sits just above the avatar
-   top, while removing the same space above the bubble. Avatars stay anchored. */
+   top. Keep the header clear of the bubble in both the conversation and Thread. */
 [data-slot="message-content"]:not([data-direct-message]) > [data-slot="message-header"] {
   margin-block-start: -5px;
-  margin-block-end: -0.25rem;
+  margin-block-end: 0.125rem;
 }
 
 [data-direct-message] > [data-slot="message-header"] {
