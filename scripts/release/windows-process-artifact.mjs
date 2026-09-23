@@ -21,11 +21,15 @@ const INPUTS = [
 ];
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const CRLF = /\r\n/gu;
 
 export function windowsProcessSourceFingerprint(root = ROOT) {
   return sha256(
     INPUTS.map(
-      (file) => `${file}\0${sha256(readFileSync(path.join(root, file)))}`
+      // Git's Windows checkout may use CRLF. Native inputs are UTF-8 text;
+      // fingerprint canonical source while preserving executable bytes exactly.
+      (file) =>
+        `${file}\0${sha256(readFileSync(path.join(root, file), "utf8").replace(CRLF, "\n"))}`
     ).join("\n")
   );
 }

@@ -24,6 +24,7 @@ const ROOT = path.resolve(
 );
 const WRONG_BYTES = /bytes do not match/u;
 const WRONG_SOURCE = /does not match this checkout/u;
+const LINE_ENDING = /\r?\n/gu;
 
 test("imports one source-matched helper and rejects tampered bytes or changed native inputs before copying", () => {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld helper artifact "));
@@ -54,6 +55,11 @@ test("imports one source-matched helper and rejects tampered bytes or changed na
       "fixture executable bytes"
     );
     writeWindowsProcessArtifact(artifact, root);
+    const sourcePath = path.join(root, native, "Program.cs");
+    writeFileSync(
+      sourcePath,
+      readFileSync(sourcePath, "utf8").replace(LINE_ENDING, "\r\n")
+    );
     importWindowsProcessArtifact(artifact, root);
     for (const directory of [
       "cli/dist",
