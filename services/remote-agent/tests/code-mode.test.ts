@@ -15,7 +15,7 @@ import {
 } from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import { RemoteAgentToolCallBudgetExceededError } from "../agent-core/tool-progress";
-import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
+import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import { getRemoteAgentOpenMeldToolDefinitions } from "../agent-core/tools";
 import {
   createRemoteAgentCodeModeFlueTool,
@@ -571,11 +571,16 @@ describe("Remote Agent Code Mode", () => {
     expect(legacyTruncateResult).not.toHaveBeenCalled();
   });
 
-  it("fails an oversized inner result through the shared tool boundary", async () => {
+  it("returns a bounded partial inner result without repeating a completed operation", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
+    const execute = vi.fn(async () => ({
+      content: "A".repeat(200_000),
+      operationId: "write-1",
+      status: "completed",
+    }));
     const definition = {
       description: "Return an oversized result.",
-      execute: async () => ({ content: "A".repeat(200_000) }),
+      execute,
       input: strictObject({}),
       name: "github_list_pull_request_files",
     } satisfies RemoteAgentToolDefinition;
@@ -600,9 +605,18 @@ describe("Remote Agent Code Mode", () => {
       submissionId: SUBMISSION_ID,
     });
 
-    await expect(
-      runCodeModeTool(tool, { input: { code: "async () => null" } })
-    ).rejects.toBeInstanceOf(RemoteAgentToolResultTooLargeError);
+    const output = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(output).toMatchObject({
+      result: {
+        toolExecution: "returned",
+        resultMetadata: { operationId: "write-1", status: "completed" },
+        presentation: { kind: "partial", continuation: null },
+      },
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(isRemoteAgentToolResultWithinLimit(output)).toBe(true);
   });
 
   it("gives the exact callable name when a discovered capability is used as a global", async () => {

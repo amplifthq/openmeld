@@ -20,7 +20,7 @@ import {
   RemoteAgentToolCallBudgetExceededError,
   RemoteAgentToolProgressStateInvalidError,
 } from "../agent-core/tool-progress";
-import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
+import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
   assertRemoteAgentTurnAllowsToolExecution,
   cleanupExpiredRemoteAgentTurnEndMarkers,
@@ -37,27 +37,63 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const SUBMISSION_ID = "submission-turn-end";
 
 describe("Remote Agent tool execution", () => {
-  it("fails an oversized direct tool result explicitly without retaining its payload", () => {
-    let thrown: unknown;
-    try {
-      toBoundedRemoteAgentToolResult({
-        toolName: "github_list_pull_request_files",
-        value: { patch: "A".repeat(200_000) },
-      });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(RemoteAgentToolResultTooLargeError);
-    expect(thrown).toMatchObject({
-      limitBytes: 131_072,
-      reasonCode: "remote_agent.tool_result_too_large",
-      toolName: "github_list_pull_request_files",
+  it.each([
+    "A",
+    "中文",
+    "😀",
+    '"\\\n\t',
+  ])("returns honest bounded evidence for oversized %j results without inventing a continuation", (text) => {
+    const value = {
+      data: { content: text.repeat(200_000), truncated: true },
+      operationId: "write-1",
+      status: "completed",
+    };
+    const result = toBoundedRemoteAgentToolResult({
+      toolName: "example_write",
+      value,
     });
-    expect((thrown as Error).message).toContain(
-      "Narrow the request with search, filters, pagination, or segmented file reads"
-    );
-    expect(JSON.stringify(thrown)).not.toContain("AAAA");
+
+    expect(result).toMatchObject({
+      toolName: "example_write",
+      toolExecution: "returned",
+      resultMetadata: { operationId: "write-1", status: "completed" },
+      presentation: {
+        kind: "partial",
+        reasonCode: "remote_agent.tool_result_too_large",
+        continuation: null,
+        originalJsonBytes: new TextEncoder().encode(JSON.stringify(value))
+          .byteLength,
+      },
+    });
+    const preview = (
+      result as { resultPreview: { prefix: string; suffix: string } }
+    ).resultPreview;
+    expect(preview.prefix).toContain('{"data":{"content":');
+    expect(preview.suffix).toContain('"truncated":true');
+    expect(preview.prefix.isWellFormed()).toBe(true);
+    expect(preview.suffix.isWellFormed()).toBe(true);
+    expect(isRemoteAgentToolResultWithinLimit(result)).toBe(true);
+    expect(
+      isRemoteAgentToolResultWithinLimit({ output: JSON.stringify(result) })
+    ).toBe(true);
+    expect(JSON.stringify(result)).toContain("Do not repeat a write");
+  });
+
+  it("does not turn a returned failure into success when only its presentation is oversized", () => {
+    expect(
+      toBoundedRemoteAgentToolResult({
+        toolName: "example_action",
+        value: {
+          status: "failed",
+          success: false,
+          detail: "x".repeat(200_000),
+        },
+      })
+    ).toMatchObject({
+      toolExecution: "returned",
+      resultMetadata: { status: "failed", success: false },
+      presentation: { kind: "partial" },
+    });
   });
 
   it("preserves every semantic field in a bounded structured result", () => {

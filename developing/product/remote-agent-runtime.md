@@ -352,10 +352,19 @@ session context, including intermediate choices and unpublished work; rebuilding
 Core memory or a visible-message excerpt alone does not establish that guarantee.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
-boundary before Flue stores them in the conversation session. A direct tool
-result that exceeds that boundary returns one compact structured failure that
-tells the model to narrow or segment the request; OpenMeld must not pass the
-oversized provider object through and hope Flue compaction repairs it later.
+boundary before Flue stores them in the conversation session. A returned tool
+result that exceeds that boundary becomes an explicit partial-evidence envelope,
+not an execution exception. Direct calls and Code Mode share this boundary.
+The envelope copies complete bounded top-level fields, including available
+operation receipts, and exposes small Unicode-safe beginning/end JSON excerpts.
+`toolExecution: returned` is not a derived business-success state. The original
+outcome and any provider-side completeness fields remain authoritative.
+Omitted content is not retained in another store or shared Computer; the envelope
+therefore has no continuation. Use existing bounded reads when available, never
+repeat a write merely to recover its display. This intentionally does not promise
+full retrieval of every large result. Small results and existing segmented reads
+remain unchanged. OpenMeld must not pass the oversized provider object through
+and hope Flue compaction repairs it later.
 File-content tools expose one bounded segment plus an explicit continuation
 offset. The Center Agent searches first, reads only the relevant segments, and
 follows the returned continuation offset when more content is actually needed.
