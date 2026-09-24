@@ -348,10 +348,14 @@ affects execution timing, not candidate identity or validation requirements.
 The preflight reports macOS warning and critical pressure separately; both
 remain informational here. Development admission owns the quiet-swap observation
 for warning-pressure starts, and broad local builds still wait for normal pressure.
-The narrow `Dev lifecycle` workflow additionally exercises process ownership
-and resource arbitration on macOS, Linux and Windows when development scripts
-change. It uses disposable processes, requires no cloud credentials, and does
-not replace Final Candidate.
+When process ownership or resource arbitration changes, dispatch the narrow
+`Dev lifecycle` workflow to exercise it on macOS, Linux, and Windows. It uses
+disposable processes and no cloud credentials. Ordinary `scripts/dev` edits do
+not start three optional platform jobs or delay Final Candidate.
+
+```sh
+gh workflow run dev-lifecycle.yml --ref <candidate-branch>
+```
 
 A Final Candidate control-plane change cannot certify itself through a
 candidate-owned entrypoint. When current `main` lacks the new control, inspect
