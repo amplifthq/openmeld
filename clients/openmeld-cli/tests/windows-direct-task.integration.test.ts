@@ -1,6 +1,12 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { powerShellEncodedArguments } from "@openmeld/adapter-core/windows-system";
@@ -203,9 +209,9 @@ $d=$folder.GetTask($name).Definition
           );
           const oldPid = Number(oldReceipt.pid);
           expect(oldPid).toBeGreaterThan(0);
-          expect(String(oldReceipt.executable).toLowerCase()).toBe(
-            oldExecutable.toLowerCase()
-          );
+          expect(
+            (await realpath(String(oldReceipt.executable))).toLowerCase()
+          ).toBe((await realpath(oldExecutable)).toLowerCase());
           await runWindowsUserTask(install(newAction));
           const status = await runWindowsUserTask({
             ...request,
@@ -247,9 +253,9 @@ $d=$folder.GetTask($name).Definition
                 (await readFile(newLog, "utf8")).split(LOG_LINES)[0] ?? ""
               );
               expect(receipt.value).toBe("new");
-              expect(String(receipt.executable).toLowerCase()).toBe(
-                newExecutable.toLowerCase()
-              );
+              expect(
+                (await realpath(String(receipt.executable))).toLowerCase()
+              ).toBe((await realpath(newExecutable)).toLowerCase());
             },
             { timeout: 20_000 }
           );
