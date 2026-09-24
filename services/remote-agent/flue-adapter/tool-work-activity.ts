@@ -11,11 +11,15 @@ const SAFE_URL_INPUT_MAX_CHARS = 8192;
 const SAFE_CONNECTED_APP_ACTION_ID_PATTERN = /^[a-z\d][a-z\d._:-]{0,159}$/iu;
 const SAFE_REPOSITORY_PART_PATTERN = /^[a-z\d](?:[a-z\d_.-]*[a-z\d])?$/iu;
 const CONNECTED_APP_SUBJECT_TOOL_NAMES = new Set([
+  "github_execute_action",
+  "github_list_actions",
   "openmeld_execute_app_action",
   "openmeld_list_app_actions",
 ]);
 
 const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
+  ["github_execute_action", "connected_app.action.execute"],
+  ["github_list_actions", "connected_app.actions.read"],
   ["browser_extract", "web.data.extract"],
   ["browser_get_links", "web.links.read"],
   ["browser_read_page", "webpage.read"],
@@ -320,13 +324,19 @@ function readConnectedAppSubject(
   toolName: string,
   record: Record<string, unknown>
 ): AgentWorkSubject | null {
-  const service =
+  const isGitHub =
+    toolName === "github_list_actions" || toolName === "github_execute_action";
+  const requestedService =
     typeof record.service === "string" ? record.service.trim() : "";
-  const appName = resolveConnectedAppDisplayName(service);
+  const service = isGitHub ? "github" : requestedService;
+  const appName = isGitHub ? "GitHub" : resolveConnectedAppDisplayName(service);
   if (!appName) {
     return null;
   }
-  if (toolName === "openmeld_list_app_actions") {
+  if (
+    toolName === "openmeld_list_app_actions" ||
+    toolName === "github_list_actions"
+  ) {
     return { kind: "connected_app", label: appName };
   }
   const actionId =

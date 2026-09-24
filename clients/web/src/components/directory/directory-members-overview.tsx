@@ -54,6 +54,7 @@ import {
 	buildPersonalHumanProfileRows,
 	type DirectoryDocumentsStatus,
 	type DirectoryProjectionStatus,
+	resolveCurrentOrganizationComputersProjection,
 	resolveMissingPersonalHumanProfileMessage,
 } from "#/components/directory/directory-human-profile-model";
 import {
@@ -453,7 +454,8 @@ function useDirectoryMembersOverviewModel(
 		isError: documentsQuery.isError,
 		isSuccess: documentsQuery.isSuccess,
 	});
-	const computersStatus = resolveDirectoryProjectionStatus(computersQuery);
+	const { data: organizationComputers, status: computersStatus } =
+		resolveCurrentOrganizationComputersProjection(computersQuery);
 	const currentUserInventoryStatus = resolveDirectoryProjectionStatus(
 		input.recovery.localRuntimesQuery
 	);
@@ -469,7 +471,7 @@ function useDirectoryMembersOverviewModel(
 		currentComputerServiceState: currentComputerServiceProjection.serviceState,
 		currentUserId: input.currentUserId,
 		directory: input.directoryQuery.data ?? null,
-		organizationComputers: computersQuery.data ?? null,
+		organizationComputers,
 		ownedComputers: input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
 	});
 	const memberRows = isPersonalWorkspace

@@ -17,6 +17,7 @@ export type QueryPersistenceDiagnostic = {
 		| "restore_miss"
 		| "restore_timed_out"
 		| "save_failed"
+		| "save_preparation"
 		| "save_succeeded"
 		| "serialization_failed";
 	scopeHash?: string;
@@ -58,6 +59,11 @@ export const defaultQueryPersistenceDiagnostics: QueryPersistenceDiagnostics = {
 				return;
 			case "clear_succeeded":
 			case "save_succeeded":
+				return;
+			case "save_preparation":
+				if ((diagnostic.durationMs ?? 0) >= 16) {
+					console.warn(event);
+				}
 				return;
 			default: {
 				const unhandled: never = diagnostic.event;

@@ -4,9 +4,9 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { mergeChatPreferences } from "./chat-sidebar-model";
 
 /** Personal list cleanup; never deletes a Space or changes its membership. */
-export function useChatArchive(spaceId: string, profileId: string) {
+export function useChatArchive(spaceId: string) {
 	const { currentOrganization } = useAppOrganization();
-	const store = useSidebarPreferences(profileId, currentOrganization.id);
+	const store = useSidebarPreferences(currentOrganization.id);
 	const chats = mergeChatPreferences(store.preferences, []);
 	const archived = chats.archivedIds.includes(spaceId);
 	const toggle = async () => {
