@@ -36,6 +36,13 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-dotnet@v5
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: 10.0.401
+      - name: Build Windows process helper before CLI dependencies
+        if: runner.os == 'Windows'
+        run: node scripts/release/build-windows-process-helper.mjs
       - name: Build local Service test dependencies
         run: pnpm exec turbo run build --filter=openmeld^... --concurrency=1
       - name: Verify container argv and local dispatch authority
