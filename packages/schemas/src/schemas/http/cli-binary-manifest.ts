@@ -9,6 +9,10 @@ export const OPENMELD_MACOS_CLI_SIGNING_IDENTITY = {
   teamIdentifier: "38FFHDPA3B",
 } as const;
 
+// Require Apple's Developer ID Application chain, not just matching fields
+// printed by codesign --display or a requirement chosen by the artifact.
+export const OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT = `anchor apple generic and identifier "${OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier}" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier}"`;
+
 function isBase64(value: string): boolean {
   if (value.length === 0 || value.length % 4 !== 0) {
     return false;

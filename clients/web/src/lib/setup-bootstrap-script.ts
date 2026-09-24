@@ -1,4 +1,7 @@
-import { OPENMELD_MACOS_CLI_SIGNING_IDENTITY } from "@openmeld/schemas";
+import {
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+	OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+} from "@openmeld/schemas";
 import {
 	getSetupFlowCopy,
 	OPENMELD_NODE_ENGINE_RANGE,
@@ -530,7 +533,7 @@ verify_binary_code_signature() {
     return 0
   fi
   [ -x /usr/bin/codesign ] || die "OpenMeld needs macOS codesign to verify the downloaded CLI."
-  /usr/bin/codesign --verify --strict --verbose=2 "$OPENMELD_SETUP_SIGNATURE_PATH" >/dev/null 2>&1 || die "OpenMeld CLI did not pass Apple code signature verification."
+  /usr/bin/codesign --verify --strict --verbose=2 ${shellSingleQuote(`-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`)} "$OPENMELD_SETUP_SIGNATURE_PATH" >/dev/null 2>&1 || die "OpenMeld CLI did not pass Apple Developer ID signature verification."
   OPENMELD_SETUP_SIGNATURE_DETAILS="$(/usr/bin/codesign --display --verbose=4 "$OPENMELD_SETUP_SIGNATURE_PATH" 2>&1)" || die "OpenMeld could not inspect the CLI code signature."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -Fx "Identifier=$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong identifier."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -Fx "TeamIdentifier=$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong Apple team."

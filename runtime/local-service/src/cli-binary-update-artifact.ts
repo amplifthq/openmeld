@@ -4,6 +4,7 @@ import { gunzipSync } from "node:zlib";
 import {
   type CliBinaryRelease,
   OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+  OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
 } from "@openmeld/schemas";
 import { reconstructCliBinaryDelta } from "./cli-binary-delta.js";
 
@@ -227,6 +228,7 @@ export async function verifyCliBinaryCodeSignature(input: {
     "--verify",
     "--strict",
     "--verbose=2",
+    `-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`,
     input.artifactPath,
   ]);
   if (verification.code !== 0) {
