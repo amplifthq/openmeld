@@ -18,8 +18,15 @@ export function logApplicationError(
 	status?: number
 ): void {
 	const ray = request.headers.get("cf-ray");
-	console.error({
-		event: "web.openmeld.application_error",
+	const log =
+		report.source === "wake_progress_presentation"
+			? console.warn
+			: console.error;
+	log({
+		event:
+			report.source === "wake_progress_presentation"
+				? "web.openmeld.wake_progress_presentation_unconfirmed"
+				: "web.openmeld.application_error",
 		workerName: "openmeld-web",
 		environment: env.OPENMELD_WORKER_ENVIRONMENT,
 		serverBuildId: WEB_ERROR_BUILD.id,
@@ -132,7 +139,14 @@ export async function receiveApplicationError(
 		const parsed = webApplicationErrorReportSchema.safeParse(
 			JSON.parse(new TextDecoder().decode(body))
 		);
-		if (!parsed.success || parsed.data.source.startsWith("server_")) {
+		if (
+			!parsed.success ||
+			parsed.data.source.startsWith("server_") ||
+			(parsed.data.source === "wake_progress_presentation") !==
+				(parsed.data.wakeProgress !== undefined) ||
+			(parsed.data.source === "wake_progress_presentation" &&
+				parsed.data.error.code !== "unconfirmed_wake_progress_displayed")
+		) {
 			return response(400);
 		}
 		logApplicationError(parsed.data, request);

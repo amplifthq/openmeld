@@ -32,6 +32,7 @@ describe("application error intake", () => {
 	beforeEach(() => {
 		vi.resetModules();
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 	});
 	afterEach(() => vi.restoreAllMocks());
 
@@ -71,6 +72,80 @@ describe("application error intake", () => {
 		expect(console.error).toHaveBeenCalledWith(
 			expect.objectContaining({ report: { ...report, submission: "user" } })
 		);
+	});
+
+	it("logs a searchable unconfirmed Wake presentation with bounded pointers", async () => {
+		const { receiveApplicationError } = await import(
+			"./application-error-server"
+		);
+		const wakeProgress = {
+			spaceId: "space-123",
+			clientMessageId: "message-123",
+			dispatchId: "dispatch-123",
+			sourceSignalId: "signal-123",
+			streamId: null,
+			sourceThreadId: null,
+			replyThreadRootSignalId: null,
+			targetProfileId: "profile-123",
+			phase: "running",
+			updatedAtMs: 100,
+			fromRestoredPresentation: true,
+			fromCachedSpaceSummary: true,
+			fromCachedOwnSummary: false,
+			fromBootstrapStream: false,
+			spaceSummaryFetchedAfterMount: false,
+			ownSummaryFetchedAfterMount: false,
+			bootstrapFetchedAfterMount: false,
+		};
+		const diagnostic = {
+			...report,
+			source: "wake_progress_presentation",
+			wakeProgress,
+			error: {
+				name: "Error",
+				code: "unconfirmed_wake_progress_displayed",
+				frames: [],
+			},
+		};
+		expect((await receiveApplicationError(request(diagnostic))).status).toBe(
+			204
+		);
+		expect(console.warn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				event: "web.openmeld.wake_progress_presentation_unconfirmed",
+				report: diagnostic,
+			})
+		);
+		expect(
+			(
+				await receiveApplicationError(
+					request({
+						...diagnostic,
+						wakeProgress: { ...wakeProgress, spaceId: "space-123?secret=bad" },
+					})
+				)
+			).status
+		).toBe(400);
+		expect(
+			(
+				await receiveApplicationError(
+					request({
+						...diagnostic,
+						wakeProgress: { ...wakeProgress, text: "private message" },
+					})
+				)
+			).status
+		).toBe(400);
+		expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(
+			"private message"
+		);
+		expect(
+			(
+				await receiveApplicationError(
+					request({ ...diagnostic, source: "route" })
+				)
+			).status
+		).toBe(400);
 	});
 
 	it("rejects cross-origin, malformed, oversized and forged server reports without logging", async () => {
