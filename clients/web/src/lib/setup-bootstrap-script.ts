@@ -429,7 +429,7 @@ resolve_binary_platform() {
   OPENMELD_SETUP_UNAME_MACHINE="$(uname -m 2>/dev/null || true)"
   case "$OPENMELD_SETUP_UNAME_SYSTEM:$OPENMELD_SETUP_UNAME_MACHINE" in
     Darwin:arm64) printf 'darwin-arm64' ;;
-    *) die "OpenMeld binary setup currently supports Apple silicon Macs. Use ?dist=npm for this computer." ;;
+    *) die "OpenMeld binary setup supports Apple silicon Macs. For other computers, install a supported Node.js version and use npm setup (?dist=npm)." ;;
   esac
 }
 

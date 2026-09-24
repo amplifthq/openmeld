@@ -1954,10 +1954,10 @@ export function formatTerminalStepFailureMessage(input: {
   }
   if (input.stepId === "refresh_service") {
     if (input.serviceJobVerdict === "never_spawned") {
-      return "macOS didn't start OpenMeld Service. Open System Settings > General > Login Items & Extensions, turn on the OpenMeld background item, then return to OpenMeld Web and choose Try again.";
+      return `OpenMeld Service did not start. Run \`${formatOpenMeldCliCommand("openmeld service repair")}\` once. If OpenMeld's background item is off in System Settings > General > Login Items & Extensions, turn it on. Then choose Try again in OpenMeld Web.`;
     }
     if (input.serviceJobVerdict === "crashed") {
-      return `OpenMeld Service keeps stopping after it starts. Run \`${formatOpenMeldCliCommand(
+      return `OpenMeld Service stopped after it started. Run \`${formatOpenMeldCliCommand(
         "openmeld service repair"
       )}\` once; OpenMeld saved the failure details for support.`;
     }
