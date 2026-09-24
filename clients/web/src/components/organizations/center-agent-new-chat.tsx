@@ -58,10 +58,7 @@ export function CenterAgentNewChat({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const sidebar = useSidebarPreferences(
-		defaultHumanProfile?.openMeldProfileId ?? "",
-		organization.id
-	);
+	const sidebar = useSidebarPreferences(organization.id);
 	const [message, setMessage] = useState<ReturnType<
 		typeof createPendingCenterAgentMessage
 	> | null>(null);

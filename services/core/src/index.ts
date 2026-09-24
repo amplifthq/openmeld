@@ -3862,8 +3862,8 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.createSpace(input);
   }
 
-  getModelCatalog(): GetModelCatalogResponse {
-    return super.getModelCatalog();
+  getModelCatalog(options?: ModelCatalogReadOptions): GetModelCatalogResponse {
+    return super.getModelCatalog(options);
   }
 
   readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {
@@ -6109,6 +6109,7 @@ class CoreEntrypoint extends CenterAgentRpcEntrypoint {
 }
 
 // biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
+export { AccountInvalidationHub } from "./account-invalidation/account-invalidation-hub";
 export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export {
   app,
