@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import {
   type Options as ClaudeAgentOptions,
   type Query as ClaudeAgentQuery,
@@ -76,20 +76,12 @@ function claudeDeliverySettingPaths(input: {
   if (!(isAbsolute(input.cwd) && isAbsolute(configRoot))) {
     throw claudeDeliveryPolicyError("claude_delivery_policy.invalid");
   }
-  const paths = [join(configRoot, "settings.json")];
-  let directory = input.cwd;
-  while (true) {
-    paths.push(
-      join(directory, ".claude", "settings.json"),
-      join(directory, ".claude", "settings.local.json")
-    );
-    const parent = dirname(directory);
-    if (parent === directory) {
-      break;
-    }
-    directory = parent;
-  }
-  return [...new Set(paths)];
+  // Claude's project/local sources are scoped to cwd, not every ancestor.
+  return [
+    join(configRoot, "settings.json"),
+    join(input.cwd, ".claude", "settings.json"),
+    join(input.cwd, ".claude", "settings.local.json"),
+  ];
 }
 
 function restrictiveClaudeRuleList(

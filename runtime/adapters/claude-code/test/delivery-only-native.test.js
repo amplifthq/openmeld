@@ -12,6 +12,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { query as claudeQuery } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod/v4";
 import { invokeClaudeAgentSdkTransport } from "../dist/index.js";
 
@@ -24,6 +25,8 @@ for (const scenario of [
   "denied",
   "project-denied",
   "project-invalid",
+  "ancestor-ignored",
+  "managed-denied",
 ]) {
   test(
     `native Claude delivery-only scope and user policy: ${scenario}`,
@@ -219,6 +222,11 @@ for (const scenario of [
               })
         );
       }
+      if (scenario === "ancestor-ignored") {
+        const ancestorSettingsDir = join(home, ".claude");
+        await mkdir(ancestorSettingsDir);
+        await writeFile(join(ancestorSettingsDir, "settings.json"), "{invalid");
+      }
       const capability = {
         deliveryOnly: true,
         tools: [
@@ -273,6 +281,20 @@ for (const scenario of [
           executionMode: "repair",
           sessionId: source.sessionId,
           spaceActionTools: capability,
+          ...(scenario === "managed-denied"
+            ? {
+                createQuery: ({ options, prompt }) =>
+                  claudeQuery({
+                    options: {
+                      ...options,
+                      managedSettings: {
+                        permissions: { deny: [`${PREFIX}reply`] },
+                      },
+                    },
+                    prompt,
+                  }),
+              }
+            : {}),
           agentControllerPermissionMode:
             scenario === "plan" ? "claude-code:plan" : "claude-code:default",
           onInteractionRequest: (interaction) => {
@@ -293,7 +315,8 @@ for (const scenario of [
       if (
         scenario === "denied" ||
         scenario === "project-denied" ||
-        scenario === "project-invalid"
+        scenario === "project-invalid" ||
+        scenario === "managed-denied"
       ) {
         await assert.rejects(runCorrection, {
           code:

@@ -258,10 +258,16 @@ empty native catalog. The actual Claude Code 2.1.281 correction test passed all
 five scenarios, including a project-level native deny of `reply`. A later
 native probe showed that loading the whole project setting source also applied
 its `ANTHROPIC_BASE_URL` to the correction session and prevented delivery.
-Delivery-only now reads the user/project/local settings from the launched
-Claude environment, carries only their deny/ask rules into the correction,
-and disables those filesystem setting sources for the correction
-session. The SDK's `managedSettings` option is not a filtered source loader:
+Delivery-only now reads user settings and project/local settings at Claude's
+actual working directory, carries only their deny/ask rules into the correction,
+and disables those filesystem setting sources for the correction session.
+An actual Claude 2.1.281 run confirmed that a managed-tier deny still blocks
+`reply` with `settingSources: []`; a second run confirmed that an invalid
+settings file in a parent directory is ignored. The SDK's `resolveSettings()`
+reports that the managed tier remains available when filesystem setting sources
+are disabled. The native test injects a managed policy through the SDK option;
+it does not provision OS-managed policy files or MDM on all platforms.
+The SDK's `managedSettings` option is not a filtered source loader:
 it requires supplied settings and can be dropped under an existing admin tier.
 The built-in tool catalog and hooks remain restricted. These adapter tests use
 isolated homes and scripted providers, not live Space delivery.
