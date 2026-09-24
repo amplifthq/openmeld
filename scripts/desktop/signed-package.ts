@@ -104,12 +104,10 @@ export function desktopInternalPreviewSource() {
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   const releaseSha = git("rev-parse", "HEAD");
-  if (
-    !releaseShaPattern.test(releaseSha) ||
-    git("status", "--porcelain", "--untracked-files=normal")
-  ) {
+  const changes = git("status", "--porcelain", "--untracked-files=normal");
+  if (!releaseShaPattern.test(releaseSha) || changes) {
     throw new Error(
-      "Windows internal preview packaging requires a clean exact source commit."
+      `Windows internal preview packaging requires a clean exact source commit. ${changes}`
     );
   }
   return { releaseSha };
