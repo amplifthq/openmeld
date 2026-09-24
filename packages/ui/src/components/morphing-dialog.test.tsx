@@ -19,11 +19,42 @@ import {
   MorphingDialogClose,
   MorphingDialogContainer,
   MorphingDialogContent,
+  MorphingDialogFrame,
   MorphingDialogTitle,
   MorphingDialogTrigger,
 } from "./morphing-dialog";
 
 afterEach(cleanup);
+
+it("keeps media controls outside the trigger and honors a specific close label", async () => {
+  const play = vi.fn();
+  render(
+    <MorphingDialog transition={{ duration: 0 }}>
+      <MorphingDialogFrame>
+        <button onClick={play} type="button">
+          Play video
+        </button>
+        <MorphingDialogTrigger disableLayoutAnimation>
+          Expand video
+        </MorphingDialogTrigger>
+      </MorphingDialogFrame>
+      <MorphingDialogContainer backdropClassName="backdrop-blur-none">
+        <MorphingDialogContent>
+          <MorphingDialogTitle>Video</MorphingDialogTitle>
+          <MorphingDialogClose aria-label="Close video" />
+        </MorphingDialogContent>
+      </MorphingDialogContainer>
+    </MorphingDialog>,
+    { wrapper: ReducedMotion }
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Play video" }));
+  expect(play).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  const trigger = screen.getByRole("button", { name: "Expand video" });
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("button", { name: "Close video" }));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
 
 // jsdom has no layout geometry. Exercise modal behavior with the supported
 // reduced-motion variant; real-browser smoke verifies shared-layout travel.

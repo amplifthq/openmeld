@@ -14,6 +14,8 @@ import {
 import { app, type BrowserWindow } from "electron";
 import { assertPilotAuthCallback } from "./pilot-auth-callback";
 
+const SPACE_FILE_CONTENT_PATH = /^\/v1\/spaces\/[^/]+\/files\/[^/]+\/content$/u;
+
 export function createPilotAuth(
   webOrigin: string,
   getWindow: () => BrowserWindow | null,
@@ -150,6 +152,21 @@ export function createPilotAuth(
         headers: Object.fromEntries(request.headers),
         body: request.body,
         onResponse({ response }) {
+          if (
+            response.ok &&
+            (request.method === "GET" || request.method === "HEAD") &&
+            SPACE_FILE_CONTENT_PATH.test(new URL(path, webOrigin).pathname)
+          ) {
+            // Better Fetch parses bodies after its response hooks. Give that
+            // parser an empty body, retaining the real stream without a tee.
+            // The following Electron hook still receives the original headers
+            // and remains the sole owner of response-cookie persistence.
+            raw = response;
+            return new Response(null, {
+              status: response.status,
+              headers: response.headers,
+            });
+          }
           raw = response.clone();
         },
       });

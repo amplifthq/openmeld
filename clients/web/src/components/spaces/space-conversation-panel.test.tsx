@@ -3186,6 +3186,7 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("abandons catch-up when the reader navigates history during preparation", async () => {
+		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
 		vi.stubGlobal("CSS", {
 			...globalThis.CSS,
 			escape: (value: string) => value,
@@ -3295,6 +3296,7 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("lets an anchored public history view navigate to the real latest URL", () => {
+		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
 		const latest = vi.fn();
 		const signal = {
 			...createThreadPreviewSignal(),

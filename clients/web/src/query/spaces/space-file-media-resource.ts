@@ -3,11 +3,11 @@ import type { QueryClient } from "@tanstack/react-query";
 
 export type CachedSpaceFileContent = Omit<SpaceFileContent, "bytes"> & {
 	bytes: ArrayBuffer | Blob;
-	imagePreview?: SpaceFileImageResource;
+	mediaPreview?: SpaceFileMediaResource;
 };
 
 /** A display handle, not a second byte cache. Query data owns immutable bytes. */
-export class SpaceFileImageResource {
+export class SpaceFileMediaResource {
 	readonly identity: string;
 	readonly spaceId: string;
 	readonly originalUrl: string;
@@ -85,28 +85,36 @@ export class SpaceFileImageResource {
 	}
 }
 
-const MAX_IDLE_IMAGE_BYTES = 128 * 1024 * 1024;
-const MAX_IDLE_IMAGE_COUNT = 32;
+const MAX_IDLE_MEDIA_BYTES = 128 * 1024 * 1024;
+const MAX_IDLE_MEDIA_COUNT = 32;
 const owners = new WeakMap<QueryClient, ReturnType<typeof createOwner>>();
 
-function readPreview(data: unknown): SpaceFileImageResource | undefined {
-	if (data && typeof data === "object" && "imagePreview" in data) {
-		return data.imagePreview instanceof SpaceFileImageResource
-			? data.imagePreview
+function readPreview(data: unknown): SpaceFileMediaResource | undefined {
+	if (data && typeof data === "object" && "mediaPreview" in data) {
+		return data.mediaPreview instanceof SpaceFileMediaResource
+			? data.mediaPreview
 			: undefined;
 	}
 	return undefined;
 }
 
 function createOwner(client: QueryClient) {
+	const revocationListeners = new Set<
+		(scope: { spaceId?: string; fileId?: string }) => void
+	>();
+	function notifyRevocation(scope: { spaceId?: string; fileId?: string }) {
+		for (const listener of revocationListeners) {
+			listener(scope);
+		}
+	}
 	// Seeds created before their first observer get the same binary GC policy.
 	client.setQueryDefaults(["space-files"], { gcTime: 5 * 60 * 1000 });
-	const resources = new Map<string, SpaceFileImageResource>();
+	const resources = new Map<string, SpaceFileMediaResource>();
 	const cached = new Map<
 		string,
-		{ resource: SpaceFileImageResource; release: () => void }
+		{ resource: SpaceFileMediaResource; release: () => void }
 	>();
-	const awaitingAdmission = new Set<SpaceFileImageResource>();
+	const awaitingAdmission = new Set<SpaceFileMediaResource>();
 	let generation = 0;
 	let pruning = false;
 	let pruneQueued = false;
@@ -146,7 +154,7 @@ function createOwner(client: QueryClient) {
 				bytes +=
 					data.bytes instanceof Blob ? data.bytes.size : data.bytes.byteLength;
 				count += 1;
-				if (bytes > MAX_IDLE_IMAGE_BYTES || count > MAX_IDLE_IMAGE_COUNT) {
+				if (bytes > MAX_IDLE_MEDIA_BYTES || count > MAX_IDLE_MEDIA_COUNT) {
 					client.getQueryCache().remove(query);
 				}
 			}
@@ -189,7 +197,7 @@ function createOwner(client: QueryClient) {
 			identity: string,
 			admissionSignal?: AbortSignal
 		) {
-			const resource = new SpaceFileImageResource({
+			const resource = new SpaceFileMediaResource({
 				blob,
 				spaceId,
 				identity,
@@ -216,7 +224,17 @@ function createOwner(client: QueryClient) {
 			return resource;
 		},
 		find: (url: string) => resources.get(url),
+		subscribeRevocation(
+			listener: (scope: { spaceId?: string; fileId?: string }) => void
+		) {
+			revocationListeners.add(listener);
+			return () => {
+				revocationListeners.delete(listener);
+			};
+		},
+		notifyRevocation,
 		clear(spaceId?: string) {
+			notifyRevocation({ spaceId });
 			if (spaceId === undefined) {
 				generation += 1;
 			}
@@ -232,7 +250,7 @@ function createOwner(client: QueryClient) {
 	};
 }
 
-export function spaceFileImageResources(client: QueryClient) {
+export function spaceFileMediaResources(client: QueryClient) {
 	let owner = owners.get(client);
 	if (!owner) {
 		owner = createOwner(client);
@@ -242,7 +260,7 @@ export function spaceFileImageResources(client: QueryClient) {
 }
 
 /** Synchronous pixel revocation precedes asynchronous persistence cleanup. */
-export function clearSpaceFileImageResources(
+export function clearSpaceFileMediaResources(
 	client: QueryClient,
 	spaceId?: string
 ): void {
@@ -258,11 +276,12 @@ export function clearSpaceFileImageResources(
 }
 
 /** Authoritative deletion/denial revokes this file without evicting its siblings. */
-export function clearSpaceFileImage(
+export function clearSpaceFileMedia(
 	client: QueryClient,
 	spaceId: string,
 	fileId: string
 ): void {
+	owners.get(client)?.notifyRevocation({ spaceId, fileId });
 	const queryKey = ["space-files", spaceId, "content", fileId];
 	for (const query of client.getQueryCache().findAll({ queryKey })) {
 		readPreview(query.state.data)?.revoke();
@@ -270,7 +289,7 @@ export function clearSpaceFileImage(
 	client
 		.cancelQueries({ queryKey }, { revert: false })
 		.catch((error: unknown) => {
-			console.error("Could not cancel a revoked image read.", { error });
+			console.error("Could not cancel a revoked media read.", { error });
 		});
 	client.removeQueries({ queryKey });
 }

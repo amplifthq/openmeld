@@ -2899,6 +2899,21 @@ metadata and grants no access. Clients refresh the shared file-list contract.
 Older clients safely ignore the topic and continue to observe current state on
 their next read.
 
+The file-content GET/HEAD surface supports single byte ranges for media.
+`spaceFileStreamOptionsSchema` and `spaceFileStreamMetadataSchema` own the optional
+fourth argument and metadata for Core's streaming RPC. Authorization precedes
+range resolution and size disclosure. Satisfiable ranges read only the R2 slice
+and return 206 with exact Content-Range and length; unsupported, multiple, or
+unsatisfiable ranges return 416. HEAD opens only storage metadata. A strong
+revision ETag owns If-Range; a mismatched or weak validator selects the full
+representation. Private cache policy and storage scoping do not change.
+
+Legacy RPC callers that do not opt in retain their old response shape. Deploy
+Core's optional receiver before Gateway's caller, then Web/Desktop media UI;
+roll back callers before receivers. Gateway fails closed if an old Core omits
+stream metadata rather than mislabeling a full response as partial. MIME
+inference adds MP4, M4V, MOV and WebM extensions, not a universal codec guarantee.
+
 Space Files accept individual files up to 250 MiB. The single-request
 compatibility path remains capped at 10 MiB; larger files use the shared
 resumable multipart contract rather than buffering larger requests in Gateway:

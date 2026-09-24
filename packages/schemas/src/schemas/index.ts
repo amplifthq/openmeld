@@ -46,6 +46,11 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  resolveSpaceFileStreamMetadata,
+  spaceFileStreamMetadataSchema,
+  spaceFileStreamOptionsSchema,
+} from "./http/space-file-stream";
+export {
   SPACE_FILE_UPLOAD_PART_BYTES,
   SPACE_FILE_UPLOAD_TTL_MS,
   spaceFileUploadCommandSchema,

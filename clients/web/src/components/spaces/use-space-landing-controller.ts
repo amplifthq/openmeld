@@ -123,7 +123,7 @@ import {
 	readSpaceMembers,
 	spaceMembersQueryOptions,
 } from "#/query/spaces/members";
-import { clearSpaceFileImageResources } from "#/query/spaces/space-file-image-resource";
+import { clearSpaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import {
 	spaceThreadSignalsQueryOptions,
@@ -1059,7 +1059,7 @@ function useClearRejectedSpaceConversationCache(input: {
 		if (!input.currentAccessRejection) {
 			return;
 		}
-		clearSpaceFileImageResources(input.queryClient, input.spaceId);
+		clearSpaceFileMediaResources(input.queryClient, input.spaceId);
 		if (!(input.organizationId && input.organizationSlug)) {
 			return;
 		}
@@ -3282,7 +3282,7 @@ export function useSpaceLandingController(input: {
 			}).leaveSpace({
 				spaceId: input.spaceId,
 			});
-			clearSpaceFileImageResources(queryClient, input.spaceId);
+			clearSpaceFileMediaResources(queryClient, input.spaceId);
 			const historyReason =
 				response.status === "already_absent"
 					? "leave_space_already_absent"
@@ -3457,7 +3457,7 @@ export function useSpaceLandingController(input: {
 				spaceId: input.spaceId,
 			});
 			deleted = true;
-			clearSpaceFileImageResources(queryClient, input.spaceId);
+			clearSpaceFileMediaResources(queryClient, input.spaceId);
 
 			try {
 				await removeDeletedSpaceFromAccountHistory({

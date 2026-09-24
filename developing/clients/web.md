@@ -3289,6 +3289,10 @@ reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
 when transient content fills the viewport, retain a nearby recorded signal and
 its offset instead. Existing stored positions are not migrated or invalidated.
+Below 640px, the history rail is not mounted or allocated layout space, while
+history loading and reading-position restoration remain available. The
+conversation notification bell also leaves the phone header; its saved
+per-conversation choice remains in Space settings.
 That account-and-Space-
 scoped semantic anchor is restored in the layout effect as soon as history
 mounts, before painting the default start position, loading earlier pages if
@@ -3779,7 +3783,7 @@ original bytes. Composer, thumbnail, and focused viewer subscribe to a shared
 object-URL handle; releasing the composer does not revoke a displayed image.
 Warm cache reads return the same handle during render, without a loading effect
 or effect-created URL. A local File is transferred without conversion. Idle
-originals have a five-minute GC lifetime and a 32-image/128-MiB retention budget;
+originals have a five-minute GC lifetime and a 32-media/128-MiB retention budget;
 mounted consumers are not evicted by that idle budget. The resource registry
 contains handles, not a second copy of bytes. It is scoped to the QueryClient.
 
@@ -3823,6 +3827,44 @@ acknowledgement ordering, decode retry, and privacy. Browser/native visual smoke
 is a separate acceptance gate, including the previously reported PNG grey
 preview; header metadata and jsdom tests alone do not establish that incident's
 root cause or verify GPU rendering.
+
+## Space Video Presentation
+
+Conversation, Thread replies, Files details, and the local composer share
+`SpaceVideoPreview`. Video remains a canonical Space File revision. Idle cards
+use the browser's native lazy video loading to show the first frame near the
+viewport. Once a visible frame is ready, they prepare the shared player so a
+Play click can start the same mounted media element in the user gesture. The
+player module loads once and no per-row observer is created. This introduces
+no poster-generation or transcoding service. The shared Media Chrome controls
+overlay the picture without an opaque control bar.
+
+Player preparation or explicit Play/Expand loads the player through `optional-media-modules`, the
+same content-addressed native-import boundary as image decoration. A missing
+player chunk exposes retry without triggering critical-route reload recovery.
+Critical application imports keep their existing behavior. The player is absent
+from server bundles and the initial Space dependency path.
+
+Remote playback uses the existing same-origin file-content route pinned to the
+message revision. The proxy owns cookies and the non-secret Organization
+selector; passwords and long-lived tokens never enter the URL. Core authorizes
+the revision before requesting a bounded R2 range. Private/no-store semantics
+remain unchanged. Remote movie bodies never enter TanStack or Dexie; the browser
+owns the active buffer. Historical Files previews wait for the requested revision
+descriptor and do not download whole movies through the text/image query.
+
+The existing resource owner is now named `space-file-media-resource`. It retains
+original local video Files and object URLs through staging and publication,
+without conversion, duplication, or a second cache. Image ownership, budgets and
+persistence exclusions remain unchanged. Active remote players also subscribe to
+this owner's account, Space, and file revocation events, without a cached body.
+
+Inline-to-dialog transfer records time, rate, volume, mute and playback intent,
+releases the old decoder, then restores the new one. Close releases playback;
+hidden documents and hidden React Activities pause without automatic resume.
+Only one video plays per document. Autoplay refusal leaves usable paused controls;
+unsupported formats retain retry and original download. Browser/Desktop visual,
+seeking, focus, and Space-switch timing smoke is separate from component tests.
 
 ## Space And Thread Presentation
 

@@ -40,9 +40,11 @@ const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
 	"if-match",
 	"if-modified-since",
 	"if-none-match",
+	"if-range",
 	"if-unmodified-since",
 	"origin",
 	"pragma",
+	"range",
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase(),
 	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION.toLowerCase(),
 	OPENMELD_HEADER_INBOX_SUMMARY_VERSION.toLowerCase(),
@@ -199,6 +201,7 @@ export async function proxyOpenMeldGatewayRequest(input: {
 				headers: upstreamHeaders,
 				...(BODYLESS_METHODS.has(method) ? {} : { body: input.request.body }),
 				redirect: "manual",
+				signal: input.request.signal,
 			});
 			diagnostics.setUpstreamRequestId(
 				upstreamResponse.headers.get("x-openmeld-request-id")
@@ -233,15 +236,15 @@ export async function proxyOpenMeldGatewayRequest(input: {
 	});
 }
 
-const SPACE_ATTACHMENT_DOWNLOAD_ROUTE_PATTERN =
-	/^\/v1\/spaces\/[^/]+\/attachments\/[^/]+$/u;
+const SPACE_MEDIA_DOWNLOAD_ROUTE_PATTERN =
+	/^\/v1\/spaces\/[^/]+\/(?:attachments\/[^/]+|files\/[^/]+\/content)$/u;
 
 function readWebAttachmentOrganizationSlug(request: Request): string | null {
 	if (!(request.method === "GET" || request.method === "HEAD")) {
 		return null;
 	}
 	const requestUrl = new URL(request.url);
-	if (!SPACE_ATTACHMENT_DOWNLOAD_ROUTE_PATTERN.test(requestUrl.pathname)) {
+	if (!SPACE_MEDIA_DOWNLOAD_ROUTE_PATTERN.test(requestUrl.pathname)) {
 		return null;
 	}
 	const organizationSlug = requestUrl.searchParams
