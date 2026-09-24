@@ -452,6 +452,20 @@ placeholder. Errors expose a retry action rather than perpetual loading.
 Current access checks still apply, and access revocation removes cached private
 pixels even from an already open preview.
 
+### Video previews
+
+Human and Agent video files share one renderer in conversations and Files.
+Users can play in place or expand through Morphing Dialog, continuing from the
+current position. Closing or leaving the active surface stops sound. New messages
+never start playback automatically. Message references retain exact revisions.
+
+Idle videos use lightweight play cards instead of downloading every video to
+extract thumbnails. Local selections can be previewed before sending and retain
+their original through publication. Codec support depends on the client;
+unsupported media retains retry and download. This adds no transcoding,
+external-provider embedding, or video attachment namespace. Existing file-size
+limits and access policy still apply.
+
 ### Selected work handoffs
 
 A selected work handoff is an ordinary Space Message or Thread reply with one
