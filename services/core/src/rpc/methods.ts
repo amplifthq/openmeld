@@ -732,7 +732,6 @@ import {
   createDispatchContinuationSpaceAccessContext,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
-  getSpaceAccessRequestId,
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
@@ -20172,7 +20171,10 @@ export async function rpcStreamSpaceFileContent(
   const auditEvent = buildSpaceFileContentAuditEvent({
     entryId: resolved.file.id,
     operation: "content_read",
-    operationId: getSpaceAccessRequestId(spaceAccess),
+    // A read has no client mutation key, and one request may read many files
+    // (for example, one Remote Agent submission). Each read is its own audited
+    // access; the shared request ID stays on the event for correlation.
+    operationId: crypto.randomUUID(),
     organizationId: resolved.organizationId,
     revisionId: resolved.revision.id,
     spaceAccess,
