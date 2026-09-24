@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T15:38:32.451Z",
+  "updatedAt": "2026-09-24T15:51:35.208Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
@@ -9,7 +9,7 @@
       "reason": "Old Core ignores the optional admission-evidence header, so the new CLI keeps its old heartbeat shape until Core advertises support; setup, Wake, Space actions, status, and trace remain compatible."
     },
     "service": {
-      "bundleHash": "638e9c3e306d0c7ecc165302285b0b50008f753afcc8229ff3077d1e59ec4fa1",
+      "bundleHash": "ead2011df7faadee9907b1fba6826981a15507468d85075f43299224314977ab",
       "bundleVersion": "0.3.223",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
