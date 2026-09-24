@@ -2137,9 +2137,11 @@ After review, protected merge, and selection of the exact release SHA:
    and signed source record, and checks that the ZIP seals the same signed App.
    It uploads both artifacts before their immutable candidate manifest. Existing
    public candidates cannot be overwritten. It never promotes a release.
-5. Verify public GET and HEAD, full download hash/size, and normal macOS install
-   and production smoke through user-facing entrypoints. An upload alone does
-   not prove availability or application behavior.
+5. Verify public HEAD for both artifacts. Download the public DMG, check its
+   hash and size, then use it for normal macOS install and production smoke
+   through user-facing entrypoints. Do not separately download the full update
+   ZIP here; the promotion command verifies both public artifacts. An upload
+   alone does not prove availability or application behavior.
 6. Separately authorize promotion. Deploy the Web feed/download readers first,
    then run from the same clean approved checkout:
    `OPENMELD_DESKTOP_RELEASE_SHA=<sha> node scripts/release/desktop-preview.mjs promote <candidate-hash> <current-version-or-none>`.
