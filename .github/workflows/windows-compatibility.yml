@@ -1,44 +1,13 @@
 name: Windows compatibility
 
 on:
-  pull_request:
-    paths:
-      - clients/openmeld-cli/**
-      - clients/desktop/**
-      - clients/web/src/desktop/**
-      - runtime/adapters/**
-      - runtime/local-service/**
-      - packages/schemas/**
-      - packages/start/**
-      - scripts/desktop/**
-      - scripts/release/desktop-preview*
-      - scripts/release/npm-cli-*
-      - scripts/release/release-cli*
-      - scripts/release/release-stage-probes*
-      - scripts/release/build-cli-binary*
-      - scripts/release/build-windows-process-helper.mjs
-      - scripts/release/windows-process-artifact*
-      - scripts/e2e/windows-native-runtime.mjs
-      - clients/web/src/lib/setup-bootstrap-script*
-      - clients/web/src/lib/setup-bootstrap-windows-binary.ts
-      - clients/web/src/lib/cli-entry-command*
-      - clients/web/src/lib/__fixtures__/setup-bootstrap-*
-      - clients/web/src/routes/setup*
-      - clients/web/src/lib/desktop-*
-      - clients/web/src/routes/desktop/**
-      - clients/web/src/routes/desktop.tsx
-      - clients/web/src/components/desktop-download/**
-      - .github/workflows/windows-compatibility.yml
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - .nvmrc
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-compatibility-${{ github.event.pull_request.number || github.ref }}
+  group: windows-compatibility-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

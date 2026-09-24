@@ -883,7 +883,10 @@ engineers and every coding agent. Read it before pushing a candidate or merging.
 - The owner validates changed behavior and downstream risks before marking ready.
 
 Use `pnpm run verify:pr -- --feedback --plan` to inspect focused selection;
-remove `--plan` to execute it. `verify:pr` remains the explicit affected-workspace
+remove `--plan` when the selected checks fit the change, or run the necessary
+owner checks directly. The feedback mode runs changed or adjacent Vitest tests,
+not every test importing a changed component, and leaves non-Vitest package
+test selection to the Agent. `verify:pr` remains the explicit affected-workspace
 code/type-check and unit-test command, including downstream consumers.
 `test:integration:affected` validates affected integration boundaries;
 `verify:pr:full` requests whole-repository confidence. Do not use broad commands
