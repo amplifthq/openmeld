@@ -36,7 +36,10 @@ checks. Grok Build can correct delivery in a separate native session with only
 final tools, preserving native approvals and blocking file-backed tool inputs. OpenClaw also uses the common paged reads and correctable tool errors.
 Antigravity can correct a final action in a fresh native session without business
 tools, and requires the actual structured result rather than copying private text.
-Current Cursor ACP paths stop safely when a final action is missing, rather than
-rerunning business work with full capabilities. Normal reply tools remain available. This is not a promise of automatic
-correction on every controller or version.
+Cursor can use a fresh correction session with native hooks that block unrelated
+operations while preserving the user's selected mode, approvals and denials.
+Configuration remains unchanged, including during native version discovery.
+Unverified controller versions or incompatible policies stop explicitly rather
+than rerunning business work. Normal replies remain available; automatic
+correction is not promised for every controller version or configuration.
 

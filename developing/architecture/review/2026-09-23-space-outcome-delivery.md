@@ -53,16 +53,41 @@ remains the only writer; no private prose is automatically published.
 | Codex App Server | Native Dynamic Tools or policy-preserving MCP in a disposable fork | No execution environments, foreign MCPs, apps, web, hooks or delegates; selected mode retained. Unsupported versions/managed requirements stop before a turn. Legacy CLI correction is guarded. |
 | OpenCode server | Native pure-mode fork | Copies original permission rules and appends negative non-delivery rules; reads them back before the prompt. No forced final-tool grants or external plugins. |
 | OpenClaw local | Fresh native session and temporary verified plugin configuration | Shared current schemas and persistent dispatch MCP connection; business tools/external plugins disabled, explicit deny preserved, original canonical session unchanged. |
-| Cursor ACP | Explicit safe stop before controller/session execution | Current adapter has no verified delivery-only scope; it does not replace the user's mode with Ask/Plan. Normal reply and input correction remain supported. |
+| Cursor ACP | Fresh native session with fail-closed pre-tool/MCP hooks in an owned temporary home | Current-session final tools only; selected mode, native approval and deny rules retained. Cancellation invalidates the hook activation. Unverified versions or ambient hooks/plugins/MCPs stop before a prompt. |
 | Grok Build ACP | Fresh native restricted-agent session and temporary config snapshot | Verified native tool/permission sources, preserved selected mode and original deny/ask rules, delivery MCP only. File-backed use_tool input is denied natively. Incompatible ambient hooks/plugins/configuration still stop before a prompt. |
 | Antigravity CLI | Fresh restricted native agent with the existing structured final-action writer | The global native profile is verified in an owned temporary home, preserves native configuration and selected mode, permits finish but not business tools, and rejects ambient hooks/plugins/MCP. Private prose cannot substitute for a native structured result. |
 
-The Cursor row remains an implemented compatibility guard, **not successful
-automatic correction**. This follows the agreed rule that an unverified carrier
-must not rerun business work. Independent review must keep this product limit
-visible; do not close #1250 or mark Ready on a claim that all seven carriers have
-equivalent successful recovery. Extending the remaining Cursor path requires
-new verified operation boundaries rather than weakening the guard.
+All seven carriers now have conditional native missing-action correction code.
+Unsupported versions and incompatible native policies still stop explicitly;
+this is not universal recovery for every installed version or configuration.
+Keep Draft for independent review and final affected-consumer/rollout acceptance.
+No production publication, original-review replay or second-line work is claimed.
+
+## Cursor ACP implementation checkpoint
+
+Cursor 2026.09.18-9a7762b supports correction in a fresh native session with
+fail-closed preToolUse and beforeMCPExecution hooks. They veto business tools,
+foreign MCP/session requests and expired activation without granting permission.
+Native user approval/denial still runs after the hook. The shared dispatch MCP
+continues to own schemas, validation, receipts and the single proposal recorder.
+The original canonical conversation is neither resumed nor replaced.
+
+Native tests passed nine scenarios: approved reply, explicit user refusal,
+Plan, Ask, Smart Auto, forbidden command under Force, configured MCP deny under Force,
+cancelled approval, and an ambient startup hook. Every test uses dummy tokens,
+a disposable home and a loopback scripted Cursor Connect/protobuf provider;
+no live credentials or real Space publication are used. Config bytes and cleanup
+are checked. The initial test caught that --version normalizes native config;
+version probing now uses its own disposable home as well. The first full
+Cursor adapter run passed 58/58 with all eight native cases enabled; the added
+Smart Auto scenario separately passed. CLI, local-execution and local-service
+TypeScript checks and documentation/Changelog validation also passed.
+
+The CLI packaging/retirement checkpoint a603d6a2a adds smol-toml to the strict
+self-contained bundle allowlist and removes residual status-tool instructions
+for legacy status-only dispatches. The revised bootstrap regression first failed
+on the production omission, then passed. Focused bootstrap/add-me checks passed
+62 tests; the ordinary push hook independently passed 514 tests.
 
 ## Antigravity CLI implementation checkpoint
 
@@ -123,6 +148,7 @@ OPENMELD_TEST_OPENCODE_BIN=/absolute/path/to/opencode node --test runtime/adapte
 OPENMELD_TEST_OPENCLAW_BIN=/absolute/path/to/openclaw node --test runtime/adapters/openclaw/test/delivery-only-native.test.js
 OPENMELD_TEST_GROK_BUILD_BIN=/absolute/path/to/grok node --test runtime/adapters/grok-build/test/delivery-only-native.test.js
 OPENMELD_TEST_ANTIGRAVITY_BIN=/absolute/path/to/agy node --test runtime/adapters/antigravity/test/delivery-only-native.test.js
+OPENMELD_TEST_CURSOR_BIN=/absolute/path/to/cursor-agent node --test runtime/adapters/cursor/test/delivery-only-native.test.js
 ```
 
 Use the actual executable, not an unrelated terminal wrapper. On this workstation

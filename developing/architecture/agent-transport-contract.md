@@ -2134,10 +2134,15 @@ must return `space.action.delivery_only_unsupported` or
 `space.action.delivery_only_unverified` before sending a correction prompt. The
 existing terminal failure path remains responsible for a visible failure. This
 does not disable normal reply/silence tools or their correctable input errors.
-The current Cursor ACP correction path takes this
-explicit safe-stop branch; its ordinary mode is not silently changed to
-Ask/Plan. A new native restriction may replace that branch only with actual
-controller evidence, not a headless-only flag or an output schema alone.
+Cursor ACP correction uses a fresh session and an owned temporary native home,
+with unchanged permission rules and selected mode. Verified fail-closed native
+pre-tool/MCP hooks veto non-delivery tools, foreign sessions and expired calls;
+they never grant an approval. The dispatch MCP remains the only recorder.
+Cancellation removes the live-session hook fence before sending native cancel.
+Ambient hooks/plugins/MCP configuration or an unverified native version stops
+before a correction prompt. Even version discovery uses a disposable home,
+because the native CLI may normalize configuration on `--version`. The canonical
+conversation and the user's source configuration remain unchanged.
 
 Codex correction preserves its selected permission/collaboration mode, removes
 execution environments and independent business capabilities, and checks the
