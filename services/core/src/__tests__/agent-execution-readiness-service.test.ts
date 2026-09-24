@@ -1948,6 +1948,50 @@ describe("Core Agent Execution Readiness", () => {
     ).toBeNull();
   });
 
+  it("waits for a connected Service that temporarily closes admission without claiming the Agent is available", async () => {
+    const profileId = "agt_host_admission_paused";
+    mockReadyBindingAndRuntime(profileId);
+    const route = mockOnlineRoute("device-1");
+    vi.mocked(lookupRuntimeTransportRoute).mockReset();
+    vi.mocked(lookupRuntimeTransportRoute).mockResolvedValueOnce({
+      ...route,
+      acceptingDispatches: false,
+    });
+
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId,
+            profileName: "Temporarily Paused Agent",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId,
+    });
+
+    expect(readiness.agentExecutionReadiness.displayState).not.toBe("ready");
+    expect(
+      resolveAgentWakeAdmissionBlockReasonCode(
+        readiness.agentExecutionReadiness
+      )
+    ).toBe("local_service.not_accepting_wakes");
+    expect(
+      resolveAgentWakeAvailability({
+        agentControllerRef: readiness.agentControllerRef,
+        agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+        readiness: readiness.agentExecutionReadiness,
+        wakeRouteStatus: readiness.wakeRouteStatus,
+      })
+    ).toMatchObject({
+      category: "checking",
+      reasonCode: "local_service.not_accepting_wakes",
+      status: "checking_connection",
+    });
+  });
+
   it("still blocks when the Controller readiness report itself has expired", async () => {
     const profileId = "agt_usage_expired";
     mockReadyBindingAndRuntime(profileId, "builtin:codex");

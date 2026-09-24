@@ -258,6 +258,7 @@ export function isAgentWakeAdmissionPreparationPendingReason(
   return new Set([
     "agent_execution.readiness_unconfirmed",
     "usage_checking",
+    "local_service.not_accepting_wakes",
     "daemon.profile.pending_first_report",
     "agent_execution.route_missing",
     "route.not_registered",
@@ -288,6 +289,23 @@ export function resolveAgentWakeAdmissionBlockReasonCode(
     ) {
       return reasonCode;
     }
+  }
+  // A connected Service that temporarily closes admission is not a final
+  // refusal. Keep explicit profile, permission, and Usage blockers ahead of
+  // this route-derived gap, then let the existing bounded start wait decide.
+  const definitiveBlock = reasonCodes.find(
+    (reasonCode) =>
+      reasonCode !== "route.unavailable" &&
+      reasonCode !== "agent_execution.route_unavailable" &&
+      classifyAgentWakeAvailabilityReason(reasonCode) ===
+        "blocking_unavailable" &&
+      resolveAgentWakeAdmissionTerminalDecision(reasonCode) !== null
+  );
+  if (definitiveBlock) {
+    return definitiveBlock;
+  }
+  if (reasonCodes.includes("local_service.not_accepting_wakes")) {
+    return "local_service.not_accepting_wakes";
   }
   return (
     reasonCodes.find(
@@ -451,6 +469,16 @@ export function resolveAgentWakeAvailability(input: {
 
   if (isAgentWakeAvailable(input)) {
     return createAvailableWakeAvailability();
+  }
+
+  if (
+    resolveAgentWakeAdmissionBlockReasonCode(input.readiness) ===
+    "local_service.not_accepting_wakes"
+  ) {
+    return createCheckingAgentConnectionAvailability({
+      readiness: input.readiness,
+      reasonCode: "local_service.not_accepting_wakes",
+    });
   }
 
   if (
