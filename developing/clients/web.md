@@ -3289,6 +3289,10 @@ reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
 when transient content fills the viewport, retain a nearby recorded signal and
 its offset instead. Existing stored positions are not migrated or invalidated.
+Below 640px, the history rail is not mounted or allocated layout space, while
+history loading and reading-position restoration remain available. The
+conversation notification bell also leaves the phone header; its saved
+per-conversation choice remains in Space settings.
 That account-and-Space-
 scoped semantic anchor is restored in the layout effect as soon as history
 mounts, before painting the default start position, loading earlier pages if
@@ -3827,12 +3831,15 @@ root cause or verify GPU rendering.
 ## Space Video Presentation
 
 Conversation, Thread replies, Files details, and the local composer share
-`SpaceVideoPreview`. Video remains a canonical Space File revision. Idle play
-cards create no video element, player import, media request, metadata probe, or
-per-row observer. This introduces no poster-generation or transcoding service.
-The shared Media Chrome controls use solid design-token surfaces, not glass.
+`SpaceVideoPreview`. Video remains a canonical Space File revision. Idle cards
+use the browser's native lazy video loading to show the first frame near the
+viewport. Once a visible frame is ready, they prepare the shared player so a
+Play click can start the same mounted media element in the user gesture. The
+player module loads once and no per-row observer is created. This introduces
+no poster-generation or transcoding service. The shared Media Chrome controls
+overlay the picture without an opaque control bar.
 
-Explicit Play or Expand loads the player through `optional-media-modules`, the
+Player preparation or explicit Play/Expand loads the player through `optional-media-modules`, the
 same content-addressed native-import boundary as image decoration. A missing
 player chunk exposes retry without triggering critical-route reload recovery.
 Critical application imports keep their existing behavior. The player is absent

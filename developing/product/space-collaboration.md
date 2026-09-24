@@ -459,8 +459,9 @@ Users can play in place or expand through Morphing Dialog, continuing from the
 current position. Closing or leaving the active surface stops sound. New messages
 never start playback automatically. Message references retain exact revisions.
 
-Idle videos use lightweight play cards instead of downloading every video to
-extract thumbnails. Local selections can be previewed before sending and retain
+Idle videos show a first frame through native lazy media loading near the
+viewport, without downloading every video in a conversation. Local selections
+can be previewed before sending and retain
 their original through publication. Codec support depends on the client;
 unsupported media retains retry and download. This adds no transcoding,
 external-provider embedding, or video attachment namespace. Existing file-size

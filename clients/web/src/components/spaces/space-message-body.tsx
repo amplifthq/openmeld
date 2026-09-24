@@ -523,6 +523,8 @@ function SpaceMessageBodyContent(input: {
 		<div
 			className={cn(
 				"flex min-w-0 max-w-full flex-col gap-2",
+				input.files.some((file) => file.mimeType.startsWith("video/")) &&
+					"w-full",
 				input.containerClassName
 			)}
 			data-slot="space-message-body"
@@ -769,7 +771,7 @@ export function SpaceMessageFileList(input: {
 			{videoFiles.length > 0 && (
 				<fieldset
 					aria-label="Shared videos"
-					className="m-0 grid w-full max-w-2xl gap-3 border-0 p-0"
+					className="m-0 grid w-full min-w-0 max-w-2xl gap-3 border-0 p-0"
 				>
 					{videoFiles.map((file) => (
 						<SpaceVideoPreview

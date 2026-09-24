@@ -142,7 +142,7 @@ describe("Space video preview", () => {
 		expect(returned.getAttribute("src")).toBeNull();
 	});
 
-	it("leaves a long cached timeline inert until the user chooses one video", () => {
+	it("shows lazy first frames and starts a prepared player on one click", async () => {
 		const client = createClient();
 		render(
 			<QueryClientProvider client={client}>
@@ -157,9 +157,21 @@ describe("Space video preview", () => {
 				)}
 			</QueryClientProvider>
 		);
-		expect(document.querySelectorAll("video")).toHaveLength(0);
+		const posters = document.querySelectorAll("video[aria-hidden='true']");
+		expect(posters).toHaveLength(24);
+		expect(posters[0]?.getAttribute("preload")).toBe("metadata");
+		expect(posters[0]?.getAttribute("loading")).toBe("lazy");
+		expect(posters[0]?.getAttribute("src")).toContain("revision=2");
 		expect(playerRender).not.toHaveBeenCalled();
 		expect(client.getQueryCache().getAll()).toHaveLength(0);
+		fireEvent.loadedData(posters[0] as HTMLVideoElement);
+		const first = await screen.findByLabelText<HTMLVideoElement>(
+			"video-0.mp4",
+			{ selector: "video" }
+		);
+		expect(first.paused).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Play video-0.mp4" }));
+		expect(first.paused).toBe(false);
 	});
 
 	it("streams the pinned revision and transfers progress to one expanded player", async () => {
@@ -173,7 +185,9 @@ describe("Space video preview", () => {
 		inline.muted = true;
 		fireEvent.click(screen.getByRole("button", { name: "Expand demo.mp4" }));
 		await waitFor(() =>
-			expect(document.querySelectorAll("video")).toHaveLength(1)
+			expect(
+				document.querySelectorAll("video:not([aria-hidden])")
+			).toHaveLength(1)
 		);
 		const expanded = screen.getByLabelText<HTMLVideoElement>("demo.mp4", {
 			selector: "video",
@@ -187,7 +201,9 @@ describe("Space video preview", () => {
 		expect(inline.getAttribute("src")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Close video" }));
 		await waitFor(() =>
-			expect(document.querySelectorAll("video")).toHaveLength(0)
+			expect(
+				document.querySelectorAll("video:not([aria-hidden])")
+			).toHaveLength(1)
 		);
 		expect(expanded.paused).toBe(true);
 		expect(expanded.getAttribute("src")).toBeNull();
@@ -280,7 +296,9 @@ describe("Space video preview", () => {
 		expect(screen.getByRole("alert").textContent).toContain(
 			"no longer accessible"
 		);
-		expect(document.querySelectorAll("video")).toHaveLength(0);
+		expect(document.querySelectorAll("video:not([aria-hidden])")).toHaveLength(
+			0
+		);
 	});
 
 	it("keeps browser autoplay refusal honestly paused and exposes unsupported-format recovery", async () => {

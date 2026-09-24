@@ -188,7 +188,9 @@ export function SpaceSettingsDialog(input: {
 						) : null}
 					</>
 				)}
-				{section === "general" && <SpaceInfoNotificationsSection />}
+				{section === "general" && (
+					<SpaceInfoNotificationsSection spaceId={input.spaceId} />
+				)}
 				{section === "members" && showSpaceAccessControls ? (
 					<div className="grid gap-4">
 						{input.onOpenInvitations ? (

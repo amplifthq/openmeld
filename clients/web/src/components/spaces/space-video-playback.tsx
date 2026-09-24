@@ -25,6 +25,9 @@ export type VideoPlaybackSnapshot = {
 };
 export type SpaceVideoPlaybackProps = {
 	fileName: string;
+	compactControls?: boolean;
+	idle?: boolean;
+	onReady?: () => void;
 	target?: SpaceVideoTarget;
 	localPreviewUrl?: string | null;
 	isLocal?: boolean;
@@ -67,6 +70,8 @@ export function SpaceVideoPlayback(input: SpaceVideoPlaybackProps) {
 		: (input.localPreviewUrl ?? remoteSource);
 	const revokedRef = useRef(input.onRevoked);
 	revokedRef.current = input.onRevoked;
+	const readyRef = useRef(input.onReady);
+	readyRef.current = input.onReady;
 	const targetRef = useRef(input.target);
 	targetRef.current = input.target;
 	// A user Retry is a new playback request even when its source is unchanged.
@@ -119,22 +124,6 @@ export function SpaceVideoPlayback(input: SpaceVideoPlaybackProps) {
 			video.playbackRate = initial.rate;
 			video.volume = initial.volume;
 			video.muted = initial.muted;
-			if (initial.playing && document.visibilityState !== "hidden") {
-				video.play().catch((error: unknown) => {
-					// Delayed module loading can consume user activation. The controls
-					// remain honestly paused when a browser requires another click.
-					if (
-						!(
-							disposed ||
-							(error instanceof DOMException &&
-								(error.name === "NotAllowedError" ||
-									error.name === "AbortError"))
-						)
-					) {
-						setFailed(true);
-					}
-				});
-			}
 		};
 		const play = () => {
 			if (document.visibilityState === "hidden") {
@@ -156,7 +145,9 @@ export function SpaceVideoPlayback(input: SpaceVideoPlaybackProps) {
 				setFailed(true);
 			}
 		};
+		const ready = () => readyRef.current?.();
 		video.addEventListener("loadedmetadata", restore, { once: true });
+		video.addEventListener("loadeddata", ready, { once: true });
 		video.addEventListener("play", play);
 		video.addEventListener("error", error);
 		document.addEventListener("visibilitychange", hidden);
@@ -164,6 +155,21 @@ export function SpaceVideoPlayback(input: SpaceVideoPlaybackProps) {
 		video.src = source;
 		video.preload = "metadata";
 		video.load();
+		if (initial.playing && document.visibilityState !== "hidden") {
+			video.play().catch((error: unknown) => {
+				// Browsers may still require a second gesture when module loading
+				// finishes after activation. Paused controls remain available.
+				if (
+					!(
+						disposed ||
+						(error instanceof DOMException &&
+							(error.name === "NotAllowedError" || error.name === "AbortError"))
+					)
+				) {
+					setFailed(true);
+				}
+			});
+		}
 		return () => {
 			disposed = true;
 			input.snapshot.current = {
@@ -176,6 +182,7 @@ export function SpaceVideoPlayback(input: SpaceVideoPlaybackProps) {
 			input.transferring.current = false;
 			video.pause();
 			video.removeEventListener("loadedmetadata", restore);
+			video.removeEventListener("loadeddata", ready);
 			video.removeEventListener("play", play);
 			video.removeEventListener("error", error);
 			document.removeEventListener("visibilitychange", hidden);
@@ -199,6 +206,8 @@ export function SpaceVideoPlayback(input: SpaceVideoPlaybackProps) {
 	return (
 		<div>
 			<VideoPlayer
+				compactControls={input.compactControls}
+				idle={input.idle}
 				title={input.fileName}
 				videoProps={{}}
 				videoRef={input.videoRef}

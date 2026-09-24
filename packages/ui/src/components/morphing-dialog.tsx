@@ -121,16 +121,21 @@ export function MorphingDialogFrame(props: HTMLMotionProps<"div">) {
 export function MorphingDialogContainer({
   children,
   backdropClassName,
+  onExitComplete,
 }: {
   children: ReactNode;
   backdropClassName?: string;
+  onExitComplete?: () => void;
 }) {
   const { open, actionsRef } = useMorphingDialog();
   return (
     <Dialog.Portal keepMounted>
       <AnimatePresence
         initial={false}
-        onExitComplete={() => actionsRef.current?.unmount()}
+        onExitComplete={() => {
+          actionsRef.current?.unmount();
+          onExitComplete?.();
+        }}
       >
         {open && (
           <motion.div

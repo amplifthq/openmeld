@@ -194,17 +194,15 @@ export function SpaceComposerFileTray(input: {
 								{file.fileName}
 							</TooltipContent>
 						</Tooltip>
-						<Button
+						<button
 							aria-label={`Remove ${file.fileName}`}
-							className="absolute top-1 right-1 z-10 size-4 rounded-full bg-white p-0 text-black shadow-sm hover:bg-white/90"
+							className="absolute top-0 right-0 z-10 flex size-7 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 							disabled={input.disabled}
 							onClick={() => input.onRemove(file.localId)}
-							size="icon-sm"
 							type="button"
-							variant="ghost"
 						>
 							<XIcon aria-hidden="true" className="size-3" />
-						</Button>
+						</button>
 					</div>
 					{file.status === "failed" ? (
 						<div className="mt-1 max-w-56">
