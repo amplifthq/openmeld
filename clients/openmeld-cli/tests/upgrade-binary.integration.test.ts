@@ -14,7 +14,10 @@ import {
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
-import { resolveOpenMeldToolsUpdateTargetVersions } from "@openmeld/schemas";
+import {
+  OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+  resolveOpenMeldToolsUpdateTargetVersions,
+} from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJson from "../package.json";
 import type { DaemonServiceUpdateJob } from "../src/local-service/lifecycle/daemon-service-update-state";
@@ -141,22 +144,23 @@ describe("openmeld upgrade in binary distribution", () => {
     vi.unstubAllEnvs();
   });
 
-  it("keeps the manual fallback inside the staging canary lane", async () => {
-    const { resolveBinaryManualOpenMeldUpgradeCommand } =
+  it("points binary upgrade recovery to the matching Web lane", async () => {
+    const { resolveBinaryUpgradeRecoveryUrl, runUpgrade } =
       await loadUpgradeModules();
 
     expect(
-      resolveBinaryManualOpenMeldUpgradeCommand({
+      resolveBinaryUpgradeRecoveryUrl({
         OPENMELD_ENV_PRESET: "canary",
         OPENMELD_CLI_BINARY_MANIFEST_URL:
           "https://staging.openmeld.ai/cli/manifest.json",
       })
-    ).toContain(
-      " sh 'https://staging.openmeld.ai/setup?lane=canary&dist=binary'"
-    );
-    expect(resolveBinaryManualOpenMeldUpgradeCommand({})).toContain(
-      " sh 'https://openmeld.ai/setup?dist=binary'"
-    );
+    ).toBe("https://staging.openmeld.ai");
+    expect(resolveBinaryUpgradeRecoveryUrl({})).toBe("https://openmeld.ai");
+    await withTempHome(async () => {
+      await expect(runUpgrade({ view: "human" })).rejects.toThrow(
+        "Manual fallback: Open https://openmeld.ai, go to Computers, and use Update manually or Connect Computer to get a fresh setup command. Run that command on this Mac."
+      );
+    });
   });
 
   it("downloads the manifest artifact, verifies it, installs itself, and hands off to the managed binary", async () => {
@@ -468,6 +472,9 @@ describe("openmeld upgrade in binary distribution", () => {
       expect(stdout).toContain(`"downloadSizeBytes":${patchBytes.byteLength}`);
       expect(stdout).toContain('"preferredTransport":"delta"');
       expect(vi.mocked(spawn).mock.calls[0]?.[0]).toBe("/usr/bin/codesign");
+      expect(vi.mocked(spawn).mock.calls[0]?.[1]).toContain(
+        `-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`
+      );
       expect(vi.mocked(spawn).mock.calls[1]?.[0]).toBe("/usr/bin/codesign");
       expect(vi.mocked(spawn).mock.calls[2]?.[1]).toEqual([
         "install-self",
@@ -859,7 +866,7 @@ describe("openmeld upgrade in binary distribution", () => {
 async function loadUpgradeModules(): Promise<{
   runUpgrade: typeof import("../src/commands/upgrade").runUpgrade;
   UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG: typeof import("../src/commands/upgrade").UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG;
-  resolveBinaryManualOpenMeldUpgradeCommand: typeof import("../src/commands/upgrade").resolveBinaryManualOpenMeldUpgradeCommand;
+  resolveBinaryUpgradeRecoveryUrl: typeof import("../src/commands/upgrade").resolveBinaryUpgradeRecoveryUrl;
   readVersionState: typeof import("../src/config/version-state").readVersionState;
 }> {
   const [upgrade, versionState] = await Promise.all([
@@ -870,8 +877,7 @@ async function loadUpgradeModules(): Promise<{
     runUpgrade: upgrade.runUpgrade,
     UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG:
       upgrade.UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG,
-    resolveBinaryManualOpenMeldUpgradeCommand:
-      upgrade.resolveBinaryManualOpenMeldUpgradeCommand,
+    resolveBinaryUpgradeRecoveryUrl: upgrade.resolveBinaryUpgradeRecoveryUrl,
     readVersionState: versionState.readVersionState,
   };
 }
