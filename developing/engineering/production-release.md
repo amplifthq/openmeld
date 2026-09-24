@@ -5,10 +5,11 @@
 - Purpose: Define component-specific planning, ordering, commands, gates, and
   recovery for OpenMeld production releases without turning every change into
   a fleet rollout.
-- Read this when: You are planning or executing a local production deploy, a
-  GitHub production deploy, a production D1 migration, or a CLI publish.
+- Read this when: You are planning or executing a local or GitHub production
+  deploy, a D1 migration, a CLI publish, or Desktop release assessment.
 - Update this when: Release scopes, workflow inputs, production ordering,
-  database gates, CLI publication, health checks, or release evidence changes.
+  database gates, CLI publication, Desktop coverage, health checks, or release
+  evidence changes.
 - Do not use this for: Feature-specific smoke steps, local development lanes,
   database ownership, or CLI binary implementation details.
 - Source of truth: This file owns production release scopes, implementation
@@ -45,6 +46,42 @@ Do not redeploy unrelated services for ceremony. Broader validation may be
 appropriate for a cross-service contract change, but broader validation does
 not require a broader production rollout.
 
+### Desktop release coverage
+
+The scoped planner and `release:status` cover Database, cloud services, and
+CLI; neither `cloud` nor `full` publishes Desktop. For the same exact merged
+range, assess Desktop separately against its last promoted source on each
+supported platform. A direct Desktop Main or packaging change must be present
+in the promoted release on each affected platform; publish it if missing. A
+Web, shared-package, lockfile, or Desktop-build-script change enters Desktop
+impact review because those paths feed its renderer/build identity; publish
+only when the built Desktop or its installed behavior actually changes. Record
+a concrete exclusion reason when it does not.
+Compare the candidate's source with the product merge by ancestry; a later
+release-only version commit can include an earlier product merge.
+
+The authoritative release state is each platform's promoted R2 pointer:
+`desktop/promoted.json` for macOS and
+`desktop/promoted-windows-{x64,arm64}.json` for Windows. Each points to an
+immutable candidate with source, version, and artifact hash. Read all three
+without changing them:
+
+```sh
+pnpm --filter @openmeld/schemas build
+doppler --silent run --project openmeld-release --config prd \
+  --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+  --no-fallback -- node scripts/release/desktop-preview.mjs status
+```
+
+After the local schema build, the status command prints one JSON line per
+platform and exits nonzero if a pointer or candidate cannot be read or
+validated. A confirmed absent pointer is
+`unpublished`; a read failure is `unknown`. Public download and updater pages
+are separate user-facing checks. Keep candidate upload, promotion, and
+[installed update acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
+as separate facts; use the [Desktop release workflow](development-workflow.md#desktop-preview-release-workflow)
+for their publication steps.
+
 ## Choose The Release Lane
 
 | Current situation                                                                                                                           | Use                                                                                 | Why                                                                                                                   |
@@ -78,7 +115,8 @@ running. It does not dispatch a workflow, deploy a component, or edit a release
 file. Its `Deployment state` describes deployment history, not permission to
 release. `Source validation` reports exact-SHA push evidence when present and
 otherwise tells the operator to confirm exact Final Candidate evidence. Use
-`--json` for automation.
+`--json` for automation. Desktop is outside this status result; complete its
+[platform assessment](#desktop-release-coverage) before closing the release task.
 For one read-only planning pass, add `--plan-stage <scope>` to print the
 selected stage's prerequisite decision from the same status snapshot. This
 avoids an immediate second history collection while planning. It is not the
@@ -866,10 +904,9 @@ OPENMELD_PRODUCTION_TRAIN_SCOPES=core pnpm run release:preflight:local -- --scop
 Every preflight checks the cheap repository release contracts. Core additionally
 fails closed unless the production CLI channel can satisfy the local-component
 version it will project. The CLI publisher still owns the mandatory final
-release-readiness gate before irreversible publication; an earlier aggregate
-`release:preflight` result is diagnostic evidence and does not discharge that
-gate. Database generation, migration truth, remote application, physical
-verification, and optimization remain owned by `db:release:prod` itself.
+release-readiness gate before irreversible publication. Database generation,
+migration truth, remote application, physical verification, and optimization
+remain owned by `db:release:prod` itself.
 
 Whole-train preflight reads every component baseline and proves that all
 pending scopes satisfy their actual receiver/producer compatibility dependencies
@@ -1265,9 +1302,8 @@ The command requires a clean worktree and runs exactly this sequence:
 
 Local release operators may authenticate Wrangler with its supported OAuth
 login. Automated release lanes provide `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN` instead. The release preflight verifies the active
-Wrangler authentication and then proves access to the configured production D1
-target with the read-only remote migration list. It does not require local
+`CLOUDFLARE_API_TOKEN` instead. `db:release:prod` proves access to the configured
+production D1 target with the read-only remote migration list. It does not require local
 schema generation or `db:check` to use production Drizzle HTTP credentials.
 
 Database release is selected only when committed schema or migration truth
@@ -1293,8 +1329,7 @@ Read `developing/engineering/cli-binary-release.md` for artifact and Apple
 credential details.
 
 Before publication, set `OPENMELD_PRODUCTION_TRAIN_SCOPES` to the complete
-intended train (`cli` for an independent CLI publication), run
-`pnpm run release:preflight`, then inspect the
+intended train (`cli` for an independent CLI publication), then inspect the
 base-aware local-component plan:
 
 ```sh
@@ -1360,10 +1395,11 @@ For GitHub, use `.github/workflows/cli-release.yml`:
 
 1. for a normal CLI publication, run `release_path=normal` directly;
 2. the workflow runs the `release_ready` gate before publication;
-3. use `release:verify:local -- --scope cli` for an earlier complete go/no-go
-   decision or handoff;
-4. use `Scoped Production Release` separately when the release card also
+3. use `Scoped Production Release` separately when the release card also
    requires database or cloud fleet changes.
+
+Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
+decision or handoff is needed; it is not a default extra gate.
 
 The workflow publishes the signed and notarized binary, R2 manifest, npm
 package, tag, and Core projection. It does not migrate the database or redeploy

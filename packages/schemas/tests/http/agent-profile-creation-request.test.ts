@@ -38,4 +38,31 @@ describe("Agent Profile creation request HTTP schemas", () => {
       targetComputerId: null,
     });
   });
+
+  it("accepts a Remote Agent model and reasoning selection without local settings", () => {
+    const configuration = {
+      agentControllerPermissionMode: null,
+      agentControllerRef: "hosted:remote-agent",
+      defaultProjectId: null,
+      modelId: "openai/gpt-6-sol",
+      openCodePermission: null,
+      reasoningLevel: "medium",
+      targetComputerId: null,
+    };
+    expect(
+      agentProfileCreationConfigurationSchema.parse(configuration)
+    ).toMatchObject(configuration);
+    expect(
+      agentProfileCreationConfigurationSchema.safeParse({
+        ...configuration,
+        modelId: null,
+      }).success
+    ).toBe(false);
+    expect(
+      agentProfileCreationConfigurationSchema.safeParse({
+        ...configuration,
+        targetComputerId: "computer_1",
+      }).success
+    ).toBe(false);
+  });
 });

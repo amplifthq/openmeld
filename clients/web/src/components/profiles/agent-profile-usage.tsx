@@ -82,13 +82,14 @@ function useAgentUsageState({
 	);
 	const canDisplay = !controllerChanged && (!error || temporaryFailure);
 	const limits = canDisplay ? readiness?.usageLimits : undefined;
-	const displayLimits = error
-		? limits?.map((limit) => ({
-				...limit,
-				status:
-					limit.status === "available" ? ("stale" as const) : limit.status,
-			}))
-		: limits;
+	const displayLimits =
+		error || runtimes.isStale
+			? limits?.map((limit) => ({
+					...limit,
+					status:
+						limit.status === "available" ? ("stale" as const) : limit.status,
+				}))
+			: limits;
 	const loading = runtimes.isPending && runtimes.fetchStatus !== "paused";
 	const agentName = controller
 		? formatLocalAgentDisplayName(controller.id)

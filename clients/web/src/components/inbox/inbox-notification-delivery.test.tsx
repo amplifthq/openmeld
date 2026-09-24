@@ -23,6 +23,9 @@ const network = vi.hoisted(() => ({
 }));
 vi.mock("#/desktop/platform", () => ({ getDesktopPlatform: () => null }));
 vi.mock("#/desktop/updater", () => ({ useDesktopUpdater: () => null }));
+vi.mock("#/lib/inbox/account-invalidation-transport", () => ({
+	createAccountInvalidationTransport: () => null,
+}));
 vi.mock("#/components/app/current-computer", () => ({
 	useCurrentComputer: () => null,
 }));

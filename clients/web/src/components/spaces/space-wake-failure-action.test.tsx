@@ -13,6 +13,42 @@ vi.mock("@tanstack/react-router", () => ({
 afterEach(cleanup);
 
 describe("SpaceWakeFailureActionControl", () => {
+	it("opens the exact Agent for model recovery instead of the general directory", () => {
+		render(
+			<SpaceWakeFailureActionControl
+				display={{
+					actionTarget: "agents",
+					body: "Model no longer offered.",
+					primaryActionId: "change_model",
+					primaryActionLabel: "Change model",
+				}}
+				orgSlug="amplift"
+				targetProfileId="research-agent"
+			/>
+		);
+		expect(
+			screen.getByRole("link", { name: "Change model" }).getAttribute("href")
+		).toBe("/o/amplift/agents?profileId=research-agent");
+	});
+
+	it("does not offer an unscoped model edit when the failed Agent is unknown", () => {
+		render(
+			<SpaceWakeFailureActionControl
+				display={{
+					actionTarget: "agents",
+					body: "Model unavailable.",
+					primaryActionId: "change_model",
+					primaryActionLabel: "Change model",
+				}}
+				orgSlug="amplift"
+			/>
+		);
+		expect(screen.queryByRole("link", { name: "Change model" })).toBeNull();
+		expect(
+			screen.getByText("Ask this agent's owner to change its model.")
+		).toBeTruthy();
+	});
+
 	it("opens the affected Agent Profile instead of an unrelated current Computer", () => {
 		render(
 			<SpaceWakeFailureActionControl

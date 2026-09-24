@@ -130,6 +130,7 @@ describe("Center Agent HTTP schemas", () => {
           kind: "selected_model",
           modelId: "deepseek/deepseek-v4-flash",
         },
+        reasoningLevel: "medium",
       })
     ).toEqual({
       expectedConfigurationRevision: 4,
@@ -137,6 +138,7 @@ describe("Center Agent HTTP schemas", () => {
         kind: "selected_model",
         modelId: "deepseek/deepseek-v4-flash",
       },
+      reasoningLevel: "medium",
     });
     expect(
       updateCenterAgentModelBodySchema.safeParse({

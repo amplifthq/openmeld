@@ -240,6 +240,10 @@ export function formatDaemonProfileSkipReason(
   skipReason: DaemonProfileSkipReason
 ): string {
   switch (skipReason) {
+    case "model.retired":
+      return "model retired; change this agent's model";
+    case "model.unavailable":
+      return "model unavailable; check this agent's model settings";
     case "projection.missing":
       return "local device runtime projection is missing";
     case "controller.registry.disabled":

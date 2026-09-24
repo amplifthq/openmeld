@@ -14,6 +14,7 @@ import {
 	readKnownAccountIdBeforeSessionRevalidation,
 	resetAccountScopedQueriesAfterAuthChange,
 } from "#/query/auth-boundary";
+import { forgetDesktopSession, readDesktopSession } from "./auth-boundary";
 import { formatDesktopError } from "./desktop-error";
 import { getDesktopPlatform } from "./platform";
 
@@ -88,6 +89,7 @@ export function DesktopEntry() {
 			noWorkspace = false;
 			setWorkspaceUnavailable(false);
 			if (sessionChanged) {
+				forgetDesktopSession(queryClient);
 				if (
 					sessionInvalidationRevision === handledSessionInvalidationRevision
 				) {
@@ -315,7 +317,11 @@ async function revalidateDesktopEntry(input: {
 	if (!input.active()) {
 		return null;
 	}
-	const session = await input.bridge.session();
+	const session = await readDesktopSession({
+		bridge: input.bridge,
+		queryClient: input.queryClient,
+		revalidate: true,
+	});
 	if (!input.active()) {
 		return null;
 	}

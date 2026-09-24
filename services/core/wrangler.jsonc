@@ -133,6 +133,10 @@
         "class_name": "Space"
       },
       {
+        "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
+        "class_name": "AccountInvalidationHub"
+      },
+      {
         "name": "OPENMELD_RUNTIME_TRANSPORT",
         "class_name": "RuntimeTransportHub"
       },
@@ -206,7 +210,8 @@
         }
       ]
     },
-    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] }
+    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] },
+    { "tag": "v6", "new_sqlite_classes": ["AccountInvalidationHub"] }
   ],
   "env": {
     "stg": {
@@ -298,6 +303,10 @@
           {
             "name": "OPENMELD_SPACES",
             "class_name": "Space"
+          },
+          {
+            "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
+            "class_name": "AccountInvalidationHub"
           },
           {
             "name": "OPENMELD_RUNTIME_TRANSPORT",
@@ -454,6 +463,10 @@
           {
             "name": "OPENMELD_SPACES",
             "class_name": "Space"
+          },
+          {
+            "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
+            "class_name": "AccountInvalidationHub"
           },
           {
             "name": "OPENMELD_RUNTIME_TRANSPORT",

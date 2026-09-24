@@ -10,6 +10,7 @@ export function projectAgentControllerInterfaceForCloud(
       ...(snapshot.auth.email ? { email: snapshot.auth.email } : {}),
       ...(snapshot.auth.label ? { label: snapshot.auth.label } : {}),
       status: snapshot.auth.status,
+      ...(snapshot.auth.type ? { type: snapshot.auth.type } : {}),
     },
     capabilities: {
       approvals: snapshot.capabilities.approvals,
