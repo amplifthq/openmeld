@@ -35,9 +35,12 @@ branches used.
    retrying. Pin the integrated product SHA; a later release-only version
    commit has its own publication SHA. Keep unrelated newer commits outside
    this release.
-3. For the range from that pre-merge commit to the integrated product SHA, run
+3. For a multi-scope batch or an unknown deployment backlog, run
    `pnpm run release:status -- --ref <product-sha> --change-base <pre-merge-sha>`
-   for the initial plan. Guarded release commands recheck before publication.
+   once for the initial plan. When the next release scope is already known, go
+   straight to its guarded preflight: it reads the same deployment history and
+   checks that scope's prerequisites. Do not run a separate global status scan
+   before it. Guarded release commands recheck before publication.
    Do not repeat the full history scan after each stage; use that stage's
    workflow result, release receipt, and health evidence to track completion.
    If unrelated commits landed between separate merges, plan those ranges

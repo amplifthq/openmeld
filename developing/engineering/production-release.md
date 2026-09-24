@@ -107,7 +107,12 @@ commit and use GitHub instead.
 
 ## Read Remote Release Status
 
-Before choosing a GitHub release scope, compare an immutable remote ref with
+Use this when choosing scopes, inspecting a backlog, or reconciling uncertain
+evidence. For a known scope, go directly to its guarded preflight instead of
+running this separate history scan first; the preflight performs the same
+read and checks the selected scope's dependencies.
+
+Compare an immutable remote ref with
 the latest successful component jobs recorded by GitHub Actions:
 
 ```sh
