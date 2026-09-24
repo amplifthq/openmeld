@@ -74,7 +74,7 @@ and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
 | --- | --- | --- |
 | Commit | The hook checks staged files with `lint-staged`. | Catch cheap errors while the change is small. |
 | Push a development branch | The hook checks protected release refs; ordinary pushes stay fast. | Avoid repeating development tests on every push. |
-| Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. | A file selector cannot decide product risk. |
+| Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. Trigger native Windows acceptance only when the change affects Windows behavior. | A file selector cannot decide product risk. |
 | Mark the PR ready | Sync current `main`, resolve conflicts, and validate the affected interactions. Standard FC starts automatically. | Certify the actual next merge. |
 | Merge | Require current-base `OpenMeld Final Candidate` success for the unchanged candidate. | Prevent stale or mismatched green results. |
 | Release | Follow [Production Release](production-release.md), then health and real-user smoke. | Merge success is not deployment or product success. |
@@ -85,6 +85,11 @@ on the local release Mac. GitHub Actions is not a substitute for the installed
 A, Launch Services, Squirrel/MacUpdater, and automatic relaunch boundary. Use the
 expanded Desktop acceptance only when that release changes a high-risk updater,
 packaging/signing, identity, or restart lifecycle boundary.
+
+The native Windows compatibility and internal preview workflows are explicit
+diagnostics, not required PR checks. Ordinary Web or shared-schema PRs do not
+wait for them. Dispatch the relevant workflow only when the change affects
+Windows behavior or when preparing a Windows release, and verify the run's SHA.
 
 Do not bypass hooks to ship a failed check. Diagnose with the smallest failing
 command, fix the cause, and push again. Hooks are local feedback, not remotely
@@ -111,23 +116,25 @@ See [GitHub's issue-linking contract](https://docs.github.com/en/issues/tracking
 
 ## Focused Checks Before Push
 
-Inspect or run the focused local entrypoint:
+Inspect the local feedback plan, then run it when its selected checks match the risk:
 
 ```sh
 pnpm run verify:pr -- --feedback --plan
-pnpm run verify:pr -- --feedback
 ```
 
 It selects changed-file Biome checks, relevant docs/Changelog contracts,
-adjacent Node tests, and related Vitest tests in directly changed workspaces.
+adjacent Node tests, and changed or adjacent Vitest tests in directly changed
+workspaces. Run `pnpm run verify:pr -- --feedback` for that plan, or run just the
+relevant owner commands when the change needs a different boundary. It no longer
+turns one shared component into a whole Web test sweep. The Agent still checks
+affected consumers when the adjacent tests do not cover them.
 Worker TypeScript changes also run the existing Worker-safe Zod import guard
 before package checks; its owner defines the runtime roots for both lanes.
-Plain package test aliases retain their own config; unsupported runners use
-the package's test command instead of silently skipping tests. These package
-runners build their own package and dependencies before testing; Vitest source
-tests build dependencies only. Dependency builds use Turbo's cache. Test
+Plain package runners are left to the Agent's risk-based choice; the feedback
+helper does not turn one changed file into a whole package test suite. Vitest
+source tests build dependencies only. Dependency builds use Turbo's cache. Test
 commands run sequentially, Node test files run serially,
-and related Vitest tests use at most two workers without file parallelism.
+and selected Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 
 Workers pools need their own runtime limits. Gateway tests share one runtime
@@ -143,9 +150,9 @@ locally fetched `origin/main`. Missing base history is an error: fetch it.
 Recheck identity and cleanliness after success. Deletions need no tests;
 protected release pushes retain strict release verification.
 
-Run `pnpm run verify:pr -- --feedback` against `origin/main` when the complete PR
-diff needs focused validation before Ready. This is a local, owner-selected
-check, not an automatic push hook or hosted job on every Draft push. Keep leaf PRs in draft
+Run the planned feedback command against `origin/main` when its selection fits
+the complete PR diff before Ready. This is a local, owner-selected check, not
+an automatic push hook or hosted job on every Draft push. Keep leaf PRs in draft
 during development and batch preparation. Mark ready only after validating
 affected behavior and when a green FC would make merge the next action. New
 commits cancel superseded FC runs for that PR.
@@ -165,7 +172,7 @@ FC certifies one exact `head SHA + base SHA + tree SHA`. Standard FC retains:
 
 - current-main ancestry and live PR identity;
 - trusted control entrypoints and complete, matching results;
-- repository static contracts and control-code quality;
+- static contracts for changed owners and control-code quality when control changes;
 - database checks when database owner paths change; and
 - deferred or strict local-component release readiness, selected by branch/path.
 
