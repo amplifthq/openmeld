@@ -196,6 +196,7 @@ export const localComponentsReleaseManifestSchema = z.strictObject({
     }),
     service: z.strictObject({
       bundleHash: nullableNonEmptyStringSchema,
+      portableBundleHash: nullableNonEmptyStringSchema.optional(),
       bundleVersion: nonEmptyStringSchema,
       runtimeContractEpoch: nonEmptyStringSchema,
       serviceContractVersion: nonEmptyStringSchema,

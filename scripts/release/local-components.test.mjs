@@ -45,6 +45,8 @@ const STAMP_SOURCE_CHANGED_RE =
   /Release source changed while rebuilding the packaged OpenMeld CLI/u;
 const STAMP_BUILD_EXPLODED_RE = /build exploded/u;
 const CURRENT_ONLY_STAMP_RE = /--current is only available for verification/u;
+const MISSING_WINDOWS_HELPER_RE =
+  /release stamp needs the source-matched Windows process helper/u;
 const INVALID_CLI_FLOOR_RE =
   /minRequiredCliVersion is not a valid version: banana/u;
 const FIXTURE_STAMP_DEPENDENCIES = {
@@ -157,6 +159,10 @@ test("ignores CLI-only artifacts when computing the service bundle hash", async 
     const baselineReleaseHash = await computeServiceBundleHash({
       rootDir: serviceDistRoot,
     });
+    const baselinePortableHash = await computeServiceBundleHash({
+      rootDir: serviceDistRoot,
+      excludeWindows: true,
+    });
     const baselineCliHash =
       await computeCliDaemonSourceDistFingerprint(serviceDistRoot);
 
@@ -194,6 +200,13 @@ test("ignores CLI-only artifacts when computing the service bundle hash", async 
       rootDir: serviceDistRoot,
     });
     assert.notEqual(withHelper, baselineReleaseHash);
+    assert.equal(
+      await computeServiceBundleHash({
+        rootDir: serviceDistRoot,
+        excludeWindows: true,
+      }),
+      baselinePortableHash
+    );
     assert.equal(
       withHelper,
       await computeCliDaemonSourceDistFingerprint(serviceDistRoot)
@@ -302,6 +315,53 @@ test("strict verification rejects a stale Service bundle hash", () => {
     errors.includes(
       `service.bundleHash is stale: manifest=${baseFacts.service.bundleHash} current=${currentFacts.service.bundleHash}`
     )
+  );
+});
+
+test("candidate verifies portable Service bytes while publication requires the full Windows bundle", () => {
+  const facts = createFacts({
+    service: { portableBundleHash: "p".repeat(64) },
+  });
+  const manifest = buildReleasePolicyManifest({
+    facts,
+    now: "2026-05-31T00:00:00.000Z",
+    policies: { cli: "available", service: "available", skills: "available" },
+  });
+  const candidateFacts = {
+    ...facts,
+    hasWindowsProcessHelper: false,
+    service: { ...facts.service, bundleHash: "p".repeat(64) },
+  };
+  const input = {
+    changedPaths: ["runtime/adapters/core/native/windows/ProcessJob.cs"],
+    manifest,
+  };
+
+  assert.deepEqual(
+    resolveReleasePolicyVerificationErrors({ ...input, facts: candidateFacts }),
+    []
+  );
+  assert.ok(
+    resolveReleasePolicyVerificationErrors({
+      ...input,
+      facts: {
+        ...candidateFacts,
+        service: {
+          ...candidateFacts.service,
+          portableBundleHash: "q".repeat(64),
+        },
+      },
+    }).some((error) => error.includes("service.portableBundleHash is stale"))
+  );
+  assert.ok(
+    resolveReleasePolicyVerificationErrors({
+      ...input,
+      facts: {
+        ...facts,
+        hasWindowsProcessHelper: true,
+        service: { ...facts.service, bundleHash: "c".repeat(64) },
+      },
+    }).some((error) => error.includes("service.bundleHash is stale"))
   );
 });
 
@@ -552,6 +612,11 @@ test("stamp rebuilds the packaged CLI before recording the Service bundle hash",
           await rm(serviceDistRoot, { force: true, recursive: true });
           await writeFixtureFile(
             serviceDistRoot,
+            "windows/openmeld-windows-process.exe",
+            "fixture Windows helper\n"
+          );
+          await writeFixtureFile(
+            serviceDistRoot,
             "openmeld.js",
             "console.log('fresh packaged CLI')\n"
           );
@@ -567,6 +632,51 @@ test("stamp rebuilds the packaged CLI before recording the Service bundle hash",
     );
     assert.notEqual(freshHash, staleHash);
     assert.equal(manifest.components.service.bundleHash, freshHash);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("stamp rejects a build without the source-matched Windows helper", async () => {
+  const repoRoot = await createFixtureRepo();
+  try {
+    await writeFixtureFile(
+      repoRoot,
+      ".gitignore",
+      "clients/openmeld-cli/dist/\n"
+    );
+    await initFixtureGitRepo(repoRoot);
+    const base = await readGitHead(repoRoot);
+    await rm(
+      join(
+        repoRoot,
+        "clients/openmeld-cli/dist/windows/openmeld-windows-process.exe"
+      )
+    );
+
+    await assert.rejects(
+      runLocalComponentsReleaseTool(
+        [
+          "stamp",
+          "--repo-root",
+          repoRoot,
+          "--base",
+          base,
+          "--cli",
+          "available",
+          "--service",
+          "available",
+          "--skills",
+          "available",
+          "--reason",
+          "Compatible local component release",
+          "--now",
+          "2026-07-16T00:00:00.000Z",
+        ],
+        FIXTURE_STAMP_DEPENDENCIES
+      ),
+      MISSING_WINDOWS_HELPER_RE
+    );
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
@@ -683,6 +793,11 @@ test("stamp retains the published Service for a reviewed CLI-only presentation c
           await rm(serviceDistRoot, { force: true, recursive: true });
           await writeFixtureFile(
             serviceDistRoot,
+            "windows/openmeld-windows-process.exe",
+            "fixture Windows helper\n"
+          );
+          await writeFixtureFile(
+            serviceDistRoot,
             "openmeld.js",
             "console.log('new CLI bytes')\n"
           );
@@ -774,6 +889,11 @@ test("stamp advances Service for a shared CLI runtime change", async () => {
       {
         buildPackagedOpenMeldCli: async () => {
           await rm(serviceDistRoot, { force: true, recursive: true });
+          await writeFixtureFile(
+            serviceDistRoot,
+            "windows/openmeld-windows-process.exe",
+            "fixture Windows helper\n"
+          );
           await writeFixtureFile(
             serviceDistRoot,
             "openmeld.js",
@@ -1877,6 +1997,11 @@ async function createFixtureRepo() {
     "clients/openmeld-cli/dist/openmeld.js",
     "console.log('openmeld')\n"
   );
+  await writeFixtureFile(
+    repoRoot,
+    "clients/openmeld-cli/dist/windows/openmeld-windows-process.exe",
+    "fixture Windows helper\n"
+  );
   return repoRoot;
 }
 
@@ -2052,6 +2177,9 @@ function createFacts(overrides = {}) {
     },
     service: {
       bundleHash: overrides.service?.bundleHash ?? "a".repeat(64),
+      ...(overrides.service?.portableBundleHash
+        ? { portableBundleHash: overrides.service.portableBundleHash }
+        : {}),
       bundleVersion: overrides.service?.bundleVersion ?? "1.2.3",
       runtimeContractEpoch:
         overrides.service?.runtimeContractEpoch ?? "daemon-epoch-v1",
