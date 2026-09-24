@@ -71,9 +71,9 @@ export function PeopleSidebar(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const viewerId =
 		input.members.find((m) => m.isCurrentUser)?.id ?? currentUserId;
-	const sidebar = useSidebarPreferences(viewerId, currentOrganization.id);
+	const sidebar = useSidebarPreferences(currentOrganization.id);
 	const preferences = sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR;
-	const loading = input.loading || sidebar.isPending;
+	const loading = input.loading;
 	const [search, setSearch] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [filter, setFilter] = useState<PeopleFilter>("all");

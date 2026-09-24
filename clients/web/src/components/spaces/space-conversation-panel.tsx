@@ -16,6 +16,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	Activity,
 	Fragment,
 	lazy,
 	memo,
@@ -1828,23 +1829,46 @@ function SpacePrimaryView(input: {
 	tasks?: ReactNode;
 }) {
 	const selectedIndex = getSpaceViewIndex(input.activeView);
+	const [visitedMessages, setVisitedMessages] = useState(
+		input.activeView === "messages"
+	);
+	useEffect(() => {
+		if (input.activeView === "messages") {
+			setVisitedMessages(true);
+		}
+	}, [input.activeView]);
 	let activeContent = input.files;
-	if (input.activeView === "messages") {
-		activeContent = input.messages;
-	} else if (input.activeView === "graph") {
+	if (input.activeView === "graph") {
 		activeContent = input.graph;
 	} else if (input.activeView === "tasks") {
 		activeContent = input.tasks;
 	}
+	const renderMessages = visitedMessages || input.activeView === "messages";
 	return (
-		<div
-			aria-labelledby={`${input.idPrefix}-tab-${selectedIndex}`}
-			className="flex min-h-0 flex-1 flex-col"
-			id={`${input.idPrefix}-panel-${selectedIndex}`}
-			role="tabpanel"
-		>
-			{activeContent}
-		</div>
+		<>
+			{input.activeView !== "messages" && (
+				<div
+					aria-labelledby={`${input.idPrefix}-tab-${selectedIndex}`}
+					className="flex min-h-0 flex-1 flex-col"
+					id={`${input.idPrefix}-panel-${selectedIndex}`}
+					role="tabpanel"
+				>
+					{activeContent}
+				</div>
+			)}
+			{renderMessages && (
+				<Activity mode={input.activeView === "messages" ? "visible" : "hidden"}>
+					<div
+						aria-labelledby={`${input.idPrefix}-tab-${getSpaceViewIndex("messages")}`}
+						className="flex min-h-0 flex-1 flex-col"
+						id={`${input.idPrefix}-panel-${getSpaceViewIndex("messages")}`}
+						role="tabpanel"
+					>
+						{input.messages}
+					</div>
+				</Activity>
+			)}
+		</>
 	);
 }
 

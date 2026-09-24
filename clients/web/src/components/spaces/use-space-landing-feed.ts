@@ -913,17 +913,17 @@ export function useSpaceLandingFeed(input: {
 				queryClient
 					.invalidateQueries({ queryKey: messageReactionsKey(input.spaceId) })
 					.catch(() => undefined);
+				queryClient
+					.invalidateQueries({
+						predicate: (query) =>
+							(query.queryKey[0] === "space-message-pins" ||
+								query.queryKey[0] === "space-file-pins") &&
+							query.queryKey[1] === input.spaceId,
+					})
+					.catch((error) =>
+						console.warn("Failed to refresh Space pins after reconnect.", error)
+					);
 			}
-			queryClient
-				.invalidateQueries({
-					predicate: (query) =>
-						(query.queryKey[0] === "space-message-pins" ||
-							query.queryKey[0] === "space-file-pins") &&
-						query.queryKey[1] === input.spaceId,
-				})
-				.catch((error) =>
-					console.warn("Failed to refresh Space pins after reconnect.", error)
-				);
 			readySocketAttemptKeyRef.current = socketAttemptKey;
 			markConnected();
 			if (historyReadyRef.current) {

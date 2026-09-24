@@ -23,9 +23,13 @@ branches used.
 1. Identify the requested PRs, their dependency order, and the `main` commit
    before the first merge. For compatible ready changes, use [one integrated
    Final Candidate](#final-candidate) instead of repeating the same broad checks
-   on each leaf. Decide intended versions for artifacts in scope; make CLI
-   version and manifest changes only in the clean
-   [publishing release worktree](development-workflow.md#local-components-release-tool).
+   on each leaf. For a batch crossing release scopes, run
+   `pnpm run release:plan -- --base <pre-merge-sha>` on the integrated candidate
+   to inspect the changed paths and deployment order without scanning hosted
+   history. Decide intended versions for artifacts in scope; make CLI version
+   and manifest changes only in the clean
+   [publishing release worktree](development-workflow.md#local-components-release-tool)
+   on a `codex/release-X.Y.Z-<baseSHA>` branch.
 2. [Merge](#merge) against current `main`. If a merge command fails or returns
    an uncertain result, read the remote PR's `state` and `mergeCommit` before
    retrying. Pin the integrated product SHA; a later release-only version
@@ -34,6 +38,8 @@ branches used.
 3. For the range from that pre-merge commit to the integrated product SHA, run
    `pnpm run release:status -- --ref <product-sha> --change-base <pre-merge-sha>`
    for the initial plan. Guarded release commands recheck before publication.
+   Do not repeat the full history scan after each stage; use that stage's
+   workflow result, release receipt, and health evidence to track completion.
    If unrelated commits landed between separate merges, plan those ranges
    separately instead of attributing them to this batch.
    It covers Database, cloud, and CLI; read current-change scopes separately
@@ -41,8 +47,12 @@ branches used.
    for the same range. A zero pending-scope result does not close the Desktop
    row.
 4. [Release](#release) each affected component through its owner workflow,
-   respecting the planner's dependency order. Record each component and
-   supported Desktop platform as released, pending, excluded with a concrete
+   respecting the planner's dependency order. If Core is selected and shared
+   schema or Service inputs changed, run the read-only
+   `pnpm release:local-components plan --next` before starting Core; it can run
+   alongside an earlier independent deploy stage. Decide the supported Core/CLI
+   path from that result. Record each component and supported Desktop platform as
+   released, pending, excluded with a concrete
    reason, or unknown when evidence cannot be read. Promotion and [installed
    A-to-B acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
    are separate Desktop states.
@@ -128,11 +138,13 @@ locally fetched `origin/main`. Missing base history is an error: fetch it.
 Recheck identity and cleanliness after success. Deletions need no tests;
 protected release pushes retain strict release verification.
 
-Draft PR Feedback runs the same focused checks remotely against the full PR
-diff. It is independent feedback, not permission to merge. Keep leaf PRs in
-draft during development and batch preparation. Mark ready only when a green
-FC would make merge the next action. New commits cancel superseded feedback
-and FC runs for that PR.
+The development push hook runs the focused lane for each pushed commit. Run
+`pnpm run verify:pr -- --feedback` against `origin/main` when the complete PR
+diff needs focused validation before Ready. This is a local, owner-selected
+check, not an automatic hosted job on every Draft push. Keep leaf PRs in draft
+during development and batch preparation. Mark ready only after validating
+affected behavior and when a green FC would make merge the next action. New
+commits cancel superseded FC runs for that PR.
 
 Focused selection is deliberately incomplete: a deleted import, a shared
 contract, a dependency change, or platform-specific behavior may need additional
@@ -234,11 +246,14 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status -
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 ```
 
+Use `wait` for the pending Final Candidate instead of repeatedly polling
+`gh pr checks` for the same unchanged run.
+
 Use the current-main entrypoint, never candidate-owned package scripts.
 GitHub Actions is the normal compute lane; the guarded local lane below is for
 Actions outages or explicit control bootstrap. A failed check, missing evidence,
-identity mismatch, or publication failure cannot become green. Local hook output
-and draft feedback cannot substitute for the required FC status.
+identity mismatch, or publication failure cannot become green. Local focused
+checks cannot substitute for the required FC status.
 
 For a batch, integrate compatible ready leaf changes, sync `main` once, validate
 the combined interactions, and run one FC on the batch PR. Do not pay for leaf

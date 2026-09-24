@@ -316,6 +316,7 @@ describe("remote agent Flue capability inventory", () => {
         "openmeld_create_agent_profile_request",
         "openmeld_read_organization_directory",
         "openmeld_read_agent_profile_creation_defaults",
+        "openmeld_list_hosted_models",
         "openmeld_list_local_agent_connection_candidates",
         "openmeld_list_projects",
       ])
