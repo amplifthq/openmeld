@@ -253,6 +253,12 @@ $d=$folder.GetTask($name).Definition
             },
             { timeout: 20_000 }
           );
+        } catch (error) {
+          for (const log of [oldLog, newLog]) {
+            const content = await readFile(log, "utf8").catch(() => "");
+            console.error(`Maintenance fixture ${log}: ${content}`);
+          }
+          throw error;
         } finally {
           await writeFile(release, "release");
           await runWindowsUserTask({ ...request, operation: "uninstall" });
