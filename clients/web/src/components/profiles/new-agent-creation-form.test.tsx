@@ -51,6 +51,12 @@ describe("new Agent destination", () => {
 		);
 		expect(screen.queryByText("After creation")).toBeNull();
 		expect(screen.queryByRole("button", { name: "Add to a Space" })).toBeNull();
+		expect(
+			screen
+				.getByRole("tab", { name: "Choose a Local Agent" })
+				.getAttribute("aria-selected")
+		).toBe("true");
+		expect(screen.getByTestId("creation-destination").textContent).toBe("chat");
 		fireEvent.click(screen.getByRole("tab", { name: runtime }));
 		expect(screen.getByTestId("creation-destination").textContent).toBe("chat");
 	});

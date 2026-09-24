@@ -3,7 +3,7 @@
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
 import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { CloudIcon, DesktopTowerIcon } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import { CreateAgentProfilePage } from "./create-profile-dialog";
@@ -27,26 +27,23 @@ type NewAgentCreationFormProps = {
 };
 
 export function NewAgentCreationForm(input: NewAgentCreationFormProps) {
-	const [runtime, setRuntime] = useState<"local" | "remote" | null>(null);
-	let form: ReactNode = null;
-	if (runtime) {
-		form =
-			runtime === "remote" ? (
-				<RemoteAgentCreationForm
-					accountName={input.accountName}
-					currentUserId={input.currentUserId}
-					intentStorageScope={input.intentStorageScope}
-					onAccepted={(request) => input.onAccepted(request)}
-					onCancel={input.onCancel}
-					onFailed={input.onFailed}
-					onStarted={input.onStarted}
-					organizationId={input.organizationId}
-					requestedSpaceId={null}
-				/>
-			) : (
-				<LocalAgentCreationForm {...input} />
-			);
-	}
+	const [runtime, setRuntime] = useState<"local" | "remote">("local");
+	const form =
+		runtime === "remote" ? (
+			<RemoteAgentCreationForm
+				accountName={input.accountName}
+				currentUserId={input.currentUserId}
+				intentStorageScope={input.intentStorageScope}
+				onAccepted={(request) => input.onAccepted(request)}
+				onCancel={input.onCancel}
+				onFailed={input.onFailed}
+				onStarted={input.onStarted}
+				organizationId={input.organizationId}
+				requestedSpaceId={null}
+			/>
+		) : (
+			<LocalAgentCreationForm {...input} />
+		);
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 			<div className="mx-auto grid w-full max-w-7xl gap-5 px-4 pt-10 sm:px-6 lg:px-8">
@@ -61,7 +58,7 @@ export function NewAgentCreationForm(input: NewAgentCreationFormProps) {
 					onValueChange={(value) =>
 						setRuntime(value === "local" ? "local" : "remote")
 					}
-					value={runtime ?? ""}
+					value={runtime}
 				>
 					<TabsList
 						aria-label="Agent runtime"
