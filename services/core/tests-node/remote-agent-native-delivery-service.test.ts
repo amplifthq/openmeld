@@ -361,6 +361,108 @@ describe("Remote Agent native delivery callback service", () => {
       harness.close();
     }
   });
+  it("admits a personal Agent Wake authored by the designated Center Agent", async () => {
+    const centerAgentProfileId = "agt_33333333-3333-4333-8333-333333333333";
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    harness.run({
+      sql: "ALTER TABLE openmeld_profiles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0",
+    });
+    harness.run({
+      sql: "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = 'user_1' WHERE profile_id = ?",
+      params: [AGENT_PROFILE_ID],
+    });
+    harness.run({
+      sql: "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, managed_role, status) VALUES (?, 'Center Agent', 'org-center-agent', 'agent', 'org_1', NULL, 'center_agent', 'active')",
+      params: [centerAgentProfileId],
+    });
+    harness.run({
+      sql: "UPDATE center_agent_designations SET agent_profile_id = ? WHERE organization_id = 'org_1'",
+      params: [centerAgentProfileId],
+    });
+    harness.run({
+      sql: "UPDATE openMeldDaemon_agent_profile_bindings SET owner_kind = 'owner_account', owner_id = 'user_1', runtime_kind = 'hosted_remote_agent', agent_controller_ref = 'hosted:remote-agent', openmeld_service_runtime_id = 'hosted:remote-agent', hosted_runtime_identity_json = ? WHERE binding_id = 'binding_1'",
+      params: [JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY)],
+    });
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 2100,
+        requestId: "personal-request",
+        status: "pending" as const,
+        submissionId: "personal-submission",
+      })
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const directory = spaceMemberDirectorySchema.parse({
+      spaceId: SPACE_ID,
+      generatedAt: new Date().toISOString(),
+      members: [AGENT_PROFILE_ID, centerAgentProfileId, HUMAN_PROFILE_ID].map(
+        (profileId) => ({
+          profileId,
+          profileKind: profileId === HUMAN_PROFILE_ID ? "human" : "agent",
+          displayName: profileId,
+          primaryMentionLabel: profileId,
+          mentionLabels: [profileId],
+          mentionAlias: null,
+          labelSource: "profile_id",
+          lookupTokens: [profileId],
+          preferredLookupToken: profileId,
+          profileIdShort: profileId.slice(0, 8),
+          allowedRelations: {
+            wake: profileId === AGENT_PROFILE_ID,
+            reference: false,
+            mention: profileId === HUMAN_PROFILE_ID,
+          },
+          ownerUserId: profileId === centerAgentProfileId ? null : "user_1",
+          ownerName: profileId === centerAgentProfileId ? null : "Ari",
+          agentCard: null,
+          spaceRole: null,
+        })
+      ),
+    });
+    Object.assign(env.__spaceStub, {
+      rpcGetMemberDirectory: vi.fn(async () => directory),
+    });
+    try {
+      const result = await submitRemoteAgentNativeDelivery({
+        binding: { ...createBinding(), personalAgent: true },
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        memoryService: null,
+        message: createDispatchMessage({
+          sourceProfileNameSnapshot: "Center Agent",
+          sourceSignalSnapshot: {
+            profileId: centerAgentProfileId,
+            profileKind: "agent",
+            text: "Please review this pull request.",
+          },
+        }),
+        nowMs: 1000,
+      });
+      expect(result.status).toBe("submitted");
+      await expect(
+        requirePersonalRemoteAgentExecution(env, "personal-submission")
+      ).resolves.toMatchObject({
+        request: { author: { profileId: centerAgentProfileId } },
+      });
+
+      // Only the Organization's current designated Center Agent is an
+      // ownerless requester; a replaced designation no longer authorizes it.
+      harness.run({
+        sql: "UPDATE center_agent_designations SET agent_profile_id = ? WHERE organization_id = 'org_1'",
+        params: [AGENT_PROFILE_ID],
+      });
+      await expect(
+        requirePersonalRemoteAgentExecution(env, "personal-submission")
+      ).rejects.toThrow("requester_membership_revoked");
+    } finally {
+      harness.close();
+    }
+  });
   it("continues the same delivery after a tool-budget checkpoint and publishes only the later final result", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
