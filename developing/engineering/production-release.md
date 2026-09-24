@@ -1418,6 +1418,16 @@ For GitHub, use `.github/workflows/cli-release.yml`:
 3. use `Scoped Production Release` separately when the release card also
    requires database or cloud fleet changes.
 
+Windows Native AOT helper bytes can differ across builds of identical source.
+When a committed Service hash was stamped with a helper from an earlier trusted
+`main` CLI workflow run, set `windows_artifact_run_id` to that run instead of
+rebuilding the helper. The Windows job checks the producer workflow, branch,
+repository, and successful helper job; it then verifies the downloaded helper's
+source fingerprint and bytes before passing that exact artifact to the macOS
+publisher. Use the run whose helper bytes were used for the stamp, not merely a
+run with the same source. A fresh build can prepare a new helper candidate;
+stamp from its downloaded artifact and pin that run for publication.
+
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.
 
