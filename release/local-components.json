@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T03:42:32.409Z",
+  "updatedAt": "2026-09-24T14:30:13.327Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
-      "packageVersion": "0.3.222",
+      "packageVersion": "0.3.223",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup, Wake, Space actions, status, trace and self-rescue remain compatible with old and new cloud; the new Remote Agent creation options use additive optional request fields."
+      "reason": "Old Core and new CLI share the same setup, Wake, Space action, status, and trace contracts; catalog refresh only preserves healthy admission."
     },
     "service": {
-      "bundleHash": "818b0a54c1578eb46c4f9373bee8c11b8764c90c2dad378161649e5efd8fbf7d",
-      "bundleVersion": "0.3.222",
+      "bundleHash": "5184f33ea42f50e6c40a3e3965c4f6b73e1cc99655824a6c17d3bfb31907ee99",
+      "bundleVersion": "0.3.223",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
-      "reason": "The Service transport and Wake contracts are unchanged; shared schema additions are optional and old Services can safely continue current and new Wake work."
+      "reason": "New Core accepts old Service reports with a bounded wait, while old Core accepts the new Service transport unchanged; no schema or execution authority changes."
     },
     "skills": {
       "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",
