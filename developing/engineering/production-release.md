@@ -968,6 +968,9 @@ snapshots remain component-specific recovery evidence: restoring one component
 selects that component's exact source and matching receipt without changing the
 other component's baseline.
 
+Hosted renderer builds use the runner's bounded Node heap and run immediately;
+the worktree resource queue applies only to builds on a shared local machine.
+
 Within one coordinated `release-on-main.yml` run, `validate_release_source`
 performs the selected stage's artifact admission once before any Production mutation.
 Only that job issues `production-train-admission` evidence through its protected
