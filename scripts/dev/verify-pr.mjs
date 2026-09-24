@@ -147,7 +147,11 @@ function planFocusedChecks(paths, options) {
   );
   for (const workspace of buildWorkspaces) {
     if (buildDirectories.has(workspace.directory) && workspace.name) {
-      buildFilters.push(`--filter=${workspace.name}^...`);
+      // Plain package runners can import their own dist; Vitest runs source.
+      const filter = VITEST_SCRIPT.test(workspace.test)
+        ? `${workspace.name}^...`
+        : `${workspace.name}...`;
+      buildFilters.push(`--filter=${filter}`);
     }
   }
   for (const workspace of options.workspaces ?? []) {

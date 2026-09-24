@@ -120,8 +120,10 @@ adjacent Node tests, and related Vitest tests in directly changed workspaces.
 Worker TypeScript changes also run the existing Worker-safe Zod import guard
 before package checks; its owner defines the runtime roots for both lanes.
 Plain package test aliases retain their own config; unsupported runners use
-the package's test command instead of silently skipping tests. Dependency builds
-use Turbo's cache. Test commands run sequentially, Node test files run serially,
+the package's test command instead of silently skipping tests. These package
+runners build their own package and dependencies before testing; Vitest source
+tests build dependencies only. Dependency builds use Turbo's cache. Test
+commands run sequentially, Node test files run serially,
 and related Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 

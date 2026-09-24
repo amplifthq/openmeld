@@ -250,6 +250,27 @@ test("unsupported package runners execute their own test command instead of sile
   assert.ok(commands[1].includes("biome"));
 });
 
+test("isolated plain package tests build their own imported dist", () => {
+  const commands = planPrChecks(["runtime/adapters/core/src/index.ts"], {
+    feedback: true,
+    workspace: "runtime/adapters/core",
+    workspaces: [
+      {
+        directory: "runtime/adapters/core",
+        name: "@openmeld/adapter-core",
+        test: "node --test test/*.test.js",
+      },
+    ],
+  });
+  assert.ok(commands[0].includes("--filter=@openmeld/adapter-core..."));
+  assert.deepEqual(commands[1], [
+    "--dir",
+    "runtime/adapters/core",
+    "run",
+    "test",
+  ]);
+});
+
 test("documentation and shared skill edits avoid workspace builds and tests", () => {
   assert.deepEqual(
     planPrChecks([
