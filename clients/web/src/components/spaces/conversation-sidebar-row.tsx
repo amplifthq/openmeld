@@ -223,9 +223,8 @@ function ConversationSidebarRowContent(
 							>
 								<span className="flex min-w-0 flex-1 items-center gap-1.5">
 									<span
-										className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : "text-foreground/70 data-[selected=true]:text-sidebar-accent-foreground dark:text-muted-foreground dark:data-[selected=true]:text-sidebar-accent-foreground"}`}
+										className={`truncate text-foreground ${hasUnread ? "font-semibold" : ""}`}
 										data-conversation-title="true"
-										data-selected={input.selected}
 									>
 										{input.title}
 									</span>
