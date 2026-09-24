@@ -417,4 +417,5 @@ test("the Git hook preserves pushed-ref input without repeating candidate checks
   assert.match(hook, HOOK_READS_PUSH_UPDATES);
   assert.match(hook, HOOK_RUNS_RELEASE_SELECTOR);
   assert.ok(!hook.includes("verify:pre-push:checks"));
+  assert.ok(!hook.includes("scripts/dev/pre-push.mjs"));
 });

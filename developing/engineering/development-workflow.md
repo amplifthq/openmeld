@@ -873,8 +873,9 @@ The CI/CD procedure and its rationale have one owner:
 engineers and every coding agent. Read it before pushing a candidate or merging.
 
 - Commit hook: staged-file checks.
-- Development push hook: mandatory focused checks on the exact clean commit.
-- Draft PR: mandatory focused push checks and risk-selected local validation;
+- Development push hook: quick protected-release checks; no automatic affected
+  builds or tests on ordinary branches.
+- Draft PR: risk-selected local validation;
   keep work draft until ready to merge. There is no automatic full-PR hosted
   unit-test run on every Draft push.
 - Standard FC: exact identity, trusted control, static contracts, and path-owned
@@ -2315,8 +2316,8 @@ policy script owns this classification; ordinary feature branches remain
 deferred and cannot carry a release stamp, while a malformed or mixed-scope
 release branch fails closed.
 
-The pre-push release check defers ordinary development builds to FC; the
-focused-check hook still runs on development pushes. Release checking remains
+The pre-push release check does not run ordinary development builds or tests.
+Agents select focused checks before Ready. Release checking remains
 strict when a push includes `refs/heads/main`, any `codex/release-*` branch,
 a tag, malformed input, or no input. Malformed release branch names fail at
 pre-push instead of waiting for Final Candidate. A strict push

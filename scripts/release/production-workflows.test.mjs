@@ -149,7 +149,7 @@ test("threads one explicit production train through every hosted mutation entry"
   assert.ok(!dispatcherTrainInput?.includes("default:"));
   assert.ok(
     validationJob?.includes(
-      "Admit the complete production train before Production mutation"
+      "Admit selected stage artifacts before Production mutation"
     )
   );
   assert.ok(
