@@ -82,7 +82,10 @@ jobs:
           pnpm --dir clients/web build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package unsigned internal Desktop preview
-        run: pnpm desktop:package:internal-preview
+        env:
+          OPENMELD_DESKTOP_INTERNAL_PREVIEW: "1"
+          OPENMELD_DESKTOP_TARGET: production
+        run: pnpm desktop:package:installed
       - name: Finalize exact-source download bundle
         run: node scripts/release/windows-internal-preview.mjs finalize
       - name: Validate the release handoff without publishing
