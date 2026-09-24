@@ -75,6 +75,13 @@ export function isCodexSubscriptionAccessFailure(value: string): boolean {
  * through to message-based classification so an unverified enum never silently
  * changes behavior.
  */
+// Captured model-access failures, not retirement proof:
+// openai/codex codex-rs/core/tests/suite/compact.rs model_not_found_response;
+// community.openai.com/t/1376272 (ChatGPT sign-in response, March 2026).
+const MODEL_NOT_FOUND = /^model not found [a-z0-9_./-]+$/i;
+const CHATGPT_MODEL_NOT_SUPPORTED =
+  /^the '[a-z0-9_./-]+' model is not supported when using codex with a chatgpt account\.?$/i;
+
 export function classifyCodexProviderAccountFailure(input: {
   message: string;
   codexErrorInfo?: string | null;
@@ -107,6 +114,15 @@ export function classifyCodexProviderAccountFailure(input: {
   if (isCodexUsageExhaustedFailure(lowered)) {
     return withOriginalError(
       { code: "usage_exhausted", errorType: "adapter" },
+      input.message
+    );
+  }
+  if (
+    MODEL_NOT_FOUND.test(input.message.trim()) ||
+    CHATGPT_MODEL_NOT_SUPPORTED.test(input.message.trim())
+  ) {
+    return withOriginalError(
+      { code: "model.unavailable", errorType: "adapter" },
       input.message
     );
   }

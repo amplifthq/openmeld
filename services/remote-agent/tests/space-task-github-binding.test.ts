@@ -308,9 +308,20 @@ describe("GitHub issue Space Task binding", () => {
     });
   });
 
-  it("does not create or cancel Tasks for a body-only issue update", async () => {
+  it.each([
+    { actionId: "github.update_issue", space: SHARED_SPACE },
+    { actionId: "github.get_issue", space: SHARED_SPACE },
+    {
+      actionId: "github.create_issue",
+      space: { ...SHARED_SPACE, kind: "dm" as const },
+    },
+  ])("does not acquire an observation or bind Tasks for $actionId in $space.kind when no binding applies", async ({
+    actionId,
+    space,
+  }) => {
+    const readObservationAt = vi.fn(async () => ISSUE.lastObservedAt);
     const summary = await applyGitHubIssueSpaceTaskBinding({
-      actionId: "github.update_issue",
+      actionId,
       actionInput: {
         body: "OpenMeld Task: tsk_55555555-5555-4555-8555-555555555555",
         issueNumber: 1143,
@@ -318,6 +329,7 @@ describe("GitHub issue Space Task binding", () => {
         repo: "openmeld",
       },
       data: { number: 1143 },
+      now: readObservationAt,
       ports: {
         createSpaceTask: vi.fn(),
         getSpaceTask: vi.fn(),
@@ -326,10 +338,11 @@ describe("GitHub issue Space Task binding", () => {
       },
       toolContext: {
         context: CONTEXT,
-        turnEnvelope: { space: SHARED_SPACE } as RemoteAgentTurnEnvelope,
+        turnEnvelope: { space } as RemoteAgentTurnEnvelope,
       },
     });
     expect(summary).toBeNull();
+    expect(readObservationAt).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -1,6 +1,7 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
+import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { formatAgentCreationFailure } from "#/lib/profiles/agent-creation-failure";
@@ -56,7 +57,12 @@ export function AgentCreationRequestCard(input: {
 					)}
 				</p>
 			) : (
-				<CreationProgress status={request.status} />
+				<output className="flex items-center gap-2 text-muted-foreground text-xs">
+					{(request.status === "creating" || request.status === "approved") && (
+						<Bars aria-hidden="true" className="h-3 w-4" />
+					)}
+					{creationStatusDescription(request.status)}
+				</output>
 			)}
 			<div className="flex flex-wrap gap-2">
 				{isOptimistic && !failed ? null : (
@@ -79,42 +85,39 @@ export function AgentCreationRequestCard(input: {
 	);
 }
 
-function CreationProgress(input: { status: PresentedAgentCreation["status"] }) {
-	const steps = (() => {
-		if (input.status === "creating") {
-			return [
-				"Creating Agent",
-				"Connecting local agent",
-				"Checking Wake availability",
-			];
-		}
-		if (input.status === "pending") {
-			return ["Request accepted", "Waiting for approval", "Creating Agent"];
-		}
-		return ["Request accepted", "Creating Agent", "Checking Wake availability"];
-	})();
-	const activeStepCount = input.status === "creating" ? 1 : 2;
-	return (
-		<ol className="grid gap-1 text-xs">
-			{steps.map((step, index) => (
-				<li
-					className={
-						index < activeStepCount
-							? "text-foreground"
-							: "text-muted-foreground"
-					}
-					key={step}
-				>
-					{index + 1}. {step}
-				</li>
-			))}
-		</ol>
-	);
-}
-
 function requestStatusLabel(status: PresentedAgentCreation["status"]): string {
 	if (status === "pending") {
 		return "Waiting for approval";
 	}
+	if (status === "creating") {
+		return "Sending request";
+	}
+	if (status === "completed") {
+		return "Agent created";
+	}
+	if (status === "cancelled") {
+		return "Cancelled";
+	}
+	if (status === "declined") {
+		return "Declined";
+	}
 	return "Creating Agent";
+}
+
+function creationStatusDescription(
+	status: PresentedAgentCreation["status"]
+): string {
+	if (status === "pending") {
+		return "Creation will continue after approval.";
+	}
+	if (status === "creating") {
+		return "Sending this Agent request.";
+	}
+	if (status === "completed") {
+		return "The Agent is ready.";
+	}
+	if (status === "cancelled" || status === "declined") {
+		return "Review this request in creation history.";
+	}
+	return "Setup is in progress.";
 }

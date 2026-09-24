@@ -1192,6 +1192,10 @@ empty baseline, not historical replay; subsequent pages are retained before the
 cursor advances. This avoids first-page loss during bursts and delayed source
 projection. A visible Web window must also have document focus to suppress its
 current-conversation notification or automatically mark a message read.
+While visible, the same lightweight cursor is checked every second even when
+browser notifications are off. A new Space message invalidates the account
+Space directory, which remains the authority for sidebar previews; the five
+second directory poll still covers membership and delayed projections.
 
 ### Notification settings
 
@@ -1455,8 +1459,8 @@ includes the current effective model so a future system-default change is
 understandable without duplicating it into browser state. A model choice's
 optional catalog-owned badge appears in both the closed selector and its
 matching options; Web does not infer badges from model names or the current
-default. Reasoning is catalog-owned at `high` and is not a separate Web control
-in this release.
+default. The adjacent Reasoning effort selector offers only efforts supported
+by the chosen hosted model and shows its catalog default.
 
 The first-level **Provider** selector filters the second-level **Primary model**
 picker. Provider means the model vendor, derived from the exact OpenRouter ID
@@ -1477,7 +1481,11 @@ visible while browsing another provider. Selecting a candidate only changes the
 local draft. The current label changes after the Binding save succeeds.
 
 Personal Remote Agent creation and model editing reuse this same two-level
-selector and hosted catalog. They store the explicitly selected model ID.
+selector and hosted catalog. They store the explicitly selected model ID and
+an optional supported reasoning effort. Center Agent settings use the same
+reasoning selector. New personal Remote Agents initially select GPT-6 Sol with
+`medium` effort; Center Agent OpenMeld default is Claude Opus 5.5 with `medium`.
+Default reasoning follows the selected model's catalog effort.
 Changing to another provider clears an incompatible draft and requires a new
 model choice before Create or Save; an empty draft must not silently select
 the system default. Local Agent model controls keep their controller-owned
@@ -2361,6 +2369,21 @@ cross-tab invalidations. These are configured values, not evidence that an Agent
 can Wake or that a particular model executed work. Agent pages retain their
 Core-owned runtime overview and Wakeability checks.
 
+Entering People starts the Profile Directory and personal sidebar-preference
+reads as early as route intent allows, without holding navigation for either
+response. Known member rows and Team cards remain visible while personal
+sidebar preferences load; until those preferences arrive, the list uses its
+default Human-presence sections and saved-group actions stay unavailable. The
+same early reads apply to member details, Agents, and Agent details; Agent
+runtime availability remains a separate current read. Space member popovers
+also stop presenting an expired Computer connection as current. The
+account-and-Organization-scoped browser read cache may restore sidebar layout,
+then refresh it through the existing revisioned server read. It does not persist
+the Profile Directory's mixed identity, activity, and Agent configuration
+response. Human presence, Computer state, and Agent runtime/usage projections
+retain their separate current-read and unknown-state rules; saved layout never
+supplies those facts.
+
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
 bounded actual-interaction report; Core re-verifies the active member and that
@@ -2657,9 +2680,12 @@ physical computer; it must never silently move a draft to another computer.
 **Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
-controller and generator components: **Choose a Local Agent** always presents
-Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor in that order,
-and **Remote Agent** is disabled with **Coming soon**. The complete catalog is
+request contract. The global page first asks whether the Agent runs locally or
+remotely and whether to start a Direct Message or add it to an existing joined
+Space. Local selection loads the existing local creation generator; Remote
+selection reads the hosted model catalog without loading Computer setup or
+local Agent readiness. **Choose a Local Agent** always presents Codex, Claude
+Code, Grok Build, OpenCode, Antigravity, and Cursor in that order. The complete catalog is
 visible and selectable even when a Local Agent is not installed, is disabled,
 is signed out, or has not finished checking. Selecting one is an inspection
 choice; only the existing canonical eligibility projection can provide the
@@ -3240,6 +3266,11 @@ below. Query-specific `staleTime`, live invalidation, and server reads still own
 freshness; the Organization scope query is not given either longer lifetime.
 Cached display data is therefore a first-paint aid, never membership,
 permission, or mutation authority.
+
+The account invalidation stream accelerates cross-Space Inbox and Space Index
+refreshes in Web and Desktop. Its frames carry no item or preview data. The
+client re-reads the owning projection on each frame and reconnect; bounded
+polling covers missed frames and older Desktop builds.
 
 Authenticated route loaders may warm these same Query keys during SSR and let
 the existing TanStack Router SSR Query integration hydrate them on direct entry.
@@ -5299,12 +5330,18 @@ create new truth.
 
 ## Setup Handoff Entry
 
-The final Agent creation action may return to Agents before Core acknowledges
-the request. Its local card is a presentation intent, never an Agent identity
-or Wakeability verdict. Keep the unacknowledged idempotency key across that
-route change, replace the local card on acceptance, and make failed local
-cards dismissible. Completion may select the real Agent only while the member
-is still following that request; it must not interrupt later navigation.
+The global Agent creation page presents an immediate local sending state, then
+tracks the exact durable Core request by ID. It retains an unacknowledged
+idempotency key across reload and reuses it for the same intent. The status
+steps show only confirmed request, identity, and setup milestones; they do not
+infer Wakeability. A completed self-request opens the canonical Agent Direct
+Message by default, or the requested Space after membership completes. The
+page does not wait for Team directory refresh before navigation and does not
+interrupt someone who has already left it. Creation history remains available
+for approval, failure, and recovery. A Local custom working folder stays with
+the idempotent creation intent until the exact accepted request is known; on
+reload, the same-tab draft is restored before final setup. Other compact
+creation entry points keep the same durable request and local intent semantics.
 
 Confirmed Space deletion intent immediately closes settings and opens Browse
 Spaces. Keep only the affected Space absent from list caches while the write

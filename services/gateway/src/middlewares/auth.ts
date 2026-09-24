@@ -3,7 +3,10 @@ import {
   OPENMELD_HEADER_PROFILE_ID,
   readOpenMeldRequestedOrganizationSelector,
 } from "@openmeld/gateway-contract";
-import { SPACE_PASSWORD_RATE_LIMITED_ERROR_CODE } from "@openmeld/schemas";
+import {
+  openMeldRequestedOrganizationSelectorSchema,
+  SPACE_PASSWORD_RATE_LIMITED_ERROR_CODE,
+} from "@openmeld/schemas";
 import {
   createAnonymousViewerSpaceAccessContext,
   createAuthenticatedSpaceAccessContext,
@@ -85,9 +88,7 @@ export const gatewayAuthMiddleware = createMiddleware<HonoBindings>(
       typeof readOpenMeldRequestedOrganizationSelector
     >;
     try {
-      requestedOrganization = readOpenMeldRequestedOrganizationSelector(
-        c.req.raw.headers
-      );
+      requestedOrganization = readRequestedOrganization(c);
     } catch {
       return jsonErrorResponse({
         status: 400,
@@ -174,6 +175,28 @@ export const gatewayAuthMiddleware = createMiddleware<HonoBindings>(
     await next();
   }
 );
+
+function readRequestedOrganization(c: Context<HonoBindings>) {
+  const headerSelector = readOpenMeldRequestedOrganizationSelector(
+    c.req.raw.headers
+  );
+  if (c.req.path !== "/v1/account/invalidation-stream") {
+    return headerSelector;
+  }
+  const organizationId = c.req.query("organizationId");
+  const querySelector = openMeldRequestedOrganizationSelectorSchema.parse({
+    organizationId,
+  });
+  if (
+    headerSelector &&
+    ("organizationId" in headerSelector
+      ? headerSelector.organizationId !== organizationId
+      : true)
+  ) {
+    throw new Error("Conflicting Organization selectors");
+  }
+  return querySelector;
+}
 
 function isPublicChangelogRequest(request: Request): boolean {
   return (

@@ -1,6 +1,7 @@
 import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   computerConnectionIntentSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import { Command, Option } from "commander";
@@ -5145,6 +5146,7 @@ profileCmd
   });
 
 function shouldUseProfileCreationRequest(input: {
+  agentController?: unknown;
   agentControllerCollaborationMode?: unknown;
   computer?: unknown;
   defaultProject?: unknown;
@@ -5157,6 +5159,7 @@ function shouldUseProfileCreationRequest(input: {
   space?: unknown;
 }): boolean {
   return (
+    input.agentController === HOSTED_REMOTE_AGENT_CONTROLLER_REF ||
     typeof input.owner === "string" ||
     typeof input.computer === "string" ||
     typeof input.project === "string" ||

@@ -5,6 +5,7 @@ import {
   type CenterAgentModelRoute,
   centerAgentModelRouteSchema,
   conversationCompactionMarkerSchema,
+  type ModelCatalogReadOptions,
   type OpenMeldNavigationTarget,
   openMeldNavigationTargetSchema,
   openMeldRuntimeProfileIdSchema,
@@ -125,6 +126,7 @@ import type {
   CreateCenterAgentRoutineResponse,
   DeleteCenterAgentRoutineResponse,
   ListCenterAgentRoutinesResponse,
+  ModelCatalog,
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
@@ -293,6 +295,9 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  getModelCatalog?(
+    options?: ModelCatalogReadOptions
+  ): Promise<ModelCatalog> | ModelCatalog;
   getSpaceTask?(input: unknown): Promise<unknown>;
   listSpaceTasks?(input: unknown): Promise<unknown>;
   createSpaceTask?(input: unknown): Promise<unknown>;

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -78,6 +79,34 @@ export async function checkProductionWeb({
   });
 }
 
+export async function waitForProductionWeb({
+  sleepImpl = sleep,
+  now = () => performance.now(),
+  maxWaitMs = 60_000,
+  retryDelayMs = 3000,
+  ...healthOptions
+}) {
+  if (!SOURCE_SHA.test(healthOptions.sourceSha)) {
+    throw new Error("An exact Web source SHA is required.");
+  }
+  new URL("/", healthOptions.url);
+  const startedAt = now();
+  for (;;) {
+    try {
+      return await checkProductionWeb(healthOptions);
+    } catch (cause) {
+      const remainingMs = maxWaitMs - (now() - startedAt);
+      if (remainingMs <= 0) {
+        throw new Error(
+          `Web SSR health did not match the verified release within ${maxWaitMs}ms: ${cause.message}`,
+          { cause }
+        );
+      }
+      await sleepImpl(Math.min(retryDelayMs, remainingMs));
+    }
+  }
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -108,7 +137,7 @@ if (
   }
   console.log(
     JSON.stringify(
-      await checkProductionWeb({
+      await waitForProductionWeb({
         url: values.url,
         sourceSha: values["source-sha"],
         expectedBuildId,

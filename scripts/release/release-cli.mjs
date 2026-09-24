@@ -370,7 +370,6 @@ export function assertCliReleaseVersionTarget(input = {}) {
       `CLI release version guard failed: selected ${input.targetVersion}; package ${String(packageVersion)}; manifest CLI ${String(manifestCliVersion)}; manifest Service ${String(manifestServiceVersion)}.`,
       "Next: inspect the touched local components and declare each real compatibility decision; the release path will not guess available:",
       `pnpm release:local-components plan --version ${input.targetVersion}`,
-      "pnpm run release:preflight",
     ].join("\n")
   );
 }
@@ -416,7 +415,7 @@ export async function assertChannelReadyForVersionOnlyRelease(input = {}) {
     throw new Error(
       [
         `CLI release refused: the production CLI manifest is missing channels.stable.version, so it is not possible to confirm releasing ${declaredVersion} without --with-binary is safe.`,
-        "Next: inspect all channel blockers with `pnpm run release:preflight`, or rerun the guarded CLI release with `pnpm run release:deploy:local -- --scope cli`.",
+        "Next: inspect the published channel with `pnpm release:local-components plan --next`, or rerun the guarded CLI release with `pnpm run release:deploy:local -- --scope cli`.",
       ].join("\n")
     );
   }
@@ -481,7 +480,7 @@ function formatChannelPreflightNetworkFailure(input) {
     `Fetching the production CLI manifest failed: ${input.error instanceof Error ? input.error.message : String(input.error)}`,
     "",
     "Failing closed: without confirming the channel already has this version, releasing without --with-binary risks the 2026-07-10 half-release incident (Core announces a version with no matching CLI binary).",
-    "Next: restore network access and run `pnpm run release:preflight`, or rerun the guarded CLI release with `pnpm run release:deploy:local -- --scope cli`.",
+    "Next: restore network access and retry `pnpm run release:deploy:local -- --scope cli`.",
   ].join("\n");
 }
 

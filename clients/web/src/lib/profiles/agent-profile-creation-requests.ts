@@ -110,6 +110,7 @@ export async function restartAgentProfileCreationOnComputer(input: {
 export async function createAgentProfileCreationRequest(input: {
 	configuration: AgentProfileCreationConfiguration;
 	idempotencyKey: string;
+	waitForCompletion?: boolean;
 	nativeSessionId?: string | null;
 	onAccepted?: (
 		request: AgentProfileCreationRequest,
@@ -185,7 +186,24 @@ export async function createAgentProfileCreationRequest(input: {
 		);
 	}
 
-	return { ...result, request: await waitForCreationResult(result.request) };
+	return input.waitForCompletion === false
+		? result
+		: { ...result, request: await waitForCreationResult(result.request) };
+}
+
+export async function readAgentProfileCreationRequest(input: {
+	organizationId: string;
+	requestId?: string;
+	idempotencyKey?: string;
+}): Promise<AgentProfileCreationRequest | null> {
+	try {
+		const response = await createApi(
+			input.organizationId
+		).listAgentProfileCreationRequests(input);
+		return response.requests[0] ?? null;
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
 }
 
 async function waitForCreationResult(

@@ -359,6 +359,39 @@ describe("Remote Agent user-visible work semantics", () => {
     ).toBeNull();
   });
 
+  it("describes GitHub catalog work without exposing action payloads or claiming completion", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("github_list_actions", {})
+    ).toEqual({
+      v: 1,
+      key: "connected_app.actions.read",
+      subject: { kind: "connected_app", label: "GitHub" },
+    });
+    expect(
+      resolveRemoteAgentToolWorkActivity("github_execute_action", {
+        actionId: "github.get_workflow_job_logs",
+        input: { secret: "private-input" },
+      })
+    ).toEqual({
+      v: 1,
+      key: "connected_app.action.execute",
+      subject: {
+        kind: "connected_app",
+        label: "GitHub: get workflow job logs",
+      },
+    });
+    expect(
+      resolveRemoteAgentToolWorkActivity("github_execute_action", {
+        actionId: "notion.read_page",
+      })
+    ).toBeNull();
+    expect(
+      resolveRemoteAgentToolWorkActivity("github_execute_action", {
+        actionId: "private value",
+      })
+    ).toBeNull();
+  });
+
   it("uses the shared executable-aware command semantics", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("bash", {
@@ -377,6 +410,9 @@ describe("Remote Agent user-visible work semantics", () => {
 });
 
 function inputForTool(toolName: string): Record<string, unknown> {
+  if (toolName === "github_execute_action") {
+    return { actionId: "github.get_workflow_job_logs" };
+  }
   if (toolName === "openmeld_list_app_actions") {
     return { service: "posthog" };
   }
