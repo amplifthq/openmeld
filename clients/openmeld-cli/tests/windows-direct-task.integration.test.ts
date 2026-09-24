@@ -230,13 +230,6 @@ $d=$folder.GetTask($name).Definition
           );
           expect(Number(oldProcess.stdout)).toBe(oldPid);
           await writeFile(release, "release");
-          await exec(
-            windowsPowerShellPath(),
-            powerShellEncodedArguments(
-              `$p = Get-Process -Id ${oldPid} -ErrorAction SilentlyContinue; if ($p) { $p | Wait-Process -Timeout 20 -ErrorAction Stop }`
-            ),
-            { encoding: "utf8", timeout: 30_000, windowsHide: true }
-          );
           await vi.waitFor(
             async () => {
               expect(
@@ -246,6 +239,14 @@ $d=$folder.GetTask($name).Definition
             },
             { timeout: 20_000 }
           );
+          const remainingOldProcess = await exec(
+            windowsPowerShellPath(),
+            powerShellEncodedArguments(
+              `[Console]::Out.Write([bool](Get-Process -Id ${oldPid} -ErrorAction SilentlyContinue))`
+            ),
+            { encoding: "utf8", timeout: 30_000, windowsHide: true }
+          );
+          expect(remainingOldProcess.stdout.trim()).toBe("False");
           await runWindowsUserTask({ ...request, operation: "start" });
           await vi.waitFor(
             async () => {

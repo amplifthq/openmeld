@@ -60,6 +60,7 @@ if (args[0] === "child") {
         finish();
       }
     });
+    console.log("direct task release received");
   }
   // Immediate exit also has to retain all log writes; no async copy must keep
   // the supervised process alive after its actual work has finished.
