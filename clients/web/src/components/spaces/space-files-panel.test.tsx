@@ -219,7 +219,7 @@ describe("SpaceFilesPanel", () => {
 		});
 	});
 
-	it("shows a video player entry without fetching its original in Files", async () => {
+	it("shows the video revision preview without downloading the full original in Files", async () => {
 		const file = {
 			...FILE,
 			name: "demo.mp4",
@@ -237,10 +237,12 @@ describe("SpaceFilesPanel", () => {
 			await screen.findByRole("button", { name: "Play demo.mp4" })
 		).toBeTruthy();
 		expect(spaceApiMocks.downloadFileContent).not.toHaveBeenCalled();
-		expect(document.querySelector("video")).toBeNull();
+		expect(document.querySelector("video")?.getAttribute("src")).toContain(
+			"/files/file-1/content?revision=1"
+		);
 	});
 
-	it("waits for the requested historical video metadata without fetching the current or original bytes", async () => {
+	it("waits for historical metadata before previewing that video revision", async () => {
 		const file = {
 			...FILE,
 			name: "demo.mp4",
@@ -279,7 +281,9 @@ describe("SpaceFilesPanel", () => {
 			await screen.findByRole("button", { name: "Play demo.mp4" })
 		).toBeTruthy();
 		expect(spaceApiMocks.downloadFileContent).not.toHaveBeenCalled();
-		expect(document.querySelector("video")).toBeNull();
+		expect(document.querySelector("video")?.getAttribute("src")).toContain(
+			"/files/file-1/content?revision=1"
+		);
 	});
 
 	it("shows image thumbnails instead of generic file icons in Files", async () => {

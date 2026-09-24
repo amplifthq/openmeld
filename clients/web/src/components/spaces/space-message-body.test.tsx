@@ -1228,7 +1228,7 @@ describe("SpaceMessageBody", () => {
 	it.each([
 		false,
 		true,
-	])("renders video messages for human and Agent replies without eagerly downloading (%s)", (isAgentFinalReply) => {
+	])("renders video first-frame previews for human and Agent replies without a full download (%s)", (isAgentFinalReply) => {
 		const client = new QueryClient();
 		const view = render(
 			<QueryClientProvider client={client}>
@@ -1255,7 +1255,9 @@ describe("SpaceMessageBody", () => {
 		expect(
 			screen.getByRole("button", { name: "Expand demo.mp4" })
 		).toBeTruthy();
-		expect(document.querySelector("video")).toBeNull();
+		expect(document.querySelector("video")?.getAttribute("src")).toContain(
+			"/files/demo/content?revision=3"
+		);
 		expect(downloadFileContent).not.toHaveBeenCalled();
 		view.unmount();
 		client.clear();
