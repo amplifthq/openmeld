@@ -313,6 +313,7 @@ function ConversationPreviewLink(input: {
 	const navigate = useNavigate();
 	const currentHref = useLocation({ select: (location) => location.href });
 	const href = buildSpaceMessageFocusHref(input.url, input.signalId);
+	const destination = conversationNavigationTarget(href);
 	return (
 		<Link
 			aria-label={`Open preview message in ${input.title}: ${input.text}`}
@@ -330,18 +331,18 @@ function ConversationPreviewLink(input: {
 				}
 				event.preventDefault();
 				navigate({
-					to: input.url,
+					...conversationNavigationTarget(input.url),
 					replace: true,
 					resetScroll: false,
 				})
-					.then(() => navigate({ to: href, resetScroll: false }))
+					.then(() => navigate({ ...destination, resetScroll: false }))
 					.catch((error: unknown) => {
 						console.error("Could not open preview message", error);
 						toast.error("Couldn't open this message. Try again.");
 					});
 			}}
 			resetScroll={false}
-			to={href}
+			{...destination}
 		>
 			{input.text}
 		</Link>
@@ -431,9 +432,16 @@ function ConversationActivityIndicator({
 			}
 			// Reset a previously consumed focus request so repeating this action scrolls again.
 			if (currentHref === destination && destination !== url) {
-				await navigate({ to: url, replace: true, resetScroll: false });
+				await navigate({
+					...conversationNavigationTarget(url),
+					replace: true,
+					resetScroll: false,
+				});
 			}
-			await navigate({ to: destination, resetScroll: false });
+			await navigate({
+				...conversationNavigationTarget(destination),
+				resetScroll: false,
+			});
 		} catch (error) {
 			console.error("Could not open active work", error);
 			toast.error(
@@ -467,7 +475,7 @@ function ConversationActivityIndicator({
 							}
 						}}
 						resetScroll={false}
-						to={href}
+						{...conversationNavigationTarget(href)}
 					/>
 				}
 			>
@@ -485,6 +493,15 @@ function ConversationActivityIndicator({
 			<TooltipContent side="top">{presentation.label}</TooltipContent>
 		</Tooltip>
 	);
+}
+
+function conversationNavigationTarget(href: string) {
+	const url = new URL(href, "https://openmeld.invalid");
+	return {
+		to: url.pathname,
+		search: Object.fromEntries(url.searchParams),
+		hash: url.hash.slice(1),
+	};
 }
 
 function ConversationIcon(input: {
