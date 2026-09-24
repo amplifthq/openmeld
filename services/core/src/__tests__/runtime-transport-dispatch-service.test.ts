@@ -268,6 +268,14 @@ describe("runtime transport dispatch service", () => {
     session.connectionGeneration += 1;
     session.socket = null;
     session.acceptingDispatches = false;
+    session.admissionEvidence = {
+      acceptingDispatches: false,
+      connectionGeneration: session.connectionGeneration,
+      revision: 2,
+      changedAtMs: 1234,
+      reasonCode: "host_configure_failed",
+      detailCode: "host.catalog_replaced",
+    };
     session.profileIds.delete(request.profileId);
     expect(
       projectRuntimeTransportDeliveryRouteEvidence({ request, state })
@@ -277,6 +285,7 @@ describe("runtime transport dispatch service", () => {
       session: "connection_replaced",
       socket: "missing",
       acceptingDispatches: "not_accepting",
+      admissionEvidence: session.admissionEvidence,
       profileRoute: "not_registered",
     });
   });
@@ -290,6 +299,15 @@ describe("runtime transport dispatch service", () => {
     }
     const restoredSocket = session.socket;
     session.socket = null;
+    session.acceptingDispatches = false;
+    session.admissionEvidence = {
+      acceptingDispatches: false,
+      connectionGeneration: session.connectionGeneration,
+      revision: 4,
+      changedAtMs: 1234,
+      reasonCode: "host_configure_failed",
+      detailCode: "host.catalog_replaced",
+    };
     let witnessed:
       | {
           evidence: RuntimeCoordinatorDeliveryRouteEvidence;
@@ -304,6 +322,14 @@ describe("runtime transport dispatch service", () => {
         // Reproduce the race that made post-return sampling ambiguous: the
         // connection is restored before the caller receives the rejection.
         session.socket = restoredSocket;
+        session.acceptingDispatches = true;
+        session.admissionEvidence = {
+          acceptingDispatches: true,
+          connectionGeneration: session.connectionGeneration,
+          revision: 5,
+          changedAtMs: 1235,
+          reasonCode: "host_ready",
+        };
       },
       reapExpiredLeases: () => undefined,
       resolvePendingResultWaiters: () => undefined,
@@ -318,7 +344,12 @@ describe("runtime transport dispatch service", () => {
     expect(session.socket).toBe(restoredSocket);
     expect(witnessed).toMatchObject({
       evidence: {
-        acceptingDispatches: "accepting",
+        acceptingDispatches: "not_accepting",
+        admissionEvidence: {
+          reasonCode: "host_configure_failed",
+          detailCode: "host.catalog_replaced",
+          revision: 4,
+        },
         owner: "matching",
         profileLease: "matching",
         profileRoute: "registered",

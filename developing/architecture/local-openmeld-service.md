@@ -93,6 +93,13 @@ its current-generation response confirms it is ready, and closes when that
 observation fails. A shared Host failure may affect all its Agents, not the
 independent connector. Last-known Host observations are not fresh health.
 
+The runner records only changes to dispatch admission, with a bounded reason
+from its current Host/connection observation. It includes the connection
+generation and revision in the next heartbeat only when Core advertised
+admission-evidence support in the register response. Old Core receives the old
+heartbeat shape. This evidence explains a closed route in Trace; it does not
+grant admission or replace the current Host health check.
+
 Before local preparation and again immediately before each native provider turn,
 the Host waits for a correlated acknowledgment of its existing lifecycle report
 from RuntimeCoordinator. Core validates the execution token and records lifecycle

@@ -1167,6 +1167,18 @@ connection updates routes, leases, and permissions without closing admission
 or restarting result replay. A changed connection or failed Host update closes
 admission until current Host evidence reopens it.
 
+Admission changes carry bounded diagnostic evidence, not a second readiness
+decision. The local Service reports the current open/closed transition reason,
+connection generation, revision, and local transition time only after the Core
+register response advertises support. Core records matching evidence with its
+Runtime Transport session and copies it into the delivery decision's route
+evidence. A rejected Wake retains that exact snapshot in its RuntimeCoordinator
+event even after the Service reopens. A new Core session starts with Core-owned
+`connection_initializing` or `connection_replaced` evidence; old Services and
+unreported later transitions remain explicitly unknown. Diagnostic details use
+bounded codes, never raw errors or message content. Evidence cannot open
+admission, extend a wait, retry an execution, or change an outcome.
+
 Core-owned Wakeability is the only final user-facing projection for this
 question. Web, CLI, Space, and Start render it; they do not recompute it.
 
@@ -2217,6 +2229,12 @@ Trace must preserve enough evidence to connect:
 - `publishedSignalId`
 - `replySignalId`
 - Cloudflare runtime evidence when available
+
+For a delivery rejected while the route is connected but not accepting work,
+Trace must show the admission reason attached to that rejection, including its
+transition revision and generation, or explicitly say that the reason was not
+reported. The current healthy route must not overwrite the historical rejected
+attempt's evidence.
 
 The canonical selector and correlation contract is the Correlation Chain in
 `developing/architecture/data-and-observability.md`, with the shared schema in
