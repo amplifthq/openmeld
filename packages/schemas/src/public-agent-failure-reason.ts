@@ -119,7 +119,7 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       return (
         resolveMappedPublicAgentFailureReason(
           input.failureCode,
-          "Center Agent"
+          input.agentLabel ?? "Center Agent"
         ) ?? requestFailed
       );
     case "remote_agent.turn.timeout":
