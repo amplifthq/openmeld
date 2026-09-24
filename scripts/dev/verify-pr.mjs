@@ -34,28 +34,18 @@ export function resolveUnitTestScript(
 }
 
 export function planPrChecks(paths, options = {}) {
-  const commands = [];
-  if (paths.some(isWorkerZodImportCheckPath)) {
-    commands.push(["run", "verify:worker-zod-imports"]);
-  }
-  if (paths.some(isCliSkillCheckPath)) {
-    commands.push(["run", "verify:cli-skill"]);
-  }
-  if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
-    commands.push(["run", "verify:docs", "--", "--strict"]);
-  }
-  if (
-    paths.some(
-      (file) => file.startsWith("changelog/") || file === "CHANGELOG.md"
-    )
-  ) {
-    commands.push(["run", "verify:changelog"]);
-  }
-  if (!options.feedback && paths.some((file) => CONTROL_PATH.test(file))) {
-    commands.push(["run", "verify:release-workflows"]);
-  }
+  const commands = options.workspace ? [] : planGlobalChecks(paths);
   if (options.feedback) {
-    return [...commands, ...planFocusedChecks(paths, options)];
+    const focusedOptions = {
+      ...options,
+      includeCommon: !options.workspace,
+      buildWorkspaces: options.shared ? options.workspaces : undefined,
+      workspaces: selectFeedbackWorkspaces(options),
+    };
+    return [...commands, ...planFocusedChecks(paths, focusedOptions)];
+  }
+  if (paths.some((file) => CONTROL_PATH.test(file))) {
+    commands.push(["run", "verify:release-workflows"]);
   }
   if (paths.some((file) => !DOCUMENTATION_PATH.test(file))) {
     // Preserve Turbo's package graph, lockfile handling, and downstream selection.
@@ -84,11 +74,44 @@ export function planPrChecks(paths, options = {}) {
   return commands;
 }
 
+function planGlobalChecks(paths) {
+  const commands = [];
+  if (paths.some(isWorkerZodImportCheckPath)) {
+    commands.push(["run", "verify:worker-zod-imports"]);
+  }
+  if (paths.some(isCliSkillCheckPath)) {
+    commands.push(["run", "verify:cli-skill"]);
+  }
+  if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
+    commands.push(["run", "verify:docs", "--", "--strict"]);
+  }
+  if (
+    paths.some(
+      (file) => file.startsWith("changelog/") || file === "CHANGELOG.md"
+    )
+  ) {
+    commands.push(["run", "verify:changelog"]);
+  }
+  return commands;
+}
+
+function selectFeedbackWorkspaces(options) {
+  if (options.workspace) {
+    return (options.workspaces ?? []).filter(
+      (item) => item.directory === options.workspace
+    );
+  }
+  return options.shared ? [] : options.workspaces;
+}
+
 function planFocusedChecks(paths, options) {
   const existingFiles = new Set(options.existingFiles ?? paths);
   const changedFiles = paths.filter((file) => existingFiles.has(file));
   const commands = [];
-  if (changedFiles.some((file) => !DOCUMENTATION_PATH.test(file))) {
+  if (
+    options.includeCommon &&
+    changedFiles.some((file) => !DOCUMENTATION_PATH.test(file))
+  ) {
     commands.push([
       "exec",
       "biome",
@@ -98,52 +121,39 @@ function planFocusedChecks(paths, options) {
       ...changedFiles,
     ]);
   }
-  const nodeTests = [
-    ...new Set(
-      paths
-        .filter((file) => NODE_SOURCE_PATH.test(file))
-        .map((file) =>
-          file.endsWith(".test.mjs")
-            ? file
-            : file.replace(NODE_EXTENSION, ".test.mjs")
-        )
-        .filter((file) => existingFiles.has(file))
-    ),
-  ].toSorted();
+  const nodeTests = options.includeCommon
+    ? [
+        ...new Set(
+          paths
+            .filter((file) => NODE_SOURCE_PATH.test(file))
+            .map((file) =>
+              file.endsWith(".test.mjs")
+                ? file
+                : file.replace(NODE_EXTENSION, ".test.mjs")
+            )
+            .filter((file) => existingFiles.has(file))
+        ),
+      ].toSorted()
+    : [];
   const nodeTestCommand =
     nodeTests.length > 0
       ? ["exec", "node", "--test", "--test-concurrency=1", ...nodeTests]
       : null;
   const workspaceCommands = [];
   const buildFilters = [];
+  const buildWorkspaces = options.buildWorkspaces ?? options.workspaces ?? [];
+  const buildDirectories = new Set(
+    feedbackWorkspaces(paths, buildWorkspaces).map(({ directory }) => directory)
+  );
+  for (const workspace of buildWorkspaces) {
+    if (buildDirectories.has(workspace.directory) && workspace.name) {
+      buildFilters.push(`--filter=${workspace.name}^...`);
+    }
+  }
   for (const workspace of options.workspaces ?? []) {
-    const sources = paths
-      .filter(
-        (file) =>
-          file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
-      )
-      .map((file) => file.slice(workspace.directory.length + 1));
-    if (sources.length > 0 && workspace.test) {
-      if (workspace.name) {
-        buildFilters.push(`--filter=${workspace.name}^...`);
-      }
-      if (!VITEST_SCRIPT.test(workspace.test ?? "")) {
-        workspaceCommands.push(["--dir", workspace.directory, "run", "test"]);
-        continue;
-      }
-      workspaceCommands.push([
-        "--dir",
-        workspace.directory,
-        "exec",
-        "vitest",
-        "related",
-        "--run",
-        ...workspace.test.split(WHITESPACE).slice(2),
-        "--passWithNoTests",
-        "--maxWorkers=2",
-        "--no-file-parallelism",
-        ...sources,
-      ]);
+    const command = focusedWorkspaceCommand(paths, workspace);
+    if (command) {
+      workspaceCommands.push(command);
     }
   }
   if (buildFilters.length > 0) {
@@ -160,6 +170,50 @@ function planFocusedChecks(paths, options) {
     commands.push(nodeTestCommand);
   }
   return [...commands, ...workspaceCommands];
+}
+
+function focusedWorkspaceCommand(paths, workspace) {
+  if (!workspace.test) {
+    return null;
+  }
+  const sources = paths
+    .filter(
+      (file) =>
+        file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
+    )
+    .map((file) => file.slice(workspace.directory.length + 1));
+  if (sources.length === 0) {
+    return null;
+  }
+  if (!VITEST_SCRIPT.test(workspace.test)) {
+    return ["--dir", workspace.directory, "run", "test"];
+  }
+  return [
+    "--dir",
+    workspace.directory,
+    "exec",
+    "vitest",
+    "related",
+    "--run",
+    ...workspace.test.split(WHITESPACE).slice(2),
+    "--passWithNoTests",
+    "--maxWorkers=2",
+    "--no-file-parallelism",
+    ...sources,
+  ];
+}
+
+export function feedbackWorkspaces(paths, workspaces) {
+  return workspaces
+    .filter(
+      (workspace) =>
+        workspace.test &&
+        paths.some(
+          (file) =>
+            file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
+        )
+    )
+    .map(({ directory }) => ({ directory }));
 }
 
 export function runPrChecks(commands, run = spawnSync) {
@@ -216,7 +270,27 @@ export function runVerification(options = {}) {
           };
         })
     : [];
-  const commands = planPrChecks(paths, { feedback, existingFiles, workspaces });
+  if (options.matrix) {
+    console.log(
+      JSON.stringify({ include: feedbackWorkspaces(paths, workspaces) })
+    );
+    return 0;
+  }
+  if (
+    options.workspace &&
+    !feedbackWorkspaces(paths, workspaces).some(
+      (item) => item.directory === options.workspace
+    )
+  ) {
+    throw new Error(`No selected feedback workspace: ${options.workspace}`);
+  }
+  const commands = planPrChecks(paths, {
+    feedback,
+    existingFiles,
+    workspaces,
+    shared: options.shared,
+    workspace: options.workspace,
+  });
   if (options.plan) {
     console.log(
       JSON.stringify(
@@ -259,5 +333,8 @@ if (
     feedback: process.argv.includes("--feedback"),
     committed: process.argv.includes("--committed"),
     plan: process.argv.includes("--plan"),
+    matrix: process.argv.includes("--matrix"),
+    shared: process.argv.includes("--shared"),
+    workspace: process.env.VERIFY_PR_WORKSPACE,
   });
 }

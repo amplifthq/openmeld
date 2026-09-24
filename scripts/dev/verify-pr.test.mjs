@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { parse } from "yaml";
 import {
+  feedbackWorkspaces,
   planPrChecks,
   resolveUnitTestScript,
   runPrChecks,
@@ -41,17 +42,100 @@ test("automatic draft feedback cannot start the full affected lane", () => {
     )
   );
   assert.equal(
-    workflow.jobs.verify.if,
+    workflow.jobs.shared.if,
     "github.event.pull_request.draft == true"
+  );
+  assert.equal(workflow.jobs.workspaces.needs, "shared");
+  assert.equal(workflow.jobs.workspaces.strategy["fail-fast"], false);
+  assert.ok(
+    workflow.jobs.workspaces.strategy.matrix.includes(
+      "fromJSON(needs.shared.outputs.workspaces)"
+    )
   );
   assert.ok(workflow.on.pull_request.types.includes("converted_to_draft"));
   assert.ok(workflow.on.pull_request.types.includes("ready_for_review"));
   assert.equal(workflow.permissions.contents, "read");
   assert.equal(workflow.concurrency["cancel-in-progress"], true);
-  const runs = workflow.jobs.verify.steps
-    .filter((step) => step.run)
-    .map((step) => step.run);
-  assert.ok(runs.every((command) => command.includes("--feedback")));
+  const shared = workflow.jobs.shared.steps.find(
+    (step) => step.name === "Run shared feedback"
+  );
+  const workspace = workflow.jobs.workspaces.steps.find(
+    (step) => step.name === "Run selected workspace tests"
+  );
+  assert.ok(shared.run.includes("--feedback --shared"));
+  assert.ok(workspace.run.includes("--feedback"));
+  assert.ok(
+    workflow.jobs.workspaces.env.VERIFY_PR_WORKSPACE.includes(
+      "matrix.directory"
+    )
+  );
+});
+
+test("draft feedback partitions every selected workspace without dropping shared checks", () => {
+  const paths = [
+    "scripts/dev/verify-pr.test.mjs",
+    "clients/web/src/app.tsx",
+    "clients/openmeld-cli/src/commands/service.ts",
+    "clients/desktop/src/deleted.ts",
+  ];
+  const existingFiles = paths.slice(0, 3);
+  const workspaces = [
+    { directory: "clients/web", name: "openmeld-web", test: "vitest run" },
+    { directory: "clients/openmeld-cli", name: "openmeld", test: "vitest run" },
+    {
+      directory: "clients/desktop",
+      name: "@openmeld/desktop",
+      test: "vitest run",
+    },
+  ];
+  assert.deepEqual(feedbackWorkspaces(paths, workspaces), [
+    { directory: "clients/web" },
+    { directory: "clients/openmeld-cli" },
+    { directory: "clients/desktop" },
+  ]);
+  const shared = planPrChecks(paths, {
+    feedback: true,
+    shared: true,
+    existingFiles,
+    workspaces,
+  });
+  assert.ok(
+    shared.some((args) => args.includes("scripts/dev/verify-pr.test.mjs"))
+  );
+  assert.ok(shared.some((args) => args.includes("biome")));
+  assert.ok(shared.some((args) => args.includes("--filter=openmeld-web^...")));
+  assert.ok(shared.some((args) => args.includes("--filter=openmeld^...")));
+  assert.ok(!shared.some((args) => args.includes("related")));
+  const partitionedTests = [];
+  for (const workspace of [
+    "clients/web",
+    "clients/openmeld-cli",
+    "clients/desktop",
+  ]) {
+    const commands = planPrChecks(paths, {
+      feedback: true,
+      workspace,
+      existingFiles,
+      workspaces,
+    });
+    assert.equal(commands.filter((args) => args.includes("related")).length, 1);
+    assert.ok(commands.at(-1).some((arg) => arg.startsWith("src/")));
+    assert.ok(!commands.some((args) => args.includes("biome")));
+    assert.ok(
+      !commands.some((args) => args.includes("scripts/dev/verify-pr.test.mjs"))
+    );
+    partitionedTests.push(commands.at(-1));
+  }
+  const originalTests = planPrChecks(paths, {
+    feedback: true,
+    existingFiles,
+    workspaces,
+  }).filter((args) => args.includes("related"));
+  assert.deepEqual(partitionedTests, originalTests);
+  assert.deepEqual(
+    feedbackWorkspaces(["developing/README.md"], workspaces),
+    []
+  );
 });
 
 test("Worker changes select the existing Zod contract guard before expensive tests", () => {

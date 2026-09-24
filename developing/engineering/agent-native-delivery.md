@@ -138,8 +138,12 @@ locally fetched `origin/main`. Missing base history is an error: fetch it.
 Recheck identity and cleanliness after success. Deletions need no tests;
 protected release pushes retain strict release verification.
 
-Draft PR Feedback runs the same focused checks remotely against the full PR
-diff. It is independent feedback, not permission to merge. Keep leaf PRs in
+Draft PR Feedback plans from the full PR diff. It runs the shared contracts,
+changed-file lint, dependency build, and adjacent Node tests once, then gives
+each changed workspace its own related-test job. These jobs retain the package
+test command, isolated `OPENMELD_HOME`, and failure status; they do not combine
+several large workspace suites into one job's time budget. It is independent
+feedback, not permission to merge. Keep leaf PRs in
 draft during development and batch preparation. Mark ready only when a green
 FC would make merge the next action. New commits cancel superseded feedback
 and FC runs for that PR.

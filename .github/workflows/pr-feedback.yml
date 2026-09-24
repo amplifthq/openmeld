@@ -13,11 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Focused checks and tests
+  shared:
+    name: Shared feedback
     if: github.event.pull_request.draft == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      workspaces: ${{ steps.matrix.outputs.workspaces }}
+      has_workspaces: ${{ steps.matrix.outputs.has_workspaces }}
     env:
       OPENMELD_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
       NODE_OPTIONS: --max-old-space-size=6144
@@ -27,9 +30,44 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup-node-pnpm
+      - name: Select changed workspaces
+        id: matrix
+        shell: bash
+        run: |
+          matrix_json="$(node scripts/dev/verify-pr.mjs --feedback --matrix)"
+          printf 'workspaces=%s\n' "$matrix_json" >> "$GITHUB_OUTPUT"
+          if [ "$matrix_json" = '{"include":[]}' ]; then
+            printf 'has_workspaces=false\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'has_workspaces=true\n' >> "$GITHUB_OUTPUT"
+          fi
       - name: Show selected checks
-        run: pnpm run verify:pr -- --feedback --plan
-      - name: Run early feedback
+        run: pnpm run verify:pr -- --feedback --shared --plan
+      - name: Run shared feedback
+        env:
+          OPENMELD_HOME: ${{ runner.temp }}/openmeld-pr-feedback
+        run: pnpm run verify:pr -- --feedback --shared
+
+  workspaces:
+    name: Focused tests (${{ matrix.directory }})
+    needs: shared
+    if: needs.shared.outputs.has_workspaces == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.shared.outputs.workspaces) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENMELD_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
+      VERIFY_PR_WORKSPACE: ${{ matrix.directory }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Run selected workspace tests
         env:
           OPENMELD_HOME: ${{ runner.temp }}/openmeld-pr-feedback
         run: pnpm run verify:pr -- --feedback
