@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
@@ -107,6 +108,66 @@ describe("Remote Agent worker contracts", () => {
     expect(
       remoteAgentWorkerSubmitTurnRequestSchema.safeParse(request).success
     ).toBe(true);
+    const routineTrigger = {
+      authorizedActions: [],
+      destination: { kind: "space" as const, spaceId: identity.spaceId },
+      routineId: "routine_1",
+      routineName: "Daily review",
+      runId: "routine_run_1",
+      scheduledFor: 1_783_382_400_000,
+      source: "routine" as const,
+    };
+    const routineConversationId = buildRemoteAgentRoutineRunConversationId({
+      agentProfileId: identity.agentProfileId,
+      organizationId: identity.organizationId,
+      runId: routineTrigger.runId,
+    });
+    expect(
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: identity.agentProfileId,
+        organizationId: identity.organizationId,
+        runId: "routine_run_2",
+      })
+    ).not.toBe(routineConversationId);
+    const routineRequest = {
+      ...request,
+      conversationId: routineConversationId,
+      runtimeConversation: { generation: 0, id: routineConversationId },
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        sender: {
+          createdByUserId: "user_1",
+          delegatedBy: {
+            displayName: "Felix",
+            id: "member_1",
+            ownerUserId: "user_1",
+            verified: true,
+          },
+          kind: "routine",
+          routineId: routineTrigger.routineId,
+        },
+        trigger: routineTrigger,
+      },
+    };
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse(routineRequest).success
+    ).toBe(true);
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
+        ...routineRequest,
+        conversationId,
+        runtimeConversation: { generation: 0, id: conversationId },
+      }).success
+    ).toBe(true);
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
+        ...routineRequest,
+        turnEnvelope: {
+          ...routineRequest.turnEnvelope,
+          trigger: { ...routineTrigger, runId: "routine_run_2" },
+        },
+      }).success
+    ).toBe(false);
     for (const invalid of [
       { v: 3 },
       {

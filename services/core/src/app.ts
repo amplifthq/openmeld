@@ -5,6 +5,7 @@ import { prettyJSON } from "hono/pretty-json";
 import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import { trimTrailingSlash } from "hono/trailing-slash";
+import { registerAccountInvalidationRoute } from "./account-invalidation/account-invalidation-route";
 import { warnOnSharedDbMigrationDriftOnce } from "./db/migration-drift";
 import type { HonoBindings } from "./lib/bindings";
 import { resolveActiveOrganizationMembership } from "./organizations/organization-context";
@@ -125,6 +126,11 @@ export function createHttpApp() {
         requireActiveOrganization: true,
       });
     })
+    .use("/v1/account/invalidation-stream", (c, next) => {
+      return requireResolvedOpenMeldContext(c, next, {
+        requireActiveOrganization: true,
+      });
+    })
     .use("/v1/daemon", (c, next) => {
       return requireResolvedOpenMeldContext(c, next);
     })
@@ -137,6 +143,7 @@ export function createHttpApp() {
   registerDaemonRoutes(app);
   registerPrepareSessionRoutes(app);
   registerSpaceRoutes(app);
+  registerAccountInvalidationRoute(app);
 
   app.onError((error, c) => {
     const errorMessage = error instanceof Error ? error.message : String(error);

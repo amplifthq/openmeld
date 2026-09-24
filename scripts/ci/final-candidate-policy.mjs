@@ -246,15 +246,34 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
       )
     );
   }
-  selectedChecks.push(
-    check(
-      "repository-contracts",
-      ["pnpm", "run", "verify:pre-push:checks"],
-      context.repositoryControlChange
-        ? "CI, release, dependency, or repository control files changed."
-        : "Executable source changed, so repository-wide static contracts remain relevant."
-    )
-  );
+  if (context.repositoryControlChange) {
+    selectedChecks.push(
+      check(
+        "repository-contracts",
+        ["pnpm", "run", "verify:pre-push:checks"],
+        "CI, release, dependency, or repository control files changed."
+      )
+    );
+  } else {
+    if (context.changedPaths.some(isDocumentationPath)) {
+      selectedChecks.push(
+        check(
+          "documentation-contracts",
+          ["pnpm", "run", "verify:docs", "--", "--strict"],
+          "Tracked documentation changed."
+        )
+      );
+    }
+    if (context.changedPaths.some(isChangelogPath)) {
+      selectedChecks.push(
+        check(
+          "changelog-contract",
+          ["pnpm", "run", "verify:changelog"],
+          "Changelog source or projection changed."
+        )
+      );
+    }
+  }
   if (context.confidence === "full") {
     selectedChecks.push(
       check(

@@ -43,6 +43,7 @@ import {
 import { applyDesktopDevelopmentContext } from "./development-context";
 import { installedCommandEnvironment } from "./installed-environment";
 import { createLocalComputerReader } from "./local-computer";
+import { createPilotAccountStreams } from "./pilot-account-stream";
 import { resolvePilotAssets } from "./pilot-assets";
 import { createPilotAuth } from "./pilot-auth";
 import { observePilotWindow } from "./pilot-diagnostics";
@@ -175,6 +176,7 @@ export function initializeDesktopPilot(
       sessionRevision += 1;
       desktopUpdateAccountChanged?.();
       streams.closeAll();
+      accountStreams.closeAll();
       notifications.clear();
       const owner = getWindow()?.webContents;
       if (owner && !owner.isDestroyed()) {
@@ -190,6 +192,13 @@ export function initializeDesktopPilot(
     installed: Boolean(installedTarget),
     ensureCompatible,
     observe: transportDiagnostics.record,
+  });
+  const accountStreams = createPilotAccountStreams({
+    webOrigin,
+    webBuild: platform.webBuild,
+    cookie: auth.cookie,
+    installed: Boolean(installedTarget),
+    ensureCompatible,
   });
   const notifications = createPilotNotifications({
     auth,
@@ -340,6 +349,7 @@ export function initializeDesktopPilot(
           latestConnectionOperation = null;
           notifications.clear();
           streams.closeAll();
+          accountStreams.closeAll();
           return auth.signIn();
         },
         [PILOT_IPC.signOut]: () => {
@@ -347,6 +357,7 @@ export function initializeDesktopPilot(
           latestConnectionOperation = null;
           notifications.clear();
           streams.closeAll();
+          accountStreams.closeAll();
           return auth.signOut();
         },
       };
@@ -584,9 +595,13 @@ export function initializeDesktopPilot(
         const frame = event.senderFrame;
         if (!observedOwners.has(owner)) {
           observedOwners.add(owner);
-          owner.once("destroyed", streams.closeAll);
-          owner.on("did-navigate", streams.closeAll);
-          owner.on("render-process-gone", streams.closeAll);
+          const closeStreams = () => {
+            streams.closeAll();
+            accountStreams.closeAll();
+          };
+          owner.once("destroyed", closeStreams);
+          owner.on("did-navigate", closeStreams);
+          owner.on("render-process-gone", closeStreams);
         }
         return streams.open(raw, (value) => {
           if (
@@ -605,6 +620,43 @@ export function initializeDesktopPilot(
       ipcMain.handle(PILOT_IPC.spaceStreamPing, (event, raw: unknown) => {
         authorize(event);
         streams.ping(raw);
+      });
+      ipcMain.handle(PILOT_IPC.accountStreamOpen, (event, raw: unknown) => {
+        authorize(event);
+        const owner = event.sender;
+        const frame = event.senderFrame;
+        if (!observedOwners.has(owner)) {
+          observedOwners.add(owner);
+          owner.once("destroyed", () => {
+            streams.closeAll();
+            accountStreams.closeAll();
+          });
+          owner.on("did-navigate", () => {
+            streams.closeAll();
+            accountStreams.closeAll();
+          });
+          owner.on("render-process-gone", () => {
+            streams.closeAll();
+            accountStreams.closeAll();
+          });
+        }
+        return accountStreams.open(raw, (value) => {
+          if (
+            !owner.isDestroyed() &&
+            getWindow()?.webContents === owner &&
+            owner.mainFrame === frame
+          ) {
+            owner.send(PILOT_IPC.accountStreamEvent, value);
+          }
+        });
+      });
+      ipcMain.handle(PILOT_IPC.accountStreamClose, (event, raw: unknown) => {
+        authorize(event);
+        accountStreams.close(raw);
+      });
+      ipcMain.handle(PILOT_IPC.accountStreamPing, (event, raw: unknown) => {
+        authorize(event);
+        accountStreams.ping(raw);
       });
     },
   };

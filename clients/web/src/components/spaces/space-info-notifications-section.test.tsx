@@ -78,7 +78,9 @@ describe("SpaceInfoNotificationsSection", () => {
 
 	it("does not render without an organization context", () => {
 		useOptionalAppOrganizationMock.mockReturnValue(null);
-		const { container } = render(<SpaceInfoNotificationsSection />);
+		const { container } = render(
+			<SpaceInfoNotificationsSection spaceId="space-1" />
+		);
 		expect(container.innerHTML).toBe("");
 	});
 
@@ -86,7 +88,7 @@ describe("SpaceInfoNotificationsSection", () => {
 		useOptionalAppOrganizationMock.mockReturnValue({
 			currentUserId: "user-123",
 		});
-		render(<SpaceInfoNotificationsSection />);
+		render(<SpaceInfoNotificationsSection spaceId="space-1" />);
 
 		const description = screen.getByText(GLOBAL_SCOPE_TEXT_PATTERN);
 		expect(description.textContent).toContain("Settings > Notifications");
@@ -110,7 +112,7 @@ describe("SpaceInfoNotificationsSection", () => {
 			soundEnabled: true,
 		});
 
-		render(<SpaceInfoNotificationsSection />);
+		render(<SpaceInfoNotificationsSection spaceId="space-1" />);
 
 		expect(screen.getByText(BLOCKED_PERMISSION_GUIDANCE_PATTERN)).toBeTruthy();
 	});

@@ -11,7 +11,7 @@ export function desktopPublisherCredentials(env = process.env) {
   const token = env[RELEASE_TOKEN_NAME]?.trim();
   if (!(CLOUDFLARE_ACCOUNT_ID.test(accountId ?? "") && token)) {
     throw new Error(
-      `Desktop publication requires CLOUDFLARE_ACCOUNT_ID and ${RELEASE_TOKEN_NAME} from openmeld-release/prd. Check them before signing; local Wrangler OAuth is not a publishing identity.`
+      `Desktop release R2 access requires CLOUDFLARE_ACCOUNT_ID and ${RELEASE_TOKEN_NAME} from openmeld-release/prd. Local Wrangler OAuth is not a publishing identity.`
     );
   }
   return {

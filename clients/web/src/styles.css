@@ -366,6 +366,16 @@ html[data-space-self-message-alignment="right"]
   }
 }
 
+/* A video needs a stable frame width; ordinary text bubbles still shrink to fit. */
+:root [data-message-row-id] [data-slot="bubble"][data-video-message="true"],
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]
+  [data-message-row-id]
+  [data-slot="bubble"][data-video-message="true"] {
+  inline-size: min(100%, 26rem);
+  max-inline-size: min(100%, 26rem);
+}
+
 @media (min-width: 1280px) {
   html[data-space-conversation-layout="centered"]
     [data-space-conversation-content-width] {

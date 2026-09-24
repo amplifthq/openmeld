@@ -16,13 +16,13 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { verifyWindowsDesktopSignature } from "../../clients/desktop/src/main/update/windows-signature.ts";
 import { assertWindowsUpdaterConfiguration } from "../../clients/desktop/src/main/update/windows-updater-configuration.ts";
 import {
   desktopProductionSourceSchema,
   desktopWebBuildSchema,
 } from "../../packages/schemas/dist/desktop-client.js";
 import { desktopWindowsBuildSchema } from "../../packages/schemas/dist/desktop-release.js";
+import { verifyWindowsArtifactSignature } from "../../runtime/local-service/src/windows-artifact-signature.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
 
 const PE_MACHINE = { "windows-x64": 0x86_64, "windows-arm64": 0xaa_64 };
@@ -150,7 +150,7 @@ export async function inspectWindowsDesktopCandidate({
   }
   const windows = desktopWindowsBuildSchema.parse(rawWindows);
   const before = await fingerprint(artifactPath);
-  await verifyWindowsDesktopSignature(artifactPath, windows.publisherName);
+  await verifyWindowsArtifactSignature(artifactPath, windows.publisherName);
   const sevenZip = resolve7Zip(process.env);
   const temporary = mkdtempSync(join(tmpdir(), "openmeld-windows-candidate-"));
   const run = (args) =>
@@ -181,7 +181,7 @@ export async function inspectWindowsDesktopCandidate({
     run(["x", payload, `-o${app}`, "-y", "-bd"]);
     const executable = ownedFile(app, "OpenMeld.exe");
     assertWindowsPeArchitecture(executableHeader(executable), windows.platform);
-    await verifyWindowsDesktopSignature(executable, windows.publisherName);
+    await verifyWindowsArtifactSignature(executable, windows.publisherName);
     const source = JSON.parse(
       readMetadata(ownedFile(app, "resources/desktop-production-source.json"))
     );
@@ -227,6 +227,109 @@ export async function inspectWindowsDesktopCandidate({
       throw new Error("Windows installer changed during verification.");
     }
     return releaseSha;
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
+/** Inspect the shipped unsigned internal installer without installing it. */
+export async function inspectWindowsInternalPreview({
+  repoRoot,
+  artifactPath,
+  version,
+  sourceSha,
+  expectedWebBuild,
+}) {
+  if (process.platform !== "win32") {
+    throw new Error("Inspect the internal Desktop preview on native Windows.");
+  }
+  const before = await fingerprint(artifactPath);
+  const sevenZip = resolve7Zip(process.env);
+  const temporary = mkdtempSync(join(tmpdir(), "openmeld-windows-preview-"));
+  const run = (args) =>
+    execFileSync(sevenZip, args, {
+      windowsHide: true,
+      timeout: 120_000,
+      maxBuffer: 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  try {
+    const outer = join(temporary, "installer");
+    const app = join(temporary, "app");
+    mkdirSync(outer);
+    mkdirSync(app);
+    run([
+      "x",
+      artifactPath,
+      `-o${outer}`,
+      "-y",
+      "-bd",
+      "$PLUGINSDIR\\app-64.7z",
+    ]);
+    run([
+      "x",
+      ownedFile(outer, join("$PLUGINSDIR", "app-64.7z")),
+      `-o${app}`,
+      "-y",
+      "-bd",
+    ]);
+    assertWindowsPeArchitecture(
+      executableHeader(ownedFile(app, "OpenMeld.exe")),
+      "windows-x64"
+    );
+    const source = desktopProductionSourceSchema.parse(
+      JSON.parse(
+        readMetadata(
+          ownedFile(app, "resources/desktop-internal-preview-source.json")
+        )
+      )
+    );
+    const marker = desktopWebBuildSchema.parse(
+      JSON.parse(
+        readMetadata(
+          ownedFile(app, "resources/desktop-renderer/desktop-build.json")
+        )
+      )
+    );
+    if (
+      source.releaseSha !== sourceSha ||
+      source.webBuild !== expectedWebBuild ||
+      marker.webBuild !== expectedWebBuild ||
+      JSON.stringify(source.target) !== JSON.stringify(fixedTarget) ||
+      JSON.stringify(marker.installedTarget) !== JSON.stringify(fixedTarget) ||
+      source.windows ||
+      existsSync(join(app, "resources/app-update.yml"))
+    ) {
+      throw new Error(
+        "The internal Windows installer has unexpected source, target, renderer or update settings."
+      );
+    }
+    const require = createRequire(
+      join(repoRoot, "clients/desktop/package.json")
+    );
+    const builder = createRequire(
+      require.resolve("electron-builder/package.json")
+    );
+    const packager = createRequire(
+      builder.resolve("app-builder-lib/package.json")
+    );
+    const asar = packager("@electron/asar");
+    const pkg = JSON.parse(
+      asar
+        .extractFile(ownedFile(app, "resources/app.asar"), "package.json")
+        .toString("utf8")
+    );
+    if (pkg.name !== "@openmeld/desktop" || pkg.version !== version) {
+      throw new Error(
+        "The internal Windows installer contains the wrong Desktop package."
+      );
+    }
+    if ((await fingerprint(artifactPath)) !== before) {
+      throw new Error(
+        "The internal Windows installer changed during inspection."
+      );
+    }
+    return source.releaseSha;
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }

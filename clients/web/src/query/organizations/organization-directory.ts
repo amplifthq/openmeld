@@ -116,7 +116,7 @@ export function organizationComputersQueryOptions(input: {
 		refetchIntervalInBackground: false,
 		refetchOnWindowFocus: true,
 		retry: baseQueryOptions.retry,
-		staleTime: 10_000,
+		staleTime: 30_000,
 	});
 }
 

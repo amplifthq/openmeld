@@ -754,7 +754,14 @@ function resolveRuntimeRoutePrimaryAction(input: {
   if (!(input.localService.reachable || input.route.online)) {
     return "run_prepare";
   }
-  if (input.runtime.reasonCodes.includes("usage_exhausted")) {
+  if (
+    input.runtime.reasonCodes.some(
+      (reason) =>
+        reason === "usage_exhausted" ||
+        reason === "model.retired" ||
+        reason === "model.unavailable"
+    )
+  ) {
     return "check_status";
   }
   if (!input.runtime.ready) {

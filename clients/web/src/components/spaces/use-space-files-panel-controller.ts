@@ -17,9 +17,9 @@ import {
 } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
 import {
-	clearSpaceFileImage,
-	clearSpaceFileImageResources,
-} from "#/query/spaces/space-file-image-resource";
+	clearSpaceFileMedia,
+	clearSpaceFileMediaResources,
+} from "#/query/spaces/space-file-media-resource";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import type { SpaceFileLeaveGuard } from "./space-file-detail";
 import type { SpaceFileEntryDialogState } from "./space-file-dialogs";
@@ -268,10 +268,10 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 				clientMutationId: crypto.randomUUID(),
 			});
 			if (entry.kind === "file") {
-				clearSpaceFileImage(queryClient, input.spaceId, entry.id);
+				clearSpaceFileMedia(queryClient, input.spaceId, entry.id);
 			} else {
 				// A folder mutation can revoke descendants absent from this listing.
-				clearSpaceFileImageResources(queryClient, input.spaceId);
+				clearSpaceFileMediaResources(queryClient, input.spaceId);
 			}
 			return response;
 		});

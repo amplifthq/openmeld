@@ -1,7 +1,10 @@
 import type { Executor } from "@cloudflare/codemode";
 import { createCodeTool } from "@cloudflare/codemode/ai";
 import type { SessionEnv } from "@flue/runtime";
-import { CENTER_AGENT_DELEGATION_COMPLETION_MODES } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_DELEGATION_COMPLETION_MODES,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+} from "@openmeld/schemas";
 import { asSchema, type ToolExecutionOptions, type ToolSet } from "ai";
 import { pipe, rawCheck, strictObject, string } from "valibot";
 import { describe, expect, it, vi } from "vitest";
@@ -15,7 +18,7 @@ import {
 } from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import { RemoteAgentToolCallBudgetExceededError } from "../agent-core/tool-progress";
-import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
+import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import { getRemoteAgentOpenMeldToolDefinitions } from "../agent-core/tools";
 import {
   createRemoteAgentCodeModeFlueTool,
@@ -571,11 +574,90 @@ describe("Remote Agent Code Mode", () => {
     expect(legacyTruncateResult).not.toHaveBeenCalled();
   });
 
-  it("fails an oversized inner result through the shared tool boundary", async () => {
+  it("uses the same Remote creation contract and truthful accepted result through Code Mode", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
+    const response = {
+      replayed: false,
+      request: {
+        actorProfileId: AGENT_PROFILE_ID,
+        completedAt: null,
+        configuration: {
+          ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+          agentControllerRef: "hosted:remote-agent",
+        },
+        createdAgentProfileId: null,
+        createdAt: new Date(TEST_NOW_MS).toISOString(),
+        decidedAt: new Date(TEST_NOW_MS).toISOString(),
+        failureMessage: null,
+        id: "request-code-mode",
+        nativeSessionId: null,
+        organizationId: "org_123",
+        profileName: "Research Partner",
+        requestedSpaceId: null,
+        requesterUserId: "user_1",
+        sessionStrategy: "new",
+        source: "center_agent",
+        status: "approved",
+        statusReason: "self_request",
+        targetOwnerUserId: "user_1",
+        updatedAt: new Date(TEST_NOW_MS).toISOString(),
+      },
+    };
+    const create = vi.fn(async () => response);
+    const definitions = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest: create },
+      storage,
+      submissionId: SUBMISSION_ID,
+    }).filter(
+      (definition) =>
+        definition.name === "openmeld_create_agent_profile_request"
+    );
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions,
+      env: {},
+      loader: {} as WorkerLoader,
+      storage,
+      submissionId: SUBMISSION_ID,
+      runtime: createRuntime({
+        executorOptions: [],
+        execute: async (tools) => {
+          const creation = tools.openmeld_create_agent_profile_request;
+          if (!creation?.execute) {
+            throw new Error("Creation tool is unavailable");
+          }
+          return {
+            result: await creation.execute(
+              {
+                connectionSelection: { kind: "remote" },
+                profileName: "Research Partner",
+                sessionStrategy: "new",
+                targetOwnerUserId: "user_1",
+              },
+              TOOL_OPTIONS
+            ),
+          };
+        },
+      }),
+    });
+    await expect(
+      runCodeModeTool(tool, { input: { code: "async () => null" } })
+    ).resolves.toEqual({ result: response });
+    expect(create).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ configuration: response.request.configuration })
+    );
+  });
+
+  it("returns a bounded partial inner result without repeating a completed operation", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const execute = vi.fn(async () => ({
+      content: "A".repeat(200_000),
+      operationId: "write-1",
+      status: "completed",
+    }));
     const definition = {
       description: "Return an oversized result.",
-      execute: async () => ({ content: "A".repeat(200_000) }),
+      execute,
       input: strictObject({}),
       name: "github_list_pull_request_files",
     } satisfies RemoteAgentToolDefinition;
@@ -600,9 +682,18 @@ describe("Remote Agent Code Mode", () => {
       submissionId: SUBMISSION_ID,
     });
 
-    await expect(
-      runCodeModeTool(tool, { input: { code: "async () => null" } })
-    ).rejects.toBeInstanceOf(RemoteAgentToolResultTooLargeError);
+    const output = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(output).toMatchObject({
+      result: {
+        toolExecution: "returned",
+        resultMetadata: { operationId: "write-1", status: "completed" },
+        presentation: { kind: "partial", continuation: null },
+      },
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(isRemoteAgentToolResultWithinLimit(output)).toBe(true);
   });
 
   it("gives the exact callable name when a discovered capability is used as a global", async () => {

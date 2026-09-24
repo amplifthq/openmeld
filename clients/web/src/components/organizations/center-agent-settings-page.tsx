@@ -18,7 +18,9 @@ import { Label } from "@openmeld/ui/components/label";
 import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
+	CaretDownIcon,
 	ChatCircleTextIcon,
+	FileTextIcon,
 	PauseCircleIcon,
 	PencilSimpleIcon,
 	PlayCircleIcon,
@@ -29,6 +31,10 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import {
+	AgentConfigurationCard,
+	AgentConfigurationGrid,
+} from "#/components/profiles/agent-configuration-card";
 import {
 	designateCurrentCenterAgent,
 	openCurrentCenterAgentDirectMessageSpace,
@@ -135,6 +141,7 @@ export type CenterAgentSettingsRoleState = {
 function CenterAgentOrganizationMemorySection(input: {
 	isPersonalWorkspace: boolean;
 	organizationId: string;
+	presentation?: "card";
 	roleState: CenterAgentSettingsRoleState;
 }) {
 	if (input.isPersonalWorkspace) {
@@ -145,6 +152,7 @@ function CenterAgentOrganizationMemorySection(input: {
 		<OrganizationMemoryPolicySection
 			isPersonalWorkspace={false}
 			organizationId={input.organizationId}
+			presentation={input.presentation}
 			roleState={input.roleState}
 		/>
 	);
@@ -162,6 +170,7 @@ function isCenterAgentIdentityPending(input: {
 	);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This component coordinates existing Center Agent queries and mutations across distinct settings states.
 export function CenterAgentSettingsContent(input: {
 	agentProfiles: readonly DirectoryAgentProfile[];
 	isDirectoryPending: boolean;
@@ -176,6 +185,7 @@ export function CenterAgentSettingsContent(input: {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const [mutationError, setMutationError] = useState<string | null>(null);
+	const [auditOpen, setAuditOpen] = useState(false);
 	const designationQuery = useQuery(
 		centerAgentDesignationQueryOptions({
 			enabled: true,
@@ -334,18 +344,87 @@ export function CenterAgentSettingsContent(input: {
 
 	return (
 		<>
-			<AppPageHeader
-				description={
-					input.isPersonalWorkspace
-						? "Manage your coordinator’s identity and connection, review its usage, and see the actions it has taken."
-						: `Manage the identity and connection for ${input.organizationName}’s coordinator, review its usage, and see the actions it has taken.`
-				}
-				eyebrow={
-					input.isPersonalWorkspace ? "Personal workspace" : "Organization"
-				}
-				title="Center Agent settings"
-			/>
-			{documentsQuery.isSuccess ? (
+			{designation && designatedProfile ? null : (
+				<AppPageHeader
+					description={
+						input.isPersonalWorkspace
+							? "Manage your coordinator’s identity and connection, review its usage, and see the actions it has taken."
+							: `Manage the identity and connection for ${input.organizationName}’s coordinator, review its usage, and see the actions it has taken.`
+					}
+					eyebrow={
+						input.isPersonalWorkspace ? "Personal workspace" : "Organization"
+					}
+					title="Center Agent settings"
+				/>
+			)}
+			{designation && designatedProfile ? (
+				<CenterAgentConnectionSection
+					disableMessage={
+						dmMutation.isPending ||
+						operatingStateQuery.data?.operatingState === "paused"
+					}
+					onMessage={() => dmMutation.mutate()}
+					operatingState={operatingStateQuery.data?.operatingState ?? "active"}
+					profile={designatedProfile}
+				/>
+			) : null}
+			{designation && designatedProfile ? (
+				<section className="space-y-3">
+					<div>
+						<h2 className="font-medium text-foreground text-sm">
+							How this Agent works
+						</h2>
+						<p className="mt-1 text-muted-foreground text-xs">
+							Settings for {input.organizationName}’s coordinator.
+						</p>
+					</div>
+					<AgentConfigurationGrid>
+						<CenterAgentModelSection
+							canManage={input.roleState.canManage}
+							enabled
+							organizationId={input.organizationId}
+						/>
+						<CenterAgentIdentitySection
+							canManage={input.roleState.canManage}
+							disableProfileUpdate={updateProfileMutation.isPending}
+							onUpdateProfile={(profileName) =>
+								updateProfileMutation.mutate({ profileName })
+							}
+							profile={designatedProfile}
+						/>
+						{documentsQuery.isSuccess ? (
+							<AgentConfigurationCard
+								actionLabel="Open Organization Brief"
+								description="Approved context for Center Agent"
+								icon={<FileTextIcon aria-hidden="true" />}
+								itemId="center-agent-brief"
+								label="Organization Brief"
+								onClick={() => {
+									navigate({
+										to: brief
+											? buildOrganizationDocumentPath({
+													documentId: brief.id,
+													orgSlug: input.orgSlug,
+												})
+											: buildOrganizationNewDocumentPath({
+													kind: "brief",
+													orgSlug: input.orgSlug,
+												}),
+									}).catch(console.error);
+								}}
+								summary={brief ? "View brief" : "Create brief"}
+							/>
+						) : null}
+						<CenterAgentOrganizationMemorySection
+							isPersonalWorkspace={input.isPersonalWorkspace}
+							organizationId={input.organizationId}
+							presentation="card"
+							roleState={input.memoryRoleState}
+						/>
+					</AgentConfigurationGrid>
+				</section>
+			) : null}
+			{designationQuery.data && !designation && documentsQuery.isSuccess ? (
 				<section className="rounded-md border border-border/70 bg-card/20 px-5 py-4">
 					<Link
 						className="inline-flex touch-manipulation items-center font-medium text-sm underline-offset-4 hover:underline max-lg:min-h-11"
@@ -379,15 +458,19 @@ export function CenterAgentSettingsContent(input: {
 					title="Could not load Documents."
 				/>
 			) : null}
-			<CenterAgentOrganizationMemorySection
-				isPersonalWorkspace={input.isPersonalWorkspace}
-				organizationId={input.organizationId}
-				roleState={input.memoryRoleState}
-			/>
-			<CenterAgentUsageSection
-				isPersonalWorkspace={input.isPersonalWorkspace}
-				organizationId={input.organizationId}
-			/>
+			{designationQuery.data && !designation ? (
+				<CenterAgentOrganizationMemorySection
+					isPersonalWorkspace={input.isPersonalWorkspace}
+					organizationId={input.organizationId}
+					roleState={input.memoryRoleState}
+				/>
+			) : null}
+			{designationQuery.data && !designation ? (
+				<CenterAgentUsageSection
+					isPersonalWorkspace={input.isPersonalWorkspace}
+					organizationId={input.organizationId}
+				/>
+			) : null}
 			{isCenterAgentIdentityPending({
 				designationPending: designationQuery.isPending,
 				hasDesignation: designation !== null,
@@ -430,44 +513,40 @@ export function CenterAgentSettingsContent(input: {
 			) : null}
 			{designation && designatedProfile ? (
 				<>
-					<CenterAgentConnectionSection
-						disableMessage={
-							dmMutation.isPending ||
-							operatingStateQuery.data?.operatingState === "paused"
-						}
-						onMessage={() => dmMutation.mutate()}
-						operatingState={
-							operatingStateQuery.data?.operatingState ?? "active"
-						}
-						profile={designatedProfile}
-					/>
-					<CenterAgentIdentitySection
-						canManage={input.roleState.canManage}
-						disableProfileUpdate={updateProfileMutation.isPending}
-						onUpdateProfile={(profileName) =>
-							updateProfileMutation.mutate({ profileName })
-						}
-						profile={designatedProfile}
-					/>
-					<CenterAgentModelSection
-						canManage={input.roleState.canManage}
-						enabled
+					<CenterAgentUsageSection
+						isPersonalWorkspace={input.isPersonalWorkspace}
 						organizationId={input.organizationId}
 					/>
 					<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
-						<div className="border-border/70 border-b px-5 py-4">
-							<h2 className="font-medium text-foreground text-sm">Audit Log</h2>
-							<p className="mt-1 text-muted-foreground text-sm">
-								Review Center Agent actions, Local Agent requests, and the
-								context Local Agents reported loading.
-							</p>
-						</div>
-						<CenterAgentAuditJournalPanel
-							enabled
-							members={input.members}
-							organizationId={input.organizationId}
-							profiles={input.agentProfiles}
-						/>
+						<h2>
+							<button
+								aria-expanded={auditOpen}
+								className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+								onClick={() => setAuditOpen((open) => !open)}
+								type="button"
+							>
+								<span>
+									<span className="block font-medium text-foreground text-sm">
+										Audit Log
+									</span>
+									<span className="mt-1 block text-muted-foreground text-xs">
+										Review Center Agent actions and requests.
+									</span>
+								</span>
+								<CaretDownIcon
+									aria-hidden="true"
+									className={`size-4 shrink-0 text-muted-foreground transition-transform ${auditOpen ? "rotate-180" : ""}`}
+								/>
+							</button>
+						</h2>
+						{auditOpen ? (
+							<CenterAgentAuditJournalPanel
+								enabled
+								members={input.members}
+								organizationId={input.organizationId}
+								profiles={input.agentProfiles}
+							/>
+						) : null}
 					</section>
 					<CenterAgentDangerSection
 						canChangeOperatingState={canChangeOperatingState}
@@ -656,22 +735,20 @@ function CenterAgentConnectionSection(input: {
 			? "Paused"
 			: resolveCenterAgentConnectionStatus(input.profile);
 	return (
-		<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
-			<div className="border-border/70 border-b px-5 py-4">
-				<h2 className="font-medium text-foreground text-sm">Connection</h2>
-			</div>
-			<div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
+		<section className="space-y-3 py-1">
+			<p className="text-muted-foreground text-xs">Center Agent settings</p>
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex min-w-0 items-start gap-4">
 					<RemoteAgentAvatar
 						data-testid={`center-agent-profile-avatar-${input.profile.profileId}`}
 						profileName={input.profile.profileName}
 						shape="circle"
-						size={40}
+						size={64}
 					/>
 					<div className="min-w-0">
-						<p className="truncate font-medium text-base text-foreground">
+						<h1 className="truncate font-semibold text-2xl text-foreground">
 							{input.profile.profileName}
-						</p>
+						</h1>
 						<p className="mt-1 truncate text-muted-foreground text-sm">
 							@{input.profile.profileHandle}
 						</p>
@@ -724,47 +801,46 @@ function CenterAgentIdentitySection(input: {
 		}
 	};
 	return (
-		<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
-			<div className="border-border/70 border-b px-5 py-4">
-				<h2 className="font-medium text-foreground text-sm">Identity</h2>
-			</div>
-			<div className="grid gap-6 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,0.75fr)]">
-				<form className="space-y-4" onSubmit={handleSubmit}>
-					<div className="space-y-2">
-						<Label htmlFor={nameInputId}>Display name</Label>
-						<Input
-							disabled={input.disableProfileUpdate}
-							id={nameInputId}
-							onChange={(event) =>
-								setNameDraft({
-									sourceName: input.profile.profileName,
-									value: event.target.value,
-								})
-							}
-							readOnly={!input.canManage}
-							value={name}
-						/>
-						<p className="text-muted-foreground text-xs">
-							The handle updates from the display name automatically.
-						</p>
-					</div>
-					{input.canManage ? (
-						<Button disabled={!canSubmitName} size="sm" type="submit">
-							<PencilSimpleIcon aria-hidden="true" data-icon="inline-start" />
-							{input.disableProfileUpdate ? "Saving..." : "Save name"}
-						</Button>
-					) : null}
-				</form>
-				<dl className="grid content-start gap-4 text-sm">
-					<div>
-						<dt className="text-muted-foreground">Handle</dt>
-						<dd className="mt-1 break-all text-foreground">
-							@{input.profile.profileHandle}
-						</dd>
-					</div>
-				</dl>
-			</div>
-		</section>
+		<div>
+			<AgentConfigurationCard
+				actionLabel="Edit Identity"
+				description={`@${input.profile.profileHandle}`}
+				icon={<RobotIcon aria-hidden="true" />}
+				itemId="center-agent-identity"
+				label="Identity"
+				readOnly={!input.canManage}
+				summary={input.profile.profileName}
+			>
+				<div>
+					<form className="space-y-4" onSubmit={handleSubmit}>
+						<div className="space-y-2">
+							<Label htmlFor={nameInputId}>Display name</Label>
+							<Input
+								disabled={input.disableProfileUpdate}
+								id={nameInputId}
+								onChange={(event) =>
+									setNameDraft({
+										sourceName: input.profile.profileName,
+										value: event.target.value,
+									})
+								}
+								readOnly={!input.canManage}
+								value={name}
+							/>
+							<p className="text-muted-foreground text-xs">
+								The handle updates from the display name automatically.
+							</p>
+						</div>
+						{input.canManage ? (
+							<Button disabled={!canSubmitName} size="sm" type="submit">
+								<PencilSimpleIcon aria-hidden="true" data-icon="inline-start" />
+								{input.disableProfileUpdate ? "Saving..." : "Save name"}
+							</Button>
+						) : null}
+					</form>
+				</div>
+			</AgentConfigurationCard>
+		</div>
 	);
 }
 

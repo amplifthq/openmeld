@@ -5,6 +5,7 @@ import {
 	type WebApplicationErrorQueryDiagnostic,
 	type WebApplicationErrorReport,
 	type WebApplicationErrorSource,
+	webApplicationErrorReportSchema,
 } from "@openmeld/schemas";
 import {
 	summarizeApplicationError,
@@ -23,6 +24,7 @@ export function setApplicationErrorRouteReader(
 
 // Bounded, in-memory deduplication: no account data or browser persistence.
 const reported = new Set<string>();
+const reportedWakeProgress = new Set<string>();
 export function reportClientApplicationError(
 	error: unknown,
 	source: WebApplicationErrorSource,
@@ -68,6 +70,53 @@ export function reportClientQueryError(
 					: null,
 		},
 	});
+}
+
+/** Report visible Wake work without current confirmation or arbitrary browser state. */
+export function reportUnconfirmedWakeProgressPresentation(
+	wakeProgress: NonNullable<WebApplicationErrorReport["wakeProgress"]>
+): void {
+	if (typeof window === "undefined") {
+		return;
+	}
+	try {
+		const report = webApplicationErrorReportSchema.safeParse({
+			...createApplicationErrorReport(
+				new Error("unconfirmed wake progress displayed"),
+				"wake_progress_presentation"
+			),
+			wakeProgress,
+			error: {
+				name: "Error",
+				code: "unconfirmed_wake_progress_displayed",
+				frames: [],
+			},
+		});
+		if (!report.success) {
+			return;
+		}
+		const key = JSON.stringify([
+			wakeProgress.spaceId,
+			wakeProgress.dispatchId,
+			wakeProgress.clientMessageId,
+			wakeProgress.streamId,
+			wakeProgress.phase,
+			wakeProgress.fromRestoredPresentation,
+			wakeProgress.fromCachedSpaceSummary,
+			wakeProgress.fromCachedOwnSummary,
+			wakeProgress.fromBootstrapStream,
+			wakeProgress.spaceSummaryFetchedAfterMount,
+			wakeProgress.ownSummaryFetchedAfterMount,
+			wakeProgress.bootstrapFetchedAfterMount,
+		]);
+		if (reportedWakeProgress.has(key) || reportedWakeProgress.size >= 10) {
+			return;
+		}
+		reportedWakeProgress.add(key);
+		sendApplicationErrorReport(report.data).catch(() => undefined);
+	} catch {
+		// Diagnostic delivery must never change the Space view.
+	}
 }
 
 function createApplicationErrorReport(

@@ -2560,6 +2560,17 @@ function resolveContextMigrationAdmission(input: {
   return { plan: input.plan, reasonCode };
 }
 
+function shouldStartIndependentClaudeContext(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  record: RuntimeCoordinatorHeadLifecycleRecord;
+}): boolean {
+  return (
+    (input.admission.admissionMode ?? "parallel") === "parallel" &&
+    input.record.acceptedDispatchSnapshot?.controllerSnapshot
+      .agentControllerRef === "builtin:claude-code"
+  );
+}
+
 async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(input: {
   resolveContextMigrationCapability?: (
     record: RuntimeCoordinatorHeadLifecycleRecord
@@ -2618,6 +2629,10 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
   try {
     contextPlan = await prepareExecutionContextAssignment({
       contextModeActive,
+      startIndependentClaudeContext: shouldStartIndependentClaudeContext({
+        admission,
+        record: input.record,
+      }),
       legacyAssociation:
         admission.contextMigration?.legacyAssociation ?? undefined,
       authorizedContinuationSourceWakeId:

@@ -310,6 +310,53 @@ test("serializes one production scope across clones while unrelated scopes proce
   }
 });
 
+const ORIGINAL_LEASE_HELD_PATTERN = /original lease is still held/u;
+const SIMULATED_RELEASE_REJECTION_PATTERN = /simulated release rejection/u;
+
+test("reports a failed release of the original lease with the Git error", () => {
+  const fixture = createLeaseFixture();
+  const hook = path.join(fixture.remote, "hooks", "pre-receive");
+  try {
+    const lease = acquireProductionScopeLease({
+      cwd: fixture.agentA,
+      owner: "local:agent-a",
+      scope: "web",
+      sourceSha: fixture.sourceSha,
+    });
+    writeFileSync(
+      hook,
+      "#!/bin/sh\necho 'simulated release rejection' >&2\nexit 1\n"
+    );
+    chmodSync(hook, 0o755);
+    assert.throws(
+      () =>
+        releaseProductionScopeLease({
+          cwd: fixture.agentA,
+          leaseSha: lease.leaseSha,
+          scope: "web",
+        }),
+      (error) => {
+        assert.match(error.message, ORIGINAL_LEASE_HELD_PATTERN);
+        assert.match(error.message, SIMULATED_RELEASE_REJECTION_PATTERN);
+        return true;
+      }
+    );
+    assert.equal(
+      inspectProductionScopeLease({ cwd: fixture.agentA, scope: "web" })
+        .leaseSha,
+      lease.leaseSha
+    );
+    rmSync(hook);
+    releaseProductionScopeLease({
+      cwd: fixture.agentA,
+      leaseSha: lease.leaseSha,
+      scope: "web",
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("separate CLI release processes cannot overlap across computers", () => {
   const fixture = createLeaseFixture();
   const environment = isolatedGitEnvironment(process.env);
@@ -602,6 +649,7 @@ function createLeaseFixture() {
     agentA,
     agentB,
     cleanup: () => rmSync(root, { force: true, recursive: true }),
+    remote,
     sourceSha,
   };
 }

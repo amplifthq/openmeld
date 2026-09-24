@@ -1,6 +1,7 @@
 import * as z from "../../lazy-zod";
 import { computerSetupModeSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
+import { hostedModelReasoningLevelSchema } from "../config/model-catalog";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { computerCareObservationSchema } from "../daemon/computer-care";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
@@ -345,13 +346,16 @@ export const centerAgentModelConfigurationResponseSchema = z.strictObject({
   choices: z.array(centerAgentModelChoiceSchema).min(1),
   configurationRevision: z.number().int().nonnegative(),
   effectiveModel: centerAgentModelSummarySchema,
+  effectiveReasoningLevel: hostedModelReasoningLevelSchema.optional(),
   organizationId: trimmedNonEmptyStringSchema,
   preference: centerAgentModelPreferenceSchema,
+  reasoningLevel: hostedModelReasoningLevelSchema.nullable().optional(),
 });
 
 export const updateCenterAgentModelBodySchema = z.strictObject({
   expectedConfigurationRevision: z.number().int().nonnegative(),
   preference: centerAgentModelPreferenceSchema,
+  reasoningLevel: hostedModelReasoningLevelSchema.nullable().optional(),
 });
 
 export const updateCenterAgentModelResponseSchema =

@@ -14,6 +14,7 @@ import { registerFeedbackRoutes } from "./routes/rpc-http.feedback";
 import { registerSlackEventsRoute } from "./routes/slack-events";
 import { registerSlackInteractiveRoute } from "./routes/slack-interactive";
 import { registerSlackOAuthRoutes } from "./routes/slack-oauth";
+import { registerAccountInvalidationStreamRoute } from "./routes/ws-account-invalidation";
 import { registerWebSocketRoute } from "./routes/ws-stream";
 
 const app = new Hono<HonoBindings>();
@@ -43,6 +44,7 @@ registerFeedbackRoutes(app);
 registerRpcHttpRoutes(app);
 registerPrepareSessionStreamRoute(app);
 registerWebSocketRoute(app);
+registerAccountInvalidationStreamRoute(app);
 registerDaemonStreamRoute(app);
 
 export default app;

@@ -46,7 +46,8 @@
     "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck"
   },
   "dependencies": {
-    "@openmeld/schemas": "workspace:*"
+    "@openmeld/schemas": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "^24.3.0"

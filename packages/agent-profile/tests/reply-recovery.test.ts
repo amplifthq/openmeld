@@ -290,6 +290,32 @@ describe("planAgentProfileReplyRecovery", () => {
     });
   });
 
+  it.each([
+    "model.retired",
+    "model.unavailable",
+  ] as const)("routes %s to the exact agent's model settings, never Computer repair", (reasonCode) => {
+    const member = createBlockedAgent({
+      agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+        displayState: "not_ready",
+        primaryAction: "check_status",
+        reasonCodes: [reasonCode],
+        facts: {
+          binding: { routable: true, reasonCodes: [], source: "binding_truth" },
+        },
+      }),
+      profileName: "Research",
+      wakeabilityReasonCodes: [reasonCode],
+    });
+    const plan = planAgentProfileReplyRecovery({ member });
+    expect(plan).toMatchObject({
+      kind: "review_agent_profile",
+      profileId: member.profileId,
+      primaryActionId: "change_model",
+      primaryActionLabel: "Change model",
+      recoveryReasonCode: reasonCode,
+    });
+  });
+
   it("routes duplicate controller conversations to agent settings review", () => {
     const plan = planAgentProfileReplyRecovery({
       member: createBlockedAgent({

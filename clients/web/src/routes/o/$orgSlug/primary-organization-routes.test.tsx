@@ -20,6 +20,13 @@ import { Route as SkillsIndexRoute } from "./skills.index";
 
 const ORGANIZATION_HEADING_NAME = /organization/i;
 const getAppSidebarStatesForRouteMock = vi.hoisted(() => vi.fn());
+const prefetchAgentsRouteIdentityDataMock = vi.hoisted(() => vi.fn());
+const prefetchPeopleRouteDataMock = vi.hoisted(() => vi.fn());
+
+vi.mock("#/lib/organizations/app-route-prefetch", () => ({
+	prefetchAgentsRouteIdentityData: prefetchAgentsRouteIdentityDataMock,
+	prefetchPeopleRouteData: prefetchPeopleRouteDataMock,
+}));
 
 vi.mock("#/lib/sidebar-width-cookie", () => ({
 	getAppSidebarStatesForRoute: getAppSidebarStatesForRouteMock,
@@ -144,6 +151,8 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 
 beforeEach(() => {
 	getAppSidebarStatesForRouteMock.mockReset().mockResolvedValue(undefined);
+	prefetchAgentsRouteIdentityDataMock.mockReset().mockResolvedValue(undefined);
+	prefetchPeopleRouteDataMock.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(cleanup);
@@ -162,6 +171,12 @@ describe("primary organization routes", () => {
 		} as never);
 
 		expect(getAppSidebarStatesForRouteMock).toHaveBeenCalledWith();
+		expect(prefetchAgentsRouteIdentityDataMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				organizationSlug: "acme",
+				routeFamily: "/o/acme/people/human-1/agents",
+			})
+		);
 		expect(PersonAgentsRoute.options.staticData).toEqual({
 			appShellSection: "people",
 		});

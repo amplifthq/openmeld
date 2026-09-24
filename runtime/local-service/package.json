@@ -6,6 +6,11 @@
   "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
+    "./windows-artifact-script": {
+      "types": "./src/windows-artifact-script.ts",
+      "import": "./src/windows-artifact-script.ts",
+      "default": "./dist/windows-artifact-script.js"
+    },
     "./heartbeat-policy": {
       "types": "./src/heartbeat-policy.ts",
       "import": "./src/heartbeat-policy.ts",
@@ -25,6 +30,11 @@
       "types": "./src/cli-binary-update-artifact.ts",
       "import": "./src/cli-binary-update-artifact.ts",
       "default": "./dist/cli-binary-update-artifact.js"
+    },
+    "./windows-artifact-signature": {
+      "types": "./src/windows-artifact-signature.ts",
+      "import": "./src/windows-artifact-signature.ts",
+      "default": "./dist/windows-artifact-signature.js"
     },
     ".": {
       "types": "./src/index.ts",

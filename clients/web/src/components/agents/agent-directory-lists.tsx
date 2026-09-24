@@ -1,4 +1,5 @@
 import { Button } from "@openmeld/ui/components/button";
+import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { CenterAgentItem } from "#/components/directory/center-agent-item";
@@ -278,6 +279,7 @@ export function AgentDirectoryLists({
 										size="sm"
 										variant="secondary"
 									>
+										<ClockCounterClockwiseIcon />
 										Creation history
 										{input.creationAttentionCount > 0 && (
 											<span className="rounded-full bg-muted px-1.5 text-xs">

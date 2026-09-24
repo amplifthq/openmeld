@@ -18,8 +18,9 @@ type ProfileDebounceState = {
 };
 
 /**
- * Keeps a recent Available badge visually stable across a brief connection
- * check. This state never replaces Core readiness and must not drive actions.
+ * Keeps a recent Available badge while a refresh has no new verdict yet.
+ * An explicit Checking verdict is new evidence and must display immediately.
+ * This state never replaces Core readiness and must not drive actions.
  */
 export function reconcileWakeDisplayDebounce(input: {
 	agents: readonly AgentWakeAvailabilityDisplayInput[];
@@ -48,7 +49,7 @@ export function reconcileWakeDisplayDebounce(input: {
 			continue;
 		}
 
-		if (status === "checking_connection") {
+		if (status === null) {
 			const lastAvailableSnapshot = previous?.lastAvailableSnapshot ?? null;
 			if (!lastAvailableSnapshot) {
 				nextState.set(agent.profileId, {

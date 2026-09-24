@@ -1,17 +1,13 @@
 name: Dev lifecycle
 
 on:
-  pull_request:
-    paths:
-      - scripts/dev/**
-      - .github/workflows/dev-lifecycle.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: dev-lifecycle-${{ github.event.pull_request.number || github.ref }}
+  group: dev-lifecycle-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

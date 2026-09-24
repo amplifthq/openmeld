@@ -87,22 +87,28 @@ export async function verifyParentAdmission(input, train, dependencies = {}) {
   for (const [key, expected] of Object.entries({
     sourceSha: train.sourceSha,
     scopes: train.scopes,
-    artifactScopes: train.artifactScopes,
     ...identity,
   })) {
     if (!isDeepStrictEqual(evidence[key], expected)) {
       throw new Error(`Parent admission ${key} does not match this release.`);
     }
   }
+  const declaredArtifactScopes = ["cli", "desktop", "web"].filter((scope) =>
+    train.scopes.includes(scope)
+  );
   if (
+    evidence.artifactScopes.some(
+      (scope) => !declaredArtifactScopes.includes(scope)
+    ) ||
+    train.artifactScopes.some(
+      (scope) => !evidence.artifactScopes.includes(scope)
+    ) ||
     !isDeepStrictEqual(
       evidence.artifacts.map(({ scope }) => scope),
-      train.artifactScopes
+      evidence.artifactScopes
     )
   ) {
-    throw new Error(
-      "Parent admission artifacts do not cover the declared train."
-    );
+    throw new Error("Parent admission artifacts do not cover this stage.");
   }
   return evidence;
 }

@@ -438,7 +438,7 @@ describe("space control commands", () => {
               updatedBy: PROFILE.openMeldProfileId,
               dispatchPolicy: { mode: "mention_only" },
               publicationMode: "collaboration",
-              allowedActions: ["post_status", "stay_silent"],
+              allowedActions: ["stay_silent"],
               resultArchivePolicy: { mode: "all_final_results" },
               authorityOrder: "default",
               entryBrief: "default",
@@ -464,7 +464,7 @@ describe("space control commands", () => {
       })?.[1];
       expect(requestInit).toBeDefined();
       expect(JSON.parse(String(requestInit?.body))).toMatchObject({
-        allowedActions: ["post_status", "stay_silent"],
+        allowedActions: ["stay_silent"],
       });
     });
   });

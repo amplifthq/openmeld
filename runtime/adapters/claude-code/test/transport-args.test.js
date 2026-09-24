@@ -73,7 +73,7 @@ describe("Claude CLI transport args", () => {
     );
     assert.equal(
       args.includes("mcp__openmeld_internal_dispatch_space_action__status"),
-      true
+      false
     );
     assert.equal(
       args.includes(
@@ -89,6 +89,38 @@ describe("Claude CLI transport args", () => {
       ["--permission-mode", "default"]
     );
   });
+
+  for (const mode of ["auto", "plan", "default"]) {
+    it(`restricts delivery-only repair tools without changing selected ${mode} mode`, () => {
+      const args = buildClaudeArgs({
+        agentControllerPermissionMode: `claude-code:${mode}`,
+        executionMode: "repair",
+        env: {
+          OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+          OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH:
+            "/tmp/action/bin/openmeld-dev",
+          OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+          OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1",
+        },
+        prompt: "Correct the final reply only.",
+        sessionId: "canonical-session",
+      });
+      assert.equal(args[args.indexOf("--permission-mode") + 1], mode);
+      assert.equal(args[args.indexOf("--tools") + 1], "");
+      assert.ok(args.includes("--strict-mcp-config"));
+      assert.ok(args.includes("--fork-session"));
+      const names = args.slice(
+        args.indexOf("--allowedTools") + 1,
+        args.indexOf("--permission-mode")
+      );
+      assert.deepEqual(
+        names,
+        ["reply", "stay_silent", "read_receipt"].map(
+          (name) => `mcp__openmeld_internal_dispatch_space_action__${name}`
+        )
+      );
+    });
+  }
 
   it("omits duplicate fallback model for a new session", () => {
     assert.deepEqual(

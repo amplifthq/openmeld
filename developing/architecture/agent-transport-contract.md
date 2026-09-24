@@ -339,8 +339,11 @@ and cannot reconstruct queue metadata.
 Independent workstation tasks use Core-assigned Execution Contexts. Core admits
 at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
-Context selection is explicit for new work and forks, and scoped to the exact
-requester, Organization, Space, discussion, Profile, Binding, and Runtime.
+New work and forks may select a context explicitly. An ordinary Claude Code
+Wake in parallel mode implicitly selects a new isolated Space-only context when
+it has no retained context; a retained or explicitly Space-only context keeps
+its selected access. Every selection is scoped to the exact requester,
+Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
 
@@ -1154,13 +1157,44 @@ evidence is not enough. Process health is not business readiness.
 
 A live Runtime Transport session with `acceptingDispatches: false` is not
 available for a new Wake, even while its socket and profile leases remain
-fresh. Core projects `local_service.not_accepting_wakes` as unavailable and
-invalidates carried profiles when admission closes or reopens. Computer
-connectivity, route registration, and already accepted executions remain
-separate facts; draining must not mark an in-flight Wake failed.
+fresh. For a still-connected session without a definitive user stop or another
+stable blocker, Core projects `local_service.not_accepting_wakes` as `Checking`.
+A fresh Wake remains unexecuted under the existing bounded start wait and
+reruns full admission when the Service reopens; expiry produces the existing
+visible no-execution outcome. Explicit profile, Binding, provider, Usage, and
+compatibility blockers still take precedence. Core invalidates carried profiles
+when admission closes or reopens. Computer connectivity, route registration,
+and already accepted executions remain separate facts; draining must not mark
+an in-flight Wake failed. A catalog refresh on an unchanged healthy Host
+connection updates routes, leases, and permissions without closing admission
+or restarting result replay. A changed connection or failed Host update closes
+admission until current Host evidence reopens it.
+
+Admission changes carry bounded diagnostic evidence, not a second readiness
+decision. The local Service reports the current open/closed transition reason,
+connection generation, revision, and local transition time only after the Core
+register response advertises support. Core records matching evidence with its
+Runtime Transport session and copies it into the delivery decision's route
+evidence. A rejected Wake retains that exact snapshot in its RuntimeCoordinator
+event even after the Service reopens. A new Core session starts with Core-owned
+`connection_initializing` or `connection_replaced` evidence; old Services and
+unreported later transitions remain explicitly unknown. Diagnostic details use
+bounded codes, never raw errors or message content. Evidence cannot open
+admission, extend a wait, retry an execution, or change an outcome.
 
 Core-owned Wakeability is the only final user-facing projection for this
 question. Web, CLI, Space, and Start render it; they do not recompute it.
+
+Reviewed model unavailability is another input to this same projection and Wake
+admission, not a new Profile enabled/disabled writer. Core checks the current
+explicit Binding selection against the authored catalog; scoped withdrawal uses
+fresh identity-matched provider/sign-in evidence. Advisory retirement dates and
+unknown scope do not block a Wake. `model.retired` and `model.unavailable` direct
+the owner to that Profile's model settings. They do not change Computer
+connectivity, manual Profile status, existing conversation history or an accepted
+execution's outcome. A valid user change removes only this model blocker and
+never authorizes automatic continuation of previous work.
+
 
 Current Wakeability and one concrete Wake execution are separate facts.
 Wakeability is a current reply-path projection. A Wake execution is what
@@ -1358,6 +1392,10 @@ readiness must fail closed instead of keeping a permanent `Checking` state.
 Web, CLI, and Desktop surfaces must consume the Core-owned projection for this
 public verdict; they may keep refreshing diagnostics, but they must not repaint a
 Core-owned `Offline` or `Unavailable` verdict as `Checking`.
+An explicit newer Core `Checking` verdict must likewise replace a previously
+displayed `Available` verdict immediately. A brief refresh without any new
+verdict may retain the prior badge only as display smoothing, never as Wake
+admission authority.
 
 Owner-only recovery surfaces may show concrete actions such as `Update OpenMeld
 on Computer`, `Reconnect Computer`, `Connect local agent`, or `Wrong account`.
@@ -2089,6 +2127,105 @@ Wake execution invariants:
   new declared continuation; it never becomes a second execution authority or
   reopens a terminal Wake.
 
+### Dispatch-owned final tool boundary
+
+Normal Agent final tool catalogs offer `reply` and `stay_silent`, not `status`.
+The old status wire schema and frozen publication contracts remain readable;
+new tool discovery and authoring must not broaden legacy authorization.
+
+`AdapterDispatchSpaceTools` is a host-only per-invocation capability. Its schemas,
+handlers and local recorder are shared by MCP and native carriers. Captured
+context identity and nonce bind calls to one Wake; closing the invocation fences
+late callbacks. Never serialize this capability or reuse it as a persisted
+thread authorization. `read_receipt` reconciles the existing proposal without
+publishing or overwriting it. Positive input rejection is distinct from an
+unknown write result, and a receipt still means local proposal, not publication.
+
+Read-only history, shared-file and Task-list tools return either a complete
+`result` or a bounded `page`. `read_result` continues an immutable JSON snapshot
+using the returned result id and byte offset. Snapshots stay in a bounded,
+per-invocation memory cache, never an arbitrary local file. Every page checks
+the active Wake; closing the capability clears its snapshots. A repeated page
+does not repeat the source operation. Expired, evicted, or foreign cursors fail
+explicitly; reconnecting requires a new authorized source read. Final action
+receipts are not paginated or reconstructed into another publication path.
+
+`OPENMELD_SPACE_ACTION_DELIVERY_ONLY` distinguishes missing-action correction
+from concurrent-result reconsideration, even though both currently use a repair
+execution mode. The former exposes only necessary final delivery and receipt
+operations, not Task mutations or file operations. Each native carrier must
+prove equivalent restrictions without changing the user's selected mode or
+canonical conversation. A repair must not remove a native denial to make a
+reply tool callable.
+
+Claude uses SDK in-process tools with the same MCP names and eagerly loaded
+final definitions. Only delivery correction asks for a small structured receipt
+report; that report and ordinary private prose are never publication inputs.
+An independently read saved receipt is required even when a report claims
+success. Connection recovery is bounded and does not replay an action or turn a
+needs-auth state into authorization. Normal successful execution has no extra
+structured report or correction turn.
+
+Delivery-only correction is a conditional native capability, not permission to
+run an ordinary Agent again. A carrier that cannot prove its operation boundary
+must return `space.action.delivery_only_unsupported` or
+`space.action.delivery_only_unverified` before sending a correction prompt. The
+existing terminal failure path remains responsible for a visible failure. This
+does not disable normal reply/silence tools or their correctable input errors.
+Cursor ACP correction uses a fresh session and an owned temporary native home,
+with unchanged permission rules and selected mode. Verified fail-closed native
+pre-tool/MCP hooks veto non-delivery tools, foreign sessions and expired calls;
+they never grant an approval. The dispatch MCP remains the only recorder.
+Cancellation removes the live-session hook fence before sending native cancel.
+Ambient hooks/plugins/MCP configuration or an unverified native version stops
+before a correction prompt. Even version discovery uses a disposable home,
+because the native CLI may normalize configuration on `--version`. The canonical
+conversation and the user's source configuration remain unchanged.
+
+Codex correction preserves its selected permission/collaboration mode, removes
+execution environments and independent business capabilities, and checks the
+effective MCP inventory. It uses a disposable fork, never a new canonical
+conversation. Managed or unknown requirements that cannot be preserved stop
+before a turn. Persisted Dynamic Tool definitions are not authorization: only
+the current invocation's final tools can execute, and old/foreign callbacks are
+fenced. Metadata-only controller planning/user-input facilities are not granted
+business execution authority.
+
+OpenCode correction uses a fork, native pure mode, and a read-back-verified
+permission ruleset. It copies original session rules and adds denials for
+non-delivery tools, never grants reply over an existing deny/ask rule. OpenClaw
+uses a fresh native session and temporary configuration; external plugins and
+business tools are disabled before native execution. Its synchronous native
+plugin forwards the same schemas and results through one persistent, captured
+dispatch MCP connection. This keeps large-result continuation readable and
+preserves real rejection/receipt semantics. Connection loss requires receipt
+reconciliation before another final action; cancellation and session end fence
+further calls. Config inspection itself must not execute ambient plugins.
+
+Antigravity CLI correction uses a verified native custom Agent in an owned
+temporary home. The native finish tool emits the supplied structured final
+action; private text never becomes a substitute publication. File, command,
+web and delegate tools are absent, and the fresh process has no old background
+tasks. Native settings and credential/policy sources remain available without
+rewriting the original configuration. Ambient hooks/plugins/MCPs and external
+runtime overrides are rejected before prompting. The normal action validator
+and recorder remain the only writer, and canonical continuity is preserved.
+
+Grok ACP correction uses a fresh native agent with only delivery-tool dispatch
+wrappers. Its tool profile does not by itself prohibit file-backed arguments;
+an isolated native config snapshot adds Read and other business-action denials.
+The original selected mode, HOME, cwd, configuration values, policy sources and
+native approval flow remain authoritative. The adapter checks the original and
+scoped native configuration before starting a session, then verifies the actual
+profile, hooks and ready MCP catalog before prompting. Unknown custom profiles,
+ambient hooks/plugins or unverifiable policy fail closed. A snapshot is not a
+new publication or credential authority and is removed after process closure.
+
+An isolated correction receives the complete prior result as private context,
+not a UI-sized preview that assumes the old conversation is available. It still
+needs an explicit final action. Neither private context, a structured receipt
+claim nor a local proposal receipt is proof of public Space publication.
+
 ### signal.system_notice Field Contract
 
 `signal.system_notice` data fields (schema in
@@ -2194,6 +2331,12 @@ Trace must preserve enough evidence to connect:
 - `publishedSignalId`
 - `replySignalId`
 - Cloudflare runtime evidence when available
+
+For a delivery rejected while the route is connected but not accepting work,
+Trace must show the admission reason attached to that rejection, including its
+transition revision and generation, or explicitly say that the reason was not
+reported. The current healthy route must not overwrite the historical rejected
+attempt's evidence.
 
 The canonical selector and correlation contract is the Correlation Chain in
 `developing/architecture/data-and-observability.md`, with the shared schema in

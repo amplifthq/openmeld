@@ -16,9 +16,10 @@ in its toolbar.
 
 In the main conversation, actions float beside each message without moving the
 conversation on hover. On narrow screens, the toolbar stays on the opposite
-side of your message and keeps the remaining actions in More. In Threads, each
-message shows its speaker and uses the panel width; actions appear in a reserved
-row below the bubble.
+side of your message and keeps the remaining actions in More. For long messages,
+the toolbar follows the visible part of the message as you scroll. In Threads,
+each message shows its speaker and uses the panel width; actions appear in a
+reserved row below the bubble.
 
 Wake failures and stops from a Thread stay in that Thread instead of adding
 unrelated notices to the main Space conversation.

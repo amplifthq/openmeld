@@ -989,6 +989,30 @@ describe("command entry CLI wiring", () => {
     );
   });
 
+  it("routes Remote Agent creation through the shared request", async () => {
+    await runCli([
+      "profiles",
+      "create",
+      "Remote Reviewer",
+      "--kind",
+      "agent",
+      "--agent-controller",
+      "hosted:remote-agent",
+      "--model",
+      "openai/gpt-6-sol",
+      "--reasoning-effort",
+      "medium",
+    ]);
+
+    expect(runMocks.runProfileCreationRequestCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentController: "hosted:remote-agent",
+        modelId: "openai/gpt-6-sol",
+        reasoningLevel: "medium",
+      })
+    );
+  });
+
   it("maps --no-default-project to an explicit managed-workspace choice", async () => {
     await runCli([
       "profiles",

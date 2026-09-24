@@ -237,6 +237,30 @@ describe("SpaceConversationPanel", () => {
 		).toBe("Draft the follow-up.");
 	});
 
+	it("keeps the Messages reading position mounted across Space tabs", () => {
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "messages",
+			allowedActions: ["post_message"],
+			readOnly: false,
+			timelineItems: [
+				createTimelineItem({ id: "message-source", text: "Keep this spot." }),
+			],
+		});
+		const history = screen.getByRole("log", { name: "Conversation history" });
+		fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+		expect(
+			screen.queryByRole("log", { name: "Conversation history" })
+		).toBeNull();
+		expect(
+			screen.getByRole("tab", { name: "Files" }).getAttribute("aria-selected")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
+		expect(screen.getByRole("log", { name: "Conversation history" })).toBe(
+			history
+		);
+	});
+
 	it("opens Graph from Message details and focuses the selected message", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
@@ -273,7 +297,9 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.queryByRole("dialog", { name: "Message details" })
 		).toBeNull();
-		const graphMessage = screen.getByText("Review the release plan.");
+		const graphMessage = within(
+			screen.getByRole("region", { name: "Space Graph" })
+		).getByText("Review the release plan.");
 		expect(graphMessage.closest(".group")?.className).toContain("ring-2");
 	});
 
@@ -3160,6 +3186,7 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("abandons catch-up when the reader navigates history during preparation", async () => {
+		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
 		vi.stubGlobal("CSS", {
 			...globalThis.CSS,
 			escape: (value: string) => value,
@@ -3269,6 +3296,7 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("lets an anchored public history view navigate to the real latest URL", () => {
+		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
 		const latest = vi.fn();
 		const signal = {
 			...createThreadPreviewSignal(),

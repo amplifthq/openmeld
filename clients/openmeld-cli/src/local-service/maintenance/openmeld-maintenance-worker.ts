@@ -7,6 +7,7 @@ import {
   isOpenMeldOrphanedLockError,
   runWithHeldLock,
 } from "../../config/lock";
+import { reconcileManagedCliLauncher } from "../../local-components/managed-install";
 import { OPENMELD_VERSION } from "../../runtime/version";
 import { maintainOfficialCliSkill } from "../../skills/maintenance";
 import {
@@ -65,6 +66,7 @@ async function runMaintenancePass(): Promise<boolean> {
     }
   }
   await assertDaemonMaintenanceInstallationOwnership();
+  await reconcileManagedCliLauncher();
   if ((await readOpenMeldToolsMaintenancePolicy()).automaticUpdatesEnabled) {
     try {
       await maintainOfficialCliSkill();

@@ -11,6 +11,12 @@ import {
   readPrimaryAgentProfileBindingRecord,
   reconnectPrimaryAgentProfileBindingRecord,
 } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import {
+  reconcileAgentModelInbox,
+  reconcileRuntimeAgentModelInboxes,
+} from "../src/config/agent-model-inbox-reconciliation";
+import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
+import { createInboxService } from "../src/inbox/application/inbox-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcDisableAgentProfilePrimaryBinding,
@@ -1328,7 +1334,10 @@ describe("agent profile binding Core RPC", () => {
     }
   });
 
-  it("disables the enabled primary Binding without deleting Agent Profile identity", async () => {
+  it.each([
+    false,
+    true,
+  ])("disables the Binding and ends only its model notice without deleting identity (retry cleanup: %s)", async (failCleanupOnce) => {
     const harness = createSqliteD1Harness();
     applyAgentProfileBindingRpcMigrations(harness);
     try {
@@ -1348,6 +1357,70 @@ describe("agent profile binding Core RPC", () => {
         },
       });
 
+      // Represent a saved model that later disappeared from the catalog.
+      harness.run({
+        sql: "UPDATE openMeldDaemon_agent_profile_bindings SET model_id = 'removed-historical-model' WHERE agent_profile_id = ?",
+        params: [AGENT_PROFILE_ID],
+      });
+      const reconcileInput = {
+        env,
+        ownerUserId: "owner-1",
+        agentProfileId: AGENT_PROFILE_ID,
+        nowMs: Date.now(),
+      };
+      await reconcileAgentModelInbox(reconcileInput);
+      const inbox = createInboxService({ db: harness.db, nowMs: () => 2100 });
+      const reader = {
+        organizationId: "org-personal-owner-1",
+        recipientUserId: "owner-1",
+      };
+      const { items } = await inbox.list({ ...reader, view: "needs_action" });
+      expect(items).toHaveLength(1);
+      const notice = items[0];
+      if (!notice) {
+        throw new Error("Expected model recovery notice");
+      }
+      await inbox.markRead({ ...reader, itemId: notice.id, read: true });
+      const unrelated = await ensureInboxItem({
+        db: harness.db,
+        nowMs: 2000,
+        candidate: {
+          ...reader,
+          attention: "action_required",
+          importance: "normal",
+          kind: "system_issue",
+          occurredAtMs: 1000,
+          contextLabel: "Agent One",
+          title: "Review unrelated work",
+          preview: "Keep this request open.",
+          sourceKind: "system_attention_event",
+          sourceKey: "unrelated-work",
+          sourceTarget: { kind: "agent_profile", profileId: AGENT_PROFILE_ID },
+        },
+      });
+      await expect(
+        rpcDisableAgentProfilePrimaryBinding(
+          coreEnv(harness.db, { controllerMutationAcquireStatus: "blocked" }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            context: DEFAULT_CONTEXT,
+          }
+        )
+      ).resolves.toMatchObject({ disabled: false, status: "unavailable" });
+      expect(await inbox.summary(reader)).toMatchObject({
+        unresolvedActionCount: 2,
+      });
+      const prepare = harness.db.prepare.bind(harness.db);
+      let remainingFailure = failCleanupOnce;
+      const prepareSpy = vi
+        .spyOn(harness.db, "prepare")
+        .mockImplementation((sql) => {
+          if (remainingFailure && sql.includes("source_key AS sourceKey")) {
+            remainingFailure = false;
+            throw new Error("injected model Inbox read failure");
+          }
+          return prepare(sql);
+        });
       await expect(
         rpcDisableAgentProfilePrimaryBinding(env, {
           agentProfileId: AGENT_PROFILE_ID,
@@ -1359,6 +1432,48 @@ describe("agent profile binding Core RPC", () => {
         reasonCodes: ["agent_profile_binding.primary_binding_disabled"],
         status: "disabled",
       });
+
+      prepareSpy.mockRestore();
+      expect(await inbox.summary(reader)).toMatchObject({
+        unresolvedActionCount: failCleanupOnce ? 2 : 1,
+      });
+      // A retried unbind must reconcile even though the write itself is now a no-op.
+      await rpcDisableAgentProfilePrimaryBinding(env, {
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+      });
+      expect(await inbox.summary(reader)).toMatchObject({
+        unresolvedActionCount: 1,
+        totalUnreadCount: 1,
+      });
+      expect(
+        (await inbox.list({ ...reader, view: "needs_action" })).items.map(
+          (item) => item.id
+        )
+      ).toEqual([unrelated.itemId]);
+      expect(
+        (await inbox.get({ ...reader, itemId: notice.id })).item
+      ).toMatchObject({
+        resolutionStatus: "resolved",
+        readAt: new Date(2100).toISOString(),
+      });
+      // A late report for the old runtime must not recreate the ended issue.
+      await reconcileRuntimeAgentModelInboxes({
+        env,
+        ownerUserId: "owner-1",
+        agentControllerRef: "builtin:codex",
+        openMeldServiceRuntimeId: registeredRuntimeId,
+        nowMs: Date.now(),
+      });
+      expect(await inbox.summary(reader)).toMatchObject({
+        unresolvedActionCount: 1,
+      });
+      expect(
+        harness.queryFirst({
+          sql: "SELECT status FROM openmeld_profiles WHERE profile_id = ?",
+          params: [AGENT_PROFILE_ID],
+        })
+      ).toEqual({ status: "active" });
 
       await expect(
         rpcGetAgentProfilePrimaryBinding(env, {
@@ -2075,6 +2190,19 @@ function applyAgentProfileBindingRpcMigrations(
     "openMeldDaemon_runtime_agent_controller_reports",
     "openmeld_profiles",
     "openMeldDaemon_agent_profile_bindings",
+  ]);
+  applyDrizzleMigrationsForTables(harness, [
+    "center_agent_designations",
+    "center_agent_tasks",
+    "center_agent_task_authorized_readers",
+    "inbox_items",
+    "inbox_email_deliveries",
+    "inbox_notification_preferences",
+    "inbox_message_notification_defaults",
+    "inbox_conversation_notification_preferences",
+    "inbox_center_agent_read_watermarks",
+    "space_index_spaces",
+    "space_index_memberships",
   ]);
   applyOrganizationMembershipFixtureTables(harness);
   seedPersonalOrganizationForOwner(harness);
