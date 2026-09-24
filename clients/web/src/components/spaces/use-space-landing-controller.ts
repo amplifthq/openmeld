@@ -42,6 +42,7 @@ import type {
 	ComposerDraftRecord,
 	ComposerDraftScope,
 } from "#/lib/composer-draft-storage";
+import { reportUnconfirmedWakeProgressPresentation } from "#/lib/observability/application-error-client";
 import { updateProfileSpaceHistoryStatus } from "#/lib/onboarding/update-profile-space-history-status";
 import { upsertProfileSpaceHistory } from "#/lib/onboarding/upsert-profile-space-history";
 import { centerAgentPendingAttachmentScope } from "#/lib/organizations/center-agent-pending-message";
@@ -173,6 +174,8 @@ import {
 	createStatusAndMembersRefreshDedupe,
 	filterUnconfirmedRestoredWakeProgress,
 	findSessionExpiredError,
+	findUnconfirmedBootstrapWakeStream,
+	findUnconfirmedPresentedWakeProgress,
 	hasActiveSpaceMember,
 	listPendingWakeProgressClientMessageIds,
 	listRecoverableWakeProgressClientMessageIds,
@@ -1421,6 +1424,122 @@ function useRestoredWakeProgressItems(
 	return restoredRef.current.items;
 }
 
+function useWakeProgressPresentationInvariant(input: {
+	spaceId: string;
+	confirmedItems: readonly WakeProgressItem[];
+	presentedItems: readonly WakeProgressItem[];
+	restoredItems: readonly WakeProgressItem[];
+	cachedSpaceSummaryItems?: readonly WakeProgressItem[];
+	cachedOwnSummaryItems?: readonly WakeProgressItem[];
+	streamProjections: readonly SpaceConversationVisibleStreamProjection[];
+	spaceSummaryFetchedAfterMount: boolean;
+	ownSummaryFetchedAfterMount: boolean;
+	bootstrapFetchedAfterMount: boolean;
+}): void {
+	useEffect(() => {
+		const anomaly = findUnconfirmedPresentedWakeProgress(input);
+		if (anomaly) {
+			reportUnconfirmedWakeProgressPresentation({
+				spaceId: input.spaceId,
+				clientMessageId: anomaly.item.clientMessageId,
+				dispatchId: anomaly.item.dispatchId,
+				sourceSignalId: anomaly.item.sourceSignalId,
+				streamId: null,
+				sourceThreadId: anomaly.item.sourceContext?.threadId ?? null,
+				replyThreadRootSignalId: null,
+				targetProfileId: anomaly.item.targetProfileId,
+				phase: anomaly.item.phase,
+				updatedAtMs: anomaly.item.updatedAtMs,
+				fromRestoredPresentation: anomaly.fromRestoredPresentation,
+				fromCachedSpaceSummary: anomaly.fromCachedSpaceSummary,
+				fromCachedOwnSummary: anomaly.fromCachedOwnSummary,
+				fromBootstrapStream: false,
+				spaceSummaryFetchedAfterMount: input.spaceSummaryFetchedAfterMount,
+				ownSummaryFetchedAfterMount: input.ownSummaryFetchedAfterMount,
+				bootstrapFetchedAfterMount: input.bootstrapFetchedAfterMount,
+			});
+		}
+		const stream = findUnconfirmedBootstrapWakeStream({
+			bootstrapFetchedAfterMount: input.bootstrapFetchedAfterMount,
+			confirmedItems: input.confirmedItems,
+			streams: input.streamProjections,
+		});
+		if (!stream) {
+			return;
+		}
+		reportUnconfirmedWakeProgressPresentation({
+			spaceId: input.spaceId,
+			clientMessageId: null,
+			dispatchId: stream.dispatchId,
+			sourceSignalId: stream.triggerMessageId,
+			streamId: stream.streamId,
+			sourceThreadId: null,
+			replyThreadRootSignalId: stream.replyThreadRootSignalId ?? null,
+			targetProfileId: stream.profileId,
+			phase: "running",
+			updatedAtMs: stream.updatedAtMs,
+			fromRestoredPresentation: false,
+			fromCachedSpaceSummary: false,
+			fromCachedOwnSummary: false,
+			fromBootstrapStream: true,
+			spaceSummaryFetchedAfterMount: input.spaceSummaryFetchedAfterMount,
+			ownSummaryFetchedAfterMount: input.ownSummaryFetchedAfterMount,
+			bootstrapFetchedAfterMount: input.bootstrapFetchedAfterMount,
+		});
+	}, [input]);
+}
+
+type WakePresentation = Parameters<
+	typeof readSpaceWakeProgressSummaryItems
+>[0]["presentation"];
+type WakeSummary = Parameters<
+	typeof readSpaceWakeProgressSummaryItems
+>[0]["summary"];
+
+function readConfirmedWakeProgressItems(input: {
+	presentation: WakePresentation;
+	spaceSummary: WakeSummary;
+	ownSummary: WakeSummary;
+	spaceSummaryFetchedAfterMount: boolean;
+	ownSummaryFetchedAfterMount: boolean;
+	signals: readonly SignalEnvelope[];
+}): WakeProgressItem[] {
+	return mergeWakeProgressItemState({
+		currentItems: readSpaceWakeProgressSummaryItems({
+			presentation: input.presentation,
+			summary: input.spaceSummary,
+			isFetchedAfterMount: input.spaceSummaryFetchedAfterMount,
+		}),
+		incomingItems: readSpaceWakeProgressSummaryItems({
+			presentation: input.presentation,
+			summary: input.ownSummary,
+			isFetchedAfterMount: input.ownSummaryFetchedAfterMount,
+		}),
+		signals: input.signals,
+	});
+}
+
+function readPresentedWakeProgressItems(input: {
+	presentation: WakePresentation;
+	confirmedItems: readonly WakeProgressItem[];
+	currentItems: readonly WakeProgressItem[];
+	restoredItems: readonly WakeProgressItem[];
+	signals: readonly SignalEnvelope[];
+}): WakeProgressItem[] {
+	return filterSpaceWakeProgressItems({
+		presentation: input.presentation,
+		items: mergeActiveWakeProgressPresentation({
+			detailedItems: filterUnconfirmedRestoredWakeProgress({
+				confirmedItems: input.confirmedItems,
+				currentItems: input.currentItems,
+				restoredItems: input.restoredItems,
+			}),
+			signals: input.signals,
+			summaryItems: input.confirmedItems,
+		}),
+	});
+}
+
 export function useSpaceLandingController(input: {
 	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
@@ -2173,42 +2292,57 @@ export function useSpaceLandingController(input: {
 			threadController.threadPreviews,
 		]
 	);
-	const presentedWakeProgressItems = useMemo(() => {
-		const confirmedItems = mergeWakeProgressItemState({
-			currentItems: readSpaceWakeProgressSummaryItems({
+	const confirmedWakeProgressItems = useMemo(
+		() =>
+			readConfirmedWakeProgressItems({
 				presentation: wakeProgressPresentationQuery.data,
-				summary: activeWakeProgressSummaryQuery.data,
-				isFetchedAfterMount: activeWakeProgressSummaryQuery.isFetchedAfterMount,
-			}),
-			incomingItems: readSpaceWakeProgressSummaryItems({
-				presentation: wakeProgressPresentationQuery.data,
-				summary: ownActiveWakeProgressQuery.data,
-				isFetchedAfterMount: ownActiveWakeProgressQuery.isFetchedAfterMount,
-			}),
-			signals: wakeOutcomeSignals,
-		});
-		return filterSpaceWakeProgressItems({
-			presentation: wakeProgressPresentationQuery.data,
-			items: mergeActiveWakeProgressPresentation({
-				detailedItems: filterUnconfirmedRestoredWakeProgress({
-					confirmedItems,
-					currentItems: wakeProgressItems,
-					restoredItems: restoredWakeProgressItems,
-				}),
+				spaceSummary: activeWakeProgressSummaryQuery.data,
+				ownSummary: ownActiveWakeProgressQuery.data,
+				spaceSummaryFetchedAfterMount:
+					activeWakeProgressSummaryQuery.isFetchedAfterMount,
+				ownSummaryFetchedAfterMount:
+					ownActiveWakeProgressQuery.isFetchedAfterMount,
 				signals: wakeOutcomeSignals,
-				summaryItems: confirmedItems,
 			}),
-		});
-	}, [
-		activeWakeProgressSummaryQuery.data,
-		activeWakeProgressSummaryQuery.isFetchedAfterMount,
-		ownActiveWakeProgressQuery.data,
-		ownActiveWakeProgressQuery.isFetchedAfterMount,
-		wakeProgressPresentationQuery.data,
-		wakeOutcomeSignals,
-		wakeProgressItems,
-		restoredWakeProgressItems,
-	]);
+		[
+			activeWakeProgressSummaryQuery.data,
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
+			ownActiveWakeProgressQuery.data,
+			ownActiveWakeProgressQuery.isFetchedAfterMount,
+			wakeProgressPresentationQuery.data,
+			wakeOutcomeSignals,
+		]
+	);
+	const presentedWakeProgressItems = useMemo(
+		() =>
+			readPresentedWakeProgressItems({
+				presentation: wakeProgressPresentationQuery.data,
+				confirmedItems: confirmedWakeProgressItems,
+				currentItems: wakeProgressItems,
+				restoredItems: restoredWakeProgressItems,
+				signals: wakeOutcomeSignals,
+			}),
+		[
+			confirmedWakeProgressItems,
+			wakeProgressPresentationQuery.data,
+			wakeOutcomeSignals,
+			wakeProgressItems,
+			restoredWakeProgressItems,
+		]
+	);
+	useWakeProgressPresentationInvariant({
+		spaceId: input.spaceId,
+		confirmedItems: confirmedWakeProgressItems,
+		presentedItems: presentedWakeProgressItems,
+		restoredItems: restoredWakeProgressItems,
+		cachedSpaceSummaryItems: activeWakeProgressSummaryQuery.data?.items,
+		cachedOwnSummaryItems: ownActiveWakeProgressQuery.data?.items,
+		streamProjections: agentStreamProjections,
+		spaceSummaryFetchedAfterMount:
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
+		ownSummaryFetchedAfterMount: ownActiveWakeProgressQuery.isFetchedAfterMount,
+		bootstrapFetchedAfterMount: bootstrapQuery.isFetchedAfterMount,
+	});
 	usePublishSpaceWakeProgressVisibleProjection(presentedWakeProgressItems);
 
 	useWakeProgressPolling({

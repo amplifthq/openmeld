@@ -3561,6 +3561,19 @@ This does not create another product audit or execution ledger. Coverage,
 retention, source-map handling, and manual queries are documented in
 `docs/web-application-errors.md`.
 
+Web also uses that intake for the bounded
+`web.openmeld.wake_progress_presentation_unconfirmed` event when a Space shows
+restored Wake progress, an unverified active-summary item, or a seeded main
+reply stream without a matching current active-Wake read. The additive shared
+report schema permits only correlation IDs, source/reply Thread pointers,
+phase, update time, presentation source, and query-freshness flags, alongside
+the existing build and page-session identity. No message body, stream text,
+prompt, reasoning, or arbitrary client state is accepted. This event proves
+only the browser presentation decision, not that the underlying execution
+ended; Core trace remains the execution authority. A missing event does not
+prove that Web never displayed the state because browser delivery and Workers
+log retention are best effort.
+
 Structured logs at service and runtime boundaries must stay searchable and
 correlation-friendly:
 

@@ -5094,6 +5094,20 @@ follow-ups establishes completion. Failed, stopped, publication-unknown and
 published outcomes retain their distinct meanings; Core still owns execution
 and viewer-authorized Stop policy.
 
+If Web presents a Wake restored from its local progress cache, an unverified
+active-summary cache, or a main-conversation stream seeded from an unverified
+bootstrap, without a matching current Core active-Wake read, it sends one
+bounded browser diagnostic through the existing application-error intake. The
+structured `web.openmeld.wake_progress_presentation_unconfirmed` log identifies
+the Web build, Space, Wake correlation pointers, source/reply Thread pointers,
+progress update time, phase, cache source, and which queries have fetched since
+mount. It never includes message text, target
+labels, prompts, or arbitrary browser state. This is an observation of what
+Web showed, not proof that the Wake is stale; agents use the dispatch trace to
+determine the actual outcome. Delivery is best effort. Normal newly submitted,
+freshly streamed, and currently confirmed Wake progress does not produce this
+diagnostic.
+
 Web explicitly requests the bounded controller-conversation occupancy wait
 reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
 for <Agent name>` and explains `Another app is using this conversation.` The
