@@ -200,8 +200,11 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 					input.availability.isSendingMessage
 				}
 				onChange={setChoice}
+				requiresProjectContainer={
+					target.agentControllerRef === "builtin:claude-code"
+				}
 				sources={input.taskSources ?? []}
-				supportsLocalFiles={target.agentControllerRef === "builtin:codex"}
+				supportsCurrentFolder={target.agentControllerRef === "builtin:codex"}
 				targetProfileId={target.profileId}
 			/>
 		) : null,

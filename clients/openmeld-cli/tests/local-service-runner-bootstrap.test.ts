@@ -81,6 +81,13 @@ describe("local service dispatch bootstrap prompt", () => {
     for (const prompt of [plan.userPrompt, plan.fallbackPrompt]) {
       expect(prompt).not.toContain("Space Dispatch Brief:");
       expect(prompt).not.toContain("Space Entry Brief:");
+      if (action === "post_status") {
+        expect(prompt).toContain("No current final tool is authorized");
+        expect(prompt).not.toContain("Space Action `status`");
+        expect(prompt).not.toContain("Space Action `reply`");
+        expect(prompt).not.toContain("tool search or discovery");
+        continue;
+      }
       expect(prompt).toContain(`Space Action \`${tool}\``);
       expect(prompt).toContain("tool search or discovery");
       expect(prompt).toContain(
@@ -164,7 +171,7 @@ describe("local service dispatch bootstrap prompt", () => {
     expect(prompt).not.toContain("- Reply target:");
     expect(prompt).not.toContain("- Continuity:");
     expect(prompt).toContain(
-      "- Actions: Complete this Wake with exactly one final outcome: reply, status, or silent."
+      "- Actions: Complete this Wake with exactly one final outcome: reply or silent."
     );
     expect(prompt).toContain(
       "- A requested personal answer, acknowledgement, or result remains due even when it matches another member's answer. Choose silent only when no requested or useful contribution remains."
@@ -629,7 +636,7 @@ describe("local service dispatch bootstrap prompt", () => {
     });
 
     expect(prompt).toContain(
-      "- Actions: Complete this Wake with exactly one final outcome: reply, status, or silent."
+      "- Actions: Complete this Wake with exactly one final outcome: reply or silent."
     );
     expect(prompt).toContain(
       "- Dispatch trigger: listen_all: this Space dispatches public messages to active Agent Profiles."
@@ -661,7 +668,7 @@ describe("local service dispatch bootstrap prompt", () => {
     expect(prompt).toContain("Space Entry Brief:");
     expect(prompt).not.toContain("- How this space works:");
     expect(prompt).toContain(
-      "- Actions: Complete this Wake with exactly one final outcome: reply, status, or silent."
+      "- Actions: Complete this Wake with exactly one final outcome: reply or silent."
     );
   });
 
@@ -773,7 +780,7 @@ describe("local service dispatch bootstrap prompt", () => {
     });
 
     expect(prompt).toContain(
-      "- Actions: Complete this Wake with exactly one final outcome: status or silent."
+      "- Actions: Complete this Wake with exactly one final outcome: silent."
     );
     expect(prompt).not.toContain(
       "exactly one final outcome: reply, status, or silent"

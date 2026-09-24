@@ -17,6 +17,7 @@ import {
 } from "./changelog.mjs";
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, "../..");
+const GENERATED_INDEX_EXCLUSION_RE = /"!changelog\/index\.json"/u;
 
 const createFixture = () => {
   const rootDirectory = mkdtempSync(path.join(tmpdir(), "openmeld-changelog-"));
@@ -298,5 +299,5 @@ test("keeps the generated machine projection under builder ownership", () => {
     "utf8"
   );
 
-  assert.match(biomeConfig, /"!changelog\/index\.json"/u);
+  assert.match(biomeConfig, GENERATED_INDEX_EXCLUSION_RE);
 });

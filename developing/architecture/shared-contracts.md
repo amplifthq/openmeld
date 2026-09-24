@@ -7101,15 +7101,24 @@ A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
 
-An omitted access preference selects `space_context`; local project access is
-explicit or inherited from an authorized fork source. `workspace: isolated`
+An omitted access preference selects `space_context`, including an ordinary
+Claude Code Wake in parallel mode that creates a new implicit context. A retained
+context keeps its existing access. An explicit independent project task selects
+`workspace: isolated`. `workspace: isolated`
 with local access now means a committed project worktree with private Git data.
 The local preparation journal binds the shared assignment to its source and
 starting commit. Its paths remain local; it neither replaces the Core context
 association nor introduces a second Project connection. Source policy is checked
 before materialization, and native project access is probed before execution.
-Native platform temporary-directory access remains in effect; this contract
-does not promise complete temporary-directory isolation.
+Codex retains native platform temporary-directory access; that contract does
+not promise complete temporary-directory isolation. Claude Code project access
+requires a running Docker or Podman Linux-container engine on macOS, Linux, or
+Windows. The Service verifies one task-only mount before execution. Its
+dispatch-scoped `project_shell` MCP tool checks the current attempt's workspace
+lease on each call, then runs Bash with no container network, host credentials,
+or host socket. Claude's host file tools use restricted working-directory
+access; host Bash is unavailable. Container commands must stop before the
+Service releases or reconciles the task workspace.
 
 Core sets `contextRequest.required` only for an explicit client selection. An
 ordinary thread Wake carries its discussion scope with `required: false`; the
@@ -7117,8 +7126,11 @@ Context authority creates implicit thread contexts only for supported harnesses.
 Other harnesses retain their existing serial Binding path and do not select
 retained Context history from a previously configured harness. Explicit
 new/resume/fork/auto selections never fall back to that path. This changes Core's
-request-selection policy without changing the wire shape or Service capability
-version, and leaves existing Binding, lifecycle, and readiness checks in effect.
+request-selection policy while retaining existing Binding, lifecycle, and
+readiness checks. Claude project contexts additionally require Service adapter
+`executionContextVersion: 3`; older Services receive a visible update-required
+outcome. Version 2 remains sufficient for the legacy association and Codex
+contexts. The shared assignment wire shape remains v1.
 
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch
@@ -7151,7 +7163,9 @@ The separate Late reply presentation remains outside this implementation.
 Contract impact: HTTP signal/thread sends gain optional selection fields;
 accepted snapshots and RuntimeTransport gain version-1 context assignments;
 current task results gain context identity/completion fields; the local ledger
-and fork journal migrate to v2. Dispatch Space Action authority is unchanged.
+and fork journal migrate to v2. Dispatch Space Action authority is unchanged;
+the per-Wake tool catalog adds `project_shell` only for a verified Claude
+project context, without granting a second final action path.
 Setup, Service installation, CLI self-rescue, and managed Skill contracts are
 unchanged. Legacy unscoped execution keeps its existing payload and epoch.
 
@@ -7177,9 +7191,9 @@ association. An older Service receives a visible update-required outcome when
 it cannot read the selected task contract, never a delivery that silently reuses
 the Binding conversation. Assignment/history version remains 1; the capability
 increment identifies the new Service-side migration guard. Older Core strictly
-rejects unknown capability declarations, so deploy Core/Gateway support
-before distributing this Service and Web/CLI feature. This ordered rollout is
-required; publishing the local component first is unsupported. Local-component
+rejects unknown capability declarations, so deploy Core/Gateway support for
+version 3 before distributing this Service and Web/CLI feature. This ordered
+rollout is required; publishing the local component first is unsupported. Local-component
 release metadata is deferred in the feature PR and must be produced by the
 guarded release workflow before production rollout.
 

@@ -2,7 +2,6 @@ import type {
   PatchSpaceContractBody,
   SpaceContract,
 } from "@openmeld/schemas/types";
-import { SPACE_CONTRACT_ALLOWED_ACTION_ORDER } from "@openmeld/space-mesh";
 
 export const SPACE_CONTRACT_DISPATCH_POLICY_VALUES = [
   "mention_only",
@@ -23,8 +22,12 @@ export const SPACE_PUBLICATION_MODE_CLI_VALUES = [
   "transparent",
 ] as const;
 
-export const SPACE_CONTRACT_ALLOWED_ACTION_VALUES =
-  SPACE_CONTRACT_ALLOWED_ACTION_ORDER satisfies readonly SpaceContract["allowedActions"][number][];
+export const SPACE_CONTRACT_ALLOWED_ACTION_VALUES = [
+  "post_message",
+  "stay_silent",
+] as const satisfies readonly NonNullable<
+  PatchSpaceContractBody["allowedActions"]
+>[number][];
 
 export const SPACE_CONTRACT_RESULT_ARCHIVE_MODE_VALUES = [
   "none",

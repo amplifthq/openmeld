@@ -1190,6 +1190,9 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -1200,6 +1203,9 @@ importers:
       '@openmeld/schemas':
         specifier: workspace:*
         version: link:../../../packages/schemas
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -1220,10 +1226,16 @@ importers:
       '@openmeld/adapter-core':
         specifier: workspace:*
         version: link:../core
+      smol-toml:
+        specifier: 1.7.0
+        version: 1.7.0
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
         version: 24.10.13
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
 
   runtime/adapters/openclaw:
     dependencies:
@@ -1234,6 +1246,9 @@ importers:
       '@types/node':
         specifier: ^24.3.0
         version: 24.10.13
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
 
   runtime/adapters/opencode:
     dependencies:

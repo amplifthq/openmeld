@@ -1008,6 +1008,12 @@ describe("accepted dispatch finalization", () => {
   });
 
   it("publishes accepted post_status finalization through Space action delivery without a space password", async () => {
+    const historicalSpaceContract: ReturnType<
+      typeof buildDefaultSpaceContract
+    > = {
+      ...buildDefaultSpaceContract(),
+      allowedActions: ["post_message", "post_status", "stay_silent"],
+    };
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
@@ -1091,7 +1097,7 @@ describe("accepted dispatch finalization", () => {
       fact: dispatchFact,
       inboxRecord,
       sourceSignal: source,
-      spaceContract: buildDefaultSpaceContract(),
+      spaceContract: historicalSpaceContract,
       threadContext: null,
     });
     expect(dispatchMessage && "spacePassword" in dispatchMessage).toBe(false);
@@ -1194,7 +1200,7 @@ describe("accepted dispatch finalization", () => {
         }),
       },
       readSpaceContractRecord: {
-        value: vi.fn(() => buildDefaultSpaceContract()),
+        value: vi.fn(() => historicalSpaceContract),
       },
       readSpaceMetaRecord: {
         value: vi.fn(() => ({

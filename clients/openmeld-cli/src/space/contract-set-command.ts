@@ -194,7 +194,7 @@ function buildExplicitSpaceContractPatch(input: {
       parsed.error.issues[0]?.message ?? "space contract patch is invalid"
     );
   }
-  return {
+  return patchSpaceContractBodySchema.parse({
     ...parsed.data,
     ...(parsed.data.allowedActions
       ? {
@@ -203,7 +203,7 @@ function buildExplicitSpaceContractPatch(input: {
           ),
         }
       : {}),
-  };
+  });
 }
 
 function pruneUnchangedSpaceContractPatch(input: {

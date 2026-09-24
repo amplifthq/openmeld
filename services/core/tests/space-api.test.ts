@@ -12230,7 +12230,7 @@ describe("OpenMeld Core", () => {
     });
   });
 
-  it("patches the space contract through PATCH /contract", async () => {
+  it("drops retired status permission from a legacy PATCH /contract", async () => {
     const spaceId = await createSpace({
       name: "phase-5b-contract",
       password: "secret-0321",
@@ -12261,7 +12261,7 @@ describe("OpenMeld Core", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       publicationMode: "raw_context_sharing",
-      allowedActions: ["post_status", "stay_silent"],
+      allowedActions: ["stay_silent"],
       resultArchivePolicy: {
         mode: "space_reply_only",
       },
@@ -12294,7 +12294,7 @@ describe("OpenMeld Core", () => {
     await expect(response.json()).resolves.toMatchObject({
       version: 1,
       updatedBy: "system",
-      allowedActions: ["post_message", "post_status", "stay_silent"],
+      allowedActions: ["post_message", "stay_silent"],
     });
 
     const contractRead = await fetchWithOpenMeldAuth(
@@ -12304,7 +12304,7 @@ describe("OpenMeld Core", () => {
     await expect(contractRead.json()).resolves.toMatchObject({
       version: 1,
       updatedBy: "system",
-      allowedActions: ["post_message", "post_status", "stay_silent"],
+      allowedActions: ["post_message", "stay_silent"],
     });
   });
 
@@ -12355,7 +12355,7 @@ describe("OpenMeld Core", () => {
       passwordProtected: false,
       dispatchPolicy: { mode: "mention_only" },
       publicationMode: "collaboration",
-      allowedActions: ["post_message", "post_status", "stay_silent"],
+      allowedActions: ["post_message", "stay_silent"],
       resultArchivePolicy: { mode: "space_reply_only" },
       entryBrief: "default",
       dispatchBrief: "default",

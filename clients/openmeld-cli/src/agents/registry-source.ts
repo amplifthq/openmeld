@@ -784,7 +784,8 @@ function parseAgentsRegistryRuntimeCapabilityDeclaration(
   if (
     objectValue.executionContextVersion !== undefined &&
     objectValue.executionContextVersion !== 1 &&
-    objectValue.executionContextVersion !== 2
+    objectValue.executionContextVersion !== 2 &&
+    objectValue.executionContextVersion !== 3
   ) {
     throw new Error(`${context}.executionContextVersion is unsupported`);
   }
@@ -822,7 +823,8 @@ function parseAgentsRegistryRuntimeCapabilityDeclaration(
   return {
     continuationCapability,
     ...(objectValue.executionContextVersion === 1 ||
-    objectValue.executionContextVersion === 2
+    objectValue.executionContextVersion === 2 ||
+    objectValue.executionContextVersion === 3
       ? { executionContextVersion: objectValue.executionContextVersion }
       : {}),
     ...(imageInputCapability ? { imageInputCapability } : {}),

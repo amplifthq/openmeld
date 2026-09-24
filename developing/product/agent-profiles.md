@@ -1062,11 +1062,13 @@ them; a thread alone does not opt an unsupported harness into the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 
-New tasks default to Space context without requiring a local repository. Forks
-inherit the source context's access unless an explicit supported choice changes
-it. Claude Code supports independent Space-context tasks with local tools disabled.
-Codex App Server also supports explicitly selected independent project worktrees,
-or read-only/current-folder access. The CLI options
+In parallel mode, an ordinary Claude Code Wake starts a new isolated Space-only
+context when no retained context has been selected. It does not require a Git
+repository or container engine. A Wake continuing a retained context keeps that
+context's access; select a new project task to work in a repository. Space-only
+tasks have no local code tools. Forks inherit the source context's access unless an
+explicit supported choice changes it. Codex App Server also supports independent
+project worktrees or read-only/current-folder access. The CLI options
 are `--task-access space_context|read_only|workspace` and
 `--task-workspace isolated|current`. Current-folder writers wait for conflicting
 local work. An independent project task requires a confirmed working folder that
@@ -1079,13 +1081,17 @@ Retries and continuation preserve the task's worktree and frozen starting commit
 The local Agent receives the repository label, task working folder, and starting
 commit; it does not discover a source by searching the computer.
 
-The task boundary confines project files and Git metadata while retaining the
-native runtime's platform temporary-directory rules. This is not a promise of
-complete temporary-directory isolation. Before model execution, a native command
-must prove allowed access inside the task and denied reads/writes to an owned
-sentinel outside its boundary. A worktree under a platform-wide temporary grant
-fails this check and cannot run as an isolated project task. Selecting an
-independent worktree does not grant access to an otherwise forbidden source.
+The task boundary confines project files and Git metadata. Codex retains its
+native runtime's platform temporary-directory rules; that is not a promise of
+complete temporary-directory isolation. Claude Code project tasks require a
+running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
+The Service mounts only the task-owned repository and worktree, disables
+container networking, runs as a non-root user, and gives Claude restricted file
+tools plus a dispatch-scoped project shell. Before model execution, it proves
+allowed reads and writes inside the task and denied reads outside. If the engine,
+mount, or containment check fails, the project task fails visibly before Claude
+can read project files. Selecting an independent worktree does not grant access
+to an otherwise forbidden source.
 
 The first accepted Wake request remains frozen while it waits, moves to the
 front, or is redriven after transport recovery. Prompt, attachments, source

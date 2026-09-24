@@ -13,16 +13,15 @@ import { readDispatchSpaceActionContextFromEnv } from "../runtime/dispatch-space
 import { createCliSpaceApi } from "./cli-space-api";
 
 /** Read the current Wake's bounded Space history through the existing member API. */
-export async function readDispatchSpaceHistory() {
-  if (
-    process.env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] !==
-    DISPATCH_OWNED_RUNTIME_MODE
-  ) {
+export async function readDispatchSpaceHistory(
+  env: NodeJS.ProcessEnv = process.env
+) {
+  if (env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] !== DISPATCH_OWNED_RUNTIME_MODE) {
     throw new Error(
       "Space history tools require an active OpenMeld dispatch runtime."
     );
   }
-  const context = readDispatchSpaceActionContextFromEnv();
+  const context = readDispatchSpaceActionContextFromEnv(env);
   const profile = await requireOpenMeldProfile({
     openMeldProfileId: context.targetProfileId,
     persistSelection: false,
@@ -48,7 +47,7 @@ export async function readDispatchSpaceHistory() {
       kinds: ["text"],
     },
   });
-  const current = readDispatchSpaceActionContextFromEnv();
+  const current = readDispatchSpaceActionContextFromEnv(env);
   if (
     current.contextId !== context.contextId ||
     current.nonce !== context.nonce ||
