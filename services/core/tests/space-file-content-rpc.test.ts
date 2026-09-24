@@ -10,6 +10,7 @@ import {
 import type {
   OpenMeldRequestContext,
   PrepareSpaceFileWriteResponse,
+  SpaceFileAuditEvent,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CenterAgentRpcEntrypoint, GatewayRpcEntrypoint } from "../src/index";
@@ -423,6 +424,62 @@ describe("Core Space file content RPC", () => {
         spaceId: SPACE_ID,
       }),
     });
+  });
+
+  it("records a distinct audit event for each file read within one request", async () => {
+    const { env, stub } = makeEnv();
+    const secondFileId = "file-files-test-second";
+    const secondRevisionId = "revision-files-test-second";
+    const secondRevision = {
+      ...REVISION,
+      id: secondRevisionId,
+      fileId: secondFileId,
+    };
+    stub.rpcResolveSpaceFileContent
+      .mockResolvedValueOnce({
+        organizationId: ORGANIZATION_ID,
+        objectKey: OBJECT_KEY,
+        file: FILE,
+        revision: REVISION,
+      })
+      .mockResolvedValueOnce({
+        organizationId: ORGANIZATION_ID,
+        objectKey: buildSpaceFileObjectKey({
+          organizationId: ORGANIZATION_ID,
+          spaceId: SPACE_ID,
+          fileId: secondFileId,
+          revisionId: secondRevisionId,
+        }),
+        file: { ...FILE, id: secondFileId, latestRevision: secondRevision },
+        revision: secondRevision,
+      });
+
+    await rpcReadSpaceFileContent(env, {
+      content: { spaceId: SPACE_ID, fileId: FILE_ID },
+      context: CONTEXT,
+      spaceId: SPACE_ID,
+    });
+    await rpcReadSpaceFileContent(env, {
+      content: { spaceId: SPACE_ID, fileId: secondFileId },
+      context: CONTEXT,
+      spaceId: SPACE_ID,
+    });
+
+    const events = (
+      stub.rpcRecordSpaceFileAuditEvent.mock.calls as unknown as Array<
+        [{ event: SpaceFileAuditEvent }]
+      >
+    ).map(([call]) => call.event);
+    expect(events.map((event) => event.entryId)).toEqual([
+      FILE_ID,
+      secondFileId,
+    ]);
+    expect(events.map((event) => event.requestId)).toEqual([
+      CONTEXT.actorContext.requestId,
+      CONTEXT.actorContext.requestId,
+    ]);
+    expect(new Set(events.map((event) => event.eventId)).size).toBe(2);
+    expect(new Set(events.map((event) => event.operationId)).size).toBe(2);
   });
 
   it("audits a failed R2 read before returning the storage failure", async () => {
