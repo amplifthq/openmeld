@@ -828,7 +828,7 @@ export function AgentProfileModelSelectionFields(
 			"center-agent"
 		]?.models.find((model) => model.id === input.modelId);
 		return (
-			<div className="grid min-w-0 gap-3">
+			<div className="grid min-w-0 gap-5">
 				<HostedModelSelect
 					choices={personalRemoteModelChoices(input.modelCatalog)}
 					disabled={input.disabled || !input.modelCatalog}
@@ -858,7 +858,7 @@ export function AgentProfileModelSelectionFields(
 	}
 
 	return (
-		<div className="grid min-w-0 gap-3">
+		<div className="grid min-w-0 gap-5">
 			<div className="grid min-w-0 gap-2">
 				<Label htmlFor={modelSelectId}>Model</Label>
 				<Select

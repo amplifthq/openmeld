@@ -2694,8 +2694,11 @@ physical computer; it must never silently move a draft to another computer.
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
 request contract. The global page first asks whether the Agent runs locally or
-remotely and whether to start a Direct Message or add it to an existing joined
-Space. Local selection loads the existing local creation generator; Remote
+remotely. It opens a new Direct Message after setup without a destination
+choice. Creation from the Space Members panel or Add People or Agents dialog
+stays in that Space: the new Agent becomes selected in the picker, and the
+member can add the selection to the Space. Local selection loads the existing
+local creation generator; Remote
 selection reads the hosted model catalog without loading Computer setup or
 local Agent readiness. **Choose a Local Agent** always presents Codex, Claude
 Code, Grok Build, OpenCode, Antigravity, and Cursor in that order. The complete catalog is
