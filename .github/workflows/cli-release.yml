@@ -26,6 +26,11 @@ on:
           - normal
           - resume-after-binary-upload
           - resume-after-npm-publish
+      windows_artifact_run_id:
+        description: "Optional trusted main CLI run whose Windows helper bytes were used to stamp this release"
+        required: false
+        type: string
+        default: ""
       production_train_scopes:
         description: "Comma-separated complete release train; use cli for an independent CLI release"
         required: true
@@ -63,10 +68,19 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - uses: actions/setup-dotnet@v5
+        if: inputs.windows_artifact_run_id == ''
         with:
           dotnet-version: 10.0.401
       - run: pnpm install --frozen-lockfile
       - run: node scripts/release/build-windows-process-helper.mjs
+        if: inputs.windows_artifact_run_id == ''
+      - name: Reuse the stamped Windows process helper
+        if: inputs.windows_artifact_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_ARTIFACT_RUN_ID: ${{ inputs.windows_artifact_run_id }}
+          RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+        run: node scripts/release/reuse-windows-process-artifact.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: windows-process-${{ inputs.release_sha || github.sha }}
