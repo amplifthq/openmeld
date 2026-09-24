@@ -4416,9 +4416,11 @@ the timeline. Direct messages keep the compact avatar-and-bubble layout without
 a separate header time. Each direct message shows its 24-hour, hour-and-minute
 time inside the floating toolbar. Message details remains available for an
 individual message. Message actions form one floating
-toolbar beside the bubble, or just above it when neither side has room. It
-prefers the opposite side of a right-aligned
-self message and the right side of a left-aligned message. Phone widths show
+toolbar beside the bubble, or slightly over its upper edge when neither side
+has room. As a long message scrolls past the top of the message viewport, the
+toolbar follows that message's lower visible edge so its actions remain in view.
+It prefers the opposite side of a right-aligned self message and the right side
+of a left-aligned message. Phone widths show
 reaction and More actions beside a narrower bubble, keeping the full set of
 actions available from More. The toolbar does not reserve a footer row or change
 the bubble's height. When a message has a failure, the visible
