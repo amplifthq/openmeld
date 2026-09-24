@@ -1185,7 +1185,13 @@ function ModelRetirementNotice(input: {
 		return null;
 	}
 	return (
-		<p className="text-muted-foreground text-xs leading-5">
+		<p
+			className={
+				notice.status === "withdrawn"
+					? "text-destructive text-xs leading-5"
+					: "text-amber-700 text-xs leading-5 dark:text-amber-300"
+			}
+		>
 			{formatModelRetirementNotice(notice)}{" "}
 			<a
 				className="underline"
