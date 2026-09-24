@@ -1,3 +1,4 @@
 patches/*.patch -whitespace
 release/openmeld-cli-skill/** text eol=lf
 clients/web/public/skills/openmeld-cli/** text eol=lf
+clients/web/src/routeTree.gen.ts text eol=lf

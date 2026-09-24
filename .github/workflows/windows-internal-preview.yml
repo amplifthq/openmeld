@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - .gitattributes
       - .github/workflows/windows-internal-preview.yml
       - scripts/release/windows-internal-preview.mjs
       - scripts/release/publish-windows-internal-preview.mjs
