@@ -1,5 +1,8 @@
 import { env } from "cloudflare:workers";
 import {
+	DESKTOP_APP_ORIGIN,
+	DESKTOP_CONTRACT_HEADER,
+	DESKTOP_CONTRACT_VERSION,
 	WEB_APPLICATION_ERROR_MAX_BYTES,
 	type WebApplicationErrorReport,
 	webApplicationErrorReportSchema,
@@ -87,7 +90,11 @@ export async function receiveApplicationError(
 	if (request.method !== "POST") {
 		return response(405);
 	}
-	if (request.headers.get("origin") !== new URL(request.url).origin) {
+	const origin = request.headers.get("origin");
+	const isDesktopReport =
+		origin === DESKTOP_APP_ORIGIN &&
+		request.headers.get(DESKTOP_CONTRACT_HEADER) === DESKTOP_CONTRACT_VERSION;
+	if (origin !== new URL(request.url).origin && !isDesktopReport) {
 		return response(403);
 	}
 	if (

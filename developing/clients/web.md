@@ -419,6 +419,19 @@ reporter. Reporting does not decide recovery, mutate application state, or
 retry a failed diagnostic request. See `docs/web-application-errors.md` for
 the privacy, coverage, and operator query contract.
 
+The Space composer isolates a rich-editor failure from the conversation shell.
+Its plain-text fallback keeps the draft and send action available, while edits
+there clear authored mention semantics. A failed editor must not replace the
+whole Desktop or Web workspace with the root error page.
+If a different React failure occurs in the Space or Direct Message conversation
+panel, its boundary keeps the app shell, header, and conversation sidebar
+usable, reports the error, and offers a local retry. It does not treat a caught
+error as a successful conversation load or erase the underlying failure.
+The shared Markdown editor likewise isolates Plate failures for Organization
+Documents, Organization Skills, and Space Files. Its fallback shows the owning
+Markdown draft as editable source, retains read-only mode and content-limit
+feedback, and leaves saving under the existing owner.
+
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 Vite's content-hashed `/assets/` responses use a one-year immutable browser
@@ -4445,9 +4458,11 @@ the timeline. Direct messages keep the compact avatar-and-bubble layout without
 a separate header time. Each direct message shows its 24-hour, hour-and-minute
 time inside the floating toolbar. Message details remains available for an
 individual message. Message actions form one floating
-toolbar beside the bubble, or just above it when neither side has room. It
-prefers the opposite side of a right-aligned
-self message and the right side of a left-aligned message. Phone widths show
+toolbar beside the bubble, or slightly over its upper edge when neither side
+has room. As a long message scrolls past the top of the message viewport, the
+toolbar follows that message's lower visible edge so its actions remain in view.
+It prefers the opposite side of a right-aligned self message and the right side
+of a left-aligned message. Phone widths show
 reaction and More actions beside a narrower bubble, keeping the full set of
 actions available from More. The toolbar does not reserve a footer row or change
 the bubble's height. When a message has a failure, the visible

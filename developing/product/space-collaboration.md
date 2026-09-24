@@ -1326,7 +1326,9 @@ again removes only that person's reaction. Multiple people share an emoji count;
 each person can use more than one emoji, once per emoji per message.
 
 Reactions remain beneath their source message, before its thread preview, while
-message actions float beside the bubble's upper edge. On self-authored messages the
+main-conversation message actions float beside the bubble's upper visible edge,
+following the lower visible edge when a long message scrolls past the top of
+the viewport. On self-authored messages the
 reactions start at the bubble’s left edge and stay within its width. Overflow
 reactions appear in a +N pill that
 opens on hover or click. Emoji groups retain their first-added order while any
