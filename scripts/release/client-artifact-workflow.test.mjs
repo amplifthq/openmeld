@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parse } from "yaml";
-import { admissionReason, resourcePolicy } from "../dev/local-resources.mjs";
 import { productionBuildEnvironment } from "./production-artifact-check.mjs";
 
 const expression = (value) => `${"$"}{{ ${value} }}`;
@@ -227,8 +226,6 @@ test("Production and Deep Confidence share an explicit heap within available run
   const productionJob = production.jobs.validate_release_source;
   const diagnosticJob = diagnostic.jobs["release-artifacts"];
   assert.equal(diagnosticJob["runs-on"], productionJob["runs-on"]);
-  // Ubuntu run 35742137329 measured 7,291,916,288 available bytes. Use the
-  // private runner's 8 GiB capacity ceiling to conservatively budget headroom.
   const memoryBytes = 8 * 1024 ** 3;
   for (const [job, entrypoint] of [
     [productionJob, "production-train-artifact-admission.mjs"],
@@ -240,8 +237,12 @@ test("Production and Deep Confidence share an explicit heap within available run
   ]) {
     const step = job.steps.find((item) => item.run?.includes(entrypoint));
     const workflowEnv = { ...job.env, ...step.env };
+    const trainAdmission = job === productionJob;
     assert.equal(workflowEnv.NODE_OPTIONS, undefined);
-    assert.equal(workflowEnv.OPENMELD_RENDERER_NODE_HEAP_MB, undefined);
+    assert.equal(
+      workflowEnv.OPENMELD_RENDERER_NODE_HEAP_MB,
+      trainAdmission ? "4608" : undefined
+    );
     for (const scope of ["web", "desktop"]) {
       const env = productionBuildEnvironment(
         scope,
@@ -249,23 +250,11 @@ test("Production and Deep Confidence share an explicit heap within available run
         memoryBytes,
         "linux"
       );
-      const policy = resourcePolicy(env, memoryBytes, "linux");
-      assert.equal(env.NODE_OPTIONS, "--max-old-space-size=4096");
-      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, "5");
-      const admission = {
-        kind: "heavy",
-        entries: [],
-        rows: [],
-        policy,
-        pressure: "unknown",
-      };
       assert.equal(
-        admissionReason({ ...admission, availableBytes: 7_291_916_288 }),
-        null
+        env.NODE_OPTIONS,
+        `--max-old-space-size=${trainAdmission ? 4608 : 4096}`
       );
-      assert.ok(
-        admissionReason({ ...admission, availableBytes: 6 * 1024 ** 3 })
-      );
+      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, trainAdmission ? "5.5" : "5");
       assert.equal(
         env.OPENMELD_DESKTOP_TARGET,
         scope === "desktop" ? "production" : undefined

@@ -30,6 +30,7 @@ const SOURCE_SHA = "a".repeat(40);
 const OUTSIDE_TRAIN_RE = /outside the declared train: cli/u;
 const SSR_FAILED_RE = /Workerd SSR failed/u;
 const CHECKOUT_CHANGED_RE = /checkout changed/u;
+const STAGE_ARTIFACT_MISSING_RE = /do not cover this stage/u;
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -62,7 +63,7 @@ test("requires an explicit train and uses the release plan source and scopes", (
       }
     ),
     {
-      artifactScopes: ["cli", "web"],
+      artifactScopes: [],
       productionScopes: ["db", "cli", "web"],
       scopes: ["db", "cli", "web"],
       selectedScopes: ["db"],
@@ -91,7 +92,7 @@ test("rejects an entry scope outside the declared train", () => {
   );
 });
 
-test("checks selected CLI, Desktop, then Web artifacts and skips all for a backend-only train", async () => {
+test("checks only selected client artifacts, even when the train includes other clients", async () => {
   const checks = [];
   const dependencies = {
     buildPlan: ({ scope, sourceSha }) => ({
@@ -138,8 +139,12 @@ test("checks selected CLI, Desktop, then Web artifacts and skips all for a backe
       dependencies
     ),
     {
-      artifactScopes: ["cli", "desktop", "web"],
-      artifacts: { cli: "verified", desktop: "verified", web: "verified" },
+      artifactScopes: ["cli"],
+      artifacts: {
+        cli: "verified",
+        desktop: "not_required",
+        web: "not_required",
+      },
       productionScopes: ["db", "cli", "web"],
       scopes: ["db", "cli", "web", "desktop"],
       selectedScopes: ["cli"],
@@ -152,9 +157,18 @@ test("checks selected CLI, Desktop, then Web artifacts and skips all for a backe
       env: { [PRODUCTION_TRAIN_SCOPES_ENV]: "db,cli,web,desktop" },
       sourceSha: SOURCE_SHA,
     },
-    { root: "/release", scope: "desktop", sourceSha: SOURCE_SHA },
-    { root: "/release", scope: "web", sourceSha: SOURCE_SHA },
   ]);
+  assert.deepEqual(
+    resolveProductionTrain(
+      {
+        env: { [PRODUCTION_TRAIN_SCOPES_ENV]: "db,cli,web,desktop" },
+        selectedScopes: "web,desktop",
+        sourceSha: SOURCE_SHA,
+      },
+      dependencies
+    ).artifactScopes,
+    ["desktop", "web"]
+  );
 });
 
 test("the CLI admits an explicit selected scope at the checked-out source", () => {
@@ -195,7 +209,9 @@ test("the CLI admits an explicit selected scope at the checked-out source", () =
   });
 });
 
-async function coordinatedFixture() {
+async function coordinatedFixture(
+  selectedScopes = "db,auth,cli,web,gateway,core,remote-agent,desktop"
+) {
   // These fixtures hash tiny synthetic artifacts; CI's own Node heap is not a
   // renderer budget. Isolate both process.env consumers and spawned commands.
   const resourceEnv = {
@@ -250,7 +266,7 @@ async function coordinatedFixture() {
   const input = {
     root,
     sourceSha: git("rev-parse", "HEAD"),
-    selectedScopes: "full",
+    selectedScopes,
     env: {
       ...process.env,
       GITHUB_REPOSITORY: "amplifthq/openmeld",
@@ -324,6 +340,24 @@ async function coordinatedFixture() {
   input.env.GITHUB_JOB = "deploy";
   return { input, parent, dependencies, checks };
 }
+
+test("a backend-only parent skips client builds and cannot authorize a later Web stage", async () => {
+  const { input, checks, dependencies } = await coordinatedFixture("core");
+  assert.deepEqual(checks, []);
+  const core = await runProductionTrainAdmission(
+    { ...input, selectedScopes: "core" },
+    dependencies
+  );
+  assert.equal(core.parentEvidenceVerified, true);
+  await assert.rejects(
+    runProductionTrainAdmission(
+      { ...input, selectedScopes: "web" },
+      dependencies
+    ),
+    STAGE_ARTIFACT_MISSING_RE
+  );
+  assert.deepEqual(checks, []);
+});
 
 test("one coordinated full train admits each artifact once and every child verifies without rebuilding", async () => {
   const { input, checks, dependencies } = await coordinatedFixture();
@@ -423,7 +457,7 @@ test("one coordinated full train admits each artifact once and every child verif
   assert.equal(preflight.reused, true);
   assert.deepEqual(checks, ["cli", "desktop", "web"]);
 
-  // Standalone callers still perform the entire declared train admission.
+  // A standalone Core stage does not build unrelated client artifacts.
   const standalone = await runProductionTrainAdmission(
     {
       ...input,
@@ -438,7 +472,7 @@ test("one coordinated full train admits each artifact once and every child verif
     dependencies
   );
   assert.equal(standalone.parentEvidenceVerified, undefined);
-  assert.deepEqual(checks, ["cli", "desktop", "web", "cli", "desktop", "web"]);
+  assert.deepEqual(checks, ["cli", "desktop", "web"]);
 });
 
 test("parent evidence fails closed on source, control, train, artifact, input, and same-run identity mismatches", async () => {

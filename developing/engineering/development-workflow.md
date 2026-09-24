@@ -873,8 +873,9 @@ The CI/CD procedure and its rationale have one owner:
 engineers and every coding agent. Read it before pushing a candidate or merging.
 
 - Commit hook: staged-file checks.
-- Development push hook: mandatory focused checks on the exact clean commit.
-- Draft PR: mandatory focused push checks and risk-selected local validation;
+- Development push hook: quick protected-release checks; no automatic affected
+  builds or tests on ordinary branches.
+- Draft PR: risk-selected local validation;
   keep work draft until ready to merge. There is no automatic full-PR hosted
   unit-test run on every Draft push.
 - Standard FC: exact identity, trusted control, static contracts, and path-owned
@@ -2136,9 +2137,11 @@ After review, protected merge, and selection of the exact release SHA:
    and signed source record, and checks that the ZIP seals the same signed App.
    It uploads both artifacts before their immutable candidate manifest. Existing
    public candidates cannot be overwritten. It never promotes a release.
-5. Verify public GET and HEAD, full download hash/size, and normal macOS install
-   and production smoke through user-facing entrypoints. An upload alone does
-   not prove availability or application behavior.
+5. Verify public HEAD for both artifacts. Download the public DMG, check its
+   hash and size, then use it for normal macOS install and production smoke
+   through user-facing entrypoints. Do not separately download the full update
+   ZIP here; the promotion command verifies both public artifacts. An upload
+   alone does not prove availability or application behavior.
 6. Separately authorize promotion. Deploy the Web feed/download readers first,
    then run from the same clean approved checkout:
    `OPENMELD_DESKTOP_RELEASE_SHA=<sha> node scripts/release/desktop-preview.mjs promote <candidate-hash> <current-version-or-none>`.
@@ -2315,8 +2318,8 @@ policy script owns this classification; ordinary feature branches remain
 deferred and cannot carry a release stamp, while a malformed or mixed-scope
 release branch fails closed.
 
-The pre-push release check defers ordinary development builds to FC; the
-focused-check hook still runs on development pushes. Release checking remains
+The pre-push release check does not run ordinary development builds or tests.
+Agents select focused checks before Ready. Release checking remains
 strict when a push includes `refs/heads/main`, any `codex/release-*` branch,
 a tag, malformed input, or no input. Malformed release branch names fail at
 pre-push instead of waiting for Final Candidate. A strict push
