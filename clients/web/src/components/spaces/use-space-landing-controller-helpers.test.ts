@@ -29,6 +29,8 @@ import {
 import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
+	findUnconfirmedBootstrapWakeStream,
+	findUnconfirmedPresentedWakeProgress,
 	listPendingWakeProgressClientMessageIds,
 	listRecoverableWakeProgressClientMessageIds,
 	mergeActiveWakeProgressPresentation,
@@ -270,6 +272,101 @@ describe("Thread conversation policy during live replies", () => {
 
 const AGENT_PROFILE_ID = "agent-profile-1";
 const HUMAN_PROFILE_ID = "human-profile-1";
+
+describe("unconfirmed Wake presentation diagnostics", () => {
+	const item = createWakeProgressItem({
+		clientMessageId: "message-old",
+		dispatchId: "dispatch-old",
+		phase: "running",
+		sourceSignalId: "signal-old",
+		targetLabel: "Runner",
+		targetProfileId: AGENT_PROFILE_ID,
+		updatedAtMs: 100,
+	});
+
+	it("identifies an old rendered item and every unconfirmed cache source", () => {
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				confirmedItems: [],
+				presentedItems: [item],
+				restoredItems: [item],
+				cachedSpaceSummaryItems: [item],
+				cachedOwnSummaryItems: [item],
+				spaceSummaryFetchedAfterMount: false,
+				ownSummaryFetchedAfterMount: false,
+			})
+		).toEqual({
+			item,
+			fromRestoredPresentation: true,
+			fromCachedSpaceSummary: true,
+			fromCachedOwnSummary: true,
+		});
+	});
+
+	it("does not report current Core confirmation or a new local Wake", () => {
+		const input = {
+			presentedItems: [item],
+			restoredItems: [item],
+			cachedSpaceSummaryItems: [item],
+			cachedOwnSummaryItems: [item],
+			spaceSummaryFetchedAfterMount: true,
+			ownSummaryFetchedAfterMount: true,
+		};
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				...input,
+				confirmedItems: [item],
+			})
+		).toBeNull();
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				...input,
+				confirmedItems: [],
+				restoredItems: [],
+			})
+		).toBeNull();
+	});
+
+	it("identifies an unconfirmed main stream seeded from bootstrap, not a live frame", () => {
+		const stream = {
+			createdAtMs: 100,
+			dispatchId: "dispatch-old",
+			observedRevision: 0,
+			profileId: AGENT_PROFILE_ID,
+			reasonCode: null,
+			replyThreadRootSignalId: null,
+			sequence: 1,
+			spaceId: "space-123",
+			status: "streaming" as const,
+			streamId: "stream-old",
+			text: "",
+			textSequence: 1,
+			triggerMessageId: "signal-old",
+			updatedAtMs: 100,
+		};
+		expect(
+			findUnconfirmedBootstrapWakeStream({
+				bootstrapFetchedAfterMount: false,
+				confirmedItems: [],
+				streams: [stream],
+			})
+		).toEqual(stream);
+		expect(
+			findUnconfirmedBootstrapWakeStream({
+				bootstrapFetchedAfterMount: false,
+				confirmedItems: [],
+				streams: [{ ...stream, observedRevision: 1 }],
+			})
+		).toBeNull();
+		expect(
+			findUnconfirmedBootstrapWakeStream({
+				bootstrapFetchedAfterMount: false,
+				confirmedItems: [item],
+				streams: [stream],
+			})
+		).toBeNull();
+	});
+});
 
 describe("areWakeProgressItemsEqual", () => {
 	it("observes every Wake field that changes rendered state or actions", () => {

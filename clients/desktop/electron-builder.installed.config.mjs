@@ -88,6 +88,14 @@ export default {
           },
         ]
       : []),
+    ...(signedMode === "internal-preview"
+      ? [
+          {
+            from: "dist/internal-preview-source.json",
+            to: "desktop-internal-preview-source.json",
+          },
+        ]
+      : []),
   ],
   protocols: [
     { name: "OpenMeld Desktop sign-in", schemes: [target.authScheme] },

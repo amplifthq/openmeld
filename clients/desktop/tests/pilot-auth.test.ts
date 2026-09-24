@@ -9,6 +9,44 @@ const platform = vi.hoisted(() => ({
   registerSchemes: vi.fn(),
 }));
 const usableSessionToken = /session_token=[^;]+/u;
+
+it("returns file headers before reading bytes while the real SDK persists response cookies", async () => {
+  vi.stubGlobal("process", { ...process, type: "browser", platform: "darwin" });
+  const pull = vi.fn(
+    (controller: ReadableStreamDefaultController<Uint8Array>) => {
+      controller.enqueue(new TextEncoder().encode("part"));
+      controller.close();
+    }
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(
+      async () =>
+        new Response(new ReadableStream({ pull }, { highWaterMark: 0 }), {
+          status: 206,
+          headers: {
+            "content-type": "video/mp4",
+            "content-range": "bytes 0-3/100",
+            "content-length": "4",
+            "set-cookie":
+              "better-auth.session_token=media-renewal; Path=/; HttpOnly",
+          },
+        })
+    )
+  );
+  const { createPilotAuth } = await import("../src/main/pilot-auth");
+  const auth = createPilotAuth("http://localhost:39993", () => null, vi.fn());
+  const response = await auth.cloudRequest(
+    "/v1/spaces/space-1/files/file-1/content?revision=1",
+    { method: "GET", headers: new Headers({ range: "bytes=0-3" }) }
+  );
+  expect(response.status).toBe(206);
+  expect(pull).not.toHaveBeenCalled();
+  expect(auth.cookie()).toContain("session_token=media-renewal");
+  expect(await response.text()).toBe("part");
+  expect(pull).toHaveBeenCalledTimes(1);
+});
+
 // OS receiver behavior is covered with real temporary app paths separately.
 vi.mock("../src/main/pilot-auth-callback", () => ({
   assertPilotAuthCallback: vi.fn(),

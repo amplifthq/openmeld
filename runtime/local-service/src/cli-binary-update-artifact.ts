@@ -1,8 +1,16 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import type { CliBinaryRelease } from "@openmeld/schemas";
+import {
+  type CliBinaryRelease,
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+  OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+  WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
+  WINDOWS_PROCESS_HELPER_FILENAME,
+} from "@openmeld/schemas";
 import { reconstructCliBinaryDelta } from "./cli-binary-delta.js";
+import { verifyWindowsArtifactSignature } from "./windows-artifact-signature.js";
 
 type CommandResult = {
   code: number;
@@ -195,14 +203,116 @@ export async function downloadCliBinaryUpdateArtifact(input: {
   });
 }
 
+/** Prepare the Windows companion in the caller's disposable artifact directory. */
+
+export function allowUnsignedWindowsInternalPreview(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return (
+    env.OPENMELD_ENV_PRESET === "prod" &&
+    env.OPENMELD_WINDOWS_INTERNAL_PREVIEW === "1" &&
+    env.OPENMELD_CLI_BINARY_MANIFEST_URL ===
+      WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
+  );
+}
+
+function assertWindowsPreviewPolicy(
+  windows: NonNullable<CliBinaryRelease["windows"]>,
+  allowed: boolean
+): void {
+  if ("mode" in windows && !allowed) {
+    throw integrityError(
+      "Unsigned Windows artifacts require the explicit OpenMeld internal preview channel"
+    );
+  }
+}
+
+export async function prepareCliBinaryProcessHelper(input: {
+  artifactPath: string;
+  allowUnsignedPreview?: boolean;
+  downloadPolicy: CliBinaryDownloadPolicy;
+  fetchImpl: typeof fetch;
+  release: CliBinaryRelease;
+}): Promise<void> {
+  const windows = input.release.windows;
+  if (!windows) {
+    if (process.platform === "win32") {
+      throw integrityError(
+        "Windows CLI artifacts must declare their process helper"
+      );
+    }
+    return;
+  }
+  if (process.platform !== "win32") {
+    throw integrityError("Windows artifact preparation requires Windows");
+  }
+  assertWindowsPreviewPolicy(windows, input.allowUnsignedPreview === true);
+  if (
+    new URL(windows.processHelper.url).origin !==
+    new URL(input.release.url).origin
+  ) {
+    throw integrityError(
+      "Windows process helper returned an unexpected download location"
+    );
+  }
+  const bytes = await downloadCliBinaryUpdateArtifact({
+    downloadPolicy: input.downloadPolicy,
+    fetchImpl: input.fetchImpl,
+    release: windows.processHelper,
+    plan: resolveFullCliBinaryUpdatePlan(windows.processHelper),
+    onDeltaFallback: () => {
+      /* The small helper always uses a complete artifact. */
+    },
+  });
+  const helperPath = join(
+    dirname(input.artifactPath),
+    WINDOWS_PROCESS_HELPER_FILENAME
+  );
+  await writeFile(helperPath, bytes, { mode: 0o700, flag: "wx" });
+  if (!("mode" in windows)) {
+    await verifyWindowsArtifactSignature(helperPath, windows.publisherName);
+  }
+}
+
 export async function verifyCliBinaryCodeSignature(input: {
   artifactPath: string;
+  allowUnsignedPreview?: boolean;
+  allowUnsignedForDevelopment?: boolean;
   release: CliBinaryRelease;
   runCommand: (command: string, args: string[]) => Promise<CommandResult>;
 }): Promise<void> {
+  if (process.platform === "win32") {
+    if (!input.release.windows) {
+      throw integrityError(
+        "Windows CLI artifacts must declare their publisher and process helper"
+      );
+    }
+    await verifyWindowsCliBinaryCodeSignature({
+      allowUnsignedPreview: input.allowUnsignedPreview,
+      artifactPath: input.artifactPath,
+      windows: input.release.windows,
+    });
+    return;
+  }
+  if (input.release.windows) {
+    throw integrityError(
+      "signed Windows artifact verification requires Windows"
+    );
+  }
   const { codeIdentifier, teamIdentifier } = input.release;
   if (!(codeIdentifier && teamIdentifier)) {
-    return;
+    if (process.platform !== "darwin" || input.allowUnsignedForDevelopment) {
+      return;
+    }
+    throw integrityError(
+      "binary manifest is missing a verified signing identity"
+    );
+  }
+  if (
+    codeIdentifier !== OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier ||
+    teamIdentifier !== OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier
+  ) {
+    throw integrityError("binary manifest has an unexpected signing identity");
   }
   if (process.platform !== "darwin") {
     throw integrityError("signed OpenMeld CLI verification requires macOS");
@@ -212,6 +322,7 @@ export async function verifyCliBinaryCodeSignature(input: {
     "--verify",
     "--strict",
     "--verbose=2",
+    `-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`,
     input.artifactPath,
   ]);
   if (verification.code !== 0) {
@@ -234,13 +345,17 @@ export async function verifyCliBinaryCodeSignature(input: {
   for (const expected of [
     `Identifier=${codeIdentifier}`,
     `TeamIdentifier=${teamIdentifier}`,
-    "Authority=Developer ID Application:",
   ]) {
-    if (!details.includes(expected)) {
+    if (!details.split("\n").some((line) => line.trim() === expected)) {
       throw integrityError(
-        `binary code signature is missing expected identity: ${expected}`
+        `binary code signature has the wrong identity: ${expected}`
       );
     }
+  }
+  if (!details.includes("Authority=Developer ID Application:")) {
+    throw integrityError(
+      "binary code signature is missing a Developer ID authority"
+    );
   }
   if (!HARDENED_RUNTIME_FLAG_RE.test(details)) {
     throw integrityError(
@@ -250,6 +365,30 @@ export async function verifyCliBinaryCodeSignature(input: {
   if (!SIGNING_TIMESTAMP_RE.test(details)) {
     throw integrityError(
       "binary code signature is missing a trusted timestamp"
+    );
+  }
+}
+
+async function verifyWindowsCliBinaryCodeSignature(input: {
+  allowUnsignedPreview?: boolean;
+  artifactPath: string;
+  windows: NonNullable<CliBinaryRelease["windows"]>;
+}): Promise<void> {
+  assertWindowsPreviewPolicy(
+    input.windows,
+    input.allowUnsignedPreview === true
+  );
+  if ("mode" in input.windows) {
+    return;
+  }
+  try {
+    await verifyWindowsArtifactSignature(
+      input.artifactPath,
+      input.windows.publisherName
+    );
+  } catch (error) {
+    throw integrityError(
+      `Windows artifact signature verification failed: ${toError(error).message}`
     );
   }
 }

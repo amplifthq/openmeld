@@ -2,6 +2,7 @@ import type {
   AcpClientRequestResponse,
   AcpJsonRpcError,
   AdapterDispatchDiagnostics,
+  AdapterDispatchSpaceTools,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInteractionCallback,
@@ -19,12 +20,17 @@ import {
   AcpProcessSession,
   buildAcpDispatchSpaceActionMcpServers,
   createProviderOriginalError,
+  isDispatchSpaceActionDeliveryOnly,
 } from "@openmeld/adapter-core";
 import { createCursorAcpToolActivityTracker } from "../output/cursor-tool-activity.js";
 import {
   readCursorPermissionOptions,
   resolveCursorAcpInteraction,
 } from "./cursor-acp-interactions.js";
+import {
+  type CursorDeliveryScope,
+  prepareCursorDeliveryScope,
+} from "./cursor-delivery-only.js";
 
 type CursorAcpModeId = "agent" | "ask" | "plan";
 
@@ -100,6 +106,7 @@ export class CursorAcpTransportError extends Error {
 }
 
 export async function invokeCursorAcpTransport(input: {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   conversationPolicy?: ConversationPolicy;
   cursorTimeoutMs: number | null;
@@ -137,30 +144,57 @@ export async function invokeCursorAcpTransport(input: {
   }
 
   const invokedAtMs = Date.now();
-  return await withCursorAcpSession(
-    {
-      agentControllerPermissionMode: input.agentControllerPermissionMode,
-      cursorTimeoutMs: input.cursorTimeoutMs,
-      cursorWorkdir: input.cursorWorkdir,
-      env: input.env,
-      launchContract: input.launchContract,
-      onInteractionRequest: input.onInteractionRequest,
-      onPreview: input.onPreview,
-      onProcessControlEvent: input.onProcessControlEvent,
-      onRuntimeEvent: input.onRuntimeEvent,
-      streamingMode: input.streamingMode,
-    },
-    (session) =>
-      runCursorAcpTurn({
-        input,
-        invokedAtMs,
-        prompt,
-        session,
-      })
-  );
+  let deliveryScope: CursorDeliveryScope | undefined;
+  if (
+    input.spaceActionTools?.deliveryOnly ||
+    isDispatchSpaceActionDeliveryOnly(input.env)
+  ) {
+    try {
+      deliveryScope = await prepareCursorDeliveryScope({
+        ...input,
+        workdir: input.cursorWorkdir,
+      });
+    } catch (cause) {
+      throw new CursorAcpTransportError({
+        cause,
+        code: "space.action.delivery_only_unsupported",
+        errorType: "config",
+        message:
+          "Cursor could not verify the delivery-only scope. No correction turn was started; the original conversation and permissions are unchanged.",
+      });
+    }
+  }
+  try {
+    return await withCursorAcpSession(
+      {
+        agentControllerPermissionMode: input.agentControllerPermissionMode,
+        cursorTimeoutMs: input.cursorTimeoutMs,
+        cursorWorkdir: input.cursorWorkdir,
+        env: deliveryScope?.env ?? input.env,
+        deliveryOnly: deliveryScope !== undefined,
+        launchContract: input.launchContract,
+        onInteractionRequest: input.onInteractionRequest,
+        onPreview: input.onPreview,
+        onProcessControlEvent: input.onProcessControlEvent,
+        onRuntimeEvent: input.onRuntimeEvent,
+        streamingMode: input.streamingMode,
+      },
+      (session) =>
+        runCursorAcpTurn({
+          input,
+          invokedAtMs,
+          prompt,
+          session,
+          deliveryScope,
+        })
+    );
+  } finally {
+    await deliveryScope?.close();
+  }
 }
 
 async function runCursorAcpTurn(input: {
+  deliveryScope?: CursorDeliveryScope;
   input: Parameters<typeof invokeCursorAcpTransport>[0];
   invokedAtMs: number;
   prompt: string;
@@ -169,9 +203,12 @@ async function runCursorAcpTurn(input: {
   await input.session.initialize();
   const existingSessionId = normalizeOptionalText(input.input.sessionId);
   const initialDescriptor = await input.session.openSession({
-    sessionId: existingSessionId,
+    sessionId: input.deliveryScope ? null : existingSessionId,
   });
-  input.session.emitProviderConversationObserved(initialDescriptor.sessionId);
+  const continuitySessionId = input.deliveryScope
+    ? (existingSessionId ?? initialDescriptor.sessionId)
+    : initialDescriptor.sessionId;
+  input.session.emitProviderConversationObserved(continuitySessionId);
   const modelResolution = await resolveCursorSessionModel({
     descriptor: initialDescriptor,
     model: normalizeOptionalText(input.input.conversationPolicy?.model),
@@ -192,15 +229,18 @@ async function runCursorAcpTurn(input: {
     model: modelResolution.diagnostics.requestedModelId,
     session: input.session,
   });
+  await input.deliveryScope?.activate(descriptor.sessionId);
+  let cancelled = false;
   const unregisterActiveTurn = input.input.onActiveTurn?.({
     agentControllerPermissionMode: resolveCursorPermissionMode(
       input.input.agentControllerPermissionMode
     ),
-    cancel: () => {
+    cancel: async () => {
+      cancelled = true;
+      await input.deliveryScope?.deactivate();
       input.session.notify("session/cancel", {
         sessionId: descriptor.sessionId,
       });
-      return Promise.resolve();
     },
     setPermissionMode: async (permissionMode) => {
       await input.session.request("session/set_mode", {
@@ -214,6 +254,14 @@ async function runCursorAcpTurn(input: {
   let promptResult: unknown;
   input.session.beginTurn(descriptor.sessionId);
   try {
+    if (cancelled) {
+      throw new CursorAcpTransportError({
+        code: "interaction.cancelled",
+        errorType: "adapter",
+        message:
+          "The correction was cancelled before its prompt was submitted.",
+      });
+    }
     promptResult = await input.session.request("session/prompt", {
       prompt: [{ text: input.prompt, type: "text" }],
       sessionId: descriptor.sessionId,
@@ -221,6 +269,7 @@ async function runCursorAcpTurn(input: {
   } finally {
     input.session.endTurn();
     unregisterActiveTurn?.();
+    await input.deliveryScope?.deactivate();
   }
   const interactionFailure = input.session.readInteractionFailure();
   if (interactionFailure) {
@@ -242,13 +291,13 @@ async function runCursorAcpTurn(input: {
       modelNegotiation: modelResolution.diagnostics,
     },
     output,
-    sessionId: descriptor.sessionId,
+    sessionId: continuitySessionId,
     telemetry: input.session.buildTelemetry({
       invokedAtMs: input.invokedAtMs,
       previewEmitted:
         input.input.streamingMode === "stream" &&
         input.input.onPreview !== undefined,
-      resumedContext: existingSessionId !== null,
+      resumedContext: !input.deliveryScope && existingSessionId !== null,
       streamingMode: input.input.streamingMode ?? "final",
     }),
   };
@@ -403,6 +452,7 @@ async function withCursorAcpSession<T>(
 }
 
 class CursorAcpSession {
+  readonly #deliveryOnly: boolean;
   readonly #agentControllerPermissionMode?: AgentControllerPermissionMode;
   readonly #cursorWorkdir: string;
   readonly #mcpServers: ReturnType<
@@ -422,6 +472,7 @@ class CursorAcpSession {
   #activeSessionId: string | null = null;
 
   constructor(input: {
+    deliveryOnly?: boolean;
     agentControllerPermissionMode?: AgentControllerPermissionMode;
     cursorTimeoutMs: number | null;
     cursorWorkdir: string;
@@ -433,6 +484,7 @@ class CursorAcpSession {
     onRuntimeEvent?: AdapterRuntimeEventCallback;
     streamingMode?: AdapterStreamingMode;
   }) {
+    this.#deliveryOnly = input.deliveryOnly ?? false;
     this.#agentControllerPermissionMode = input.agentControllerPermissionMode;
     this.#cursorWorkdir = input.cursorWorkdir;
     this.#mcpServers = buildAcpDispatchSpaceActionMcpServers(input.env);
@@ -441,7 +493,10 @@ class CursorAcpSession {
     this.#onRuntimeEvent = input.onRuntimeEvent;
     this.#streamingMode = input.streamingMode ?? "final";
     this.#process = new AcpProcessSession({
-      args: buildCursorAcpArgs(input.agentControllerPermissionMode),
+      args: [
+        ...(this.#deliveryOnly ? ["--disable-auto-update"] : []),
+        ...buildCursorAcpArgs(input.agentControllerPermissionMode),
+      ],
       createError: (error) => new CursorAcpTransportError(error),
       cwd: input.cursorWorkdir,
       ...(input.env ? { env: input.env } : {}),
@@ -632,6 +687,29 @@ class CursorAcpSession {
     method: string;
     params: unknown;
   }): Promise<AcpClientRequestResponse> {
+    if (this.#deliveryOnly) {
+      const params = toRecord(message.params);
+      const title = toRecord(params?.toolCall)?.title;
+      const isCurrentDelivery =
+        this.#turnActive &&
+        params?.sessionId === this.#activeSessionId &&
+        message.method === "session/request_permission" &&
+        ["reply", "stay_silent", "read_receipt"].some(
+          (name) =>
+            title === `openmeld_internal_dispatch_space_action-${name}: ${name}`
+        );
+      if (!isCurrentDelivery) {
+        return message.method === "session/request_permission"
+          ? { result: { outcome: { outcome: "cancelled" } } }
+          : {
+              error: {
+                code: -32_601,
+                message:
+                  "Only current Space delivery approval is available in this correction.",
+              },
+            };
+      }
+    }
     if (
       message.method === "session/request_permission" &&
       resolveCursorPermissionMode(this.#agentControllerPermissionMode) ===

@@ -46,6 +46,11 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  resolveSpaceFileStreamMetadata,
+  spaceFileStreamMetadataSchema,
+  spaceFileStreamOptionsSchema,
+} from "./http/space-file-stream";
+export {
   SPACE_FILE_UPLOAD_PART_BYTES,
   SPACE_FILE_UPLOAD_TTL_MS,
   spaceFileUploadCommandSchema,
@@ -213,6 +218,7 @@ export {
   normalizeKnownBuiltinAgentControllerId,
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
+export { cliInstallSelfResultSchema } from "./daemon/cli-install-self";
 export {
   computerCareObservationSchema,
   executionHostObservationSchema,
@@ -592,6 +598,7 @@ export {
   localWakeRouteWorkingFolderObservationSchema,
   localWakeRouteWorkingFolderReasonCodeSchema,
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
+  OPENMELD_ADMISSION_EVIDENCE_HEADER,
   OPENMELD_EXECUTION_ADMISSION_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentControllerConversationOccupancySchema,
@@ -731,6 +738,7 @@ export {
   runtimeTransportWaitDispatchResultRequestSchema,
   runtimeTransportWaitDispatchResultResponseSchema,
 } from "./daemon/runtime-transport";
+export { runtimeTransportAdmissionEvidenceSchema } from "./daemon/runtime-transport-admission-evidence";
 export { runtimeTransportStopCauseSchema } from "./daemon/runtime-transport-stop-cause";
 export {
   DAEMON_SERVICE_CONTRACT_SCHEMA_VERSION,
@@ -769,7 +777,7 @@ export {
   openMeldDaemonTaskResultStatusSchema,
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
-export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
+export { windowsNativeProcessRequestSchema } from "./daemon/windows-native-process";
 export {
   type WindowsUserTaskAction,
   type WindowsUserTaskRequest,
@@ -1421,6 +1429,9 @@ export {
   cliBinaryManifestSchema,
   cliBinaryReleaseSchema,
   cliBinaryServiceReleaseSchema,
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+  OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+  resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
 export {
   buildConnectorAppRequestProviderKey,
@@ -3034,6 +3045,10 @@ export {
   spaceDispatchPolicySchema,
 } from "./space-mesh/dispatch-policy";
 export {
+  dispatchProjectShellInputSchema,
+  dispatchProjectShellResultSchema,
+} from "./space-mesh/dispatch-project-shell";
+export {
   dispatchResultKindSchema,
   dispatchResultPublicOutcomeSchema,
   dispatchResultSchema,
@@ -3047,6 +3062,11 @@ export {
   dispatchSpaceHistoryRequestSchema,
   dispatchSpaceHistoryResultSchema,
 } from "./space-mesh/dispatch-space-history";
+export {
+  dispatchSpaceReadResultPageSchema,
+  dispatchSpaceReadResultRequestSchema,
+  dispatchSpaceReadResultSchema,
+} from "./space-mesh/dispatch-space-read-result";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
   getSpaceMessageReactionsInputSchema,

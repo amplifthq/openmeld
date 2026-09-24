@@ -95,7 +95,7 @@ test("treats the complete generated Changelog projection as documentation only",
 test("standard final certification does not repeat workspace checks and unit tests", () => {
   const plan = createPlan(["clients/web/src/app.tsx"]);
 
-  assert.deepEqual(checkIds(plan), ["diff-integrity", "repository-contracts"]);
+  assert.deepEqual(checkIds(plan), ["diff-integrity"]);
   assert.ok(!checkIds(plan).includes("affected-integration-tests"));
 });
 
@@ -107,7 +107,6 @@ test("shared schema changes retain database and release guards without broad rer
 
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
-    "repository-contracts",
     "database-contract",
     "local-components-release-ready",
   ]);
@@ -142,7 +141,6 @@ test("keeps engineering-only schemas out of product integration and release gate
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
     "trusted-control-entrypoints",
-    "repository-contracts",
   ]);
   assert.ok(!plan.riskTags.includes("cross-boundary"));
   assert.ok(!plan.riskTags.includes("local-components"));
@@ -158,6 +156,19 @@ test("a mixed engineering and runtime schema diff retains release guards", () =>
   assert.ok(checkIds(plan).includes("local-components-release-ready"));
   assert.ok(plan.riskTags.includes("cross-boundary"));
   assert.ok(plan.riskTags.includes("local-components"));
+});
+
+test("a product change with docs and Changelog runs only their static contracts", () => {
+  const plan = createPlan([
+    "clients/web/src/app.tsx",
+    "developing/clients/web.md",
+    "changelog/entries/web-change.md",
+  ]);
+  assert.deepEqual(checkIds(plan), [
+    "diff-integrity",
+    "documentation-contracts",
+    "changelog-contract",
+  ]);
 });
 
 test("uses strict release-ready verification only on an exact versioned release branch", () => {
@@ -339,7 +350,6 @@ test("an explicitly stronger plan replaces affected lanes with full confidence",
 
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
-    "repository-contracts",
     "full-repository-confidence",
   ]);
   assert.ok(plan.riskTags.includes("full-confidence"));

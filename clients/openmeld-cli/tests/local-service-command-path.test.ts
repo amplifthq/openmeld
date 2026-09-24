@@ -6,8 +6,11 @@ import {
 import { extractDaemonCommandEntryPath } from "../src/local-service/lifecycle/daemon-service-command-path";
 
 describe("local service command path parsing", () => {
-  it("extracts a managed binary version path before service run", () => {
-    const entryPath = "/Users/dev/.openmeld/versions/0.2.14/openmeld";
+  it.each([
+    "openmeld",
+    "openmeld.exe",
+  ])("extracts the managed %s version path before service run", (binaryName) => {
+    const entryPath = `/Users/dev/.openmeld/versions/0.2.14/${binaryName}`;
 
     expect(
       extractDaemonCommandEntryPath(
@@ -18,6 +21,12 @@ describe("local service command path parsing", () => {
         }
       )
     ).toBe(entryPath);
+    expect(
+      extractDaemonCommandEntryPath(
+        `${entryPath}-not-owned service run --mode foreground`,
+        { env: { OPENMELD_ENV_PRESET: "prod" }, homeDir: "/Users/dev" }
+      )
+    ).toBeNull();
   });
 
   it("extracts a managed binary pointer path before service run", () => {

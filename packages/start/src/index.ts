@@ -25,6 +25,10 @@ export {
   shouldUseCompletedPrepareSessionForComputerReadiness,
 } from "./recovery/computer-reply-readiness";
 export {
+  buildPosixSetupDownloadCommand,
+  OPENMELD_SETUP_SCRIPT_END_MARKER,
+} from "./setup-download-command";
+export {
   OPENMELD_NODE_ENGINE_RANGE,
   OPENMELD_SUPPORTED_NODE_MAJORS,
 } from "./setup-node-runtime";

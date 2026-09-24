@@ -86,6 +86,10 @@ describe("public agent failure reason mapping", () => {
       "connected Git repository",
     ],
     ["execution_context.workspace_access_unverified", "project file boundary"],
+    ["claude_project.container_runtime_unavailable", "Docker or Podman"],
+    ["claude_project.isolation_unverified", "file isolation"],
+    ["claude_project.outside_access_unverified", "file isolation"],
+    ["claude_delivery_policy.invalid", "permission rules"],
     ["context.mcp_isolation_unverified", "tools authorized for this task"],
     [
       "execution_context.mcp_server_initialization_failed",
@@ -95,6 +99,30 @@ describe("public agent failure reason mapping", () => {
     const reason = resolveMappedPublicAgentFailureReason(errorCode);
     expect(reason).toContain(expected);
     expect(reason).not.toContain("provider was unreachable");
+  });
+  it("links a missing Claude project container to Agent setup", () => {
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: "claude_project.container_runtime_unavailable",
+        targetLabel: "Runner",
+      })
+    ).toMatchObject({
+      kind: "local_agent_prepare",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "computer",
+    });
+  });
+  it("links unverified Claude project isolation to Agent setup and diagnostics", () => {
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: "claude_project.isolation_unverified",
+        targetLabel: "Runner",
+      })
+    ).toMatchObject({
+      kind: "local_agent_prepare",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "computer",
+    });
   });
   it("does not turn a service conflict into an update or setup instruction", () => {
     const recovery = resolvePublicAgentFailureRecovery({
@@ -442,7 +470,7 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Cursor",
       })
     ).toEqual({
-      body: "Cursor answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.",
+      body: "OpenMeld could not confirm a Space response from Cursor, even after automatic recovery.",
       kind: "system_retry",
       recoveryTarget: null,
     });

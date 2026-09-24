@@ -32,13 +32,17 @@ export function AccountSection() {
 	return (
 		<>
 			<AppPageHeader
-				description="Manage your profile, sign-in security, CLI access, and active sessions."
+				description={
+					desktop
+						? "Manage your profile here, or open the web app for more account settings."
+						: "Manage your profile, sign-in security, CLI access, and active sessions."
+				}
 				eyebrow="Personal"
 				title="Account"
 			/>
 			<SettingsAccountRoot>
 				<SettingsAccountProfileSection className="pt-0">
-					<UserAvatarCard />
+					<UserAvatarCard desktop={Boolean(desktop)} />
 					<UserNameCard />
 				</SettingsAccountProfileSection>
 

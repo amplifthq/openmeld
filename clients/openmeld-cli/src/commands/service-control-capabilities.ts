@@ -17,23 +17,28 @@ import { readCurrentDaemonRuntimeContext } from "../local-service/lifecycle/daem
 
 async function resolveCarrierProbe(
   platform: "darwin" | "win32",
-  expectedVersion: string
+  expectedVersion: string,
+  binary: boolean
 ) {
   if (platform === "darwin") {
     return {
       executable: await realpath(daemonServiceBinaryExecutablePath()),
       canonicalEntry: null,
+      protocol: "account-checked-service-control-v1",
     };
   }
-  // The npm launcher can repair state. Probe its verified active JS entry
-  // directly with the exact Node executable that guarded Start will register.
+  // Probe the aligned immutable GUI carrier directly. For npm, bypass the
+  // repairing launcher and use its verified JS entry with Start's exact Node.
   const entry = await resolveAlignedDaemonActiveBundleEntryPath({
     expectedVersion,
   });
   return entry
     ? {
-        executable: await realpath(process.execPath),
-        canonicalEntry: await realpath(entry),
+        executable: await realpath(binary ? entry : process.execPath),
+        canonicalEntry: binary ? null : await realpath(entry),
+        protocol: binary
+          ? "account-checked-service-control-v3"
+          : "account-checked-service-control-v2",
       }
     : null;
 }
@@ -48,11 +53,14 @@ export async function readServiceControlCapabilities(
   }
   const contract = await readDaemonServiceContract();
   const bundle = await readDaemonActiveBundleState();
+  const binary = bundle?.bundleFormat === "binary_v1";
   if (
     contract?.serviceController !==
       (platform === "win32" ? "windows-service" : "launchd") ||
-    bundle?.bundleFormat !==
-      (platform === "win32" ? "self_contained_v1" : "binary_v1")
+    !(
+      binary ||
+      (platform === "win32" && bundle?.bundleFormat === "self_contained_v1")
+    )
   ) {
     return unsupported;
   }
@@ -63,11 +71,15 @@ export async function readServiceControlCapabilities(
   // Guarded Start refreshes the supervisor command to this canonical executable.
   // Verify the executable that answered, so an old CLI delegating elsewhere
   // cannot advertise another binary's capability as its own.
-  const probe = await resolveCarrierProbe(platform, contract.daemonVersion);
+  const probe = await resolveCarrierProbe(
+    platform,
+    contract.daemonVersion,
+    binary
+  );
   if (!probe) {
     return unsupported;
   }
-  const { executable, canonicalEntry } = probe;
+  const { executable, canonicalEntry, protocol } = probe;
   const { stdout } = await promisify(execFile)(
     executable,
     [
@@ -83,16 +95,20 @@ export async function readServiceControlCapabilities(
   );
   if (
     !carrier.success ||
+    carrier.data.protocol !== protocol ||
     (await realpath(carrier.data.executable)) !== executable
   ) {
     return unsupported;
   }
   if (
-    platform === "win32" &&
-    (carrier.data.protocol !== "account-checked-service-control-v2" ||
-      (await realpath(carrier.data.entryScript)) !== canonicalEntry ||
-      JSON.stringify(await readDaemonActiveBundleState()) !==
-        JSON.stringify(bundle))
+    carrier.data.protocol === "account-checked-service-control-v2" &&
+    (await realpath(carrier.data.entryScript)) !== canonicalEntry
+  ) {
+    return unsupported;
+  }
+  if (
+    JSON.stringify(await readDaemonActiveBundleState()) !==
+    JSON.stringify(bundle)
   ) {
     return unsupported;
   }

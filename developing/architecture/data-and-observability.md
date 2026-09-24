@@ -3552,14 +3552,28 @@ point and derives its physical field order from the shared schema.
 Web application errors use `web.openmeld.application_error` in Workers Logs.
 Web is the sole intake/log owner; `packages/schemas` owns the additive browser
 report contract. Browser reports are untrusted diagnostic evidence. The intake
-accepts only bounded same-origin JSON, validates and minimizes fields, and caps
-log volume. Raw exception text, full stacks, actual page URLs, user content,
-credentials, and local paths must not enter this report. Error categories,
+accepts bounded same-origin Web JSON and the fixed installed Desktop origin
+only when its native contract header matches. It validates and minimizes fields
+and caps log volume. Raw exception text, full stacks, actual page URLs, user
+content, credentials, and local paths must not enter this report. Error categories,
 code-template route IDs, build asset positions, build IDs, source SHAs, and
 Cloudflare request correlation support diagnosis without product payloads.
 This does not create another product audit or execution ledger. Coverage,
 retention, source-map handling, and manual queries are documented in
 `docs/web-application-errors.md`.
+
+Web also uses that intake for the bounded
+`web.openmeld.wake_progress_presentation_unconfirmed` event when a Space shows
+restored Wake progress, an unverified active-summary item, or a seeded main
+reply stream without a matching current active-Wake read. The additive shared
+report schema permits only correlation IDs, source/reply Thread pointers,
+phase, update time, presentation source, and query-freshness flags, alongside
+the existing build and page-session identity. No message body, stream text,
+prompt, reasoning, or arbitrary client state is accepted. This event proves
+only the browser presentation decision, not that the underlying execution
+ended; Core trace remains the execution authority. A missing event does not
+prove that Web never displayed the state because browser delivery and Workers
+log retention are best effort.
 
 Structured logs at service and runtime boundaries must stay searchable and
 correlation-friendly:

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -75,7 +75,22 @@ async function writeProbe(overrides: Record<string, unknown> = {}) {
   );
 }
 
-it("probes the verified npm JS entry directly, without starting or repairing a stopped Service", async () => {
+it.each(
+  process.platform === "win32" ? ["npm"] : ["npm", "binary"]
+)("probes the selected %s carrier without starting or repairing a stopped Service", async (distribution) => {
+  if (distribution === "binary") {
+    owners.bundle.mockResolvedValue({
+      bundleFormat: "binary_v1",
+      bundleId: "bundle-A",
+    });
+    // POSIX executable fixture for the product-owned capability protocol.
+    // Actual Windows GUI executable evidence belongs to the native Host gate.
+    await writeFile(
+      entry,
+      `#!/usr/bin/env node\nrequire('node:assert/strict').deepEqual(process.argv.slice(2), ['service','control-carrier-capability','--json']);\nconsole.log(JSON.stringify({ protocol:'account-checked-service-control-v3', platform:'win32', executable:__filename }));\n`
+    );
+    await chmod(entry, 0o700);
+  }
   expect(await readServiceControlCapabilities("win32")).toEqual({
     deviceId: "device-A",
     start: true,
@@ -83,6 +98,13 @@ it("probes the verified npm JS entry directly, without starting or repairing a s
   });
   expect(owners.entry).toHaveBeenCalledWith({ expectedVersion: "1.0.0" });
   expect(owners.control).not.toHaveBeenCalled();
+  if (distribution === "binary") {
+    await writeFile(
+      entry,
+      `#!/usr/bin/env node\nconsole.log(JSON.stringify({protocol:'account-checked-service-control-v2',platform:'win32',executable:__filename,entryScript:__filename}));\n`
+    );
+    expect(await readServiceControlCapabilities("win32")).toEqual(unsupported);
+  }
 });
 
 it("does not confuse an older generic capability response with Windows admission support", async () => {
@@ -103,7 +125,7 @@ it("rejects a responding script from another entry even when Node is identical",
 it("rejects missing, incompatible or concurrently replaced bundle evidence", async () => {
   owners.entry.mockResolvedValueOnce(null);
   expect(await readServiceControlCapabilities("win32")).toEqual(unsupported);
-  owners.bundle.mockResolvedValueOnce({ bundleFormat: "binary_v1" });
+  owners.bundle.mockResolvedValueOnce({ bundleFormat: "legacy_linked_v1" });
   expect(await readServiceControlCapabilities("win32")).toEqual(unsupported);
   owners.bundle.mockResolvedValueOnce({
     bundleFormat: "self_contained_v1",

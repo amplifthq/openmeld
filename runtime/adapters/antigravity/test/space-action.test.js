@@ -62,7 +62,6 @@ writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({ args: process.
             action: "reply",
             mentionTargets: ["human-1"],
             referenceTargets: [],
-            status: "none",
             text: "It is ready.",
             wakeTargets: [],
           },
@@ -89,6 +88,12 @@ writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({ args: process.
   }
 });
 
+test("never offers status as a final structured outcome", () => {
+  const schema = JSON.parse(ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA);
+  assert.deepEqual(schema.properties.action.enum, ["reply", "silent"]);
+  assert.equal("status" in schema.properties, false);
+});
+
 test("rejects an inconsistent structured outcome without invoking the writer", async () => {
   await assert.rejects(
     withAntigravityDispatchSpaceAction({
@@ -100,7 +105,6 @@ test("rejects an inconsistent structured outcome without invoking the writer", a
           action: "silent",
           mentionTargets: ["human-1"],
           referenceTargets: [],
-          status: "none",
           text: "No reply needed.",
           wakeTargets: [],
         },

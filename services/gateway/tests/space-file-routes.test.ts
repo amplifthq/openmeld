@@ -105,6 +105,7 @@ function makeEnv(input?: { readBytes?: ArrayBuffer; writeError?: Error }): {
       GatewayRpcEntrypoint["streamSpaceFileContent"]
     >(async () => ({
       bytes: new Blob([input?.readBytes ?? TEXT_BYTES]).stream(),
+      stream: { status: 200, etag: `"${REVISION_ID}"` },
       organizationId: ORGANIZATION_ID,
       objectKey: OBJECT_KEY,
       file: FILE,
@@ -701,6 +702,105 @@ describe("Space file routes", () => {
     await expect(response.text()).resolves.toBe("Shared launch notes\n");
     expect(coreRpc.streamSpaceFileContent).toHaveBeenCalledOnce();
     expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("preserves 206 and the immutable byte range from the authorized Core stream", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.streamSpaceFileContent.mockResolvedValueOnce({
+      bytes: new Blob(["launch"]).stream(),
+      stream: { status: 206, etag: `"${REVISION_ID}"`, offset: 7, length: 6 },
+      organizationId: ORGANIZATION_ID,
+      objectKey: OBJECT_KEY,
+      file: FILE,
+      revision: { ...FILE.latestRevision, mimeType: "video/mp4" },
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content?revision=1`,
+        { headers: { range: "bytes=7-12", "if-range": `"${REVISION_ID}"` } }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(
+      `bytes 7-12/${TEXT_BYTES.byteLength}`
+    );
+    expect(response.headers.get("content-length")).toBe("6");
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(
+      response.headers.get("content-disposition")?.startsWith("inline;")
+    ).toBe(true);
+    expect(response.headers.get("cache-control")).toContain("private");
+    expect(await response.text()).toBe("launch");
+    expect(coreRpc.streamSpaceFileContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: { spaceId: SPACE_ID, fileId: FILE_ID, revision: 1 },
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+      { head: false, range: "bytes=7-12", ifRange: `"${REVISION_ID}"` }
+    );
+  });
+
+  it.each([
+    "HEAD",
+    "GET",
+  ])("serves bodyless %s responses without draining the original", async (method) => {
+    const { coreRpc, env } = makeEnv();
+    const cancelled = vi.fn();
+    coreRpc.streamSpaceFileContent.mockResolvedValueOnce({
+      bytes: new ReadableStream({ cancel: cancelled }, { highWaterMark: 0 }),
+      stream: {
+        status: method === "HEAD" ? 200 : 416,
+        etag: `"${REVISION_ID}"`,
+      },
+      organizationId: ORGANIZATION_ID,
+      objectKey: OBJECT_KEY,
+      file: FILE,
+      revision: FILE.latestRevision,
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content?revision=1`,
+        { method, headers: { range: "bytes=999-" } }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(method === "HEAD" ? 200 : 416);
+    expect(response.headers.get("content-length")).toBe(
+      method === "HEAD" ? String(TEXT_BYTES.byteLength) : "0"
+    );
+    if (method === "GET") {
+      expect(response.headers.get("content-range")).toBe(
+        `bytes */${TEXT_BYTES.byteLength}`
+      );
+    }
+    expect(await response.text()).toBe("");
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed rather than interpreting an old Core full stream as range support", async () => {
+    const { coreRpc, env } = makeEnv();
+    const cancelled = vi.fn();
+    coreRpc.streamSpaceFileContent.mockResolvedValueOnce({
+      bytes: new ReadableStream({ cancel: cancelled }, { highWaterMark: 0 }),
+      organizationId: ORGANIZATION_ID,
+      objectKey: OBJECT_KEY,
+      file: FILE,
+      revision: FILE.latestRevision,
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content`,
+        { headers: { range: "bytes=0-1" } }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(502);
+    expect(cancelled).toHaveBeenCalledOnce();
   });
 
   it("rejects oversized files before contacting Core or R2", async () => {

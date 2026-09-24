@@ -646,6 +646,7 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
     ]);
     assert.deepEqual(captured.options.mcpServers, {
       openmeld_internal_dispatch_space_action: {
+        alwaysLoad: true,
         args: ["space", "action", "tool-server"],
         command: "/tmp/action/bin/openmeld-dev",
         env: {

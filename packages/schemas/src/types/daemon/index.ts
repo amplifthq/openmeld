@@ -24,6 +24,7 @@ export type * from "./runtime-coordinator-finalization-command";
 export type * from "./runtime-lease";
 export type * from "./runtime-reporting-health";
 export type * from "./runtime-transport";
+export type * from "./runtime-transport-admission-evidence";
 export type * from "./service-contract";
 export type * from "./service-recommendation";
 export type * from "./service-update-job";

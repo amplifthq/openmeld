@@ -1,7 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
-  isAgentWakeAdmissionPreparationPendingReason,
   resolveWakeStopEligibility,
 } from "@openmeld/agent-runtime";
 import {
@@ -22813,11 +22812,13 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
       : {}),
     message:
       authorityProgress?.message ??
-      buildWakeProgressMessage({
+      buildWakeProgressDispatchMessage({
+        errorCode,
+        lookupStatus: input.lookupMatch.status,
         phase,
         runtimeDeviceDisplayName: input.runtimeDeviceDisplayName,
         targetLabel: input.targetLabel,
-        errorCode,
+        trace: input.trace,
       }),
     runtimeDeviceDisplayName: input.runtimeDeviceDisplayName,
     ...(input.wakeStopEligibility === undefined
@@ -22827,6 +22828,26 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
       ? { terminal: authorityProgress.terminal }
       : {}),
   });
+}
+
+function buildWakeProgressDispatchMessage(input: {
+  errorCode: string | null;
+  lookupStatus: SpaceDispatchLookupMatch["status"];
+  phase: WakeProgressPhase;
+  runtimeDeviceDisplayName: string | null;
+  targetLabel: string;
+  trace: SpaceDispatchTraceSnapshot | null;
+}): string {
+  const coordinatorStatus = input.trace?.runtimeCoordinatorExecution?.status;
+  if (
+    input.phase === "connecting" &&
+    (coordinatorStatus === "delivery_rejected" ||
+      coordinatorStatus === "failed_retryable" ||
+      (!coordinatorStatus && input.lookupStatus === "failed_retryable"))
+  ) {
+    return `Checking the Wake status for ${formatWakeProgressTargetLabel(input.targetLabel)}.`;
+  }
+  return buildWakeProgressMessage(input);
 }
 
 function resolveWakeProgressFinalVisibleOutcomeProgress(input: {
@@ -22919,7 +22940,11 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
   phase: WakeProgressPhase;
   terminal: boolean;
 } | null {
-  if (input.trace?.runtimeCoordinatorExecution) {
+  if (
+    input.trace?.runtimeCoordinatorExecution &&
+    input.trace.runtimeCoordinatorExecution.status !== "delivery_rejected" &&
+    input.trace.runtimeCoordinatorExecution.status !== "failed_retryable"
+  ) {
     return null;
   }
   const headLifecycle = input.trace?.runtimeCoordinatorHeadLifecycle;
@@ -22931,7 +22956,7 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
     return {
       errorCode: headLifecycle.reasonCode,
       message: `OpenMeld cannot read Wake owner status for ${targetLabel} right now.`,
-      phase: "retrying",
+      phase: "connecting",
       terminal: false,
     };
   }
@@ -22973,6 +22998,18 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
       terminal: true,
     };
   }
+  const noExecutionReason =
+    headLifecycle.noExecutionDecision?.reasonCode ??
+    headLifecycle.publicationIntent?.reasonCode ??
+    null;
+  if (noExecutionReason) {
+    return {
+      errorCode: noExecutionReason,
+      message: `OpenMeld could not start this Wake for ${targetLabel}.`,
+      phase: "failed",
+      terminal: false,
+    };
+  }
   if (headLifecycle.waitingBoundary) {
     return buildWaitingHeadProgress({
       deadlineAtMs: Date.parse(headLifecycle.waitingBoundary.deadlineAt),
@@ -22984,20 +23021,7 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
       targetLabel,
     });
   }
-
-  const noExecutionReason =
-    headLifecycle.noExecutionDecision?.reasonCode ??
-    headLifecycle.publicationIntent?.reasonCode ??
-    null;
-  if (!noExecutionReason) {
-    return null;
-  }
-  return {
-    errorCode: noExecutionReason,
-    message: `OpenMeld could not start this Wake for ${targetLabel}.`,
-    phase: "failed",
-    terminal: false,
-  };
+  return null;
 }
 
 function buildWaitingHeadProgress(input: {
@@ -23025,6 +23049,16 @@ function buildWaitingHeadProgress(input: {
   const isPastSoftWait =
     Number.isFinite(input.softDeadlineAtMs) &&
     Date.now() >= input.softDeadlineAtMs;
+  if (input.reasonCode === "local_service.not_accepting_wakes") {
+    return {
+      errorCode: input.reasonCode,
+      message: isPastSoftWait
+        ? `Still waiting for OpenMeld Service to accept new tasks for ${input.targetLabel}. Check the computer's status.`
+        : `Waiting for OpenMeld Service to accept new tasks for ${input.targetLabel}.`,
+      phase: "retrying",
+      terminal: false,
+    };
+  }
   return {
     errorCode: input.reasonCode,
     message: isPastSoftWait
@@ -23054,6 +23088,10 @@ function buildDeviceWaitProgressMessage(
   if (reasonCode === "daemon.service.draining") {
     reason =
       "OpenMeld on this computer is finishing existing work and is not accepting new tasks yet";
+  }
+  if (reasonCode === "local_service.not_accepting_wakes") {
+    reason =
+      "The computer is connected; OpenMeld is checking when it can accept new tasks";
   }
   return `Waiting to start ${targetLabel}. ${reason}; no work has started.`;
 }
@@ -23130,13 +23168,7 @@ function resolveWakeProgressPhaseFromDispatchEvidence(input: {
     case "cancelled":
       return "stopped";
     case "failed_retryable":
-      return isAgentWakeAdmissionPreparationPendingReason(
-        input.lookupMatch.latestAttemptErrorCode ??
-          input.trace?.latestAttempt?.errorCode ??
-          ""
-      )
-        ? "connecting"
-        : "retrying";
+      return "connecting";
     case "dispatching":
       return "connecting";
     case "queued":
@@ -23203,8 +23235,8 @@ function resolveWakeProgressPhaseFromRuntimeCoordinatorStatus(
     case "cancelled":
       return "stopped";
     case "failed_retryable":
-      return "retrying";
     case "delivery_rejected":
+      return "connecting";
     case "failed_terminal":
     case "state_unknown":
       return "failed";
@@ -23229,9 +23261,10 @@ function resolveWakeProgressRuntimeCoordinatorErrorCode(
         normalizeOptionalText(execution.terminalOutcome?.reasonCode) ??
         `runtime_coordinator.${execution.status}`
       );
-    case "delivery_rejected":
     case "state_unknown":
       return `runtime_coordinator.${execution.status}`;
+    case "delivery_rejected":
+      return null;
     default:
       return null;
   }

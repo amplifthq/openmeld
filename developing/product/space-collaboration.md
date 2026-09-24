@@ -452,6 +452,21 @@ placeholder. Errors expose a retry action rather than perpetual loading.
 Current access checks still apply, and access revocation removes cached private
 pixels even from an already open preview.
 
+### Video previews
+
+Human and Agent video files share one renderer in conversations and Files.
+Users can play in place or expand through Morphing Dialog, continuing from the
+current position. Closing or leaving the active surface stops sound. New messages
+never start playback automatically. Message references retain exact revisions.
+
+Idle videos show a first frame through native lazy media loading near the
+viewport, without downloading every video in a conversation. Local selections
+can be previewed before sending and retain
+their original through publication. Codec support depends on the client;
+unsupported media retains retry and download. This adds no transcoding,
+external-provider embedding, or video attachment namespace. Existing file-size
+limits and access policy still apply.
+
 ### Selected work handoffs
 
 A selected work handoff is an ordinary Space Message or Thread reply with one
@@ -1311,7 +1326,9 @@ again removes only that person's reaction. Multiple people share an emoji count;
 each person can use more than one emoji, once per emoji per message.
 
 Reactions remain beneath their source message, before its thread preview, while
-message actions float beside the bubble's upper edge. On self-authored messages the
+main-conversation message actions float beside the bubble's upper visible edge,
+following the lower visible edge when a long message scrolls past the top of
+the viewport. On self-authored messages the
 reactions start at the bubble’s left edge and stay within its width. Overflow
 reactions appear in a +N pill that
 opens on hover or click. Emoji groups retain their first-added order while any
@@ -1668,19 +1685,20 @@ show a quiet `written before N newer messages` marker. The count is timeline
 context, not a failure, execution state, or claim that the reply is wrong.
 Agents and clients must not author or infer this metadata themselves.
 
-Agent actions in a Space must preserve the difference between an answer and a
-work-state update.
+Agent-authored final communication has two choices: `reply` (`post_message`)
+and `stay_silent`. Answers, known limitations, errors, and requests for help
+belong in a reply. Intentional silence is not evidence of successful work.
 
-Use `post_message` for answers, discussion, final replies, and anything the user
-should read as message content.
+Durable collaboration commitments, progress, results, and review belong in
+Tasks. The Board reads their summary; it is not a separate status writer. Do
+not create a Task merely to acknowledge a message.
 
-Use `post_status` only for short explicit work-state updates.
-
-A status is not an answer. Do not put final replies, discussion, or long content
-in `post_status`.
-
-Never use `ready` as a status. Readiness is a product readiness claim, not a
-Space work-state update.
+The Agent-authored final `status` tool is retired. Historical `post_status`
+records, system execution state, failure notices, and frozen in-flight
+publication permissions remain supported. New authoring accepts reply,
+silence, or both. Old mixed action lists may be narrowed; status-only permission
+must never silently become reply permission. An authorized owner must choose a
+current final outcome before such a legacy policy can be replaced.
 
 The Space-facing outcome should use clear product language. Internal execution
 terms belong in diagnostics, not in the primary Space timeline.
@@ -1693,17 +1711,23 @@ Space.
 `collaboration` is the default product mode. OpenMeld treats the Space as an
 external collaboration layer, not as a transcript mirror. An Agent can work
 normally in its private local context, then publish only the public outcome the
-Space needs: a reply, status, handoff Wake, Reference, or an intentional
-silent outcome. This mode preserves the product's core value: concise
+Space needs: a reply (optionally addressing a handoff Wake or Reference), or
+an intentional silent outcome. This mode preserves the product's core value: concise
 coordination without copying private Agent context into the shared room.
 
-If a Local Agent completes its work but forgets to record that public outcome,
-OpenMeld quietly reminds the same private Agent conversation once. The reminder
-asks only for the missing Space Action; it does not rerun the work, replace the
-Agent's answer, copy the private answer into the Space, or ask the member to
-approve a shell command. The Wake still produces exactly one recorded reply,
-status, silent outcome, or explicit failure through the normal publication
-path.
+A positive input rejection states which arguments need correction and that
+this call recorded nothing. An existing exact action returns its original
+receipt. An uncertain outcome must be reconciled before another submission.
+Neither a local receipt nor private assistant output proves Space publication.
+
+Missing-action correction is one bounded delivery-only invocation, not a
+rerun of the user's task. It receives the exact tool interface and relevant
+error/context without requiring a Skill lookup or shell. Preserve the user's
+selected mode; do not force PLAN to express this restriction. Native tool
+restrictions must prevent business execution, and explicit denials, Stop, and
+expired authority still apply. The correction must not infer a public reply
+from private output. Failure copy states that delivery could not be confirmed,
+without guessing whether the Agent had an answer or called the correct tool.
 
 `raw_context_sharing` is an explicit transparent-context-sharing mode. It
 allows a successful raw Agent reply to become a Space message when no explicit

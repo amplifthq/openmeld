@@ -48,8 +48,12 @@ export function rendererBuildEnvironment(
   };
 }
 
-export async function buildProductionRenderer(root, env = process.env) {
-  const memory = readMachineMemory();
+export async function buildProductionRenderer(
+  root,
+  env = process.env,
+  options = {}
+) {
+  const memory = (options.readMemory ?? readMachineMemory)();
   const buildEnv = rendererBuildEnvironment(env, memory.totalBytes);
   const policy = resourcePolicy(buildEnv, memory.totalBytes);
   console.log(
@@ -58,24 +62,29 @@ export async function buildProductionRenderer(root, env = process.env) {
       heapMiB: Number(
         [...buildEnv.NODE_OPTIONS.matchAll(HEAP_OPTION)].at(-1)[1]
       ),
-      reservationBytes: policy.costs.heavy,
+      heavyBudgetBytes: policy.costs.heavy,
       headroomBytes: policy.headroomBytes,
     })}`
   );
-  const resources = await acquireLocalResources({
-    kind: "heavy",
-    repoRoot: root,
-    env: buildEnv,
-  });
+  // Hosted Actions jobs run on isolated runners; the worktree resource queue
+  // only coordinates concurrent builds on a shared development machine.
+  const resources =
+    env.GITHUB_ACTIONS === "true"
+      ? undefined
+      : await (options.acquireResources ?? acquireLocalResources)({
+          kind: "heavy",
+          repoRoot: root,
+          env: buildEnv,
+        });
   try {
-    const code = await runOwnedCommand(
+    const code = await (options.runCommand ?? runOwnedCommand)(
       "pnpm",
       ["--dir", "clients/web", "run", "build:prod"],
       {
         cwd: root,
         env: {
           ...buildEnv,
-          [RESOURCE_TOKEN]: resources.token,
+          ...(resources ? { [RESOURCE_TOKEN]: resources.token } : {}),
         },
       }
     );
@@ -83,6 +92,6 @@ export async function buildProductionRenderer(root, env = process.env) {
       throw new Error(`Production client renderer build failed (${code}).`);
     }
   } finally {
-    await resources.release();
+    await resources?.release();
   }
 }

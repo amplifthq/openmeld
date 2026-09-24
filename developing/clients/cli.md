@@ -572,7 +572,8 @@ contract should expose the exact follow-up command prefix in the final
 `setup.complete` output. Agents must use that prefix for later commands. For
 example, local development binary setup uses `~/.openmeld-dev/bin/openmeld`, and
 production binary setup on supported macOS uses `~/.openmeld/bin/openmeld`.
-Windows, explicit `?dist=npm`, or npm recovery setup may report
+Managed Windows setup uses the lane's `bin/openmeld.exe`; its launcher reads
+the installer-owned active version record. Explicit `?dist=npm` or npm recovery setup may report
 `npx -y openmeld@latest` as the explicit fallback. Do not ask agents to infer the
 lane from prose or switch to a different CLI entry after setup.
 
@@ -595,7 +596,7 @@ surfaces should consume this field instead of copying CLI Human View cards.
 CLI Human View leaves Service versions, running state, autostart controls, and
 stop commands to `openmeld service status`; detailed component and Service facts
 stay in Agent View. Setup work should show short progress lines when stdout is
-not a TTY, because Web setup pipes the CLI output through the bootstrap script
+not a TTY, because Web setup runs the CLI through the bootstrap script
 and hidden spinners make the flow look stuck. Every important completed
 setup/Prepare step leaves one stable Human View record in the form
 `[HH:mm:ss] ✓ Result · elapsed`, using the local time zone of the computer
@@ -1278,7 +1279,7 @@ session before changing local auth. A cross-account switch requires explicit
 interactive confirmation. That confirmation is bound to the stable identity of
 the exact committed session the user reviewed and is compared again inside the
 auth mutation lock; a changed session fails closed and requires fresh review.
-The Web bootstrap arrives through a shell pipe and may reopen the controlling
+The Web bootstrap runs from a downloaded temporary file and may reopen the controlling
 terminal for the managed CLI. Any prompt reachable from that bootstrap must use
 the CLI's binary-safe interactive prompt primitive, which reads the reopened
 terminal synchronously in the compiled binary. It must not bypass that owner

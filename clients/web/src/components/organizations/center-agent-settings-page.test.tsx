@@ -10,6 +10,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentConfigurationGrid } from "#/components/profiles/agent-configuration-card";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import {
@@ -82,6 +83,7 @@ vi.mock("#/lib/organizations/center-agent-memory", () => ({
 
 const ORGANIZATION_ID = "org-1";
 const CENTER_AGENT_ID = "agt_11111111-1111-4111-8111-111111111111";
+const AUDIT_LOG_BUTTON_NAME = /Audit Log/;
 
 describe("CenterAgentSettingsContent", () => {
 	beforeEach(() => {
@@ -183,28 +185,22 @@ describe("CenterAgentSettingsContent", () => {
 
 	afterEach(cleanup);
 
-	it("shows every section and the current model to a workspace member", async () => {
+	it("shows Center Agent essentials first and loads the audit log on demand", async () => {
 		renderSettings({ canManage: false });
 
 		expect(
-			await screen.findByRole("heading", { name: "Connection" })
+			await screen.findByRole("heading", { name: "Center Agent" })
 		).toBeTruthy();
 		expect(
 			screen
 				.getByTestId(`center-agent-profile-avatar-${CENTER_AGENT_ID}`)
 				.getAttribute("data-shape")
 		).toBe("circle");
-		expect(screen.getByRole("heading", { name: "Identity" })).toBeTruthy();
+		expect(screen.getByText("How this Agent works")).toBeTruthy();
+		expect(screen.getByText("Identity")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Usage" })).toBeTruthy();
-		expect(
-			screen.getByRole("heading", { name: "Organization memory" })
-		).toBeTruthy();
+		expect(screen.getByText("Organization memory")).toBeTruthy();
 		expect(screen.getByText("Remember shared conversations")).toBeTruthy();
-		expect(
-			screen.getByText(
-				"Center Agent can use useful details from shared Spaces and connected channels in future replies. Private chats are not included."
-			)
-		).toBeTruthy();
 		expect(
 			(
 				await screen.findByRole("switch", {
@@ -212,54 +208,19 @@ describe("CenterAgentSettingsContent", () => {
 				})
 			).hasAttribute("data-disabled")
 		).toBe(true);
-		expect(screen.getByRole("heading", { name: "Model" })).toBeTruthy();
-		expect(
-			screen.queryByText(
-				"See which primary model the Center Agent uses for new work."
-			)
-		).toBeNull();
+		expect(screen.getByText("Model")).toBeTruthy();
 		expect(await screen.findByText("GLM 5.3 Flash")).toBeTruthy();
-		expect(screen.getByText("New").getAttribute("data-slot")).toBe("badge");
-		expect(screen.getByText("OpenMeld default")).toBeTruthy();
-		const modelBehaviorTrigger = screen.getByRole("button", {
-			name: "About Center Agent model behavior",
-		});
-		expect(modelBehaviorTrigger.className).toContain("max-lg:size-11");
-		expect(
-			screen.queryByText(
-				"Images use a vision model. New turns only. Doesn't switch on failure."
-			)
-		).toBeNull();
-		fireEvent.focus(modelBehaviorTrigger);
-		await waitFor(() => {
-			expect(
-				screen.getByText(
-					"Images use a vision model. New turns only. Doesn't switch on failure."
-				)
-			).toBeTruthy();
-		});
-		expect(
-			screen.getByText(
-				"Only organization owners and admins can change this setting."
-			)
-		).toBeTruthy();
 		expect(
 			screen.queryByRole("combobox", { name: "Primary model" })
 		).toBeNull();
 		expect(screen.queryByRole("combobox", { name: "Provider" })).toBeNull();
 		expect(screen.getByText("12 / 200")).toBeTruthy();
-		expect(screen.getByRole("heading", { name: "Audit Log" })).toBeTruthy();
-		expect(
-			screen.getByText(
-				"Review Center Agent actions, Local Agent requests, and the context Local Agents reported loading."
-			)
-		).toBeTruthy();
+		const audit = screen.getByRole("button", { name: AUDIT_LOG_BUTTON_NAME });
+		expect(audit.getAttribute("aria-expanded")).toBe("false");
+		expect(listCurrentCenterAgentAuditJournalMock).not.toHaveBeenCalled();
 		expect(screen.getByRole("heading", { name: "Danger zone" })).toBeTruthy();
 		expect(screen.queryByText("claude-sonnet-4-5 · high")).toBeNull();
-		expect(screen.getByLabelText("Display name")).toHaveProperty(
-			"readOnly",
-			true
-		);
+		expect(screen.queryByLabelText("Display name")).toBeNull();
 		expect(screen.queryByRole("button", { name: "Save name" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
 		expect(
@@ -267,6 +228,8 @@ describe("CenterAgentSettingsContent", () => {
 				"Only Organization owners and admins can pause the Center Agent."
 			)
 		).toBeTruthy();
+		fireEvent.click(audit);
+		expect(audit.getAttribute("aria-expanded")).toBe("true");
 		await waitFor(() => {
 			expect(listCurrentCenterAgentAuditJournalMock).toHaveBeenCalledTimes(1);
 		});
@@ -274,12 +237,14 @@ describe("CenterAgentSettingsContent", () => {
 
 	it("lets an owner change organization memory from Center Agent settings", async () => {
 		renderSettings({ canManage: true });
-
-		fireEvent.click(
-			await screen.findByRole("switch", {
-				name: "Use shared Center Agent organization memory",
-			})
+		await screen.findByRole("heading", { name: "Center Agent" });
+		const memorySwitch = await screen.findByRole("switch", {
+			name: "Use shared Center Agent organization memory",
+		});
+		await waitFor(() =>
+			expect(memorySwitch.hasAttribute("data-disabled")).toBe(false)
 		);
+		fireEvent.click(memorySwitch);
 
 		await waitFor(() => {
 			expect(
@@ -293,6 +258,7 @@ describe("CenterAgentSettingsContent", () => {
 
 	it("shows catalog-owned model badges in the trigger and matching choices", async () => {
 		renderSettings({ canManage: true });
+		await openModelSettings();
 
 		const trigger = await screen.findByRole("combobox", {
 			name: "Primary model",
@@ -324,6 +290,7 @@ describe("CenterAgentSettingsContent", () => {
 
 	it("lets an owner choose DeepSeek for new work without hiding image routing", async () => {
 		renderSettings({ canManage: true });
+		await openModelSettings();
 
 		fireEvent.click(
 			await screen.findByRole("combobox", { name: "Primary model" })
@@ -369,6 +336,7 @@ describe("CenterAgentSettingsContent", () => {
 
 	it("keeps the saved model visible until an explicit save", async () => {
 		renderSettings({ canManage: true });
+		await openModelSettings();
 		fireEvent.click(
 			await screen.findByRole("combobox", { name: "Primary model" })
 		);
@@ -390,6 +358,7 @@ describe("CenterAgentSettingsContent", () => {
 
 	it("selects a model with the keyboard and leaves persistence to Save", async () => {
 		renderSettings({ canManage: true });
+		await openModelSettings();
 		const trigger = await screen.findByRole("combobox", {
 			name: "Primary model",
 		});
@@ -417,6 +386,7 @@ describe("CenterAgentSettingsContent", () => {
 			),
 		});
 		renderSettings({ canManage: true });
+		await openModelSettings();
 		fireEvent.click(await screen.findByRole("combobox", { name: "Provider" }));
 		for (const name of [
 			"OpenAI",
@@ -464,6 +434,7 @@ describe("CenterAgentSettingsContent", () => {
 
 	it("clears an incompatible draft and allows returning to the system default", async () => {
 		renderSettings({ canManage: true });
+		await openModelSettings();
 		fireEvent.click(
 			await screen.findByRole("combobox", { name: "Primary model" })
 		);
@@ -517,6 +488,7 @@ describe("CenterAgentSettingsContent", () => {
 			upstreamCode: "center_agent.model_configuration_changed",
 		});
 		renderSettings({ canManage: true });
+		await openModelSettings();
 
 		fireEvent.click(
 			await screen.findByRole("combobox", { name: "Primary model" })
@@ -548,14 +520,17 @@ describe("CenterAgentSettingsContent", () => {
 		);
 		const section = (organizationId: string) => (
 			<TestQueryClientProvider queryClient={queryClient}>
-				<CenterAgentModelSection
-					canManage
-					enabled
-					organizationId={organizationId}
-				/>
+				<AgentConfigurationGrid>
+					<CenterAgentModelSection
+						canManage
+						enabled
+						organizationId={organizationId}
+					/>
+				</AgentConfigurationGrid>
 			</TestQueryClientProvider>
 		);
 		const view = render(section(ORGANIZATION_ID));
+		await openModelSettings();
 		fireEvent.click(await screen.findByRole("combobox", { name: "Provider" }));
 		fireEvent.click(await screen.findByRole("option", { name: "DeepSeek" }));
 		fireEvent.click(screen.getByRole("combobox", { name: "Primary model" }));
@@ -566,6 +541,7 @@ describe("CenterAgentSettingsContent", () => {
 			screen.getByRole("button", { name: "Save model settings" })
 		).toHaveProperty("disabled", false);
 		view.rerender(section("another-organization"));
+		await openModelSettings();
 		await waitFor(() =>
 			expect(
 				screen.getByRole("combobox", { name: "Primary model" }).textContent
@@ -596,7 +572,7 @@ describe("CenterAgentSettingsContent", () => {
 			)
 		).toBeTruthy();
 		expect(
-			screen.getByText(
+			await screen.findByText(
 				"See today's Center Agent usage and current Routine limits."
 			)
 		).toBeTruthy();
@@ -640,6 +616,9 @@ describe("CenterAgentSettingsContent", () => {
 			buildDirectoryResponse()
 		);
 		renderSettings({ canManage: true, queryClient });
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Edit Identity" })
+		);
 
 		fireEvent.change(await screen.findByLabelText("Display name"), {
 			target: { value: "Operations Center Agent" },
@@ -745,6 +724,10 @@ function renderSettings(input: {
 			/>
 		</TestQueryClientProvider>
 	);
+}
+
+async function openModelSettings() {
+	fireEvent.click(await screen.findByRole("button", { name: "Edit Model" }));
 }
 
 function buildDesignation() {

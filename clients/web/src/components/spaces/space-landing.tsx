@@ -124,6 +124,7 @@ import { SpaceComposer } from "./space-composer";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { SpaceHeader } from "./space-header";
+import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
 import {
 	isSameOwnerUserId,
 	resolveCurrentSpaceProfileOwnerUserId,
@@ -1872,27 +1873,31 @@ function SpaceLandingReady({
 							} as CSSProperties
 						}
 					>
-						<SpaceLandingConversation
-							agentDirectConversationKind={agentDirectConversationKind}
-							agentOwnerDirectMessageObserver={agentOwnerDirectMessageObserver}
-							composerPrimaryAction={
-								resolveAgentOwnerDirectMessageComposerPrimaryAction(
-									agentOwnerDirectMessageJoin
-								) ?? humanJoinControl
-							}
-							composerProfileControl={composerProfileControl}
-							controller={controller}
-							currentProfileIsActiveSpaceMember={
-								currentProfileIsActiveSpaceMember
-							}
-							currentProfileName={currentProfileName}
-							currentSpaceControls={currentSpaceControls}
-							historyErrorMessage={historyErrorMessage}
-							input={conversationInput}
-							pendingActionSurface={pendingActionSurface}
-							prepareSetupHref={prepareSetupHref}
-							state={state}
-						/>
+						<SpaceLandingErrorBoundary>
+							<SpaceLandingConversation
+								agentDirectConversationKind={agentDirectConversationKind}
+								agentOwnerDirectMessageObserver={
+									agentOwnerDirectMessageObserver
+								}
+								composerPrimaryAction={
+									resolveAgentOwnerDirectMessageComposerPrimaryAction(
+										agentOwnerDirectMessageJoin
+									) ?? humanJoinControl
+								}
+								composerProfileControl={composerProfileControl}
+								controller={controller}
+								currentProfileIsActiveSpaceMember={
+									currentProfileIsActiveSpaceMember
+								}
+								currentProfileName={currentProfileName}
+								currentSpaceControls={currentSpaceControls}
+								historyErrorMessage={historyErrorMessage}
+								input={conversationInput}
+								pendingActionSurface={pendingActionSurface}
+								prepareSetupHref={prepareSetupHref}
+								state={state}
+							/>
+						</SpaceLandingErrorBoundary>
 						{input.presentation === "compact" ||
 						!controller.isCurrentAccessConfirmed ? null : (
 							<SpaceLandingSecondaryPanels

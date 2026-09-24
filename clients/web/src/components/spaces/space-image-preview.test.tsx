@@ -11,9 +11,9 @@ import {
 import { MotionConfig } from "framer-motion";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	clearSpaceFileImageResources,
-	spaceFileImageResources,
-} from "#/query/spaces/space-file-image-resource";
+	clearSpaceFileMediaResources,
+	spaceFileMediaResources,
+} from "#/query/spaces/space-file-media-resource";
 import { SpaceImagePreview } from "./space-image-preview";
 
 vi.mock("./space-image-loading-effect", () => ({
@@ -55,7 +55,7 @@ describe("stable image rendering", () => {
 			}
 		);
 		const client = new QueryClient();
-		const resource = spaceFileImageResources(client).create(
+		const resource = spaceFileMediaResources(client).create(
 			new Blob(["private"]),
 			"space-1",
 			"composer-file:private"
@@ -68,7 +68,7 @@ describe("stable image rendering", () => {
 		fireEvent.load(screen.getByRole("img", { name: "Screenshot" }));
 		fireEvent.click(screen.getByRole("button", { name: "Open Screenshot" }));
 		expect(document.querySelectorAll('img[alt="Screenshot"]')).toHaveLength(2);
-		act(() => clearSpaceFileImageResources(client));
+		act(() => clearSpaceFileMediaResources(client));
 		expect(document.querySelectorAll('img[alt="Screenshot"]')).toHaveLength(0);
 		expect(screen.queryByTestId("img-fx-loading-effect")).toBeNull();
 		view.unmount();
