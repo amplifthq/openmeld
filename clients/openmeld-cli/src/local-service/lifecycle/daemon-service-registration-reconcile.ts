@@ -4,8 +4,8 @@ import {
 } from "../../config/daemon-state";
 import { emitDaemonLifecycleEvent } from "./daemon-lifecycle-journal";
 import {
-  buildDaemonSystemServiceCommandSpec,
   ensureDaemonSystemServiceCommandFiles,
+  resolveInstalledDaemonSystemServiceCommandSpec,
 } from "./daemon-service-command-spec";
 import type { DaemonServiceManager } from "./daemon-service-manager";
 import { resolveDaemonServiceManager } from "./daemon-service-manager";
@@ -240,7 +240,9 @@ async function reconcileSupervisorRegistrationOnce(input: {
       controller: manager.controller,
     });
     await manager.install(
-      buildDaemonSystemServiceCommandSpec({ controller: manager.controller })
+      await resolveInstalledDaemonSystemServiceCommandSpec({
+        controller: manager.controller,
+      })
     );
     await clearDaemonServiceRegistrationRepairPending();
     await emitDaemonLifecycleEvent({

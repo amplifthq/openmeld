@@ -1,9 +1,16 @@
 import {
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+	OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+	WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
+} from "@openmeld/schemas";
+import {
 	getSetupFlowCopy,
 	OPENMELD_NODE_ENGINE_RANGE,
+	OPENMELD_SETUP_SCRIPT_END_MARKER,
 	OPENMELD_SUPPORTED_NODE_MAJORS,
 } from "@openmeld/start";
 import { isLocalWebOrigin } from "./local-web-origin.ts";
+import { buildWindowsBinaryBootstrap } from "./setup-bootstrap-windows-binary.ts";
 
 const OPENMELD_SETUP_PACKAGE_NAME = "openmeld";
 const OPENMELD_SETUP_PACKAGE_SPEC = `${OPENMELD_SETUP_PACKAGE_NAME}@latest`;
@@ -17,6 +24,10 @@ const OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE =
 const DEFAULT_LOCAL_CLI_BINARY_MANIFEST_URL =
 	"http://127.0.0.1:3197/cli/manifest.json";
 const OPENMELD_STAGING_HOSTNAME = "staging.openmeld.ai";
+const MACOS_CLI_CODE_IDENTIFIER =
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier;
+const MACOS_CLI_TEAM_IDENTIFIER =
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier;
 
 export type OpenMeldSetupBootstrapLane = "prod" | "dev-local" | "canary";
 type OpenMeldSetupBootstrapPlatform = "posix" | "windows";
@@ -123,13 +134,6 @@ export function resolveOpenMeldSetupBootstrapScriptConfig(
 			statusCode: 400,
 		};
 	}
-	if (distribution === "binary" && input.platform === "windows") {
-		return {
-			body: "OpenMeld binary setup is not available for Windows yet. Use ?dist=npm.",
-			status: "error",
-			statusCode: 400,
-		};
-	}
 	const binaryManifestUrlOverride = normalizeOptionalString(
 		input.binaryManifestUrl
 	);
@@ -188,7 +192,7 @@ OPENMELD_SETUP_GLOBAL_CLI_READY=0
 OPENMELD_SETUP_GLOBAL_CLI_UPDATE_AFTER_SETUP=0
 OPENMELD_SETUP_GLOBAL_CLI_UPDATE_VERSION=""
 # Stdin source for a child OpenMeld invocation. Defaults to /dev/null so the
-# piped install script (curl ... | sh) is never consumed by a child command.
+# downloaded install script is never consumed by a child command.
 # The interactive CLI run re-points this at /dev/tty when a terminal is
 # available so setup can prompt (e.g. which local agent runs the Assistant),
 # rustup-style, without ever inheriting the pipe as stdin.
@@ -424,7 +428,7 @@ resolve_binary_platform() {
   OPENMELD_SETUP_UNAME_MACHINE="$(uname -m 2>/dev/null || true)"
   case "$OPENMELD_SETUP_UNAME_SYSTEM:$OPENMELD_SETUP_UNAME_MACHINE" in
     Darwin:arm64) printf 'darwin-arm64' ;;
-    *) die "OpenMeld binary setup currently supports Apple silicon Macs. Use ?dist=npm for this computer." ;;
+    *) die "OpenMeld binary setup supports Apple silicon Macs. For other computers, install a supported Node.js version and use npm setup (?dist=npm)." ;;
   esac
 }
 
@@ -474,10 +478,10 @@ download_file_with_retry() {
   while [ "$OPENMELD_SETUP_DOWNLOAD_ATTEMPT" -le 3 ]; do
     rm -f "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"
     if [ "$OPENMELD_SETUP_DOWNLOAD_SHOW_PROGRESS" = "1" ] && { [ -t 2 ]; } 2>/dev/null; then
-      if curl -fL --progress-bar "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+      if download_file_with_curl -fL --progress-bar --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
         return 0
       fi
-    elif curl -fsSL "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+    elif download_file_with_curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
       return 0
     fi
 
@@ -490,6 +494,14 @@ download_file_with_retry() {
   done
 
   return 1
+}
+
+download_file_with_curl() {
+  if [ "$OPENMELD_SETUP_ENV_PRESET" = "dev-local" ]; then
+    curl "$@"
+  else
+    curl --proto '=https' --proto-redir '=https' "$@"
+  fi
 }
 
 cleanup_binary_download() {
@@ -512,13 +524,14 @@ install_downloaded_binary_self() {
 verify_binary_code_signature() {
   OPENMELD_SETUP_SIGNATURE_PATH="$1"
   if [ -z "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
+    [ "$OPENMELD_SETUP_ENV_PRESET" = "dev-local" ] || die "OpenMeld CLI binary manifest is missing a verified signing identity."
     return 0
   fi
   [ -x /usr/bin/codesign ] || die "OpenMeld needs macOS codesign to verify the downloaded CLI."
-  /usr/bin/codesign --verify --strict --verbose=2 "$OPENMELD_SETUP_SIGNATURE_PATH" >/dev/null 2>&1 || die "OpenMeld CLI did not pass Apple code signature verification."
+  /usr/bin/codesign --verify --strict --verbose=2 ${shellSingleQuote(`-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`)} "$OPENMELD_SETUP_SIGNATURE_PATH" >/dev/null 2>&1 || die "OpenMeld CLI did not pass Apple Developer ID signature verification."
   OPENMELD_SETUP_SIGNATURE_DETAILS="$(/usr/bin/codesign --display --verbose=4 "$OPENMELD_SETUP_SIGNATURE_PATH" 2>&1)" || die "OpenMeld could not inspect the CLI code signature."
-  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "Identifier=$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong identifier."
-  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "TeamIdentifier=$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong Apple team."
+  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -Fx "Identifier=$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong identifier."
+  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -Fx "TeamIdentifier=$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong Apple team."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "Authority=Developer ID Application:" >/dev/null || die "OpenMeld CLI is not signed with an Apple Developer ID Application certificate."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -E 'flags=.*runtime' >/dev/null || die "OpenMeld CLI code signature is missing the hardened runtime."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -E '^Timestamp=' >/dev/null || die "OpenMeld CLI code signature is missing a trusted timestamp."
@@ -569,9 +582,9 @@ install_binary_openmeld() {
   [ -n "$OPENMELD_SETUP_BINARY_URL" ] || die "OpenMeld CLI binary manifest is missing the download URL."
   [ -n "$OPENMELD_SETUP_BINARY_SHA256" ] || die "OpenMeld CLI binary manifest is missing the sha256."
   [ -n "$OPENMELD_SETUP_BINARY_SIZE_BYTES" ] || die "OpenMeld CLI binary manifest is missing the size."
-  if [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
-    [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" ] || die "OpenMeld CLI binary manifest is missing the code identifier."
-    [ -n "$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ] || die "OpenMeld CLI binary manifest is missing the Apple team identifier."
+  if [ "$OPENMELD_SETUP_ENV_PRESET" != "dev-local" ] || [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
+    [ "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" = ${shellSingleQuote(MACOS_CLI_CODE_IDENTIFIER)} ] || die "OpenMeld CLI binary manifest has an unexpected code identifier."
+    [ "$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" = ${shellSingleQuote(MACOS_CLI_TEAM_IDENTIFIER)} ] || die "OpenMeld CLI binary manifest has an unexpected Apple team."
   fi
 
   OPENMELD_SETUP_BINARY_HAS_ARCHIVE=0
@@ -828,6 +841,7 @@ if [ "$OPENMELD_SETUP_DISTRIBUTION" = "npm" ]; then
   maybe_queue_old_global_openmeld_update_after_setup
   maybe_run_global_openmeld_update_after_setup
 fi
+${OPENMELD_SETUP_SCRIPT_END_MARKER}
 `;
 }
 
@@ -839,6 +853,22 @@ export function buildOpenMeldSetupBootstrapPowerShellScript(
 	const supportedNodeRange = OPENMELD_NODE_ENGINE_RANGE;
 	const distribution =
 		input.distribution ?? resolveDefaultSetupDistribution(input.lane);
+	if (distribution === "binary") {
+		return buildWindowsBinaryBootstrap({
+			internalPreview: input.lane === "prod",
+			manifestUrl:
+				input.lane === "prod"
+					? WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
+					: (input.binaryManifestUrl ??
+						"https://openmeld.ai/cli/manifest.json"),
+			envPreset: laneConfig.envPreset,
+			userFacingCommand: laneConfig.userFacingCommand,
+			openMeldHome: input.openMeldHome ?? "",
+			gatewayUrl: input.gatewayUrl ?? "",
+			authUrl: input.authUrl ?? "",
+			progressMessage: setupCopy.cliBootstrapRunStatus,
+		});
+	}
 
 	return `param(
   [Parameter(ValueFromRemainingArguments = $true)]

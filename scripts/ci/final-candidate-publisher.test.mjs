@@ -24,7 +24,7 @@ const trustedPlan = createFinalCandidatePlan({
   baseSha: BASE_SHA,
   branchName: "codex/malicious-candidate",
   candidateKind: "pull-request",
-  changedPaths: ["clients/web/src/app.tsx"],
+  changedPaths: ["scripts/release/production-scope-lease.mjs"],
   confidence: "standard",
   headSha: HEAD_SHA,
   mode: "remote",

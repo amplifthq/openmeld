@@ -4,6 +4,27 @@ import { redirect } from "@tanstack/react-router";
 import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
 import { getDesktopPlatform } from "./platform";
 
+const DESKTOP_SESSION_NAVIGATION_STALE_MS = 30_000;
+const desktopSessionQueryKey = ["desktop", "native-session"] as const;
+
+export function forgetDesktopSession(queryClient: QueryClient): void {
+	queryClient.removeQueries({ exact: true, queryKey: desktopSessionQueryKey });
+}
+
+export function readDesktopSession(input: {
+	bridge: NonNullable<ReturnType<typeof getDesktopPlatform>>;
+	queryClient: QueryClient;
+	revalidate?: boolean;
+}): Promise<DesktopSession> {
+	return input.queryClient.fetchQuery({
+		gcTime: DESKTOP_SESSION_NAVIGATION_STALE_MS,
+		queryFn: () => input.bridge.session(),
+		queryKey: desktopSessionQueryKey,
+		retry: false,
+		staleTime: input.revalidate ? 0 : DESKTOP_SESSION_NAVIGATION_STALE_MS,
+	});
+}
+
 // Runs in the root beforeLoad, before shared child loaders. Cloud endpoints
 // still authorize every request; this guard only owns the client's entry path.
 export function desktopReturnPath(value: unknown): string | undefined {
@@ -32,7 +53,9 @@ export async function beforeDesktopLoad(
 	}
 	let session: DesktopSession;
 	try {
-		session = await bridge.session();
+		session = queryClient
+			? await readDesktopSession({ bridge, queryClient })
+			: await bridge.session();
 	} catch {
 		// Unknown is not signed out: retry through the loader-free entry without
 		// clearing this account's data or initiating browser authentication.

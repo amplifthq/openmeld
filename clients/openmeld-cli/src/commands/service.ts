@@ -80,8 +80,8 @@ import {
   resolveDaemonBundleIdFromEntryPath,
 } from "../local-service/lifecycle/daemon-service-command-path";
 import {
-  buildDaemonSystemServiceCommandSpec,
   ensureDaemonSystemServiceCommandFiles,
+  resolveInstalledDaemonSystemServiceCommandSpec,
 } from "../local-service/lifecycle/daemon-service-command-spec";
 import { writeDaemonServiceContract } from "../local-service/lifecycle/daemon-service-contract-writer";
 import {
@@ -4277,7 +4277,9 @@ function emitDaemonAlreadyRunningState(
 async function recoverSystemServiceStartupAfterTimeout(input: {
   daemonVersion: string;
   error: unknown;
-  serviceCommandSpec: ReturnType<typeof buildDaemonSystemServiceCommandSpec>;
+  serviceCommandSpec: Awaited<
+    ReturnType<typeof resolveInstalledDaemonSystemServiceCommandSpec>
+  >;
   startSpinner: ReturnType<typeof createDaemonStartSpinner>;
   startupPollMs?: number;
   systemManager: DaemonServiceManager;
@@ -4393,12 +4395,13 @@ async function runSystemServiceManager(input: {
   suppressStartSpinner?: boolean;
 }): Promise<DaemonRunResult> {
   const startedAtMs = Date.now();
-  const serviceCommandSpec = buildDaemonSystemServiceCommandSpec({
-    controller: input.systemManager.controller,
-    environmentTarget: await resolveOpenMeldEnvironmentTarget({
-      gatewayUrl: input.gatewayUrl,
-    }),
-  });
+  const serviceCommandSpec =
+    await resolveInstalledDaemonSystemServiceCommandSpec({
+      controller: input.systemManager.controller,
+      environmentTarget: await resolveOpenMeldEnvironmentTarget({
+        gatewayUrl: input.gatewayUrl,
+      }),
+    });
 
   let startupError: unknown = null;
   let autoRepairAttempted = false;

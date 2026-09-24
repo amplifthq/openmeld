@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { startQueryKeys } from "#/query/query-keys";
 import {
 	createTestQueryClient,
@@ -109,6 +110,7 @@ vi.mock("#/query/organizations/organization-directory", async () => {
 			queryFn: readCurrentOrganizationComputersMock,
 			queryKey: actual.organizationQueryKeys.computers(input.organizationId),
 			retry: false,
+			staleTime: 30_000,
 		}),
 		organizationMemberRoleQueryOptions: (input: {
 			enabled: boolean;
@@ -342,6 +344,51 @@ describe("DirectoryMembersOverview", () => {
 			state: "not_connected",
 		});
 	});
+
+	it("does not present an old teammate Computer connection as current during refresh", async () => {
+		const response = {
+			computers: [
+				{
+					computerId: "computer-grace",
+					deviceDisplayName: "Grace's MacBook",
+					deviceType: "laptop",
+					lastSeenAtMs: Date.now(),
+					localAgents: [],
+					osVersion: "25.5.0",
+					ownerUserId: "user-grace",
+					platformFamily: "macOS",
+					serviceState: "connected",
+				},
+			],
+			generatedAt: new Date().toISOString(),
+			organizationId: "org-acme",
+		};
+		readCurrentOrganizationComputersMock.mockResolvedValue(response);
+		const queryClient = renderOverview().queryClient;
+		await waitFor(() => {
+			const grace = workspacePropsMock.mock.lastCall?.[0]?.members.find(
+				(member: { userId: string }) => member.userId === "user-grace"
+			);
+			expect(grace?.computer.state).toBe("connected");
+		});
+		let finishRefresh!: (value: typeof response) => void;
+		readCurrentOrganizationComputersMock.mockReturnValue(
+			new Promise<typeof response>((resolve) => {
+				finishRefresh = resolve;
+			})
+		);
+		const refresh = queryClient.invalidateQueries({
+			queryKey: organizationQueryKeys.computers("org-acme"),
+		});
+		await waitFor(() => {
+			const grace = workspacePropsMock.mock.lastCall?.[0]?.members.find(
+				(member: { userId: string }) => member.userId === "user-grace"
+			);
+			expect(grace?.computer.state).toBe("unknown");
+		});
+		finishRefresh(response);
+		await refresh;
+	});
 });
 
 function renderOverview(
@@ -359,7 +406,7 @@ function renderOverview(
 		startQueryKeys.profilesForStorageScope("user-current"),
 		[buildHumanProfile()]
 	);
-	return render(
+	const result = render(
 		<TestQueryClientProvider queryClient={queryClient}>
 			<DirectoryMembersOverview
 				account={{ email: "felix@example.com", name: "Felix" }}
@@ -383,6 +430,7 @@ function renderOverview(
 			/>
 		</TestQueryClientProvider>
 	);
+	return { ...result, queryClient };
 }
 
 function buildDirectory(): OrganizationDirectoryResponse {

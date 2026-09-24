@@ -16,6 +16,7 @@ export const RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER =
 // hibernation recovery.
 export type RuntimeTransportSocketAttachment = {
   executionAdmissionConfirmation?: boolean;
+  admissionEvidence?: boolean;
   computerCare?: boolean;
   spaceWorkHandoff?: boolean;
   connectionDiagnosticId?: string;
@@ -36,6 +37,7 @@ export const readRuntimeTransportSocketAttachment = (
 ): RuntimeTransportSocketAttachment => {
   let attachment: {
     executionAdmissionConfirmation?: unknown;
+    admissionEvidence?: unknown;
     computerCare?: unknown;
     spaceWorkHandoff?: unknown;
     connectionDiagnosticId?: unknown;
@@ -49,6 +51,7 @@ export const readRuntimeTransportSocketAttachment = (
   try {
     attachment = (webSocket.deserializeAttachment() ?? {}) as {
       executionAdmissionConfirmation?: unknown;
+      admissionEvidence?: unknown;
       computerCare?: unknown;
       spaceWorkHandoff?: unknown;
       connectionDiagnosticId?: unknown;
@@ -75,6 +78,7 @@ export const readRuntimeTransportSocketAttachment = (
   return {
     executionAdmissionConfirmation:
       attachment.executionAdmissionConfirmation === true,
+    admissionEvidence: attachment.admissionEvidence === true,
     computerCare: attachment.computerCare === true,
     ...(serviceConnectionDiagnosticIdSchema.safeParse(
       attachment.connectionDiagnosticId
@@ -103,6 +107,7 @@ export const writeRuntimeTransportSocketAttachment = (
   webSocket: WebSocket,
   input: {
     executionAdmissionConfirmation?: boolean;
+    admissionEvidence?: boolean;
     computerCare?: boolean;
     connectionDiagnosticId?: string;
     reasoningStream?: boolean;
@@ -125,6 +130,8 @@ export const writeRuntimeTransportSocketAttachment = (
         input.executionAdmissionConfirmation ??
         current.executionAdmissionConfirmation ??
         false,
+      admissionEvidence:
+        input.admissionEvidence ?? current.admissionEvidence ?? false,
       computerCare: input.computerCare ?? current.computerCare ?? false,
       ...((input.connectionDiagnosticId ?? current.connectionDiagnosticId)
         ? {

@@ -1,4 +1,5 @@
 import {
+	DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
 	type DesktopReleasePlatform,
 	desktopCandidateIdSchema,
 	desktopCandidateLocation,
@@ -9,6 +10,8 @@ import {
 	desktopPromotedReleaseSchema,
 	desktopReleasePlatformSchema,
 	desktopUpdaterFeedSchemaForPlatform,
+	desktopWindowsInternalPreviewLocation,
+	desktopWindowsInternalPreviewSchema,
 } from "@openmeld/schemas";
 
 export function parseDesktopCandidateSelector(value: unknown) {
@@ -133,6 +136,19 @@ export async function readPromotedDesktopRelease(
 	return { ...candidate, releaseDate: pointer.promotedAt };
 }
 
+export async function readWindowsInternalPreview(
+	store: DesktopReleaseManifestStore
+) {
+	const object = await store.get(DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY);
+	if (!object) {
+		return null;
+	}
+	const preview = desktopWindowsInternalPreviewSchema.parse(
+		await object.json()
+	);
+	return { ...preview, ...desktopWindowsInternalPreviewLocation(preview) };
+}
+
 export function buildDesktopUpdaterFeed(
 	candidate: NonNullable<Awaited<ReturnType<typeof readPromotedDesktopRelease>>>
 ) {
@@ -189,6 +205,20 @@ export async function readAvailableDesktopRelease(
 	}
 	const release = await readPromotedDesktopRelease(store, platform);
 	if (!release) {
+		if (platform === "windows-x64") {
+			const preview = await readWindowsInternalPreview(store);
+			const artifact = preview ? await store.head(preview.objectKey) : null;
+			return artifact && artifact.size === preview?.sizeBytes
+				? {
+						platform: preview.platform,
+						version: preview.version,
+						sizeBytes: preview.sizeBytes,
+						downloadPath: preview.downloadPath,
+						message:
+							"Internal preview: this installer is unsigned. Windows may ask you to confirm before installing. Automatic updates are unavailable for this build.",
+					}
+				: null;
+		}
 		return null;
 	}
 	const artifact = await store.head(release.objectKey);

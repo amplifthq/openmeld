@@ -1,5 +1,5 @@
 import { INBOX_SPACE_SUMMARY_MAX_SPACES } from "@openmeld/schemas";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { canReceivePersonalAgentActivity } from "../src/inbox/application/inbox-agent-owner-access";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import { createInboxMessageNotificationPreferencesService } from "../src/inbox/application/inbox-message-notification-preferences";
@@ -12,6 +12,27 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("reads only the insertion watermark when the notification cursor has not moved", async () => {
+    const harness = createInboxHarness();
+    try {
+      const input = {
+        db: harness.db,
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const baseline = await observeInboxNotifications(input);
+      const prepare = vi.spyOn(harness.db, "prepare");
+      const unchanged = await observeInboxNotifications({
+        ...input,
+        cursor: baseline.cursor,
+      });
+      expect(unchanged).toEqual(baseline);
+      expect(prepare).toHaveBeenCalledTimes(1);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("observes every new insertion across pages without replaying history or losing delayed source events", async () => {
     const harness = createInboxHarness();
     try {

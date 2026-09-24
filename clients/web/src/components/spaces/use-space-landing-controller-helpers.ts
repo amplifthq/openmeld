@@ -26,6 +26,7 @@ import {
 import type { useQueryClient } from "@tanstack/react-query";
 import { isSessionExpiredError } from "#/lib/session-expired";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
+import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -460,6 +461,97 @@ export function mergeActiveWakeProgressPresentation(input: {
 				}
 			: item;
 	});
+}
+
+export function filterUnconfirmedRestoredWakeProgress(input: {
+	confirmedItems: readonly WakeProgressItem[];
+	currentItems: readonly WakeProgressItem[];
+	restoredItems: readonly WakeProgressItem[];
+}): WakeProgressItem[] {
+	return input.currentItems.filter(
+		(item) =>
+			!input.restoredItems.some((restored) =>
+				doWakeProgressItemsMatch({ left: item, right: restored })
+			) ||
+			input.confirmedItems.some((confirmed) =>
+				doWakeProgressItemsMatch({ left: item, right: confirmed })
+			)
+	);
+}
+
+export function findUnconfirmedPresentedWakeProgress(input: {
+	confirmedItems: readonly WakeProgressItem[];
+	presentedItems: readonly WakeProgressItem[];
+	restoredItems: readonly WakeProgressItem[];
+	cachedSpaceSummaryItems?: readonly WakeProgressItem[];
+	cachedOwnSummaryItems?: readonly WakeProgressItem[];
+	spaceSummaryFetchedAfterMount: boolean;
+	ownSummaryFetchedAfterMount: boolean;
+}): {
+	item: WakeProgressItem;
+	fromRestoredPresentation: boolean;
+	fromCachedSpaceSummary: boolean;
+	fromCachedOwnSummary: boolean;
+} | null {
+	for (const item of input.presentedItems) {
+		if (
+			input.confirmedItems.some((confirmed) =>
+				doWakeProgressItemsMatch({ left: item, right: confirmed })
+			)
+		) {
+			continue;
+		}
+		const fromRestoredPresentation = input.restoredItems.some((restored) =>
+			doWakeProgressItemsMatch({ left: item, right: restored })
+		);
+		const fromCachedSpaceSummary =
+			!input.spaceSummaryFetchedAfterMount &&
+			(input.cachedSpaceSummaryItems ?? []).some((cached) =>
+				doWakeProgressItemsMatch({ left: item, right: cached })
+			);
+		const fromCachedOwnSummary =
+			!input.ownSummaryFetchedAfterMount &&
+			(input.cachedOwnSummaryItems ?? []).some((cached) =>
+				doWakeProgressItemsMatch({ left: item, right: cached })
+			);
+		if (
+			fromRestoredPresentation ||
+			fromCachedSpaceSummary ||
+			fromCachedOwnSummary
+		) {
+			return {
+				item,
+				fromRestoredPresentation,
+				fromCachedSpaceSummary,
+				fromCachedOwnSummary,
+			};
+		}
+	}
+	return null;
+}
+
+export function findUnconfirmedBootstrapWakeStream(input: {
+	bootstrapFetchedAfterMount: boolean;
+	confirmedItems: readonly WakeProgressItem[];
+	streams: readonly SpaceConversationVisibleStreamProjection[];
+}): SpaceConversationVisibleStreamProjection | null {
+	if (input.bootstrapFetchedAfterMount) {
+		return null;
+	}
+	return (
+		input.streams.find(
+			(stream) =>
+				stream.status === "streaming" &&
+				stream.observedRevision === 0 &&
+				(stream.replyThreadRootSignalId === null ||
+					stream.replyThreadRootSignalId === undefined) &&
+				!input.confirmedItems.some(
+					(confirmed) =>
+						confirmed.dispatchId === stream.dispatchId &&
+						confirmed.targetProfileId === stream.profileId
+				)
+		) ?? null
+	);
 }
 
 export function filterWakeProgressItemsForVisibleOutcomes(input: {

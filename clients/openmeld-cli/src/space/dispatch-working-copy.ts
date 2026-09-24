@@ -10,10 +10,11 @@ import { readDispatchSpaceActionContextFromEnv } from "../runtime/dispatch-space
 const run = promisify(execFile);
 export async function runDispatchWorkingCopy(
   action: "status" | "commit" | "reconcile" | "refresh" | "resolve",
-  resolution?: { fileId?: string; revision?: number }
+  resolution?: { fileId?: string; revision?: number },
+  env: NodeJS.ProcessEnv = process.env
 ) {
-  const context = readDispatchSpaceActionContextFromEnv();
-  const command = resolveDispatchSpaceActionMcpServer(process.env);
+  const context = readDispatchSpaceActionContextFromEnv(env);
+  const command = resolveDispatchSpaceActionMcpServer(env);
   if (!(command && context.workingCopyId)) {
     throw new Error("This Wake has no prepared working copy.");
   }
@@ -41,7 +42,7 @@ export async function runDispatchWorkingCopy(
       context.spaceId,
       context.workingCopyId,
     ],
-    { encoding: "utf8", maxBuffer: 1024 * 1024, timeout: 120_000 }
+    { encoding: "utf8", env, maxBuffer: 1024 * 1024, timeout: 120_000 }
   ).catch((error: unknown) => {
     if (
       error &&

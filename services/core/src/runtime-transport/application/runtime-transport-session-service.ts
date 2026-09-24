@@ -138,6 +138,17 @@ export const handleRegisterSession = (
   session.acceptingDispatches = isSameSocketReRegister
     ? previousAcceptingDispatches
     : false;
+  session.admissionEvidence = isSameSocketReRegister
+    ? existingSession?.admissionEvidence
+    : {
+        acceptingDispatches: false,
+        connectionGeneration: nextConnectionGeneration,
+        revision: 0,
+        changedAtMs: nowMs,
+        reasonCode: existingSession
+          ? "connection_replaced"
+          : "connection_initializing",
+      };
   session.stopCause = isSameSocketReRegister ? previousStopCause : undefined;
   session.capabilities = request.capabilities;
   session.executionCompatibility = resolveDaemonExecutionCompatibility(
@@ -525,6 +536,20 @@ export const handleHeartbeat = (
   session.serviceVersion = normalizeServiceVersion(request.serviceVersion);
   session.lastHeartbeatMs = nowMs;
   session.acceptingDispatches = request.acceptingDispatches !== false;
+  const reportedAdmissionEvidence = request.admissionEvidence;
+  const previousAdmissionEvidence = session.admissionEvidence;
+  session.admissionEvidence =
+    reportedAdmissionEvidence &&
+    reportedAdmissionEvidence.connectionGeneration ===
+      session.connectionGeneration &&
+    reportedAdmissionEvidence.acceptingDispatches ===
+      session.acceptingDispatches &&
+    (!previousAdmissionEvidence ||
+      previousAdmissionEvidence.connectionGeneration !==
+        session.connectionGeneration ||
+      reportedAdmissionEvidence.revision >= previousAdmissionEvidence.revision)
+      ? reportedAdmissionEvidence
+      : undefined;
   session.stopCause =
     request.acceptingDispatches === false ? request.stopCause : undefined;
   session.capabilities = request.capabilities ?? session.capabilities;

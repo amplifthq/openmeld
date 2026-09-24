@@ -187,6 +187,7 @@ type AssignmentPlan = {
 type AssignmentInput = {
   legacyAssociation?: LegacyContextAssociation;
   contextModeActive?: boolean;
+  startIndependentClaudeContext?: boolean;
   record: RuntimeCoordinatorHeadLifecycleRecord;
   storage: Storage;
   authorizedContinuationSourceWakeId?: string;
@@ -359,7 +360,8 @@ export async function prepareExecutionContextAssignment(
     !source &&
     implicitRequest &&
     request.scope.threadId === null &&
-    !input.contextModeActive
+    !input.contextModeActive &&
+    !input.startIndependentClaudeContext
   ) {
     return { record: input.record, writes: {} };
   }
@@ -671,7 +673,8 @@ function supportsContextAccess(
 ): boolean {
   return (
     agentControllerRef === "builtin:codex" ||
-    (agentControllerRef === "builtin:claude-code" && access === "space_context")
+    (agentControllerRef === "builtin:claude-code" &&
+      (access === "space_context" || access === "workspace"))
   );
 }
 
@@ -692,6 +695,15 @@ function assertContextPreferences(
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.space_context_requires_isolated_workspace"
+    );
+  }
+  if (
+    context.agentControllerRef === "builtin:claude-code" &&
+    assignment.access === "workspace" &&
+    assignment.workspace !== "isolated"
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.claude_project_requires_isolated_workspace"
     );
   }
   const selection = request.selection;

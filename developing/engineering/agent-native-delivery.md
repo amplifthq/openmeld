@@ -13,6 +13,57 @@
 - Source of truth: This file owns the end-to-end agent-native delivery contract
   for this repository.
 
+## Merge and Release Task
+
+Use this path for one PR or a compatible batch. If already merged, recover the
+pre-merge `main` commit and final product SHA, then start at step 3. Keep one
+compact record of what remains; follow the linked sections only for the
+branches used.
+
+1. Identify the requested PRs, their dependency order, and the `main` commit
+   before the first merge. For compatible ready changes, use [one integrated
+   Final Candidate](#final-candidate) instead of repeating the same broad checks
+   on each leaf. For a batch crossing release scopes, run
+   `pnpm run release:plan -- --base <pre-merge-sha>` on the integrated candidate
+   to inspect the changed paths and deployment order without scanning hosted
+   history. Decide intended versions for artifacts in scope; make CLI version
+   and manifest changes only in the clean
+   [publishing release worktree](development-workflow.md#local-components-release-tool)
+   on a `codex/release-X.Y.Z-<baseSHA>` branch.
+2. [Merge](#merge) against current `main`. If a merge command fails or returns
+   an uncertain result, read the remote PR's `state` and `mergeCommit` before
+   retrying. Pin the integrated product SHA; a later release-only version
+   commit has its own publication SHA. Keep unrelated newer commits outside
+   this release.
+3. For a multi-scope batch or an unknown deployment backlog, run
+   `pnpm run release:status -- --ref <product-sha> --change-base <pre-merge-sha>`
+   once for the initial plan. When the next release scope is already known, go
+   straight to its guarded preflight: it reads the same deployment history and
+   checks that scope's prerequisites. Do not run a separate global status scan
+   before it. Guarded release commands recheck before publication.
+   Do not repeat the full history scan after each stage; use that stage's
+   workflow result, release receipt, and health evidence to track completion.
+   If unrelated commits landed between separate merges, plan those ranges
+   separately instead of attributing them to this batch.
+   It covers Database, cloud, and CLI; read current-change scopes separately
+   from historical backlog. [Assess Desktop](production-release.md#desktop-release-coverage)
+   for the same range. A zero pending-scope result does not close the Desktop
+   row.
+4. [Release](#release) each affected component through its owner workflow,
+   respecting the planner's dependency order. If Core is selected and shared
+   schema or Service inputs changed, run the read-only
+   `pnpm release:local-components plan --next` before starting Core; it can run
+   alongside an earlier independent deploy stage. Decide the supported Core/CLI
+   path from that result. Record each component and supported Desktop platform as
+   released, pending, excluded with a concrete
+   reason, or unknown when evidence cannot be read. Promotion and [installed
+   A-to-B acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
+   are separate Desktop states.
+5. Finish with [health and the smallest real-user smoke](#health-and-real-user-smoke)
+   for changed paths. Report the product and any release-only source SHA,
+   component evidence, pending acceptance, and unknowns. A published component
+   does not complete the batch while another affected row is unresolved.
+
 ## Daily Workflow
 
 The same workflow applies to engineers, Codex, Claude Code, and other coding
@@ -22,8 +73,8 @@ and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
 | Stage | Required work | Why |
 | --- | --- | --- |
 | Commit | The hook checks staged files with `lint-staged`. | Catch cheap errors while the change is small. |
-| Push a development branch | The hook runs focused checks on the exact pushed commit and blocks failures. | Find problems before the merge queue. |
-| Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. | A file selector cannot decide product risk. |
+| Push a development branch | The hook checks protected release refs; ordinary pushes stay fast. | Avoid repeating development tests on every push. |
+| Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. Trigger native Windows acceptance only when the change affects Windows behavior. | A file selector cannot decide product risk. |
 | Mark the PR ready | Sync current `main`, resolve conflicts, and validate the affected interactions. Standard FC starts automatically. | Certify the actual next merge. |
 | Merge | Require current-base `OpenMeld Final Candidate` success for the unchanged candidate. | Prevent stale or mismatched green results. |
 | Release | Follow [Production Release](production-release.md), then health and real-user smoke. | Merge success is not deployment or product success. |
@@ -34,6 +85,11 @@ on the local release Mac. GitHub Actions is not a substitute for the installed
 A, Launch Services, Squirrel/MacUpdater, and automatic relaunch boundary. Use the
 expanded Desktop acceptance only when that release changes a high-risk updater,
 packaging/signing, identity, or restart lifecycle boundary.
+
+The native Windows compatibility and internal preview workflows are explicit
+diagnostics, not required PR checks. Ordinary Web or shared-schema PRs do not
+wait for them. Dispatch the relevant workflow only when the change affects
+Windows behavior or when preparing a Windows release, and verify the run's SHA.
 
 Do not bypass hooks to ship a failed check. Diagnose with the smallest failing
 command, fix the cause, and push again. Hooks are local feedback, not remotely
@@ -60,21 +116,25 @@ See [GitHub's issue-linking contract](https://docs.github.com/en/issues/tracking
 
 ## Focused Checks Before Push
 
-Inspect or run the shared local/draft entrypoint:
+Inspect the local feedback plan, then run it when its selected checks match the risk:
 
 ```sh
 pnpm run verify:pr -- --feedback --plan
-pnpm run verify:pr -- --feedback
 ```
 
 It selects changed-file Biome checks, relevant docs/Changelog contracts,
-adjacent Node tests, and related Vitest tests in directly changed workspaces.
+adjacent Node tests, and changed or adjacent Vitest tests in directly changed
+workspaces. Run `pnpm run verify:pr -- --feedback` for that plan, or run just the
+relevant owner commands when the change needs a different boundary. It no longer
+turns one shared component into a whole Web test sweep. The Agent still checks
+affected consumers when the adjacent tests do not cover them.
 Worker TypeScript changes also run the existing Worker-safe Zod import guard
 before package checks; its owner defines the runtime roots for both lanes.
-Plain package test aliases retain their own config; unsupported runners use
-the package's test command instead of silently skipping tests. Dependency builds
-use Turbo's cache. Test commands run sequentially, Node test files run serially,
-and related Vitest tests use at most two workers without file parallelism.
+Plain package runners are left to the Agent's risk-based choice; the feedback
+helper does not turn one changed file into a whole package test suite. Vitest
+source tests build dependencies only. Dependency builds use Turbo's cache. Test
+commands run sequentially, Node test files run serially,
+and selected Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 
 Workers pools need their own runtime limits. Gateway tests share one runtime
@@ -90,11 +150,12 @@ locally fetched `origin/main`. Missing base history is an error: fetch it.
 Recheck identity and cleanliness after success. Deletions need no tests;
 protected release pushes retain strict release verification.
 
-Draft PR Feedback runs the same focused checks remotely against the full PR
-diff. It is independent feedback, not permission to merge. Keep leaf PRs in
-draft during development and batch preparation. Mark ready only when a green
-FC would make merge the next action. New commits cancel superseded feedback
-and FC runs for that PR.
+Run the planned feedback command against `origin/main` when its selection fits
+the complete PR diff before Ready. This is a local, owner-selected check, not
+an automatic push hook or hosted job on every Draft push. Keep leaf PRs in draft
+during development and batch preparation. Mark ready only after validating
+affected behavior and when a green FC would make merge the next action. New
+commits cancel superseded FC runs for that PR.
 
 Focused selection is deliberately incomplete: a deleted import, a shared
 contract, a dependency change, or platform-specific behavior may need additional
@@ -111,7 +172,7 @@ FC certifies one exact `head SHA + base SHA + tree SHA`. Standard FC retains:
 
 - current-main ancestry and live PR identity;
 - trusted control entrypoints and complete, matching results;
-- repository static contracts and control-code quality;
+- static contracts for changed owners and control-code quality when control changes;
 - database checks when database owner paths change; and
 - deferred or strict local-component release readiness, selected by branch/path.
 
@@ -196,11 +257,14 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status -
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 ```
 
+Use `wait` for the pending Final Candidate instead of repeatedly polling
+`gh pr checks` for the same unchanged run.
+
 Use the current-main entrypoint, never candidate-owned package scripts.
 GitHub Actions is the normal compute lane; the guarded local lane below is for
 Actions outages or explicit control bootstrap. A failed check, missing evidence,
-identity mismatch, or publication failure cannot become green. Local hook output
-and draft feedback cannot substitute for the required FC status.
+identity mismatch, or publication failure cannot become green. Local focused
+checks cannot substitute for the required FC status.
 
 For a batch, integrate compatible ready leaf changes, sync `main` once, validate
 the combined interactions, and run one FC on the batch PR. Do not pay for leaf
@@ -284,10 +348,14 @@ affects execution timing, not candidate identity or validation requirements.
 The preflight reports macOS warning and critical pressure separately; both
 remain informational here. Development admission owns the quiet-swap observation
 for warning-pressure starts, and broad local builds still wait for normal pressure.
-The narrow `Dev lifecycle` workflow additionally exercises process ownership
-and resource arbitration on macOS, Linux and Windows when development scripts
-change. It uses disposable processes, requires no cloud credentials, and does
-not replace Final Candidate.
+When process ownership or resource arbitration changes, dispatch the narrow
+`Dev lifecycle` workflow to exercise it on macOS, Linux, and Windows. It uses
+disposable processes and no cloud credentials. Ordinary `scripts/dev` edits do
+not start three optional platform jobs or delay Final Candidate.
+
+```sh
+gh workflow run dev-lifecycle.yml --ref <candidate-branch>
+```
 
 A Final Candidate control-plane change cannot certify itself through a
 candidate-owned entrypoint. When current `main` lacks the new control, inspect

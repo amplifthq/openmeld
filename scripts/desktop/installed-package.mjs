@@ -6,6 +6,7 @@ import { buildInstalledPlatformPlan } from "./installed-platform.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
 import { stageDesktopRenderer } from "./private-package.mjs";
 import {
+  desktopInternalPreviewSource,
   desktopProductionSource,
   readDesktopSignedPackageMode,
 } from "./signed-package.ts";
@@ -17,6 +18,8 @@ const productionSource =
   signedMode === "production-preview"
     ? desktopProductionSource(process.env)
     : null;
+const internalPreviewSource =
+  signedMode === "internal-preview" ? desktopInternalPreviewSource() : null;
 const target = readInstalledDesktopTarget(process.env);
 if (!target) {
   throw new Error("Select a fixed installed Desktop target.");
@@ -34,14 +37,14 @@ if (productionSource) {
   });
 }
 const staged = stageDesktopRenderer(root, target);
-if (productionSource) {
+if (productionSource || internalPreviewSource) {
   writeFileSync(
     new URL(
-      "../../clients/desktop/dist/production-preview-source.json",
+      `../../clients/desktop/dist/${productionSource ? "production-preview" : "internal-preview"}-source.json`,
       import.meta.url
     ),
     JSON.stringify({
-      ...productionSource,
+      ...(productionSource ?? internalPreviewSource),
       webBuild: staged.webBuild,
       target,
       ...(plan.windows ? { windows: plan.windows } : {}),
@@ -74,7 +77,9 @@ for (const args of [
     cwd: root,
     env: {
       ...process.env,
-      ...(plan.generateMacIcons || !signedMode
+      ...(plan.generateMacIcons ||
+      !signedMode ||
+      signedMode === "internal-preview"
         ? { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
         : {}),
     },

@@ -7,8 +7,6 @@ import { join } from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { spawnAgentControllerProcess } from "../dist/agent-controller-process.js";
-import { WINDOWS_PROCESS_JOB_SCRIPT } from "../dist/windows-process-job.js";
-import { powerShellEncodedArguments } from "../dist/windows-system.js";
 
 const native = { skip: process.platform !== "win32", timeout: 60_000 };
 const treeScript = `
@@ -45,12 +43,12 @@ async function waitFor(check, message) {
   throw new Error(message);
 }
 
-function start(args, cwd = process.cwd()) {
+function start(args, cwd = process.cwd(), env = process.env) {
   const runtime = spawnAgentControllerProcess({
     bin: process.execPath,
     args,
     cwd,
-    env: process.env,
+    env,
     shell: false,
   });
   const stdout = [];
@@ -91,33 +89,42 @@ async function readTree(process) {
   return Object.values(pids);
 }
 
-test("the fixed native launcher fits Windows' CreateProcess command-line limit", () => {
-  assert(
-    powerShellEncodedArguments(WINDOWS_PROCESS_JOB_SCRIPT).join(" ").length <
-      30_000
-  );
-});
-
 test(
-  "native Windows Job preserves raw streams, Unicode argv, and provider exit status",
+  "native Windows Job preserves Unicode argv, working/temp paths, streams and exit status",
   native,
   async () => {
     const args = ['a"b', "中文 & %PATH%", "one\ntwo", ""];
-    const child = start([
-      "-e",
-      "process.stdin.resume();process.stdin.on('end',()=>{process.stdout.write(JSON.stringify(process.argv.slice(1)));process.stderr.write('native-diagnostic');process.exitCode=7})",
-      ...args,
-    ]);
+    const cwd = await mkdtemp(join(tmpdir(), "OpenMeld native 空格 "));
+    const child = start(
+      [
+        "-e",
+        "process.stdin.resume();process.stdin.on('end',()=>{process.stdout.write(JSON.stringify({args:process.argv.slice(1),cwd:process.cwd()}));process.stderr.write('native-diagnostic');process.exitCode=7})",
+        ...args,
+      ],
+      cwd,
+      { ...process.env, TEMP: cwd, TMP: cwd }
+    );
+    const failures = [];
     try {
       child.runtime.child.stdin.end("raw input");
       const [code] = await child.closed;
       assert.equal(code, 7, child.errors());
-      assert.deepEqual(JSON.parse(child.output()), args);
+      assert.deepEqual(JSON.parse(child.output()), { args, cwd });
       assert.equal(child.errors(), "native-diagnostic");
+    } catch (error) {
+      failures.push(error);
     } finally {
-      assert.equal(
-        (await child.runtime.terminateRemainingDescendants()).ok,
-        true
+      const cleanup = await child.runtime.terminateRemainingDescendants();
+      if (cleanup.ok) {
+        await rm(cwd, { recursive: true, force: true });
+      } else {
+        failures.push(cleanup.error);
+      }
+    }
+    if (failures.length) {
+      throw new AggregateError(
+        failures,
+        "Native Job invocation or cleanup failed"
       );
     }
   }

@@ -44,8 +44,8 @@ export default defineConfig({
     "@openmeld/gateway-contract",
     "@openmeld/utils",
   ],
-  // Routine scheduling is bundled through the workspace package so the CLI
-  // stays self-contained. Declare its only production dependency explicitly;
-  // CI treats an unacknowledged inlined dependency as a build failure.
-  inlineOnly: ["croner"],
+  // Keep workspace-owned runtime dependencies inside the self-contained CLI:
+  // croner schedules routines; smol-toml reads native Grok delivery policies.
+  // Unacknowledged transitive inlining remains a build error.
+  inlineOnly: ["croner", "smol-toml"],
 });

@@ -3,7 +3,7 @@
 import type { SpaceApi } from "@openmeld/api-client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
-import { spaceFileImageResources } from "#/query/spaces/space-file-image-resource";
+import { spaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceFileContentQueryOptions } from "#/query/spaces/space-files";
 
 const noSource = () => null;
@@ -29,7 +29,7 @@ export function useSpaceFileImageSource(input: {
 } {
 	const client = useQueryClient();
 	const localResource = input.localPreviewUrl
-		? spaceFileImageResources(client).find(input.localPreviewUrl)
+		? spaceFileMediaResources(client).find(input.localPreviewUrl)
 		: undefined;
 	const contentQuery = useQuery(
 		spaceFileContentQueryOptions({
@@ -42,7 +42,7 @@ export function useSpaceFileImageSource(input: {
 			spaceId: input.spaceId,
 		})
 	);
-	const resource = contentQuery.data?.imagePreview ?? localResource;
+	const resource = contentQuery.data?.mediaPreview ?? localResource;
 	// A cached handle is available during render, not in a later effect. Every
 	// mounted thumbnail/viewer has a lease and observes privacy revocation.
 	const sourceUrl = useSyncExternalStore(

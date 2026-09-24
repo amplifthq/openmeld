@@ -3,7 +3,6 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { buildDispatchSpaceActionMcpToolIds } from "@openmeld/adapter-core";
 
 const AUTH_RE = /not logged in|login required|unauthorized|credentials/i;
 const BAD_GATEWAY_RE = /Bad Gateway/i;
@@ -12,7 +11,6 @@ const INSUFFICIENT_BALANCE_RE = /insufficient balance/i;
 const PERMISSION_REQUESTED_RE = /permission requested/i;
 const RUNTIME_PERMISSION_DENIAL_COPY =
   "The requested action was blocked by the Agent Profile’s permission settings. Review its permissions and choose a less restrictive mode only if you trust the access it grants, then wake the agent again.";
-const DISPATCH_TOOL_IDS = buildDispatchSpaceActionMcpToolIds("_");
 const createRuntimeContext = (
   providerRuntimeWorkingDirectory = process.cwd()
 ) => ({
@@ -365,6 +363,8 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
       },
       edit: "ask",
       websearch: "allow",
+      openmeld_internal_dispatch_space_action_reply: "deny",
+      openmeld_internal_dispatch_space_action_stay_silent: "ask",
     };
 
     const dispatchResult = await adapter.dispatch({
@@ -405,16 +405,8 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
             type: "local",
           },
         },
-        tools: Object.fromEntries(
-          DISPATCH_TOOL_IDS.map((toolId) => [toolId, true])
-        ),
       }),
-      permission: JSON.stringify({
-        ...openCodePermission,
-        ...Object.fromEntries(
-          DISPATCH_TOOL_IDS.map((toolId) => [toolId, "allow"])
-        ),
-      }),
+      permission: JSON.stringify(openCodePermission),
       passthrough: "kept",
     });
   } finally {

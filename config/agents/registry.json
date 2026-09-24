@@ -170,7 +170,7 @@
             },
             "transportModes": ["local-cli"],
             "capabilityDeclaration": {
-              "executionContextVersion": 2,
+              "executionContextVersion": 3,
               "streamingCapability": "preview_capable",
               "imageInputCapability": "local_file_path",
               "runtimeWorkingDirectoryMode": "spawn_cwd",

@@ -33,7 +33,7 @@ export function CenterAgentChatHistory({
 	const { currentOrganization: organization } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const profileId = defaultHumanProfile?.openMeldProfileId ?? "";
-	const preferences = useSidebarPreferences(profileId, organization.id);
+	const preferences = useSidebarPreferences(organization.id);
 	const navigate = useNavigate();
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");

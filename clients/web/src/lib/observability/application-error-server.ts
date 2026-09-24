@@ -1,5 +1,8 @@
 import { env } from "cloudflare:workers";
 import {
+	DESKTOP_APP_ORIGIN,
+	DESKTOP_CONTRACT_HEADER,
+	DESKTOP_CONTRACT_VERSION,
 	WEB_APPLICATION_ERROR_MAX_BYTES,
 	type WebApplicationErrorReport,
 	webApplicationErrorReportSchema,
@@ -18,8 +21,15 @@ export function logApplicationError(
 	status?: number
 ): void {
 	const ray = request.headers.get("cf-ray");
-	console.error({
-		event: "web.openmeld.application_error",
+	const log =
+		report.source === "wake_progress_presentation"
+			? console.warn
+			: console.error;
+	log({
+		event:
+			report.source === "wake_progress_presentation"
+				? "web.openmeld.wake_progress_presentation_unconfirmed"
+				: "web.openmeld.application_error",
 		workerName: "openmeld-web",
 		environment: env.OPENMELD_WORKER_ENVIRONMENT,
 		serverBuildId: WEB_ERROR_BUILD.id,
@@ -80,7 +90,11 @@ export async function receiveApplicationError(
 	if (request.method !== "POST") {
 		return response(405);
 	}
-	if (request.headers.get("origin") !== new URL(request.url).origin) {
+	const origin = request.headers.get("origin");
+	const isDesktopReport =
+		origin === DESKTOP_APP_ORIGIN &&
+		request.headers.get(DESKTOP_CONTRACT_HEADER) === DESKTOP_CONTRACT_VERSION;
+	if (origin !== new URL(request.url).origin && !isDesktopReport) {
 		return response(403);
 	}
 	if (
@@ -132,7 +146,14 @@ export async function receiveApplicationError(
 		const parsed = webApplicationErrorReportSchema.safeParse(
 			JSON.parse(new TextDecoder().decode(body))
 		);
-		if (!parsed.success || parsed.data.source.startsWith("server_")) {
+		if (
+			!parsed.success ||
+			parsed.data.source.startsWith("server_") ||
+			(parsed.data.source === "wake_progress_presentation") !==
+				(parsed.data.wakeProgress !== undefined) ||
+			(parsed.data.source === "wake_progress_presentation" &&
+				parsed.data.error.code !== "unconfirmed_wake_progress_displayed")
+		) {
 			return response(400);
 		}
 		logApplicationError(parsed.data, request);

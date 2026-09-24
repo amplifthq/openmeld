@@ -1,17 +1,14 @@
 "use client";
 
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@openmeld/ui/components/card";
 import { Progress } from "@openmeld/ui/components/progress";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
+import {
+	AgentConfigurationGrid,
+	AgentConfigurationReadoutCard,
+} from "#/components/profiles/agent-configuration-card";
 import { organizationUsageOverviewQueryOptions } from "#/query/organizations/organization-usage";
 
 const USAGE_RESET_TIME_OPTIONS = {
@@ -57,8 +54,8 @@ export function CenterAgentUsageSection(input: {
 	);
 
 	return (
-		<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
-			<div className="border-border/70 border-b px-5 py-4">
+		<section className="space-y-3">
+			<div>
 				<h2 className="font-medium text-foreground text-sm">Usage</h2>
 				<p className="mt-1 text-muted-foreground text-sm">
 					{input.isPersonalWorkspace
@@ -66,7 +63,7 @@ export function CenterAgentUsageSection(input: {
 						: "See today's organization-wide Center Agent usage and current Routine limits."}
 				</p>
 			</div>
-			<div className="px-5 py-5">
+			<div>
 				{usageQuery.isPending ? <UsageLoadingState /> : null}
 				{usageQuery.isError ? (
 					<UsageErrorState
@@ -79,10 +76,10 @@ export function CenterAgentUsageSection(input: {
 					/>
 				) : null}
 				{usageQuery.data ? (
-					<div className="grid gap-4 lg:grid-cols-2">
+					<AgentConfigurationGrid>
 						<CenterAgentWakesCard data={usageQuery.data.centerAgentWakes} />
 						<RoutinesUsageCard data={usageQuery.data.routines} />
-					</div>
+					</AgentConfigurationGrid>
 				) : null}
 			</div>
 		</section>
@@ -99,12 +96,11 @@ function CenterAgentWakesCard(input: {
 	const resetTime = useUsageResetTime(input.data.resetsAt);
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Center Agent wakes</CardTitle>
-				<CardDescription>Hosted requests admitted today.</CardDescription>
-			</CardHeader>
-			<CardContent className="flex flex-col gap-4">
+		<AgentConfigurationReadoutCard
+			itemId="center-agent-wakes"
+			label="Center Agent wakes"
+		>
+			<div className="flex flex-col gap-3">
 				<div>
 					<p className="font-medium text-2xl text-foreground tabular-nums">
 						{input.data.usedToday} / {input.data.dailyLimit}
@@ -123,8 +119,8 @@ function CenterAgentWakesCard(input: {
 						<p>No Center Agent wakes used today.</p>
 					) : null}
 				</div>
-			</CardContent>
-		</Card>
+			</div>
+		</AgentConfigurationReadoutCard>
 	);
 }
 
@@ -135,14 +131,11 @@ function RoutinesUsageCard(input: {
 	};
 }) {
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Routines</CardTitle>
-				<CardDescription>
-					Automated work your Center Agent can run on a schedule.
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="flex flex-col gap-5">
+		<AgentConfigurationReadoutCard
+			itemId="center-agent-routines"
+			label="Routines"
+		>
+			<div className="flex flex-col gap-3">
 				<RoutineUsageRow limit={input.data.limit} value={input.data.count} />
 				<p className="text-muted-foreground text-xs">
 					All {input.data.limit} Routines can be enabled.
@@ -152,8 +145,8 @@ function RoutinesUsageCard(input: {
 						No routines created yet.
 					</p>
 				) : null}
-			</CardContent>
-		</Card>
+			</div>
+		</AgentConfigurationReadoutCard>
 	);
 }
 
@@ -180,20 +173,24 @@ function UsageLoadingState() {
 	return (
 		<section aria-busy="true" aria-live="polite" className="space-y-3">
 			<p className="text-muted-foreground text-sm">Loading usage.</p>
-			<div className="grid gap-4 lg:grid-cols-2">
+			<AgentConfigurationGrid>
 				{["center-agent-wakes", "routines"].map((key) => (
-					<Card key={key}>
-						<CardHeader>
+					<AgentConfigurationReadoutCard
+						itemId={key}
+						key={key}
+						label="Loading usage"
+					>
+						<div>
 							<Skeleton className="h-4 w-36" />
 							<Skeleton className="h-3 w-64 max-w-full" />
-						</CardHeader>
-						<CardContent className="space-y-4">
+						</div>
+						<div className="space-y-4">
 							<Skeleton className="h-8 w-24" />
 							<Skeleton className="h-1.5 w-full" />
-						</CardContent>
-					</Card>
+						</div>
+					</AgentConfigurationReadoutCard>
 				))}
-			</div>
+			</AgentConfigurationGrid>
 		</section>
 	);
 }

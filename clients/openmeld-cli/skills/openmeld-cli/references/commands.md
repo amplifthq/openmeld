@@ -487,7 +487,6 @@ openmeld space send <space-id> --profile <profile-id> --wake <agent-profile-id> 
 <DISPATCH_ACTION_CLI> space action reply --wake <agent-profile-id> "message"
 <DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "message"
 <DISPATCH_ACTION_CLI> space action reply --mention <human-profile-id> "message"
-<DISPATCH_ACTION_CLI> space action status done "short completion update"
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
 <DISPATCH_ACTION_CLI> space action targets
 <DISPATCH_ACTION_CLI> space action help

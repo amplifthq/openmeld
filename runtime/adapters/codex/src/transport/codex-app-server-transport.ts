@@ -26,6 +26,7 @@ import {
   classifyRuntimePermissionDenialMessage,
   createProviderOriginalError,
   listAgentControllerSupervisedProcessIds,
+  OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
   resolveDispatchSpaceActionMcpServer,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
@@ -37,6 +38,10 @@ import {
 } from "./codex-app-server-admission.js";
 import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
 import {
+  buildCodexDeliveryOnlyConfig,
+  isCodexDeliveryOnly,
+} from "./codex-delivery-only.js";
+import {
   buildCodexFileAccessBoundaryGlobalArgs,
   CODEX_FILE_ACCESS_PERMISSION_PROFILE,
   isCodexExecutionContextFileAccessConfirmed,
@@ -45,6 +50,15 @@ import {
   assertCodexScopedMcpInventory,
   buildCodexScopedMcpDisableArgs,
 } from "./codex-scoped-mcp.js";
+import {
+  buildCodexSpaceDynamicTools,
+  CodexSpaceDynamicToolInvocation,
+  canUseCodexSpaceDynamicTools,
+  codexSpaceDynamicThreadSource,
+  codexSpaceInstructionThreadSource,
+  readCodexSpaceDynamicToolCarrier,
+  supportsCodexSpaceDynamicTools,
+} from "./codex-space-action-dynamic-tools.js";
 import { buildCodexSpaceActionMcpGlobalArgs } from "./codex-space-action-mcp-config.js";
 import { CodexStartupDiagnostics } from "./codex-startup-diagnostics.js";
 import { verifyCodexWorkspaceAccess } from "./codex-workspace-access-probe.js";
@@ -307,6 +321,7 @@ export async function probeCodexAppServerAccount(input: {
 
 export async function invokeCodexAppServerTransport(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
+  spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
   cancellationSignal?: AbortSignal;
   codexTimeoutMs: number | null;
   codexWorkdir: string;
@@ -343,9 +358,11 @@ export async function invokeCodexAppServerTransport(input: {
   const reasoningSummary = input.onRuntimeEvent
     ? { summary: "auto" as const }
     : {};
+  const deliveryOnly = isCodexDeliveryOnly(input);
+  const permissionExecutionMode = deliveryOnly ? "normal" : input.executionMode;
   const permissionModeParams = resolveCodexAppServerPermissionModeParams(
     input.agentControllerPermissionMode,
-    input.executionMode,
+    permissionExecutionMode,
     input.computerFileAccessBoundary !== undefined,
     input.computerFileAccessBoundary?.executionContextAccess !== undefined
   );
@@ -361,13 +378,20 @@ export async function invokeCodexAppServerTransport(input: {
       executionMode: input.executionMode,
       launchContract: input.launchContract,
       permissionMode: input.agentControllerPermissionMode,
+      spaceActionTools: input.spaceActionTools,
+      cancellationSignal: input.cancellationSignal,
       onInteractionRequest: input.onInteractionRequest,
       onProcessControlEvent: input.onProcessControlEvent,
       onRuntimeEvent: input.onRuntimeEvent,
       startupTimeoutMs: input.startupTimeoutMs,
     },
-    async (session) => {
+    async (session, initialized) => {
       throwIfCodexDispatchCancelled(input.cancellationSignal);
+      await session.selectSpaceToolCarrier({
+        initialized,
+        threadId: input.threadId,
+      });
+      await session.prepareDeliveryOnlyScope(initialized);
       const threadContext = await resolveDispatchThreadContext({
         executionContextScoped:
           input.computerFileAccessBoundary?.executionContextAccess !==
@@ -385,7 +409,7 @@ export async function invokeCodexAppServerTransport(input: {
         threadContext.permissionResponse,
         input.computerFileAccessBoundary,
         input.codexWorkdir,
-        input.executionMode
+        permissionExecutionMode
       );
       await session.verifyScopedMcp(threadContext.threadId);
       const collaborationMode =
@@ -501,6 +525,7 @@ async function startAndAwaitAppServerTurn(input: {
 
   const unregisterActiveTurn = session.registerActiveTurn({
     interrupt: async () => {
+      session.spaceToolInvocation.fence();
       interruptRequested = true;
       if (activeTurnId) {
         await sendInterruptIfActive(activeTurnId);
@@ -512,6 +537,7 @@ async function startAndAwaitAppServerTurn(input: {
     turnId: null,
   });
 
+  session.spaceToolInvocation.begin(executionThreadId);
   try {
     const turnResponse = await session.requestControl(
       "turn/start",
@@ -523,6 +549,7 @@ async function startAndAwaitAppServerTurn(input: {
         cwd: input.codexWorkdir,
         ...input.conversationPolicyParams,
         ...input.reasoningSummary,
+        ...session.deliveryOnlyTurnParams(),
         input: [
           {
             text: input.turnPrompt,
@@ -539,6 +566,7 @@ async function startAndAwaitAppServerTurn(input: {
     );
     const turn = readTurnStartResponse(turnResponse);
     const turnId = readRequiredText(turn.id, "turn/start response turn.id");
+    session.spaceToolInvocation.accept(turnId);
     activeTurnId = turnId;
     session.emitProviderTurnAccepted({
       threadId: executionThreadId,
@@ -563,6 +591,7 @@ async function startAndAwaitAppServerTurn(input: {
           turnId,
         });
   } finally {
+    session.spaceToolInvocation.fence();
     unregisterActiveTurn?.();
   }
 }
@@ -763,12 +792,23 @@ export async function forkCodexAppServerThread(input: {
       computerFileAccessBoundary: input.computerFileAccessBoundary,
       onRuntimeEvent: input.onRuntimeEvent,
     },
-    async (session) => {
+    async (session, initialized) => {
+      const nativeCarrier = await session.readSpaceToolCarrier({
+        initialized,
+        threadId: sourceThreadId,
+      });
       const response = await session.requestControl(
         "thread/fork",
         {
           excludeTurns: true,
           threadId: sourceThreadId,
+          ...(nativeCarrier
+            ? {
+                config: {
+                  [`mcp_servers.${OPENMELD_SPACE_ACTION_MCP_SERVER_ID}.enabled`]: false,
+                },
+              }
+            : {}),
           ...(input.computerFileAccessBoundary?.executionContextAccess
             ? {
                 permissions: CODEX_FILE_ACCESS_PERMISSION_PROFILE,
@@ -858,16 +898,20 @@ async function resolveDispatchThreadContext(input: {
   instructionPrompt?: AdapterInstructionPrompt;
 }): Promise<CodexAppServerThreadContext> {
   const existingThreadId = normalizeOptionalText(input.threadId);
+  if (
+    existingThreadId &&
+    input.executionMode === "repair" &&
+    (!input.executionContextScoped || input.session.deliveryOnly)
+  ) {
+    return await forkEphemeralCodexRepairThread({
+      conversationPolicyParams: input.conversationPolicyParams,
+      codexWorkdir: input.codexWorkdir,
+      permissionModeParams: input.permissionModeParams,
+      session: input.session,
+      sourceThreadId: existingThreadId,
+    });
+  }
   if (existingThreadId) {
-    if (input.executionMode === "repair" && !input.executionContextScoped) {
-      return await forkEphemeralCodexRepairThread({
-        conversationPolicyParams: input.conversationPolicyParams,
-        codexWorkdir: input.codexWorkdir,
-        permissionModeParams: input.permissionModeParams,
-        session: input.session,
-        sourceThreadId: existingThreadId,
-      });
-    }
     let response: unknown;
     try {
       throwIfCodexDispatchCancelled(input.cancellationSignal);
@@ -885,6 +929,7 @@ async function resolveDispatchThreadContext(input: {
           ),
           excludeTurns: true,
           threadId: existingThreadId,
+          ...input.session.spaceToolThreadParams(),
         },
         {
           code: "context.resume_timeout",
@@ -916,33 +961,25 @@ async function resolveDispatchThreadContext(input: {
     return readThreadContextFromResponse(response);
   }
 
-  const response = await input.session.requestControl(
-    "thread/start",
-    {
-      ...(input.conversationPolicyParams.model
-        ? { model: input.conversationPolicyParams.model }
-        : {}),
-      ...input.permissionModeParams,
-      cwd: input.codexWorkdir,
-      ...scopedRuntimeWorkspaceParams(
-        input.permissionModeParams,
-        input.codexWorkdir
-      ),
-      ...(input.instructionPrompt
-        ? {
-            developerInstructions:
-              input.instructionPrompt.developerInstructions,
-            threadSource: buildOpenMeldCodexThreadSource(
-              input.instructionPrompt.instructionEpoch
-            ),
-          }
-        : { threadSource: "user" }),
-    },
-    {
-      code: "runtime.thread_start_timeout",
-      operation: "thread/start",
-    }
-  );
+  const response = await input.session.startDispatchThread({
+    ...(input.conversationPolicyParams.model
+      ? { model: input.conversationPolicyParams.model }
+      : {}),
+    ...input.permissionModeParams,
+    cwd: input.codexWorkdir,
+    ...scopedRuntimeWorkspaceParams(
+      input.permissionModeParams,
+      input.codexWorkdir
+    ),
+    ...(input.instructionPrompt
+      ? {
+          developerInstructions: input.instructionPrompt.developerInstructions,
+          threadSource: buildOpenMeldCodexThreadSource(
+            input.instructionPrompt.instructionEpoch
+          ),
+        }
+      : { threadSource: "user" }),
+  });
   return readThreadContextFromResponse(response);
 }
 
@@ -968,6 +1005,7 @@ async function forkEphemeralCodexRepairThread(input: {
       ephemeral: true,
       excludeTurns: true,
       threadId: input.sourceThreadId,
+      ...input.session.spaceToolThreadParams(),
     },
     {
       code: "context.fork_timeout",
@@ -991,7 +1029,8 @@ function resolveCodexTurnPrompt(input: {
   const expectedThreadSource = buildOpenMeldCodexThreadSource(
     input.instructionPrompt.instructionEpoch
   );
-  return input.threadSource === expectedThreadSource
+  return codexSpaceInstructionThreadSource(input.threadSource) ===
+    expectedThreadSource
     ? input.instructionPrompt.userPrompt
     : input.fallbackPrompt;
 }
@@ -1195,6 +1234,8 @@ function resolveCodexAppServerConversationPolicyParams(
 
 async function withCodexAppServerSession<T>(
   input: {
+    spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
+    cancellationSignal?: AbortSignal;
     codexTimeoutMs: number | null;
     codexWorkdir: string;
     controlRequestTimeoutMs?: number;
@@ -1222,6 +1263,10 @@ async function withCodexAppServerSession<T>(
 }
 
 class CodexAppServerSession {
+  readonly spaceToolInvocation: CodexSpaceDynamicToolInvocation;
+  readonly #spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
+  readonly deliveryOnly: boolean;
+  #deliveryConfig: Record<string, unknown> = {};
   #processCleanup: Promise<void> | null = null;
   readonly #codexTimeoutMs: number | null;
   readonly #codexWorkdir: string;
@@ -1270,6 +1315,8 @@ class CodexAppServerSession {
   };
 
   constructor(input: {
+    spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
+    cancellationSignal?: AbortSignal;
     codexTimeoutMs: number | null;
     codexWorkdir: string;
     controlRequestTimeoutMs?: number;
@@ -1283,6 +1330,12 @@ class CodexAppServerSession {
     onRuntimeEvent?: AdapterRuntimeEventCallback;
     startupTimeoutMs?: number;
   }) {
+    this.#spaceActionTools = input.spaceActionTools;
+    this.deliveryOnly = isCodexDeliveryOnly(input);
+    this.spaceToolInvocation = new CodexSpaceDynamicToolInvocation(
+      input.spaceActionTools,
+      input.cancellationSignal
+    );
     this.#codexTimeoutMs = input.codexTimeoutMs;
     this.#codexWorkdir = input.codexWorkdir;
     this.#controlRequestTimeoutMs = input.controlRequestTimeoutMs;
@@ -1302,7 +1355,7 @@ class CodexAppServerSession {
     const computerFileAccessArgs = this.#computerFileAccessBoundary
       ? buildCodexFileAccessBoundaryGlobalArgs({
           boundary: this.#computerFileAccessBoundary,
-          executionMode: this.#executionMode,
+          executionMode: this.deliveryOnly ? "normal" : this.#executionMode,
           permissionMode: this.#permissionMode,
         })
       : [];
@@ -1521,7 +1574,7 @@ class CodexAppServerSession {
       if (this.#computerFileAccessBoundary?.executionContextAccess) {
         await verifyCodexWorkspaceAccess({
           boundary: this.#computerFileAccessBoundary,
-          executionMode: this.#executionMode,
+          executionMode: this.deliveryOnly ? "normal" : this.#executionMode,
           workingDirectory: this.#codexWorkdir,
           execute: (params) =>
             this.requestControl("command/exec", params, {
@@ -1539,8 +1592,243 @@ class CodexAppServerSession {
     }
   }
 
+  async readSpaceToolCarrier(input: {
+    initialized: unknown;
+    threadId: string;
+  }): Promise<boolean> {
+    const response = await this.requestControl(
+      "thread/read",
+      {
+        threadId: input.threadId,
+        includeTurns: false,
+      },
+      { code: "context.read_timeout", operation: "thread/read" }
+    );
+    try {
+      return await readCodexSpaceDynamicToolCarrier({
+        thread: toRecord(response)?.thread,
+        codexHome: toRecord(input.initialized)?.codexHome,
+      });
+    } catch {
+      throw new CodexAppServerTransportError({
+        code: "context.space_tool_carrier_unverified",
+        errorType: "config",
+        message:
+          "The saved native tool interface could not be verified. No turn was started and no carrier was replayed.",
+      });
+    }
+  }
+
+  async selectSpaceToolCarrier(input: {
+    initialized: unknown;
+    threadId: string | null;
+  }): Promise<void> {
+    if (!this.#spaceActionTools) {
+      return;
+    }
+    const existingThreadId = normalizeOptionalText(input.threadId);
+    let nativeThread = false;
+    if (existingThreadId) {
+      nativeThread = await this.readSpaceToolCarrier({
+        initialized: input.initialized,
+        threadId: existingThreadId,
+      });
+      if (!nativeThread) {
+        // Dynamic definitions cannot be added to a legacy thread by resume.
+        return;
+      }
+    }
+    let supported = supportsCodexSpaceDynamicTools(
+      parseCodexAppServerVersion(input.initialized)
+    );
+    if (supported) {
+      try {
+        const configuration = await this.requestControl(
+          "config/read",
+          {
+            cwd: this.#codexWorkdir,
+            includeLayers: false,
+          },
+          { code: "runtime.control_timeout", operation: "config/read" }
+        );
+        supported = canUseCodexSpaceDynamicTools({
+          configuration,
+          permissionMode: this.#permissionMode,
+        });
+        if (supported) {
+          const requirements = await this.requestControl(
+            "configRequirements/read",
+            {},
+            {
+              code: "runtime.control_timeout",
+              operation: "configRequirements/read",
+            }
+          );
+          // Keep managed requirements on their native authorizer until this
+          // carrier has equivalent policy evidence. Missing data is not allow.
+          supported = toRecord(requirements)?.requirements === null;
+        }
+      } catch (error) {
+        if (
+          !(error instanceof CodexAppServerTransportError) ||
+          error.rpcErrorCode !== -32_601
+        ) {
+          throw error;
+        }
+        supported = false;
+      }
+    }
+    if (nativeThread && !supported) {
+      throw new CodexAppServerTransportError({
+        code: "context.space_tool_policy_changed",
+        errorType: "config",
+        message:
+          "The saved native tool interface cannot preserve the current Codex tool policy. No turn was started and no carrier was replayed.",
+      });
+    }
+    this.spaceToolInvocation.enabled = supported;
+  }
+
+  async prepareDeliveryOnlyScope(initialized: unknown): Promise<void> {
+    if (!this.deliveryOnly) {
+      return;
+    }
+    if (
+      this.#spaceActionTools?.tools.some(
+        (tool) => !["reply", "stay_silent", "read_receipt"].includes(tool.name)
+      )
+    ) {
+      throw new CodexAppServerTransportError({
+        code: "space.action.delivery_only_unverified",
+        errorType: "config",
+        message:
+          "The correction capability contains non-delivery actions. No correction turn was started.",
+      });
+    }
+    if (
+      !supportsCodexSpaceDynamicTools(parseCodexAppServerVersion(initialized))
+    ) {
+      throw new CodexAppServerTransportError({
+        code: "space.action.delivery_only_unsupported",
+        errorType: "config",
+        message:
+          "This Codex installation cannot verify delivery-only execution. No correction turn was started.",
+      });
+    }
+    const configuration = await this.requestControl(
+      "config/read",
+      {
+        cwd: this.#codexWorkdir,
+        includeLayers: false,
+      },
+      { code: "runtime.control_timeout", operation: "config/read" }
+    );
+    const requirements = await this.requestControl(
+      "configRequirements/read",
+      {},
+      {
+        code: "runtime.control_timeout",
+        operation: "configRequirements/read",
+      }
+    );
+    if (toRecord(requirements)?.requirements !== null) {
+      throw new CodexAppServerTransportError({
+        code: "space.action.delivery_only_unverified",
+        errorType: "config",
+        message:
+          "The managed Codex requirements cannot be proven compatible with delivery-only execution. No correction turn was started.",
+      });
+    }
+    this.#deliveryConfig = buildCodexDeliveryOnlyConfig(configuration);
+  }
+
+  deliveryOnlyTurnParams(): Record<string, unknown> {
+    return this.deliveryOnly ? { environments: [] } : {};
+  }
+
+  async startDispatchThread(params: Record<string, unknown>): Promise<unknown> {
+    const source = normalizeOptionalText(params.threadSource) ?? "user";
+    try {
+      return await this.requestControl(
+        "thread/start",
+        {
+          ...params,
+          ...this.spaceToolThreadParams(source),
+        },
+        { code: "runtime.thread_start_timeout", operation: "thread/start" }
+      );
+    } catch (error) {
+      const rejectedDefinition =
+        error instanceof CodexAppServerTransportError &&
+        ((error.rpcErrorCode === -32_600 &&
+          error.message.startsWith("Invalid request:")) ||
+          error.rpcErrorCode === -32_602) &&
+        error.message.includes("dynamicTools");
+      if (!(this.spaceToolInvocation.enabled && rejectedDefinition)) {
+        throw error;
+      }
+      // Only a decoded pre-method argument rejection proves no thread/turn
+      // or action executed. Timeouts and ordinary tool failures never replay.
+      this.spaceToolInvocation.enabled = false;
+      return await this.requestControl(
+        "thread/start",
+        { ...params, ...this.spaceToolThreadParams(source) },
+        {
+          code: "runtime.thread_start_timeout",
+          operation: "thread/start",
+        }
+      );
+    }
+  }
+
+  spaceToolThreadParams(newThreadSource?: string): Record<string, unknown> {
+    const scope = this.deliveryOnly
+      ? {
+          config: this.#deliveryConfig,
+          ...(newThreadSource === undefined
+            ? {}
+            : { environments: [], selectedCapabilityRoots: [] }),
+        }
+      : {};
+    if (!(this.spaceToolInvocation.enabled && this.#spaceActionTools)) {
+      return scope;
+    }
+    return {
+      ...scope,
+      config: {
+        ...this.#deliveryConfig,
+        ...(this.deliveryOnly
+          ? {
+              mcp_servers: {
+                ...(toRecord(this.#deliveryConfig.mcp_servers) ?? {}),
+                [OPENMELD_SPACE_ACTION_MCP_SERVER_ID]: {
+                  ...(toRecord(
+                    toRecord(this.#deliveryConfig.mcp_servers)?.[
+                      OPENMELD_SPACE_ACTION_MCP_SERVER_ID
+                    ]
+                  ) ?? {}),
+                  enabled: false,
+                },
+              },
+            }
+          : {
+              [`mcp_servers.${OPENMELD_SPACE_ACTION_MCP_SERVER_ID}.enabled`]: false,
+            }),
+      },
+      ...(newThreadSource === undefined
+        ? {}
+        : {
+            threadSource: codexSpaceDynamicThreadSource(newThreadSource),
+            dynamicTools: buildCodexSpaceDynamicTools(this.#spaceActionTools),
+          }),
+    };
+  }
+
   async verifyScopedMcp(threadId: string): Promise<void> {
-    if (!this.#computerFileAccessBoundary?.executionContextAccess) {
+    const scoped =
+      this.#computerFileAccessBoundary?.executionContextAccess !== undefined ||
+      this.deliveryOnly;
+    if (!(scoped || this.spaceToolInvocation.enabled)) {
       return;
     }
     const inventory = await this.requestControl(
@@ -1551,13 +1839,42 @@ class CodexAppServerSession {
         operation: "mcpServerStatus/list",
       }
     );
-    assertCodexScopedMcpInventory(inventory, {
-      expectDispatchServer:
-        resolveDispatchSpaceActionMcpServer(this.#env) !== null,
-    });
+    if (scoped) {
+      assertCodexScopedMcpInventory(inventory, {
+        expectedToolNames: this.deliveryOnly
+          ? ["reply", "stay_silent", "read_receipt"]
+          : undefined,
+        expectDispatchServer:
+          !this.spaceToolInvocation.enabled &&
+          resolveDispatchSpaceActionMcpServer(this.#env) !== null,
+      });
+    } else {
+      const result = toRecord(inventory);
+      const rows = result?.data;
+      if (
+        !Array.isArray(rows) ||
+        result?.nextCursor != null ||
+        rows.some((row) => {
+          const server = toRecord(row);
+          return (
+            server?.name === OPENMELD_SPACE_ACTION_MCP_SERVER_ID &&
+            (server.runtimeStatus !== "disabled" ||
+              Object.keys(toRecord(server.tools) ?? {}).length > 0)
+          );
+        })
+      ) {
+        throw new CodexAppServerTransportError({
+          code: "context.space_tool_carrier_unverified",
+          errorType: "config",
+          message:
+            "The current Codex tool inventory does not prove that the alternate Space carrier is disabled.",
+        });
+      }
+    }
   }
 
   async close(): Promise<void> {
+    this.spaceToolInvocation.fence();
     this.#clearTimers();
     const child = this.#child;
     if (!child) {
@@ -1949,6 +2266,26 @@ class CodexAppServerSession {
   async #handleServerRequest(message: JsonRpcMessage): Promise<void> {
     const id = message.id;
     if (!(typeof id === "number" || typeof id === "string")) {
+      return;
+    }
+    if (message.method === "item/tool/call") {
+      this.#write({
+        id,
+        jsonrpc: "2.0",
+        result: await this.spaceToolInvocation.call(message.params),
+      });
+      return;
+    }
+    if (
+      this.deliveryOnly &&
+      message.method !== "mcpServer/elicitation/request" &&
+      message.method !== "item/tool/requestUserInput"
+    ) {
+      this.#write({
+        id,
+        jsonrpc: "2.0",
+        result: buildServerRequestDeclineResponse(message.method),
+      });
       return;
     }
     const result = this.#onInteractionRequest

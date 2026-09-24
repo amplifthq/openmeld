@@ -62,9 +62,56 @@ const {
   DEFAULT_DOWNLOAD_URL,
   resolveDesktopArtifactName,
   resolveDesktopReleaseCommand,
+  readDesktopReleaseStatus,
   uploadDesktopCandidate,
   verifyDesktopPublicArtifact,
 } = await import("./desktop-preview.mjs");
+
+test("Desktop status keeps absent and unreadable promoted pointers distinct", async () => {
+  const candidateId = "a".repeat(64);
+  const results = await readDesktopReleaseStatus({
+    readObject: (key) => {
+      if (key === "desktop/promoted.json") {
+        return {
+          schemaVersion: 1,
+          candidate: candidateId,
+          promotedAt: "2026-09-23T00:00:00.000Z",
+        };
+      }
+      if (key === `desktop/candidates/${candidateId}/manifest.json`) {
+        return {
+          schemaVersion: 1,
+          target: "production",
+          platform: "macos-arm64",
+          version: "0.1.9",
+          releaseSha: "b".repeat(40),
+          sha256: candidateId,
+          sizeBytes: 42,
+          zip: {
+            sha256: "c".repeat(64),
+            sha512: `${"A".repeat(86)}==`,
+            sizeBytes: 42,
+          },
+        };
+      }
+      if (key === "desktop/promoted-windows-x64.json") {
+        return null;
+      }
+      throw new Error("R2 read failed");
+    },
+  });
+  assert.deepEqual(results, [
+    {
+      platform: "macos-arm64",
+      state: "promoted",
+      version: "0.1.9",
+      sourceSha: "b".repeat(40),
+      candidate: candidateId,
+    },
+    { platform: "windows-x64", state: "unpublished" },
+    { platform: "windows-arm64", state: "unknown", reason: "R2 read failed" },
+  ]);
+});
 const { checkDesktopPublisher, DEFAULT_R2_BUCKET_NAME } = await import(
   "./desktop-publisher.mjs"
 );

@@ -44,9 +44,7 @@ It never spawns a package-manager shim or shell, including on Windows.
 Focused PR feedback and Final Candidate select it for Skill source,
 public artifacts, signing/check scripts,
 and related schema or dependency changes. Unrelated PRs do not run it.
-The whole-train `release:preflight` checks it before starting Production
-mutations, including trains that later build Desktop's renderer. Scoped Web
-preflight also checks it before deployment. A failed check requires a new
+Scoped Web preflight checks it before deployment. A failed check requires a new
 signed revision; validation never signs or rewrites content automatically.
 `pnpm run test:cli-skill` first builds the CLI's workspace dependencies, then
 runs the focused official-Skill integration test. This keeps a missing adapter

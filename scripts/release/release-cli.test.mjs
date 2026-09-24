@@ -55,7 +55,7 @@ const RECEIPT_CONFLICT_RE = /conflicts with source/u;
 const RECEIPT_SAVE_RE = /Could not save/u;
 const UNCONFIRMED_ACCEPTANCE_RE = /acceptance is unconfirmed/u;
 const INTERRUPTED_PUBLISH_RE = /publish connection interrupted/u;
-const WEB_ARTIFACT_REJECTED_RE = /Web artifact rejected/u;
+const CLI_ARTIFACT_REJECTED_RE = /CLI artifact rejected/u;
 const PENDING_CORE_PREREQUISITE_RE = /pending prerequisite core/u;
 const ISOLATED_NPM_CONSUMER_RE = /isolated npm consumer/u;
 const PREPARED_NPM_TARBALL_CHANGED_RE = /tarball changed/u;
@@ -94,7 +94,6 @@ const VERSION_FLAGS_MUTUALLY_EXCLUSIVE_RE =
 const VERSION_GUARD_SELECTED_RE = /selected 0\.7\.97/u;
 const VERSION_GUARD_STAMP_COMMAND_RE =
   /release:local-components plan --version/u;
-const RELEASE_PREFLIGHT_COMMAND_RE = /pnpm run release:preflight/u;
 const ALREADY_DONE_RE = /SKIP \(already done/u;
 const THREE_WAY_ALIGNMENT_RE = /R2, npm, and the active Core projection/u;
 const WRANGLER_RELEASE_STATE = JSON.parse(
@@ -401,7 +400,6 @@ test("requires the selected release version to match package and manifest truth"
       (error) => {
         assert.match(error.message, VERSION_GUARD_SELECTED_RE);
         assert.match(error.message, VERSION_GUARD_STAMP_COMMAND_RE);
-        assert.match(error.message, RELEASE_PREFLIGHT_COMMAND_RE);
         return true;
       }
     );
@@ -434,7 +432,7 @@ test("adds the binary upload step only when release:cli opts in", () => {
   );
 });
 
-test("rejects a train Web artifact before any CLI publication mutation", async () => {
+test("checks only the CLI artifact before any CLI publication mutation", async () => {
   const { repoRoot } = await createReleaseRepo("0.7.96");
   const mutations = [];
   const admissions = [];
@@ -445,18 +443,21 @@ test("rejects a train Web artifact before any CLI publication mutation", async (
           admitProductionStage: () => admissions.push("stage"),
           checkArtifact: () => {
             admissions.push("web");
-            throw new Error("Web artifact rejected");
+            throw new Error("An unrelated Web artifact was checked");
           },
-          checkNpmArtifact: () => admissions.push("npm"),
+          checkNpmArtifact: () => {
+            admissions.push("npm");
+            throw new Error("CLI artifact rejected");
+          },
           runStep: (step) => mutations.push(step.label),
         },
         cwd: repoRoot,
         env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "cli,web" },
         withBinary: true,
       }),
-      WEB_ARTIFACT_REJECTED_RE
+      CLI_ARTIFACT_REJECTED_RE
     );
-    assert.deepEqual(admissions, ["stage", "npm", "web"]);
+    assert.deepEqual(admissions, ["stage", "npm"]);
     assert.deepEqual(mutations, []);
   } finally {
     await rm(repoRoot, { force: true, recursive: true });

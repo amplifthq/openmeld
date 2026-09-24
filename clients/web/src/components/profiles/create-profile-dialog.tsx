@@ -82,6 +82,10 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationComputerPath,
 } from "#/lib/organizations/organization-routes";
+import {
+	readAgentCreationIntent,
+	rememberAgentCreationIntent,
+} from "#/lib/profiles/agent-creation-intent";
 import { resolveRememberedAgentProfileCreationDefaults } from "#/lib/profiles/agent-profile-creation-defaults";
 import {
 	type AgentProfileCreationJourneyDraft,
@@ -439,7 +443,8 @@ export type CreateProfileDialogProps = {
 	currentUserId?: string;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	onAgentRequestCreated?: (
-		request: AgentProfileCreationRequest
+		request: AgentProfileCreationRequest,
+		customWorkingFolderIssue: string | null
 	) => void | Promise<void>;
 	onAgentRequestAccepted?: (
 		request: AgentProfileCreationRequest,
@@ -447,6 +452,10 @@ export type CreateProfileDialogProps = {
 	) => void | Promise<void>;
 	onAgentRequestFailed?: (creation: OptimisticAgentProfileCreation) => void;
 	onAgentRequestStarted?: (creation: OptimisticAgentProfileCreation) => void;
+	waitForAgentRequestCompletion?: boolean;
+	intentStorageScope?: string;
+	clearIntentOnAcceptance?: boolean;
+	manageAgentCreationCachesExternally?: boolean;
 	onOpenChange: (open: boolean) => void;
 	onProfileCreated?: (profile: AuthProfileView) => void | Promise<void>;
 	open: boolean;
@@ -548,6 +557,9 @@ export function CreateProfileDialogStep(
 export function CreateAgentProfilePage(
 	input: Omit<CreateProfileDialogProps, "onOpenChange" | "open"> & {
 		onCancel: () => void;
+		hideRuntimeSelection?: boolean;
+		hidePageHeading?: boolean;
+		compactTop?: boolean;
 	}
 ) {
 	const view = useCreateProfileDialogController(
@@ -560,9 +572,13 @@ export function CreateAgentProfilePage(
 	);
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-			<div className="@container/agent-creation mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-6 px-4 pt-10 pb-6 sm:px-6 lg:px-8">
+			<div
+				className={`@container/agent-creation mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-6 px-4 pb-6 sm:px-6 lg:px-8 ${input.compactTop ? "pt-4" : "pt-10"}`}
+			>
 				<AgentProfileGenerator
 					form={view.formProps}
+					hidePageHeading={input.hidePageHeading}
+					hideRuntimeSelection={input.hideRuntimeSelection}
 					onCancel={input.onCancel}
 					surface="page"
 				/>
@@ -1071,7 +1087,11 @@ function useCreateProfileDialogController(
 	const createProfileMutation = useMutation({
 		mutationFn: async (submission: {
 			idempotencyKey: string;
-			remote?: { modelId: string | null; profileName: string };
+			remote?: {
+				modelId: string | null;
+				profileName: string;
+				reasoningLevel: string | null;
+			};
 		}) => {
 			if (submission.remote) {
 				const result = await createAgentProfileCreationRequest({
@@ -1080,8 +1100,12 @@ function useCreateProfileDialogController(
 						...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 						agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 						modelId: submission.remote.modelId,
+						reasoningLevel: submission.remote.reasoningLevel,
 					},
 					idempotencyKey: submission.idempotencyKey,
+					intentStorageScope: input.intentStorageScope,
+					clearIntentOnAcceptance: input.clearIntentOnAcceptance,
+					waitForCompletion: input.waitForAgentRequestCompletion,
 					organizationId,
 					onAccepted: input.onAgentRequestAccepted,
 					onFailed: input.onAgentRequestFailed,
@@ -1117,10 +1141,13 @@ function useCreateProfileDialogController(
 				boundReasoningLevel,
 				currentUserId,
 				idempotencyKey: submission.idempotencyKey,
+				intentStorageScope: input.intentStorageScope,
+				clearIntentOnAcceptance: input.clearIntentOnAcceptance,
 				onAfterJoin: input.onAfterJoin,
 				onAgentRequestAccepted: input.onAgentRequestAccepted,
 				onAgentRequestFailed: input.onAgentRequestFailed,
 				onAgentRequestStarted: input.onAgentRequestStarted,
+				waitForAgentRequestCompletion: input.waitForAgentRequestCompletion,
 				organizationId,
 				ownerMode,
 				profileKind: selectableProfileKind,
@@ -1156,6 +1183,8 @@ function useCreateProfileDialogController(
 			await handleProfileCreationSuccess({
 				onAfterJoin: input.onAfterJoin,
 				onAgentRequestCreated: input.onAgentRequestCreated,
+				manageAgentCreationCachesExternally:
+					input.manageAgentCreationCachesExternally,
 				onClose: () => input.onOpenChange(false),
 				onProfileCreated: input.onProfileCreated,
 				onReset: resetForm,
@@ -1434,6 +1463,7 @@ function useCreateProfileDialogController(
 					idempotencyKey: string;
 					modelId: string | null;
 					profileName: string;
+					reasoningLevel: string | null;
 				}) => {
 					if (submissionInFlightRef.current) {
 						return;
@@ -2527,6 +2557,9 @@ type CreateProfileSubmissionInput = {
 	) => void | Promise<void>;
 	onAgentRequestFailed?: (creation: OptimisticAgentProfileCreation) => void;
 	onAgentRequestStarted?: (creation: OptimisticAgentProfileCreation) => void;
+	waitForAgentRequestCompletion?: boolean;
+	intentStorageScope?: string;
+	clearIntentOnAcceptance?: boolean;
 	organizationId: string;
 	ownerMode: AgentProfileOwnerMode;
 	profileKind: NewProfileKind | null;
@@ -2565,9 +2598,11 @@ async function submitProfileCreation(input: CreateProfileSubmissionInput) {
 }
 
 async function handleProfileCreationSuccess(input: {
+	manageAgentCreationCachesExternally?: boolean;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	onAgentRequestCreated?: (
-		request: AgentProfileCreationRequest
+		request: AgentProfileCreationRequest,
+		customWorkingFolderIssue: string | null
 	) => void | Promise<void>;
 	onClose: () => void;
 	onProfileCreated?: (profile: AuthProfileView) => void | Promise<void>;
@@ -2585,23 +2620,28 @@ async function handleProfileCreationSuccess(input: {
 		});
 		// Creation is committed. Mark caches stale immediately, but don't hold
 		// navigation or the submit state hostage to background network reads.
-		refreshAgentProfileCreationRequestCaches({
-			createdAgentProfileId: input.result.request.createdAgentProfileId,
-			onAfterJoin: input.onAfterJoin,
-			organizationId: input.organizationId,
-			queryClient: input.queryClient,
-			requestStatus: input.result.request.status,
-			requestedSpaceId: input.result.request.requestedSpaceId,
-			spaceContext: input.spaceContext,
-			storageScope: input.storageScope,
-		}).catch((error) => {
-			console.warn(
-				"OpenMeld created the Agent request but could not refresh its current status.",
-				error
-			);
-		});
+		if (!input.manageAgentCreationCachesExternally) {
+			refreshAgentProfileCreationRequestCaches({
+				createdAgentProfileId: input.result.request.createdAgentProfileId,
+				onAfterJoin: input.onAfterJoin,
+				organizationId: input.organizationId,
+				queryClient: input.queryClient,
+				requestStatus: input.result.request.status,
+				requestedSpaceId: input.result.request.requestedSpaceId,
+				spaceContext: input.spaceContext,
+				storageScope: input.storageScope,
+			}).catch((error) => {
+				console.warn(
+					"OpenMeld created the Agent request but could not refresh its current status.",
+					error
+				);
+			});
+		}
 		await Promise.resolve(
-			input.onAgentRequestCreated?.(input.result.request)
+			input.onAgentRequestCreated?.(
+				input.result.request,
+				input.result.customWorkingFolderIssue
+			)
 		).catch((error) => {
 			console.warn(
 				"OpenMeld created the Agent but could not open its current profile.",
@@ -2704,6 +2744,14 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 
 async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 	const defaultProjectId = input.selectedProjectId || null;
+	const customWorkspacePath =
+		input.waitForAgentRequestCompletion === false &&
+		input.ownerMode === "self" &&
+		input.boundAgentId &&
+		!defaultProjectId &&
+		input.projectFolderPath.trim()
+			? input.projectFolderPath
+			: null;
 	const connection = resolveRequestedAgentConnection(input);
 	if (!(connection.agentControllerRef && connection.targetComputerId)) {
 		throw new Error(
@@ -2733,6 +2781,8 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 			targetComputerId: connection.targetComputerId,
 		},
 		idempotencyKey: input.idempotencyKey,
+		intentStorageScope: input.intentStorageScope,
+		clearIntentOnAcceptance: input.clearIntentOnAcceptance,
 		nativeSessionId:
 			input.sessionStrategy === "new"
 				? null
@@ -2740,15 +2790,34 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 		organizationId: input.organizationId,
 		onAccepted: input.onAgentRequestAccepted,
 		onFailed: input.onAgentRequestFailed,
-		onStarted: input.onAgentRequestStarted,
+		onStarted:
+			customWorkspacePath && input.intentStorageScope
+				? (creation) => {
+						const intent = readAgentCreationIntent(
+							input.intentStorageScope ?? "",
+							input.organizationId
+						);
+						if (intent) {
+							rememberAgentCreationIntent({
+								...intent,
+								customWorkspacePath,
+								organizationId: input.organizationId,
+								scope: input.intentStorageScope ?? "",
+							});
+						}
+						input.onAgentRequestStarted?.(creation);
+					}
+				: input.onAgentRequestStarted,
 		profileName: input.profileName,
 		requestedSpaceId: input.spaceContext?.spaceId ?? null,
+		waitForCompletion: input.waitForAgentRequestCompletion,
 		sessionStrategy: input.sessionStrategy,
 		targetOwnerUserId: resolveRequestedAgentOwnerUserId(input),
 	});
 	const customWorkingFolderIssue =
 		await configureRequestedAgentCustomWorkingFolder({
 			defaultProjectId,
+			deferUntilCommitted: input.waitForAgentRequestCompletion === false,
 			request: result.request,
 			submission: input,
 		});
@@ -3083,6 +3152,7 @@ function resolveRequestedAgentOwnerUserId(
 
 async function configureRequestedAgentCustomWorkingFolder(input: {
 	defaultProjectId: string | null;
+	deferUntilCommitted?: boolean;
 	request: AgentProfileCreationRequest;
 	submission: CreateProfileSubmissionInput;
 }): Promise<string | null> {
@@ -3102,6 +3172,11 @@ async function configureRequestedAgentCustomWorkingFolder(input: {
 			requestId: input.request.id,
 			storageScope: input.submission.recovery.storageScope,
 		});
+		if (input.deferUntilCommitted) {
+			return remembered
+				? null
+				: "OpenMeld couldn't keep your custom working folder for retry. Keep this window open and try again.";
+		}
 		const continuation = await continuePendingAgentProfileCreationLocalSetup({
 			organizationId: input.submission.organizationId,
 			pendingSetup,
@@ -3969,6 +4044,9 @@ function resolveCreateModelCompatibilityContext(input: {
 	return {
 		agentControllerId: input.boundAgentId,
 		controllerDisplayName: formatLocalAgentDisplayName(input.boundAgentId),
+		agentControllerRef,
+		authType:
+			snapshot?.auth.status === "authenticated" ? snapshot.auth.type : null,
 		installedVersion: snapshot?.version ?? null,
 		managePath:
 			input.orgSlug && input.bindingTarget

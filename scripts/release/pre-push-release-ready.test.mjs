@@ -11,6 +11,7 @@ import {
   assertPushedObjectsMatchHead,
   assertReleaseVerificationWorktreeClean,
   resolvePrePushReleaseMode,
+  resolvePushedReleaseBranchName,
 } from "./pre-push-release-ready.mjs";
 import {
   assertDeferredReleaseBranchFacts,
@@ -29,6 +30,8 @@ const BASE_COMMIT_MISMATCH_PATTERN = /base commit/u;
 const RELEASE_ONLY_DIFF_PATTERN = /release-only diff/u;
 const RESTAMP_VERSION_MISMATCH_PATTERN = /already declare the release version/u;
 const PREMATURE_RELEASE_STAMP_PATTERN = /must match the PR base/u;
+const MALFORMED_RELEASE_BRANCH_PATTERN =
+  /requires codex\/release-X\.Y\.Z-<baseSHA>/u;
 const RELEASE_RELEVANT_PATH_PATTERN = /packages\/schemas\/src\/index\.ts/u;
 const PRE_PUSH_GATE_CONTROL_PATH_EXAMPLES = [
   ".husky/pre-push",
@@ -70,7 +73,7 @@ test("ordinary non-main branch destinations do not block iterative pushes", () =
   );
 });
 
-test("an explicit versioned release branch selects strict release verification", () => {
+test("release branch pushes select strict verification even when their name is malformed", () => {
   assert.equal(
     resolvePrePushReleaseMode(
       `refs/heads/codex/release-0.3.35-563a8ae8 ${SHA} refs/heads/codex/release-0.3.35-563a8ae8 ${REMOTE_SHA}\n`
@@ -81,7 +84,20 @@ test("an explicit versioned release branch selects strict release verification",
     resolvePrePushReleaseMode(
       `refs/heads/codex/release-not-a-version ${SHA} refs/heads/codex/release-not-a-version ${REMOTE_SHA}\n`
     ),
-    "skip"
+    "strict"
+  );
+  assert.equal(
+    resolvePushedReleaseBranchName(
+      `refs/heads/codex/release-0.3.221-routine ${SHA} refs/heads/codex/release-0.3.221-routine ${REMOTE_SHA}\n`
+    ),
+    "codex/release-0.3.221-routine"
+  );
+  assert.throws(
+    () =>
+      assertVersionedReleaseBranchFacts({
+        branchName: "codex/release-0.3.221-routine",
+      }),
+    MALFORMED_RELEASE_BRANCH_PATTERN
   );
 });
 
@@ -401,4 +417,5 @@ test("the Git hook preserves pushed-ref input without repeating candidate checks
   assert.match(hook, HOOK_READS_PUSH_UPDATES);
   assert.match(hook, HOOK_RUNS_RELEASE_SELECTOR);
   assert.ok(!hook.includes("verify:pre-push:checks"));
+  assert.ok(!hook.includes("scripts/dev/pre-push.mjs"));
 });

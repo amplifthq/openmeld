@@ -25,9 +25,11 @@ export const centerAgentModelSummarySchema = z.strictObject({
 
 export const centerAgentModelChoiceSchema = z.strictObject({
   badgeLabel: modelCatalogBadgeLabelSchema.nullable().optional(),
+  defaultReasoningLevel: hostedModelReasoningLevelSchema.optional(),
   displayName: boundedIdentifierSchema,
   effectiveModelDisplayName: boundedIdentifierSchema,
   preference: centerAgentModelPreferenceSchema,
+  supportedReasoningLevels: z.array(hostedModelReasoningLevelSchema).optional(),
   supportsImageInput: z.boolean(),
 });
 

@@ -4,17 +4,26 @@ import {
   type AgentProfileBindingModelSelectionInput,
   createAgentProfileBindingModelSelection,
 } from "./agent-profile-binding";
+import {
+  type ModelRetirementContext,
+  resolveModelAvailability,
+} from "./model-retirement";
 
-export type ConversationPolicyResolution = {
-  status: "accepted";
-  conversationPolicy: ConversationPolicy;
-};
+export type ConversationPolicyResolution =
+  | { status: "accepted"; conversationPolicy: ConversationPolicy }
+  | {
+      status: "rejected";
+      reasonCode: "model.retired" | "model.unavailable";
+      message: string;
+    };
 
 export function resolveConversationPolicyFromModelSelection(input: {
   agentControllerConversationId?: string | null;
   agentControllerRef: string;
   catalog: ModelCatalog;
   modelSelection?: AgentProfileBindingModelSelectionInput | null;
+  authType?: ModelRetirementContext["authType"];
+  providerId?: ModelRetirementContext["providerId"];
 }): ConversationPolicyResolution {
   const selection = createAgentProfileBindingModelSelection(
     input.modelSelection
@@ -27,6 +36,31 @@ export function resolveConversationPolicyFromModelSelection(input: {
     };
   }
   const controller = input.catalog.agentControllers[parsedRef.id];
+  if (selection) {
+    const selectedModel = controller?.models.find(
+      (model) => model.id === selection.modelId
+    );
+    const availability = resolveModelAvailability(selectedModel, input);
+    if (!availability.available) {
+      return {
+        status: "rejected",
+        reasonCode: availability.reasonCode,
+        message: availability.message,
+      };
+    }
+    const reasoningLevel =
+      selection.reasoningLevel &&
+      selectedModel?.supportedReasoningLevels.includes(selection.reasoningLevel)
+        ? selection.reasoningLevel
+        : null;
+    return {
+      status: "accepted",
+      conversationPolicy: {
+        model: selection.modelId,
+        ...(reasoningLevel ? { reasoningLevel } : {}),
+      },
+    };
+  }
   if (!controller) {
     return {
       status: "accepted",
@@ -35,7 +69,7 @@ export function resolveConversationPolicyFromModelSelection(input: {
   }
 
   const availableModels = controller.models.filter(
-    (model) => !model.unavailable
+    (model) => resolveModelAvailability(model, input).available
   );
   const defaultModel =
     availableModels.find((model) => model.id === controller.defaultModelId) ??
@@ -48,42 +82,18 @@ export function resolveConversationPolicyFromModelSelection(input: {
     };
   }
 
-  if (!selection) {
-    if (
-      parsedRef.kind === "builtin" &&
-      parsedRef.id === "codex" &&
-      normalizeOptionalText(input.agentControllerConversationId)
-    ) {
-      return {
-        status: "accepted",
-        conversationPolicy: {},
-      };
-    }
-    return {
-      status: "accepted",
-      conversationPolicy: {
-        fallbackModel: defaultModel.id,
-        model: defaultModel.id,
-      },
-    };
+  if (
+    parsedRef.kind === "builtin" &&
+    parsedRef.id === "codex" &&
+    normalizeOptionalText(input.agentControllerConversationId)
+  ) {
+    return { status: "accepted", conversationPolicy: {} };
   }
-
-  const selectedModel =
-    availableModels.find((model) => model.id === selection.modelId) ?? null;
-  const model = selectedModel ?? defaultModel;
-  const reasoningLevel =
-    selectedModel &&
-    selection.reasoningLevel &&
-    selectedModel.supportedReasoningLevels.includes(selection.reasoningLevel)
-      ? selection.reasoningLevel
-      : null;
-
   return {
     status: "accepted",
     conversationPolicy: {
       fallbackModel: defaultModel.id,
-      model: model.id,
-      ...(reasoningLevel ? { reasoningLevel } : {}),
+      model: defaultModel.id,
     },
   };
 }

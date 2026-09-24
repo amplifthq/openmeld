@@ -18,6 +18,8 @@ import {
   type OpenMeldLock,
   releaseLock,
 } from "../../config/lock";
+import { verifyWindowsServiceSubsystem } from "./windows-service-binary";
+import { readWindowsDirectTaskAction } from "./windows-task-command";
 import {
   WINDOWS_TASK_HOST_INSTALL_SCRIPT,
   WINDOWS_TASK_HOST_SUFFIX,
@@ -40,6 +42,18 @@ $scheduler.Connect()
 $folder = $scheduler.GetFolder('\')
 $name = $r.name + '-' + $sid
 $hostPath = $r.legacyScript + '${WINDOWS_TASK_HOST_SUFFIX}'
+$runtimeRoot = [IO.Path]::GetDirectoryName($r.legacyScript)
+function Read-OwnedDirectAction($path, $arguments) {
+  if ($arguments -notmatch '(?:^| )--openmeld-windows-task ([A-Za-z0-9+/=]+)$') { return $null }
+  $c = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Matches[1])))
+  $bundles = [IO.Path]::GetFullPath((Join-Path $runtimeRoot 'bundles')) + '\'
+  $fullPath = [IO.Path]::GetFullPath($path)
+  if ($c.executable -ne $path -or !$fullPath.StartsWith($bundles, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($path) -ne 'openmeld.exe' -or !$c.env.OPENMELD_HOME -or [IO.Path]::GetFullPath((Join-Path $c.env.OPENMELD_HOME 'runtime\daemon')) -ne [IO.Path]::GetFullPath($runtimeRoot)) {
+    throw 'The Windows task does not belong to this OpenMeld installation.'
+  }
+  return $c
+}
+$existingDirect = $null
 $task = $null
 try { $task = $folder.GetTask($name) } catch {
   if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw }
@@ -49,7 +63,8 @@ if ($task) {
   $taskSid = $principal.UserId
   if ($taskSid -notmatch '^S-\d-') { $taskSid = ([Security.Principal.NTAccount]$taskSid).Translate([Security.Principal.SecurityIdentifier]).Value }
   $actionPath = $task.Definition.Actions.Item(1).Path
-  if ($taskSid -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0 -or $task.Definition.Actions.Count -ne 1 -or ($actionPath -ne (Join-Path $PSHOME 'powershell.exe') -and $actionPath -ne $hostPath)) {
+  $existingDirect = Read-OwnedDirectAction $actionPath $task.Definition.Actions.Item(1).Arguments
+  if ($taskSid -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0 -or $task.Definition.Actions.Count -ne 1 -or (!$existingDirect -and $actionPath -ne (Join-Path $PSHOME 'powershell.exe') -and $actionPath -ne $hostPath)) {
     throw 'An existing OpenMeld task uses a different user or launch configuration. Resolve that installation before continuing.'
   }
 }
@@ -62,9 +77,16 @@ if ($legacy -and $legacy.PathName.Trim('"') -ne $r.legacyScript) {
 switch ($r.operation) {
   'install' {
     if ($legacy -and $legacy.State -ne 'Stopped') { throw 'The previous OpenMeld Service must finish stopping before migration.' }
-    if ($task -and $task.State -eq 4) { throw 'OpenMeld cannot replace a background task while it is running.' }
-    if ($r.executable -ne (Join-Path $PSHOME 'powershell.exe')) { throw 'OpenMeld tasks must launch the system PowerShell action.' }
-    ${WINDOWS_TASK_HOST_INSTALL_SCRIPT}
+    $nextDirect = Read-OwnedDirectAction $r.executable $r.arguments
+    # A running maintenance invocation keeps its immutable copy and lease. Only
+    # subsequent invocations select the new copy. Main Service replacement still
+    # requires the existing drain and stopped-state proof.
+    $maintenanceUpdate = $r.periodic -and $existingDirect -and $nextDirect -and $existingDirect.args.Count -eq 2 -and $nextDirect.args.Count -eq 2 -and $existingDirect.args[0] -eq 'service' -and $existingDirect.args[1] -eq 'update-worker' -and $nextDirect.args[0] -eq 'service' -and $nextDirect.args[1] -eq 'update-worker'
+    if ($task -and $task.State -eq 4 -and !$maintenanceUpdate) { throw 'OpenMeld cannot replace a background task while it is running.' }
+    if (!$nextDirect) {
+      if ($r.executable -ne (Join-Path $PSHOME 'powershell.exe')) { throw 'OpenMeld tasks require a verified background executable.' }
+      ${WINDOWS_TASK_HOST_INSTALL_SCRIPT}
+    }
     $definition = $scheduler.NewTask(0)
     $definition.RegistrationInfo.Description = 'OpenMeld background process for the signed-in user.'
     $definition.Principal.UserId = $sid
@@ -89,7 +111,7 @@ switch ($r.operation) {
       $timer.Repetition.Interval = 'PT1H'
     }
     $action = $definition.Actions.Create(0)
-    $action.Path = $hostPath
+    $action.Path = $(if ($nextDirect) { $r.executable } else { $hostPath })
     $action.Arguments = $r.arguments
     $action.WorkingDirectory = $r.workingDirectory
     $task = $folder.RegisterTaskDefinition($name, $definition, 6, $sid, $null, 3, $null)
@@ -184,6 +206,10 @@ const ENCODED_ACTION_PATTERN = /-EncodedCommand ([A-Za-z0-9+/=]+)$/u;
 const ACTION_DATA_PATTERN = /FromBase64String\('([A-Za-z0-9+/=]+)'\)/u;
 
 export function readWindowsTaskAction(argumentsText: string) {
+  const direct = readWindowsDirectTaskAction(argumentsText);
+  if (direct) {
+    return direct;
+  }
   const encoded = argumentsText.match(ENCODED_ACTION_PATTERN)?.[1];
   const data =
     encoded &&
@@ -216,6 +242,17 @@ export async function runWindowsUserTask(
   actionArguments: string | null;
 }> {
   const lock = currentDaemonServiceLifecycleLock();
+  if (request.operation === "install" && request.arguments) {
+    const direct = readWindowsDirectTaskAction(request.arguments);
+    if (direct) {
+      if (request.executable !== direct.executable) {
+        throw new Error(
+          "The Windows task executable does not match its launch envelope."
+        );
+      }
+      await verifyWindowsServiceSubsystem(direct.executable);
+    }
+  }
   const payload = Buffer.from(
     JSON.stringify(windowsUserTaskRequestSchema.parse(request))
   ).toString("base64");

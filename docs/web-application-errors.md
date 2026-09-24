@@ -34,6 +34,31 @@ lookup, and offers a user-initiated retry after failure. Requests time out after
 10 seconds; there is no background retry. A receipt confirms Web intake, not
 Cloudflare retention or dashboard availability.
 
+### Investigate a Wake progress flash
+
+Search the same Web Worker's Events for
+`web.openmeld.wake_progress_presentation_unconfirmed` at the reported time.
+Filter by `report.wakeProgress.spaceId`, then inspect `dispatchId`,
+`clientMessageId`, `sourceSignalId`, `streamId`, the Thread pointers,
+`updatedAtMs`, and the `fromRestoredPresentation`, `fromCachedSpaceSummary`,
+`fromCachedOwnSummary`, and `fromBootstrapStream` flags. The three
+`FetchedAfterMount` fields show which reads had completed in this page visit.
+`report.buildId`, `report.sourceSha`, and `report.pageSessionId` identify the
+browser build and page session; compare them with the server build fields.
+
+This event means Web presented work without a matching current active-Wake
+read. It does **not** mean the Wake had ended. Use the dispatch and source IDs
+to inspect the Core trace and Space outcome. For a Web-authored Wake, the normal
+operator handoff is:
+
+```sh
+openmeld service trace --space <spaceId> --client-message <clientMessageId> --target-profile <profileId> --view agent
+```
+
+A missing event
+does not rule out a flash: reporting can be blocked, capped, or outside the
+Workers Logs retention window. The intake does not retry failed reports.
+
 Error details are collapsed by default with a short fading preview. Expanded
 details and copying remain local to the browser; sending a report does not
 upload that raw text. Go back uses browser history, or the home page when no
@@ -54,19 +79,28 @@ blocked, or failed telemetry is not retried. Streaming SSR errors after response
 headers remain in TanStack's native Worker console logs; they are not guaranteed
 to produce the structured event.
 
-Reports contain only allowlisted error names and categories, build asset
-locations, code route templates, build identifiers, and random event IDs.
+Ordinary application-error reports contain only allowlisted error names and
+categories, build asset locations, code route templates, build identifiers,
+and random event IDs. The Wake presentation event additionally contains
+bounded Space, Profile, dispatch, message, stream, and Thread pointers, the
+progress update time, and fixed source/freshness flags.
 Arbitrary exception messages, full stacks, component stacks, local filesystem
-paths, request bodies, query strings, cookies, user identities, and message text
+paths, request bodies, query strings, cookies, account names, email addresses,
+and message text
 are not collected by this reporter. Unknown exceptions keep their category and
 available code locations; there is intentionally no arbitrary free-text field.
 Native framework logs predate this reporter and are not intercepted or rewritten.
 
-Browser reports omit credentials and require same-origin JSON at the receiver.
+Browser reports omit credentials. The receiver accepts same-origin JSON from Web
+and the fixed `openmeld-desktop://app` Origin only with the installed Desktop
+contract header and version. Desktop Main owns that Origin and header; the
+renderer cannot choose them. This admits a diagnostic report, not an
+authenticated business action.
 The server validates the shared schema, drops unknown fields, rejects client
 claims of server-origin events, and reads at most 8 KiB even without a
 Content-Length header. There is a 120-attempt/minute cap per Worker isolate and
-a 20-distinct-error cap per loaded document. The isolate cap is a bounded
+a 20-distinct-error cap and a separate 10-distinct-Wake-presentation cap per
+loaded document. The isolate cap is a bounded
 log-volume safeguard, not a distributed abuse-prevention guarantee. Client
 reports are untrusted diagnostic evidence, never proof of a server failure.
 
@@ -106,6 +140,12 @@ strip the optional submission marker but still log the same report and ID;
 new receivers accept automatic reports without it. No CLI, Service, Core,
 Gateway, Skills, setup, Wake, or Space action contract changes. This satisfies
 the Contract Impact Audit without a local-component version bump.
+
+The optional Wake presentation diagnostic is Web-only. New Web receivers
+continue to accept older reports; an older receiver rejects the new source
+enum, losing only this best-effort diagnostic during a mixed-version Web
+rollout. No CLI, Service, Core, Gateway, setup, or Wake execution contract
+changes, so no local-component version floor is required.
 
 After an authorized Web deployment, verify one safe diagnostic report is
 searchable in the production Logs UI and verify that its source map cannot be

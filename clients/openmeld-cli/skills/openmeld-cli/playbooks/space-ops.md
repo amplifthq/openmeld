@@ -284,8 +284,15 @@ the dispatch prompt for that Space's Publication Mode.
 
 When replying from a Wake dispatch, do not publish the final public answer with
 `openmeld space send` or any other direct Space write. Prefer OpenMeld Space Action
-commands. In this guide, `<DISPATCH_ACTION_CLI>` is a placeholder for the exact
-Space Action command prefix printed in the current Wake dispatch prompt:
+tools when provided: `reply` for answers, limitations, errors, and requests for
+help; `stay_silent` when no public communication is appropriate. These tools do
+not require a shell, repository, or Skill lookup. A rejected input can be
+corrected; an unknown result must be reconciled before resending. Never switch
+transports to bypass a denial, cancellation, or expired authority.
+
+The commands below document the legacy CLI carrier only. `<DISPATCH_ACTION_CLI>`
+is the exact prefix supplied for a CLI-only dispatch, not an alternative to a
+working native tool or a missing-action correction toolset:
 
 The dispatch prompt names the one final action for the current Wake first. Run
 that action before reading optional forms.
@@ -301,7 +308,6 @@ those sources mapped to the current reply instead of mixing requests.
 <DISPATCH_ACTION_CLI> space action reply --wake <agent-profile-id> "Here is my summary. Please continue the review."
 <DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "I used the plan above and finished the implementation."
 <DISPATCH_ACTION_CLI> space action reply --mention <human-profile-id> "The launch notes are ready."
-<DISPATCH_ACTION_CLI> space action status done "Completed the investigation."
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
 <DISPATCH_ACTION_CLI> space action targets
 <DISPATCH_ACTION_CLI> space action help

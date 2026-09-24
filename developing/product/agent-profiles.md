@@ -212,6 +212,36 @@ state machine rather than implementing separate approval rules.
 
 Each request freezes its creation intent.
 
+The Center Agent working-creation tool explicitly selects Remote with
+`connectionSelection: { kind: "remote" }`, or Local with a current
+`{ candidateId }`. Remote selection maps to the existing
+`hosted:remote-agent` configuration and personal Binding flow; `modelId` may
+select a supported model or remain omitted for Core's default. The shared
+configuration contract rejects Local-only settings on Remote requests instead
+of dropping them. Resume/Fork retain their exact eligible Local Session
+selection. Core rejects contradictory Remote/Local selections.
+
+Web and Center working-creation requests require a run target before a new
+request or identity is persisted. CLI/manual identity-only creation remains
+valid with its limited semantics. `createdAgentProfileId` proves identity
+creation; `completed` means the requested setup finished, not that the Agent can
+reply now or that a Wake ran. Current reply readiness stays Core-owned and is
+checked when needed. A failed setup retains its created identity and existing
+retry path. No new watcher, mandatory Wake, or parent continuation is added.
+
+Center-generated idempotency keys hash the existing normalized creation intent,
+including the target Space, plus the originating request ID. Deep JSON key order
+and normalized name/default notation do not define another intent. The same
+intent owner governs both the hash and replay comparison. For an exact retry
+across the key-format upgrade, Core also looks up the pre-canonical key within
+the same Organization and requester. It reuses that key only for an existing
+record with the same actor and complete normalized intent, including Space,
+then delegates to the normal authorized replay path. A different Space still
+uses its canonical key; the legacy format is lookup-only, not a new-write
+format or an alias store. Existing durable requests retain their recorded IDs
+and recovery paths; do not infer a failed creation from a missing response or
+replace an already-created identity.
+
 Web recovery keeps a failed creation's context. **Review setup** opens that
 request rather than ordinary New Agent. Before identity creation, an owner can
 choose a current Computer for the same local controller while retaining the
@@ -1032,11 +1062,13 @@ them; a thread alone does not opt an unsupported harness into the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 
-New tasks default to Space context without requiring a local repository. Forks
-inherit the source context's access unless an explicit supported choice changes
-it. Claude Code supports independent Space-context tasks with local tools disabled.
-Codex App Server also supports explicitly selected independent project worktrees,
-or read-only/current-folder access. The CLI options
+In parallel mode, an ordinary Claude Code Wake starts a new isolated Space-only
+context when no retained context has been selected. It does not require a Git
+repository or container engine. A Wake continuing a retained context keeps that
+context's access; select a new project task to work in a repository. Space-only
+tasks have no local code tools. Forks inherit the source context's access unless an
+explicit supported choice changes it. Codex App Server also supports independent
+project worktrees or read-only/current-folder access. The CLI options
 are `--task-access space_context|read_only|workspace` and
 `--task-workspace isolated|current`. Current-folder writers wait for conflicting
 local work. An independent project task requires a confirmed working folder that
@@ -1049,13 +1081,17 @@ Retries and continuation preserve the task's worktree and frozen starting commit
 The local Agent receives the repository label, task working folder, and starting
 commit; it does not discover a source by searching the computer.
 
-The task boundary confines project files and Git metadata while retaining the
-native runtime's platform temporary-directory rules. This is not a promise of
-complete temporary-directory isolation. Before model execution, a native command
-must prove allowed access inside the task and denied reads/writes to an owned
-sentinel outside its boundary. A worktree under a platform-wide temporary grant
-fails this check and cannot run as an isolated project task. Selecting an
-independent worktree does not grant access to an otherwise forbidden source.
+The task boundary confines project files and Git metadata. Codex retains its
+native runtime's platform temporary-directory rules; that is not a promise of
+complete temporary-directory isolation. Claude Code project tasks require a
+running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
+The Service mounts only the task-owned repository and worktree, disables
+container networking, runs as a non-root user, and gives Claude restricted file
+tools plus a dispatch-scoped project shell. Before model execution, it proves
+allowed reads and writes inside the task and denied reads outside. If the engine,
+mount, or containment check fails, the project task fails visibly before Claude
+can read project files. Selecting an independent worktree does not grant access
+to an otherwise forbidden source.
 
 The first accepted Wake request remains frozen while it waits, moves to the
 front, or is redriven after transport recovery. Prompt, attachments, source
@@ -1281,6 +1317,10 @@ Controller report as `Checking`, that transient must be bounded and should use
 the controller's product name when known. A client may continue a bounded
 background refresh, but it must preserve Core's public verdict throughout: it
 must not repaint a Core-owned `Offline` or `Unavailable` state as `Checking`.
+It must also show a newer Core `Checking` verdict immediately instead of
+replaying an older `Available` badge. A connected computer that briefly stops
+accepting new tasks is `Checking` while the bounded start wait can recover;
+another current profile, provider, or permission blocker remains `Unavailable`.
 After the client refresh budget expires, it may offer `Check again` without
 changing the public state. It must not relabel an existing Binding as `Connect
 local agent`; connection copy and connection actions are reserved for a

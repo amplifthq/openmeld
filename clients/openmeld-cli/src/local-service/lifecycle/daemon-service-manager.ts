@@ -20,8 +20,10 @@ import {
   resolveOpenMeldRootDir,
 } from "../../config/paths";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../../config/published-production-safety";
+import { isBinaryDistribution } from "../../runtime/distribution";
 import { resolveDaemonServiceIdentity } from "./daemon-service-identity";
 import { runNativeServiceCommand as runCommand } from "./native-command";
+import { windowsDirectTaskArguments } from "./windows-task-command";
 import {
   readWindowsTaskAction,
   runWindowsUserTask,
@@ -1334,8 +1336,12 @@ function buildWindowsManager(
         name: identity.windowsServiceName,
         legacyScript: scriptPath,
         operation: "install",
-        executable: windowsPowerShellPath(),
-        arguments: windowsTaskActionArguments({
+        executable: isBinaryDistribution()
+          ? spec.executable
+          : windowsPowerShellPath(),
+        arguments: (isBinaryDistribution()
+          ? windowsDirectTaskArguments
+          : windowsTaskActionArguments)({
           ...spec,
           logPath: getDaemonSystemServiceLogPath(pathInput),
         }),

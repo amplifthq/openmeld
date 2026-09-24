@@ -233,23 +233,23 @@ function SetupCommandPlatformSwitch() {
 			<TabItem
 				aria-label="Windows PowerShell"
 				label="Windows PowerShell"
+				trailing={
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<span className="rounded px-1 font-normal text-[10px] opacity-70">
+									Beta
+								</span>
+							}
+						/>
+						<TooltipContent className="max-w-64 whitespace-normal">
+							Windows setup is in beta. Some steps may need manual
+							troubleshooting.
+						</TooltipContent>
+					</Tooltip>
+				}
 				value="windows"
-			>
-				Windows PowerShell
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<span className="rounded px-1 font-normal text-[10px] opacity-70">
-								Beta
-							</span>
-						}
-					/>
-					<TooltipContent className="max-w-64 whitespace-normal">
-						Windows setup is in beta. Some steps may need manual
-						troubleshooting.
-					</TooltipContent>
-				</Tooltip>
-			</TabItem>
+			/>
 		</TabsList>
 	);
 }

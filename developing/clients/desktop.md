@@ -222,14 +222,20 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   `onSessionChanged(listener: () => void): () => void` emits only an
   invalidation and returns its listener cleanup. It runs after the installed
   Electron plugin persists the successful token exchange cookie, and after
-  owned sign-out clears local credentials. The renderer rereads its existing
-  session query; it does not rely on focus timing or maintain another session.
+  owned sign-out clears local credentials. The renderer invalidates its shared
+  native-session query and rereads it; it does not rely on focus timing for
+  identity changes or maintain another session owner.
   Invalidation removes stale private query and persistence state but retains
   account-scoped Composer drafts until the authoritative reread confirms no
   session or a different account. Explicit sign-out still clears those drafts.
   Entry distinguishes an unknown/failed session read from confirmed sign-out.
   Manual Retry and focus reuse the same serialized, revision-fenced revalidation;
-  native session changes supersede older reads. Temporary workspace failures do
+  native session changes supersede older reads. A confirmed native session is
+  shared through the renderer's TanStack Query cache for 30 seconds of same-account
+  navigation, so child routes do not wait on a fresh remote session read for
+  each click. Native invalidation clears that cache immediately; focus and
+  Desktop entry force a remote recheck. Server requests remain authoritative for
+  access and mutations. Temporary workspace failures do
   not initiate browser sign-in or repeat an already handled account invalidation.
   Failed protected-route session reads return to this entry with the existing
   validated workspace path, query, and hash, without clearing account data.
@@ -285,6 +291,15 @@ public `handleDeepLink` API. SDK scheme registration, unrestricted IPC handlers,
 and the global CSP hook are disabled. Credentials never cross the
 renderer bridge. Storage is scoped to the configured Web origin.
 
+Space video reuses this native cloud transport. The request allowlist forwards
+Range and If-Range; responses retain range/length, ETag and disposition while
+stripping cookies and credentials. For successful file-content GET/HEAD only,
+the SDK response hook keeps the undrained original and supplies an empty response
+with identical headers to the SDK parser. The Electron integration still owns
+cookie renewal. This avoids cloning or waiting for the entire movie before
+forwarding headers; other requests retain existing parsing. It does not extend
+the renderer-abort guarantee above.
+
 Desktop sign-out revokes the Desktop session; it does not run CLI logout.
 The pilot exposes the independently read CLI account ID for comparison with its
 cloud session. This comparison is display evidence, not the mutation fence.
@@ -338,26 +353,29 @@ Desktop offers the original route, or the original Space for a source action,
 without reporting native completion. Once Prepare exists, later authorization,
 account, execution, or snapshot failures retain its diagnostic correlation ID.
 
-On macOS, when the managed CLI is absent or lacks the connection contract, main
-downloads the fixed Web origin's managed binary manifest and Apple silicon artifact.
+When the managed CLI is absent or lacks the connection contract, main downloads
+the fixed Web origin's managed binary manifest and the Apple silicon or Windows
+x64 artifact.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
 arbitrary renderer executable, URL, path, or shell command is accepted.
 
-Windows uses the supported npm distribution and an independent Node.js runtime;
-Electron is never the background Service runtime. Explicit Connect checks npm's
-published engine range, resolves its global prefix, pins the exact stable version
-and prefix, and verifies the resulting package and CLI version. It never
-reinstalls/downgrades an equal or newer existing CLI. A custom npm prefix outside
-PATH is supported: the verified JS entry is returned to both the post-install
-connection review and setup rather than retrying the previously missing command.
-Subsequent reads use PATH or the lane's active Service bundle, not a separate
-Desktop installation registry. Missing Node/npm has an actionable prerequisite;
-no shell text, package name, registry URL or executable is accepted from renderer
-input. npm owns acquisition/integrity and CLI setup owns credentials and Service
-registration. Disposable acceptance must preinstall the fixed candidate CLI;
-production bootstrap intentionally resolves only the published stable npm channel.
+Windows uses the same managed installer, with a separately verified native
+process companion and Authenticode publisher. Electron is never the background
+Service runtime. The installer owns equal/newer-version arbitration; Desktop
+uses its shared `cli.install_self` receipt for the next connection review and
+setup, rather than rediscovering an older npm command from inherited PATH.
+Subsequent reads use the lane's stable `bin/openmeld.exe` launcher. Desktop
+maintains no parallel installation registry. No shell text, package name,
+registry URL or executable is accepted from renderer input. CLI setup still
+owns account/device identity, credentials and Service registration. ARM64
+acquisition remains unavailable until separately accepted. Disposable acceptance
+must use its fixed candidate and lane; production acquisition normally reads the
+stable manifest. The native Windows x64 internal trial build reads only the
+explicitly selected `windows-preview` manifest and enables its unsigned policy
+only for that exact production URL. Its CLI acquisition still verifies size and
+SHA-256. Signed Windows publication remains a separate release gate.
 
 The read-only local Computer projection recognizes only the same bootstrap
 conditions: a missing executable (`ENOENT`) or an exit-1 unknown `computer` /
@@ -475,11 +493,16 @@ Windows x64 and ARM64 are separate installer and update targets. NSIS installs
 for the current user without requesting elevation and preserves application data
 on uninstall. Desktop installation/uninstallation does not install, stop or remove
 the independent OpenMeld Service. Connecting this Computer remains an explicit
-CLI-owned action; Node.js with npm is a prerequisite for Windows.
+CLI-owned action. The accepted Windows x64 managed bundle does not require an
+external Node.js, npm, Bun, or .NET installation.
 
 Root packaging commands use portable JavaScript, not POSIX inline environment
 assignments. Windows packaging skips Mac icon/notarization tools. Unsigned
-packages are limited to disposable acceptance and cannot use production updates.
+packages ordinarily use disposable acceptance. The separate native Windows x64
+internal trial package uses the production account target so an existing
+same-account Computer can be reviewed, but it has no production update feed and
+must be distributed only to known coworkers. It is not a signed production
+preview or proof of ordinary-user installation.
 Production requires the exact clean, approved, merged source and
 `OPENMELD_DESKTOP_WINDOWS_PUBLISHER` matching the actual certificate. A missing
 signer is not replaced with the Apple team identity.
@@ -509,7 +532,10 @@ against the actual architecture, fixed platform feed and exactly one configured
 publisher. Missing or mismatched metadata makes updates unavailable. The public
 NSIS verifier hook requires successful Authenticode evidence and an exact
 publisher match; missing PowerShell, errors, unsigned executables and unexpected
-output all reject. External metadata URLs, another platform's payload, multiple
+output all reject. The verifier lives in
+`@openmeld/local-service/windows-artifact-signature` and shares its publisher
+schema with CLI acquisition; Desktop does not maintain another OS verifier.
+External metadata URLs, another platform's payload, multiple
 files and web installer packages are rejected before download. Manual download,
 draft-safe restart and independent Service lifetime remain unchanged. Actual
 signed A-to-B updates, normal-user installation/uninstallation and native DPI/IME
@@ -1024,8 +1050,9 @@ Electron is deliberately separate from the root Worker development stack.
 
 ## Packaging and release boundary
 
-Public Desktop distribution remains paused: `/desktop` returns 404. Do not
-publish or deploy this pilot as a production release.
+Production publication uses the signed, immutable candidate and explicit
+promotion workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
+The local packages below remain separate from that production path.
 
 Local macOS packages use electron-builder's standard ad-hoc signing
 (`mac.identity: "-"`) for the assembled App and nested code. The shared build
@@ -1112,7 +1139,7 @@ stages it and builds a local unsigned arm64 DMG with no publication target.
 Installable entry is separate from Service bootstrap and signed distribution:
 existing-user Service reuse, new-user zero-setup connection, actual Wake outcomes,
 signing, notarization, and installed native acceptance remain separate gates.
-Do not expose the paused public download page based on package construction.
+Local package construction does not authorize public download or promotion.
 
 Release ordering is server first: deploy the matching Web admission/metadata
 routes and Auth identity before distributing an installed app. Keep contract 1
@@ -1157,7 +1184,7 @@ The DMG filename is configured separately in
 the DMG filename from the application display name. This target writes no
 preview/update manifest and has no publisher. It does not bundle CLI, Service,
 credentials, lane state, or worktree asset paths. The legacy preview build
-remains a separate paused distribution path.
+remains local-only and cannot publish.
 
 Launch the built or copied app from an already configured, matching worktree:
 
@@ -1177,14 +1204,10 @@ Service-control gates are unchanged. Signing, notarization, Gatekeeper behavior,
 authenticated packaged UI, and OS browser-return callbacks need separate native
 acceptance; package construction and content checks do not prove those outcomes.
 
-The existing preview pipeline builds an unsigned Apple silicon DMG with
-`pnpm release:desktop-preview:build` and electron-builder. Its upload command
-targets production R2 and requires separate release authorization.
-The old preview installer uses global npm/Node for CLI installation; this is not
-a claim of a bundled, signed, self-contained Desktop/Service distribution.
+The legacy unsigned preview upload is disabled. Signed production candidates
+use the workflow linked above; local private packages do not publish or bundle
+CLI, Service, credentials, or lane state.
 
-Reuse the established CLI binary and Apple signing mechanisms when completing
-distribution; do not create another release credential or update system.
 Developer ID presence, Doppler names, portal access, build success, signing,
 notarization, installation, and visible product smoke are separate evidence.
 Desktop versions remain diagnostics and app-update facts, never Wake gates.

@@ -1,3 +1,4 @@
+import { buildPosixSetupDownloadCommand } from "@openmeld/start";
 import { env } from "#/env";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
@@ -15,8 +16,6 @@ const LOCAL_SETUP_BOOTSTRAP_ORIGIN = "http://localhost:3000";
 const HTTP_ORIGIN_RE = /^https?:/u;
 const OPENMELD_COMMAND_PREFIX_RE = /^openmeld(?=$|\s)/u;
 const SAFE_SHELL_WORD_RE = /^[A-Za-z0-9_./:@%+=,-]+$/u;
-const BASE64_ALPHABET =
-	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 export type WebSetupCommandPlatform = "posix" | "windows";
 
@@ -238,14 +237,12 @@ function resolveSetupBootstrapCommand(
 		const commandBody = `& ([scriptblock]::Create((irm ${formatPowerShellString(
 			setupUrl
 		)}))) ${args.map(formatPowerShellString).join(" ")}`;
-		return `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodePowerShellCommand(
-			commandBody
-		)}`;
+		// A child PowerShell contains setup's environment and exit statements. The
+		// user can inspect the URL and grant arguments directly before executing it.
+		return `powershell -NoProfile -OutputFormat Text -Command { ${commandBody} }`;
 	}
 
-	return `curl -fsSL ${formatShellWord(setupUrl)} | sh -s -- ${args
-		.map(formatShellWord)
-		.join(" ")}`;
+	return buildPosixSetupDownloadCommand(setupUrl, args);
 }
 
 function resolveSetupBootstrapLane(
@@ -265,7 +262,7 @@ function buildSetupBootstrapUrl(input: {
 	const url = new URL("/setup", resolveSetupBootstrapOrigin(input.lane));
 	if (input.platform === "windows") {
 		url.searchParams.set("platform", "windows");
-		url.searchParams.set("dist", "npm");
+		url.searchParams.set("dist", "binary");
 	} else if (input.lane === "canary") {
 		url.searchParams.set("dist", "binary");
 	}
@@ -326,33 +323,6 @@ function formatShellWord(value: string): string {
 
 function formatPowerShellString(value: string): string {
 	return `'${value.replaceAll("'", "''")}'`;
-}
-
-function encodePowerShellCommand(value: string): string {
-	const bytes: number[] = [];
-	for (let index = 0; index < value.length; index += 1) {
-		const codeUnit = value.charCodeAt(index);
-		bytes.push(codeUnit % 256, Math.floor(codeUnit / 256));
-	}
-	return base64EncodeBytes(bytes);
-}
-
-function base64EncodeBytes(bytes: readonly number[]): string {
-	let output = "";
-	for (let index = 0; index < bytes.length; index += 3) {
-		const first = bytes[index] ?? 0;
-		const second = bytes[index + 1] ?? 0;
-		const third = bytes[index + 2] ?? 0;
-		const remaining = bytes.length - index;
-		const triplet = first * 65_536 + second * 256 + third;
-
-		output += BASE64_ALPHABET[Math.floor(triplet / 262_144) % 64];
-		output += BASE64_ALPHABET[Math.floor(triplet / 4096) % 64];
-		output +=
-			remaining > 1 ? BASE64_ALPHABET[Math.floor(triplet / 64) % 64] : "=";
-		output += remaining > 2 ? BASE64_ALPHABET[triplet % 64] : "=";
-	}
-	return output;
 }
 
 function buildSetupArguments(

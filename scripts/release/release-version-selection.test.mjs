@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -15,7 +16,15 @@ const VERSION_FLAGS_MUTUALLY_EXCLUSIVE_RE =
   /--next and --version are mutually exclusive/u;
 const NPM_NETWORK_FAILURE_RE = /npm registry ENOTFOUND/u;
 const NO_VERSION_SELECTED_RE = /No version was selected/u;
-const RELEASE_PREFLIGHT_COMMAND_RE = /pnpm run release:preflight/u;
+const productionManifest = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/cli-manifest.production-snapshot.json",
+      import.meta.url
+    ),
+    "utf8"
+  )
+);
 
 test("increments the shared npm and R2 patch version", async () => {
   const resolution = await resolveCliReleaseVersion({
@@ -102,7 +111,6 @@ test("fails --next without guessing when a channel lookup is unavailable", async
       assert.match(error.message, NEXT_MODE_FAILURE_RE);
       assert.match(error.message, NPM_NETWORK_FAILURE_RE);
       assert.match(error.message, NO_VERSION_SELECTED_RE);
-      assert.match(error.message, RELEASE_PREFLIGHT_COMMAND_RE);
       return true;
     }
   );
@@ -113,8 +121,13 @@ test("reads npm latest and R2 stable from their release channel contracts", asyn
     fetch: async () =>
       new Response(
         JSON.stringify({
-          channels: { stable: { version: "0.2.42" } },
-          schemaVersion: 1,
+          ...productionManifest,
+          channels: {
+            stable: {
+              ...productionManifest.channels.stable,
+              version: "0.2.42",
+            },
+          },
         }),
         { status: 200 }
       ),

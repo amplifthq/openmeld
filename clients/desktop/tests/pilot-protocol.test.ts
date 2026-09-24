@@ -15,6 +15,64 @@ import {
 import { expect, it, vi } from "vitest";
 import { createPilotProtocol } from "../src/main/pilot-protocol";
 
+it("preserves authenticated media ranges without exposing native credentials", async () => {
+  const cloudRequest = vi.fn(
+    (path: string, request: { method: string; headers: Headers }) => {
+      expect(path).toBe(
+        "/v1/spaces/space-1/files/file-1/content?revision=2&__openmeld_organization_slug=acme"
+      );
+      expect(request.headers.get("range")).toBe("bytes=4-7");
+      expect(request.headers.get("if-range")).toBe('"revision-2"');
+      expect(request.headers.get("cookie")).toBe("session=native");
+      expect(request.headers.has("authorization")).toBe(false);
+      return Promise.resolve(
+        new Response("part", {
+          status: 206,
+          headers: {
+            "content-type": "video/mp4",
+            "content-range": "bytes 4-7/10",
+            "content-length": "4",
+            "accept-ranges": "bytes",
+            etag: '"revision-2"',
+            "cache-control": "private, no-store",
+            "set-cookie": "session=renewed",
+            authorization: "secret",
+          },
+        })
+      );
+    }
+  );
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    cookie: () => "session=native",
+    fetch,
+    cloudRequest,
+  });
+  const response = await handle(
+    new Request(
+      `${DESKTOP_APP_ORIGIN}/v1/spaces/space-1/files/file-1/content?revision=2&__openmeld_organization_slug=acme`,
+      {
+        headers: {
+          range: "bytes=4-7",
+          "if-range": '"revision-2"',
+          cookie: "untrusted",
+          authorization: "untrusted",
+        },
+      }
+    )
+  );
+  expect(response.status).toBe(206);
+  expect(response.headers.get("content-range")).toBe("bytes 4-7/10");
+  expect(response.headers.get("content-length")).toBe("4");
+  expect(response.headers.get("accept-ranges")).toBe("bytes");
+  expect(response.headers.get("etag")).toBe('"revision-2"');
+  expect(response.headers.has("set-cookie")).toBe(false);
+  expect(response.headers.has("authorization")).toBe(false);
+  expect(await response.text()).toBe("part");
+});
+
 it.each([
   ["POST", "folders/select"],
   ["POST", "projects/discover"],
@@ -205,6 +263,7 @@ it("admits installed API requests before credentials and preserves SDK errors wi
   expect(call[1].method).toBe("POST");
   expect(new TextDecoder().decode(call[1].body)).toBe('{"name":"Agent"}');
   expect(call[1].headers.get(DESKTOP_CONTRACT_HEADER)).toBe("1");
+  expect(call[1].headers.get("origin")).toBe(DESKTOP_APP_ORIGIN);
   expect(call[1].headers.get(SPACE_ACCESS_VERSION_HEADER)).toBe("1");
   expect(call[1].headers.get("cookie")).toBe("session=native-only");
   expect(call[1].headers.has("authorization")).toBe(false);

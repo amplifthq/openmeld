@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+const WINDOWS_ONLY_ERROR = /only for Windows/;
+
 import {
   buildBunCompileArgs,
   collectCliBinaryMetadata,
@@ -42,6 +44,45 @@ test("keeps CLI binary release artifacts outside the npm package dist", () => {
   assert.equal(
     resolveDefaultCliBinaryOutDir("/repo"),
     join("/repo", "cli", "dist")
+  );
+});
+
+test("builds distinct Windows console and background executables", () => {
+  const input = {
+    bunTarget: "bun-windows-x64",
+    entry: "C:/repo/openmeld-entry.ts",
+    outFile: "C:/artifacts/openmeld.exe",
+    version: "0.3.220",
+  };
+  assert.ok(!buildBunCompileArgs(input).includes("--windows-hide-console"));
+  assert.ok(
+    buildBunCompileArgs({ ...input, background: true }).includes(
+      "--windows-hide-console"
+    )
+  );
+  assert.equal(
+    resolveCliBinaryArtifactName({
+      platform: "windows-x64",
+      version: input.version,
+    }),
+    "openmeld-cli-windows-x64-0.3.220.exe"
+  );
+  assert.equal(
+    resolveCliBinaryArtifactName({
+      platform: "windows-x64",
+      version: input.version,
+      background: true,
+    }),
+    "openmeld-service-windows-x64-0.3.220.exe"
+  );
+  assert.throws(
+    () =>
+      buildBunCompileArgs({
+        ...input,
+        background: true,
+        bunTarget: "bun-darwin-arm64",
+      }),
+    WINDOWS_ONLY_ERROR
   );
 });
 

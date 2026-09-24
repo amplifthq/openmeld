@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	formatModelRetirementNotice,
 	getAgentControllerPermissionModeDisplayMetadata,
 	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
@@ -44,6 +45,7 @@ import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folde
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
 import {
 	HostedModelSelect,
+	HostedReasoningSelect,
 	personalRemoteModelChoices,
 } from "#/components/models/hosted-model-select";
 import { ModelBadge } from "#/components/models/model-badge";
@@ -73,6 +75,7 @@ import {
 	resolveAgentProfileConfigurationSummaries,
 	resolveCreateProfileSubmitBlockReason,
 	resolveModelCompatibility,
+	resolveModelRetirementDisplay,
 	resolveSelectedModelCompatibility,
 } from "./create-profile-form-logic";
 import { DitherProfileAvatar } from "./dither-profile-avatar";
@@ -99,6 +102,8 @@ const PROFILE_KIND_TABS = [
 	title: string;
 }[];
 export type AgentProfileModelCompatibilityContext = {
+	agentControllerRef?: string;
+	authType?: string | null;
 	agentControllerId: string;
 	controllerDisplayName: string;
 	installedVersion: string | null;
@@ -156,6 +161,7 @@ export type CreateProfileFormProps = {
 			idempotencyKey: string;
 			modelId: string | null;
 			profileName: string;
+			reasoningLevel: string | null;
 		}) => void;
 	};
 	additionalHumanProfileCreationEnabled: boolean;
@@ -818,13 +824,27 @@ export function AgentProfileModelSelectionFields(
 	const state = resolveAgentProfileModelSelectionState(input);
 
 	if (input.agentId === "center-agent") {
+		const selectedModel = input.modelCatalog?.agentControllers[
+			"center-agent"
+		]?.models.find((model) => model.id === input.modelId);
 		return (
-			<HostedModelSelect
-				choices={personalRemoteModelChoices(input.modelCatalog)}
-				disabled={input.disabled || !input.modelCatalog}
-				onValueChange={input.onChangeModelId}
-				value={input.modelId}
-			/>
+			<div className="grid min-w-0 gap-5">
+				<HostedModelSelect
+					choices={personalRemoteModelChoices(input.modelCatalog)}
+					disabled={input.disabled || !input.modelCatalog}
+					onValueChange={input.onChangeModelId}
+					value={input.modelId}
+				/>
+				{selectedModel?.hostedRuntime ? (
+					<HostedReasoningSelect
+						defaultLevel={selectedModel.hostedRuntime.reasoningLevel}
+						disabled={input.disabled}
+						levels={selectedModel.supportedReasoningLevels}
+						onValueChange={input.onChangeReasoningLevel}
+						value={input.reasoningLevel}
+					/>
+				) : null}
+			</div>
 		);
 	}
 
@@ -838,7 +858,7 @@ export function AgentProfileModelSelectionFields(
 	}
 
 	return (
-		<div className="grid min-w-0 gap-3">
+		<div className="grid min-w-0 gap-5">
 			<div className="grid min-w-0 gap-2">
 				<Label htmlFor={modelSelectId}>Model</Label>
 				<Select
@@ -881,6 +901,10 @@ export function AgentProfileModelSelectionFields(
 						})}
 					</SelectContent>
 				</Select>
+				<ModelRetirementNotice
+					context={state.modelCompatibilityContext}
+					model={state.selectedModel}
+				/>
 				<ModelCompatibilityNotice
 					compatibility={state.selectedCompatibility}
 					context={state.modelCompatibilityContext}
@@ -922,14 +946,18 @@ function resolveAgentProfileModelSelectionState(
 			? input.modelCompatibilityContext
 			: null;
 	const availableModels = controller.models.filter(
-		(model) => !model.unavailable
+		(model) =>
+			resolveModelCompatibility({
+				controller,
+				context: modelCompatibilityContext,
+				modelId: model.id,
+			}).status !== "catalog_unavailable"
 	);
-	if (availableModels.length === 0) {
-		return null;
-	}
 	const currentUnavailableModel =
 		controller.models.find(
-			(model) => model.id === input.modelId && model.unavailable
+			(model) =>
+				model.id === input.modelId &&
+				!availableModels.some((available) => available.id === model.id)
 		) ?? null;
 	const effectiveModelId = input.modelId || controller.defaultModelId;
 	const selectedModel =
@@ -1148,6 +1176,35 @@ function ModelOptionPresentation({
 	);
 }
 
+function ModelRetirementNotice(input: {
+	model: ModelCatalogModel | null;
+	context: AgentProfileModelCompatibilityContext | null;
+}) {
+	const notice = resolveModelRetirementDisplay(input.model, input.context);
+	if (!notice) {
+		return null;
+	}
+	return (
+		<p
+			className={
+				notice.status === "withdrawn"
+					? "text-destructive text-xs leading-5"
+					: "text-amber-700 text-xs leading-5 dark:text-amber-300"
+			}
+		>
+			{formatModelRetirementNotice(notice)}{" "}
+			<a
+				className="underline"
+				href={notice.sourceUrl}
+				rel="noreferrer"
+				target="_blank"
+			>
+				Official notice
+			</a>
+		</p>
+	);
+}
+
 function ModelCompatibilityNotice(input: {
 	compatibility: ResolvedModelCompatibility | null;
 	context: AgentProfileModelCompatibilityContext | null;
@@ -1160,7 +1217,8 @@ function ModelCompatibilityNotice(input: {
 			<p className="text-destructive text-xs leading-5">
 				{input.compatibility.message}
 			</p>
-			{input.context?.managePath ? (
+			{input.context?.managePath &&
+			input.compatibility.status !== "catalog_unavailable" ? (
 				<Link
 					className={buttonVariants({ size: "sm", variant: "outline" })}
 					to={input.context.managePath}

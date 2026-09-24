@@ -41,6 +41,7 @@ import {
 	type SpaceComposerEditorChange,
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { SpaceComposerEditorBoundary } from "./space-composer-editor-boundary";
 import {
 	type SpaceComposerTaskChoice,
 	SpaceComposerTaskMenu,
@@ -200,8 +201,11 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 					input.availability.isSendingMessage
 				}
 				onChange={setChoice}
+				requiresProjectContainer={
+					target.agentControllerRef === "builtin:claude-code"
+				}
 				sources={input.taskSources ?? []}
-				supportsLocalFiles={target.agentControllerRef === "builtin:codex"}
+				supportsCurrentFolder={target.agentControllerRef === "builtin:codex"}
 				targetProfileId={target.profileId}
 			/>
 		) : null,
@@ -222,6 +226,7 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 }
 
 export function SpaceComposer(input: SpaceComposerProps) {
+	const [editorFailed, setEditorFailed] = useState(false);
 	const taskContext = useComposerTaskChoice(input);
 	const membersPending = hasPendingComposerMembers(input);
 	const { recommendations, recommended, acceptRecommendation } =
@@ -336,36 +341,48 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				>
 					{input.slots?.beforeInput}
 					<SpaceComposerAttachmentState input={input} />
-					<SpaceComposerEditor
-						addressingTargets={input.content.addressingTargets}
+					<SpaceComposerEditorBoundary
 						ariaLabel={policy.accessibleName}
-						authoredMentions={input.content.authoredMentions}
-						centerAgentProfileId={input.centerAgentProfileId}
-						composerRef={input.composerRef}
 						maxHeight={input.presentation?.maxHeight}
-						mentionEmptyMessage={input.content.mentionEmptyMessage}
-						mentionPickerItems={input.content.mentionPickerItems}
 						onBlur={input.actions.onBlur}
 						onChange={input.actions.onEditorChange}
-						onDragEnter={handleDragOver}
-						onDragLeave={handleDragLeave}
-						onDragOver={handleDragOver}
-						onDrop={handleDrop}
+						onFailure={() => setEditorFailed(true)}
 						onFocus={input.actions.onFocus}
-						onPaste={handlePaste}
 						onSend={submit}
 						placeholder={policy.placeholder}
 						text={input.content.text}
-						wakeRecommendation={
-							recommended
-								? {
-										profileId: recommended.suggestion.profileId,
-										onAccept: acceptRecommendation,
-										onDismiss: () => recommendations?.dismiss(),
-									}
-								: undefined
-						}
-					/>
+					>
+						<SpaceComposerEditor
+							addressingTargets={input.content.addressingTargets}
+							ariaLabel={policy.accessibleName}
+							authoredMentions={input.content.authoredMentions}
+							centerAgentProfileId={input.centerAgentProfileId}
+							composerRef={input.composerRef}
+							maxHeight={input.presentation?.maxHeight}
+							mentionEmptyMessage={input.content.mentionEmptyMessage}
+							mentionPickerItems={input.content.mentionPickerItems}
+							onBlur={input.actions.onBlur}
+							onChange={input.actions.onEditorChange}
+							onDragEnter={handleDragOver}
+							onDragLeave={handleDragLeave}
+							onDragOver={handleDragOver}
+							onDrop={handleDrop}
+							onFocus={input.actions.onFocus}
+							onPaste={handlePaste}
+							onSend={submit}
+							placeholder={policy.placeholder}
+							text={input.content.text}
+							wakeRecommendation={
+								recommended
+									? {
+											profileId: recommended.suggestion.profileId,
+											onAccept: acceptRecommendation,
+											onDismiss: () => recommendations?.dismiss(),
+										}
+									: undefined
+							}
+						/>
+					</SpaceComposerEditorBoundary>
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
 							{taskContext.menu}
@@ -382,7 +399,8 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									onAddPeopleOrAgents={input.actions.onAddPeopleOrAgents}
 								/>
 							) : null}
-							{policy.showMentionButton &&
+							{!editorFailed &&
+							policy.showMentionButton &&
 							input.capabilities?.mentions !== false ? (
 								<Button
 									aria-label="Mention a member"

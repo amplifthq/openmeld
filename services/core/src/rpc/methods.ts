@@ -271,6 +271,7 @@ import {
   resolvedSpaceMemberProfileSchema,
   resolveSpaceAttachmentForDownloadPayloadSchema,
   resolveSpaceComposerUploadScopeResponseSchema,
+  resolveSpaceFileStreamMetadata,
   respondToSpaceAgentInteractionInputSchema,
   runtimeReportingRouteParamsSchema,
   runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
@@ -314,6 +315,7 @@ import {
   spaceFileClientMutationIdSchema,
   spaceFileMimeTypeSchema,
   spaceFileNameSchema,
+  spaceFileStreamOptionsSchema,
   spaceTaskDetailOptionsSchema,
   submitRuntimeAgentControllerReportsBodySchema,
   submitRuntimeAgentControllerReportsResponseSchema,
@@ -676,6 +678,8 @@ import type {
   SpaceFileDescriptor,
   SpaceFilePinMutation,
   SpaceFilePinsResponse,
+  SpaceFileStreamMetadata,
+  SpaceFileStreamOptions,
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
@@ -917,6 +921,10 @@ import { createComputerFileAccessRpc } from "../computers/computer-file-access-r
 import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc";
 import { createServiceConnectionEvidenceRpc } from "../computers/service-connection-evidence-rpc";
 import { readOwnerServiceConnectionTrace } from "../computers/service-connection-trace";
+import {
+  reconcileAgentModelInbox,
+  reconcileRuntimeAgentModelInboxes,
+} from "../config/agent-model-inbox-reconciliation";
 import {
   readAuthoredModelCatalog,
   readModelCatalog,
@@ -5239,6 +5247,18 @@ export async function rpcSubmitRuntimeAgentControllerReports(
       }
     }
 
+    if (result.status === "accepted") {
+      await reconcileRuntimeAgentModelInboxes({
+        env,
+        ownerUserId: request.userId,
+        nowMs: acceptedAtMs,
+        agentControllerRef: result.currentReport.agentControllerRef,
+        openMeldServiceRuntimeId: result.currentReport.openMeldServiceRuntimeId,
+      }).catch((error) =>
+        console.warn("[core.model_inbox.reconcile_failed]", { error })
+      );
+    }
+
     reports.push(
       result.status === "accepted"
         ? {
@@ -6288,6 +6308,21 @@ export async function rpcDisableAgentProfilePrimaryBinding(
         );
       });
     }
+
+    // Reconcile even on a no-op retry: the Binding write may have succeeded
+    // before an earlier Inbox projection failed. Keep target-mutation admission
+    // until this current-owner read finishes; never clear by an old model id.
+    await reconcileAgentModelInbox({
+      env,
+      ownerUserId: request.owner.id,
+      agentProfileId: request.agentProfileId,
+      nowMs: Date.now(),
+    }).catch((error) =>
+      console.warn("[core.model_inbox.reconcile_failed]", {
+        agentProfileId: request.agentProfileId,
+        error,
+      })
+    );
 
     return buildDisableAgentProfilePrimaryBindingResponse({
       agentProfileId: request.agentProfileId,
@@ -8409,6 +8444,7 @@ export async function rpcUpdateCenterAgentModel(
   const parsed = updateCenterAgentModelBodySchema.safeParse({
     expectedConfigurationRevision: input.expectedConfigurationRevision,
     preference: input.preference,
+    reasoningLevel: input.reasoningLevel,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -8437,6 +8473,7 @@ export async function rpcUpdateCenterAgentModel(
       binding: {
         configurationRevision: current.configurationRevision,
         modelId: requestedModelId,
+        reasoningLevel: parsed.data.reasoningLevel ?? null,
       },
       catalog: readModelCatalog(),
     });
@@ -8455,7 +8492,7 @@ export async function rpcUpdateCenterAgentModel(
       expectedConfigurationRevision: parsed.data.expectedConfigurationRevision,
       modelSelectionPatch: {
         modelId: requestedModelId,
-        reasoningLevel: null,
+        reasoningLevel: parsed.data.reasoningLevel ?? null,
       },
       owner: current.owner,
       updatedAtMs: Date.now(),
@@ -18285,6 +18322,13 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
       env,
       mutate: async () =>
         await updatePrimaryAgentProfileBindingModelSelection({
+          runtimeAgentControllerReportStore: {
+            readCurrentReport: async (reportInput) =>
+              await readCurrentRuntimeAgentControllerReport({
+                ...reportInput,
+                db,
+              }),
+          },
           agentProfileId: request.agentProfileId,
           bindingStore: createD1AgentProfileBindingCommandStore({ db }),
           modelId: body.data.modelId,
@@ -18326,6 +18370,14 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
       error: toErrorMessage(error),
     });
   });
+  await reconcileAgentModelInbox({
+    env,
+    ownerUserId: request.owner.id,
+    agentProfileId: request.agentProfileId,
+    nowMs: Date.now(),
+  }).catch((error) =>
+    console.warn("[core.model_inbox.reconcile_failed]", { error })
+  );
   return buildAcceptedAgentProfileBindingResponse({
     binding: mapAgentProfileBindingLookupResultToProjection(lookupResult),
     result,
@@ -20080,9 +20132,13 @@ export async function rpcReadSpaceFileContent(
 
 export async function rpcStreamSpaceFileContent(
   env: CoreBindings,
-  input: ReadSpaceFileContentRpcInput
+  input: ReadSpaceFileContentRpcInput,
+  streamOptions?: SpaceFileStreamOptions
 ): Promise<
-  ResolveSpaceFileContentResponse & { bytes: ReadableStream<Uint8Array> }
+  ResolveSpaceFileContentResponse & {
+    bytes: ReadableStream<Uint8Array>;
+    stream?: SpaceFileStreamMetadata;
+  }
 > {
   const spaceAccess = resolveRpcSpaceAccess(input);
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
@@ -20090,6 +20146,25 @@ export async function rpcStreamSpaceFileContent(
     content: input.content,
     spaceAccess,
   });
+  // Authorization precedes both range validation and disclosure of file size.
+  const options =
+    streamOptions === undefined
+      ? undefined
+      : spaceFileStreamOptionsSchema.safeParse(streamOptions);
+  if (options && !options.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Invalid file streaming options.",
+      status: 400,
+    });
+  }
+  const stream = options?.success
+    ? resolveSpaceFileStreamMetadata({
+        options: options.data,
+        revisionId: resolved.revision.id,
+        sizeBytes: resolved.revision.sizeBytes,
+      })
+    : undefined;
   const auditEvent = buildSpaceFileContentAuditEvent({
     entryId: resolved.file.id,
     operation: "content_read",
@@ -20111,7 +20186,42 @@ export async function rpcStreamSpaceFileContent(
     const bucket = requireSpaceFileBucket(env);
     let object: R2ObjectBody | null;
     try {
-      object = await bucket.get(resolved.objectKey);
+      if (stream?.status === 416) {
+        // Do not open the original merely to report an unsatisfiable range.
+        return {
+          ...resolved,
+          stream,
+          bytes: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+        };
+      }
+      if (options?.success && options.data.head) {
+        const metadata = await bucket.head(resolved.objectKey);
+        if (!metadata || metadata.size !== resolved.revision.sizeBytes) {
+          throwSpaceFileStorageFailed(
+            "This file revision is unavailable or incomplete."
+          );
+        }
+        await stub.rpcRecordSpaceFileAuditEvent({ event: auditEvent });
+        return {
+          ...resolved,
+          stream,
+          bytes: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+        };
+      }
+      object =
+        stream?.status === 206
+          ? await bucket.get(resolved.objectKey, {
+              range: { offset: stream.offset, length: stream.length },
+            })
+          : await bucket.get(resolved.objectKey);
     } catch {
       throwSpaceFileStorageFailed("This file could not be read right now.");
     }
@@ -20120,6 +20230,7 @@ export async function rpcStreamSpaceFileContent(
     }
     bytes = object.body;
     if (object.size !== resolved.revision.sizeBytes) {
+      await bytes.cancel();
       throwSpaceFileStorageFailed("This file revision is incomplete.");
     }
   } catch (error) {
@@ -20133,7 +20244,7 @@ export async function rpcStreamSpaceFileContent(
     throw error;
   }
   await stub.rpcRecordSpaceFileAuditEvent({ event: auditEvent });
-  return { ...resolved, bytes };
+  return { ...resolved, bytes, ...(stream ? { stream } : {}) };
 }
 
 export async function rpcWriteSpaceFileContent(

@@ -40,9 +40,9 @@ const RUNTIME_TRANSPORT_SCHEMA_SOURCE_PATH =
 const CORE_LOCAL_COMPONENTS_UPDATE_PROJECTION_PATH =
   "services/core/src/local-components/update-projection.ts";
 const CLI_DIST_ROOT_PATH = "clients/openmeld-cli/dist";
-// Platform-specific CLI artifacts have their own signed release integrity.
-// They are not copied into the npm Service bundle and must not make its
-// platform-neutral content hash differ between macOS and Linux.
+// CLI-only artifacts have their own signed release integrity. The Service's
+// dist/windows helper is included: every npm artifact must carry identical
+// prebuilt bytes, independent of the platform assembling the release.
 const SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS = new Set(["binary", "native"]);
 const SKILLS_ROOT_PATH = "clients/openmeld-cli/skills";
 
@@ -1485,7 +1485,7 @@ function formatVerifyFailure(payload) {
     )
   ) {
     lines.push(
-      "Recovery: run `pnpm run release:preflight`, then choose the intended CLI/Service version and policy and rerun the base-aware stamp command (use `--next` for automatic channel-based selection). It rebuilds the packaged CLI before writing; do not use --current to bypass release history."
+      "Recovery: run `pnpm release:local-components plan --next`, choose the intended CLI/Service policy, and rerun the base-aware stamp command. It rebuilds the packaged CLI before writing; do not use --current to bypass release history."
     );
   }
   return lines.filter(Boolean).join("\n");
