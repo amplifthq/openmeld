@@ -220,9 +220,10 @@ change must leave those signals cleaner and less ambiguous.
   in `developing/engineering/agent-native-delivery.md`: fix a high-value,
   coherent finding when practical, and preserve separable follow-ups without
   reopening the candidate.
-- Commit hooks check staged files; development push hooks must pass focused
-  checks on the exact clean commit. Do not bypass failures. Keep PRs draft while
-  developing; mark ready only after risk-appropriate behavior validation.
+- Commit hooks check staged files. The push hook guards protected release
+  refs; ordinary development pushes do not rerun affected tests. Run focused
+  behavior checks before Ready based on the changed contract and its consumers.
+  Do not bypass hook failures. Keep PRs draft while developing.
 - Before handing off a PR, map fully resolved issues to closing keywords in its
   description and verify GitHub's closing links. Follow the issue-linking rules
   in `developing/engineering/agent-native-delivery.md`; comments alone do not
