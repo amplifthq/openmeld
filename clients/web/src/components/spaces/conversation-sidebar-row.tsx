@@ -247,6 +247,7 @@ function ConversationSidebarRowContent(
 								)}
 								{timestamp !== null && !presentation && (
 									<SidebarConversationTime
+										hideOlderUntilHover
 										now={new Date(nowMs)}
 										timestamp={timestamp}
 									/>
