@@ -139,6 +139,15 @@ test("Web handoff downloads only the immutable same-run snapshot and verifies it
     expression("needs.validate_release_source.outputs.parent_web_artifact_id")
   );
   const web = workflow("workflows/deploy-web.yml").jobs.deploy;
+  const parentHeap = validation.steps.find((step) =>
+    step.run?.includes("--issue-parent-evidence")
+  ).env.OPENMELD_RENDERER_NODE_HEAP_MB;
+  assert.equal(
+    web.env.OPENMELD_RENDERER_NODE_HEAP_MB,
+    expression(
+      `inputs.parent_admission_evidence != '' && '${parentHeap}' || ''`
+    )
+  );
   assert.equal(
     web.env.OPENMELD_PARENT_WEB_ARTIFACT_ID,
     expression("inputs.parent_web_artifact_id")
