@@ -190,9 +190,7 @@ function run() {
   const pushUpdates = readFileSync(0, "utf8");
   const mode = resolvePrePushReleaseMode(pushUpdates);
   if (mode === "skip") {
-    process.stdout.write(
-      "No release artifact check for this development push; focused checks run next.\n"
-    );
+    process.stdout.write("Development push: release artifact check skipped.\n");
     return;
   }
   assertPushedObjectsMatchHead(pushUpdates);
