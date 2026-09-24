@@ -133,7 +133,7 @@ export function AgentCreationProgress(input: {
 							stage: progress.stage,
 							stopped: progress.stopped,
 						})}
-						summary={progress.stage === index ? progress.detail : ""}
+						summary=""
 						title={label}
 					/>
 				))}

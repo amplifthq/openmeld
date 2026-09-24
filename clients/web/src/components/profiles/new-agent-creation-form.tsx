@@ -110,11 +110,7 @@ export function NewAgentCreationForm(input: NewAgentCreationFormProps) {
 					</TabsList>
 				</Tabs>
 			</div>
-			{form ?? (
-				<p className="mx-auto w-full max-w-7xl px-4 pt-4 text-muted-foreground text-sm sm:px-6 lg:px-8">
-					Choose where your Agent runs to continue.
-				</p>
-			)}
+			{form}
 		</div>
 	);
 }
