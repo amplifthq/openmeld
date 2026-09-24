@@ -35,6 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
@@ -51,7 +52,7 @@ jobs:
       - name: Build the self-contained native process helper
         run: node scripts/release/build-windows-process-helper.mjs
       - name: Build shared runtime and client contracts
-        run: pnpm exec turbo run build --filter=openmeld^... --filter=openmeld-web^... --filter=@openmeld/desktop^... --concurrency=1
+        run: pnpm exec turbo run build --filter=openmeld^... --filter=openmeld-web^... --concurrency=1
       - name: Build exact-source Windows carriers
         run: node scripts/release/windows-internal-preview.mjs build-cli
       - name: Exercise delivered CLI, Service, SQLite and official Codex without user Node or Bun
