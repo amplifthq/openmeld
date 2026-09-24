@@ -259,9 +259,12 @@ for (const mode of ["auto", "plan", "default"]) {
       assert.equal(options.resume, "canonical-session");
       assert.deepEqual(options.tools, []);
       assert.equal(options.strictMcpConfig, true);
-      assert.deepEqual(options.settings, { disableAllHooks: true });
+      assert.deepEqual(options.settings, {
+        disableAllHooks: true,
+        permissions: { deny: [], ask: [] },
+      });
       assert.deepEqual(options.additionalDirectories, []);
-      assert.deepEqual(options.settingSources, ["user", "project", "local"]);
+      assert.deepEqual(options.settingSources, []);
       assert.equal(options.mcpServers[serverId].type, "sdk");
       assert.deepEqual(Object.keys(options.mcpServers), [serverId]);
       assert.deepEqual(options.outputFormat.schema.required, ["recorded"]);

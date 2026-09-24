@@ -1318,6 +1318,30 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
+      body: "OpenMeld couldn't verify this Claude project task's file isolation. Check Docker or Podman and this Agent's settings before starting another project task. Open Diagnostics for the failed check.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "=claude_project.isolation_unverified",
+        "=claude_project.inside_access_unverified",
+        "=claude_project.outside_access_unverified",
+        "=claude_project.inside_write_unverified",
+      ],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "OpenMeld couldn't confirm this Claude Agent's permission rules. Check that its Claude settings files can be read and contain valid JSON, then wake the Agent again.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "=claude_delivery_policy.unavailable",
+        "=claude_delivery_policy.invalid",
+      ],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
       body: "This independent project task needs a connected Git repository with at least one commit. Choose that repository's root as the Agent's working folder, then start a new task.",
       kind: "local_agent_prepare",
       patterns: [

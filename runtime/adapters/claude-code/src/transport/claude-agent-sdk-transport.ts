@@ -7,8 +7,8 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import {
   type Options as ClaudeAgentOptions,
   type Query as ClaudeAgentQuery,
@@ -52,6 +52,151 @@ import {
   verifyClaudeDeliveryReport,
 } from "./claude-space-action-tools.js";
 import { createClaudeWindowsProcessLauncher } from "./claude-windows-process.js";
+
+function claudeDeliveryPolicyError(
+  code: "claude_delivery_policy.invalid" | "claude_delivery_policy.unavailable",
+  cause?: unknown
+): ClaudeAgentSdkTransportError {
+  return new ClaudeAgentSdkTransportError({
+    code,
+    errorType: "config",
+    message: code,
+    ...(cause instanceof Error ? { originalError: cause.message } : {}),
+  });
+}
+
+function claudeDeliverySettingPaths(input: {
+  cwd: string;
+  env?: Record<string, string | undefined>;
+}): string[] {
+  const environment = { ...process.env, ...input.env };
+  const configRoot =
+    environment.CLAUDE_CONFIG_DIR ||
+    join(environment.HOME || environment.USERPROFILE || homedir(), ".claude");
+  if (!(isAbsolute(input.cwd) && isAbsolute(configRoot))) {
+    throw claudeDeliveryPolicyError("claude_delivery_policy.invalid");
+  }
+  const paths = [join(configRoot, "settings.json")];
+  let directory = input.cwd;
+  while (true) {
+    paths.push(
+      join(directory, ".claude", "settings.json"),
+      join(directory, ".claude", "settings.local.json")
+    );
+    const parent = dirname(directory);
+    if (parent === directory) {
+      break;
+    }
+    directory = parent;
+  }
+  return [...new Set(paths)];
+}
+
+function restrictiveClaudeRuleList(
+  permissions: Record<string, unknown>,
+  key: "deny" | "ask"
+): string[] {
+  const values = permissions[key];
+  if (values === undefined) {
+    return [];
+  }
+  if (
+    !(
+      Array.isArray(values) &&
+      values.every((value) => typeof value === "string")
+    )
+  ) {
+    throw claudeDeliveryPolicyError("claude_delivery_policy.invalid");
+  }
+  return values;
+}
+
+async function readClaudeDeliverySettingRules(
+  path: string
+): Promise<{ deny: string[]; ask: string[] } | null> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw claudeDeliveryPolicyError(
+      "claude_delivery_policy.unavailable",
+      error
+    );
+  }
+  let settings: unknown;
+  try {
+    settings = JSON.parse(raw);
+  } catch (error) {
+    throw claudeDeliveryPolicyError("claude_delivery_policy.invalid", error);
+  }
+  if (!settings || typeof settings !== "object") {
+    throw claudeDeliveryPolicyError("claude_delivery_policy.invalid");
+  }
+  const permissions = (settings as { permissions?: unknown }).permissions;
+  if (permissions === undefined) {
+    return { deny: [], ask: [] };
+  }
+  if (!permissions || typeof permissions !== "object") {
+    throw claudeDeliveryPolicyError("claude_delivery_policy.invalid");
+  }
+  return {
+    deny: restrictiveClaudeRuleList(
+      permissions as Record<string, unknown>,
+      "deny"
+    ),
+    ask: restrictiveClaudeRuleList(
+      permissions as Record<string, unknown>,
+      "ask"
+    ),
+  };
+}
+
+async function resolveClaudeDeliveryPermissions(input: {
+  cwd: string;
+  env?: Record<string, string | undefined>;
+}): Promise<{ deny: string[]; ask: string[] }> {
+  const deny = new Set<string>();
+  const ask = new Set<string>();
+  // Only restrictive rules cross into correction. Unreadable or malformed
+  // settings stop correction rather than silently dropping a native denial.
+  for (const path of claudeDeliverySettingPaths(input)) {
+    const rules = await readClaudeDeliverySettingRules(path);
+    if (!rules) {
+      continue;
+    }
+    for (const value of rules.deny) {
+      deny.add(value);
+    }
+    for (const value of rules.ask) {
+      ask.add(value);
+    }
+  }
+  return {
+    deny: [...deny],
+    ask: [...ask],
+  };
+}
+
+async function applyClaudeDeliveryPermissions(input: {
+  cwd: string;
+  env?: Record<string, string | undefined>;
+  options: ClaudeAgentOptions;
+  spaceActionTools?: AdapterDispatchSpaceTools;
+}): Promise<void> {
+  if (!isClaudeDeliveryOnly(input)) {
+    return;
+  }
+  input.options.settings = {
+    disableAllHooks: true,
+    permissions: await resolveClaudeDeliveryPermissions({
+      cwd: input.cwd,
+      env: input.env,
+    }),
+  };
+}
 
 export type ClaudeAgentSdkTransportResult = {
   output: string;
@@ -224,35 +369,42 @@ export async function invokeClaudeAgentSdkTransport(input: {
 
   try {
     const createQuery = input.createQuery ?? createDefaultClaudeAgentSdkQuery;
+    const options = buildClaudeAgentSdkOptions({
+      spaceActionTools: input.spaceActionTools,
+      executionContext: input.executionContext,
+      onRuntimeEvent: input.onRuntimeEvent,
+      abortController,
+      agentControllerPermissionMode: input.agentControllerPermissionMode,
+      claudeWorkdir: input.claudeWorkdir,
+      conversationPolicy: input.conversationPolicy,
+      env: input.env,
+      executionMode: input.executionMode,
+      instructionPrompt: input.instructionPrompt,
+      getPlanReviewText: async () =>
+        latestPlanDocument ||
+        (await resources.planCapture.readLatestDocument()) ||
+        latestInteractionOutput ||
+        latestOutput,
+      onInteractionRequest: input.onInteractionRequest,
+      onStderr: (chunk) => {
+        firstStderrAtMs = resolveFirstObservedAtMs(firstStderrAtMs);
+        stderrChunks.push(chunk);
+      },
+      pathToClaudeCodeExecutable:
+        resources.executable.pathToClaudeCodeExecutable,
+      spawnProcess: resources.executable.spawnProcess,
+      planDirectory: resources.planCapture.directory,
+      sessionId: normalizeOptionalText(input.sessionId),
+      streamingMode: input.streamingMode,
+    });
+    await applyClaudeDeliveryPermissions({
+      cwd: input.claudeWorkdir,
+      env: input.env,
+      options,
+      spaceActionTools: input.spaceActionTools,
+    });
     queryRuntime = createQuery({
-      options: buildClaudeAgentSdkOptions({
-        spaceActionTools: input.spaceActionTools,
-        executionContext: input.executionContext,
-        onRuntimeEvent: input.onRuntimeEvent,
-        abortController,
-        agentControllerPermissionMode: input.agentControllerPermissionMode,
-        claudeWorkdir: input.claudeWorkdir,
-        conversationPolicy: input.conversationPolicy,
-        env: input.env,
-        executionMode: input.executionMode,
-        instructionPrompt: input.instructionPrompt,
-        getPlanReviewText: async () =>
-          latestPlanDocument ||
-          (await resources.planCapture.readLatestDocument()) ||
-          latestInteractionOutput ||
-          latestOutput,
-        onInteractionRequest: input.onInteractionRequest,
-        onStderr: (chunk) => {
-          firstStderrAtMs = resolveFirstObservedAtMs(firstStderrAtMs);
-          stderrChunks.push(chunk);
-        },
-        pathToClaudeCodeExecutable:
-          resources.executable.pathToClaudeCodeExecutable,
-        spawnProcess: resources.executable.spawnProcess,
-        planDirectory: resources.planCapture.directory,
-        sessionId: normalizeOptionalText(input.sessionId),
-        streamingMode: input.streamingMode,
-      }),
+      options,
       prompt: createSinglePrompt(
         [
           input.instructionPrompt?.userPrompt ?? prompt,

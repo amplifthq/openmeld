@@ -87,6 +87,9 @@ describe("public agent failure reason mapping", () => {
     ],
     ["execution_context.workspace_access_unverified", "project file boundary"],
     ["claude_project.container_runtime_unavailable", "Docker or Podman"],
+    ["claude_project.isolation_unverified", "file isolation"],
+    ["claude_project.outside_access_unverified", "file isolation"],
+    ["claude_delivery_policy.invalid", "permission rules"],
     ["context.mcp_isolation_unverified", "tools authorized for this task"],
     [
       "execution_context.mcp_server_initialization_failed",
@@ -101,6 +104,18 @@ describe("public agent failure reason mapping", () => {
     expect(
       resolvePublicAgentFailureRecovery({
         errorCode: "claude_project.container_runtime_unavailable",
+        targetLabel: "Runner",
+      })
+    ).toMatchObject({
+      kind: "local_agent_prepare",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "computer",
+    });
+  });
+  it("links unverified Claude project isolation to Agent setup and diagnostics", () => {
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: "claude_project.isolation_unverified",
         targetLabel: "Runner",
       })
     ).toMatchObject({

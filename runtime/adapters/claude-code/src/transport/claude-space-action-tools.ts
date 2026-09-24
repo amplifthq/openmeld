@@ -68,11 +68,9 @@ export function buildClaudeSpaceToolOptions(
   if (isolated) {
     options.tools = [];
     options.strictMcpConfig = true;
-    // Correction must still honor native project/local deny and ask policies.
-    // The restricted tool catalog and disabled hooks bound their execution.
-    options.settingSources = deliveryOnly
-      ? ["user", "project", "local"]
-      : ["user"];
+    // Delivery-only correction receives only the original deny/ask rules.
+    // Loading whole project settings would also import model and environment.
+    options.settingSources = deliveryOnly ? [] : ["user"];
     options.settings = { disableAllHooks: true };
     options.additionalDirectories = [];
   }

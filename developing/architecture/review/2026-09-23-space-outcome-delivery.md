@@ -3,16 +3,16 @@
 ## Agent Context
 
 - Purpose: Track implementation, remaining acceptance work, and evidence for first-line Space outcome delivery in #1250.
-- Read this when: Continuing or reviewing Draft PR #1261 across worktrees and agents.
+- Read this when: Continuing or reviewing PR #1261 across worktrees and agents.
 - Update this when: The candidate, validation evidence, or remaining acceptance scope changes.
 - Do not use this for: Production acceptance, release authorization, or proof that every native controller was tested.
 - Source of truth: The Space collaboration and Agent transport owner documents define behavior; this note records candidate-specific work and evidence.
 
-Status: Implementation handoff in Draft PR #1261, with conditional native correction support as detailed below. Not production acceptance, universal automatic correction, or release authorization. Remove after independent review and acceptance evidence have been incorporated into owner documentation and the PR.
+Status: Implementation handoff for PR #1261, with conditional native correction support as detailed below. The PR state is tracked on GitHub. This note is not production acceptance, universal automatic correction, or release authorization. Remove after independent review and acceptance evidence have been incorporated into owner documentation and the PR.
 
-Work branch: `codex/issue-1250-space-outcome-delivery`, Draft PR #1261.
+Work branch: `codex/issue-1250-space-outcome-delivery`, PR #1261.
 This is the first implementation line only. Organization-plugin exposure,
-production changes, original-review replay, deployment, merge, and Ready are
+production changes, original-review replay, deployment, and merge are
 not part of this change.
 
 ## Implementation checkpoint
@@ -60,8 +60,18 @@ remains the only writer; no private prose is automatically published.
 All seven carriers now have conditional native missing-action correction code.
 Unsupported versions and incompatible native policies still stop explicitly;
 this is not universal recovery for every installed version or configuration.
-Keep Draft for independent review and final affected-consumer/rollout acceptance.
+Review and affected-consumer acceptance are recorded on the PR; this note does
+not determine its Draft or Ready state.
 No production publication, original-review replay or second-line work is claimed.
+
+Claude's explicit isolated project tasks use an OpenMeld-owned `project_shell`
+callback. The Claude SDK sandbox governs its own subprocess tools, not that
+host callback, so SDK sandbox settings alone cannot confine the shell. The
+Service runs the callback in a verified task-only Linux container and fails
+closed if that boundary is unavailable. This adds Docker or Podman only to
+explicit Claude project tasks; ordinary Space-only replies need neither.
+Codex uses its own verified native file-access boundary for isolated worktrees,
+which is why the two controllers have different local prerequisites.
 
 ## Cursor ACP implementation checkpoint
 
@@ -240,15 +250,21 @@ unconfirmed handler results. Delivery-only isolation for Codex is not yet proved
 by these normal/repair carrier tests: native skill and planning tools remained
 visible in the separate restricted-catalog probe.
 
-On the 2026-09-24 Draft follow-up, the actual Codex 0.150.1 adapter test passed
+On the 2026-09-24 follow-up, the actual Codex 0.150.1 adapter test passed
 the delivery-only catalog check: no file, command, Web, App, delegate, or foreign
 MCP operation was exposed. Native planning, user-input, and skill-read tools
 remained visible; the narrow claim is no business-effect tool access, not an
 empty native catalog. The actual Claude Code 2.1.281 correction test passed all
-five scenarios, including a project-level native deny of `reply`. Delivery-only
-therefore keeps project/local setting sources to preserve the owner's deny and
-ask policies, while the built-in tool catalog and hooks remain restricted. These
-adapter tests use isolated homes and scripted providers, not live Space delivery.
+five scenarios, including a project-level native deny of `reply`. A later
+native probe showed that loading the whole project setting source also applied
+its `ANTHROPIC_BASE_URL` to the correction session and prevented delivery.
+Delivery-only now reads the user/project/local settings from the launched
+Claude environment, carries only their deny/ask rules into the correction,
+and disables those filesystem setting sources for the correction
+session. The SDK's `managedSettings` option is not a filtered source loader:
+it requires supplied settings and can be dropped under an existing admin tier.
+The built-in tool catalog and hooks remain restricted. These adapter tests use
+isolated homes and scripted providers, not live Space delivery.
 
 A subsequent whole-package run reported 161 passed, one failed and three skipped:
 the existing Stop-after-writer-retry test hit its one-second fixture wait. Its
@@ -287,6 +303,10 @@ candidate run before first-line acceptance.
   explicitly instead of assuming that a successful process launch proves a
   safe tool scope. Packaging/release readiness and deployed Space delivery
   still require the release owner's final-candidate checks.
+- The Claude delivery-only settings change is local to the adapter: the
+  policy reader uses the same home and project folder as the launched Claude
+  process, carries only deny/ask rules, and fails closed if it cannot read
+  them. It changes no Service/Core/Gateway/Web payload or stored context.
 
 ## Primary references
 

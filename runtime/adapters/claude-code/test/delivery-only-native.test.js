@@ -23,6 +23,7 @@ for (const scenario of [
   "approval",
   "denied",
   "project-denied",
+  "project-invalid",
 ]) {
   test(
     `native Claude delivery-only scope and user policy: ${scenario}`,
@@ -56,7 +57,7 @@ for (const scenario of [
             return;
           }
           const names = (body.tools ?? []).map((tool) => tool.name);
-          catalogs.push({ phase, names });
+          catalogs.push({ phase, names, model: body.model });
           if (catalogs.length > 8) {
             throw new Error("Unexpected repeated native model requests");
           }
@@ -204,12 +205,18 @@ for (const scenario of [
       const settingsPath = join(configDir, "settings.json");
       const originalSettings = JSON.stringify(settings);
       await writeFile(settingsPath, originalSettings);
-      if (scenario === "project-denied") {
+      if (scenario === "project-denied" || scenario === "project-invalid") {
         const projectSettingsDir = join(workdir, ".claude");
         await mkdir(projectSettingsDir);
         await writeFile(
           join(projectSettingsDir, "settings.json"),
-          JSON.stringify({ permissions: { deny: [`${PREFIX}reply`] } })
+          scenario === "project-invalid"
+            ? "{invalid"
+            : JSON.stringify({
+                permissions: { deny: [`${PREFIX}reply`] },
+                model: "claude-haiku-4-5",
+                env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:1" },
+              })
         );
       }
       const capability = {
@@ -283,9 +290,16 @@ for (const scenario of [
           prompt:
             "Only deliver the already-known limitation through reply. Do not redo the task or publish private fixture context.",
         });
-      if (scenario === "denied" || scenario === "project-denied") {
+      if (
+        scenario === "denied" ||
+        scenario === "project-denied" ||
+        scenario === "project-invalid"
+      ) {
         await assert.rejects(runCorrection, {
-          code: "space.action.delivery_unconfirmed",
+          code:
+            scenario === "project-invalid"
+              ? "claude_delivery_policy.invalid"
+              : "space.action.delivery_unconfirmed",
         });
         assert.equal(recorded, false);
       } else {
@@ -314,6 +328,7 @@ for (const scenario of [
       for (const entry of catalogs.filter(
         (entry) => entry.phase === "correction"
       )) {
+        assert.equal(entry.model, "claude-sonnet-4-6");
         assert.deepEqual(
           entry.names.filter((name) => !allowed.has(name)),
           [],
