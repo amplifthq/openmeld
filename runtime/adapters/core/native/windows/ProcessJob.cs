@@ -2,7 +2,6 @@
 // Do not replace it with CreateProcess + AssignProcessToJobObject: death between
 // those calls would strand a child outside the ownership boundary.
 // References: Microsoft CreateProcessW, UpdateProcThreadAttribute, Job Objects.
-export const WINDOWS_PROCESS_JOB_NATIVE_SOURCE = `
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -88,11 +87,21 @@ public static class OpenMeldProcessJobV1 {
     Stopwatch clock = Stopwatch.StartNew();
     while (true) {
       Accounting state;
-      Check(QueryInformationJobObject(job, 1, out state, (uint)Marshal.SizeOf(typeof(Accounting)), IntPtr.Zero), "QueryInformationJobObject");
+      Check(QueryInformationJobObject(job, 1, out state, (uint)Marshal.SizeOf<Accounting>(), IntPtr.Zero), "QueryInformationJobObject");
       if (state.ActiveProcesses == 0) return;
       if (clock.ElapsedMilliseconds > 10000) throw new TimeoutException("Windows process cleanup was not confirmed");
       Thread.Sleep(25);
     }
+  }
+  public static string ReadIdentity(int pid) {
+    IntPtr process = OpenProcess(0x00101000, false, pid);
+    Check(process != IntPtr.Zero, "Open identity process");
+    try {
+      long started, exited, kernel, user;
+      Check(GetProcessTimes(process, out started, out exited, out kernel, out user), "Read process identity");
+      if (WaitForSingleObject(process, 0) != WaitTimeout) return null;
+      return started.ToString(CultureInfo.InvariantCulture);
+    } finally { CloseHandle(process); }
   }
   public static void VerifyDrained(string name) {
     IntPtr job = OpenJobObjectW(4, false, name);
@@ -124,7 +133,7 @@ public static class OpenMeldProcessJobV1 {
       if (createError == 183) throw new InvalidOperationException("Job identity collision");
       ExtendedLimits limits = new ExtendedLimits();
       limits.Basic.Flags = KillOnClose;
-      Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits))), "SetInformationJobObject");
+      Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf<ExtendedLimits>()), "SetInformationJobObject");
 
       IntPtr size = IntPtr.Zero;
       InitializeProcThreadAttributeList(IntPtr.Zero, 2, 0, ref size);
@@ -141,7 +150,7 @@ public static class OpenMeldProcessJobV1 {
       Marshal.WriteIntPtr(handles, 0, input); Marshal.WriteIntPtr(handles, IntPtr.Size, output); Marshal.WriteIntPtr(handles, IntPtr.Size * 2, errorOutput);
       Check(UpdateProcThreadAttribute(attributes, 0, new IntPtr(0x00020002), handles, new IntPtr(IntPtr.Size * 3), IntPtr.Zero, IntPtr.Zero), "Set inherited streams");
       StartupInfoEx startup = new StartupInfoEx();
-      startup.Startup.Size = (uint)Marshal.SizeOf(typeof(StartupInfoEx));
+      startup.Startup.Size = (uint)Marshal.SizeOf<StartupInfoEx>();
       startup.Startup.Flags = 0x100;
       startup.Startup.StandardInput = input; startup.Startup.StandardOutput = output; startup.Startup.StandardError = errorOutput;
       startup.Attributes = attributes;
@@ -177,4 +186,3 @@ public static class OpenMeldProcessJobV1 {
     }
   }
 }
-`;

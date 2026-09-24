@@ -12,6 +12,46 @@ const RELEASE = {
 };
 
 describe("CLI binary manifest schema", () => {
+  it("requires Windows publisher and helper metadata without changing macOS records", () => {
+    const windows = {
+      publisherName: "Fixture Publisher",
+      processHelper: {
+        ...RELEASE,
+        url: "https://openmeld.ai/cli/download/openmeld-windows-process-0.3.19.exe",
+      },
+    };
+    const manifest = buildManifest(RELEASE);
+    const withWindows = (release: unknown) => ({
+      ...manifest,
+      channels: {
+        stable: {
+          ...manifest.channels.stable,
+          platforms: {
+            ...manifest.channels.stable.platforms,
+            "windows-x64": release,
+          },
+        },
+      },
+    });
+    const release = { ...RELEASE, windows };
+    expect(
+      cliBinaryManifestSchema.parse(withWindows(release)).channels.stable
+        .platforms["windows-x64"]?.windows
+    ).toEqual(windows);
+    for (const invalid of [
+      RELEASE,
+      { ...release, windows: { publisherName: "Fixture Publisher" } },
+      { ...release, windows: { ...windows, publisherName: "" } },
+      { ...release, codeIdentifier: "app.cli", teamIdentifier: "MAC_TEAM" },
+    ]) {
+      expect(
+        cliBinaryManifestSchema.safeParse(withWindows(invalid)).success
+      ).toBe(false);
+    }
+    expect(
+      cliBinaryManifestSchema.safeParse(buildManifest(release)).success
+    ).toBe(false);
+  });
   it("preserves a separately selected Service artifact and rejects incomplete targets", () => {
     const legacy = buildManifest(RELEASE);
     const service = {

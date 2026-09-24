@@ -70,7 +70,7 @@ and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
 | Stage | Required work | Why |
 | --- | --- | --- |
 | Commit | The hook checks staged files with `lint-staged`. | Catch cheap errors while the change is small. |
-| Push a development branch | The hook runs focused checks on the exact pushed commit and blocks failures. | Find problems before the merge queue. |
+| Push a development branch | The hook checks protected release refs; ordinary pushes stay fast. | Avoid repeating development tests on every push. |
 | Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. | A file selector cannot decide product risk. |
 | Mark the PR ready | Sync current `main`, resolve conflicts, and validate the affected interactions. Standard FC starts automatically. | Certify the actual next merge. |
 | Merge | Require current-base `OpenMeld Final Candidate` success for the unchanged candidate. | Prevent stale or mismatched green results. |
@@ -108,7 +108,7 @@ See [GitHub's issue-linking contract](https://docs.github.com/en/issues/tracking
 
 ## Focused Checks Before Push
 
-Inspect or run the shared local/draft entrypoint:
+Inspect or run the focused local entrypoint:
 
 ```sh
 pnpm run verify:pr -- --feedback --plan
@@ -120,8 +120,10 @@ adjacent Node tests, and related Vitest tests in directly changed workspaces.
 Worker TypeScript changes also run the existing Worker-safe Zod import guard
 before package checks; its owner defines the runtime roots for both lanes.
 Plain package test aliases retain their own config; unsupported runners use
-the package's test command instead of silently skipping tests. Dependency builds
-use Turbo's cache. Test commands run sequentially, Node test files run serially,
+the package's test command instead of silently skipping tests. These package
+runners build their own package and dependencies before testing; Vitest source
+tests build dependencies only. Dependency builds use Turbo's cache. Test
+commands run sequentially, Node test files run serially,
 and related Vitest tests use at most two workers without file parallelism.
 Every run uses a disposable `OPENMELD_HOME`.
 
@@ -138,10 +140,9 @@ locally fetched `origin/main`. Missing base history is an error: fetch it.
 Recheck identity and cleanliness after success. Deletions need no tests;
 protected release pushes retain strict release verification.
 
-The development push hook runs the focused lane for each pushed commit. Run
-`pnpm run verify:pr -- --feedback` against `origin/main` when the complete PR
+Run `pnpm run verify:pr -- --feedback` against `origin/main` when the complete PR
 diff needs focused validation before Ready. This is a local, owner-selected
-check, not an automatic hosted job on every Draft push. Keep leaf PRs in draft
+check, not an automatic push hook or hosted job on every Draft push. Keep leaf PRs in draft
 during development and batch preparation. Mark ready only after validating
 affected behavior and when a green FC would make merge the next action. New
 commits cancel superseded FC runs for that PR.

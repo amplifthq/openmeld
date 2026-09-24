@@ -7,6 +7,7 @@ import {
 	parseDesktopPlatformSelector,
 	readDesktopCandidateArtifact,
 	readPromotedDesktopRelease,
+	readWindowsInternalPreview,
 } from "#/lib/desktop-release";
 
 export async function downloadDesktopPreview(input: {
@@ -117,6 +118,31 @@ async function downloadDefault(
 	}
 
 	if (!releaseManifest) {
+		if (platform === "windows-x64") {
+			const preview = await readWindowsInternalPreview(bucket);
+			if (preview) {
+				let body: ReadableStream | null = null;
+				const object = includeBody
+					? await bucket.get(preview.objectKey).then((loaded) => {
+							body = loaded?.body ?? null;
+							return loaded;
+						})
+					: await bucket.head(preview.objectKey);
+				if (!object || object.size !== preview.sizeBytes) {
+					return new Response("Windows preview artifact is unavailable.", {
+						status: 503,
+						headers: { "cache-control": "no-store" },
+					});
+				}
+				const headers = buildDesktopDownloadHeaders({
+					artifactName: preview.artifactName,
+					etag: object.httpEtag,
+					sizeBytes: object.size,
+				});
+				headers.set("cache-control", "no-store");
+				return new Response(body, { headers });
+			}
+		}
 		return new Response("OpenMeld Desktop preview is not uploaded yet.", {
 			headers: {
 				"cache-control": "no-store",

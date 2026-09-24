@@ -440,6 +440,8 @@ interface TabItemProps
   value: string;
   icon?: IconComponent;
   label: string;
+  /** Badge or status after the standard label, preserving its typography. */
+  trailing?: ReactNode;
   /** @internal Auto-assigned by TabsList. */
   _index?: number;
   children?: ReactNode;
@@ -451,6 +453,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
       value,
       icon: Icon,
       label,
+      trailing,
       children,
       _index = 0,
       className,
@@ -546,6 +549,7 @@ const TabItem = forwardRef<HTMLButtonElement, TabItemProps>(
               </span>
             </>
           )}
+          {trailing}
         </SurfaceProvider>
       </TabsPrimitive.Tab>
     );

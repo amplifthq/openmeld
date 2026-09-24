@@ -4,7 +4,7 @@ import {
   openMeldVersionsDir,
 } from "../../config/paths";
 
-const MANAGED_BINARY_NAME = "openmeld";
+const MANAGED_BINARY_NAMES = ["openmeld.exe", "openmeld"];
 const PATH_BOUNDARY_PATTERN = /[\s"'<>]/u;
 const TRAILING_SLASHES_PATTERN = /\/+$/u;
 const VERSION_SEGMENT_BOUNDARY_PATTERN = /[\s"'<>/]/u;
@@ -45,7 +45,7 @@ export function resolveOpenMeldManagedVersionBinaryRootPath(
   const versionSegment = segments.pop();
   const versionsDirectory = segments.pop();
   if (
-    binaryName !== MANAGED_BINARY_NAME ||
+    !MANAGED_BINARY_NAMES.includes(binaryName ?? "") ||
     versionsDirectory !== "versions" ||
     !versionSegment ||
     !isValidManagedVersionSegment(versionSegment)
@@ -74,7 +74,7 @@ function isManagedVersionBinaryPath(
   return (
     segments.length === 2 &&
     versionSegment.length > 0 &&
-    binaryName === MANAGED_BINARY_NAME
+    MANAGED_BINARY_NAMES.includes(binaryName)
   );
 }
 
@@ -94,10 +94,12 @@ function containsManagedVersionBinaryPath(
       isValidManagedVersionSegment(afterRoot.slice(0, versionSeparatorIndex))
     ) {
       const afterVersion = afterRoot.slice(versionSeparatorIndex + 1);
-      if (afterVersion.startsWith(MANAGED_BINARY_NAME)) {
-        const afterBinary = afterVersion[MANAGED_BINARY_NAME.length] ?? "";
-        if (isPathBoundary(afterBinary)) {
-          return true;
+      for (const binaryName of MANAGED_BINARY_NAMES) {
+        if (afterVersion.startsWith(binaryName)) {
+          const afterBinary = afterVersion[binaryName.length] ?? "";
+          if (isPathBoundary(afterBinary)) {
+            return true;
+          }
         }
       }
     }

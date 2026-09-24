@@ -58,7 +58,7 @@ export function launchExecutionHost(input: {
       cwd: process.cwd(),
       env: { ...process.env, OPENMELD_HOME: input.identity.stateRoot },
       serialization: "json",
-      stdio: ["ignore", "inherit", "inherit", "ipc"],
+      stdio: ["ignore", process.stdout.fd, process.stderr.fd, "ipc"],
       windowsHide: true,
     }
   );

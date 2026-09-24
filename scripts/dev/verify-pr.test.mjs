@@ -31,6 +31,44 @@ test("checks signed Skill inputs in feedback and PR validation without checking 
   }
 });
 
+test("focused PR validation retains shared checks and every changed workspace", () => {
+  const paths = [
+    "scripts/dev/verify-pr.test.mjs",
+    "clients/web/src/app.tsx",
+    "clients/openmeld-cli/src/commands/service.ts",
+    "clients/desktop/src/deleted.ts",
+  ];
+  const existingFiles = paths.slice(0, 3);
+  const workspaces = [
+    { directory: "clients/web", name: "openmeld-web", test: "vitest run" },
+    { directory: "clients/openmeld-cli", name: "openmeld", test: "vitest run" },
+    {
+      directory: "clients/desktop",
+      name: "@openmeld/desktop",
+      test: "vitest run",
+    },
+  ];
+  const commands = planPrChecks(paths, {
+    feedback: true,
+    existingFiles,
+    workspaces,
+  });
+  assert.ok(
+    commands.some((args) => args.includes("scripts/dev/verify-pr.test.mjs"))
+  );
+  assert.ok(commands.some((args) => args.includes("biome")));
+  assert.ok(
+    commands.some((args) => args.includes("--filter=openmeld-web^..."))
+  );
+  assert.ok(commands.some((args) => args.includes("--filter=openmeld^...")));
+  assert.deepEqual(
+    commands.filter((args) => args.includes("related")).map((args) => args[1]),
+    ["clients/web", "clients/openmeld-cli", "clients/desktop"]
+  );
+  assert.ok(
+    commands.every((args) => !args.some((arg) => arg.startsWith("--shard=")))
+  );
+});
 test("Worker changes select the existing Zod contract guard before expensive tests", () => {
   for (const feedback of [true, false]) {
     for (const file of [
@@ -141,6 +179,26 @@ test("unsupported package runners execute their own test command instead of sile
   assert.equal(commands.length, 3);
   assert.deepEqual(commands[2], ["--dir", "services/core", "run", "test"]);
   assert.ok(commands[1].includes("biome"));
+});
+
+test("focused plain package tests build their own imported dist", () => {
+  const commands = planPrChecks(["runtime/adapters/core/src/index.ts"], {
+    feedback: true,
+    workspaces: [
+      {
+        directory: "runtime/adapters/core",
+        name: "@openmeld/adapter-core",
+        test: "node --test test/*.test.js",
+      },
+    ],
+  });
+  assert.ok(commands[1].includes("--filter=@openmeld/adapter-core..."));
+  assert.deepEqual(commands[2], [
+    "--dir",
+    "runtime/adapters/core",
+    "run",
+    "test",
+  ]);
 });
 
 test("documentation and shared skill edits avoid workspace builds and tests", () => {
