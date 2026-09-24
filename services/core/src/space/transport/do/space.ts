@@ -260,6 +260,7 @@ import {
   type SpaceAccessContext,
 } from "@openmeld/space";
 import { buildSystemNoticeText } from "@openmeld/space-mesh";
+import { publishAccountInvalidation } from "../../../account-invalidation/publish-account-invalidation";
 import { readPrimaryAgentProfileBindingRecord } from "../../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   recordRuntimeCoordinatorFailureTaskOutcome,
@@ -16521,6 +16522,8 @@ export class Space extends DurableObject<CoreBindings> {
       };
     }
 
+    this.scheduleAccountSpaceIndexInvalidation(input.record);
+
     return {
       memberCount:
         input.record.snapshot.kind === "message_preview"
@@ -16541,11 +16544,14 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
     for (const record of records) {
-      await attemptSpaceIndexProjectionOutboxRecord({
+      const result = await attemptSpaceIndexProjectionOutboxRecord({
         db: this.requireSpaceIndexDb(),
         record,
         sql: this.ctx.storage.sql,
       });
+      if (result.status === "completed") {
+        this.scheduleAccountSpaceIndexInvalidation(record);
+      }
     }
     await this.syncSpaceBackgroundAlarm();
   }
@@ -16620,6 +16626,16 @@ export class Space extends DurableObject<CoreBindings> {
         record,
         sql: this.ctx.storage.sql,
       });
+      if (result.projectedUserIds.length > 0) {
+        this.ctx.waitUntil(
+          publishAccountInvalidation({
+            env: this.bindings,
+            frame: { type: "inbox.changed" },
+            organizationId: record.candidates[0]?.organizationId ?? "",
+            userIds: result.projectedUserIds,
+          })
+        );
+      }
       if (result.status === "failed") {
         console.warn("[core.openmeld.space.inbox_projection_failed]", {
           attemptCount: record.attemptCount + 1,
@@ -16630,6 +16646,33 @@ export class Space extends DurableObject<CoreBindings> {
         });
       }
     }
+  }
+
+  private scheduleAccountSpaceIndexInvalidation(
+    record: SpaceIndexProjectionOutboxRecord
+  ): void {
+    const organizationId = readSpaceMetaRecordFromSql(
+      this.ctx.storage.sql,
+      this.spaceId
+    )?.organizationId;
+    if (!organizationId) {
+      return;
+    }
+    const members =
+      record.snapshot.kind === "message_preview"
+        ? listSpaceMemberRecords(this.ctx.storage.sql, { status: "active" })
+        : record.snapshot.memberRecords;
+    const userIds = members
+      .map((member) => member.ownerUserIdSnapshot)
+      .filter((userId): userId is string => Boolean(userId));
+    this.ctx.waitUntil(
+      publishAccountInvalidation({
+        env: this.bindings,
+        frame: { type: "space_index.changed" },
+        organizationId,
+        userIds,
+      })
+    );
   }
 
   private async projectActiveSpaceIndexBackfillSnapshot(input: {

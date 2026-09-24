@@ -46,6 +46,7 @@ import type {
 } from "#/components/directory/directory-human-profile-model";
 import {
 	buildDirectoryAgentProfilesByOwner,
+	resolveCurrentOrganizationComputersProjection,
 	resolveHumanProfileComputer,
 } from "#/components/directory/directory-human-profile-model";
 import {
@@ -570,12 +571,10 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 		isError: profileDirectoryQuery.isError,
 		isPending: profileDirectoryQuery.isPending,
 	});
-	const computersStatus = resolveDirectoryProjectionStatus({
-		isError: computersQuery.isError,
-		isPending: computersQuery.isPending,
-	});
+	const { data: currentComputers, status: computersStatus } =
+		resolveCurrentOrganizationComputersProjection(computersQuery);
 	const computer = resolveHumanProfileComputer({
-		computers: computersQuery.data ?? null,
+		computers: currentComputers,
 		isCurrentUser: input.entry.ownerUserId === input.currentOwnerUserId,
 		orgSlug: input.orgSlug,
 		status: computersStatus,
