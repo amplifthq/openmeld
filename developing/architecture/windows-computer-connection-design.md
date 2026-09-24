@@ -18,8 +18,10 @@ The internal trial uses one exact-source, native Windows build of the CLI,
 Service, process helper, and Desktop installer. Its CLI manifest and Desktop
 pointer live in separate `windows-preview` R2 keys. Web setup and Desktop
 acquisition select that manifest explicitly; stable signed channels are not
-modified. Every executable URL includes its content SHA-256, and acquisition
-checks size and hash. This integrity check is **not publisher authentication**:
+modified. The CLI, Service, and helper URLs include their content SHA-256, and
+their acquisition checks size and hash. The Desktop installer is verified
+against its pointer before upload; Web checks its stored size before download.
+These checks are **not publisher authentication**:
 the trial is unsigned, Windows may warn or block it, and the Desktop preview
 does not use automatic updates. The trial is for known coworkers only.
 
@@ -41,6 +43,28 @@ at the current candidate. It does not claim a physical coworker connection,
 signed Windows trust, automatic Desktop updates, or release publication.
 Those user-path checks happen after the coordinated release. The earlier A
 task-host timeout remains undiagnosed and independent.
+
+### Contract impact and rollout order
+
+- The shared CLI manifest adds an explicit unsigned Windows preview variant;
+  the signed variant and macOS stable records retain their existing shape.
+  Old CLI/Service binaries must not be pointed at the preview manifest. The
+  preview entrypoints select it explicitly, and the compiled CLI embeds the
+  matching Service release and helper bytes.
+- Core, Gateway, authorization, Computer identity, Prepare, Wake, and Space
+  result contracts do not change. The installer still owns Service registration
+  and account admission; Desktop only acquires the CLI and reviews the existing
+  connection. No parallel connection or execution authority is introduced.
+- Web routes must deploy before anyone follows a preview download URL. The
+  merged-source Windows artifact must then be built, checked, and uploaded with
+  the manifest and Desktop pointer last. The release owner verifies the actual
+  Web command and download on the published SHA before sharing them. Existing
+  stable Mac clients remain on their signed channel.
+- The preview's explicit environment marker follows its registered Service and
+  update worker. The marker alone cannot admit unsigned artifacts: the exact
+  production preview manifest URL is also required. Removing the preview later
+  requires a separate signed-channel migration and native A-to-B acceptance;
+  this PR does not silently switch existing installations.
 
 ## Current implementation and public signed release gates
 

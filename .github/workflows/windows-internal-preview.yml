@@ -7,21 +7,26 @@ on:
       - .github/workflows/windows-internal-preview.yml
       - scripts/release/windows-internal-preview.mjs
       - scripts/release/publish-windows-internal-preview.mjs
-      - scripts/desktop/**
-      - clients/desktop/**
+      - scripts/desktop/windows-artifact.mjs
+      - scripts/desktop/package-mode.mjs
+      - scripts/desktop/installed-package.mjs
+      - scripts/desktop/installed-platform.ts
+      - clients/desktop/electron-builder.installed.config.mjs
+      - clients/desktop/src/main/installed-environment.ts
+      - clients/desktop/src/main/cli/managed-binary.ts
       - clients/web/src/lib/setup-bootstrap-windows-binary.ts
       - clients/web/src/lib/setup-bootstrap-script.ts
       - clients/web/src/lib/desktop-release.ts
       - clients/web/src/lib/cli-binary-release.ts
       - clients/web/src/routes/cli/**
-      - clients/web/src/routes/desktop/**
-      - clients/openmeld-cli/**
-      - runtime/local-service/**
-      - packages/schemas/**
-      - pnpm-lock.yaml
+      - clients/web/src/routes/desktop/download.ts
 
 permissions:
   contents: read
+
+concurrency:
+  group: windows-internal-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -43,6 +48,8 @@ jobs:
         with:
           dotnet-version: 10.0.401
       - run: pnpm install --frozen-lockfile
+      - name: Build the self-contained native process helper
+        run: node scripts/release/build-windows-process-helper.mjs
       - name: Build shared runtime and client contracts
         run: pnpm exec turbo run build --filter=openmeld^... --filter=openmeld-web^... --filter=@openmeld/desktop^... --concurrency=1
       - name: Build exact-source Windows carriers
@@ -87,6 +94,7 @@ jobs:
             cli/dist/openmeld-cli-windows-x64-*.exe
             cli/dist/openmeld-service-windows-x64-*.exe
             cli/dist/openmeld-windows-process.exe
+            cli/dist/windows-process-artifact.json
             clients/desktop/dist/internal-preview/*.exe
           retention-days: 14
           if-no-files-found: warn

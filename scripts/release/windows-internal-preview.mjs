@@ -19,6 +19,7 @@ import {
 } from "../../packages/schemas/src/index.ts";
 import { inspectWindowsInternalPreview } from "../desktop/windows-artifact.mjs";
 import { buildCliBinary } from "./build-cli-binary.mjs";
+import { verifyWindowsProcessArtifact } from "./windows-process-artifact.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const evidenceDir = join(root, "dev-tmp/windows-internal-preview");
@@ -97,9 +98,17 @@ function buildCli() {
     readFileSync(join(root, "clients/openmeld-cli/package.json"), "utf8")
   ).version;
   mkdirSync(evidenceDir, { recursive: true });
-  run(process.execPath, ["scripts/release/build-windows-process-helper.mjs"], {
-    stdio: "inherit",
-  });
+  try {
+    verifyWindowsProcessArtifact(cliDist, root);
+  } catch {
+    run(
+      process.execPath,
+      ["scripts/release/build-windows-process-helper.mjs"],
+      {
+        stdio: "inherit",
+      }
+    );
+  }
   const helper = previewArtifact(
     "process",
     version,
