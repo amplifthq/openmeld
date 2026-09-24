@@ -16,20 +16,15 @@ import { useChatArchive } from "./use-chat-archive";
 /** Personal list cleanup; never deletes a Space or changes its membership. */
 export function ChatHeaderMenu({
 	spaceId,
-	profileId,
 	onOpenConversationInformation,
 	ariaLabel = "Chat menu",
 }: {
 	spaceId: string;
-	profileId: string;
 	onOpenConversationInformation: () => void;
 	ariaLabel?: string;
 }) {
 	const [confirmOpen, setConfirmOpen] = useState(false);
-	const { archived, disabled, label, toggle } = useChatArchive(
-		spaceId,
-		profileId
-	);
+	const { archived, disabled, label, toggle } = useChatArchive(spaceId);
 	const confirmArchive = async () => {
 		if (await toggle()) {
 			setConfirmOpen(false);

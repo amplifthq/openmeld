@@ -55,7 +55,9 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 const testPresence = vi.hoisted(() => new Map<string, "online" | "offline">());
+const sidebarPending = vi.hoisted(() => ({ value: false }));
 beforeEach(() => {
+	sidebarPending.value = false;
 	testPresence.clear();
 	testPresence.set("profile-current", "online");
 	testPresence.set("profile-grace", "offline");
@@ -77,6 +79,9 @@ vi.mock("../app/use-sidebar-preferences", () => ({
 		disabled: false,
 		save: vi.fn(),
 		isError: false,
+		get isPending() {
+			return sidebarPending.value;
+		},
 	}),
 }));
 
@@ -203,6 +208,26 @@ vi.mock("./center-agent-item", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
+	it("shows known people while personal sidebar settings are still loading", () => {
+		sidebarPending.value = true;
+		renderWorkspace({
+			members: [
+				buildMember({ current: true }),
+				buildMember({ current: false }),
+			],
+			selectedProfileId: null,
+		});
+		expect(screen.queryByRole("region", { name: "Loading people" })).toBeNull();
+		expect(screen.queryByRole("region", { name: "Loading team" })).toBeNull();
+		const team = within(screen.getByRole("tabpanel"));
+		expect(
+			team.getByRole("button", { name: "Open Felix's profile" })
+		).toBeTruthy();
+		expect(
+			team.getByRole("button", { name: "Open Grace Hopper's profile" })
+		).toBeTruthy();
+	});
+
 	it("uses the same placement and self-first order for Team groups", () => {
 		const self = { ...buildMember({ current: true }), name: "Zoe" };
 		const other = {

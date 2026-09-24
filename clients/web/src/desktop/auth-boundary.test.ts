@@ -1,3 +1,4 @@
+import { QueryClient } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
 	createRootRoute,
@@ -15,17 +16,18 @@ describe("Desktop route authentication", () => {
 		false,
 		true,
 	])("runs protected child loaders only with a native session: %s", async (signedIn) => {
+		const queryClient = new QueryClient();
 		const bridge = {
 			updaterState: vi.fn(),
 			updaterAction: vi.fn(),
 			updaterPrepared: vi.fn(),
 			onUpdaterChanged: vi.fn(() => () => undefined),
 			onUpdaterPrepare: vi.fn(() => () => undefined),
-			session: async () => ({
+			session: vi.fn(async () => ({
 				user: signedIn
 					? { id: "account-a", email: "a@example.com", name: "A" }
 					: null,
-			}),
+			})),
 			platform: vi.fn(),
 			showNotification: vi.fn(),
 			setNotificationContext: vi.fn(),
@@ -58,7 +60,7 @@ describe("Desktop route authentication", () => {
 		const loader = vi.fn();
 		const root = createRootRoute({
 			beforeLoad: ({ location }) =>
-				beforeDesktopLoad(location.pathname, location.href),
+				beforeDesktopLoad(location.pathname, location.href, queryClient),
 		});
 		const protectedRoute = createRoute({
 			getParentRoute: () => root,
@@ -78,6 +80,26 @@ describe("Desktop route authentication", () => {
 		});
 		await router.load();
 		expect(loader).toHaveBeenCalledTimes(signedIn ? 1 : 0);
+		if (signedIn) {
+			await beforeDesktopLoad(
+				"/o/team/spaces/space-a",
+				"/o/team/spaces/space-a",
+				queryClient
+			);
+			expect(bridge.session).toHaveBeenCalledTimes(1);
+			const later = Date.now() + 31_000;
+			const now = vi.spyOn(Date, "now").mockReturnValue(later);
+			try {
+				await beforeDesktopLoad(
+					"/o/team/spaces/space-a",
+					"/o/team/spaces/space-a",
+					queryClient
+				);
+				expect(bridge.session).toHaveBeenCalledTimes(2);
+			} finally {
+				now.mockRestore();
+			}
+		}
 		if (!signedIn) {
 			await expect(
 				beforeDesktopLoad("/o/team/spaces/space-a", "/o/team/spaces/space-a")

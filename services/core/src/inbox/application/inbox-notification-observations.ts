@@ -72,6 +72,16 @@ export async function observeInboxNotifications(
       }),
     };
   }
+  if (query.cursor && throughRowId === previous.afterRowId) {
+    // Most visible-window polls are empty. The maximum row ID already proves
+    // there is no new page to hydrate or access-check.
+    return {
+      organizationId: identity.organizationId,
+      items: [],
+      hasMore: false,
+      cursor: query.cursor,
+    };
+  }
   const limit = query.limit ?? 50;
   const access = buildCurrentInboxSourceAccessSql(
     "inbox_items",
