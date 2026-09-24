@@ -45,11 +45,18 @@ test("automatic draft feedback cannot start the full affected lane", () => {
     workflow.jobs.shared.if,
     "github.event.pull_request.draft == true"
   );
-  assert.equal(workflow.jobs.workspaces.needs, "shared");
+  assert.equal(workflow.jobs.plan.if, workflow.jobs.shared.if);
+  assert.equal(workflow.jobs.workspaces.needs, "plan");
+  assert.equal(workflow.jobs.shared.needs, undefined);
+  assert.ok(
+    workflow.jobs.plan.outputs.workspaces.includes(
+      "steps.matrix.outputs.workspaces"
+    )
+  );
   assert.equal(workflow.jobs.workspaces.strategy["fail-fast"], false);
   assert.ok(
     workflow.jobs.workspaces.strategy.matrix.includes(
-      "fromJSON(needs.shared.outputs.workspaces)"
+      "fromJSON(needs.plan.outputs.workspaces)"
     )
   );
   assert.ok(workflow.on.pull_request.types.includes("converted_to_draft"));

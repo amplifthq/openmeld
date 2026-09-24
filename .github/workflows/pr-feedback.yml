@@ -13,17 +13,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  shared:
-    name: Shared draft checks
+  plan:
+    name: Select draft tests
     if: github.event.pull_request.draft == true
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     outputs:
       workspaces: ${{ steps.matrix.outputs.workspaces }}
       has_workspaces: ${{ steps.matrix.outputs.has_workspaces }}
     env:
       OPENMELD_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
-      NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v5
         with:
@@ -41,6 +40,21 @@ jobs:
           else
             printf 'has_workspaces=true\n' >> "$GITHUB_OUTPUT"
           fi
+
+  shared:
+    name: Shared draft checks
+    if: github.event.pull_request.draft == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENMELD_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
       - name: Show selected checks
         run: pnpm run verify:pr -- --feedback --shared --plan
       - name: Run shared draft checks
@@ -50,11 +64,11 @@ jobs:
 
   workspaces:
     name: Tests (${{ matrix.label }})
-    needs: shared
-    if: needs.shared.outputs.has_workspaces == 'true'
+    needs: plan
+    if: needs.plan.outputs.has_workspaces == 'true'
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.shared.outputs.workspaces) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.workspaces) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
