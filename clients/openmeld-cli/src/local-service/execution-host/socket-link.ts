@@ -117,7 +117,12 @@ export function createExecutionHostSocketLink(input: {
       leases: RuntimeTransportLease[];
     }): Promise<void> {
       const previous = configuration;
-      bound = false;
+      // Catalog refreshes on the same socket do not replace execution
+      // authority. Frames already wait for `configuration` below, so keep
+      // admission open until the Host has applied the new catalog.
+      if (generation !== request.connectionGeneration) {
+        bound = false;
+      }
       generation = request.connectionGeneration;
       notifyAdmission();
       const next = previous
@@ -129,14 +134,25 @@ export function createExecutionHostSocketLink(input: {
               "This socket was replaced before Host configuration."
             );
           }
-          observed = await input.host.call("configureConnection", request);
+          const nextObservation = await input.host.call(
+            "configureConnection",
+            request
+          );
           if (!closed && generation === request.connectionGeneration) {
+            observed = nextObservation;
             bound = true;
             notifyAdmission();
           }
         });
-      configuration = next;
-      await next;
+      configuration = next.catch((error: unknown) => {
+        if (!closed && generation === request.connectionGeneration) {
+          bound = false;
+          observed = null;
+          notifyAdmission();
+        }
+        throw error;
+      });
+      await configuration;
     },
     forward(frame: ParsedDaemonFrame): boolean {
       const request = serviceExecutionHostMethods.handleFrame.input.safeParse({

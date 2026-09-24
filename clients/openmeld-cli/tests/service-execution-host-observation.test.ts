@@ -25,6 +25,62 @@ vi.mock(
 );
 
 describe("Host responsiveness observations", () => {
+  it("keeps a healthy socket open through catalog refresh, but closes admission if applying it fails", async () => {
+    const snapshot = {
+      pid: 41_001,
+      admission: "open" as const,
+      activeCount: 0,
+      pendingCount: 0,
+      localQuiescent: true,
+      unacknowledgedResultCount: 0,
+      startupReplayPending: false,
+      adapterIds: [],
+    };
+    const pending = Promise.withResolvers<typeof snapshot>();
+    const changed = vi.fn();
+    const host = {
+      available: () => true,
+      call: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot)
+        .mockReturnValueOnce(pending.promise),
+      onEvent: () => () => undefined,
+      onAvailabilityChanged: () => () => undefined,
+    } as unknown as Parameters<typeof createExecutionHostSocketLink>[0]["host"];
+    const link = createExecutionHostSocketLink({
+      host,
+      socket: { send: () => undefined },
+      onAdmissionChanged: changed,
+      onInvalidation: vi.fn(),
+      onAuthenticationFailure: vi.fn(),
+      onError: vi.fn(),
+    });
+    const initial = {
+      executionAdmissionConfirmation: true,
+      connectionGeneration: 1,
+      catalogRevision: 1,
+      leases: [],
+    };
+    await link.configure(initial);
+    expect(link.canAccept()).toBe(true);
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    const refresh = link.configure({ ...initial, catalogRevision: 2 });
+    await vi.waitFor(() => expect(host.call).toHaveBeenCalledTimes(2));
+    expect(link.canAccept()).toBe(true);
+    expect(changed).toHaveBeenCalledTimes(1);
+    pending.resolve(snapshot);
+    await refresh;
+    expect(link.canAccept()).toBe(true);
+
+    vi.mocked(host.call).mockRejectedValueOnce(new Error("catalog rejected"));
+    await expect(
+      link.configure({ ...initial, catalogRevision: 3 })
+    ).rejects.toThrow("catalog rejected");
+    expect(link.canAccept()).toBe(false);
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
   it("withdraws responsiveness after a heartbeat timeout without losing historical work or restarting it", async () => {
     const snapshot = {
       pid: fixture.child.pid,
