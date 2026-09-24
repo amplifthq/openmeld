@@ -92,10 +92,20 @@ export function useSpaceInboxReadPosition(input: {
 				}
 				throw error;
 			}
-			await invalidateInboxFacts({
-				organizationId: input.organizationId,
-				queryClient,
-			});
+			// The read position is now durable. A failed refresh only delays the
+			// Inbox projection, which also refreshes on its own schedule, so it must
+			// not be reported as a failure to mark messages as read.
+			try {
+				await invalidateInboxFacts({
+					organizationId: input.organizationId,
+					queryClient,
+				});
+			} catch (refreshError) {
+				console.warn(
+					"Failed to refresh Inbox after a read-position write.",
+					refreshError
+				);
+			}
 		},
 		[input.destination, input.organizationId, input.spaceId, queryClient]
 	);
@@ -153,11 +163,15 @@ export function useSpaceInboxReadPosition(input: {
 				(candidate) => candidate.spaceId === input.spaceId
 			);
 			if (!space) {
-				if ((unreadTargetsQuery.data?.totalUnreadCount ?? 0) > 0) {
-					throw new Error(
-						"OpenMeld couldn’t confirm which messages are unread. Try again."
-					);
-				}
+				// The fresh summary is authoritative: this Space has nothing unread.
+				// Any unread targets still on screen are stale, so refresh them
+				// instead of reporting a failure for work that is already done.
+				await queryClient.invalidateQueries({
+					queryKey: inboxQueryKeys.spaceUnreadTargets(
+						input.organizationId,
+						input.spaceId
+					),
+				});
 				return null;
 			}
 			preparedCutoff = {
@@ -192,7 +206,6 @@ export function useSpaceInboxReadPosition(input: {
 		input.spaceId,
 		persist,
 		queryClient,
-		unreadTargetsQuery.data?.totalUnreadCount,
 	]);
 	return {
 		isReady: unreadTargetsQuery.isSuccess,
