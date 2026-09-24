@@ -1162,6 +1162,17 @@ separate facts; draining must not mark an in-flight Wake failed.
 Core-owned Wakeability is the only final user-facing projection for this
 question. Web, CLI, Space, and Start render it; they do not recompute it.
 
+Reviewed model unavailability is another input to this same projection and Wake
+admission, not a new Profile enabled/disabled writer. Core checks the current
+explicit Binding selection against the authored catalog; scoped withdrawal uses
+fresh identity-matched provider/sign-in evidence. Advisory retirement dates and
+unknown scope do not block a Wake. `model.retired` and `model.unavailable` direct
+the owner to that Profile's model settings. They do not change Computer
+connectivity, manual Profile status, existing conversation history or an accepted
+execution's outcome. A valid user change removes only this model blocker and
+never authorizes automatic continuation of previous work.
+
+
 Current Wakeability and one concrete Wake execution are separate facts.
 Wakeability is a current reply-path projection. A Wake execution is what
 happened to one user request. A current `Available` verdict must not hide

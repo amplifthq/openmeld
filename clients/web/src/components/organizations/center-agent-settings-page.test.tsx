@@ -348,7 +348,9 @@ describe("CenterAgentSettingsContent", () => {
 				)
 			).toBeTruthy();
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Save model" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Save model settings" })
+		);
 
 		await waitFor(() => {
 			expect(updateCurrentCenterAgentModelMock).toHaveBeenCalledWith({
@@ -378,7 +380,9 @@ describe("CenterAgentSettingsContent", () => {
 		expect(
 			screen.getByRole("status", { name: "Model change impact" }).textContent
 		).toContain("including existing conversations");
-		fireEvent.click(screen.getByRole("button", { name: "Save model" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Save model settings" })
+		);
 		await waitFor(() =>
 			expect(screen.getByText("Current: DeepSeek V4 Flash")).toBeTruthy()
 		);
@@ -399,10 +403,9 @@ describe("CenterAgentSettingsContent", () => {
 		await waitFor(() =>
 			expect(trigger.textContent).toContain("DeepSeek V4 Flash")
 		);
-		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
-			"disabled",
-			false
-		);
+		expect(
+			screen.getByRole("button", { name: "Save model settings" })
+		).toHaveProperty("disabled", false);
 		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
 	});
 
@@ -430,10 +433,9 @@ describe("CenterAgentSettingsContent", () => {
 			name: "Primary model",
 		});
 		expect(modelTrigger.textContent).toContain("Choose a model");
-		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
-			"disabled",
-			true
-		);
+		expect(
+			screen.getByRole("button", { name: "Save model settings" })
+		).toHaveProperty("disabled", true);
 		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
 		fireEvent.click(modelTrigger);
 		const gemini = await screen.findByRole("option", {
@@ -445,7 +447,9 @@ describe("CenterAgentSettingsContent", () => {
 		).toBeTruthy();
 		expect(screen.getByText("Current: GLM 5.3 Flash")).toBeTruthy();
 		fireEvent.click(gemini);
-		fireEvent.click(screen.getByRole("button", { name: "Save model" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Save model settings" })
+		);
 		await waitFor(() =>
 			expect(updateCurrentCenterAgentModelMock).toHaveBeenCalledWith({
 				expectedConfigurationRevision: 7,
@@ -468,10 +472,9 @@ describe("CenterAgentSettingsContent", () => {
 		);
 		fireEvent.click(screen.getByRole("combobox", { name: "Provider" }));
 		fireEvent.click(await screen.findByRole("option", { name: "xAI" }));
-		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
-			"disabled",
-			true
-		);
+		expect(
+			screen.getByRole("button", { name: "Save model settings" })
+		).toHaveProperty("disabled", true);
 		fireEvent.click(screen.getByRole("combobox", { name: "Provider" }));
 		fireEvent.click(
 			await screen.findByRole("option", { name: "All providers" })
@@ -482,10 +485,9 @@ describe("CenterAgentSettingsContent", () => {
 				name: "OpenMeld default (GLM 5.3 Flash) New",
 			})
 		);
-		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
-			"disabled",
-			true
-		);
+		expect(
+			screen.getByRole("button", { name: "Save model settings" })
+		).toHaveProperty("disabled", true);
 		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
 	});
 
@@ -522,7 +524,9 @@ describe("CenterAgentSettingsContent", () => {
 		fireEvent.click(
 			await screen.findByRole("option", { name: "DeepSeek V4 Flash" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Save model" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Save model settings" })
+		);
 
 		expect(
 			await screen.findByText(
@@ -558,10 +562,9 @@ describe("CenterAgentSettingsContent", () => {
 		fireEvent.click(
 			await screen.findByRole("option", { name: "DeepSeek V4 Flash" })
 		);
-		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
-			"disabled",
-			false
-		);
+		expect(
+			screen.getByRole("button", { name: "Save model settings" })
+		).toHaveProperty("disabled", false);
 		view.rerender(section("another-organization"));
 		await waitFor(() =>
 			expect(
@@ -571,10 +574,9 @@ describe("CenterAgentSettingsContent", () => {
 		expect(screen.getByRole("combobox", { name: "Provider" }).textContent).toBe(
 			"All providers"
 		);
-		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
-			"disabled",
-			true
-		);
+		expect(
+			screen.getByRole("button", { name: "Save model settings" })
+		).toHaveProperty("disabled", true);
 		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
 	});
 

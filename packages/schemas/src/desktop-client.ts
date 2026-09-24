@@ -122,3 +122,20 @@ export type DesktopSpaceStreamBridge = {
   spaceStreamPing(id: string): Promise<void>;
   onSpaceStream(handler: (event: DesktopSpaceStreamEvent) => void): () => void;
 };
+
+export const desktopAccountStreamInputSchema = z.strictObject({
+  id: desktopSpaceStreamIdSchema,
+  organizationId: z.string().min(1).max(256),
+});
+export type DesktopAccountStreamInput = z.infer<
+  typeof desktopAccountStreamInputSchema
+>;
+export type DesktopAccountStreamEvent = DesktopSpaceStreamEvent;
+export type DesktopAccountStreamBridge = {
+  accountStreamOpen?(input: DesktopAccountStreamInput): Promise<void>;
+  accountStreamClose?(id: string): Promise<void>;
+  accountStreamPing?(id: string): Promise<void>;
+  onAccountStream?(
+    handler: (event: DesktopAccountStreamEvent) => void
+  ): () => void;
+};

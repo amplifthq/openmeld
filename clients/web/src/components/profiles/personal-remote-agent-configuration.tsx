@@ -1,9 +1,11 @@
 "use client";
 
+import type { ModelCatalog } from "@openmeld/schemas/types";
 import { BrainIcon, CheckIcon } from "@phosphor-icons/react";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import {
 	HostedModelSelect,
+	HostedReasoningSelect,
 	personalRemoteModelChoices,
 } from "#/components/models/hosted-model-select";
 import {
@@ -11,18 +13,21 @@ import {
 	AgentConfigurationGrid,
 } from "./agent-configuration-card";
 import { AgentNameEditor } from "./agent-name-editor";
-import type { CreateProfileFormProps } from "./create-profile-form";
 
 export function PersonalRemoteAgentConfiguration(input: {
-	form: CreateProfileFormProps;
+	isSubmitting: boolean;
+	modelCatalog: ModelCatalog | null;
 	name: string;
 	model: string;
+	reasoningLevel: string;
 	onNameChange: (name: string) => void;
 	onModelChange: (model: string) => void;
+	onReasoningLevelChange: (level: string) => void;
 }) {
-	const catalog = input.form.modelCatalog?.agentControllers["center-agent"];
-	const models = personalRemoteModelChoices(input.form.modelCatalog);
+	const catalog = input.modelCatalog?.agentControllers["center-agent"];
+	const models = personalRemoteModelChoices(input.modelCatalog);
 	const modelId = input.model;
+	const selectedModel = catalog?.models.find((model) => model.id === modelId);
 	const modelName =
 		models.find((choice) => choice.value === modelId)?.label ??
 		(catalog ? "Choose a model" : "Loading models…");
@@ -47,7 +52,7 @@ export function PersonalRemoteAgentConfiguration(input: {
 				<span className="font-medium text-xs">OpenMeld Remote Agent</span>
 			</div>
 			<AgentNameEditor
-				disabled={input.form.isSubmitting}
+				disabled={input.isSubmitting}
 				maxLength={80}
 				onChange={input.onNameChange}
 				value={input.name}
@@ -55,7 +60,7 @@ export function PersonalRemoteAgentConfiguration(input: {
 			<AgentConfigurationGrid className="@min-[64rem]/agent-creation:grid-cols-3">
 				<AgentConfigurationCard
 					description="Choose the model this Agent uses."
-					disabled={input.form.isSubmitting || !catalog}
+					disabled={input.isSubmitting || !catalog}
 					icon={<BrainIcon aria-hidden="true" />}
 					itemId="model"
 					label="Model"
@@ -63,10 +68,19 @@ export function PersonalRemoteAgentConfiguration(input: {
 				>
 					<HostedModelSelect
 						choices={models}
-						disabled={input.form.isSubmitting || !catalog}
+						disabled={input.isSubmitting || !catalog}
 						onValueChange={input.onModelChange}
 						value={modelId}
 					/>
+					{selectedModel?.hostedRuntime ? (
+						<HostedReasoningSelect
+							defaultLevel={selectedModel.hostedRuntime.reasoningLevel}
+							disabled={input.isSubmitting}
+							levels={selectedModel.supportedReasoningLevels}
+							onValueChange={input.onReasoningLevelChange}
+							value={input.reasoningLevel}
+						/>
+					) : null}
 				</AgentConfigurationCard>
 			</AgentConfigurationGrid>
 		</div>

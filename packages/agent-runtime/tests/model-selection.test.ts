@@ -67,6 +67,51 @@ const CATALOG: ModelCatalog = {
 };
 
 describe("resolveConversationPolicyFromModelSelection", () => {
+  it.each([
+    ["announced", "chatgpt", "on", "accepted"],
+    ["announced", "chatgpt", "not_before", "accepted"],
+    ["withdrawn", "chatgpt", "on", "rejected"],
+    ["withdrawn", "apiKey", "on", "accepted"],
+    ["withdrawn", null, "on", "accepted"],
+  ] as const)("resolves %s for %s with %s date without a time-triggered shutdown", (status, authType, kind, expected) => {
+    const catalog = structuredClone(CATALOG);
+    const model = catalog.agentControllers.codex?.models.find(
+      (entry) => entry.id === "gpt-5.4"
+    );
+    if (!model) {
+      throw new Error("Test catalog is missing GPT-5.4");
+    }
+    model.retirement = {
+      status,
+      date: { value: "2000-01-01", kind },
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl: "https://example.com/official-notice",
+      verifiedAt: "2026-09-23T00:00:00Z",
+    };
+    const result = resolveConversationPolicyFromModelSelection({
+      agentControllerRef: "builtin:codex",
+      authType,
+      catalog,
+      modelSelection: { modelId: model.id },
+    });
+    expect(result.status).toBe(expected);
+    if (expected === "rejected") {
+      expect(result).toMatchObject({ reasonCode: "model.retired" });
+      expect(result).not.toHaveProperty("conversationPolicy");
+    } else {
+      expect(result).toMatchObject({ conversationPolicy: { model: model.id } });
+    }
+    // The provider and controller scope cannot leak to another execution surface.
+    expect(
+      resolveConversationPolicyFromModelSelection({
+        agentControllerRef: "custom:codex",
+        authType: "chatgpt",
+        catalog,
+        modelSelection: { modelId: model.id },
+      }).status
+    ).toBe("accepted");
+  });
+
   it("late-binds unset selections to the controller default", () => {
     expect(
       resolveConversationPolicyFromModelSelection({
@@ -141,30 +186,28 @@ describe("resolveConversationPolicyFromModelSelection", () => {
     ).toEqual({
       status: "accepted",
       conversationPolicy: {
-        fallbackModel: "gpt-5.5",
         model: "gpt-5.4",
         reasoningLevel: "medium",
       },
     });
   });
 
-  it("late-binds an unavailable explicit model to the controller default", () => {
-    expect(
-      resolveConversationPolicyFromModelSelection({
-        agentControllerRef: "builtin:codex",
-        catalog: CATALOG,
-        modelSelection: {
-          modelId: "gpt-retired",
-          reasoningLevel: "high",
-        },
-      })
-    ).toEqual({
-      status: "accepted",
-      conversationPolicy: {
-        fallbackModel: "gpt-5.5",
-        model: "gpt-5.5",
-      },
+  it.each([
+    "gpt-retired",
+    "gpt-missing",
+  ])("rejects unavailable explicit model %s without a replacement or policy", (modelId) => {
+    const selection = { modelId, reasoningLevel: "high" };
+    const result = resolveConversationPolicyFromModelSelection({
+      agentControllerRef: "builtin:codex",
+      catalog: CATALOG,
+      modelSelection: selection,
     });
+    expect(result).toMatchObject({
+      status: "rejected",
+      reasonCode: "model.unavailable",
+    });
+    expect(result).not.toHaveProperty("conversationPolicy");
+    expect(selection).toEqual({ modelId, reasoningLevel: "high" });
   });
 
   it("drops stale unsupported reasoning without changing route eligibility", () => {
@@ -180,7 +223,6 @@ describe("resolveConversationPolicyFromModelSelection", () => {
     ).toEqual({
       status: "accepted",
       conversationPolicy: {
-        fallbackModel: "gpt-5.5",
         model: "gpt-5.4",
       },
     });
@@ -199,7 +241,6 @@ describe("resolveConversationPolicyFromModelSelection", () => {
     ).toEqual({
       status: "accepted",
       conversationPolicy: {
-        fallbackModel: "opencode/north-mini-code-free",
         model: "opencode/deepseek-v4-flash-free",
         reasoningLevel: "max",
       },

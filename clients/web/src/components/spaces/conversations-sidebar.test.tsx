@@ -32,18 +32,31 @@ vi.mock("@tanstack/react-router", () => ({
 	}) => select({ href: "/o/acme/spaces" }),
 	Link: ({
 		to,
+		search,
+		hash,
 		children,
 		resetScroll: _resetScroll,
 		...props
 	}: {
 		to: string;
+		search?: Record<string, string>;
+		hash?: string;
 		children: ReactNode;
 		resetScroll?: boolean;
-	}) => (
-		<a href={to} {...props}>
-			{children}
-		</a>
-	),
+	}) => {
+		const href = new URL(to, "https://openmeld.invalid");
+		for (const [key, value] of Object.entries(search ?? {})) {
+			href.searchParams.set(key, value);
+		}
+		if (hash) {
+			href.hash = hash;
+		}
+		return (
+			<a href={`${href.pathname}${href.search}${href.hash}`} {...props}>
+				{children}
+			</a>
+		);
+	},
 }));
 vi.mock("./new-chat-dialog", () => ({
 	NewChatDialog: ({

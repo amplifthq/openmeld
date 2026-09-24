@@ -678,6 +678,34 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
+      availabilityBadgeLabel: "Unavailable",
+      availabilitySummary:
+        "This model is no longer offered. Change this agent's model to continue.",
+      availabilityTooltip: "Model no longer offered",
+      body: (targetName) =>
+        `${targetName}'s model is no longer offered. Change its model to continue.`,
+      kind: "account_access",
+      mappedReasonBody:
+        "This model is no longer offered. Change this agent's model to continue.",
+      patterns: ["=model.retired"],
+      primaryActionId: "change_model",
+      recoveryTarget: "agents",
+    },
+    {
+      availabilityBadgeLabel: "Unavailable",
+      availabilitySummary:
+        "This model is unavailable. Check this agent's model settings.",
+      availabilityTooltip: "Model unavailable",
+      body: (targetName) =>
+        `${targetName}'s model is unavailable. Check its model and account settings.`,
+      kind: "account_access",
+      mappedReasonBody:
+        "This model is unavailable. Check this agent's model and account settings.",
+      patterns: ["=model.unavailable"],
+      primaryActionId: "change_model",
+      recoveryTarget: "agents",
+    },
+    {
       body: (targetName) =>
         `${targetName}'s provider subscription does not include the access this agent needs. Review the provider plan or account on its computer before waking it again.`,
       kind: "account_access",
@@ -1472,11 +1500,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     {
       body: UNSUPPORTED_MODEL_PUBLIC_COPY,
       kind: "account_access",
-      patterns: [
-        "=model.unavailable",
-        "model.unsupported",
-        "unsupported_model",
-      ],
+      patterns: ["model.unsupported", "unsupported_model"],
       preferMappedReasonOverDetail: true,
       primaryActionId: "review_agent_settings",
       recoveryTarget: "agents",

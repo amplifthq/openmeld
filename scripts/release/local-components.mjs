@@ -1485,7 +1485,7 @@ function formatVerifyFailure(payload) {
     )
   ) {
     lines.push(
-      "Recovery: run `pnpm run release:preflight`, then choose the intended CLI/Service version and policy and rerun the base-aware stamp command (use `--next` for automatic channel-based selection). It rebuilds the packaged CLI before writing; do not use --current to bypass release history."
+      "Recovery: run `pnpm release:local-components plan --next`, choose the intended CLI/Service policy, and rerun the base-aware stamp command. It rebuilds the packaged CLI before writing; do not use --current to bypass release history."
     );
   }
   return lines.filter(Boolean).join("\n");

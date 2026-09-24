@@ -60,6 +60,17 @@ export function resolveWakeFailureDisplay(input: {
 		};
 	}
 
+	if (
+		recovery.recoveryTarget !== null &&
+		recovery.primaryActionId === "change_model" &&
+		input.targetContext?.isCurrentUserManageable === false
+	) {
+		return {
+			actionTarget: null,
+			body: "Ask this agent's owner to change its model.",
+		};
+	}
+
 	if (recovery.recoveryTarget === null) {
 		return {
 			actionTarget: null,

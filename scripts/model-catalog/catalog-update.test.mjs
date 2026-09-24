@@ -9,7 +9,11 @@ import {
   publicationDecision,
   renderLatestScanComment,
 } from "./publish-update.mjs";
-import { discoveryCandidates, renderBatchReview } from "./review.mjs";
+import {
+  discoveryCandidates,
+  renderBatchReview,
+  renderRetirementReview,
+} from "./review.mjs";
 
 const existing = {
   id: "existing-model",
@@ -51,6 +55,43 @@ const input = {
   codexModels: parseCodexModels(raw),
   observedAt: "2026-09-05T00:00:00.000Z",
 };
+
+test("retirement handoff rechecks old cataloged models without changing policy", () => {
+  const current = structuredClone(catalog);
+  current.agentControllers.codex.models[0].retirement = {
+    status: "announced",
+    date: { kind: "not_before", value: "2026-10-15" },
+    scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+    sourceUrl: "https://example.com/notice",
+    verifiedAt: "2026-09-23T00:00:00Z",
+  };
+  const before = JSON.stringify(current);
+  const evidence = {
+    controller: "codex",
+    sources: [
+      {
+        kind: "official-document",
+        url: "https://example.com/notice",
+        data: "Existing model will not retire before October 15.\n\nExisting model retirement has been postponed.",
+      },
+    ],
+  };
+  const brief = renderRetirementReview(evidence, current);
+  for (const text of [
+    "existing-model",
+    "not_before: 2026-10-15",
+    "postponed",
+    "stopped / postponed / unconfirmed",
+  ]) {
+    assert.ok(brief.includes(text), `Missing retirement evidence: ${text}`);
+  }
+  assert.equal(JSON.stringify(current), before);
+  assert.ok(
+    renderRetirementReview({ ...evidence, sources: [] }, current).includes(
+      "not proof of continued availability"
+    )
+  );
+});
 
 test("a real upstream addition becomes a reviewable catalog change without moving either default", () => {
   const result = prepareUpdate(input);

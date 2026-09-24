@@ -5644,7 +5644,8 @@ describe("Remote Agent Slack signal service", () => {
           ...(sourceVersion === 4
             ? {
                 modelRoute: expect.objectContaining({
-                  modelId: "z-ai/glm-5.3-flash",
+                  modelId: "anthropic/claude-opus-5.5",
+                  reasoningLevel: "medium",
                 }),
               }
             : {}),

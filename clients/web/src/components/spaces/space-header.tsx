@@ -175,7 +175,6 @@ function ConversationHeaderMenu(input: {
 			<ChatHeaderMenu
 				ariaLabel={ariaLabel}
 				onOpenConversationInformation={input.onOpenSettings}
-				profileId={input.profileId}
 				spaceId={input.spaceId}
 			/>
 		);

@@ -77,8 +77,28 @@ describe("config routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual(VALID_MODEL_CATALOG);
-    expect(coreRpc.getModelCatalog).toHaveBeenCalledOnce();
+    expect(coreRpc.getModelCatalog).toHaveBeenCalledWith({
+      retirement: false,
+      personalRemoteAgentDefault: false,
+    });
     expect(authRpc.resolveRequestAuth).not.toHaveBeenCalled();
     expect(authRpc.resolveProfile).not.toHaveBeenCalled();
+  });
+
+  it("forwards an explicit personal Remote Agent default request", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/config/model-catalog?personalRemoteAgentDefault=1"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    expect(coreRpc.getModelCatalog).toHaveBeenCalledWith({
+      retirement: false,
+      personalRemoteAgentDefault: true,
+    });
   });
 });
