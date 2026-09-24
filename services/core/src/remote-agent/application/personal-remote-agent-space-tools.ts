@@ -5,6 +5,7 @@ import {
   personalRemoteAgentSpaceToolResponseSchema,
 } from "@openmeld/schemas";
 import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
+import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import {
   type CoreBindings,
   identityDb,
@@ -112,13 +113,13 @@ export async function requirePersonalRemoteAgentExecution(
   if (!(agent && requester)) {
     throw new Error("remote_agent.space_membership_revoked");
   }
-  const activeRequester = await db
-    .prepare(
-      `SELECT p.profile_id FROM openmeld_profiles p JOIN members m ON m.user_id = p.owner_user_id AND m.organization_id = ? WHERE p.profile_id = ? AND p.status = 'active' LIMIT 1`
-    )
-    .bind(delivery.organizationId, request.author.profileId)
-    .first();
-  if (!activeRequester) {
+  if (
+    !(await isActiveRequesterProfile({
+      db,
+      organizationId: delivery.organizationId,
+      profileId: request.author.profileId,
+    }))
+  ) {
     throw new Error("remote_agent.requester_membership_revoked");
   }
   return {
@@ -130,6 +131,46 @@ export async function requirePersonalRemoteAgentExecution(
     agent,
     spaceDispatchContext: request.spaceDispatchContext,
   };
+}
+
+/**
+ * The author of a Wake is the requester whose authority the Agent runs under.
+ * It is either a Profile owned by an active member (a human, or a member's own
+ * Agent), or the Organization's designated Center Agent. The Center Agent has
+ * no owner: it delegates on behalf of the verified member who asked it to, and
+ * Core already authorized that delegation before publishing the Wake.
+ */
+async function isActiveRequesterProfile(input: {
+  db: D1Database;
+  organizationId: string;
+  profileId: string | null;
+}): Promise<boolean> {
+  if (!input.profileId) {
+    return false;
+  }
+  const memberProfile = await input.db
+    .prepare(
+      `SELECT p.profile_id FROM openmeld_profiles p JOIN members m ON m.user_id = p.owner_user_id AND m.organization_id = ? WHERE p.profile_id = ? AND p.status = 'active' LIMIT 1`
+    )
+    .bind(input.organizationId, input.profileId)
+    .first();
+  if (memberProfile) {
+    return true;
+  }
+  const designation = await readCenterAgentDesignationRecord({
+    db: input.db,
+    organizationId: input.organizationId,
+  });
+  if (designation?.agentProfileId !== input.profileId) {
+    return false;
+  }
+  const centerAgentProfile = await input.db
+    .prepare(
+      `SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND status = 'active' LIMIT 1`
+    )
+    .bind(input.profileId)
+    .first();
+  return Boolean(centerAgentProfile);
 }
 
 export async function runPersonalRemoteAgentSpaceTool(
