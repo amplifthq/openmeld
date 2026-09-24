@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { powerShellEncodedArguments } from "@openmeld/adapter-core/windows-system";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { windowsDirectTaskArguments } from "../src/local-service/lifecycle/windows-task-command";
 import {
   readWindowsTaskAction,
@@ -15,6 +15,7 @@ import {
 import { withTempHome } from "./helpers/fs";
 
 const exec = promisify(execFile);
+const LOG_LINES = /\r?\n/u;
 describe.skipIf(process.platform !== "win32")(
   "native direct task registration",
   () => {
@@ -131,6 +132,129 @@ $d=$folder.GetTask($name).Definition
             )
           ).toEqual(action);
         } finally {
+          await runWindowsUserTask({ ...request, operation: "uninstall" });
+        }
+      });
+    }, 90_000);
+
+    it("keeps a running maintenance copy alive while the next invocation selects a new bundle", async () => {
+      const fixture = process.env.OPENMELD_TEST_DIRECT_TASK_BINARY;
+      if (!fixture) {
+        throw new Error("Build and supply the actual GUI task fixture.");
+      }
+      await withTempHome(async () => {
+        const home = process.env.OPENMELD_HOME;
+        if (!home) {
+          throw new Error("Fixture home missing.");
+        }
+        const runtime = join(home, "runtime", "daemon");
+        const oldExecutable = join(runtime, "bundles", "old", "openmeld.exe");
+        const newExecutable = join(runtime, "bundles", "new", "openmeld.exe");
+        const release = join(home, "release-old-maintenance");
+        const oldLog = join(runtime, "old-maintenance.log");
+        const newLog = join(runtime, "new-maintenance.log");
+        await mkdir(dirname(oldExecutable), { recursive: true });
+        await mkdir(dirname(newExecutable), { recursive: true });
+        await copyFile(fixture, oldExecutable);
+        await copyFile(fixture, newExecutable);
+        const request = {
+          name: `OpenMeld-Maintenance-Test-${randomUUID()}`,
+          legacyScript: join(runtime, "service-update-worker.bat"),
+        };
+        const action = (
+          executable: string,
+          marker: string,
+          logPath: string
+        ) => ({
+          executable,
+          args: ["service", "update-worker"],
+          env: {
+            OPENMELD_HOME: home,
+            OPENMELD_TASK_FIXTURE: marker,
+            ...(marker === "old"
+              ? { OPENMELD_TASK_FIXTURE_RELEASE: release }
+              : {}),
+          },
+          logPath,
+        });
+        const oldAction = action(oldExecutable, "old", oldLog);
+        const newAction = action(newExecutable, "new", newLog);
+        const install = (selected: typeof oldAction) => ({
+          ...request,
+          operation: "install" as const,
+          executable: selected.executable,
+          arguments: windowsDirectTaskArguments(selected),
+          workingDirectory: runtime,
+          periodic: true,
+        });
+        try {
+          await runWindowsUserTask(install(oldAction));
+          await runWindowsUserTask({ ...request, operation: "start" });
+          await vi.waitFor(
+            async () => {
+              expect(await readFile(oldLog, "utf8")).toContain(
+                "direct task waiting for release"
+              );
+            },
+            { timeout: 20_000 }
+          );
+          const oldReceipt = JSON.parse(
+            (await readFile(oldLog, "utf8")).split(LOG_LINES)[0] ?? ""
+          );
+          const oldPid = Number(oldReceipt.pid);
+          expect(oldPid).toBeGreaterThan(0);
+          expect(String(oldReceipt.executable).toLowerCase()).toBe(
+            oldExecutable.toLowerCase()
+          );
+          await runWindowsUserTask(install(newAction));
+          const status = await runWindowsUserTask({
+            ...request,
+            operation: "status",
+          });
+          expect(status).toMatchObject({ installed: true, running: true });
+          expect(readWindowsTaskAction(status.actionArguments ?? "")).toEqual(
+            newAction
+          );
+          const oldProcess = await exec(
+            windowsPowerShellPath(),
+            powerShellEncodedArguments(
+              `[Console]::Out.Write((Get-Process -Id ${oldPid} -ErrorAction Stop).Id)`
+            ),
+            { encoding: "utf8", timeout: 30_000, windowsHide: true }
+          );
+          expect(Number(oldProcess.stdout)).toBe(oldPid);
+          await writeFile(release, "release");
+          await exec(
+            windowsPowerShellPath(),
+            powerShellEncodedArguments(
+              `$p = Get-Process -Id ${oldPid} -ErrorAction SilentlyContinue; if ($p) { $p | Wait-Process -Timeout 20 -ErrorAction Stop }`
+            ),
+            { encoding: "utf8", timeout: 30_000, windowsHide: true }
+          );
+          await vi.waitFor(
+            async () => {
+              expect(
+                (await runWindowsUserTask({ ...request, operation: "status" }))
+                  .running
+              ).toBe(false);
+            },
+            { timeout: 20_000 }
+          );
+          await runWindowsUserTask({ ...request, operation: "start" });
+          await vi.waitFor(
+            async () => {
+              const receipt = JSON.parse(
+                (await readFile(newLog, "utf8")).split(LOG_LINES)[0] ?? ""
+              );
+              expect(receipt.value).toBe("new");
+              expect(String(receipt.executable).toLowerCase()).toBe(
+                newExecutable.toLowerCase()
+              );
+            },
+            { timeout: 20_000 }
+          );
+        } finally {
+          await writeFile(release, "release");
           await runWindowsUserTask({ ...request, operation: "uninstall" });
         }
       });
