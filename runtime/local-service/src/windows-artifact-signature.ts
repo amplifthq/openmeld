@@ -6,24 +6,17 @@ import {
   powerShellEncodedArguments,
   resolveWindowsPowerShellPath,
 } from "@openmeld/adapter-core/windows-system";
-import { desktopWindowsBuildSchema } from "@openmeld/schemas";
+import { WINDOWS_ARTIFACT_SIGNATURE_FUNCTION } from "@openmeld/local-service/windows-artifact-script";
+import { windowsPublisherNameSchema } from "@openmeld/schemas";
 
 const SIGNATURE_VERIFIED = "OPENMELD_AUTHENTICODE_VERIFIED";
-const VERIFY_SCRIPT = String.raw`
+const VERIFY_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
-# Bind verification to this system PowerShell installation, not an inherited
-# PowerShell 7/user module with the same name.
-Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+${WINDOWS_ARTIFACT_SIGNATURE_FUNCTION}
 $r = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:OPENMELD_SIGNATURE_REQUEST)))
-$path = [IO.Path]::GetFullPath($r.path)
-$signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $path -ErrorAction Stop
-if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or !$signature.SignerCertificate -or $signature.Path -ine $path) { throw 'OpenMeld update signature is not valid for this file.' }
-$certificate = $signature.SignerCertificate
-$publisher = [string]$r.publisherName
-$matches = if ($publisher.Contains('=')) { $certificate.Subject -ceq $publisher } else { $certificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -ceq $publisher }
-if (!$matches) { throw 'OpenMeld update publisher does not match this installation.' }
+Assert-OpenMeldArtifactSignature $r.path $r.publisherName
 [Console]::Out.Write('OPENMELD_AUTHENTICODE_VERIFIED')
 `;
 
@@ -38,14 +31,13 @@ type ExecuteSignatureCheck = (
   }
 ) => Promise<{ stdout: string; stderr: string }>;
 
-/** Public NSIS verifier seam: every missing/failed/ambiguous OS result rejects. */
-export async function verifyWindowsDesktopSignature(
+/** Shared artifact verifier: every missing/failed/ambiguous OS result rejects. */
+export async function verifyWindowsArtifactSignature(
   path: string,
   publisherName: string,
   execute: ExecuteSignatureCheck = promisify(execFile)
 ): Promise<void> {
-  const publisher =
-    desktopWindowsBuildSchema.shape.publisherName.parse(publisherName);
+  const publisher = windowsPublisherNameSchema.parse(publisherName);
   if (!win32.isAbsolute(path) || path.includes("\0")) {
     throw new Error(
       "OpenMeld signature verification requires an absolute Windows file path."

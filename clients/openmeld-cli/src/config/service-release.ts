@@ -1,4 +1,7 @@
-import { cliBinaryServiceReleaseSchema } from "@openmeld/schemas";
+import {
+  cliBinaryServiceReleaseSchema,
+  resolveCliBinaryPlatform,
+} from "@openmeld/schemas";
 import packageJson from "../../package.json";
 import { isBinaryDistribution } from "../runtime/distribution";
 import type { CliBinaryReleaseInfo } from "./version-state";
@@ -28,7 +31,7 @@ export function resolveBundledServiceRelease():
       "The installed CLI contains invalid Service release metadata."
     );
   }
-  const platform = `${process.platform}-${process.arch}`;
+  const platform = resolveCliBinaryPlatform(process.platform, process.arch);
   const artifact = parsed.data.platforms[platform];
   if (!artifact) {
     throw new Error(

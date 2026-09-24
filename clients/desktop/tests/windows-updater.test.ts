@@ -1,5 +1,5 @@
+import { verifyWindowsArtifactSignature } from "@openmeld/local-service/windows-artifact-signature";
 import { afterEach, expect, it, vi } from "vitest";
-import { verifyWindowsDesktopSignature } from "../src/main/update/windows-signature";
 import { assertWindowsUpdaterConfiguration } from "../src/main/update/windows-updater-configuration";
 
 vi.mock("electron", () => ({
@@ -59,14 +59,14 @@ it("passes paths and publisher as data to bounded system PowerShell, never inter
   vi.stubEnv("PSModulePath", "C:\\untrusted-override");
   const path = "C:\\Users\\中文 % PATH & 'user\\pending\\update.exe";
   const execute = vi.fn<
-    NonNullable<Parameters<typeof verifyWindowsDesktopSignature>[2]>
+    NonNullable<Parameters<typeof verifyWindowsArtifactSignature>[2]>
   >(() =>
     Promise.resolve({
       stdout: "OPENMELD_AUTHENTICODE_VERIFIED",
       stderr: "",
     })
   );
-  await verifyWindowsDesktopSignature(path, publisherName, execute);
+  await verifyWindowsArtifactSignature(path, publisherName, execute);
   const [file, args, options] = execute.mock.calls[0] ?? [];
   expect(file).toBe(
     "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
@@ -100,7 +100,7 @@ it.each([
 ])("does not accept missing/malformed/warned signature evidence: %o", async (result) => {
   vi.stubEnv("SystemRoot", "C:\\Windows");
   await expect(
-    verifyWindowsDesktopSignature(
+    verifyWindowsArtifactSignature(
       "C:\\update.exe",
       publisherName,
       async () => result
@@ -113,11 +113,11 @@ it("fails closed for unavailable PowerShell and invalid paths", async () => {
     Promise.reject(new Error("PowerShell unavailable"))
   );
   await expect(
-    verifyWindowsDesktopSignature("C:\\update.exe", publisherName, execute)
+    verifyWindowsArtifactSignature("C:\\update.exe", publisherName, execute)
   ).rejects.toThrow();
   execute.mockClear();
   await expect(
-    verifyWindowsDesktopSignature("relative.exe", publisherName, execute)
+    verifyWindowsArtifactSignature("relative.exe", publisherName, execute)
   ).rejects.toThrow();
   expect(execute).not.toHaveBeenCalled();
 });

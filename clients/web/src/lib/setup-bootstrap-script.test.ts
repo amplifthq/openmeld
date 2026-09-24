@@ -227,6 +227,18 @@ describe("setup-bootstrap-script", () => {
 		);
 	});
 
+	it("uses the isolated unsigned Windows preview only for production binary setup", () => {
+		const script = buildOpenMeldSetupBootstrapPowerShellScript({
+			distribution: "binary",
+			lane: "prod",
+		});
+		expect(script).toContain(
+			"https://openmeld.ai/cli/manifest.json?channel=windows-preview"
+		);
+		expect(script).toContain("$internalPreview = $true");
+		expect(script).toContain("OPENMELD_WINDOWS_INTERNAL_PREVIEW");
+	});
+
 	it("keeps the exact local environment in Windows follow-up commands", () => {
 		const script = buildOpenMeldSetupBootstrapPowerShellScript({
 			authUrl: "http://localhost:8788",
@@ -1267,7 +1279,7 @@ describe("setup-bootstrap-script", () => {
 		});
 	});
 
-	it("rejects binary setup for Windows", () => {
+	it("selects the isolated binary manifest for Windows setup", () => {
 		expect(
 			resolveOpenMeldSetupBootstrapScriptConfig({
 				authUrl: "http://localhost:8788",
@@ -1277,9 +1289,14 @@ describe("setup-bootstrap-script", () => {
 				webAppUrl: "http://localhost:3000",
 			})
 		).toEqual({
-			body: "OpenMeld binary setup is not available for Windows yet. Use ?dist=npm.",
-			status: "error",
-			statusCode: 400,
+			config: {
+				authUrl: "http://localhost:8788",
+				gatewayUrl: "http://localhost:8080",
+				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
+				distribution: "binary",
+				lane: "dev-local",
+			},
+			status: "ok",
 		});
 	});
 

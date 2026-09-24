@@ -34,28 +34,12 @@ export function resolveUnitTestScript(
 }
 
 export function planPrChecks(paths, options = {}) {
-  const commands = [];
-  if (paths.some(isWorkerZodImportCheckPath)) {
-    commands.push(["run", "verify:worker-zod-imports"]);
-  }
-  if (paths.some(isCliSkillCheckPath)) {
-    commands.push(["run", "verify:cli-skill"]);
-  }
-  if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
-    commands.push(["run", "verify:docs", "--", "--strict"]);
-  }
-  if (
-    paths.some(
-      (file) => file.startsWith("changelog/") || file === "CHANGELOG.md"
-    )
-  ) {
-    commands.push(["run", "verify:changelog"]);
-  }
-  if (!options.feedback && paths.some((file) => CONTROL_PATH.test(file))) {
-    commands.push(["run", "verify:release-workflows"]);
-  }
+  const commands = planGlobalChecks(paths);
   if (options.feedback) {
     return [...commands, ...planFocusedChecks(paths, options)];
+  }
+  if (paths.some((file) => CONTROL_PATH.test(file))) {
+    commands.push(["run", "verify:release-workflows"]);
   }
   if (paths.some((file) => !DOCUMENTATION_PATH.test(file))) {
     // Preserve Turbo's package graph, lockfile handling, and downstream selection.
@@ -80,6 +64,27 @@ export function planPrChecks(paths, options = {}) {
         "--log-order=stream",
       ]
     );
+  }
+  return commands;
+}
+
+function planGlobalChecks(paths) {
+  const commands = [];
+  if (paths.some(isWorkerZodImportCheckPath)) {
+    commands.push(["run", "verify:worker-zod-imports"]);
+  }
+  if (paths.some(isCliSkillCheckPath)) {
+    commands.push(["run", "verify:cli-skill"]);
+  }
+  if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
+    commands.push(["run", "verify:docs", "--", "--strict"]);
+  }
+  if (
+    paths.some(
+      (file) => file.startsWith("changelog/") || file === "CHANGELOG.md"
+    )
+  ) {
+    commands.push(["run", "verify:changelog"]);
   }
   return commands;
 }
@@ -116,35 +121,25 @@ function planFocusedChecks(paths, options) {
       : null;
   const workspaceCommands = [];
   const buildFilters = [];
-  for (const workspace of options.workspaces ?? []) {
-    const sources = paths
-      .filter(
+  const selectedWorkspaces = (options.workspaces ?? []).filter(
+    (workspace) =>
+      workspace.test &&
+      paths.some(
         (file) =>
           file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
       )
-      .map((file) => file.slice(workspace.directory.length + 1));
-    if (sources.length > 0 && workspace.test) {
-      if (workspace.name) {
-        buildFilters.push(`--filter=${workspace.name}^...`);
-      }
-      if (!VITEST_SCRIPT.test(workspace.test ?? "")) {
-        workspaceCommands.push(["--dir", workspace.directory, "run", "test"]);
-        continue;
-      }
-      workspaceCommands.push([
-        "--dir",
-        workspace.directory,
-        "exec",
-        "vitest",
-        "related",
-        "--run",
-        ...workspace.test.split(WHITESPACE).slice(2),
-        "--passWithNoTests",
-        "--maxWorkers=2",
-        "--no-file-parallelism",
-        ...sources,
-      ]);
+  );
+  for (const workspace of selectedWorkspaces) {
+    if (workspace.name) {
+      // Plain package runners can import their own dist; Vitest runs source.
+      const filter = VITEST_SCRIPT.test(workspace.test)
+        ? `${workspace.name}^...`
+        : `${workspace.name}...`;
+      buildFilters.push(`--filter=${filter}`);
     }
+  }
+  for (const workspace of selectedWorkspaces) {
+    workspaceCommands.push(focusedWorkspaceCommand(paths, workspace));
   }
   if (buildFilters.length > 0) {
     commands.push([
@@ -160,6 +155,31 @@ function planFocusedChecks(paths, options) {
     commands.push(nodeTestCommand);
   }
   return [...commands, ...workspaceCommands];
+}
+
+function focusedWorkspaceCommand(paths, workspace) {
+  const sources = paths
+    .filter(
+      (file) =>
+        file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
+    )
+    .map((file) => file.slice(workspace.directory.length + 1));
+  if (!VITEST_SCRIPT.test(workspace.test)) {
+    return ["--dir", workspace.directory, "run", "test"];
+  }
+  return [
+    "--dir",
+    workspace.directory,
+    "exec",
+    "vitest",
+    "related",
+    "--run",
+    ...workspace.test.split(WHITESPACE).slice(2),
+    "--passWithNoTests",
+    "--maxWorkers=2",
+    "--no-file-parallelism",
+    ...sources,
+  ];
 }
 
 export function runPrChecks(commands, run = spawnSync) {
@@ -216,7 +236,11 @@ export function runVerification(options = {}) {
           };
         })
     : [];
-  const commands = planPrChecks(paths, { feedback, existingFiles, workspaces });
+  const commands = planPrChecks(paths, {
+    feedback,
+    existingFiles,
+    workspaces,
+  });
   if (options.plan) {
     console.log(
       JSON.stringify(

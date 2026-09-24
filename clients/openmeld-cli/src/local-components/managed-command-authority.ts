@@ -1,16 +1,13 @@
 import { spawn } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
-import { access, realpath, stat } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { realpath } from "node:fs/promises";
 import {
   OPENMELD_HOME_ENV_KEY,
-  openMeldManagedBinaryPath,
-  openMeldManagedVersionBinaryPath,
   resolveOpenMeldEnvPreset,
 } from "../config/paths";
 import { compareSemver } from "../config/version-state";
 import type { OpenMeldDistribution } from "../runtime/distribution";
 import { parseLeadingCommandTokensFromArgv } from "../runtime/view-argv";
+import { readManagedCliInstallation } from "./managed-install";
 
 const MANAGED_CLI_DELEGATION_ENV = "OPENMELD_INTERNAL_MANAGED_CLI_DELEGATION";
 const UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG = "--internal-align-service";
@@ -47,10 +44,11 @@ export async function resolveManagedCliDelegation(input: {
     return { status: "stay" };
   }
 
-  const managed = await resolveUsableManagedCli({ env, argv: input.argv });
+  const managed = await readManagedCliInstallation({ env, argv: input.argv });
   if (!managed) {
     return { status: "stay" };
   }
+  const managedPath = await realpath(managed.binaryPath);
 
   let versionComparison: number;
   try {
@@ -61,7 +59,7 @@ export async function resolveManagedCliDelegation(input: {
   if (versionComparison >= 0) {
     return {
       args,
-      command: managed.path,
+      command: managedPath,
       reason: "managed_cli_is_current",
       status: "delegate",
     };
@@ -69,7 +67,7 @@ export async function resolveManagedCliDelegation(input: {
   if (firstCommand === "upgrade") {
     return {
       args,
-      command: managed.path,
+      command: managedPath,
       reason: "managed_cli_upgrade_owns_channel",
       status: "delegate",
     };
@@ -104,38 +102,6 @@ export async function runManagedCliDelegation(
       );
     });
   });
-}
-
-async function resolveUsableManagedCli(input: {
-  env: NodeJS.ProcessEnv;
-  argv: string[];
-}): Promise<{ path: string; version: string } | null> {
-  const pointerPath = openMeldManagedBinaryPath(input);
-  const resolvedPath = await realpath(pointerPath).catch(() => null);
-  if (!resolvedPath) {
-    return null;
-  }
-  const resolvedStat = await stat(resolvedPath).catch(() => null);
-  if (!resolvedStat?.isFile()) {
-    return null;
-  }
-  const executable = await access(resolvedPath, fsConstants.X_OK).then(
-    () => true,
-    () => false
-  );
-  if (!executable) {
-    return null;
-  }
-  const version = basename(dirname(resolvedPath));
-  if (!version) {
-    return null;
-  }
-  const expectedVersionPath = await realpath(
-    openMeldManagedVersionBinaryPath(version, input)
-  ).catch(() => null);
-  return expectedVersionPath === resolvedPath
-    ? { path: resolvedPath, version }
-    : null;
 }
 
 function isServiceCarrierCommand(

@@ -107,7 +107,11 @@ export async function inspectNpmCliArtifact(artifactPath, expected = {}) {
   ) {
     throw new Error("The npm artifact is not the OpenMeld CLI package.");
   }
-  for (const path of ["package/README.md", "package/dist/openmeld.js"]) {
+  for (const path of [
+    "package/README.md",
+    "package/dist/openmeld.js",
+    "package/dist/windows/openmeld-windows-process.exe",
+  ]) {
     if (!files.includes(path)) {
       throw new Error(
         `The npm artifact is missing ${path}. Build the packaged CLI before packing.`

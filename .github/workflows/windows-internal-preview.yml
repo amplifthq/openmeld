@@ -1,0 +1,107 @@
+name: Windows internal preview
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .gitattributes
+      - .github/workflows/windows-internal-preview.yml
+      - scripts/release/windows-internal-preview.mjs
+      - scripts/release/publish-windows-internal-preview.mjs
+      - scripts/desktop/windows-artifact.mjs
+      - scripts/desktop/package-mode.mjs
+      - scripts/desktop/installed-package.mjs
+      - scripts/desktop/installed-platform.ts
+      - clients/desktop/electron-builder.installed.config.mjs
+      - clients/desktop/src/main/installed-environment.ts
+      - clients/desktop/src/main/cli/managed-binary.ts
+      - clients/web/src/lib/setup-bootstrap-windows-binary.ts
+      - clients/web/src/lib/setup-bootstrap-script.ts
+      - clients/web/src/lib/desktop-release.ts
+      - clients/web/src/lib/cli-binary-release.ts
+      - clients/web/src/routes/cli/**
+      - clients/web/src/routes/desktop/download.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-internal-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+      - run: pnpm install --frozen-lockfile
+      - name: Verify signed CLI Skill bytes in the Windows checkout
+        run: node scripts/release/cli-skill.mjs check
+      - name: Build the self-contained native process helper
+        run: node scripts/release/build-windows-process-helper.mjs
+      - name: Build shared runtime and client contracts
+        run: pnpm exec turbo run build '--filter=openmeld...' '--filter=!openmeld' '--filter=openmeld-web...' '--filter=!openmeld-web' --concurrency=1
+      - name: Build exact-source Windows carriers
+        run: node scripts/release/windows-internal-preview.mjs build-cli
+      - name: Exercise delivered CLI, Service, SQLite and official Codex without user Node or Bun
+        shell: pwsh
+        run: |
+          $vendor = 'dev-tmp/windows-native-vendor'
+          New-Item -ItemType Directory -Force $vendor | Out-Null
+          $json = npm pack '@openai/codex@0.153.4-win32-x64' --json --pack-destination $vendor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $package = ($json | ConvertFrom-Json)[0]
+          if ($package.integrity -ne 'sha512-lMkB43kJZH0VFr+hoXc11qqR7QtQIbkr07ALgj4urKL1osNyUyuy1iXd3Vzz2iCYvBUCSw7I0l/W1cEPGx9euQ==') { throw 'The pinned Codex package integrity changed.' }
+          tar -xf (Join-Path $vendor $package.filename) -C $vendor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:OPENMELD_TEST_CODEX = (Resolve-Path "$vendor/package/vendor/x86_64-pc-windows-msvc/bin/codex.exe").Path
+          node scripts/e2e/windows-native-runtime.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build production-account Desktop renderer
+        shell: pwsh
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          $env:OPENMELD_DESKTOP_TARGET = 'production'
+          $env:WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+          pnpm --dir clients/web build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package unsigned internal Desktop preview
+        env:
+          OPENMELD_DESKTOP_INTERNAL_PREVIEW: "1"
+          OPENMELD_DESKTOP_TARGET: production
+        run: pnpm desktop:package:installed
+      - name: Finalize exact-source download bundle
+        run: node scripts/release/windows-internal-preview.mjs finalize
+      - name: Validate the release handoff without publishing
+        run: node scripts/release/publish-windows-internal-preview.mjs check .
+      - name: Preserve bundle for reviewed publication
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-internal-preview-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dev-tmp/windows-internal-preview/
+            dev-tmp/windows-native-evidence/
+            cli/dist/openmeld-cli-windows-x64-*.exe
+            cli/dist/openmeld-service-windows-x64-*.exe
+            cli/dist/openmeld-windows-process.exe
+            cli/dist/windows-process-artifact.json
+            clients/desktop/dist/internal-preview/*.exe
+          retention-days: 14
+          if-no-files-found: warn

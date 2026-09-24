@@ -6,9 +6,21 @@ const text = z
   .string()
   .min(1)
   .refine((value) => !value.includes("\0"));
-export const windowsProcessJobRequestSchema = z.discriminatedUnion(
+export const windowsNativeProcessRequestSchema = z.discriminatedUnion(
   "operation",
   [
+    z.strictObject({
+      operation: z.literal("activate-managed-command"),
+      binDirectory: text,
+    }),
+    z.strictObject({
+      operation: z.literal("prune-binary-bundle"),
+      directory: text,
+    }),
+    z.strictObject({
+      operation: z.literal("identity"),
+      pid: z.number().int().positive(),
+    }),
     z.strictObject({
       operation: z.literal("launch"),
       jobName,

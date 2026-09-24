@@ -77,7 +77,7 @@ export function DesktopDownloadPage({
 							</p>
 							<p className="mt-3 text-muted-foreground text-sm leading-6">
 								{windows
-									? "Per-user Windows installer. Install Node.js with npm to connect this Computer and use local agents."
+									? "Installs for your Windows account. OpenMeld Tools download when you connect this computer; Node.js is not required."
 									: "For Macs with an M-series chip. Choose a Windows build above for a Windows computer."}
 							</p>
 							{release.message ? (

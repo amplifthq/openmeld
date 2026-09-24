@@ -23,7 +23,7 @@
     "skills"
   ],
   "scripts": {
-    "build": "tsdown && node scripts/build-macos-keychain-addon.mjs --copy-npm",
+    "build": "tsdown && node scripts/build-macos-keychain-addon.mjs --copy-npm && node scripts/copy-windows-process-helper.mjs",
     "prepack": "pnpm -C ../.. run verify:release-ready -- --force",
     "deploy": "pnpm -C ../.. run release:deploy:local -- --scope cli",
     "prepublishOnly": "node -e \"throw new Error('Publish the verified tarball through the root release:deploy:local -- --scope cli entrypoint, not this source directory.')\"",
