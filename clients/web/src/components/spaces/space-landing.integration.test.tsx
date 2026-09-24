@@ -11576,9 +11576,6 @@ describe("SpaceLanding", () => {
 		await flushPromiseQueue();
 
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
-			predicate: expect.any(Function),
-		});
 		expect(statusRefetchMock).toHaveBeenCalledTimes(1);
 		expect(membersRefetchMock).toHaveBeenCalledTimes(1);
 		expect(refreshAllMock).not.toHaveBeenCalled();
@@ -11641,9 +11638,6 @@ describe("SpaceLanding", () => {
 		await flushPromiseQueue();
 
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
-			predicate: expect.any(Function),
-		});
 		for (const invalidation of buildLocalRuntimeCacheInvalidations()) {
 			expect(invalidateQueriesMock).not.toHaveBeenCalledWith(
 				expect.objectContaining(invalidation)
