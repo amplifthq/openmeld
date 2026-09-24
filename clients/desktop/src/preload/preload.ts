@@ -273,6 +273,23 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
     return () =>
       ipcRenderer.removeListener(PILOT_IPC.spaceStreamEvent, listener);
   },
+  accountStreamOpen: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.accountStreamOpen, input),
+  accountStreamClose: (id) =>
+    ipcRenderer.invoke(PILOT_IPC.accountStreamClose, id),
+  accountStreamPing: (id) =>
+    ipcRenderer.invoke(PILOT_IPC.accountStreamPing, id),
+  onAccountStream: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const result = desktopSpaceStreamEventSchema.safeParse(value);
+      if (result.success) {
+        handler(result.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.accountStreamEvent, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.accountStreamEvent, listener);
+  },
 } satisfies DesktopPilotBridge);
 
 function isDesktopWindowDestination(

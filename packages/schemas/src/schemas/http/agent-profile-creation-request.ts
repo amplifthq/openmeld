@@ -95,7 +95,6 @@ const completeAgentProfileCreationConfigurationSchema =
           "agentControllerCollaborationMode",
           "agentControllerPermissionMode",
           "openCodePermission",
-          "reasoningLevel",
         ] as const) {
           if (configuration[key] != null) {
             context.addIssue({
@@ -104,6 +103,13 @@ const completeAgentProfileCreationConfigurationSchema =
               path: [key],
             });
           }
+        }
+        if (configuration.reasoningLevel && !configuration.modelId) {
+          context.addIssue({
+            code: "custom",
+            message: "reasoningLevel requires modelId.",
+            path: ["reasoningLevel"],
+          });
         }
         return;
       }

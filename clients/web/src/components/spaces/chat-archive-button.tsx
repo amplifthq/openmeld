@@ -3,11 +3,8 @@ import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { useChatArchive } from "./use-chat-archive";
 
-export function ChatArchiveButton(input: {
-	spaceId: string;
-	profileId: string;
-}) {
-	const archive = useChatArchive(input.spaceId, input.profileId);
+export function ChatArchiveButton(input: { spaceId: string }) {
+	const archive = useChatArchive(input.spaceId);
 	return (
 		<TooltipHint content={archive.label}>
 			<Button

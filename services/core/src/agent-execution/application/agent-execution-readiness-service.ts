@@ -52,6 +52,7 @@ import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
 } from "../../center-agent/center-agent-repository";
+import { resolveCurrentAgentModelAvailability } from "../../config/agent-model-availability";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
@@ -1303,6 +1304,23 @@ async function resolveAgentRuntimeReadiness(input: {
       (report) =>
         report.agentControllerRef === executionTarget.agentControllerRef
     );
+    const modelAvailability = resolveCurrentAgentModelAvailability({
+      agentControllerRef: executionTarget.agentControllerRef,
+      modelId: input.binding.modelSelection?.modelId,
+      openMeldServiceRuntimeId: createAuthorityOpenMeldServiceRuntimeId({
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+        source: "runtime_registry_authority",
+      }).value,
+      currentReport,
+      nowMs: parseGeneratedAtMs(input.generatedAt),
+    });
+    if (!modelAvailability.available) {
+      return {
+        displayState: "unavailable",
+        ready: false,
+        reasonCodes: [modelAvailability.reasonCode, ...readiness.reasonCodes],
+      };
+    }
     const usageWakeability = resolveAgentProfileUsageWakeability({
       agentControllerRef: executionTarget.agentControllerRef,
       nowMs: parseGeneratedAtMs(input.generatedAt),

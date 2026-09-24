@@ -1,6 +1,10 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes stable public entrypoints.
 
 export {
+  type AccountInvalidationFrame,
+  accountInvalidationFrameSchema,
+} from "./account-invalidation";
+export {
   ACCOUNT_ORGANIZATION_CONTEXT_PATH,
   type AccountOrganizationContext,
   accountOrganizationContextSchema,
@@ -136,6 +140,9 @@ export {
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
   DESKTOP_WEB_BUILD_HEADER,
+  type DesktopAccountStreamBridge,
+  type DesktopAccountStreamEvent,
+  type DesktopAccountStreamInput,
   type DesktopInstalledTarget,
   type DesktopLocalComputer,
   type DesktopPlatform,
@@ -143,6 +150,7 @@ export {
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
+  desktopAccountStreamInputSchema,
   desktopCompatibilitySchema,
   desktopInstalledTargetSchema,
   desktopLocalComputerSchema,

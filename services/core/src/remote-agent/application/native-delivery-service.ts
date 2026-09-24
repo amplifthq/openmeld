@@ -6,6 +6,7 @@ import {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildSlackIdentityLinkNavigationAction,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
   CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
@@ -3088,7 +3089,12 @@ type RemoteAgentTaskContinuationWorkerProtocol =
     >
   | Pick<
       Extract<RemoteAgentWorkerSubmitTurnRequest, { v: 4 }>,
-      "conversationId" | "modelRoute" | "runtimeConversation" | "v"
+      | "conversationId"
+      | "conversationIdentity"
+      | "modelRoute"
+      | "runtimeConversation"
+      | "spaceDispatchContext"
+      | "v"
     >;
 
 function inheritRemoteAgentTaskContinuationWorkerProtocol(
@@ -3102,8 +3108,14 @@ function inheritRemoteAgentTaskContinuationWorkerProtocol(
     case 4:
       return {
         conversationId: request.conversationId,
+        ...(request.conversationIdentity
+          ? { conversationIdentity: request.conversationIdentity }
+          : {}),
         modelRoute: request.modelRoute,
         runtimeConversation: request.runtimeConversation,
+        ...(request.spaceDispatchContext
+          ? { spaceDispatchContext: request.spaceDispatchContext }
+          : {}),
         v: request.v,
       };
     default: {
@@ -4718,11 +4730,17 @@ function buildRemoteAgentRoutineWorkerSubmitRequest(input: {
       : input.target.profileId,
     profileKind: input.target.personalAgent ? "human" : "agent",
   };
+  const conversationId = buildRemoteAgentRoutineRunConversationId({
+    agentProfileId: input.target.profileId,
+    organizationId: input.routine.organizationId,
+    runId: input.run.id,
+  });
   return remoteAgentWorkerSubmitTurnRequestSchema.parse({
     agentProfileId: input.target.profileId,
     agentProfileOwnerUserId: input.target.ownerUserId,
     author,
     bindingId: input.target.bindingId,
+    conversationId,
     dispatchId: input.run.id,
     idempotencyKey: input.run.id,
     messages: [{ content: input.routine.instructions, role: "user" }],
@@ -4735,25 +4753,17 @@ function buildRemoteAgentRoutineWorkerSubmitRequest(input: {
     triggerMessageId: input.run.id,
     turnEnvelope: input.turnEnvelope,
     ...(input.target.personalAgent
-      ? (() => {
-          const conversationId = buildPersonalRemoteAgentConversationId({
-            organizationId: input.routine.organizationId,
+      ? {
+          v: 4,
+          conversationIdentity: {
+            kind: "personal_agent",
             agentProfileId: input.target.profileId,
-            spaceId: requireRoutineConversationId(input.routine),
-          });
-          return {
-            v: 4,
-            conversationId,
-            conversationIdentity: {
-              kind: "personal_agent",
-              agentProfileId: input.target.profileId,
-            },
-            runtimeConversation: { generation: 0, id: conversationId },
-            spaceDispatchContext: createDispatchChainContext({
-              dispatchId: input.run.id,
-            }),
-          };
-        })()
+          },
+          runtimeConversation: { generation: 0, id: conversationId },
+          spaceDispatchContext: createDispatchChainContext({
+            dispatchId: input.run.id,
+          }),
+        }
       : { v: 2 }),
   });
 }

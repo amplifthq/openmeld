@@ -12,7 +12,12 @@ export function registerConfigRoutes(app: Hono<HonoBindings>): void {
       route: MODEL_CATALOG_ROUTE,
       method: "GET",
       responseSchema: getModelCatalogResponseSchema,
-      execute: async () => await c.var.coreRpc.getModelCatalog(),
+      execute: async () =>
+        await c.var.coreRpc.getModelCatalog({
+          retirement: c.req.query("retirement") === "1",
+          personalRemoteAgentDefault:
+            c.req.query("personalRemoteAgentDefault") === "1",
+        }),
     })
   );
 }

@@ -6,6 +6,7 @@ import type {
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -131,6 +132,44 @@ describe("HumanProfileDetailsPopover", () => {
 			within(dialog).queryByRole("heading", { name: "Agents" })
 		).toBeNull();
 		expect(dialog.querySelector(".border-t")).toBeNull();
+	});
+
+	it("stops presenting an expired Computer connection as current in the member popover", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		queryClient.setQueryData(
+			organizationQueryKeys.profileDirectory("org-acme"),
+			buildProfileDirectory()
+		);
+		queryClient.setQueryData(
+			organizationQueryKeys.computers("org-acme"),
+			buildComputers()
+		);
+		render(
+			<QueryClientProvider client={queryClient}>
+				<HumanProfileDetailsPopover
+					currentOwnerUserId="user-felix"
+					entry={buildHumanEntry()}
+					modelCatalog={null}
+					organizationId="org-acme"
+					orgSlug="acme"
+					trigger={<button type="button">Open Monica</button>}
+				/>
+			</QueryClientProvider>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Open Monica" }));
+		expect(screen.getByText("Computer connected")).toBeTruthy();
+		act(() => {
+			queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.computers("org-acme"),
+				refetchType: "none",
+			});
+		});
+		await waitFor(() => {
+			expect(screen.getByText("Computer status unavailable")).toBeTruthy();
+		});
+		expect(screen.queryByText("Computer connected")).toBeNull();
 	});
 
 	it("uses the same compact avatar and primary action for Agent details", () => {

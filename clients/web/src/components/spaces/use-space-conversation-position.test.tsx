@@ -198,6 +198,31 @@ it("waits for a scroll pause before measuring and ignores callback identity chan
 	});
 });
 
+it("does not loop when a focused conversation receives a new history reference on render", () => {
+	const f = fixture();
+	const { result } = renderHook(() =>
+		useSpaceConversationPosition({
+			...f.input,
+			hasExplicitFocus: true,
+			historyVersion: {},
+		})
+	);
+	expect(result.current.restorationStatus).toBe("ready");
+});
+
+it("does not restart completed restoration when history references change on render", () => {
+	const f = fixture();
+	writeSpaceConversationPosition(f.key, {
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: 20,
+	});
+	const { result } = renderHook(() =>
+		useSpaceConversationPosition({ ...f.input, historyVersion: {} })
+	);
+	expect(result.current.restorationStatus).toBe("ready");
+	expect(f.input.viewport.scrollTop).toBe(780);
+});
+
 it("falls back without fetching when a recorded anchor was evicted", async () => {
 	const f = fixture();
 	const stream = document.createElement("div");
