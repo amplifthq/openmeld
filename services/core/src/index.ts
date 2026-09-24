@@ -2095,10 +2095,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   streamSpaceFileContent(
     input: ReadSpaceFileContentRpcInput,
     spaceFilesOriginVersion?: string,
-    spaceImageGeometryVersion?: string
+    spaceImageGeometryVersion?: string,
+    streamOptions?: import("@openmeld/schemas/types").SpaceFileStreamOptions
   ) {
     return withSpaceFilesOriginStreamRpcOutput(
-      rpcStreamSpaceFileContent(this.env, input),
+      rpcStreamSpaceFileContent(this.env, input, streamOptions),
       spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION,
       spaceImageGeometryVersion
     );

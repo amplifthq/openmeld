@@ -16,6 +16,10 @@ export type {
   LocalAgentReasoningState,
 } from "../schemas/http/local-agent-reasoning";
 export type {
+  SpaceFileStreamMetadata,
+  SpaceFileStreamOptions,
+} from "../schemas/http/space-file-stream";
+export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
