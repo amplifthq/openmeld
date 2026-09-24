@@ -41,6 +41,7 @@ export function planPrChecks(paths, options = {}) {
       includeCommon: !options.workspace,
       buildWorkspaces: options.shared ? options.workspaces : undefined,
       workspaces: selectFeedbackWorkspaces(options),
+      shard: options.shard,
     };
     return [...commands, ...planFocusedChecks(paths, focusedOptions)];
   }
@@ -155,7 +156,7 @@ function planFocusedChecks(paths, options) {
     }
   }
   for (const workspace of options.workspaces ?? []) {
-    const command = focusedWorkspaceCommand(paths, workspace);
+    const command = focusedWorkspaceCommand(paths, workspace, options.shard);
     if (command) {
       workspaceCommands.push(command);
     }
@@ -176,7 +177,7 @@ function planFocusedChecks(paths, options) {
   return [...commands, ...workspaceCommands];
 }
 
-function focusedWorkspaceCommand(paths, workspace) {
+function focusedWorkspaceCommand(paths, workspace, shard) {
   if (!workspace.test) {
     return null;
   }
@@ -203,6 +204,7 @@ function focusedWorkspaceCommand(paths, workspace) {
     "--passWithNoTests",
     "--maxWorkers=2",
     "--no-file-parallelism",
+    ...(shard ? [`--shard=${shard}`] : []),
     ...sources,
   ];
 }
@@ -217,7 +219,18 @@ export function feedbackWorkspaces(paths, workspaces) {
             file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
         )
     )
-    .map(({ directory }) => ({ directory }));
+    .flatMap(({ directory }) => {
+      // These two suites dominate draft latency; each shard runs on its own runner.
+      const count =
+        directory === "clients/web" || directory === "clients/openmeld-cli"
+          ? 2
+          : 1;
+      return Array.from({ length: count }, (_, index) => ({
+        directory,
+        label: count === 1 ? directory : `${directory}, ${index + 1}/${count}`,
+        shard: count === 1 ? "" : `${index + 1}/${count}`,
+      }));
+    });
 }
 
 export function runPrChecks(commands, run = spawnSync) {
@@ -294,6 +307,7 @@ export function runVerification(options = {}) {
     workspaces,
     shared: options.shared,
     workspace: options.workspace,
+    shard: options.shard,
   });
   if (options.plan) {
     console.log(
@@ -340,5 +354,6 @@ if (
     matrix: process.argv.includes("--matrix"),
     shared: process.argv.includes("--shared"),
     workspace: process.env.VERIFY_PR_WORKSPACE,
+    shard: process.env.VERIFY_PR_SHARD,
   });
 }

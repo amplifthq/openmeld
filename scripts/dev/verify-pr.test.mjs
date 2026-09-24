@@ -56,8 +56,9 @@ test("automatic draft feedback cannot start the full affected lane", () => {
   assert.ok(workflow.on.pull_request.types.includes("ready_for_review"));
   assert.equal(workflow.permissions.contents, "read");
   assert.equal(workflow.concurrency["cancel-in-progress"], true);
+  assert.equal(workflow.name, "Draft PR Checks");
   const shared = workflow.jobs.shared.steps.find(
-    (step) => step.name === "Run shared feedback"
+    (step) => step.name === "Run shared draft checks"
   );
   const workspace = workflow.jobs.workspaces.steps.find(
     (step) => step.name === "Run selected workspace tests"
@@ -68,6 +69,9 @@ test("automatic draft feedback cannot start the full affected lane", () => {
     workflow.jobs.workspaces.env.VERIFY_PR_WORKSPACE.includes(
       "matrix.directory"
     )
+  );
+  assert.ok(
+    workflow.jobs.workspaces.env.VERIFY_PR_SHARD.includes("matrix.shard")
   );
 });
 
@@ -89,9 +93,19 @@ test("draft feedback partitions every selected workspace without dropping shared
     },
   ];
   assert.deepEqual(feedbackWorkspaces(paths, workspaces), [
-    { directory: "clients/web" },
-    { directory: "clients/openmeld-cli" },
-    { directory: "clients/desktop" },
+    { directory: "clients/web", label: "clients/web, 1/2", shard: "1/2" },
+    { directory: "clients/web", label: "clients/web, 2/2", shard: "2/2" },
+    {
+      directory: "clients/openmeld-cli",
+      label: "clients/openmeld-cli, 1/2",
+      shard: "1/2",
+    },
+    {
+      directory: "clients/openmeld-cli",
+      label: "clients/openmeld-cli, 2/2",
+      shard: "2/2",
+    },
+    { directory: "clients/desktop", label: "clients/desktop", shard: "" },
   ]);
   const shared = planPrChecks(paths, {
     feedback: true,
@@ -132,6 +146,21 @@ test("draft feedback partitions every selected workspace without dropping shared
     workspaces,
   }).filter((args) => args.includes("related"));
   assert.deepEqual(partitionedTests, originalTests);
+  for (const [workspace, shard] of [
+    ["clients/web", "1/2"],
+    ["clients/web", "2/2"],
+    ["clients/openmeld-cli", "1/2"],
+    ["clients/openmeld-cli", "2/2"],
+  ]) {
+    const commands = planPrChecks(paths, {
+      feedback: true,
+      workspace,
+      shard,
+      existingFiles,
+      workspaces,
+    });
+    assert.ok(commands.at(-1).includes(`--shard=${shard}`));
+  }
   assert.deepEqual(
     feedbackWorkspaces(["developing/README.md"], workspaces),
     []

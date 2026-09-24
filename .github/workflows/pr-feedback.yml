@@ -1,4 +1,4 @@
-name: PR Feedback
+name: Draft PR Checks
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   shared:
-    name: Shared feedback
+    name: Shared draft checks
     if: github.event.pull_request.draft == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -43,13 +43,13 @@ jobs:
           fi
       - name: Show selected checks
         run: pnpm run verify:pr -- --feedback --shared --plan
-      - name: Run shared feedback
+      - name: Run shared draft checks
         env:
           OPENMELD_HOME: ${{ runner.temp }}/openmeld-pr-feedback
         run: pnpm run verify:pr -- --feedback --shared
 
   workspaces:
-    name: Focused tests (${{ matrix.directory }})
+    name: Tests (${{ matrix.label }})
     needs: shared
     if: needs.shared.outputs.has_workspaces == 'true'
     strategy:
@@ -60,6 +60,7 @@ jobs:
     env:
       OPENMELD_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
       VERIFY_PR_WORKSPACE: ${{ matrix.directory }}
+      VERIFY_PR_SHARD: ${{ matrix.shard }}
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v5
