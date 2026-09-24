@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build production-account Desktop renderer
         shell: pwsh
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           $env:OPENMELD_DESKTOP_TARGET = 'production'
           pnpm --dir clients/web build
