@@ -42,6 +42,14 @@ Release only what changed.
   existing schema do not require a CLI release.
 - `cloud` and `full` are explicit coordinated rollouts, not defaults.
 
+The reviewed Windows x64 internal preview is a narrow exception to the
+CLI-before-Web npm setup dependency. Its Web bootstrap selects a separate
+binary distribution, while the existing npm setup behavior is unchanged.
+Production admission recognizes only the reviewed before/after Git blobs for
+the three shared setup/artifact files and the preview-specific paths. Any later
+edit to those shared files restores the normal dependency. This exception does
+not publish the stable npm CLI or relax artifact, source, or stage admission.
+
 Do not redeploy unrelated services for ceremony. Broader validation may be
 appropriate for a cross-service contract change, but broader validation does
 not require a broader production rollout.

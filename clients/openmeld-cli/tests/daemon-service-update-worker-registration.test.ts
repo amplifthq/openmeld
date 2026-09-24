@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { PassThrough } from "node:stream";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   hasIndependentMaintenanceRegistration,
   INDEPENDENT_MAINTENANCE_REGISTRATION,
@@ -15,10 +17,15 @@ import {
   resolveDaemonServiceUpdateWorkerWindowsScriptPath,
 } from "../src/config/daemon-service-update-worker-registration";
 
+const nativeExec = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", () => ({ execFile: nativeExec }));
+
 describe("daemon service update worker registration", () => {
   const temporaryHomes: string[] = [];
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
+    nativeExec.mockReset();
     await Promise.all(
       temporaryHomes
         .splice(0)
@@ -114,6 +121,32 @@ describe("daemon service update worker registration", () => {
     ).toBe(registrationPath);
     await mkdir(dirname(registrationPath), { recursive: true });
     await writeFile(registrationPath, executable, "utf8");
+
+    if (platform === "win32") {
+      vi.stubEnv("SystemRoot", "C:\\Windows");
+      // The system boundary reports an owned legacy SCM registration. The
+      // product then reads its exact script before protecting this version.
+      nativeExec.mockImplementation((_command, _args, _options, callback) => {
+        const child = Object.assign(new EventEmitter(), {
+          stdin: new PassThrough(),
+          exitCode: 0,
+          signalCode: null,
+        });
+        queueMicrotask(() =>
+          callback(
+            null,
+            JSON.stringify({
+              installed: true,
+              running: false,
+              enabled: false,
+              legacy: true,
+              actionArguments: null,
+            })
+          )
+        );
+        return child;
+      });
+    }
 
     await expect(
       readDaemonServiceUpdateWorkerProtectedManagedVersions(

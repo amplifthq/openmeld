@@ -40,9 +40,9 @@ const RUNTIME_TRANSPORT_SCHEMA_SOURCE_PATH =
 const CORE_LOCAL_COMPONENTS_UPDATE_PROJECTION_PATH =
   "services/core/src/local-components/update-projection.ts";
 const CLI_DIST_ROOT_PATH = "clients/openmeld-cli/dist";
-// Platform-specific CLI artifacts have their own signed release integrity.
-// They are not copied into the npm Service bundle and must not make its
-// platform-neutral content hash differ between macOS and Linux.
+// CLI-only artifacts have their own signed release integrity. The Service's
+// dist/windows helper is included: every npm artifact must carry identical
+// prebuilt bytes, independent of the platform assembling the release.
 const SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS = new Set(["binary", "native"]);
 const SKILLS_ROOT_PATH = "clients/openmeld-cli/skills";
 

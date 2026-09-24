@@ -1,4 +1,5 @@
 import {
+	DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
 	type DesktopReleasePlatform,
 	desktopCandidateLocation,
 	desktopCandidateManifestSchema,
@@ -6,6 +7,7 @@ import {
 	desktopPlatformUpdateFeedUrl,
 	desktopPromotedReleaseKey,
 	desktopUpdaterFeedSchemaForPlatform,
+	desktopWindowsInternalPreviewLocation,
 } from "@openmeld/schemas";
 import { afterEach, expect, it, vi } from "vitest";
 import { downloadDesktopPreview } from "../routes/desktop/download";
@@ -91,6 +93,42 @@ afterEach(() => {
 	vi.resetAllMocks();
 });
 
+it("serves the unsigned internal Windows installer only after its pointer and bytes exist", async () => {
+	publish("macos-arm64");
+	const preview = {
+		schemaVersion: 1 as const,
+		platform: "windows-x64" as const,
+		version: "0.1.10",
+		releaseSha: "d".repeat(40),
+		sha256: "f".repeat(64),
+		sizeBytes: 3,
+	};
+	const location = desktopWindowsInternalPreviewLocation(preview);
+	objects.set(DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY, JSON.stringify(preview));
+	expect(
+		await readAvailableDesktopRelease(bucket, undefined, "windows-x64")
+	).toBeNull();
+	objects.set(location.objectKey, "exe");
+	const page = await readAvailableDesktopRelease(
+		bucket,
+		undefined,
+		"windows-x64"
+	);
+	expect(page).toMatchObject({
+		downloadPath: "/desktop/download?platform=windows-x64",
+		message: expect.stringContaining("unsigned"),
+	});
+	const download = await downloadDesktopPreview({
+		includeBody: true,
+		request: new Request(`https://openmeld.ai${page?.downloadPath}`),
+	});
+	expect(download.status).toBe(200);
+	expect(download.headers.get("content-disposition")).toContain(
+		"internal-preview.exe"
+	);
+	expect(await download.text()).toBe("exe");
+});
+
 it.each(
 	windowsPlatforms
 )("uses one %s pointer for page, default download, feed and immutable update", async (platform) => {
@@ -160,7 +198,10 @@ it.each(
 	).toBe(404);
 	expect(
 		bucket.get.mock.calls.every(
-			([key]) => key === desktopPromotedReleaseKey(platform)
+			([key]) =>
+				key === desktopPromotedReleaseKey(platform) ||
+				(platform === "windows-x64" &&
+					key === DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY)
 		)
 	).toBe(true);
 });

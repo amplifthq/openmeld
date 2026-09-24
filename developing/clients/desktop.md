@@ -353,26 +353,29 @@ Desktop offers the original route, or the original Space for a source action,
 without reporting native completion. Once Prepare exists, later authorization,
 account, execution, or snapshot failures retain its diagnostic correlation ID.
 
-On macOS, when the managed CLI is absent or lacks the connection contract, main
-downloads the fixed Web origin's managed binary manifest and Apple silicon artifact.
+When the managed CLI is absent or lacks the connection contract, main downloads
+the fixed Web origin's managed binary manifest and the Apple silicon or Windows
+x64 artifact.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
 arbitrary renderer executable, URL, path, or shell command is accepted.
 
-Windows uses the supported npm distribution and an independent Node.js runtime;
-Electron is never the background Service runtime. Explicit Connect checks npm's
-published engine range, resolves its global prefix, pins the exact stable version
-and prefix, and verifies the resulting package and CLI version. It never
-reinstalls/downgrades an equal or newer existing CLI. A custom npm prefix outside
-PATH is supported: the verified JS entry is returned to both the post-install
-connection review and setup rather than retrying the previously missing command.
-Subsequent reads use PATH or the lane's active Service bundle, not a separate
-Desktop installation registry. Missing Node/npm has an actionable prerequisite;
-no shell text, package name, registry URL or executable is accepted from renderer
-input. npm owns acquisition/integrity and CLI setup owns credentials and Service
-registration. Disposable acceptance must preinstall the fixed candidate CLI;
-production bootstrap intentionally resolves only the published stable npm channel.
+Windows uses the same managed installer, with a separately verified native
+process companion and Authenticode publisher. Electron is never the background
+Service runtime. The installer owns equal/newer-version arbitration; Desktop
+uses its shared `cli.install_self` receipt for the next connection review and
+setup, rather than rediscovering an older npm command from inherited PATH.
+Subsequent reads use the lane's stable `bin/openmeld.exe` launcher. Desktop
+maintains no parallel installation registry. No shell text, package name,
+registry URL or executable is accepted from renderer input. CLI setup still
+owns account/device identity, credentials and Service registration. ARM64
+acquisition remains unavailable until separately accepted. Disposable acceptance
+must use its fixed candidate and lane; production acquisition normally reads the
+stable manifest. The native Windows x64 internal trial build reads only the
+explicitly selected `windows-preview` manifest and enables its unsigned policy
+only for that exact production URL. Its CLI acquisition still verifies size and
+SHA-256. Signed Windows publication remains a separate release gate.
 
 The read-only local Computer projection recognizes only the same bootstrap
 conditions: a missing executable (`ENOENT`) or an exit-1 unknown `computer` /
@@ -490,11 +493,16 @@ Windows x64 and ARM64 are separate installer and update targets. NSIS installs
 for the current user without requesting elevation and preserves application data
 on uninstall. Desktop installation/uninstallation does not install, stop or remove
 the independent OpenMeld Service. Connecting this Computer remains an explicit
-CLI-owned action; Node.js with npm is a prerequisite for Windows.
+CLI-owned action. The accepted Windows x64 managed bundle does not require an
+external Node.js, npm, Bun, or .NET installation.
 
 Root packaging commands use portable JavaScript, not POSIX inline environment
 assignments. Windows packaging skips Mac icon/notarization tools. Unsigned
-packages are limited to disposable acceptance and cannot use production updates.
+packages ordinarily use disposable acceptance. The separate native Windows x64
+internal trial package uses the production account target so an existing
+same-account Computer can be reviewed, but it has no production update feed and
+must be distributed only to known coworkers. It is not a signed production
+preview or proof of ordinary-user installation.
 Production requires the exact clean, approved, merged source and
 `OPENMELD_DESKTOP_WINDOWS_PUBLISHER` matching the actual certificate. A missing
 signer is not replaced with the Apple team identity.
@@ -524,7 +532,10 @@ against the actual architecture, fixed platform feed and exactly one configured
 publisher. Missing or mismatched metadata makes updates unavailable. The public
 NSIS verifier hook requires successful Authenticode evidence and an exact
 publisher match; missing PowerShell, errors, unsigned executables and unexpected
-output all reject. External metadata URLs, another platform's payload, multiple
+output all reject. The verifier lives in
+`@openmeld/local-service/windows-artifact-signature` and shares its publisher
+schema with CLI acquisition; Desktop does not maintain another OS verifier.
+External metadata URLs, another platform's payload, multiple
 files and web installer packages are rejected before download. Manual download,
 draft-safe restart and independent Service lifetime remain unchanged. Actual
 signed A-to-B updates, normal-user installation/uninstallation and native DPI/IME

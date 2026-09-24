@@ -405,6 +405,9 @@ importers:
       '@openmeld/gateway-contract':
         specifier: workspace:*
         version: link:../../packages/gateway-contract
+      '@openmeld/local-service':
+        specifier: workspace:*
+        version: link:../../runtime/local-service
       '@openmeld/projects':
         specifier: workspace:*
         version: link:../../packages/projects

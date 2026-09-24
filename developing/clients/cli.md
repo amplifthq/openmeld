@@ -572,7 +572,8 @@ contract should expose the exact follow-up command prefix in the final
 `setup.complete` output. Agents must use that prefix for later commands. For
 example, local development binary setup uses `~/.openmeld-dev/bin/openmeld`, and
 production binary setup on supported macOS uses `~/.openmeld/bin/openmeld`.
-Windows, explicit `?dist=npm`, or npm recovery setup may report
+Managed Windows setup uses the lane's `bin/openmeld.exe`; its launcher reads
+the installer-owned active version record. Explicit `?dist=npm` or npm recovery setup may report
 `npx -y openmeld@latest` as the explicit fallback. Do not ask agents to infer the
 lane from prose or switch to a different CLI entry after setup.
 

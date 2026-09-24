@@ -1,8 +1,14 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import type { CliBinaryRelease } from "@openmeld/schemas";
+import {
+  type CliBinaryRelease,
+  WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
+  WINDOWS_PROCESS_HELPER_FILENAME,
+} from "@openmeld/schemas";
 import { reconstructCliBinaryDelta } from "./cli-binary-delta.js";
+import { verifyWindowsArtifactSignature } from "./windows-artifact-signature.js";
 
 type CommandResult = {
   code: number;
@@ -195,11 +201,113 @@ export async function downloadCliBinaryUpdateArtifact(input: {
   });
 }
 
+/** Prepare the Windows companion in the caller's disposable artifact directory. */
+
+export function allowUnsignedWindowsInternalPreview(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return (
+    env.OPENMELD_ENV_PRESET === "prod" &&
+    env.OPENMELD_WINDOWS_INTERNAL_PREVIEW === "1" &&
+    env.OPENMELD_CLI_BINARY_MANIFEST_URL ===
+      WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
+  );
+}
+
+function assertWindowsPreviewPolicy(
+  windows: NonNullable<CliBinaryRelease["windows"]>,
+  allowed: boolean
+): void {
+  if ("mode" in windows && !allowed) {
+    throw integrityError(
+      "Unsigned Windows artifacts require the explicit OpenMeld internal preview channel"
+    );
+  }
+}
+
+export async function prepareCliBinaryProcessHelper(input: {
+  artifactPath: string;
+  allowUnsignedPreview?: boolean;
+  downloadPolicy: CliBinaryDownloadPolicy;
+  fetchImpl: typeof fetch;
+  release: CliBinaryRelease;
+}): Promise<void> {
+  const windows = input.release.windows;
+  if (!windows) {
+    if (process.platform === "win32") {
+      throw integrityError(
+        "Windows CLI artifacts must declare their process helper"
+      );
+    }
+    return;
+  }
+  if (process.platform !== "win32") {
+    throw integrityError("Windows artifact preparation requires Windows");
+  }
+  assertWindowsPreviewPolicy(windows, input.allowUnsignedPreview === true);
+  if (
+    new URL(windows.processHelper.url).origin !==
+    new URL(input.release.url).origin
+  ) {
+    throw integrityError(
+      "Windows process helper returned an unexpected download location"
+    );
+  }
+  const bytes = await downloadCliBinaryUpdateArtifact({
+    downloadPolicy: input.downloadPolicy,
+    fetchImpl: input.fetchImpl,
+    release: windows.processHelper,
+    plan: resolveFullCliBinaryUpdatePlan(windows.processHelper),
+    onDeltaFallback: () => {
+      /* The small helper always uses a complete artifact. */
+    },
+  });
+  const helperPath = join(
+    dirname(input.artifactPath),
+    WINDOWS_PROCESS_HELPER_FILENAME
+  );
+  await writeFile(helperPath, bytes, { mode: 0o700, flag: "wx" });
+  if (!("mode" in windows)) {
+    await verifyWindowsArtifactSignature(helperPath, windows.publisherName);
+  }
+}
+
 export async function verifyCliBinaryCodeSignature(input: {
   artifactPath: string;
+  allowUnsignedPreview?: boolean;
   release: CliBinaryRelease;
   runCommand: (command: string, args: string[]) => Promise<CommandResult>;
 }): Promise<void> {
+  if (process.platform === "win32") {
+    if (!input.release.windows) {
+      throw integrityError(
+        "Windows CLI artifacts must declare their publisher and process helper"
+      );
+    }
+    assertWindowsPreviewPolicy(
+      input.release.windows,
+      input.allowUnsignedPreview === true
+    );
+    if ("mode" in input.release.windows) {
+      return;
+    }
+    try {
+      await verifyWindowsArtifactSignature(
+        input.artifactPath,
+        input.release.windows.publisherName
+      );
+    } catch (error) {
+      throw integrityError(
+        `Windows artifact signature verification failed: ${toError(error).message}`
+      );
+    }
+    return;
+  }
+  if (input.release.windows) {
+    throw integrityError(
+      "signed Windows artifact verification requires Windows"
+    );
+  }
   const { codeIdentifier, teamIdentifier } = input.release;
   if (!(codeIdentifier && teamIdentifier)) {
     return;

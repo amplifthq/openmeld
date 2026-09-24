@@ -209,9 +209,30 @@ describe("version state", () => {
   });
 
   it.each([
-    false,
-    true,
-  ])("reads binary release artifact metadata with an independent Service target: %s", async (independentService) => {
+    {
+      independentService: false,
+      os: "darwin",
+      arch: "arm64",
+      platform: "darwin-arm64",
+    },
+    {
+      independentService: true,
+      os: "darwin",
+      arch: "arm64",
+      platform: "darwin-arm64",
+    },
+    {
+      independentService: true,
+      os: "win32",
+      arch: "x64",
+      platform: "windows-x64",
+    },
+  ])("selects the native $platform CLI and independent Service: $independentService", async ({
+    independentService,
+    os,
+    arch,
+    platform,
+  }) => {
     vi.resetModules();
     vi.stubEnv(
       "OPENMELD_CLI_BINARY_MANIFEST_URL",
@@ -224,11 +245,28 @@ describe("version state", () => {
     if (!cliArtifact) {
       throw new Error("The captured manifest must include the test platform.");
     }
+    if (os === "win32") {
+      cliArtifact.teamIdentifier = undefined;
+      cliArtifact.codeIdentifier = undefined;
+      cliArtifact.windows = {
+        publisherName: "OpenMeld Test Publisher",
+        processHelper: {
+          url: "https://dev.openmeld.test/cli/helper.exe",
+          sha256: "c".repeat(64),
+          sizeBytes: 123,
+        },
+      };
+    }
+    manifest.channels.stable.platforms = { [platform]: cliArtifact };
+    vi.spyOn(process, "platform", "get").mockReturnValue(os as NodeJS.Platform);
+    vi.spyOn(process, "arch", "get").mockReturnValue(
+      arch as typeof process.arch
+    );
     if (independentService) {
       manifest.channels.stable.service = {
         version: "0.3.1",
         platforms: {
-          "darwin-arm64": {
+          [platform]: {
             ...cliArtifact,
             sha256: "b".repeat(64),
             url: "https://dev.openmeld.test/cli/download/openmeld-cli-darwin-arm64-0.3.1",
@@ -248,19 +286,17 @@ describe("version state", () => {
       "../src/config/version-state"
     );
 
-    await expect(
-      fetchLatestCliBinaryRelease({ platform: "darwin-arm64" })
-    ).resolves.toEqual({
+    await expect(fetchLatestCliBinaryRelease()).resolves.toEqual({
       version: manifest.channels.stable.version,
       minRequiredCliVersion: manifest.channels.stable.minRequiredCliVersion,
-      platform: "darwin-arm64",
-      ...manifest.channels.stable.platforms["darwin-arm64"],
+      platform,
+      ...manifest.channels.stable.platforms[platform],
       ...(independentService
         ? {
             service: {
-              ...manifest.channels.stable.service?.platforms["darwin-arm64"],
+              ...manifest.channels.stable.service?.platforms[platform],
               version: "0.3.1",
-              platform: "darwin-arm64",
+              platform,
             },
           }
         : {}),

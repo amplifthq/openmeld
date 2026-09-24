@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
 import {
+  allowUnsignedWindowsInternalPreview,
   type CliBinaryUpdatePlan,
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
+  prepareCliBinaryProcessHelper,
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
@@ -888,9 +890,17 @@ async function installLatestCliBinary(input: {
     await writeFile(artifactPath, artifactBytes);
     await chmod(artifactPath, 0o755);
     await verifyCliBinaryCodeSignature({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath,
       release: input.release,
       runCommand,
+    });
+    await prepareCliBinaryProcessHelper({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
+      artifactPath,
+      release: input.release,
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+      fetchImpl: fetch,
     });
 
     const installResult = await runCommand(artifactPath, [
