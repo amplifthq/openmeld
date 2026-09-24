@@ -423,6 +423,10 @@ The Space composer isolates a rich-editor failure from the conversation shell.
 Its plain-text fallback keeps the draft and send action available, while edits
 there clear authored mention semantics. A failed editor must not replace the
 whole Desktop or Web workspace with the root error page.
+The shared Markdown editor likewise isolates Plate failures for Organization
+Documents, Organization Skills, and Space Files. Its fallback shows the owning
+Markdown draft as editable source, retains read-only mode and content-limit
+feedback, and leaves saving under the existing owner.
 
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
