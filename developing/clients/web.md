@@ -423,6 +423,10 @@ The Space composer isolates a rich-editor failure from the conversation shell.
 Its plain-text fallback keeps the draft and send action available, while edits
 there clear authored mention semantics. A failed editor must not replace the
 whole Desktop or Web workspace with the root error page.
+If a different React failure occurs in the Space or Direct Message conversation
+panel, its boundary keeps the app shell, header, and conversation sidebar
+usable, reports the error, and offers a local retry. It does not treat a caught
+error as a successful conversation load or erase the underlying failure.
 The shared Markdown editor likewise isolates Plate failures for Organization
 Documents, Organization Skills, and Space Files. Its fallback shows the owning
 Markdown draft as editable source, retains read-only mode and content-limit
