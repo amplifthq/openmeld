@@ -13,12 +13,42 @@ import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { SpaceComposer } from "./space-composer";
 import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
+import { SpaceComposerTaskMenu } from "./space-composer-task-menu";
 import {
 	SpaceWakeRecommendationScope,
 	useSpaceWakeRecommendation,
 } from "./space-wake-recommendation";
 
 afterEach(cleanup);
+
+it.each([
+	{
+		choice: "New project task",
+		selection: { mode: "new", access: "workspace", workspace: "isolated" },
+	},
+	{
+		choice: "New Space-only task",
+		selection: { mode: "new", access: "space_context", workspace: "isolated" },
+	},
+] as const)("makes $choice explicit in the Task menu", async (input) => {
+	const onChange = vi.fn();
+	render(
+		<SpaceComposerTaskMenu
+			disabled={false}
+			onChange={onChange}
+			sources={[]}
+			supportsCurrentFolder={false}
+			targetProfileId="agent"
+		/>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Task context" }));
+	fireEvent.click(await screen.findByText(input.choice));
+	expect(onChange).toHaveBeenCalledWith({
+		label: input.choice,
+		selection: input.selection,
+		targetProfileId: "agent",
+	});
+});
 
 describe("SpaceComposer sending focus", () => {
 	it.each([

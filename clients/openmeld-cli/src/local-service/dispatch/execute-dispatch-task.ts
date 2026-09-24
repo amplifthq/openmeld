@@ -119,6 +119,10 @@ import type {
   LedgerPaths,
 } from "../core/types";
 import { DaemonServiceRunError } from "../core/types";
+import {
+  type ClaudeProjectContainerRuntime,
+  prepareClaudeProjectContainer,
+} from "../file-access/claude-project-container";
 import { resolveComputerFileAccessAdmission } from "../file-access/computer-file-access-admission";
 import { applyComputerFileAccessAwareness } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
@@ -1119,6 +1123,7 @@ export async function handleDispatchDeliverFrame(input: {
   let dispatchSpaceActionContext: DispatchSpaceActionContext | null = null;
   let nativeQuiescence: Promise<void> | undefined;
   let workspaceUse: ExecutionContextWorkspaceUse | null = null;
+  let claudeProjectRuntime: ClaudeProjectContainerRuntime | null = null;
   const workspaceProcesses = new Map<number | null, boolean>();
   const observeWorkspaceProcess = (event: AdapterRuntimeEvent) =>
     observeExecutionContextWorkspaceProcess(workspaceProcesses, event);
@@ -1202,7 +1207,13 @@ export async function handleDispatchDeliverFrame(input: {
       providerRuntimeWorkingDirectory: handoffWorkingDirectory,
     };
     runtimePreparation.effectiveRuntimeContext = effectiveRuntimeContext;
+    claudeProjectRuntime = await prepareDispatchClaudeProjectContainer({
+      parsedTask,
+      taskWorkspace,
+      workingDirectory: handoffWorkingDirectory,
+    });
     computerFileAccessBoundary = await resolveDispatchComputerFileAccess({
+      claudeProjectRuntime,
       computerFileAccessStorePath: input.computerFileAccessStorePath,
       onInteractionRequest,
       parsedTask,
@@ -1249,9 +1260,12 @@ export async function handleDispatchDeliverFrame(input: {
     });
     const spaceActionRuntimeContext = createDispatchSpaceActionRuntimeContext({
       bootstrapContext,
+      claudeProjectRuntime,
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
       parsedTask,
       runtimePreparation,
       sendTargetReference,
+      taskWorkspace,
     });
     dispatchSpaceActionContext =
       spaceActionRuntimeContext.dispatchSpaceActionContext;
@@ -1299,7 +1313,10 @@ export async function handleDispatchDeliverFrame(input: {
         existingContextId,
       });
     workspaceUse = await markExecutionContextWorkspaceInUse({
+      attemptId: parsedTask.attemptId,
       context: parsedTask.executionContext,
+      containerRuntime: claudeProjectRuntime,
+      dispatchId: parsedTask.dispatchId,
       ledgerRootPath: input.ledgerPaths.rootDirPath,
     });
     runtimeEnvOverrides = {
@@ -2845,6 +2862,7 @@ function buildDispatchRuntimePrompt(input: {
   taskWorkspace?: ExecutionContextWorkspace;
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
+    executionContextAccess: input.parsedTask.executionContext?.access,
     callerContext: input.parsedTask.callerContext,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
@@ -2921,6 +2939,46 @@ async function prepareDispatchTaskWorkspace(input: {
   return { workingDirectory, boundaryRoot: workingDirectory };
 }
 
+async function prepareDispatchClaudeProjectContainer(input: {
+  parsedTask: ParsedDispatchTask;
+  taskWorkspace: ExecutionContextWorkspace;
+  workingDirectory: string;
+}): Promise<ClaudeProjectContainerRuntime | null> {
+  const context = input.parsedTask.executionContext;
+  if (
+    input.parsedTask.agentControllerRef !== "builtin:claude-code" ||
+    context?.access !== "workspace" ||
+    context.workspace !== "isolated"
+  ) {
+    return null;
+  }
+  try {
+    return await prepareClaudeProjectContainer({
+      boundaryRoot: input.taskWorkspace.boundaryRoot,
+      contextId: context.id,
+      workspacePath: input.workingDirectory,
+    });
+  } catch (error) {
+    const code =
+      error instanceof Error && error.message.startsWith("claude_project.")
+        ? error.message.split(":")[0]
+        : "claude_project.isolation_unverified";
+    let message =
+      "OpenMeld could not verify this task's project container isolation. Check Docker or Podman and try again.";
+    if (code === "claude_project.container_runtime_unavailable") {
+      message =
+        "Start Docker or Podman with a Linux container engine on this computer, then try this project task again.";
+    } else if (code === "claude_project.image_unavailable") {
+      message =
+        "Docker or Podman could not prepare the task image. Check the container engine and try again.";
+    }
+    throw new DaemonServiceRunError({
+      code: code ?? "claude_project.isolation_unverified",
+      message,
+    });
+  }
+}
+
 async function releaseDispatchTaskWorkspace(input: {
   workspaceUse: ExecutionContextWorkspaceUse | null;
   parsedTask: ParsedDispatchTask;
@@ -2974,6 +3032,7 @@ function observeExecutionContextWorkspaceProcess(
 }
 
 async function resolveDispatchComputerFileAccess(input: {
+  claudeProjectRuntime: ClaudeProjectContainerRuntime | null;
   computerFileAccessStorePath: string;
   onInteractionRequest: AdapterInteractionCallback;
   parsedTask: ParsedDispatchTask;
@@ -2994,6 +3053,14 @@ async function resolveDispatchComputerFileAccess(input: {
     if (
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
       context.access === "space_context"
+    ) {
+      return null;
+    }
+    if (
+      input.parsedTask.agentControllerRef === "builtin:claude-code" &&
+      context.access === "workspace" &&
+      context.workspace === "isolated" &&
+      input.claudeProjectRuntime
     ) {
       return null;
     }
@@ -3075,14 +3142,30 @@ async function resolveDispatchComputerFileAccess(input: {
 
 function createDispatchSpaceActionRuntimeContext(input: {
   bootstrapContext: DispatchBootstrapContext;
+  claudeProjectRuntime: ClaudeProjectContainerRuntime | null;
+  ledgerRootPath: string;
   parsedTask: ParsedDispatchTask;
   runtimePreparation: DispatchRuntimePreparation;
   sendTargetReference: DispatchSendTargetReferenceLoadResult;
+  taskWorkspace: ExecutionContextWorkspace;
 }): {
   dispatchSpaceActionContext: DispatchSpaceActionContext;
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    ...(input.claudeProjectRuntime && input.parsedTask.executionContext
+      ? {
+          projectShell: {
+            boundaryRoot: input.taskWorkspace.boundaryRoot,
+            executionContextId: input.parsedTask.executionContext.id,
+            ledgerRootPath: input.ledgerRootPath,
+            workspacePath:
+              input.runtimePreparation.effectiveRuntimeContext
+                .providerRuntimeWorkingDirectory,
+            runtime: input.claudeProjectRuntime,
+          },
+        }
+      : {}),
     workingCopyId: input.parsedTask.workingCopyId,
     attemptId: input.parsedTask.attemptId,
     dispatchId: input.parsedTask.dispatchId,

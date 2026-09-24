@@ -115,6 +115,96 @@ test("real SDK in-process MCP tools share the delivery handler and eagerly load 
   }
 });
 
+test("project contexts keep restricted file tools and the in-process project shell", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "claude-project-tools-"));
+  const tools = fixtureTools();
+  tools.tools.push({
+    name: "project_shell",
+    description: "Run a command in the task container",
+    inputSchema: z.strictObject({ command: z.string().min(1) }),
+  });
+  let options;
+  try {
+    const result = await invokeClaudeAgentSdkTransport({
+      agentControllerPermissionMode: "claude-code:auto",
+      spaceActionTools: tools,
+      executionContext: {
+        version: 1,
+        id: "11111111-1111-4111-8111-111111111111",
+        scope: {
+          organizationId: "org",
+          requesterProfileId: "human",
+          spaceId: "space",
+          targetProfileId: "agent",
+          threadId: null,
+        },
+        access: "workspace",
+        workspace: "isolated",
+        nativeConversationId: null,
+        runtimeWorkspaceFingerprint: null,
+      },
+      launchContract: { kind: "executable", commandPath: process.execPath },
+      claudeTimeoutMs: 5000,
+      claudeWorkdir: directory,
+      sessionId: null,
+      prompt: "Read this project",
+      createQuery(input) {
+        options = input.options;
+        const query = (async function* () {
+          for await (const _ of input.prompt) {
+            /* consume streaming input */
+          }
+          yield {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "project ready",
+            session_id: "project-session",
+            usage: {},
+          };
+        })();
+        return Object.assign(query, {
+          close() {
+            /* generator fixture owns no process */
+          },
+          interrupt: () => Promise.resolve(),
+          setPermissionMode: () => Promise.resolve(),
+        });
+      },
+    });
+    assert.equal(result.output, "project ready");
+    assert.deepEqual(options.tools, ["Read", "Edit", "Write", "Glob", "Grep"]);
+    assert.deepEqual(options.extraArgs, { restricted: null });
+    assert.deepEqual(options.settingSources, []);
+    assert.deepEqual(options.additionalDirectories, []);
+    assert.equal(options.strictMcpConfig, true);
+    assert.equal(options.permissionMode, "auto");
+    assert.ok(options.allowedTools.includes(`mcp__${serverId}__project_shell`));
+    const projectTool = options.mcpServers[serverId].instance;
+    const client = new Client({ name: "project-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([
+        client.connect(clientTransport),
+        projectTool.connect(serverTransport),
+      ]);
+      const catalog = await client.listTools();
+      assert.equal(
+        catalog.tools.find((entry) => entry.name === "project_shell")?._meta?.[
+          "anthropic/alwaysLoad"
+        ],
+        true
+      );
+    } finally {
+      await client.close();
+      await projectTool.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 for (const mode of ["auto", "plan", "default"]) {
   test(`SDK delivery-only repair preserves ${mode}, disables business tools, and verifies the real receipt`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "claude-delivery-only-"));

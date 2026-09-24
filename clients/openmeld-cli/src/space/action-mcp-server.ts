@@ -7,6 +7,8 @@ import {
   isDispatchSpaceActionDeliveryOnly,
 } from "@openmeld/adapter-core";
 import {
+  dispatchProjectShellInputSchema,
+  dispatchProjectShellResultSchema,
   dispatchSpaceActionToolResultSchema,
   dispatchSpaceHistoryRequestSchema,
   dispatchSpaceReadResultRequestSchema,
@@ -19,6 +21,7 @@ import {
   spaceTaskMutationReceiptSchema,
 } from "@openmeld/schemas";
 import { z } from "zod/v4";
+import { runExecutionContextWorkspaceProjectShell } from "../local-service/dispatch/execution-context-workspace";
 import type { DispatchSpaceActionRecord } from "../runtime/dispatch-space-action-context";
 import {
   DispatchSpaceActionClosedError,
@@ -205,6 +208,75 @@ export function createDispatchSpaceTools(
 ): AdapterDispatchSpaceTools {
   const env = Object.freeze({ ...(input.env ?? process.env) });
   const server = new DispatchSpaceTools(env);
+
+  const projectShell =
+    readDispatchSpaceActionContextForReceiptFromEnv(env).projectShell;
+  if (projectShell) {
+    server.registerTool(
+      "project_shell",
+      {
+        title: "Run a command in this task's project worktree",
+        description:
+          "Run one Bash command inside this task's isolated project container. Only its private worktree is mounted. The container has no network, host credentials, or Docker socket. This tool does not submit the final Space action.",
+        inputSchema: dispatchProjectShellInputSchema,
+        outputSchema: dispatchProjectShellResultSchema,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+      },
+      async ({ command }) => {
+        try {
+          const context = readDispatchSpaceActionContextForReceiptFromEnv(env);
+          if (
+            !context.projectShell ||
+            context.projectShell.executionContextId !==
+              projectShell.executionContextId ||
+            context.projectShell.boundaryRoot !== projectShell.boundaryRoot ||
+            context.projectShell.ledgerRootPath !==
+              projectShell.ledgerRootPath ||
+            context.projectShell.workspacePath !== projectShell.workspacePath ||
+            context.projectShell.runtime.binary !==
+              projectShell.runtime.binary ||
+            context.projectShell.runtime.engineIdentity !==
+              projectShell.runtime.engineIdentity ||
+            context.projectShell.runtime.kind !== projectShell.runtime.kind
+          ) {
+            throw new Error("claude_project.context_mismatch");
+          }
+          const result = dispatchProjectShellResultSchema.parse(
+            await runExecutionContextWorkspaceProjectShell({
+              ledgerRootPath: projectShell.ledgerRootPath,
+              contextId: projectShell.executionContextId,
+              dispatchId: context.dispatchId,
+              attemptId: context.attemptId,
+              command,
+              runtime: projectShell.runtime,
+              boundaryRoot: projectShell.boundaryRoot,
+              workspacePath: projectShell.workspacePath,
+            })
+          );
+          return {
+            structuredContent: result,
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          };
+        } catch (error) {
+          const code =
+            error instanceof Error &&
+            error.message.startsWith("claude_project.")
+              ? (error.message.split(":")[0] ??
+                "claude_project.execution_failed")
+              : "claude_project.execution_failed";
+          return {
+            isError: true,
+            content: [{ type: "text" as const, text: code }],
+          };
+        }
+      }
+    );
+  }
 
   server.registerTool(
     "working_copy",

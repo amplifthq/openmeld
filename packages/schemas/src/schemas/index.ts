@@ -3029,6 +3029,10 @@ export {
   spaceDispatchPolicySchema,
 } from "./space-mesh/dispatch-policy";
 export {
+  dispatchProjectShellInputSchema,
+  dispatchProjectShellResultSchema,
+} from "./space-mesh/dispatch-project-shell";
+export {
   dispatchResultKindSchema,
   dispatchResultPublicOutcomeSchema,
   dispatchResultSchema,

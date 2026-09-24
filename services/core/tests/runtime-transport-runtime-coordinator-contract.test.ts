@@ -2369,7 +2369,7 @@ const registerCompatibleRoute = (input: {
 
 const createContextHarness = (
   input?: Parameters<typeof createHarness>[0] & {
-    contextVersion?: 1 | 2 | null;
+    contextVersion?: 1 | 2 | 3 | null;
   }
 ) => {
   const harness = createHarness(input);
@@ -2384,7 +2384,13 @@ const createContextHarness = (
           ...codexRuntimeAdapterCapability.capabilityDeclaration,
           ...(input?.contextVersion === null
             ? {}
-            : { executionContextVersion: input?.contextVersion ?? 2 }),
+            : {
+                executionContextVersion:
+                  input?.contextVersion ??
+                  (input?.bindingControllerRef === "builtin:claude-code"
+                    ? 3
+                    : 2),
+              }),
         },
       },
     ],
@@ -3798,6 +3804,146 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
+  it("assigns ordinary Claude Wakes independent project contexts in parallel mode", async () => {
+    const { hub } = createContextHarness({
+      bindingControllerRef: "builtin:claude-code",
+    });
+    const replies: Array<{
+      status: string;
+      executionContext?: {
+        id: string;
+        access: string;
+        workspace: string;
+      };
+    }> = [];
+    let firstRequest: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest | null =
+      null;
+    for (let index = 0; index < 6; index += 1) {
+      const dispatchId = `dispatch-claude-project-${index}`;
+      const request = buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId,
+        idempotencyKey: dispatchId,
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: `client-claude-project-${index}`,
+          dispatchId,
+          sourceSignalId: `signal-claude-project-${index}`,
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }),
+        acceptedDispatchSnapshot: {
+          ...buildAcceptedDispatchSnapshot({
+            agentControllerRef: "builtin:claude-code",
+            fingerprint: String(index + 1),
+          }),
+          contextRequest: {
+            required: false,
+            scope: {
+              organizationId: "org",
+              requesterProfileId: "human",
+              spaceId: HEX_SPACE_ID,
+              targetProfileId: TARGET_AGENT_PROFILE_ID,
+              threadId: index === 0 ? null : `thread-${index}`,
+            },
+            selection: { mode: "auto" },
+          },
+        },
+      });
+      if (index === 0) {
+        firstRequest = request;
+      }
+      replies.push(
+        (await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            request
+          )
+        ).json()) as (typeof replies)[number]
+      );
+    }
+    expect(replies.map((reply) => reply.status)).toEqual([
+      "accepted",
+      "accepted",
+      "accepted",
+      "accepted",
+      "accepted",
+      "queued",
+    ]);
+    expect(
+      replies
+        .slice(0, 5)
+        .every(
+          (reply) =>
+            reply.executionContext?.access === "workspace" &&
+            reply.executionContext.workspace === "isolated"
+        )
+    ).toBe(true);
+    expect(
+      new Set(replies.slice(0, 5).map((reply) => reply.executionContext?.id))
+        .size
+    ).toBe(5);
+    if (!firstRequest) {
+      throw new Error("Expected the first ordinary Wake fixture");
+    }
+    const olderService = createContextHarness({
+      bindingControllerRef: "builtin:claude-code",
+      contextVersion: 2,
+    });
+    const olderResponse = (await (
+      await fetchRuntimeTransportJson(
+        olderService.hub,
+        "/runtime-coordinator/head/accept",
+        firstRequest
+      )
+    ).json()) as { status: string; executionContext?: unknown };
+    expect(olderResponse.status).toBe("accepted");
+    expect(olderResponse.executionContext).toBeUndefined();
+    const explicitSpaceOnly = createContextHarness({
+      bindingControllerRef: "builtin:claude-code",
+    });
+    const spaceOnlyRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "dispatch-claude-space-only",
+      idempotencyKey: "dispatch-claude-space-only",
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-claude-space-only",
+        dispatchId: "dispatch-claude-space-only",
+        sourceSignalId: "signal-claude-space-only",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      }),
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({
+          agentControllerRef: "builtin:claude-code",
+          fingerprint: "a",
+        }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: {
+            mode: "new",
+            access: "space_context",
+            workspace: "isolated",
+          },
+        },
+      },
+    });
+    const spaceOnlyResponse = (await (
+      await fetchRuntimeTransportJson(
+        explicitSpaceOnly.hub,
+        "/runtime-coordinator/head/accept",
+        spaceOnlyRequest
+      )
+    ).json()) as { status: string; executionContext?: { access: string } };
+    expect(spaceOnlyResponse.status).toBe("accepted");
+    expect(spaceOnlyResponse.executionContext?.access).toBe("space_context");
+  });
+
   it.each([
     "builtin:cursor",
     "builtin:grok-build",

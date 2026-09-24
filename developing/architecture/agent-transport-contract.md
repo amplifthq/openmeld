@@ -339,8 +339,11 @@ and cannot reconstruct queue metadata.
 Independent workstation tasks use Core-assigned Execution Contexts. Core admits
 at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
-Context selection is explicit for new work and forks, and scoped to the exact
-requester, Organization, Space, discussion, Profile, Binding, and Runtime.
+New work and forks may select a context explicitly. An ordinary Claude Code
+Wake in parallel mode implicitly selects a new isolated project context when
+it has no retained context; a retained or explicitly Space-only context keeps
+its selected access. Every selection is scoped to the exact requester,
+Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
 
