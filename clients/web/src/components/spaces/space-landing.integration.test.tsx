@@ -3841,7 +3841,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("sends a Center Agent correction to the visible running response when the initial summary is empty", async () => {
+	it("sends a Center Agent correction to a running response confirmed by Core", async () => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -3887,6 +3887,17 @@ describe("SpaceLanding", () => {
 		});
 		mockSpaceQueries({
 			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			activeWakeProgressSummary: createQueryResult({
+				isSuccess: true,
+				isFetchedAfterMount: true,
+				data: {
+					items: [item],
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+					query: { spaceId: "space-123", targetProfileId: null },
+				},
+			}),
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
 				isSuccess: true,
@@ -3927,12 +3938,15 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("clears a cached Sending to agent row when Core confirms that no Wake is active", async () => {
+	it.each([
+		"request_sent",
+		"running",
+	] as const)("does not present cached %s progress as current before Core confirms it", async (phase) => {
 		const queryClient = createTestQueryClient();
 		const cachedItem = createWakeProgressItem({
 			clientMessageId: "client-message-stale",
 			dispatchId: "dispatch-stale",
-			phase: "request_sent",
+			phase,
 			sourceSignalId: "sig-user-stale",
 			targetLabel: "@runner",
 			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
@@ -3971,6 +3985,18 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			activeWakeProgressSummary: createQueryResult({
+				isSuccess: true,
+				isFetching: true,
+				isFetchedAfterMount: false,
+				data: {
+					items: [cachedItem],
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+					query: { spaceId: "space-123", targetProfileId: null },
+				},
+			}),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -3992,7 +4018,7 @@ describe("SpaceLanding", () => {
 							},
 							meta: { clientMessageId: "client-message-stale" },
 							text: "@runner(wake) status check",
-							ts: RECENT_ACTIVITY_TS - 6 * 60 * 1000,
+							ts: RECENT_ACTIVITY_TS - 12 * 60 * 60 * 1000,
 						}),
 					],
 					nextCursor: null,
@@ -4002,9 +4028,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding({ queryClient });
 
-		expect(
-			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("Wake sent to runner");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 
 		await act(async () => {
 			resolveActiveWakeProgress({
@@ -4471,7 +4495,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("restores cached active Wake progress immediately after switching away from and back to a Space", async () => {
+	it("does not restore unconfirmed cached Wake progress after switching away from and back to a Space", async () => {
 		const cachedItem = {
 			clientMessageId: "client-message-1",
 			dispatchId: "dispatch-1",
@@ -4791,11 +4815,7 @@ describe("SpaceLanding", () => {
 				timeoutMs: 15_000,
 			});
 		});
-		await waitFor(() => {
-			expect(
-				screen.getByTestId("space-wake-thinking-indicator").textContent
-			).toContain("runner is working");
-		});
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 
 		view.rerender(
 			<SpaceLanding
@@ -4822,9 +4842,7 @@ describe("SpaceLanding", () => {
 			/>
 		);
 
-		expect(
-			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("runner is working");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 	});
 
 	it("does not show expired terminal Wake progress returned during history recovery", async () => {

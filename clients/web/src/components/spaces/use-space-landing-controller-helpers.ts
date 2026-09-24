@@ -462,6 +462,22 @@ export function mergeActiveWakeProgressPresentation(input: {
 	});
 }
 
+export function filterUnconfirmedRestoredWakeProgress(input: {
+	confirmedItems: readonly WakeProgressItem[];
+	currentItems: readonly WakeProgressItem[];
+	restoredItems: readonly WakeProgressItem[];
+}): WakeProgressItem[] {
+	return input.currentItems.filter(
+		(item) =>
+			!input.restoredItems.some((restored) =>
+				doWakeProgressItemsMatch({ left: item, right: restored })
+			) ||
+			input.confirmedItems.some((confirmed) =>
+				doWakeProgressItemsMatch({ left: item, right: confirmed })
+			)
+	);
+}
+
 export function filterWakeProgressItemsForVisibleOutcomes(input: {
 	items: readonly WakeProgressItem[];
 	signals: readonly SignalEnvelope[];
