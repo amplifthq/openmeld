@@ -48,6 +48,8 @@ import {
   type DaemonServiceUpdateJob,
   readPendingDaemonServiceUpdate,
 } from "./daemon-service-update-state";
+import { windowsMaintenanceBinaryPath } from "./windows-service-binary";
+import { windowsDirectTaskArguments } from "./windows-task-command";
 import {
   runWindowsUserTask,
   windowsPowerShellPath,
@@ -103,7 +105,11 @@ export async function ensureDaemonServiceMaintenanceInstalled(): Promise<void> {
   } else if (process.platform === "linux") {
     expectedDefinition = buildSystemdServiceUpdateWorkerUnit({ spec });
   } else {
-    expectedDefinition = windowsTaskActionArguments({
+    expectedDefinition = (
+      preparedBundle.bundleFormat === "binary_v1"
+        ? windowsDirectTaskArguments
+        : windowsTaskActionArguments
+    )({
       ...spec,
       logPath: resolveUpdateWorkerLogPath({}),
     });
@@ -236,8 +242,13 @@ export async function registerDaemonServiceUpdateWorker(
       name: identity.windowsServiceName,
       legacyScript: scriptPath,
       operation: "install",
-      executable: windowsPowerShellPath(),
-      arguments: windowsTaskActionArguments({
+      executable:
+        job.preparedBundle.bundleFormat === "binary_v1"
+          ? spec.executable
+          : windowsPowerShellPath(),
+      arguments: (job.preparedBundle.bundleFormat === "binary_v1"
+        ? windowsDirectTaskArguments
+        : windowsTaskActionArguments)({
         ...spec,
         logPath: resolveUpdateWorkerLogPath(pathInput),
       }),
@@ -462,8 +473,12 @@ export async function buildDaemonServiceUpdateWorkerSpec(
       job.preparedBundle.bundleFormat === "binary_v1" ? "binary" : "npm",
   });
   const binaryDistribution = job.preparedBundle.bundleFormat === "binary_v1";
+  const binaryWorkerPath =
+    process.platform === "win32" && binaryDistribution
+      ? windowsMaintenanceBinaryPath(job.preparedBundle, pathInput)
+      : daemonServiceUpdateWorkerBinaryPath(pathInput);
   const targetEntryPath = binaryDistribution
-    ? daemonServiceUpdateWorkerBinaryPath(pathInput)
+    ? binaryWorkerPath
     : daemonServiceUpdateWorkerNpmEntryPath(pathInput);
   if (!targetEntryPath) {
     throw new Error(

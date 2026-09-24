@@ -1,7 +1,5 @@
 import type { CommandDeps } from "./commands";
 import { installManagedBinary } from "./managed-binary";
-import { resolveOpenMeldBin } from "./resolve-openmeld";
-import { installWindowsComputerTools } from "./windows-computer-tools";
 
 export type ComputerToolsObservation = NonNullable<
   Parameters<typeof installManagedBinary>[2]
@@ -13,9 +11,5 @@ export async function installComputerTools(
   deps: CommandDeps,
   observation: ComputerToolsObservation = {}
 ): Promise<string> {
-  if (process.platform === "win32") {
-    return await installWindowsComputerTools(deps, observation);
-  }
-  await installManagedBinary(webOrigin, deps, observation);
-  return resolveOpenMeldBin({ env: deps.env, override: deps.openMeldBin });
+  return await installManagedBinary(webOrigin, deps, observation);
 }

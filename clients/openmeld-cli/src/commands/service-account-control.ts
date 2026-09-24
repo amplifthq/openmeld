@@ -29,7 +29,7 @@ import {
   requestLocalDaemonShutdown,
 } from "../local-service/control-plane/client";
 import { CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS } from "../local-service/core/constants";
-import { buildDaemonSystemServiceCommandSpec } from "../local-service/lifecycle/daemon-service-command-spec";
+import { resolveInstalledDaemonSystemServiceCommandSpec } from "../local-service/lifecycle/daemon-service-command-spec";
 import {
   type DaemonServiceManager,
   resolveDaemonServiceManager,
@@ -212,7 +212,7 @@ export async function runServiceAccountControl(
           // generation argument. Never install a missing Service.
           await manager.deactivate();
           await manager.install(
-            buildDaemonSystemServiceCommandSpec({
+            await resolveInstalledDaemonSystemServiceCommandSpec({
               controller: manager.controller,
               accountAdmissionId: reservation.id,
             })

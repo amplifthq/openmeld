@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildWebSetupCommand,
@@ -12,9 +11,6 @@ import {
 	resolveWebSetupFollowUpCliCommandPrefix,
 	resolveWebStartCommand,
 } from "./cli-entry-command";
-
-const POWERSHELL_ENCODED_COMMAND_RE =
-	/^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$/u;
 
 // The composed compiled-target tests cover the real environment loader. These
 // formatting fixtures supply explicit configuration and vary it per case.
@@ -216,9 +212,8 @@ describe("cli-entry-command", () => {
 			startSession: "preptok_demo",
 		});
 
-		expect(command).toMatch(POWERSHELL_ENCODED_COMMAND_RE);
-		expect(decodePowerShellCommand(command)).toBe(
-			"& ([scriptblock]::Create((irm 'https://openmeld.ai/setup?platform=windows&dist=npm'))) 'setup' '--start-session' 'preptok_demo' '--ott' 'ott_demo' '--view' 'human'"
+		expect(command).toBe(
+			"powershell -NoProfile -OutputFormat Text -Command { & ([scriptblock]::Create((irm 'https://openmeld.ai/setup?platform=windows&dist=binary'))) 'setup' '--start-session' 'preptok_demo' '--ott' 'ott_demo' '--view' 'human' }"
 		);
 	});
 
@@ -285,9 +280,8 @@ describe("cli-entry-command", () => {
 			startSession: "preptok_demo",
 		});
 
-		expect(command).toMatch(POWERSHELL_ENCODED_COMMAND_RE);
-		expect(decodePowerShellCommand(command)).toBe(
-			"& ([scriptblock]::Create((irm 'http://localhost:3000/setup?platform=windows&dist=npm&lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh'))) 'setup' '--start-session' 'preptok_demo' '--ott' 'ott_demo' '--view' 'human'"
+		expect(command).toBe(
+			"powershell -NoProfile -OutputFormat Text -Command { & ([scriptblock]::Create((irm 'http://localhost:3000/setup?platform=windows&dist=binary&lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh'))) 'setup' '--start-session' 'preptok_demo' '--ott' 'ott_demo' '--view' 'human' }"
 		);
 	});
 
@@ -467,11 +461,3 @@ describe("cli-entry-command", () => {
 		);
 	});
 });
-
-function decodePowerShellCommand(command: string): string {
-	const encoded = POWERSHELL_ENCODED_COMMAND_RE.exec(command)?.[1];
-	if (!encoded) {
-		throw new Error(`Expected an encoded PowerShell command: ${command}`);
-	}
-	return Buffer.from(encoded, "base64").toString("utf16le");
-}

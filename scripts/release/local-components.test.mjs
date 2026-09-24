@@ -185,6 +185,19 @@ test("ignores CLI-only artifacts when computing the service bundle hash", async 
     assert.equal(releaseHash, baselineReleaseHash);
     assert.equal(cliHash, baselineCliHash);
     assert.equal(releaseHash, cliHash);
+    await writeFixtureFile(
+      serviceDistRoot,
+      "windows/openmeld-windows-process.exe",
+      "shared Service process helper\n"
+    );
+    const withHelper = await computeServiceBundleHash({
+      rootDir: serviceDistRoot,
+    });
+    assert.notEqual(withHelper, baselineReleaseHash);
+    assert.equal(
+      withHelper,
+      await computeCliDaemonSourceDistFingerprint(serviceDistRoot)
+    );
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
@@ -1175,6 +1188,15 @@ test("classifies release-sensitive paths narrowly", () => {
     true
   );
   assert.equal(isCliReleasePath("release/vendor-models.json"), false);
+  for (const path of [
+    "runtime/adapters/core/native/windows/ProcessJob.cs",
+    "runtime/adapters/core/native/windows/OpenMeld.Windows.Process.csproj",
+    "scripts/release/build-windows-process-helper.mjs",
+    "clients/openmeld-cli/scripts/copy-windows-process-helper.mjs",
+  ]) {
+    assert.equal(isCliReleasePath(path), true, path);
+    assert.equal(isServiceReleasePath(path), true, path);
+  }
   assert.equal(isServiceReleasePath("release/vendor-models.json"), false);
   assert.equal(
     isCliReleasePath(

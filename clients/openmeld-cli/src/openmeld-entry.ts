@@ -1,5 +1,11 @@
 // Maintenance must remain loadable when the business command graph cannot start.
 // Both distributions use this entry; normal commands keep their existing parser.
+if (process.argv.includes("--openmeld-windows-task")) {
+  const { initializeWindowsTaskEntry } = await import(
+    "./local-service/lifecycle/windows-task-entry"
+  );
+  initializeWindowsTaskEntry();
+}
 const args = process.argv.slice(2);
 
 if (

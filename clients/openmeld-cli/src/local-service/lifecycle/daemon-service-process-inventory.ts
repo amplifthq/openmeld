@@ -427,10 +427,20 @@ function collapseLauncherWrapperProcesses(
 }
 
 export async function listWindowsProcesses(): Promise<ListedProcess[]> {
-  const script =
-    "$ErrorActionPreference='Stop'; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine) | ConvertTo-Json -Compress";
+  // Ask the provider for only the three fields we consume. Materializing every
+  // Win32_Process property needlessly queries unrelated process details.
+  const script = `
+$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::Error.WriteLine('openmeld.inventory.query_started')
+$rows = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CommandLine | Select-Object ProcessId,ParentProcessId,CommandLine)
+[Console]::Error.WriteLine('openmeld.inventory.query_completed')
+ConvertTo-Json -InputObject $rows -Compress
+`;
   // execFile owns incremental UTF-8 decoding and bounded output. A timeout or
   // unreadable process table rejects; it never proves that the Service is absent.
+  const startedAt = Date.now();
   const { stdout: output } = await promisify(execFile)(
     resolveWindowsPowerShellPath(),
     powerShellEncodedArguments(script),
@@ -440,7 +450,25 @@ export async function listWindowsProcesses(): Promise<ListedProcess[]> {
       timeout: 10_000,
       maxBuffer: 8 * 1024 * 1024,
     }
-  );
+  ).catch((error: unknown) => {
+    const failure = error as {
+      code?: unknown;
+      signal?: unknown;
+      killed?: unknown;
+      stderr?: unknown;
+    };
+    const evidence = typeof failure.stderr === "string" ? failure.stderr : "";
+    let phase = "powershell_start";
+    if (evidence.includes("openmeld.inventory.query_completed")) {
+      phase = "output";
+    } else if (evidence.includes("openmeld.inventory.query_started")) {
+      phase = "query";
+    }
+    throw new Error(
+      `Windows process inventory failed after ${Date.now() - startedAt}ms (phase=${phase}, code=${String(failure.code ?? "unknown")}, signal=${String(failure.signal ?? "none")}, killed=${String(failure.killed ?? false)}).`,
+      { cause: error }
+    );
+  });
   return parseWindowsProcessInventory(output);
 }
 
