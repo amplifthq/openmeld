@@ -474,10 +474,10 @@ download_file_with_retry() {
   while [ "$OPENMELD_SETUP_DOWNLOAD_ATTEMPT" -le 3 ]; do
     rm -f "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"
     if [ "$OPENMELD_SETUP_DOWNLOAD_SHOW_PROGRESS" = "1" ] && { [ -t 2 ]; } 2>/dev/null; then
-      if curl -fL --progress-bar "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+      if curl -fL --progress-bar --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
         return 0
       fi
-    elif curl -fsSL "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+    elif curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
       return 0
     fi
 
