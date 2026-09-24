@@ -2,6 +2,13 @@ import * as z from "zod/v4";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 
+// The macOS CLI publisher identity is a trusted client expectation, not a
+// value that a downloaded manifest may choose for itself.
+export const OPENMELD_MACOS_CLI_SIGNING_IDENTITY = {
+  codeIdentifier: "sh.openmeld.cli",
+  teamIdentifier: "38FFHDPA3B",
+} as const;
+
 function isBase64(value: string): boolean {
   if (value.length === 0 || value.length % 4 !== 0) {
     return false;

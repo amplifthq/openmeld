@@ -227,6 +227,9 @@ run_fake_curl() {
 	  OPENMELD_TEST_RAW_SIZE="$(wc -c < "$OPENMELD_TEST_RAW_BINARY" | tr -d '[:space:]')"
 	  OPENMELD_TEST_ARCHIVE_SIZE="$(wc -c < "$OPENMELD_TEST_ARCHIVE" | tr -d '[:space:]')"
 	  printf '{"schemaVersion":1,"channels":{"stable":{"version":"9.9.9","minRequiredCliVersion":"0.1.3","platforms":{"darwin-arm64":{"url":"https://openmeld.test/cli/download/openmeld-cli-darwin-arm64-9.9.9","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sizeBytes":%s,"archiveFormat":"gzip","archiveUrl":"https://openmeld.test/cli/download/openmeld-cli-darwin-arm64-9.9.9.gz","archiveSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","archiveSizeBytes":%s}}}}}\n' "$OPENMELD_TEST_RAW_SIZE" "$OPENMELD_TEST_ARCHIVE_SIZE" > "$OPENMELD_TEST_OUTPUT"
+	  if [ "${OPENMELD_TEST_MANIFEST_SIGNING_IDENTITY:-present}" != "missing" ]; then
+	    node -e 'const fs=require("fs");const p=process.argv[1];const m=JSON.parse(fs.readFileSync(p));const a=m.channels.stable.platforms["darwin-arm64"];a.codeIdentifier="sh.openmeld.cli";a.teamIdentifier="38FFHDPA3B";fs.writeFileSync(p,JSON.stringify(m));' "$OPENMELD_TEST_OUTPUT"
+	  fi
 	  if [ "${OPENMELD_TEST_SEPARATE_SERVICE:-0}" = "1" ]; then
         node -e 'const fs=require("fs");const p=process.argv[1];const m=JSON.parse(fs.readFileSync(p));const c=m.channels.stable;const a=c.platforms["darwin-arm64"];c.service={version:"9.8.0",platforms:{"darwin-arm64":{...a,url:a.url.replace("9.9.9","9.8.0"),archiveUrl:a.archiveUrl.replace("9.9.9","9.8.0")}}};fs.writeFileSync(p,JSON.stringify(m));' "$OPENMELD_TEST_OUTPUT"
       fi
@@ -258,6 +261,16 @@ case "$OPENMELD_TEST_COMMAND" in
     ;;
   curl)
     run_fake_curl "$@"
+    ;;
+  codesign)
+    case "${1:-}" in
+      --verify) exit 0 ;;
+      --display)
+        printf 'Identifier=sh.openmeld.cli\nTeamIdentifier=38FFHDPA3B\nAuthority=Developer ID Application: OpenMeld\nflags=0x10000(runtime)\nTimestamp=Sep 24, 2026\n' >&2
+        exit 0
+        ;;
+    esac
+    exit 64
     ;;
   shasum)
     run_fake_shasum "$@"

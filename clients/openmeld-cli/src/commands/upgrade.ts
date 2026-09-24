@@ -14,8 +14,10 @@ import type {
   OpenMeldToolsUpdateFailureCode,
   OpenMeldToolsUpdateOperation,
 } from "@openmeld/schemas/types";
+import { buildPosixSetupDownloadCommand } from "@openmeld/start";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import { hasIndependentMaintenanceRegistration } from "../config/daemon-service-update-worker-registration";
+import { resolveOpenMeldEnvPreset } from "../config/paths";
 import {
   buildNextVersionState,
   type CliBinaryReleaseInfo,
@@ -73,12 +75,14 @@ import { formatElapsedTime, resolveElapsedTimeMs } from "../ui/elapsed-time";
 import { emitTopLevelAgentOverview } from "./top-level-agent-overview";
 
 const OPENMELD_PACKAGE_NAME = "openmeld";
-const BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND =
-  "curl -fsSL 'https://openmeld.ai/setup?dist=binary' | sh";
+const BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND = buildPosixSetupDownloadCommand(
+  "https://openmeld.ai/setup?dist=binary"
+);
 const STAGING_BINARY_MANIFEST_URL =
   "https://staging.openmeld.ai/cli/manifest.json";
-const STAGING_BINARY_SETUP_COMMAND =
-  "curl -fsSL 'https://staging.openmeld.ai/setup?lane=canary&dist=binary' | sh";
+const STAGING_BINARY_SETUP_COMMAND = buildPosixSetupDownloadCommand(
+  "https://staging.openmeld.ai/setup?lane=canary&dist=binary"
+);
 const INSTALL_SELF_JSON_LINE_SPLIT_RE = /\r?\n/u;
 const SERVICE_CHECK_STARTED_TEXT = "Checking OpenMeld Service";
 const SERVICE_CHECK_COMPLETED_TEXT = "OpenMeld Service check finished.";
@@ -889,6 +893,7 @@ async function installLatestCliBinary(input: {
     await chmod(artifactPath, 0o755);
     await verifyCliBinaryCodeSignature({
       artifactPath,
+      allowUnsignedForDevelopment: resolveOpenMeldEnvPreset() === "dev-local",
       release: input.release,
       runCommand,
     });

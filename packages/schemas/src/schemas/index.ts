@@ -1421,6 +1421,7 @@ export {
   cliBinaryManifestSchema,
   cliBinaryReleaseSchema,
   cliBinaryServiceReleaseSchema,
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
 } from "./http/cli-binary-manifest";
 export {
   buildConnectorAppRequestProviderKey,

@@ -587,6 +587,7 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
     await writeFile(executablePath, bytes, { mode: 0o755 });
     await verifyCliBinaryCodeSignature({
       artifactPath: executablePath,
+      allowUnsignedForDevelopment: resolveOpenMeldEnvPreset() === "dev-local",
       release: input.release,
       runCommand: async (command, args) => {
         const result = await promisify(execFile)(command, args, {

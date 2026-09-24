@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
-import type { CliBinaryRelease } from "@openmeld/schemas";
+import {
+  type CliBinaryRelease,
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+} from "@openmeld/schemas";
 import { reconstructCliBinaryDelta } from "./cli-binary-delta.js";
 
 type CommandResult = {
@@ -197,12 +200,24 @@ export async function downloadCliBinaryUpdateArtifact(input: {
 
 export async function verifyCliBinaryCodeSignature(input: {
   artifactPath: string;
+  allowUnsignedForDevelopment?: boolean;
   release: CliBinaryRelease;
   runCommand: (command: string, args: string[]) => Promise<CommandResult>;
 }): Promise<void> {
   const { codeIdentifier, teamIdentifier } = input.release;
   if (!(codeIdentifier && teamIdentifier)) {
-    return;
+    if (process.platform !== "darwin" || input.allowUnsignedForDevelopment) {
+      return;
+    }
+    throw integrityError(
+      "binary manifest is missing a verified signing identity"
+    );
+  }
+  if (
+    codeIdentifier !== OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier ||
+    teamIdentifier !== OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier
+  ) {
+    throw integrityError("binary manifest has an unexpected signing identity");
   }
   if (process.platform !== "darwin") {
     throw integrityError("signed OpenMeld CLI verification requires macOS");
@@ -234,13 +249,17 @@ export async function verifyCliBinaryCodeSignature(input: {
   for (const expected of [
     `Identifier=${codeIdentifier}`,
     `TeamIdentifier=${teamIdentifier}`,
-    "Authority=Developer ID Application:",
   ]) {
-    if (!details.includes(expected)) {
+    if (!details.split("\n").some((line) => line.trim() === expected)) {
       throw integrityError(
-        `binary code signature is missing expected identity: ${expected}`
+        `binary code signature has the wrong identity: ${expected}`
       );
     }
+  }
+  if (!details.includes("Authority=Developer ID Application:")) {
+    throw integrityError(
+      "binary code signature is missing a Developer ID authority"
+    );
   }
   if (!HARDENED_RUNTIME_FLAG_RE.test(details)) {
     throw integrityError(

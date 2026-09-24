@@ -1,3 +1,4 @@
+import { OPENMELD_MACOS_CLI_SIGNING_IDENTITY } from "@openmeld/schemas";
 import {
 	getSetupFlowCopy,
 	OPENMELD_NODE_ENGINE_RANGE,
@@ -17,6 +18,10 @@ const OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE =
 const DEFAULT_LOCAL_CLI_BINARY_MANIFEST_URL =
 	"http://127.0.0.1:3197/cli/manifest.json";
 const OPENMELD_STAGING_HOSTNAME = "staging.openmeld.ai";
+const MACOS_CLI_CODE_IDENTIFIER =
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier;
+const MACOS_CLI_TEAM_IDENTIFIER =
+	OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier;
 
 export type OpenMeldSetupBootstrapLane = "prod" | "dev-local" | "canary";
 type OpenMeldSetupBootstrapPlatform = "posix" | "windows";
@@ -188,7 +193,7 @@ OPENMELD_SETUP_GLOBAL_CLI_READY=0
 OPENMELD_SETUP_GLOBAL_CLI_UPDATE_AFTER_SETUP=0
 OPENMELD_SETUP_GLOBAL_CLI_UPDATE_VERSION=""
 # Stdin source for a child OpenMeld invocation. Defaults to /dev/null so the
-# piped install script (curl ... | sh) is never consumed by a child command.
+# downloaded install script is never consumed by a child command.
 # The interactive CLI run re-points this at /dev/tty when a terminal is
 # available so setup can prompt (e.g. which local agent runs the Assistant),
 # rustup-style, without ever inheriting the pipe as stdin.
@@ -512,13 +517,14 @@ install_downloaded_binary_self() {
 verify_binary_code_signature() {
   OPENMELD_SETUP_SIGNATURE_PATH="$1"
   if [ -z "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
+    [ "$OPENMELD_SETUP_ENV_PRESET" = "dev-local" ] || die "OpenMeld CLI binary manifest is missing a verified signing identity."
     return 0
   fi
   [ -x /usr/bin/codesign ] || die "OpenMeld needs macOS codesign to verify the downloaded CLI."
   /usr/bin/codesign --verify --strict --verbose=2 "$OPENMELD_SETUP_SIGNATURE_PATH" >/dev/null 2>&1 || die "OpenMeld CLI did not pass Apple code signature verification."
   OPENMELD_SETUP_SIGNATURE_DETAILS="$(/usr/bin/codesign --display --verbose=4 "$OPENMELD_SETUP_SIGNATURE_PATH" 2>&1)" || die "OpenMeld could not inspect the CLI code signature."
-  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "Identifier=$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong identifier."
-  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "TeamIdentifier=$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong Apple team."
+  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -Fx "Identifier=$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong identifier."
+  printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -Fx "TeamIdentifier=$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" >/dev/null || die "OpenMeld CLI code signature has the wrong Apple team."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -F "Authority=Developer ID Application:" >/dev/null || die "OpenMeld CLI is not signed with an Apple Developer ID Application certificate."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -E 'flags=.*runtime' >/dev/null || die "OpenMeld CLI code signature is missing the hardened runtime."
   printf '%s\n' "$OPENMELD_SETUP_SIGNATURE_DETAILS" | grep -E '^Timestamp=' >/dev/null || die "OpenMeld CLI code signature is missing a trusted timestamp."
@@ -569,9 +575,9 @@ install_binary_openmeld() {
   [ -n "$OPENMELD_SETUP_BINARY_URL" ] || die "OpenMeld CLI binary manifest is missing the download URL."
   [ -n "$OPENMELD_SETUP_BINARY_SHA256" ] || die "OpenMeld CLI binary manifest is missing the sha256."
   [ -n "$OPENMELD_SETUP_BINARY_SIZE_BYTES" ] || die "OpenMeld CLI binary manifest is missing the size."
-  if [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
-    [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" ] || die "OpenMeld CLI binary manifest is missing the code identifier."
-    [ -n "$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ] || die "OpenMeld CLI binary manifest is missing the Apple team identifier."
+  if [ "$OPENMELD_SETUP_ENV_PRESET" != "dev-local" ] || [ -n "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" ]; then
+    [ "$OPENMELD_SETUP_BINARY_CODE_IDENTIFIER" = ${shellSingleQuote(MACOS_CLI_CODE_IDENTIFIER)} ] || die "OpenMeld CLI binary manifest has an unexpected code identifier."
+    [ "$OPENMELD_SETUP_BINARY_TEAM_IDENTIFIER" = ${shellSingleQuote(MACOS_CLI_TEAM_IDENTIFIER)} ] || die "OpenMeld CLI binary manifest has an unexpected Apple team."
   fi
 
   OPENMELD_SETUP_BINARY_HAS_ARCHIVE=0

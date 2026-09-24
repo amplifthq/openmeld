@@ -20,7 +20,7 @@ import {
 const POWERSHELL_ENCODED_COMMAND_RE =
 	/^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$/u;
 const SAFE_SHELL_WORD_RE = /^[A-Za-z0-9_./:@%+=,-]+$/u;
-const POSIX_SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; shift; sh "$setup_file" "$@"`;
+const POSIX_SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; shift; sh "$setup_file" "$@" < /dev/null`;
 
 function expectedPosixSetupCommand(url: string, args: string): string {
 	const quote = (value: string) =>

@@ -127,6 +127,8 @@ export async function installManagedBinary(
     reportStage("verifying");
     await verifyCliBinaryCodeSignature({
       artifactPath,
+      allowUnsignedForDevelopment:
+        deps.env?.OPENMELD_ENV_PRESET === "dev-local",
       release,
       runCommand: async (command, args) => {
         try {

@@ -24,6 +24,7 @@ export {
   resolveComputerReplyReadiness,
   shouldUseCompletedPrepareSessionForComputerReadiness,
 } from "./recovery/computer-reply-readiness";
+export { buildPosixSetupDownloadCommand } from "./setup-download-command";
 export {
   OPENMELD_NODE_ENGINE_RANGE,
   OPENMELD_SUPPORTED_NODE_MAJORS,
