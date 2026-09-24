@@ -219,7 +219,8 @@ const INBOX_SCHEMA_PATH = "packages/schemas/src/schemas/http/inbox.ts";
 // only contract directions proven by the changed producer and receiver paths.
 export function resolveProductionCompatibilityDependencies(
   changedPaths,
-  taskInboxRetired = false
+  taskInboxRetired = false,
+  context = {}
 ) {
   const edges = [];
   const edgeKeys = new Set();
@@ -243,7 +244,9 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["core", "cli"]],
     },
     {
-      enabled: isNpmSetupArtifactDiff(changedPaths),
+      enabled:
+        isNpmSetupArtifactDiff(changedPaths) &&
+        !isReviewedWindowsPreviewOnlyNpmSetupDiff(changedPaths, context),
       edges: [["cli", "web"]],
     },
     {
@@ -479,6 +482,54 @@ function isNpmSetupArtifactDiff(paths) {
     "clients/openmeld-cli/package.json",
     "clients/web/src/lib/setup-bootstrap-script.ts",
   ].every((file) => paths.includes(file));
+}
+
+// The reviewed Windows internal preview changed these three files only to
+// package the Windows helper and select a separate binary setup path. It did
+// not change the existing npm setup contract. Keep the CLI-before-Web edge
+// for every other source diff, including later edits to any of these files.
+const WINDOWS_PREVIEW_NPM_SETUP_BLOBS = [
+  [
+    "scripts/release/npm-cli-artifact.mjs",
+    "211536c3e0b3b5b792267e3aeabefd87c52df9ed",
+    "073c89763c3879d8b2cafb1555ce99d856cecd05",
+  ],
+  [
+    "clients/openmeld-cli/package.json",
+    "4669f73fa890a9bfc3ae87dac028ce495978bac1",
+    "de975f1e921c0237d18395936533911e67581569",
+  ],
+  [
+    "clients/web/src/lib/setup-bootstrap-script.ts",
+    "417ee09845f41184b889f41f60556dab13770d96",
+    "fc2af23865f1079533542f8aea638de4b283e923",
+  ],
+];
+
+function isReviewedWindowsPreviewOnlyNpmSetupDiff(paths, context) {
+  if (!(context.base && context.sourceSha)) {
+    return false;
+  }
+  if (
+    !paths.includes("clients/web/src/lib/setup-bootstrap-windows-binary.ts")
+  ) {
+    return false;
+  }
+  if (!paths.includes("scripts/release/publish-windows-internal-preview.mjs")) {
+    return false;
+  }
+  const readBlobSha =
+    context.readBlobSha ??
+    ((ref, file) => runGit(["rev-parse", "--verify", `${ref}:${file}`]).trim());
+  try {
+    return WINDOWS_PREVIEW_NPM_SETUP_BLOBS.every(
+      ([file, before, after]) =>
+        readBlobSha(context.base, file) === before &&
+        readBlobSha(context.sourceSha, file) === after
+    );
+  } catch {
+    return false;
+  }
 }
 
 function isInboxNotificationObservationDiff(paths) {
@@ -2028,7 +2079,8 @@ export function buildProductionReleasePlan(input) {
     coreProjectionFromCli: scopes.includes("cli"),
     compatibilityDependencies: resolveProductionCompatibilityDependencies(
       changedPaths,
-      taskInboxRetired
+      taskInboxRetired,
+      { base: input.base, sourceSha }
     ),
     compatibilityReceiverWitnesses:
       resolveProductionCompatibilityReceiverWitnesses(changedPaths),
