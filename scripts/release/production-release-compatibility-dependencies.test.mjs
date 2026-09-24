@@ -19,6 +19,11 @@ const NPM_SETUP = [
   "clients/openmeld-cli/package.json",
   "clients/web/src/lib/setup-bootstrap-script.ts",
 ];
+const WINDOWS_PREVIEW_PATHS = [
+  ...NPM_SETUP,
+  "clients/web/src/lib/setup-bootstrap-windows-binary.ts",
+  "scripts/release/publish-windows-internal-preview.mjs",
+];
 const PENDING_RECEIVER = /pending prerequisite/u;
 const CONTRACT_CYCLE = /incompatible.*dependencies/iu;
 const INBOX_OBSERVATIONS = [
@@ -123,6 +128,37 @@ test("deploys the cancellation receiver before CLI and verified npm before Web",
     !coreOnly.preflightSteps.some(
       (step) => step.label === "Verify Core CLI channel compatibility"
     )
+  );
+});
+
+test("does not make the reviewed Windows binary preview wait for an npm CLI release", () => {
+  const base = "7b8741ea2b096a8c36c5245d5d8810a8c568fc89";
+  const sourceSha = "472c771fc5b74a7cf6b327abc61c85d66ee16172";
+  const plan = buildProductionReleasePlan({
+    base,
+    changedPaths: WINDOWS_PREVIEW_PATHS,
+    sourceSha,
+    scope: "web",
+  });
+  assert.deepEqual(plan.compatibilityDependencies, []);
+  assert.deepEqual(
+    resolveProductionCompatibilityDependencies(WINDOWS_PREVIEW_PATHS),
+    [["cli", "web"]]
+  );
+  assert.deepEqual(
+    resolveProductionCompatibilityDependencies(WINDOWS_PREVIEW_PATHS, false, {
+      base,
+      sourceSha,
+      readBlobSha: () => "changed-later",
+    }),
+    [["cli", "web"]]
+  );
+  assert.deepEqual(
+    resolveProductionCompatibilityDependencies(NPM_SETUP, false, {
+      base,
+      sourceSha,
+    }),
+    [["cli", "web"]]
   );
 });
 
