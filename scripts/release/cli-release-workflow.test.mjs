@@ -368,7 +368,24 @@ test("uses the exact release SHA for CLI publication and recovery", () => {
       source.indexOf("path: release-source")
   );
   assert.ok(source.includes("working-directory: release-source"));
-  assert.equal(source.match(/persist-credentials: false/gu)?.length, 2);
+  assert.equal(
+    source.match(/persist-credentials: false/gu)?.length,
+    source.match(/uses: actions\/checkout@v5/gu)?.length
+  );
+  assert.ok(
+    source.includes("node scripts/release/build-windows-process-helper.mjs")
+  );
+  assert.ok(
+    source.includes(
+      "node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-helper"
+    )
+  );
+  assert.ok(
+    source.indexOf("Verify and import Windows process helper") <
+      source.indexOf(
+        "Publish signed and notarized CLI, binary channel, npm package, tag, and Core"
+      )
+  );
 });
 
 test("validates current main first-parent membership before publication", () => {
