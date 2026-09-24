@@ -96,9 +96,12 @@ describe("setup-bootstrap-script", () => {
 		);
 		expect(script).toContain("trap cleanup_binary_download EXIT");
 		expect(script).toContain("download_file_with_retry");
+		expect(
+			script.trimEnd().endsWith("# openmeld-setup-script-complete-v1")
+		).toBe(true);
 		expect(script).toContain("OPENMELD_SETUP_DOWNLOAD_ATTEMPT=1");
 		expect(script).toContain("Download didn't finish. Retrying...");
-		expect(script).toContain("curl -fL --progress-bar");
+		expect(script).toContain("download_file_with_curl -fL --progress-bar");
 		expect(script).toContain("install_binary_openmeld");
 		expect(script).toContain(
 			'/usr/bin/codesign --verify --strict --verbose=2 "$OPENMELD_SETUP_SIGNATURE_PATH"'

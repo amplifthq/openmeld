@@ -8,7 +8,7 @@ const SETUP_COMMAND_ERROR =
   "Use the official Staging Canary binary setup command copied from OpenMeld Staging.";
 const SAFE_UNQUOTED_SHELL_WORD = /^[A-Za-z0-9_./:@%+=,?&-]+$/u;
 const TOKEN_VALUE_PATTERN = /^[A-Za-z0-9_./:@%+=,-]{1,4096}$/u;
-const SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; shift; sh "$setup_file" "$@" < /dev/null`;
+const SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; [ "$(tail -n 1 "$setup_file")" = '# openmeld-setup-script-complete-v1' ] || { echo 'OpenMeld setup download was incomplete.' >&2; exit 1; }; shift; sh "$setup_file" "$@" < /dev/null`;
 const SETUP_COMMAND_PREFIX = `sh -c '${SETUP_DOWNLOAD_SCRIPT.replaceAll("'", "'\\''")}' sh `;
 const SETUP_COMMAND_SUFFIX_PATTERN = /^(('[^']*')|([^\s]+)) (.+)$/u;
 const UNSAFE_SHELL_SYNTAX_PATTERN = /[;$`()<>\\]/u;

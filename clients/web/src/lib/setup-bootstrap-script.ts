@@ -2,6 +2,7 @@ import { OPENMELD_MACOS_CLI_SIGNING_IDENTITY } from "@openmeld/schemas";
 import {
 	getSetupFlowCopy,
 	OPENMELD_NODE_ENGINE_RANGE,
+	OPENMELD_SETUP_SCRIPT_END_MARKER,
 	OPENMELD_SUPPORTED_NODE_MAJORS,
 } from "@openmeld/start";
 import { isLocalWebOrigin } from "./local-web-origin.ts";
@@ -479,10 +480,10 @@ download_file_with_retry() {
   while [ "$OPENMELD_SETUP_DOWNLOAD_ATTEMPT" -le 3 ]; do
     rm -f "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"
     if [ "$OPENMELD_SETUP_DOWNLOAD_SHOW_PROGRESS" = "1" ] && { [ -t 2 ]; } 2>/dev/null; then
-      if curl -fL --progress-bar --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+      if download_file_with_curl -fL --progress-bar --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
         return 0
       fi
-    elif curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
+    elif download_file_with_curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 "$OPENMELD_SETUP_DOWNLOAD_URL" -o "$OPENMELD_SETUP_DOWNLOAD_OUTPUT"; then
       return 0
     fi
 
@@ -495,6 +496,14 @@ download_file_with_retry() {
   done
 
   return 1
+}
+
+download_file_with_curl() {
+  if [ "$OPENMELD_SETUP_ENV_PRESET" = "dev-local" ]; then
+    curl "$@"
+  else
+    curl --proto '=https' --proto-redir '=https' "$@"
+  fi
 }
 
 cleanup_binary_download() {
@@ -834,6 +843,7 @@ if [ "$OPENMELD_SETUP_DISTRIBUTION" = "npm" ]; then
   maybe_queue_old_global_openmeld_update_after_setup
   maybe_run_global_openmeld_update_after_setup
 fi
+${OPENMELD_SETUP_SCRIPT_END_MARKER}
 `;
 }
 

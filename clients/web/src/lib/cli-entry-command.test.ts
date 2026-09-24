@@ -20,14 +20,19 @@ import {
 const POWERSHELL_ENCODED_COMMAND_RE =
 	/^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$/u;
 const SAFE_SHELL_WORD_RE = /^[A-Za-z0-9_./:@%+=,-]+$/u;
-const POSIX_SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; shift; sh "$setup_file" "$@" < /dev/null`;
+function expectedPosixDownloadScript(url: string): string {
+	const protocolOptions = url.startsWith("https:")
+		? "--proto '=https' --proto-redir '=https' "
+		: "";
+	return `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL ${protocolOptions}--connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; [ "$(tail -n 1 "$setup_file")" = '# openmeld-setup-script-complete-v1' ] || { echo 'OpenMeld setup download was incomplete.' >&2; exit 1; }; shift; sh "$setup_file" "$@" < /dev/null`;
+}
 
 function expectedPosixSetupCommand(url: string, args: string): string {
 	const quote = (value: string) =>
 		SAFE_SHELL_WORD_RE.test(value)
 			? value
 			: `'${value.replaceAll("'", "'\\''")}'`;
-	return `sh -c ${quote(POSIX_SETUP_DOWNLOAD_SCRIPT)} sh ${quote(url)} ${args}`;
+	return `sh -c ${quote(expectedPosixDownloadScript(url))} sh ${quote(url)} ${args}`;
 }
 
 // The composed compiled-target tests cover the real environment loader. These
@@ -161,13 +166,14 @@ describe("cli-entry-command", () => {
 		const curlPath = join(directory, "curl");
 		writeFileSync(
 			curlPath,
-			'#!/bin/sh\nwhile [ "$1" != "-o" ]; do shift; done\nshift\noutput=$1\ncase "$FAKE_CURL_MODE" in fail) exit 22 ;; empty) : > "$output" ;; success) printf "exit 17\\n" > "$output" ;; esac\n'
+			'#!/bin/sh\nwhile [ "$1" != "-o" ]; do shift; done\nshift\noutput=$1\ncase "$FAKE_CURL_MODE" in fail) exit 22 ;; empty) : > "$output" ;; partial) printf "exit 0\\n" > "$output" ;; success) printf "exit 17\\n# openmeld-setup-script-complete-v1\\n" > "$output" ;; esac\n'
 		);
 		chmodSync(curlPath, 0o700);
 		try {
 			for (const [mode, expectedCode] of [
 				["fail", 1],
 				["empty", 1],
+				["partial", 1],
 				["success", 17],
 			] as const) {
 				const result = spawnSync("sh", ["-c", command], {
