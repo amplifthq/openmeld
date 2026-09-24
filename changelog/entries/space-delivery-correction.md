@@ -42,4 +42,3 @@ Configuration remains unchanged, including during native version discovery.
 Unverified controller versions or incompatible policies stop explicitly rather
 than rerunning business work. Normal replies remain available; automatic
 correction is not promised for every controller version or configuration.
-
