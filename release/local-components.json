@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T16:22:33.743Z",
+  "updatedAt": "2026-09-24T03:42:32.409Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
-      "packageVersion": "0.3.223",
+      "packageVersion": "0.3.222",
       "updatePolicy": "available",
-      "reason": "Old Core ignores the optional admission-evidence header, so the new CLI keeps its old heartbeat shape until Core advertises support; setup, Wake, Space actions, status, and trace remain compatible."
+      "reason": "Existing CLI setup, Wake, Space actions, status, trace and self-rescue remain compatible with old and new cloud; the new Remote Agent creation options use additive optional request fields."
     },
     "service": {
-      "bundleHash": "ead2011df7faadee9907b1fba6826981a15507468d85075f43299224314977ab",
-      "bundleVersion": "0.3.223",
+      "bundleHash": "818b0a54c1578eb46c4f9373bee8c11b8764c90c2dad378161649e5efd8fbf7d",
+      "bundleVersion": "0.3.222",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
-      "reason": "New Core accepts old Service heartbeats without admission evidence; new Service sends the bounded diagnostic only after negotiated support, without changing execution authority or admission decisions."
+      "reason": "The Service transport and Wake contracts are unchanged; shared schema additions are optional and old Services can safely continue current and new Wake work."
     },
     "skills": {
       "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",
