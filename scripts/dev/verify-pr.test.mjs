@@ -58,7 +58,7 @@ test("Worker changes select the existing Zod contract guard before expensive tes
   }
 });
 
-test("draft feedback checks changed files and related tests without package builds", () => {
+test("focused checks changed files and related tests without package builds", () => {
   const sources = [
     "clients/web/src/sidebar.tsx",
     "clients/web/src/sidebar.test.tsx",
@@ -106,7 +106,7 @@ test("deleted files never turn a focused lint command into a repository scan", (
   );
 });
 
-test("draft control feedback runs the owning Node regression tests once", () => {
+test("focused control checks run the owning Node regression tests once", () => {
   const commands = planPrChecks(
     ["scripts/dev/verify-pr.mjs", "scripts/dev/verify-pr.test.mjs"],
     {
@@ -125,7 +125,7 @@ test("draft control feedback runs the owning Node regression tests once", () => 
   );
 });
 
-test("docs-only draft feedback avoids code, test discovery, and builds", () => {
+test("docs-only focused checks avoid code, test discovery, and builds", () => {
   assert.deepEqual(planPrChecks(["developing/README.md"], { feedback: true }), [
     ["run", "verify:docs", "--", "--strict"],
   ]);
