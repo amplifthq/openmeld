@@ -1317,6 +1317,10 @@ Controller report as `Checking`, that transient must be bounded and should use
 the controller's product name when known. A client may continue a bounded
 background refresh, but it must preserve Core's public verdict throughout: it
 must not repaint a Core-owned `Offline` or `Unavailable` state as `Checking`.
+It must also show a newer Core `Checking` verdict immediately instead of
+replaying an older `Available` badge. A connected computer that briefly stops
+accepting new tasks is `Checking` while the bounded start wait can recover;
+another current profile, provider, or permission blocker remains `Unavailable`.
 After the client refresh budget expires, it may offer `Check again` without
 changing the public state. It must not relabel an existing Binding as `Connect
 local agent`; connection copy and connection actions are reserved for a

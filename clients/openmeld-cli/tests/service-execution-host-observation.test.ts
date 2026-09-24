@@ -25,6 +25,138 @@ vi.mock(
 );
 
 describe("Host responsiveness observations", () => {
+  it("keeps a healthy socket open through catalog refresh, but closes admission if applying it fails", async () => {
+    const snapshot = {
+      pid: 41_001,
+      admission: "open" as const,
+      activeCount: 0,
+      pendingCount: 0,
+      localQuiescent: true,
+      unacknowledgedResultCount: 0,
+      startupReplayPending: false,
+      adapterIds: [],
+    };
+    const pending = Promise.withResolvers<typeof snapshot>();
+    const changed = vi.fn();
+    const host = {
+      available: () => true,
+      call: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot)
+        .mockReturnValueOnce(pending.promise),
+      onEvent: () => () => undefined,
+      onAvailabilityChanged: () => () => undefined,
+    } as unknown as Parameters<typeof createExecutionHostSocketLink>[0]["host"];
+    const link = createExecutionHostSocketLink({
+      host,
+      socket: { send: () => undefined },
+      onAdmissionChanged: changed,
+      onInvalidation: vi.fn(),
+      onAuthenticationFailure: vi.fn(),
+      onError: vi.fn(),
+    });
+    const initial = {
+      executionAdmissionConfirmation: true,
+      connectionGeneration: 1,
+      catalogRevision: 1,
+      leases: [],
+    };
+    await link.configure(initial);
+    expect(link.canAccept()).toBe(true);
+    expect(link.admissionEvidence()).toMatchObject({
+      acceptingDispatches: true,
+      connectionGeneration: 1,
+      reasonCode: "host_ready",
+    });
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    const refresh = link.configure({ ...initial, catalogRevision: 2 });
+    await vi.waitFor(() => expect(host.call).toHaveBeenCalledTimes(2));
+    expect(link.canAccept()).toBe(true);
+    expect(changed).toHaveBeenCalledTimes(1);
+    pending.resolve(snapshot);
+    await refresh;
+    expect(link.canAccept()).toBe(true);
+
+    vi.mocked(host.call).mockRejectedValueOnce(new Error("catalog rejected"));
+    await expect(
+      link.configure({ ...initial, catalogRevision: 3 })
+    ).rejects.toThrow("catalog rejected");
+    expect(link.canAccept()).toBe(false);
+    expect(link.admissionEvidence()).toMatchObject({
+      acceptingDispatches: false,
+      connectionGeneration: 1,
+      reasonCode: "host_configure_failed",
+      detailCode: "host.configure_failed",
+    });
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let an old catalog response reopen a replacement connection", async () => {
+    const snapshot = {
+      pid: 41_001,
+      admission: "open" as const,
+      activeCount: 0,
+      pendingCount: 0,
+      localQuiescent: true,
+      unacknowledgedResultCount: 0,
+      startupReplayPending: false,
+      adapterIds: [],
+    };
+    const stale = Promise.withResolvers<typeof snapshot>();
+    const replacement = Promise.withResolvers<typeof snapshot>();
+    const host = {
+      available: () => true,
+      call: vi
+        .fn()
+        .mockResolvedValueOnce(snapshot)
+        .mockReturnValueOnce(stale.promise)
+        .mockReturnValueOnce(replacement.promise),
+      onEvent: () => () => undefined,
+      onAvailabilityChanged: () => () => undefined,
+    } as unknown as Parameters<typeof createExecutionHostSocketLink>[0]["host"];
+    const link = createExecutionHostSocketLink({
+      host,
+      socket: { send: () => undefined },
+      onAdmissionChanged: vi.fn(),
+      onInvalidation: vi.fn(),
+      onAuthenticationFailure: vi.fn(),
+      onError: vi.fn(),
+    });
+    const first = {
+      executionAdmissionConfirmation: true,
+      connectionGeneration: 1,
+      catalogRevision: 1,
+      leases: [],
+    };
+    await link.configure(first);
+    const refresh = link.configure({ ...first, catalogRevision: 2 });
+    await vi.waitFor(() => expect(host.call).toHaveBeenCalledTimes(2));
+    const rebind = link.configure({
+      ...first,
+      connectionGeneration: 2,
+      catalogRevision: 3,
+    });
+    expect(link.canAccept()).toBe(false);
+    expect(link.admissionEvidence()).toMatchObject({
+      acceptingDispatches: false,
+      connectionGeneration: 2,
+      reasonCode: "connection_replaced",
+    });
+    stale.resolve(snapshot);
+    await refresh;
+    await vi.waitFor(() => expect(host.call).toHaveBeenCalledTimes(3));
+    expect(link.canAccept()).toBe(false);
+    replacement.resolve(snapshot);
+    await rebind;
+    expect(link.canAccept()).toBe(true);
+    expect(link.admissionEvidence()).toMatchObject({
+      acceptingDispatches: true,
+      connectionGeneration: 2,
+      reasonCode: "host_ready",
+    });
+  });
+
   it("withdraws responsiveness after a heartbeat timeout without losing historical work or restarting it", async () => {
     const snapshot = {
       pid: fixture.child.pid,

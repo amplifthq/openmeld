@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 import { runtimeExecutionAuthorityOpenMeldServiceRuntimeIdSchema } from "./execution-identity";
 import { runtimeCoordinatorSafeEventPayloadJsonSchema } from "./runtime-coordinator-execution-token";
+import { runtimeTransportAdmissionEvidenceSchema } from "./runtime-transport-admission-evidence";
 
 export const RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION =
   "openmeld.runtime_coordinator.execution.v1" as const;
@@ -128,6 +129,7 @@ export const runtimeCoordinatorDeliveryRouteEvidenceSchema = z.strictObject({
   session: z.enum(["matching", "missing", "connection_replaced"]),
   socket: z.enum(["present", "missing"]),
   acceptingDispatches: z.enum(["accepting", "not_accepting", "unknown"]),
+  admissionEvidence: runtimeTransportAdmissionEvidenceSchema.optional(),
   profileRoute: z.enum(["registered", "not_registered", "unknown"]),
 });
 
