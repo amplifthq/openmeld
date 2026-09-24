@@ -741,14 +741,17 @@ function renderSpaceLanding(
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
 				<AppOrganizationProvider scope={organizationScope}>
-					<SpaceEntryConfirmationContext
-						value={{
-							confirmed: input.entryConfirmed ?? true,
-							ensureConfirmed: input.ensureEntryConfirmed ?? (async () => true),
-						}}
-					>
-						{ui}
-					</SpaceEntryConfirmationContext>
+					<StartFlowStateProvider storageScope="test-storage-scope">
+						<SpaceEntryConfirmationContext
+							value={{
+								confirmed: input.entryConfirmed ?? true,
+								ensureConfirmed:
+									input.ensureEntryConfirmed ?? (async () => true),
+							}}
+						>
+							{ui}
+						</SpaceEntryConfirmationContext>
+					</StartFlowStateProvider>
 				</AppOrganizationProvider>
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
@@ -986,6 +989,7 @@ describe("SpaceLanding", () => {
 		toastMock.success.mockReset();
 		toastMock.warning.mockReset();
 		window.localStorage.clear();
+		window.sessionStorage.clear();
 		FakeWebSocket.reset();
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: vi.fn().mockResolvedValue({
@@ -2655,8 +2659,10 @@ describe("SpaceLanding", () => {
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(false);
-		const membersButton = screen.getByRole("button", { name: "Members" });
-		expect(membersButton.textContent).toBe("");
+		const membersButton = screen.getByRole("button", {
+			name: MEMBERS_TOGGLE_BUTTON_NAME,
+		});
+		expect(membersButton.textContent).toBe("2");
 		fireEvent.click(membersButton);
 		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
 		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
@@ -13279,7 +13285,7 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
 	});
 
-	it("uses only persisted live frames as reconnect catch-up anchors", async () => {
+	it("reconnects from the last authoritative history/updates cursor despite newer live frames", async () => {
 		vi.useFakeTimers();
 		const getUpdatesMock = vi.fn().mockResolvedValue({
 			signals: [],
@@ -13368,6 +13374,7 @@ describe("SpaceLanding", () => {
 			);
 			await FakeWebSocket.instances[0]?.emitClose(1011, "upstream_error");
 		});
+		expect(screen.getByText("Persisted live message")).toBeTruthy();
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1000);
 		});
@@ -13381,7 +13388,7 @@ describe("SpaceLanding", () => {
 		expect(getUpdatesMock).toHaveBeenCalledTimes(1);
 		expect(getUpdatesMock).toHaveBeenLastCalledWith({
 			spaceId: "space-123",
-			afterSignalId: "sig-live-persisted",
+			afterSignalId: "sig-seed",
 			limit: 50,
 			signal: expect.any(AbortSignal),
 		});
