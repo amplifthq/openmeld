@@ -13,15 +13,21 @@ import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-d
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
 
 export type AgentListSort = "recent" | "created" | "name";
-export type AgentListFacet = "type" | "controller" | "model";
+export type AgentListFacet = "type" | "availability" | "controller" | "model";
 export type AgentListFilters = Record<AgentListFacet, string[]>;
 export type AgentListGrouping = "none" | "controller" | "model";
 export const EMPTY_AGENT_LIST_FILTERS: AgentListFilters = {
 	type: [],
+	availability: [],
 	controller: [],
 	model: [],
 };
-export const AGENT_LIST_FACETS = ["type", "controller", "model"] as const;
+export const AGENT_LIST_FACETS = [
+	"type",
+	"availability",
+	"controller",
+	"model",
+] as const;
 export type AgentListItem = {
 	profile: AuthProfileView;
 	lastTaskActivityAt: string | null;

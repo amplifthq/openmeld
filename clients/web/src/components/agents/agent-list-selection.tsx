@@ -8,7 +8,13 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
-import { CheckSquareIcon, TrashIcon } from "@phosphor-icons/react";
+import {
+	ArrowCounterClockwiseIcon,
+	CheckSquareIcon,
+	CircleNotchIcon,
+	TrashIcon,
+	XIcon,
+} from "@phosphor-icons/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import type { AgentListItem } from "./agent-list-model";
@@ -41,14 +47,21 @@ export function useAgentListSelection(
 		null
 	);
 	const [pending, setPending] = useState(false);
+	const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
 	const running = useRef(false);
-	const [failures, setFailures] = useState<AgentDeleteFailure[]>([]);
+	const [failures, setFailures] = useState<
+		(AgentDeleteFailure & { profileName: string })[]
+	>([]);
+	const [failedProfiles, setFailedProfiles] = useState<
+		readonly AuthProfileView[]
+	>([]);
 	const selected = items
 		.filter((item) => ids.has(item.profile.openMeldProfileId))
 		.map((item) => item.profile);
 	const reset = () => {
 		setIds(new Set());
 		setFailures([]);
+		setFailedProfiles([]);
 	};
 	const cancel = () => {
 		reset();
@@ -58,38 +71,68 @@ export function useAgentListSelection(
 		if (!(confirm && onDelete) || running.current) {
 			return;
 		}
+		const profiles = confirm;
 		running.current = true;
+		setConfirm(null);
 		setPending(true);
+		setPendingIds(
+			new Set(profiles.map((profile) => profile.openMeldProfileId))
+		);
+		setIds(new Set());
+		setFailures([]);
+		setFailedProfiles([]);
+		const count = profiles.length;
+		const toastId = toast.loading(
+			`Deleting ${count} ${count === 1 ? "Agent" : "Agents"}…`
+		);
 		try {
-			const result = await onDelete(confirm);
-			const count = confirm.length - result.length;
-			if (count) {
-				toast.success(`${count} ${count === 1 ? "Agent" : "Agents"} deleted.`);
-			}
-			setFailures(result);
+			const result = await onDelete(profiles);
+			const deleted = count - result.length;
+			setFailures(
+				result.map((failure) => ({
+					...failure,
+					profileName:
+						profiles.find(
+							(profile) => profile.openMeldProfileId === failure.profileId
+						)?.profileName ?? "Agent",
+				}))
+			);
+			setFailedProfiles(
+				profiles.filter((profile) =>
+					result.some(
+						(failure) => failure.profileId === profile.openMeldProfileId
+					)
+				)
+			);
 			setIds(new Set(result.map((failure) => failure.profileId)));
-			if (result.length === 0) {
-				setActive(false);
-			}
-			setConfirm(null);
+			setActive(result.length > 0);
+			showAgentDeleteResult(deleted, result.length, toastId);
 		} catch (error) {
 			setFailures(
-				confirm.map((profile) => ({
+				profiles.map((profile) => ({
 					profileId: profile.openMeldProfileId,
+					profileName: profile.profileName,
 					message:
 						error instanceof Error
 							? error.message
-							: "Couldn’t delete this Agent. Try again.",
+							: "Couldn’t confirm deletion. Try again.",
 				}))
 			);
-			setConfirm(null);
+			setFailedProfiles(profiles);
+			setIds(new Set(profiles.map((profile) => profile.openMeldProfileId)));
+			toast.error(
+				"Couldn’t confirm Agent deletion. Review the list and try again.",
+				{ id: toastId }
+			);
 		} finally {
 			running.current = false;
 			setPending(false);
+			setPendingIds(new Set());
 		}
 	};
 	return {
 		active,
+		pendingIds,
 		cancel,
 		reset,
 		card: (item: AgentListItem): AgentCardSelection | undefined =>
@@ -124,51 +167,27 @@ export function useAgentListSelection(
 				</Button>
 			) : null,
 		toolbar: active ? (
-			<fieldset
-				aria-label="Agent selection"
-				className="flex flex-wrap items-center gap-2"
-			>
-				<output className="mr-auto text-sm">{selected.length} selected</output>
-				<Button
-					disabled={pending || items.length === 0}
-					onClick={() =>
-						setIds(
-							selected.length === items.length
-								? new Set()
-								: new Set(items.map((item) => item.profile.openMeldProfileId))
-						)
-					}
-					size="sm"
-					variant="secondary"
-				>
-					{selected.length === items.length && items.length > 0
-						? "Deselect all"
-						: "Select visible"}
-				</Button>
-				<Button
-					disabled={pending || selected.length === 0}
-					onClick={() => setConfirm(selected)}
-					size="sm"
-					variant="destructive"
-				>
-					<TrashIcon />
-					Delete{selected.length ? ` (${selected.length})` : ""}
-				</Button>
-				<Button
-					disabled={pending}
-					onClick={cancel}
-					size="sm"
-					variant="secondary"
-				>
-					Cancel
-				</Button>
-			</fieldset>
+			<AgentSelectionToolbar
+				itemCount={items.length}
+				onCancel={cancel}
+				onDelete={() => setConfirm(selected)}
+				onSelectAll={() =>
+					setIds(
+						selected.length === items.length
+							? new Set()
+							: new Set(items.map((item) => item.profile.openMeldProfileId))
+					)
+				}
+				pending={pending}
+				pendingCount={pendingIds.size}
+				selectedCount={selected.length}
+			/>
 		) : null,
 		dialog: (
 			<>
 				<Dialog
 					onOpenChange={(open) => {
-						if (!(open || pending)) {
+						if (!open) {
 							setConfirm(null);
 						}
 					}}
@@ -193,17 +212,12 @@ export function useAgentListSelection(
 							))}
 						</ul>
 						<DialogFooter>
-							<Button
-								disabled={pending}
-								onClick={() => setConfirm(null)}
-								variant="secondary"
-							>
+							<Button onClick={() => setConfirm(null)} variant="secondary">
 								Cancel
 							</Button>
-							<Button disabled={pending} onClick={remove} variant="destructive">
-								{pending
-									? "Deleting…"
-									: `Delete ${confirm?.length} ${confirm?.length === 1 ? "Agent" : "Agents"}`}
+							<Button onClick={remove} variant="destructive">
+								<TrashIcon />
+								{`Delete ${confirm?.length} ${confirm?.length === 1 ? "Agent" : "Agents"}`}
 							</Button>
 						</DialogFooter>
 					</DialogContent>
@@ -217,19 +231,93 @@ export function useAgentListSelection(
 						<ul>
 							{failures.map((failure) => (
 								<li key={failure.profileId}>
-									{
-										items.find(
-											(item) =>
-												item.profile.openMeldProfileId === failure.profileId
-										)?.profile.profileName
-									}
-									: {failure.message}
+									{failure.profileName}: {failure.message}
 								</li>
 							))}
 						</ul>
+						<Button
+							onClick={() => setConfirm(failedProfiles)}
+							size="sm"
+							variant="secondary"
+						>
+							<ArrowCounterClockwiseIcon />
+							Review failed Agents
+						</Button>
 					</div>
 				)}
 			</>
 		),
 	};
+}
+
+function AgentSelectionToolbar(input: {
+	itemCount: number;
+	onCancel: () => void;
+	onDelete: () => void;
+	onSelectAll: () => void;
+	pending: boolean;
+	pendingCount: number;
+	selectedCount: number;
+}) {
+	const allSelected =
+		input.selectedCount === input.itemCount && input.itemCount > 0;
+	return (
+		<fieldset
+			aria-label="Agent selection"
+			className="flex flex-wrap items-center gap-2"
+		>
+			<output className="mr-auto flex items-center gap-2 text-sm">
+				<span hidden={!input.pending}>
+					<CircleNotchIcon aria-hidden="true" className="animate-spin" />
+				</span>
+				{input.pending
+					? `Deleting ${input.pendingCount} ${input.pendingCount === 1 ? "Agent" : "Agents"}…`
+					: `${input.selectedCount} selected`}
+			</output>
+			<Button
+				disabled={input.pending || input.itemCount === 0}
+				onClick={input.onSelectAll}
+				size="sm"
+				variant="secondary"
+			>
+				{allSelected ? <XIcon /> : <CheckSquareIcon />}
+				{allSelected ? "Deselect all" : "Select visible"}
+			</Button>
+			<Button
+				disabled={input.pending || input.selectedCount === 0}
+				onClick={input.onDelete}
+				size="sm"
+				variant="destructive"
+			>
+				<TrashIcon />
+				Delete{input.selectedCount ? ` (${input.selectedCount})` : ""}
+			</Button>
+			<Button
+				disabled={input.pending}
+				onClick={input.onCancel}
+				size="sm"
+				variant="secondary"
+			>
+				<XIcon />
+				Cancel
+			</Button>
+		</fieldset>
+	);
+}
+
+function showAgentDeleteResult(
+	deleted: number,
+	failed: number,
+	toastId: string | number
+): void {
+	if (failed > 0) {
+		toast.error(
+			`${deleted} deleted. ${failed} ${failed === 1 ? "Agent needs" : "Agents need"} attention.`,
+			{ id: toastId }
+		);
+		return;
+	}
+	toast.success(`${deleted} ${deleted === 1 ? "Agent" : "Agents"} deleted.`, {
+		id: toastId,
+	});
 }

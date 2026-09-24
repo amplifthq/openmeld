@@ -18,11 +18,22 @@ import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	ArrowCounterClockwiseIcon,
+	CalendarBlankIcon,
 	CaretDownIcon,
 	CaretRightIcon,
+	CheckCircleIcon,
+	CircleNotchIcon,
+	ClockCounterClockwiseIcon,
 	CloudIcon,
+	CpuIcon,
 	DesktopIcon,
+	GearSixIcon,
+	ListIcon,
 	SlidersHorizontalIcon,
+	SortAscendingIcon,
+	SquaresFourIcon,
+	WarningCircleIcon,
+	WifiSlashIcon,
 } from "@phosphor-icons/react";
 import { type ReactNode, useId, useState } from "react";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
@@ -52,15 +63,32 @@ const SORTS = {
 	created: "Newest created",
 	name: "Name A–Z",
 } as const;
+const SORT_ICONS = {
+	recent: ClockCounterClockwiseIcon,
+	created: CalendarBlankIcon,
+	name: SortAscendingIcon,
+};
 const GROUPINGS = {
 	none: "None",
 	controller: "Controller",
 	model: "Model",
 } as const;
+const GROUPING_ICONS = {
+	none: ListIcon,
+	controller: SquaresFourIcon,
+	model: CpuIcon,
+};
 const FACETS = {
 	type: "Agent type",
+	availability: "Availability",
 	controller: "Controller",
 	model: "Model",
+} as const;
+const AVAILABILITY = {
+	available: "Available",
+	checking: "Checking",
+	offline: "Offline",
+	unavailable: "Unavailable",
 } as const;
 export type AgentListView = {
 	filters: AgentListFilters;
@@ -88,6 +116,16 @@ function FacetIcon({
 		) : (
 			<DesktopIcon className="size-4" />
 		);
+	}
+	if (facet === "availability") {
+		const Icon =
+			{
+				available: CheckCircleIcon,
+				checking: CircleNotchIcon,
+				offline: WifiSlashIcon,
+				unavailable: WarningCircleIcon,
+			}[value as keyof typeof AVAILABILITY] ?? WarningCircleIcon;
+		return <Icon className="size-4" />;
 	}
 	if (facet === "model") {
 		return <ModelBrandIcon brand={item?.modelBrand ?? null} />;
@@ -163,6 +201,9 @@ export function AgentListControls(input: {
 							{[
 								...new Set([
 									...(facet === "type" ? ["Local Agent", "Remote Agent"] : []),
+									...(facet === "availability"
+										? Object.keys(AVAILABILITY)
+										: []),
 									...input.items.map((item) => item[facet]),
 									...input.value.filters[facet],
 								]),
@@ -189,7 +230,13 @@ export function AgentListControls(input: {
 										>
 											<FacetIcon facet={facet} item={item} value={value} />
 											<span className="min-w-0 flex-1">
-												<span className="block truncate">{value}</span>
+												<span className="block truncate">
+													{facet === "availability"
+														? (AVAILABILITY[
+																value as keyof typeof AVAILABILITY
+															] ?? value)
+														: value}
+												</span>
 												{facet === "model" && item?.modelBrand && (
 													<span className="block text-muted-foreground text-xs">
 														{item.modelBrand}
@@ -204,12 +251,13 @@ export function AgentListControls(input: {
 								})}
 						</DropdownMenuGroup>
 					);
-					if (facet === "type") {
+					if (facet === "type" || facet === "availability") {
 						return choices;
 					}
 					return (
 						<DropdownMenuSub key={facet}>
 							<DropdownMenuSubTrigger>
+								{facet === "controller" ? <GearSixIcon /> : <CpuIcon />}
 								{FACETS[facet]}
 								{input.value.filters[facet].length > 0 && (
 									<span className="mr-3 ml-auto text-muted-foreground">
@@ -232,11 +280,15 @@ export function AgentListControls(input: {
 						}
 						value={input.value.sort}
 					>
-						{Object.entries(SORTS).map(([value, label]) => (
-							<DropdownMenuRadioItem key={value} value={value}>
-								{label}
-							</DropdownMenuRadioItem>
-						))}
+						{Object.entries(SORTS).map(([value, label]) => {
+							const Icon = SORT_ICONS[value as AgentListSort];
+							return (
+								<DropdownMenuRadioItem key={value} value={value}>
+									<Icon />
+									{label}
+								</DropdownMenuRadioItem>
+							);
+						})}
 					</DropdownMenuRadioGroup>
 				</DropdownMenuGroup>
 				<DropdownMenuGroup>
@@ -250,11 +302,15 @@ export function AgentListControls(input: {
 						}
 						value={input.value.grouping}
 					>
-						{Object.entries(GROUPINGS).map(([value, label]) => (
-							<DropdownMenuRadioItem key={value} value={value}>
-								{label}
-							</DropdownMenuRadioItem>
-						))}
+						{Object.entries(GROUPINGS).map(([value, label]) => {
+							const Icon = GROUPING_ICONS[value as AgentListGrouping];
+							return (
+								<DropdownMenuRadioItem key={value} value={value}>
+									<Icon />
+									{label}
+								</DropdownMenuRadioItem>
+							);
+						})}
 					</DropdownMenuRadioGroup>
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
@@ -274,7 +330,11 @@ export function AgentListFilterChips(input: {
 				input.value.filters[facet].map((value) => (
 					<SidebarFilterBadge
 						key={`${facet}:${value}`}
-						label={value}
+						label={
+							facet === "availability"
+								? (AVAILABILITY[value as keyof typeof AVAILABILITY] ?? value)
+								: value
+						}
 						onRemove={() =>
 							input.onChange({
 								...input.value,
@@ -346,6 +406,9 @@ export function AgentList(input: {
 		input.onDelete,
 		JSON.stringify([input.search, defaults.filters, view.filters, search])
 	);
+	const displayed = visible.filter(
+		(item) => !selection.pendingIds.has(item.profile.openMeldProfileId)
+	);
 	const changeView = (next: AgentListView) => {
 		selection.reset();
 		setOverride(next);
@@ -415,27 +478,29 @@ export function AgentList(input: {
 			{selection.dialog}
 			<div className="space-y-3" hidden={collapsed} id={contentId}>
 				{selection.toolbar}
-				{visible.length ? (
-					groupAgentListItems(visible, view.grouping).map(([label, items]) => (
-						<div className="space-y-2" key={label}>
-							{label && (
-								<h3 className="text-muted-foreground text-xs">
-									{label} · {items.length}
-								</h3>
-							)}
-							<FluidCardGroup>
-								<FluidNavMenu
-									activeValue={null}
-									aria-label={label || input.label}
-									className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
-								>
-									{items.map((item, index) =>
-										input.renderCard(item, index, selection.card(item))
-									)}
-								</FluidNavMenu>
-							</FluidCardGroup>
-						</div>
-					))
+				{displayed.length ? (
+					groupAgentListItems(displayed, view.grouping).map(
+						([label, items]) => (
+							<div className="space-y-2" key={label}>
+								{label && (
+									<h3 className="text-muted-foreground text-xs">
+										{label} · {items.length}
+									</h3>
+								)}
+								<FluidCardGroup>
+									<FluidNavMenu
+										activeValue={null}
+										aria-label={label || input.label}
+										className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
+									>
+										{items.map((item, index) =>
+											input.renderCard(item, index, selection.card(item))
+										)}
+									</FluidNavMenu>
+								</FluidCardGroup>
+							</div>
+						)
+					)
 				) : (
 					<div className="space-y-2 py-4 text-muted-foreground text-sm">
 						<p>
