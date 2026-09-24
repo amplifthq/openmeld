@@ -24,6 +24,12 @@ export const serviceControlCarrierCapabilitySchema = z.discriminatedUnion(
       executable: z.string().min(1),
       entryScript: z.string().min(1),
     }),
+    // A compiled Windows carrier has no separate Node entry script.
+    z.strictObject({
+      protocol: z.literal("account-checked-service-control-v3"),
+      platform: z.literal("win32"),
+      executable: z.string().min(1),
+    }),
   ]
 );
 

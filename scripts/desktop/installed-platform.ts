@@ -32,10 +32,27 @@ export function readWindowsDesktopSigning(
   });
 }
 
+function assertWindowsProductionMode(
+  target: DesktopInstalledTarget,
+  signedMode: "acceptance" | "production-preview" | "internal-preview" | null,
+  mac: boolean
+) {
+  if (
+    !mac &&
+    target.kind === "production" &&
+    signedMode !== "production-preview" &&
+    signedMode !== "internal-preview"
+  ) {
+    throw new Error(
+      "Production Windows Desktop requires the signed production-preview entrypoint. Use a disposable target for unsigned acceptance."
+    );
+  }
+}
+
 export function buildInstalledPlatformPlan(input: {
   env: NodeJS.ProcessEnv;
   target: DesktopInstalledTarget;
-  signedMode: "acceptance" | "production-preview" | null;
+  signedMode: "acceptance" | "production-preview" | "internal-preview" | null;
   platform?: NodeJS.Platform;
   arch?: string;
 }) {
@@ -45,17 +62,9 @@ export function buildInstalledPlatformPlan(input: {
     input.arch
   );
   const mac = selected.platform === "macos-arm64";
-  if (
-    !mac &&
-    input.target.kind === "production" &&
-    input.signedMode !== "production-preview"
-  ) {
-    throw new Error(
-      "Production Windows Desktop requires the signed production-preview entrypoint. Use a disposable target for unsigned acceptance."
-    );
-  }
+  assertWindowsProductionMode(input.target, input.signedMode, mac);
   const windows =
-    !mac && input.signedMode
+    !mac && input.signedMode && input.signedMode !== "internal-preview"
       ? readWindowsDesktopSigning(input.env, selected.platform)
       : null;
   const certificateSha1 = input.env.OPENMELD_DESKTOP_WINDOWS_CERTIFICATE_SHA1;
@@ -63,6 +72,12 @@ export function buildInstalledPlatformPlan(input: {
     throw new Error(
       "Windows certificate selector must be its 40-character SHA1 identity."
     );
+  }
+  let artifactSuffix = "";
+  if (input.signedMode === "internal-preview") {
+    artifactSuffix = "-internal-preview";
+  } else if (!input.signedMode) {
+    artifactSuffix = "-unsigned";
   }
   return {
     ...selected,
@@ -104,7 +119,7 @@ export function buildInstalledPlatformPlan(input: {
             deleteAppDataOnUninstall: false,
             buildUniversalInstaller: false,
             differentialPackage: false,
-            artifactName: `OpenMeld-Desktop-\${version}-windows-\${arch}${input.signedMode ? "" : "-unsigned"}.\${ext}`,
+            artifactName: `OpenMeld-Desktop-\${version}-windows-\${arch}${artifactSuffix}.\${ext}`,
           },
         }),
     publish:

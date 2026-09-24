@@ -1,9 +1,11 @@
+import { WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL } from "@openmeld/schemas";
 import {
 	getSetupFlowCopy,
 	OPENMELD_NODE_ENGINE_RANGE,
 	OPENMELD_SUPPORTED_NODE_MAJORS,
 } from "@openmeld/start";
 import { isLocalWebOrigin } from "./local-web-origin.ts";
+import { buildWindowsBinaryBootstrap } from "./setup-bootstrap-windows-binary.ts";
 
 const OPENMELD_SETUP_PACKAGE_NAME = "openmeld";
 const OPENMELD_SETUP_PACKAGE_SPEC = `${OPENMELD_SETUP_PACKAGE_NAME}@latest`;
@@ -119,13 +121,6 @@ export function resolveOpenMeldSetupBootstrapScriptConfig(
 	if (!distribution) {
 		return {
 			body: "Unsupported OpenMeld setup distribution.",
-			status: "error",
-			statusCode: 400,
-		};
-	}
-	if (distribution === "binary" && input.platform === "windows") {
-		return {
-			body: "OpenMeld binary setup is not available for Windows yet. Use ?dist=npm.",
 			status: "error",
 			statusCode: 400,
 		};
@@ -839,6 +834,22 @@ export function buildOpenMeldSetupBootstrapPowerShellScript(
 	const supportedNodeRange = OPENMELD_NODE_ENGINE_RANGE;
 	const distribution =
 		input.distribution ?? resolveDefaultSetupDistribution(input.lane);
+	if (distribution === "binary") {
+		return buildWindowsBinaryBootstrap({
+			internalPreview: input.lane === "prod",
+			manifestUrl:
+				input.lane === "prod"
+					? WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
+					: (input.binaryManifestUrl ??
+						"https://openmeld.ai/cli/manifest.json"),
+			envPreset: laneConfig.envPreset,
+			userFacingCommand: laneConfig.userFacingCommand,
+			openMeldHome: input.openMeldHome ?? "",
+			gatewayUrl: input.gatewayUrl ?? "",
+			authUrl: input.authUrl ?? "",
+			progressMessage: setupCopy.cliBootstrapRunStatus,
+		});
+	}
 
 	return `param(
   [Parameter(ValueFromRemainingArguments = $true)]

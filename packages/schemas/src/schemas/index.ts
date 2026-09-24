@@ -213,6 +213,7 @@ export {
   normalizeKnownBuiltinAgentControllerId,
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
+export { cliInstallSelfResultSchema } from "./daemon/cli-install-self";
 export {
   computerCareObservationSchema,
   executionHostObservationSchema,
@@ -769,7 +770,7 @@ export {
   openMeldDaemonTaskResultStatusSchema,
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
-export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
+export { windowsNativeProcessRequestSchema } from "./daemon/windows-native-process";
 export {
   type WindowsUserTaskAction,
   type WindowsUserTaskRequest,
@@ -1421,6 +1422,7 @@ export {
   cliBinaryManifestSchema,
   cliBinaryReleaseSchema,
   cliBinaryServiceReleaseSchema,
+  resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
 export {
   buildConnectorAppRequestProviderKey,
