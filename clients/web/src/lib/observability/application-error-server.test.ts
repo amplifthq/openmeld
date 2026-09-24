@@ -1,3 +1,8 @@
+import {
+	DESKTOP_APP_ORIGIN,
+	DESKTOP_CONTRACT_HEADER,
+	DESKTOP_CONTRACT_VERSION,
+} from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const report = {
@@ -71,6 +76,36 @@ describe("application error intake", () => {
 		expect(console.error).toHaveBeenCalledWith(
 			expect.objectContaining({ report: { ...report, submission: "user" } })
 		);
+	});
+
+	it("accepts a report forwarded by the installed Desktop without accepting arbitrary origins", async () => {
+		const { receiveApplicationError } = await import(
+			"./application-error-server"
+		);
+		const desktopHeaders = {
+			origin: DESKTOP_APP_ORIGIN,
+			[DESKTOP_CONTRACT_HEADER]: DESKTOP_CONTRACT_VERSION,
+		};
+		expect(
+			(await receiveApplicationError(request(report, desktopHeaders))).status
+		).toBe(204);
+		expect(
+			(
+				await receiveApplicationError(
+					request(report, { origin: DESKTOP_APP_ORIGIN })
+				)
+			).status
+		).toBe(403);
+		expect(
+			(
+				await receiveApplicationError(
+					request(report, {
+						...desktopHeaders,
+						[DESKTOP_CONTRACT_HEADER]: "unsupported",
+					})
+				)
+			).status
+		).toBe(403);
 	});
 
 	it("rejects cross-origin, malformed, oversized and forged server reports without logging", async () => {

@@ -419,6 +419,11 @@ reporter. Reporting does not decide recovery, mutate application state, or
 retry a failed diagnostic request. See `docs/web-application-errors.md` for
 the privacy, coverage, and operator query contract.
 
+The Space composer isolates a rich-editor failure from the conversation shell.
+Its plain-text fallback keeps the draft and send action available, while edits
+there clear authored mention semantics. A failed editor must not replace the
+whole Desktop or Web workspace with the root error page.
+
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 Vite's content-hashed `/assets/` responses use a one-year immutable browser

@@ -205,6 +205,7 @@ it("admits installed API requests before credentials and preserves SDK errors wi
   expect(call[1].method).toBe("POST");
   expect(new TextDecoder().decode(call[1].body)).toBe('{"name":"Agent"}');
   expect(call[1].headers.get(DESKTOP_CONTRACT_HEADER)).toBe("1");
+  expect(call[1].headers.get("origin")).toBe(DESKTOP_APP_ORIGIN);
   expect(call[1].headers.get(SPACE_ACCESS_VERSION_HEADER)).toBe("1");
   expect(call[1].headers.get("cookie")).toBe("session=native-only");
   expect(call[1].headers.has("authorization")).toBe(false);

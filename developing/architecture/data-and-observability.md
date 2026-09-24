@@ -3552,9 +3552,10 @@ point and derives its physical field order from the shared schema.
 Web application errors use `web.openmeld.application_error` in Workers Logs.
 Web is the sole intake/log owner; `packages/schemas` owns the additive browser
 report contract. Browser reports are untrusted diagnostic evidence. The intake
-accepts only bounded same-origin JSON, validates and minimizes fields, and caps
-log volume. Raw exception text, full stacks, actual page URLs, user content,
-credentials, and local paths must not enter this report. Error categories,
+accepts bounded same-origin Web JSON and the fixed installed Desktop origin
+only when its native contract header matches. It validates and minimizes fields
+and caps log volume. Raw exception text, full stacks, actual page URLs, user
+content, credentials, and local paths must not enter this report. Error categories,
 code-template route IDs, build asset positions, build IDs, source SHAs, and
 Cloudflare request correlation support diagnosis without product payloads.
 This does not create another product audit or execution ledger. Coverage,

@@ -62,7 +62,11 @@ are not collected by this reporter. Unknown exceptions keep their category and
 available code locations; there is intentionally no arbitrary free-text field.
 Native framework logs predate this reporter and are not intercepted or rewritten.
 
-Browser reports omit credentials and require same-origin JSON at the receiver.
+Browser reports omit credentials. The receiver accepts same-origin JSON from Web
+and the fixed `openmeld-desktop://app` Origin only with the installed Desktop
+contract header and version. Desktop Main owns that Origin and header; the
+renderer cannot choose them. This admits a diagnostic report, not an
+authenticated business action.
 The server validates the shared schema, drops unknown fields, rejects client
 claims of server-origin events, and reads at most 8 KiB even without a
 Content-Length header. There is a 120-attempt/minute cap per Worker isolate and
