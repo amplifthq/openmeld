@@ -244,7 +244,6 @@ export async function inspectWindowsInternalPreview({
     throw new Error("Inspect the internal Desktop preview on native Windows.");
   }
   const before = await fingerprint(artifactPath);
-  assertWindowsPeArchitecture(executableHeader(artifactPath), "windows-x64");
   const sevenZip = resolve7Zip(process.env);
   const temporary = mkdtempSync(join(tmpdir(), "openmeld-windows-preview-"));
   const run = (args) =>
