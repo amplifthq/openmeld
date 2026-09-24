@@ -1,4 +1,7 @@
-import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
+import {
+  getPersonalRemoteAgentDefaultModelId,
+  resolveCenterAgentContextScopePlan,
+} from "@openmeld/agent-runtime";
 import {
   accountSpaceActiveWakeSummaryResponseSchema,
   agentActivityOverviewResponseSchema,
@@ -138,6 +141,7 @@ import {
   listFeedbackIssuesForOrganizationResponseSchema,
   listSpaceTasksResponseSchema,
   MAX_TEXT_LENGTH,
+  modelCatalogSchema,
   mutateSpaceTaskBodySchema,
   nativeReplyPlacementSchema,
   OPPORTUNITY_DECISIONS,
@@ -1425,6 +1429,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_resume_controller_conversation",
   "openmeld_create_space",
   "openmeld_read_agent_profile_creation_defaults",
+  "openmeld_list_hosted_models",
   "openmeld_create_agent_profile_request",
   "openmeld_list_agent_profile_creation_requests",
   "openmeld_manage_agent_profile_creation_request",
@@ -1484,6 +1489,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_read_space_wake_progress",
   "openmeld_list_projects",
   "openmeld_read_agent_profile_creation_defaults",
+  "openmeld_list_hosted_models",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -4936,12 +4942,43 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_list_hosted_models",
+      description:
+        "List the current Remote Agent models and the exact reasoning efforts each supports. Read this before creating or changing a Remote Agent, then pass its modelId and an offered reasoningLevel to the Agent Profile creation or runtime settings tool.",
+      input: strictObject({}),
+      execute: async () => {
+        if (!input.coreWorker.getModelCatalog) {
+          throw new Error("Hosted model catalog is unavailable from Core.");
+        }
+        const catalog = modelCatalogSchema.parse(
+          await input.coreWorker.getModelCatalog({
+            personalRemoteAgentDefault: true,
+          })
+        );
+        const controller = catalog.agentControllers["center-agent"];
+        if (!controller) {
+          throw new Error("Hosted model catalog is unavailable.");
+        }
+        return {
+          defaultModelId: getPersonalRemoteAgentDefaultModelId(catalog),
+          models: controller.models
+            .filter((model) => !model.unavailable && model.hostedRuntime)
+            .map((model) => ({
+              modelId: model.id,
+              displayName: model.displayName,
+              defaultReasoningLevel: model.hostedRuntime?.reasoningLevel,
+              supportedReasoningLevels: model.supportedReasoningLevels,
+            })),
+        };
+      },
+    }),
+    toolDefinition({
       name: "openmeld_create_agent_profile_request",
       description:
         (TEAMMATE_AGENT_REQUESTS_ENABLED
           ? "Create a working Agent through the owner-authorized creation request. Remote Agents remain self-owned only. "
           : "Create a working Agent owned by the verified represented member only. Creating for another member is not available. ") +
-        'For a new Agent, connectionSelection must be { kind: "remote" } for Remote or { candidateId } from a current Local Agent candidate. Remote accepts configuration.modelId, or the Core default model when omitted; it does not use Local Project, permission, collaboration, OpenCode, or reasoning settings. Local configuration expresses those supported settings and saved preferences. Resume and Fork use the member\'s eligible sessionSelection instead: preserve nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row. Fork requires canFork; Resume requires canResume and an unbound Session. Optional requestedSpaceId uses normal Space membership authority. Returns a durable creation request: approved or pending is not completed; createdAgentProfileId proves identity creation, not current reply readiness. A failed request may already contain that identity; recover its setup rather than creating another. Completed means requested setup finished, not that a Wake ran. Use creation progress/retry tools and current readiness evidence when needed; no automatic parent continuation is promised. Primitive identity creation remains identity-only.',
+        'For a new Agent, connectionSelection must be { kind: "remote" } for Remote or { candidateId } from a current Local Agent candidate. For Remote, read openmeld_list_hosted_models and optionally provide configuration.modelId with one of its supported reasoningLevel values; without a modelId, Core uses its current default. Remote does not use Local Project, permission, collaboration, or OpenCode settings. Local configuration expresses those supported settings and saved preferences. Resume and Fork use the member\'s eligible sessionSelection instead: preserve nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row. Fork requires canFork; Resume requires canResume and an unbound Session. Optional requestedSpaceId uses normal Space membership authority. Returns a durable creation request: approved or pending is not completed; createdAgentProfileId proves identity creation, not current reply readiness. A failed request may already contain that identity; recover its setup rather than creating another. Completed means requested setup finished, not that a Wake ran. Use creation progress/retry tools and current readiness evidence when needed; no automatic parent continuation is promised. Primitive identity creation remains identity-only.',
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(

@@ -829,6 +829,7 @@ async function completeRequestedAgentProfileSetup(input: {
       createdByProfileId: input.request.actorProfileId,
       db: requireDb(input.env),
       modelId: input.request.configuration.modelId,
+      reasoningLevel: input.request.configuration.reasoningLevel,
       organizationId: input.request.organizationId,
       ownerUserId: input.request.targetOwnerUserId,
     });

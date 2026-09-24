@@ -5111,7 +5111,6 @@ describe("remote agent OpenMeld tool catalog", () => {
 
   it.each([
     { defaultProjectId: "project-1" },
-    { reasoningLevel: "high", modelId: "test/model" },
     { agentControllerPermissionMode: "codex:fullAccess" },
   ])("rejects mixed Remote and Local configuration %j without discarding the user's choice", async (configuration) => {
     const create = vi.fn();
@@ -5214,6 +5213,42 @@ describe("remote agent OpenMeld tool catalog", () => {
       targetOwnerUserId: "user-2",
       context: expect.any(Object),
     });
+  });
+
+  it("passes a Remote Agent model and reasoning through the creation tool", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const response = createAgentProfileCreationRequestResponse();
+    const centerAgentCreateAgentProfileCreationRequest = vi
+      .fn()
+      .mockResolvedValue(response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        connectionSelection: { kind: "remote" },
+        configuration: {
+          modelId: "openai/gpt-6-sol",
+          reasoningLevel: "medium",
+        },
+        profileName: "Remote Reviewer",
+        sessionStrategy: "new",
+        targetOwnerUserId: "user-2",
+      })
+    ).resolves.toEqual(response);
+    expect(centerAgentCreateAgentProfileCreationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: expect.objectContaining({
+          agentControllerRef: "hosted:remote-agent",
+          modelId: "openai/gpt-6-sol",
+          reasoningLevel: "medium",
+          targetComputerId: null,
+        }),
+      })
+    );
   });
 
   it("keeps Fork configuration compatible while preserving the selected Session lane", async () => {

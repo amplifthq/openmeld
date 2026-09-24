@@ -1459,8 +1459,8 @@ includes the current effective model so a future system-default change is
 understandable without duplicating it into browser state. A model choice's
 optional catalog-owned badge appears in both the closed selector and its
 matching options; Web does not infer badges from model names or the current
-default. Reasoning is catalog-owned at `high` and is not a separate Web control
-in this release.
+default. The adjacent Reasoning effort selector offers only efforts supported
+by the chosen hosted model and shows its catalog default.
 
 The first-level **Provider** selector filters the second-level **Primary model**
 picker. Provider means the model vendor, derived from the exact OpenRouter ID
@@ -1481,7 +1481,11 @@ visible while browsing another provider. Selecting a candidate only changes the
 local draft. The current label changes after the Binding save succeeds.
 
 Personal Remote Agent creation and model editing reuse this same two-level
-selector and hosted catalog. They store the explicitly selected model ID.
+selector and hosted catalog. They store the explicitly selected model ID and
+an optional supported reasoning effort. Center Agent settings use the same
+reasoning selector. New personal Remote Agents initially select GPT-6 Sol with
+`medium` effort; Center Agent OpenMeld default is Claude Opus 5.5 with `medium`.
+Default reasoning follows the selected model's catalog effort.
 Changing to another provider clears an incompatible draft and requires a new
 model choice before Create or Save; an empty draft must not silently select
 the system default. Local Agent model controls keep their controller-owned

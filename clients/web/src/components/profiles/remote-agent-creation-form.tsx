@@ -1,5 +1,6 @@
 "use client";
 
+import { getPersonalRemoteAgentDefaultModelId } from "@openmeld/agent-runtime";
 import {
 	DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -34,10 +35,11 @@ export function RemoteAgentCreationForm(input: {
 			: "Your Remote Agent"
 	);
 	const [chosenModel, setChosenModel] = useState<string | null>(null);
+	const [reasoningLevel, setReasoningLevel] = useState("");
 	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 	const modelId =
 		chosenModel ??
-		catalog?.agentControllers["center-agent"]?.defaultModelId ??
+		(catalog ? getPersonalRemoteAgentDefaultModelId(catalog) : null) ??
 		"";
 	const canSubmit = Boolean(
 		name.trim() &&
@@ -51,6 +53,7 @@ export function RemoteAgentCreationForm(input: {
 			const fingerprint = JSON.stringify([
 				name.trim(),
 				modelId,
+				reasoningLevel,
 				input.requestedSpaceId,
 			]);
 			if (intent.current?.fingerprint !== fingerprint) {
@@ -61,6 +64,7 @@ export function RemoteAgentCreationForm(input: {
 					...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 					agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 					modelId,
+					reasoningLevel: reasoningLevel || null,
 				},
 				idempotencyKey: intent.current.key,
 				intentStorageScope: input.intentStorageScope,
@@ -92,8 +96,13 @@ export function RemoteAgentCreationForm(input: {
 				model={modelId}
 				modelCatalog={catalog}
 				name={name}
-				onModelChange={setChosenModel}
+				onModelChange={(model) => {
+					setChosenModel(model);
+					setReasoningLevel("");
+				}}
 				onNameChange={setName}
+				onReasoningLevelChange={setReasoningLevel}
+				reasoningLevel={reasoningLevel}
 			/>
 			{mutation.error ? (
 				<p className="text-destructive text-sm" role="alert">
