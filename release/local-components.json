@@ -1,20 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T18:29:25.451Z",
+  "updatedAt": "2026-09-24T19:26:36.872Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
       "packageVersion": "0.3.223",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and new optional diagnostics remain compatible with the deployed cloud receivers."
+      "reason": "Existing CLI commands and new optional diagnostics remain compatible with deployed cloud receivers."
     },
     "service": {
-      "bundleHash": "f5c565162938e494c30a927030ece77ee93f742deae322e443bc09b572bb4587",
+      "bundleHash": "ac2a5670f4f1a5ae8bba2c898575c68ffb61e80250f9326bb8d05fce8eabfacc",
+      "portableBundleHash": "068d5c3925637dc63e5549297592ec97e050feae15c7a72314476356dbc68ccd",
       "bundleVersion": "0.3.223",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
-      "reason": "Older Services retain the serial Space context and optional admission diagnostic paths; new Service works with the existing cloud protocol."
+      "reason": "Older Services retain compatible Space and Wake behavior; the updated Service works with the existing cloud protocol."
     },
     "skills": {
       "bundleHash": "d1adf5f61e413418e6c11cf7bab84ea41aed967ae0d118ef1ad84588739249cf",
