@@ -759,7 +759,7 @@ program
   });
 
 // Binary distribution only: install this binary into the managed layout.
-// Called by the install script (curl | sh delegates to `<tmp>/openmeld
+// Called by the downloaded install script (which delegates to `<tmp>/openmeld
 // install-self`) and by `openmeld update`. Hidden and absent under npm.
 if (isBinaryDistribution()) {
   program

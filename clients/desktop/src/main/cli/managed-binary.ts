@@ -165,6 +165,8 @@ export async function installManagedBinary(
     await verifyCliBinaryCodeSignature({
       allowUnsignedPreview: allowUnsignedWindowsInternalPreview(deps.env),
       artifactPath,
+      allowUnsignedForDevelopment:
+        deps.env?.OPENMELD_ENV_PRESET === "dev-local",
       release,
       runCommand: async (command, args) => {
         try {

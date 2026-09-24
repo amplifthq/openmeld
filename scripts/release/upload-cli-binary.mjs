@@ -10,6 +10,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import {
   cliBinaryCompressedReleaseSchema,
   cliBinaryManifestSchema,
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
 } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 import { smokeSignedMacOsSecureStorage } from "../e2e/signed-cli-macos-secure-storage-smoke.mjs";
 import {
@@ -32,7 +33,8 @@ export const CLI_R2_OBJECT_PREFIX = "cli";
 export const CLI_MANIFEST_OBJECT_KEY = "cli/manifest.json";
 export const DEFAULT_CLI_DOWNLOAD_BASE_URL = "https://openmeld.ai/cli/download";
 export const CLI_MANIFEST_SCHEMA_VERSION = 1;
-export const CLI_BINARY_CODE_IDENTIFIER = "sh.openmeld.cli";
+export const CLI_BINARY_CODE_IDENTIFIER =
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier;
 const LOCAL_COMPONENTS_MANIFEST_PATH = "release/local-components.json";
 const PRODUCTION_CLI_MANIFEST_URL = `${new URL(DEFAULT_CLI_DOWNLOAD_BASE_URL).origin}/${CLI_MANIFEST_OBJECT_KEY}`;
 
@@ -171,6 +173,14 @@ export async function uploadCliBinary(input = {}) {
     smokeSignedSecureStorage:
       input.smokeSignedSecureStorage ?? smokeSignedMacOsSecureStorage,
   });
+  if (
+    built.notarization.teamId !==
+    OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier
+  ) {
+    throw new Error(
+      "Signed CLI publisher does not match the trusted OpenMeld Apple team."
+    );
+  }
   const archive = (input.compressBinary ?? createCompressedCliBinary)({
     artifactName: built.artifactName,
     outFile: built.outFile,

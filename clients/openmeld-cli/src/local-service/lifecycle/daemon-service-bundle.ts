@@ -622,6 +622,7 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
     await verifyCliBinaryCodeSignature({
       allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath: executablePath,
+      allowUnsignedForDevelopment: resolveOpenMeldEnvPreset() === "dev-local",
       release: input.release,
       runCommand: async (command, args) => {
         const result = await promisify(execFile)(command, args, {

@@ -1422,6 +1422,8 @@ export {
   cliBinaryManifestSchema,
   cliBinaryReleaseSchema,
   cliBinaryServiceReleaseSchema,
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+  OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
   resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
 export {
