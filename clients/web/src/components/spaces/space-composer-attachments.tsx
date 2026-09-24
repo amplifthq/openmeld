@@ -27,6 +27,7 @@ import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import { SpaceImagePreview } from "./space-image-preview";
+import { SpaceVideoPreview } from "./space-video-preview";
 
 export function useSpaceComposerFileInput(input: {
 	disabled: boolean;
@@ -184,31 +185,7 @@ export function SpaceComposerFileTray(input: {
 					>
 						<Tooltip>
 							<TooltipTrigger render={<span className="block" />}>
-								{file.previewUrl ? (
-									<SpaceImagePreview
-										altText={file.fileName}
-										imageSource={file.previewUrl}
-										isSingle={false}
-										thumbnailClassName="size-16 rounded-xl"
-									/>
-								) : (
-									<span
-										aria-label={file.fileName}
-										className="flex size-16 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground"
-										role="img"
-									>
-										{file.mimeType === "text/html" ? (
-											<SpaceFileHtmlBadge />
-										) : (
-											<FileIcon aria-hidden="true" className="size-7" />
-										)}
-										<span className="max-w-16 truncate text-[10px] uppercase">
-											{file.fileName.includes(".")
-												? file.fileName.split(".").at(-1)
-												: "File"}
-										</span>
-									</span>
-								)}
+								<SpaceComposerFileThumbnail file={file} />
 							</TooltipTrigger>
 							<TooltipContent
 								className="max-w-80 break-all text-left"
@@ -266,6 +243,45 @@ export function SpaceComposerFileTray(input: {
 				</div>
 			))}
 		</fieldset>
+	);
+}
+
+function SpaceComposerFileThumbnail({ file }: { file: SpaceComposerFile }) {
+	if (file.previewUrl && file.mimeType.startsWith("video/")) {
+		return (
+			<SpaceVideoPreview
+				compact
+				fileName={file.fileName}
+				isLocal
+				localPreviewUrl={file.previewUrl}
+			/>
+		);
+	}
+	if (file.previewUrl) {
+		return (
+			<SpaceImagePreview
+				altText={file.fileName}
+				imageSource={file.previewUrl}
+				isSingle={false}
+				thumbnailClassName="size-16 rounded-xl"
+			/>
+		);
+	}
+	return (
+		<span
+			aria-label={file.fileName}
+			className="flex size-16 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground"
+			role="img"
+		>
+			{file.mimeType === "text/html" ? (
+				<SpaceFileHtmlBadge />
+			) : (
+				<FileIcon aria-hidden="true" className="size-7" />
+			)}
+			<span className="max-w-16 truncate text-[10px] uppercase">
+				{file.fileName.includes(".") ? file.fileName.split(".").at(-1) : "File"}
+			</span>
+		</span>
 	);
 }
 

@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
-import type { CachedSpaceFileContent } from "#/query/spaces/space-file-image-resource";
+import type { CachedSpaceFileContent } from "#/query/spaces/space-file-media-resource";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 
@@ -177,7 +177,7 @@ it("hands each original image to its canonical revision before consuming duplica
 				spaceFileQueryKeys.content("space-1", fileId, 1)
 			);
 			expect(cached?.bytes).toBe(sources.get(local.localId));
-			expect(cached?.imagePreview?.getSnapshot()).toBe(local.previewUrl);
+			expect(cached?.mediaPreview?.getSnapshot()).toBe(local.previewUrl);
 			expect(result.previewUrlsByFileId.get(fileId)).toBe(local.previewUrl);
 		}
 	});

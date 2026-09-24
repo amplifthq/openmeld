@@ -71,6 +71,10 @@ import {
 	resolveSpaceFileErrorMessage,
 	utf8ByteLength,
 } from "./space-file-utils";
+import {
+	SpaceVideoPreview,
+	type SpaceVideoTarget,
+} from "./space-video-preview";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
 export type SpaceFileLeaveGuard = {
@@ -78,6 +82,44 @@ export type SpaceFileLeaveGuard = {
 	hasUnsavedChanges: boolean;
 	save: () => Promise<boolean>;
 };
+
+function SpaceFilePreviewSurface(input: {
+	mimeType?: string;
+	fileName: string;
+	target: SpaceVideoTarget;
+	fallback: ReturnType<typeof SpaceFileContent>;
+	isError: boolean;
+	onRetry: () => void;
+}) {
+	if (!input.mimeType) {
+		return (
+			<output className="p-4 text-muted-foreground text-sm">
+				{input.isError
+					? "This file version couldn't be loaded."
+					: "Loading file version…"}
+				{input.isError && (
+					<button
+						className="ml-3 underline"
+						onClick={input.onRetry}
+						type="button"
+					>
+						Retry
+					</button>
+				)}
+			</output>
+		);
+	}
+	if (input.mimeType.startsWith("video/")) {
+		return (
+			<SpaceVideoPreview
+				fileName={input.fileName}
+				key={`${input.target.fileId}:${input.target.revision}`}
+				target={input.target}
+			/>
+		);
+	}
+	return input.fallback;
+}
 
 export function SpaceFileDetail(input: {
 	onUpdateSettings?: () => void;
@@ -152,10 +194,12 @@ export function SpaceFileDetail(input: {
 		displayedMimeType === "text/x-markdown";
 	const imagePreviewable = displayedMimeType.startsWith("image/");
 	const html = isSpaceFileHtml(displayedMimeType);
+	const needsContent = editable || html || imagePreviewable;
+	const contentEnabled = displayedRevisionDescriptor !== null && needsContent;
 	const contentQuery = useQuery(
 		spaceFileContentQueryOptions({
 			api: input.api,
-			enabled: editable || html || imagePreviewable || previewRevision !== null,
+			enabled: contentEnabled,
 			fileId: input.file.id,
 			revision: displayedRevision,
 			spaceId: input.spaceId,
@@ -163,7 +207,7 @@ export function SpaceFileDetail(input: {
 	);
 	const imageSource = useSpaceFileImageSource({
 		api: input.api,
-		enabled: imagePreviewable,
+		enabled: contentEnabled && imagePreviewable,
 		fileId: input.file.id,
 		mimeType: displayedMimeType,
 		revision: displayedRevision,
@@ -171,8 +215,8 @@ export function SpaceFileDetail(input: {
 	});
 	const imagePreviewUrl = imageSource.sourceUrl;
 	const revisionVisible =
-		contentQuery.isSuccess ||
-		!(editable || html || imagePreviewable || previewRevision !== null);
+		displayedRevisionDescriptor !== null &&
+		(contentQuery.isSuccess || !needsContent);
 	useEffect(() => {
 		if (revisionVisible) {
 			markFileRevisionSeen(
@@ -443,7 +487,19 @@ export function SpaceFileDetail(input: {
 			/>
 
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5 lg:overflow-hidden">
-				{fileContent}
+				<SpaceFilePreviewSurface
+					fallback={fileContent}
+					fileName={input.file.name}
+					isError={revisionsQuery.isError}
+					mimeType={displayedRevisionDescriptor?.mimeType}
+					onRetry={() => revisionsQuery.refetch()}
+					target={{
+						spaceId: input.spaceId,
+						fileId: input.file.id,
+						revision: displayedRevision,
+						organizationSlug: input.organizationSlug,
+					}}
+				/>
 			</div>
 			<SpaceFileHistoryDrawer
 				currentRevision={input.file.latestRevision.revision}

@@ -94,17 +94,37 @@ export function MorphingDialog({
 
 export function MorphingDialogTrigger({
   children,
+  disableLayoutAnimation = false,
   ...props
-}: Dialog.Trigger.Props) {
+}: Dialog.Trigger.Props & { disableLayoutAnimation?: boolean }) {
   const { layoutId } = useMorphingDialog();
   return (
-    <Dialog.Trigger {...props} render={<motion.button layoutId={layoutId} />}>
+    <Dialog.Trigger
+      {...props}
+      render={
+        <motion.button
+          layoutId={disableLayoutAnimation ? undefined : layoutId}
+        />
+      }
+    >
       {children}
     </Dialog.Trigger>
   );
 }
 
-export function MorphingDialogContainer({ children }: { children: ReactNode }) {
+/** A non-button morph target for content containing its own interactive controls. */
+export function MorphingDialogFrame(props: HTMLMotionProps<"div">) {
+  const { layoutId } = useMorphingDialog();
+  return <motion.div {...props} layoutId={layoutId} />;
+}
+
+export function MorphingDialogContainer({
+  children,
+  backdropClassName,
+}: {
+  children: ReactNode;
+  backdropClassName?: string;
+}) {
   const { open, actionsRef } = useMorphingDialog();
   return (
     <Dialog.Portal keepMounted>
@@ -119,7 +139,10 @@ export function MorphingDialogContainer({ children }: { children: ReactNode }) {
             key="dialog-container"
           >
             <Dialog.Backdrop
-              className="absolute inset-0 bg-black/20 backdrop-blur-xs"
+              className={cn(
+                "absolute inset-0 bg-black/20 backdrop-blur-xs",
+                backdropClassName
+              )}
               render={
                 <motion.div
                   animate={{ opacity: 1 }}
@@ -201,7 +224,7 @@ export function MorphingDialogClose({
   return (
     <Dialog.Close
       {...props}
-      aria-label="Close dialog"
+      aria-label={props["aria-label"] ?? "Close dialog"}
       className={cn(
         "absolute top-3 right-3 grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-interaction-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className

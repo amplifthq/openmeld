@@ -7,14 +7,14 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type CachedSpaceFileContent,
-	clearSpaceFileImage,
-	clearSpaceFileImageResources,
-	type SpaceFileImageResource,
-	spaceFileImageResources,
-} from "./space-file-image-resource";
+	clearSpaceFileMedia,
+	clearSpaceFileMediaResources,
+	type SpaceFileMediaResource,
+	spaceFileMediaResources,
+} from "./space-file-media-resource";
 import {
-	resolveSpaceFileImagePresentationKey,
-	seedPublishedSpaceFileImage,
+	resolveSpaceFileMediaPresentationKey,
+	seedPublishedSpaceFileMedia,
 	spaceFileContentQueryOptions,
 	spaceFileQueryKeys,
 } from "./space-files";
@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 afterEach(() => {
 	for (const client of clients.splice(0)) {
-		clearSpaceFileImageResources(client);
+		clearSpaceFileMediaResources(client);
 		client.clear();
 	}
 	vi.unstubAllGlobals();
@@ -67,12 +67,12 @@ describe("Space image display ownership", () => {
 	it("enforces the idle byte budget while a mounted original remains owned", async () => {
 		const client = createClient();
 		const releases: Array<() => void> = [];
-		const resources: SpaceFileImageResource[] = [];
+		const resources: SpaceFileMediaResource[] = [];
 		for (let index = 0; index < 3; index += 1) {
 			const bytes = new Blob(["small fixture"], { type: "image/png" });
 			// Exercise accounting without allocating hundreds of MiB in a unit test.
 			Object.defineProperty(bytes, "size", { value: 80 * 1024 * 1024 });
-			const resource = spaceFileImageResources(client).create(
+			const resource = spaceFileMediaResources(client).create(
 				bytes,
 				"space-1",
 				`large-${index}`
@@ -87,7 +87,7 @@ describe("Space image display ownership", () => {
 			}
 			client.setQueryData<CachedSpaceFileContent>(
 				spaceFileQueryKeys.content("space-1", `large-${index}`, 1),
-				{ bytes, mimeType: "image/png", revision: 1, imagePreview: resource }
+				{ bytes, mimeType: "image/png", revision: 1, mediaPreview: resource }
 			);
 			resource.release();
 		}
@@ -117,10 +117,10 @@ describe("Space image display ownership", () => {
 		const sibling = await client.fetchQuery(
 			options({ downloadFileContent }, "file-2")
 		);
-		clearSpaceFileImage(client, "space-1", "file-1");
-		expect(first.imagePreview?.getSnapshot()).toBeNull();
-		expect(secondRevision.imagePreview?.getSnapshot()).toBeNull();
-		expect(sibling.imagePreview?.getSnapshot()).not.toBeNull();
+		clearSpaceFileMedia(client, "space-1", "file-1");
+		expect(first.mediaPreview?.getSnapshot()).toBeNull();
+		expect(secondRevision.mediaPreview?.getSnapshot()).toBeNull();
+		expect(sibling.mediaPreview?.getSnapshot()).not.toBeNull();
 		expect(client.getQueryCache().getAll()).toHaveLength(1);
 	});
 
@@ -149,13 +149,13 @@ describe("Space image display ownership", () => {
 			revision: 1,
 		});
 		const cached = await client.fetchQuery(options({ downloadFileContent }));
-		const release = cached.imagePreview?.subscribe(() => {
+		const release = cached.mediaPreview?.subscribe(() => {
 			/* Visible viewer. */
 		});
 		await expect(
 			client.fetchQuery({ ...options({ downloadFileContent }), staleTime: 0 })
 		).rejects.toBeDefined();
-		expect(cached.imagePreview?.getSnapshot()).toBeNull();
+		expect(cached.mediaPreview?.getSnapshot()).toBeNull();
 		expect(
 			client.getQueryData(spaceFileQueryKeys.content("space-1", "file-1", 1))
 		).toBeUndefined();
@@ -167,7 +167,7 @@ describe("Space image display ownership", () => {
 		const original = new File(["original bytes"], "photo.png", {
 			type: "image/png",
 		});
-		const resource = spaceFileImageResources(client).create(
+		const resource = spaceFileMediaResources(client).create(
 			original,
 			"space-1",
 			"composer-file:chosen"
@@ -175,7 +175,7 @@ describe("Space image display ownership", () => {
 		const url = resource.getSnapshot();
 		const stopThumbnail = resource.subscribe(vi.fn());
 		const stopViewer = resource.subscribe(vi.fn());
-		seedPublishedSpaceFileImage({
+		seedPublishedSpaceFileMedia({
 			queryClient: client,
 			bytes: original,
 			spaceId: "space-1",
@@ -189,16 +189,16 @@ describe("Space image display ownership", () => {
 		const downloadFileContent = vi.fn<SpaceApi["downloadFileContent"]>();
 		const cached = await client.fetchQuery(options({ downloadFileContent }));
 		expect(cached.bytes).toBe(original);
-		expect(cached.imagePreview).toBe(resource);
+		expect(cached.mediaPreview).toBe(resource);
 		expect(downloadFileContent).not.toHaveBeenCalled();
 		expect(
-			resolveSpaceFileImagePresentationKey(client, "space-1", {
+			resolveSpaceFileMediaPresentationKey(client, "space-1", {
 				fileId: "composer-file:chosen",
 				revision: 1,
 				isLocal: true,
 			})
 		).toBe(
-			resolveSpaceFileImagePresentationKey(client, "space-1", {
+			resolveSpaceFileMediaPresentationKey(client, "space-1", {
 				fileId: "file-1",
 				revision: 1,
 			})
@@ -235,9 +235,9 @@ describe("Space image display ownership", () => {
 		);
 		expect(
 			new Set([
-				first.imagePreview,
-				second.imagePreview,
-				otherSpace.imagePreview,
+				first.mediaPreview,
+				second.mediaPreview,
+				otherSpace.mediaPreview,
 			]).size
 		).toBe(3);
 		expect(createUrl).toHaveBeenCalledTimes(3);
@@ -254,16 +254,16 @@ describe("Space image display ownership", () => {
 				mimeType: "image/png",
 				revision: 1,
 			});
-		const { imagePreview } = await client.fetchQuery(
+		const { mediaPreview } = await client.fetchQuery(
 			options({ downloadFileContent })
 		);
-		if (!imagePreview) {
+		if (!mediaPreview) {
 			throw new Error("Expected an image resource.");
 		}
 		const changed = vi.fn();
-		const release = imagePreview.subscribe(changed);
-		clearSpaceFileImageResources(client, "space-1");
-		expect(imagePreview.getSnapshot()).toBeNull();
+		const release = mediaPreview.subscribe(changed);
+		clearSpaceFileMediaResources(client, "space-1");
+		expect(mediaPreview.getSnapshot()).toBeNull();
 		expect(changed).toHaveBeenCalledTimes(1);
 		expect(
 			client.getQueryData(spaceFileQueryKeys.content("space-1", "file-1", 1))
@@ -287,7 +287,7 @@ describe("Space image display ownership", () => {
 			);
 		const pending = client.fetchQuery(options({ downloadFileContent }));
 		const rejected = expect(pending).rejects.toBeDefined();
-		clearSpaceFileImageResources(client);
+		clearSpaceFileMediaResources(client);
 		resolve({ bytes: new ArrayBuffer(1), mimeType: "image/png", revision: 1 });
 		await rejected;
 		await Promise.resolve();
@@ -305,12 +305,12 @@ describe("Space image display ownership", () => {
 				mimeType: "image/png",
 				revision: 1,
 			});
-		const { imagePreview } = await client.fetchQuery(
+		const { mediaPreview } = await client.fetchQuery(
 			options({ downloadFileContent })
 		);
 		await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1);
 		expect(client.getQueryCache().getAll()).toHaveLength(0);
-		expect(imagePreview?.getSnapshot()).toBeNull();
+		expect(mediaPreview?.getSnapshot()).toBeNull();
 		expect(revokeUrl).toHaveBeenCalledTimes(1);
 	});
 
@@ -340,7 +340,7 @@ describe("Space image display ownership", () => {
 		}
 		await Promise.resolve();
 		expect(client.getQueryCache().getAll()).toHaveLength(33);
-		expect(mounted.imagePreview?.getSnapshot()).toBe("blob:image-1");
+		expect(mounted.mediaPreview?.getSnapshot()).toBe("blob:image-1");
 		expect(revokeUrl).toHaveBeenCalledTimes(1);
 		stop();
 		await Promise.resolve();

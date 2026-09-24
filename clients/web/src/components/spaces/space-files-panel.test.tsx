@@ -219,6 +219,69 @@ describe("SpaceFilesPanel", () => {
 		});
 	});
 
+	it("shows a video player entry without fetching its original in Files", async () => {
+		const file = {
+			...FILE,
+			name: "demo.mp4",
+			latestRevision: {
+				...FILE.latestRevision,
+				mimeType: "video/mp4",
+				sizeBytes: 200 * 1024 * 1024,
+			},
+		};
+		spaceApiMocks.getFile.mockResolvedValue({ file });
+		renderPanel({
+			fileToOpen: { fileId: file.id, requestId: "video-current" },
+		});
+		expect(
+			await screen.findByRole("button", { name: "Play demo.mp4" })
+		).toBeTruthy();
+		expect(spaceApiMocks.downloadFileContent).not.toHaveBeenCalled();
+		expect(document.querySelector("video")).toBeNull();
+	});
+
+	it("waits for the requested historical video metadata without fetching the current or original bytes", async () => {
+		const file = {
+			...FILE,
+			name: "demo.mp4",
+			latestRevision: {
+				...FILE.latestRevision,
+				revision: 2,
+				mimeType: "text/plain",
+			},
+		};
+		let resolveHistory: ((value: unknown) => void) | undefined;
+		spaceApiMocks.getFile.mockResolvedValue({ file });
+		spaceApiMocks.listFileRevisions.mockReturnValue(
+			new Promise((resolve) => {
+				resolveHistory = resolve;
+			})
+		);
+		renderPanel({
+			fileToOpen: { fileId: file.id, revision: 1, requestId: "video-history" },
+		});
+		expect(await screen.findByText("Loading file version…")).toBeTruthy();
+		expect(spaceApiMocks.downloadFileContent).not.toHaveBeenCalled();
+		act(() => {
+			resolveHistory?.({
+				file,
+				revisions: [
+					file.latestRevision,
+					{
+						...FILE.latestRevision,
+						mimeType: "video/mp4",
+						sizeBytes: 200 * 1024 * 1024,
+					},
+				],
+			});
+		});
+		expect(
+			await screen.findByRole("button", { name: "Play demo.mp4" })
+		).toBeTruthy();
+		expect(spaceApiMocks.downloadFileContent).not.toHaveBeenCalled();
+		expect(document.querySelector("video")).toBeNull();
+	});
+
 	it("shows image thumbnails instead of generic file icons in Files", async () => {
 		let reveal: (() => void) | undefined;
 		vi.stubGlobal(

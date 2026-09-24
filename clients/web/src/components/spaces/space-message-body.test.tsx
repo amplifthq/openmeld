@@ -12,7 +12,7 @@ import {
 import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { spaceFileImageResources } from "#/query/spaces/space-file-image-resource";
+import { spaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
 	SPACE_RESPONSE_TRUNCATED_MARKER,
@@ -1225,6 +1225,42 @@ describe("SpaceMessageBody", () => {
 		client.clear();
 	});
 
+	it.each([
+		false,
+		true,
+	])("renders video messages for human and Agent replies without eagerly downloading (%s)", (isAgentFinalReply) => {
+		const client = new QueryClient();
+		const view = render(
+			<QueryClientProvider client={client}>
+				<SpaceMessageBody
+					item={{
+						isAgentFinalReply,
+						spaceId: "space-123",
+						text: "Here is the demonstration.",
+						files: [
+							{
+								fileId: "demo",
+								revision: 3,
+								name: "demo.mp4",
+								mimeType: "video/mp4",
+								sizeBytes: 200 * 1024 * 1024,
+								localPreviewUrl: null,
+							},
+						],
+					}}
+				/>
+			</QueryClientProvider>
+		);
+		expect(screen.getByRole("button", { name: "Play demo.mp4" })).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Expand demo.mp4" })
+		).toBeTruthy();
+		expect(document.querySelector("video")).toBeNull();
+		expect(downloadFileContent).not.toHaveBeenCalled();
+		view.unmount();
+		client.clear();
+	});
+
 	it("keeps canonical Space image files as morphing image previews", () => {
 		const onOpenSpaceFile = vi.fn();
 		vi.stubGlobal(
@@ -1235,7 +1271,7 @@ describe("SpaceMessageBody", () => {
 			}
 		);
 		const client = new QueryClient();
-		const resource = spaceFileImageResources(client).create(
+		const resource = spaceFileMediaResources(client).create(
 			new Blob(["image"]),
 			"space-123",
 			"file-photo"
