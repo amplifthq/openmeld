@@ -355,10 +355,11 @@ describe("model catalog schema", () => {
       });
 
       expect(result.data.agentControllers["center-agent"]).toMatchObject({
-        defaultModelId: "z-ai/glm-5.3-flash",
+        defaultModelId: "anthropic/claude-opus-5.5",
         hostedRuntimePolicy: {
           automaticModelFallback: false,
           imageUnderstandingModelId: "x-ai/grok-4.6",
+          personalRemoteAgentDefaultModelId: "openai/gpt-6-sol",
         },
         models: expect.arrayContaining([
           expect.objectContaining({
@@ -381,7 +382,7 @@ describe("model catalog schema", () => {
               inputModalities: ["text", "image"],
               maxOutputTokens: 16_384,
               provider: "openrouter",
-              reasoningLevel: "high",
+              reasoningLevel: "medium",
             },
           }),
           expect.objectContaining({
@@ -392,7 +393,7 @@ describe("model catalog schema", () => {
               inputModalities: ["text", "image"],
               maxOutputTokens: 16_384,
               provider: "openrouter",
-              reasoningLevel: "high",
+              reasoningLevel: "medium",
             },
           }),
           expect.objectContaining({
@@ -512,6 +513,29 @@ describe("model catalog schema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("rejects a personal Remote Agent default outside the available hosted choices", () => {
+    const catalog = structuredClone(vendorModelCatalog);
+    catalog.agentControllers[
+      "center-agent"
+    ].hostedRuntimePolicy.personalRemoteAgentDefaultModelId = "missing-model";
+    const result = modelCatalogSchema.safeParse(catalog);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: [
+              "agentControllers",
+              "center-agent",
+              "hostedRuntimePolicy",
+              "personalRemoteAgentDefaultModelId",
+            ],
+          }),
+        ])
+      );
+    }
   });
 
   it("rejects an unsupported hosted reasoning level", () => {

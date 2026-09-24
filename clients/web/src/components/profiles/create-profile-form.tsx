@@ -45,6 +45,7 @@ import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folde
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
 import {
 	HostedModelSelect,
+	HostedReasoningSelect,
 	personalRemoteModelChoices,
 } from "#/components/models/hosted-model-select";
 import { ModelBadge } from "#/components/models/model-badge";
@@ -160,6 +161,7 @@ export type CreateProfileFormProps = {
 			idempotencyKey: string;
 			modelId: string | null;
 			profileName: string;
+			reasoningLevel: string | null;
 		}) => void;
 	};
 	additionalHumanProfileCreationEnabled: boolean;
@@ -822,13 +824,27 @@ export function AgentProfileModelSelectionFields(
 	const state = resolveAgentProfileModelSelectionState(input);
 
 	if (input.agentId === "center-agent") {
+		const selectedModel = input.modelCatalog?.agentControllers[
+			"center-agent"
+		]?.models.find((model) => model.id === input.modelId);
 		return (
-			<HostedModelSelect
-				choices={personalRemoteModelChoices(input.modelCatalog)}
-				disabled={input.disabled || !input.modelCatalog}
-				onValueChange={input.onChangeModelId}
-				value={input.modelId}
-			/>
+			<div className="grid min-w-0 gap-3">
+				<HostedModelSelect
+					choices={personalRemoteModelChoices(input.modelCatalog)}
+					disabled={input.disabled || !input.modelCatalog}
+					onValueChange={input.onChangeModelId}
+					value={input.modelId}
+				/>
+				{selectedModel?.hostedRuntime ? (
+					<HostedReasoningSelect
+						defaultLevel={selectedModel.hostedRuntime.reasoningLevel}
+						disabled={input.disabled}
+						levels={selectedModel.supportedReasoningLevels}
+						onValueChange={input.onChangeReasoningLevel}
+						value={input.reasoningLevel}
+					/>
+				) : null}
+			</div>
 		);
 	}
 

@@ -259,7 +259,10 @@ export {
   projectLocalAgentCatalogFromCapabilities,
 } from "./local-agent-catalog";
 export { buildLocalAgentConnectionCandidateId } from "./local-agent-connection-candidate";
-export { getAgentControllerModelCatalogId } from "./model-catalog";
+export {
+  getAgentControllerModelCatalogId,
+  getPersonalRemoteAgentDefaultModelId,
+} from "./model-catalog";
 export {
   formatModelRetirementNotice,
   type ModelAvailabilityDecision,

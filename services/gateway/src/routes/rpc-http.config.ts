@@ -15,6 +15,8 @@ export function registerConfigRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.getModelCatalog({
           retirement: c.req.query("retirement") === "1",
+          personalRemoteAgentDefault:
+            c.req.query("personalRemoteAgentDefault") === "1",
         }),
     })
   );

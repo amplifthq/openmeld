@@ -1381,8 +1381,9 @@ tracked config. This is OpenMeld-operated provider configuration, not user
 BYOK.
 
 The repo-owned `center-agent` catalog exposes curated models from OpenAI,
-Anthropic, Google, DeepSeek, xAI, and Z.ai, with GLM 5.3 Flash as the OpenMeld
-default since 2026-08-27. The exact selection and captured metadata are owned by
+Anthropic, Google, DeepSeek, xAI, and Z.ai. Its current Center Agent default is
+Claude Opus 5.5 at `medium` reasoning; its distinct personal Remote Agent
+default is GPT-6 Sol at `medium`. The exact selection and captured metadata are owned by
 [Agent Profile Model Selection](agent-model-selection.md#55-hosted-center-agent-catalog).
 These are model vendors; all hosted routes still use OpenRouter. Core resolves
 a complete immutable route for each new turn. The
@@ -1432,9 +1433,9 @@ selected primary model.
 
 Model capacity and reasoning metadata are checked in with the catalog so
 admission needs no provider metadata lookup. Compaction derives its policy from
-the frozen route. Hosted reasoning is currently fixed to `high`; the Harness
-reads that frozen route value dynamically rather than reading a user setting or
-hard-coding one global effort. Usage remains recorded by the Remote Agent
+the frozen route. Core validates the Binding's optional reasoning selection
+against the selected model's catalog capabilities and freezes the effective
+effort at admission. The Harness reads that frozen route value. Usage remains recorded by the Remote Agent
 worker through OpenMeld-owned usage records and Analytics Engine and attributes
 the effective primary model.
 
