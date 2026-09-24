@@ -529,7 +529,8 @@ const buildWakeProgressItemFromLookupTrace = async (
   includeWakeStopEligibility = wakeStopEligibility !== null,
   includeWaitReason = false,
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence,
-  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null = null
+  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null = null,
+  includeTiming = true
 ): Promise<WakeProgressItem> => {
   const lookupMatch = {
     dispatchId: "dispatch-head-progress-1",
@@ -561,6 +562,7 @@ const buildWakeProgressItemFromLookupTrace = async (
     ) => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressPreAgentWakeStopEligibility: () => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressRuntimeDeviceDisplayName: () => Promise<string | null>;
+    readWakeProgressPendingAgentInteraction: () => Promise<null>;
   };
   const bindings = {} as CoreBindings;
   Object.defineProperties(space, {
@@ -570,6 +572,9 @@ const buildWakeProgressItemFromLookupTrace = async (
       value: vi.fn(async () => ({ trace })),
     },
     readWakeProgressRuntimeDeviceDisplayName: {
+      value: vi.fn(async () => null),
+    },
+    readWakeProgressPendingAgentInteraction: {
       value: vi.fn(async () => null),
     },
     readWakeProgressWakeStopEligibility: {
@@ -582,7 +587,7 @@ const buildWakeProgressItemFromLookupTrace = async (
 
   return await space.buildWakeProgressItemFromLookupEvidence({
     clientMessageId: "client-message-1",
-    includeTiming: true,
+    includeTiming,
     includeWaitReason,
     includeWakeStopEligibility,
     nativeDeliveryEvidence,
@@ -4997,6 +5002,41 @@ describe("space signal service", () => {
       reasonCode: null,
       reliability: "openmeld_owned_pre_agent",
       status: "eligible",
+    });
+  });
+
+  it("shows a rejected delivery as retrying while the same Wake can still run", async () => {
+    const rejectedTrace = createRunningRuntimeCoordinatorTrace();
+    const rejectedExecution = rejectedTrace.runtimeCoordinatorExecution;
+    if (!rejectedExecution) {
+      throw new Error("Expected a RuntimeCoordinator execution");
+    }
+    const rejected = await buildWakeProgressItemFromLookupTrace(
+      {
+        ...rejectedTrace,
+        runtimeCoordinatorExecution: {
+          ...rejectedExecution,
+          status: "delivery_rejected",
+        },
+      },
+      [],
+      {
+        latestAttemptErrorCode: "daemon.profile.offline",
+        latestAttemptStatus: "failed_retryable",
+        status: "failed_retryable",
+      },
+      null,
+      false,
+      false,
+      undefined,
+      null,
+      false
+    );
+    expect(rejected).toMatchObject({
+      failureReasonCode: null,
+      message: "Still trying to reach @Codex Agent...",
+      phase: "retrying",
+      terminal: false,
     });
   });
 

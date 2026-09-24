@@ -23203,8 +23203,8 @@ function resolveWakeProgressPhaseFromRuntimeCoordinatorStatus(
     case "cancelled":
       return "stopped";
     case "failed_retryable":
-      return "retrying";
     case "delivery_rejected":
+      return "retrying";
     case "failed_terminal":
     case "state_unknown":
       return "failed";
@@ -23229,9 +23229,10 @@ function resolveWakeProgressRuntimeCoordinatorErrorCode(
         normalizeOptionalText(execution.terminalOutcome?.reasonCode) ??
         `runtime_coordinator.${execution.status}`
       );
-    case "delivery_rejected":
     case "state_unknown":
       return `runtime_coordinator.${execution.status}`;
+    case "delivery_rejected":
+      return null;
     default:
       return null;
   }
