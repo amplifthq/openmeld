@@ -340,7 +340,7 @@ Independent workstation tasks use Core-assigned Execution Contexts. Core admits
 at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 New work and forks may select a context explicitly. An ordinary Claude Code
-Wake in parallel mode implicitly selects a new isolated project context when
+Wake in parallel mode implicitly selects a new isolated Space-only context when
 it has no retained context; a retained or explicitly Space-only context keeps
 its selected access. Every selection is scoped to the exact requester,
 Organization, Space, discussion, Profile, Binding, and Runtime.

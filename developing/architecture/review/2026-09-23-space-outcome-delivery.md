@@ -240,6 +240,16 @@ unconfirmed handler results. Delivery-only isolation for Codex is not yet proved
 by these normal/repair carrier tests: native skill and planning tools remained
 visible in the separate restricted-catalog probe.
 
+On the 2026-09-24 Draft follow-up, the actual Codex 0.150.1 adapter test passed
+the delivery-only catalog check: no file, command, Web, App, delegate, or foreign
+MCP operation was exposed. Native planning, user-input, and skill-read tools
+remained visible; the narrow claim is no business-effect tool access, not an
+empty native catalog. The actual Claude Code 2.1.281 correction test passed all
+five scenarios, including a project-level native deny of `reply`. Delivery-only
+therefore keeps project/local setting sources to preserve the owner's deny and
+ask policies, while the built-in tool catalog and hooks remain restricted. These
+adapter tests use isolated homes and scripted providers, not live Space delivery.
+
 A subsequent whole-package run reported 161 passed, one failed and three skipped:
 the existing Stop-after-writer-retry test hit its one-second fixture wait. Its
 unchanged baseline and candidate both passed in a sequential isolated comparison;
@@ -250,6 +260,10 @@ candidate run before first-line acceptance.
 
 ## Contract Impact Audit
 
+- Ordinary Claude Code Wakes now select independent Space-only contexts; explicit
+  project tasks alone select a Git worktree and container shell. Context version 2
+  Services can run the Space-only context, while older Services retain the serial
+  compatibility path. Retained project contexts keep their existing access.
 - Local tool receipts add a positive rejection variant. It is local model/tool
   feedback only; the Coordinator result and publication wire are unchanged.
 - Old cloud/new local: current tools emit existing post_message/stay_silent

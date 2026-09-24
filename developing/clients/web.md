@@ -4694,6 +4694,12 @@ Human-only DMs use `Message {name}…`, Agent DMs use `Message {name}…`, Cente
 Agent DMs use `Tell Center Agent what you need…`, and Threads use
 `Reply in thread…`.
 
+For Claude Code, leaving the Task menu on automatic selection starts an
+independent Space-only context without requiring a repository or container.
+Selecting a new project task explicitly enables an isolated worktree. The menu
+explains that this choice requires a committed Git repository and a running
+Docker or Podman engine on the Agent's computer before the Wake starts.
+
 Draft editing and opening the `+` and `@` tools do not require permission to
 send. The `+` menu explains why file selection is unavailable when uploads are
 not authorized or a message is still sending. Send and upload authorization

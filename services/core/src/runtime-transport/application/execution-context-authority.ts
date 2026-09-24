@@ -187,7 +187,7 @@ type AssignmentPlan = {
 type AssignmentInput = {
   legacyAssociation?: LegacyContextAssociation;
   contextModeActive?: boolean;
-  preferProjectContext?: boolean;
+  startIndependentClaudeContext?: boolean;
   record: RuntimeCoordinatorHeadLifecycleRecord;
   storage: Storage;
   authorizedContinuationSourceWakeId?: string;
@@ -361,7 +361,7 @@ export async function prepareExecutionContextAssignment(
     implicitRequest &&
     request.scope.threadId === null &&
     !input.contextModeActive &&
-    !input.preferProjectContext
+    !input.startIndependentClaudeContext
   ) {
     return { record: input.record, writes: {} };
   }
@@ -372,13 +372,7 @@ export async function prepareExecutionContextAssignment(
   const selectedContext =
     source && !createsContext
       ? source.context
-      : createContext(
-          input.record,
-          snapshot,
-          request,
-          source,
-          input.preferProjectContext === true
-        );
+      : createContext(input.record, snapshot, request, source);
   const context = input.legacyAssociation
     ? { ...selectedContext, legacyAssociation: input.legacyAssociation }
     : selectedContext;
@@ -645,8 +639,7 @@ function createContext(
   record: RuntimeCoordinatorHeadLifecycleRecord,
   snapshot: AcceptedSnapshot,
   request: ContextRequest,
-  source: ContextSource | null,
-  preferProjectContext: boolean
+  source: ContextSource | null
 ): ContextRecord {
   const selection = request.selection;
   const preferences: Partial<
@@ -661,11 +654,7 @@ function createContext(
       access:
         preferences.access ??
         source?.context.assignment.access ??
-        (preferProjectContext &&
-        selection.mode === "auto" &&
-        snapshot.controllerSnapshot.agentControllerRef === "builtin:claude-code"
-          ? "workspace"
-          : "space_context"),
+        "space_context",
       workspace: preferences.workspace ?? "isolated",
       ...(forkSource ? { forkSource } : {}),
     },

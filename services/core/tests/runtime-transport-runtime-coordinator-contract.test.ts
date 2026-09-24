@@ -3804,7 +3804,7 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
-  it("assigns ordinary Claude Wakes independent project contexts in parallel mode", async () => {
+  it("assigns ordinary Claude Wakes independent Space contexts in parallel mode", async () => {
     const { hub } = createContextHarness({
       bindingControllerRef: "builtin:claude-code",
     });
@@ -3874,7 +3874,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         .slice(0, 5)
         .every(
           (reply) =>
-            reply.executionContext?.access === "workspace" &&
+            reply.executionContext?.access === "space_context" &&
             reply.executionContext.workspace === "isolated"
         )
     ).toBe(true);
@@ -3895,9 +3895,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
         "/runtime-coordinator/head/accept",
         firstRequest
       )
-    ).json()) as { status: string; executionContext?: unknown };
+    ).json()) as {
+      status: string;
+      executionContext?: { access: string };
+    };
     expect(olderResponse.status).toBe("accepted");
-    expect(olderResponse.executionContext).toBeUndefined();
+    expect(olderResponse.executionContext?.access).toBe("space_context");
+    const legacyService = createContextHarness({
+      bindingControllerRef: "builtin:claude-code",
+      contextVersion: 1,
+    });
+    const legacyResponse = (await (
+      await fetchRuntimeTransportJson(
+        legacyService.hub,
+        "/runtime-coordinator/head/accept",
+        firstRequest
+      )
+    ).json()) as { status: string; executionContext?: unknown };
+    expect(legacyResponse.status).toBe("accepted");
+    expect(legacyResponse.executionContext).toBeUndefined();
     const explicitSpaceOnly = createContextHarness({
       bindingControllerRef: "builtin:claude-code",
     });
@@ -4318,6 +4334,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
   it.each([
     { mode: "new", agentControllerRef: "builtin:codex", access: "workspace" },
+    {
+      mode: "new",
+      agentControllerRef: "builtin:claude-code",
+      access: "workspace",
+    },
     {
       mode: "threads",
       agentControllerRef: "builtin:codex",

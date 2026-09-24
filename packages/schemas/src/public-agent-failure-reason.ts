@@ -1302,6 +1302,22 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
+      body: "Claude project tasks need Docker or Podman running on the Agent's computer. Start a Linux container engine, then try again. For a reply without project files, choose a Space-only task.",
+      kind: "local_agent_prepare",
+      patterns: ["=claude_project.container_runtime_unavailable"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "Docker or Podman could not prepare the image for this Claude project task. Check the container engine and its image download, then try again.",
+      kind: "local_agent_prepare",
+      patterns: ["=claude_project.image_unavailable"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
       body: "This independent project task needs a connected Git repository with at least one commit. Choose that repository's root as the Agent's working folder, then start a new task.",
       kind: "local_agent_prepare",
       patterns: [

@@ -1008,9 +1008,11 @@ describe("accepted dispatch finalization", () => {
   });
 
   it("publishes accepted post_status finalization through Space action delivery without a space password", async () => {
-    const historicalSpaceContract = {
+    const historicalSpaceContract: ReturnType<
+      typeof buildDefaultSpaceContract
+    > = {
       ...buildDefaultSpaceContract(),
-      allowedActions: ["post_message", "post_status", "stay_silent"] as const,
+      allowedActions: ["post_message", "post_status", "stay_silent"],
     };
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

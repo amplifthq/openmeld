@@ -58,6 +58,7 @@ export function buildSpaceTaskSources(
 
 export function SpaceComposerTaskMenu(input: {
 	supportsCurrentFolder: boolean;
+	requiresProjectContainer: boolean;
 	targetProfileId: string;
 	disabled: boolean;
 	sources: readonly SpaceTaskSource[];
@@ -220,7 +221,9 @@ export function SpaceComposerTaskMenu(input: {
 							<p className="px-2 py-1 text-muted-foreground text-xs">
 								Project worktrees start from the connected repository's current
 								commit. Unsaved changes and local configuration are not copied.
-								Current-folder work waits for conflicting local tasks.
+								{input.requiresProjectContainer
+									? " Claude project tasks need Docker or Podman running on the Agent's computer."
+									: " Current-folder work waits for conflicting local tasks."}
 							</p>
 						</DropdownMenuGroup>
 					</>

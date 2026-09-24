@@ -618,8 +618,7 @@ conveyor, Local OpenMeld Service remains the local carrier, Space remains the
 visible result surface, and Agent Activity remains evidence rather than
 execution or readiness authority.
 
-An independent local project task, including an ordinary Claude Code Wake that
-starts a new project context in parallel mode, uses this same confirmed
+An explicitly selected independent local project task uses this same confirmed
 working-folder resolution. It must not discover another repository or fall back
 when the connection fails. The local Service validates the selected Git root and
 Computer file policy, freezes its committed HEAD at first local preparation, and

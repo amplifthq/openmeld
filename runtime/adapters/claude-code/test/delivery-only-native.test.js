@@ -17,7 +17,13 @@ import { invokeClaudeAgentSdkTransport } from "../dist/index.js";
 
 const PREFIX = "mcp__openmeld_internal_dispatch_space_action__";
 
-for (const scenario of ["default", "plan", "approval", "denied"]) {
+for (const scenario of [
+  "default",
+  "plan",
+  "approval",
+  "denied",
+  "project-denied",
+]) {
   test(
     `native Claude delivery-only scope and user policy: ${scenario}`,
     { skip: !process.env.OPENMELD_TEST_CLAUDE_BIN, timeout: 100_000 },
@@ -198,6 +204,14 @@ for (const scenario of ["default", "plan", "approval", "denied"]) {
       const settingsPath = join(configDir, "settings.json");
       const originalSettings = JSON.stringify(settings);
       await writeFile(settingsPath, originalSettings);
+      if (scenario === "project-denied") {
+        const projectSettingsDir = join(workdir, ".claude");
+        await mkdir(projectSettingsDir);
+        await writeFile(
+          join(projectSettingsDir, "settings.json"),
+          JSON.stringify({ permissions: { deny: [`${PREFIX}reply`] } })
+        );
+      }
       const capability = {
         deliveryOnly: true,
         tools: [
@@ -269,7 +283,7 @@ for (const scenario of ["default", "plan", "approval", "denied"]) {
           prompt:
             "Only deliver the already-known limitation through reply. Do not redo the task or publish private fixture context.",
         });
-      if (scenario === "denied") {
+      if (scenario === "denied" || scenario === "project-denied") {
         await assert.rejects(runCorrection, {
           code: "space.action.delivery_unconfirmed",
         });

@@ -68,6 +68,8 @@ export function buildClaudeSpaceToolOptions(
   if (isolated) {
     options.tools = [];
     options.strictMcpConfig = true;
+    // Correction must still honor native project/local deny and ask policies.
+    // The restricted tool catalog and disabled hooks bound their execution.
     options.settingSources = deliveryOnly
       ? ["user", "project", "local"]
       : ["user"];

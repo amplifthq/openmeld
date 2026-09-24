@@ -1062,11 +1062,11 @@ them; a thread alone does not opt an unsupported harness into the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 
-In parallel mode, an ordinary Claude Code Wake starts a new isolated project
-context when no retained context has been selected. A Wake continuing a retained
-context keeps that context's access; start a new project task to move work from
-an older Space-only context. Explicit Space-only tasks remain Space context and
-have no local code tools. Forks inherit the source context's access unless an
+In parallel mode, an ordinary Claude Code Wake starts a new isolated Space-only
+context when no retained context has been selected. It does not require a Git
+repository or container engine. A Wake continuing a retained context keeps that
+context's access; select a new project task to work in a repository. Space-only
+tasks have no local code tools. Forks inherit the source context's access unless an
 explicit supported choice changes it. Codex App Server also supports independent
 project worktrees or read-only/current-folder access. The CLI options
 are `--task-access space_context|read_only|workspace` and

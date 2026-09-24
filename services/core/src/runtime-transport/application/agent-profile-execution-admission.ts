@@ -2560,7 +2560,7 @@ function resolveContextMigrationAdmission(input: {
   return { plan: input.plan, reasonCode };
 }
 
-function shouldPreferClaudeProjectContext(input: {
+function shouldStartIndependentClaudeContext(input: {
   admission: AgentProfileExecutionAdmissionRecord;
   record: RuntimeCoordinatorHeadLifecycleRecord;
 }): boolean {
@@ -2629,7 +2629,7 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
   try {
     contextPlan = await prepareExecutionContextAssignment({
       contextModeActive,
-      preferProjectContext: shouldPreferClaudeProjectContext({
+      startIndependentClaudeContext: shouldStartIndependentClaudeContext({
         admission,
         record: input.record,
       }),

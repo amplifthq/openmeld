@@ -7101,10 +7101,10 @@ A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
 
-An omitted access preference selects `space_context`, except that an ordinary
-Claude Code Wake in parallel mode prefers `workspace: isolated` when creating a
-new implicit context. A retained context keeps its existing access. Explicit
-Space-only selection still selects `space_context`. `workspace: isolated`
+An omitted access preference selects `space_context`, including an ordinary
+Claude Code Wake in parallel mode that creates a new implicit context. A retained
+context keeps its existing access. An explicit independent project task selects
+`workspace: isolated`. `workspace: isolated`
 with local access now means a committed project worktree with private Git data.
 The local preparation journal binds the shared assignment to its source and
 starting commit. Its paths remain local; it neither replaces the Core context

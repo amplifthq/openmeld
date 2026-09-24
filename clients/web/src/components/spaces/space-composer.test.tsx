@@ -36,6 +36,7 @@ it.each([
 		<SpaceComposerTaskMenu
 			disabled={false}
 			onChange={onChange}
+			requiresProjectContainer={true}
 			sources={[]}
 			supportsCurrentFolder={false}
 			targetProfileId="agent"

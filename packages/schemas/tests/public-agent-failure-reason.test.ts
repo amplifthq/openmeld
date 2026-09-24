@@ -86,6 +86,7 @@ describe("public agent failure reason mapping", () => {
       "connected Git repository",
     ],
     ["execution_context.workspace_access_unverified", "project file boundary"],
+    ["claude_project.container_runtime_unavailable", "Docker or Podman"],
     ["context.mcp_isolation_unverified", "tools authorized for this task"],
     [
       "execution_context.mcp_server_initialization_failed",
@@ -95,6 +96,18 @@ describe("public agent failure reason mapping", () => {
     const reason = resolveMappedPublicAgentFailureReason(errorCode);
     expect(reason).toContain(expected);
     expect(reason).not.toContain("provider was unreachable");
+  });
+  it("links a missing Claude project container to Agent setup", () => {
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: "claude_project.container_runtime_unavailable",
+        targetLabel: "Runner",
+      })
+    ).toMatchObject({
+      kind: "local_agent_prepare",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "computer",
+    });
   });
   it("does not turn a service conflict into an update or setup instruction", () => {
     const recovery = resolvePublicAgentFailureRecovery({
