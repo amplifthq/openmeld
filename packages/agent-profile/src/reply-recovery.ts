@@ -38,6 +38,8 @@ const PRIMARY_RECOVERY_REASON_CODES = [
   "agent_profile_binding.missing",
   "profile.unbound",
   "controller.binding.disabled",
+  "model.retired",
+  "model.unavailable",
   "workspace.invalid",
   "workspace.missing",
   "controller.client.upgrade_required",
@@ -477,6 +479,26 @@ function planAgentRecoveryFromExecutionPrimaryAction(input: {
     if (disabledBindingPlan) {
       return disabledBindingPlan;
     }
+  }
+
+  if (
+    input.reasonCode === "model.retired" ||
+    input.reasonCode === "model.unavailable"
+  ) {
+    const copy = resolveSharedRecoveryCopy({
+      profileName: input.profileName,
+      reasonCode: input.reasonCode,
+    });
+    return {
+      body: copy.body,
+      kind: "review_agent_profile",
+      ...createPrimaryAction("change_model"),
+      profileId: input.member.profileId,
+      profileName: input.profileName,
+      recoveryReasonCode: input.reasonCode,
+      secondaryLabel: copy.secondaryLabel,
+      title: copy.title,
+    };
   }
 
   if (isControllerConversationConflictReasonCode(input.reasonCode)) {

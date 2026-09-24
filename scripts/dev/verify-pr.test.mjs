@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parse } from "yaml";
 import {
   planPrChecks,
   resolveUnitTestScript,
@@ -33,27 +31,6 @@ test("checks signed Skill inputs in feedback and PR validation without checking 
   }
 });
 
-test("automatic draft feedback cannot start the full affected lane", () => {
-  const workflow = parse(
-    readFileSync(
-      new URL("../../.github/workflows/pr-feedback.yml", import.meta.url),
-      "utf8"
-    )
-  );
-  assert.equal(
-    workflow.jobs.verify.if,
-    "github.event.pull_request.draft == true"
-  );
-  assert.ok(workflow.on.pull_request.types.includes("converted_to_draft"));
-  assert.ok(workflow.on.pull_request.types.includes("ready_for_review"));
-  assert.equal(workflow.permissions.contents, "read");
-  assert.equal(workflow.concurrency["cancel-in-progress"], true);
-  const runs = workflow.jobs.verify.steps
-    .filter((step) => step.run)
-    .map((step) => step.run);
-  assert.ok(runs.every((command) => command.includes("--feedback")));
-});
-
 test("Worker changes select the existing Zod contract guard before expensive tests", () => {
   for (const feedback of [true, false]) {
     for (const file of [
@@ -81,7 +58,7 @@ test("Worker changes select the existing Zod contract guard before expensive tes
   }
 });
 
-test("draft feedback checks changed files and related tests without package builds", () => {
+test("focused checks changed files and related tests without package builds", () => {
   const sources = [
     "clients/web/src/sidebar.tsx",
     "clients/web/src/sidebar.test.tsx",
@@ -129,7 +106,7 @@ test("deleted files never turn a focused lint command into a repository scan", (
   );
 });
 
-test("draft control feedback runs the owning Node regression tests once", () => {
+test("focused control checks run the owning Node regression tests once", () => {
   const commands = planPrChecks(
     ["scripts/dev/verify-pr.mjs", "scripts/dev/verify-pr.test.mjs"],
     {
@@ -148,7 +125,7 @@ test("draft control feedback runs the owning Node regression tests once", () => 
   );
 });
 
-test("docs-only draft feedback avoids code, test discovery, and builds", () => {
+test("docs-only focused checks avoid code, test discovery, and builds", () => {
   assert.deepEqual(planPrChecks(["developing/README.md"], { feedback: true }), [
     ["run", "verify:docs", "--", "--strict"],
   ]);

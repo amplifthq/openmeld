@@ -1,10 +1,16 @@
 import { createExecutionContext, env } from "cloudflare:test";
-import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
+import { createHash } from "node:crypto";
+import {
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import type { RuntimeTransportLookupOwnerServiceResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 
 import { handleAgentProfileCreationMessage } from "../src/agent-profile-creation-request/agent-profile-creation-execution";
 import { recoverAgentProfileCreationRequests } from "../src/agent-profile-creation-request/agent-profile-creation-request-recovery";
+import { createD1AgentProfileCreationRequestRepository } from "../src/agent-profile-creation-request/agent-profile-creation-request-repository";
 import {
   executeAgentProfileCreationRequest,
   rpcRetryAgentProfileCreationRequest as retryRequest,
@@ -41,6 +47,199 @@ async function rpcRetryAgentProfileCreationRequest(
 }
 
 describe("Agent Profile creation request RPC", () => {
+  it("replays a pre-upgrade Center request without replacing its identity or merging another Space intent", async () => {
+    const fixture = await seedFixture();
+    const send = vi.fn();
+    const createAgentProfileInOrganization = vi.fn();
+    const bindings = {
+      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
+    } as unknown as CoreBindings;
+    const command = {
+      ...centerCreationCommand(fixture),
+      configuration: {
+        ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+        agentControllerRef: "builtin:codex",
+        targetComputerId: `device-${fixture.suffix}`,
+      },
+      requestedSpaceId: `space-before-upgrade-${fixture.suffix}`,
+    };
+    // Freeze the pre-upgrade byte formula independently of the new key builder.
+    const legacyKey = `center-agent:agent-profile-request:${createHash("sha256")
+      .update(
+        JSON.stringify({
+          configuration: command.configuration,
+          nativeSessionId: null,
+          profileName: command.profileName,
+          requestId: command.context.actorContext.requestId,
+          sessionStrategy: command.sessionStrategy,
+          targetOwnerUserId: command.targetOwnerUserId,
+        })
+      )
+      .digest("hex")}`;
+    const accepted = await submitRequest(bindings, {
+      ...command,
+      context: {
+        ...command.context,
+        actorContext: {
+          ...command.context.actorContext,
+          callerPrincipalId: fixture.requesterUserId,
+          ownerUserId: fixture.requesterUserId,
+        },
+      },
+      idempotencyKey: legacyKey,
+      organizationId: fixture.organizationId,
+      source: "center_agent",
+    });
+    const repository = createD1AgentProfileCreationRequestRepository(
+      env.OPENMELD_DB
+    );
+    const completedAtMs = Date.parse(accepted.request.updatedAt) + 1;
+    const createdAgentProfileId = `agt_${crypto.randomUUID()}`;
+    // The old deployment already completed setup; only its response was lost.
+    const completed = await repository.transition({
+      expectedStatuses: ["approved"],
+      expectedUpdatedAtMs: Date.parse(accepted.request.updatedAt),
+      requestId: accepted.request.id,
+      update: {
+        completedAtMs,
+        createdAgentProfileId,
+        status: "completed",
+        statusReason: "profile_created",
+        updatedAtMs: completedAtMs,
+      },
+    });
+    expect(completed).not.toBeNull();
+    send.mockClear();
+
+    const replay = await submitCenterAgentRequest(bindings, command);
+    expect(replay).toMatchObject({
+      replayed: true,
+      request: {
+        id: accepted.request.id,
+        createdAgentProfileId,
+        status: "completed",
+      },
+    });
+    await executeAgentProfileCreationRequest(bindings, replay.request);
+    expect(createAgentProfileInOrganization).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+
+    // The legacy hash omitted Space. It must not absorb a different intent.
+    const otherCommand = {
+      ...command,
+      requestedSpaceId: `space-after-upgrade-${fixture.suffix}`,
+    };
+    const other = await submitCenterAgentRequest(bindings, otherCommand);
+    expect(other.replayed).toBe(false);
+    expect(other.request.id).not.toBe(accepted.request.id);
+    expect(other.request.createdAgentProfileId).toBeNull();
+    await expect(
+      submitCenterAgentRequest(bindings, otherCommand)
+    ).resolves.toMatchObject({
+      replayed: true,
+      request: {
+        id: other.request.id,
+        requestedSpaceId: otherCommand.requestedSpaceId,
+      },
+    });
+    expect(
+      await repository.findByIdempotencyKey({
+        idempotencyKey: legacyKey,
+        organizationId: fixture.organizationId,
+        requesterUserId: fixture.requesterUserId,
+      })
+    ).toMatchObject({
+      id: accepted.request.id,
+      createdAgentProfileId,
+      status: "completed",
+    });
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT count(*) AS count FROM agent_profile_creation_requests WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(rows?.count).toBe(2);
+  });
+
+  it("keeps distinct target Spaces separate while replaying the same canonical Center creation intent", async () => {
+    const fixture = await seedFixture();
+    const bindings = {
+      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send: vi.fn() },
+    } as unknown as CoreBindings;
+    const command = centerCreationCommand(fixture);
+    const first = await submitCenterAgentRequest(bindings, {
+      ...command,
+      requestedSpaceId: "space-a",
+    });
+    const same = await submitCenterAgentRequest(bindings, {
+      ...command,
+      profileName: ` ${command.profileName} `,
+      requestedSpaceId: "space-a",
+      configuration: Object.fromEntries(
+        Object.entries(command.configuration).reverse()
+      ) as typeof command.configuration,
+    });
+    expect(same).toMatchObject({
+      replayed: true,
+      request: { id: first.request.id },
+    });
+    const other = await submitCenterAgentRequest(bindings, {
+      ...command,
+      requestedSpaceId: "space-b",
+    });
+    expect(other.replayed).toBe(false);
+    expect(other.request.id).not.toBe(first.request.id);
+    expect(other.request).toMatchObject({
+      requestedSpaceId: "space-b",
+      status: "approved",
+      createdAgentProfileId: null,
+    });
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT count(*) AS count FROM agent_profile_creation_requests WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(rows?.count).toBe(2);
+  });
+
+  it("rejects a Center working request with no run target before persisting identity or execution", async () => {
+    const fixture = await seedFixture();
+    const send = vi.fn();
+    const bindings = {
+      OPENMELD_DB: env.OPENMELD_DB,
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
+    } as unknown as CoreBindings;
+    await expect(
+      submitCenterAgentRequest(bindings, {
+        ...centerCreationCommand(fixture),
+        configuration: undefined,
+      })
+    ).rejects.toMatchObject({
+      code: "agent_profile_creation_request.state_conflict",
+    });
+    expect(send).not.toHaveBeenCalled();
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT count(*) AS count FROM agent_profile_creation_requests WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(rows?.count).toBe(0);
+  });
+
+  it("rejects contradictory Remote and Local selection without silently changing the requested runtime", async () => {
+    const fixture = await seedFixture();
+    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    await expect(
+      submitCenterAgentRequest(bindings, {
+        ...centerCreationCommand(fixture),
+        localAgentConnectionCandidateId: "local-candidate",
+      })
+    ).rejects.toMatchObject({ code: "invalid_payload", status: 400 });
+  });
+
   it("recovers a durable accepted request after notification loss and executes duplicate deliveries only once", async () => {
     const fixture = await seedFixture();
     const send = vi
@@ -420,6 +619,7 @@ describe("Agent Profile creation request RPC", () => {
     // member. The launch hold must not confuse Agent identity with ownership.
     const own = await submitCenterAgentRequest(bindings, {
       ...intent,
+      configuration: centerCreationCommand(fixture).configuration,
       targetOwnerUserId: fixture.requesterUserId,
       context: {
         activeOrganizationId: fixture.organizationId,
@@ -652,6 +852,31 @@ function createModelGuardLocalRuntimes(): Awaited<
         platformFamily: "macOS",
       },
     ],
+  };
+}
+
+function centerCreationCommand(
+  fixture: Awaited<ReturnType<typeof seedFixture>>
+) {
+  return {
+    configuration: {
+      ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+    },
+    context: {
+      activeOrganizationId: fixture.organizationId,
+      actorContext: {
+        callerPrincipalId: fixture.centerAgentProfileId,
+        openMeldProfileId: fixture.centerAgentProfileId,
+        profileKind: "agent" as const,
+        profileName: "Center Agent",
+        requestId: fixture.suffix,
+      },
+    },
+    onBehalfOf: { profileId: fixture.requesterProfileId },
+    profileName: "Research Partner",
+    sessionStrategy: "new" as const,
+    targetOwnerUserId: fixture.requesterUserId,
   };
 }
 

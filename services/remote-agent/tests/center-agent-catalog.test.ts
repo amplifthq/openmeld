@@ -209,8 +209,12 @@ describe("curated Center Agent provider models", () => {
       expect.arrayContaining(additionalModels.data.map((model) => model.id))
     );
     expect(catalog.agentControllers["center-agent"]?.defaultModelId).toBe(
-      "z-ai/glm-5.3-flash"
+      "anthropic/claude-opus-5.5"
     );
+    expect(
+      catalog.agentControllers["center-agent"]?.hostedRuntimePolicy
+        ?.personalRemoteAgentDefaultModelId
+    ).toBe("openai/gpt-6-sol");
     expect(
       catalog.agentControllers["center-agent"]?.hostedRuntimePolicy
         ?.imageUnderstandingModelId

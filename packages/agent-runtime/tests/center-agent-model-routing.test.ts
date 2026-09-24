@@ -35,7 +35,7 @@ const CATALOG = {
           id: "x-ai/grok-4.6",
           displayName: "Grok 4.6",
           unavailable: false,
-          supportedReasoningLevels: ["high"],
+          supportedReasoningLevels: ["high", "medium"],
           minCliVersion: null,
           hostedRuntime: {
             provider: "openrouter",
@@ -140,6 +140,32 @@ describe("resolveCenterAgentModelRoute", () => {
     }
   });
 
+  it("freezes a supported Binding reasoning effort into the primary route", () => {
+    const result = resolveCenterAgentModelRoute({
+      catalog: CATALOG,
+      preference: { kind: "selected_model", modelId: "x-ai/grok-4.6" },
+      reasoningLevel: "medium",
+    });
+    expect(result.status).toBe("accepted");
+    if (result.status === "accepted") {
+      expect(result.route.reasoningLevel).toBe("medium");
+      expect(result.route.imageUnderstandingModel.reasoningLevel).toBe("high");
+    }
+  });
+
+  it("rejects an effort unavailable for the selected model", () => {
+    expect(
+      resolveCenterAgentModelRoute({
+        catalog: CATALOG,
+        preference: { kind: "system_default" },
+        reasoningLevel: "medium",
+      })
+    ).toMatchObject({
+      status: "rejected",
+      code: "center_agent_reasoning_unsupported",
+    });
+  });
+
   it("pins an explicit DeepSeek route without a primary fallback", () => {
     expect(
       resolveCenterAgentModelRoute({
@@ -208,49 +234,59 @@ describe("resolveCenterAgentModelRoute", () => {
     expect(listCenterAgentModelChoices(CATALOG)).toEqual([
       {
         badgeLabel: "New",
+        defaultReasoningLevel: "high",
         displayName: "OpenMeld default",
         effectiveModelDisplayName: "GLM 5.3 Flash",
         preference: { kind: "system_default" },
+        supportedReasoningLevels: ["high"],
         supportsImageInput: true,
       },
       {
         badgeLabel: "New",
+        defaultReasoningLevel: "high",
         displayName: "GLM 5.3 Flash",
         effectiveModelDisplayName: "GLM 5.3 Flash",
         preference: {
           kind: "selected_model",
           modelId: "z-ai/glm-5.3-flash",
         },
+        supportedReasoningLevels: ["high"],
         supportsImageInput: true,
       },
       {
         badgeLabel: null,
+        defaultReasoningLevel: "high",
         displayName: "Grok 4.6",
         effectiveModelDisplayName: "Grok 4.6",
         preference: {
           kind: "selected_model",
           modelId: "x-ai/grok-4.6",
         },
+        supportedReasoningLevels: ["high", "medium"],
         supportsImageInput: true,
       },
       {
         badgeLabel: null,
+        defaultReasoningLevel: "high",
         displayName: "Grok 4.5",
         effectiveModelDisplayName: "Grok 4.5",
         preference: {
           kind: "selected_model",
           modelId: "x-ai/grok-4.5",
         },
+        supportedReasoningLevels: ["high"],
         supportsImageInput: true,
       },
       {
         badgeLabel: null,
+        defaultReasoningLevel: "high",
         displayName: "DeepSeek V4 Flash",
         effectiveModelDisplayName: "DeepSeek V4 Flash",
         preference: {
           kind: "selected_model",
           modelId: "deepseek/deepseek-v4-flash",
         },
+        supportedReasoningLevels: ["high", "xhigh"],
         supportsImageInput: false,
       },
     ]);

@@ -20,6 +20,7 @@ export type SpaceInboxProjectionAttemptResult =
   | {
       completedAtMs: number;
       projectionId: string;
+      projectedUserIds: string[];
       status: "completed";
     }
   | {
@@ -27,6 +28,7 @@ export type SpaceInboxProjectionAttemptResult =
       failedAtMs: number;
       nextRetryAtMs: number;
       projectionId: string;
+      projectedUserIds: string[];
       status: "failed";
     };
 
@@ -45,6 +47,7 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
   sql: SqlStorage;
 }): Promise<SpaceInboxProjectionAttemptResult> {
   const nowMs = input.nowMs ?? Date.now();
+  const projectedUserIds: string[] = [];
   try {
     if (!input.db) {
       throw new Error("Inbox store is unavailable");
@@ -74,6 +77,7 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
           }
         );
         await ensureItem({ candidate: selectedCandidate, db: input.db, nowMs });
+        projectedUserIds.push(candidate.recipientUserId);
       } catch (error) {
         // Preserve independent source relationships. A later ownership change
         // must not erase a valid Human mention during an outbox retry.
@@ -100,6 +104,7 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
     return {
       completedAtMs: nowMs,
       projectionId: input.record.projectionId,
+      projectedUserIds,
       status: "completed",
     };
   } catch (error) {
@@ -121,6 +126,7 @@ export async function attemptSpaceInboxProjectionOutboxRecord(input: {
       failedAtMs: nowMs,
       nextRetryAtMs,
       projectionId: input.record.projectionId,
+      projectedUserIds,
       status: "failed",
     };
   }

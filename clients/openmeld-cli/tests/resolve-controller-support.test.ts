@@ -167,7 +167,7 @@ describe("resolveLocalDaemonRouteCandidate", () => {
     });
   });
 
-  it("keeps the route eligible and late-binds default policy for an unavailable explicit model", () => {
+  it("rejects an unavailable explicit model without constructing a replacement route", () => {
     const result = resolveLocalDaemonRouteCandidate({
       localAdapterContainer: {
         getAdapter: () => ({
@@ -188,16 +188,83 @@ describe("resolveLocalDaemonRouteCandidate", () => {
       profile: createAgentProfile(),
     });
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       profileId: "agt-codex",
-      route: {
-        conversationPolicy: {
-          fallbackModel: "gpt-5.5",
-          model: "gpt-5.5",
-        },
-      },
-      status: "accepted",
+      skipReason: "model.unavailable",
+      status: "skipped",
     });
+    expect(result).not.toHaveProperty("route");
+  });
+
+  it.each([
+    {
+      name: "sign-in-scoped",
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      blocked: false,
+    },
+    {
+      name: "provider-scoped",
+      scope: { controllerRef: "builtin:codex", providerId: "openai" },
+      blocked: false,
+    },
+    {
+      name: "controller-wide",
+      scope: { controllerRef: "builtin:codex" },
+      blocked: true,
+    },
+  ])("keeps $name withdrawal within the evidence available to route construction", ({
+    scope,
+    blocked,
+  }) => {
+    const catalog = structuredClone(TEST_MODEL_CATALOG);
+    const model = catalog.agentControllers.codex?.models.find(
+      (entry) => entry.id === "gpt-retired"
+    );
+    if (!model) {
+      throw new Error("Expected the original model fixture");
+    }
+    model.unavailable = false;
+    model.retirement = {
+      status: "withdrawn",
+      date: null,
+      scope,
+      sourceUrl: "https://example.com/official-notice",
+      verifiedAt: "2026-06-18T00:00:00.000Z",
+    };
+    const binding = createPrimaryBinding({
+      modelSelection: { modelId: model.id },
+    });
+    const result = resolveLocalDaemonRouteCandidate({
+      localAdapterContainer: {
+        getAdapter: () => ({ adapter: {}, adapterId: "codex" }),
+      } as never,
+      localControllers: new Map([["codex", createLocalController()]]),
+      modelCatalog: catalog,
+      ownerUserId: "user-1",
+      primaryBinding: binding,
+      profile: createAgentProfile(),
+    });
+    if (blocked) {
+      expect(result).toEqual({
+        profileId: "agt-codex",
+        skipReason: "model.retired",
+        status: "skipped",
+      });
+    } else {
+      // Account-scoped authorization belongs to Core's current Wake admission,
+      // not persisted installation state. Never replace the original intent.
+      expect(result).toMatchObject({
+        status: "accepted",
+        route: { conversationPolicy: { model: model.id } },
+      });
+      if (result.status !== "accepted") {
+        throw new Error("Expected a route, not a scoped admission decision");
+      }
+      expect(result.route.conversationPolicy).not.toHaveProperty(
+        "fallbackModel"
+      );
+    }
+    expect(binding.modelSelection).toEqual({ modelId: model.id });
   });
 
   it("omits unsupported Agent Controller Permission Modes for OpenClaw routes", () => {

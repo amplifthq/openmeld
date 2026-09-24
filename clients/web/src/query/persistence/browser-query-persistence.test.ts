@@ -11,6 +11,7 @@ import {
 	installSpaceOpenReporting,
 	markSpaceOpen,
 } from "#/lib/observability/space-open";
+import { accountSidebarQueryKey } from "#/query/account/sidebar-preferences";
 import { computerFileAccessQueryKeys } from "#/query/connect/computer-file-access";
 import { createCurrentComputerToolbarDisplaySnapshot } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
@@ -491,6 +492,188 @@ describe("BrowserQueryPersistenceController", () => {
 		).toEqual(profileBHistory);
 	});
 
+	it("uses a complete in-memory Space view without reopening its saved snapshot", async () => {
+		const store = createTestStore();
+		const queryClient = createQueryClient();
+		const controller = createBrowserQueryPersistenceController({
+			restoreBudgetMs: 100,
+			store,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		queryClient.setQueryData(spaceQueryKeys.history("space-a", "profile-a"), {
+			envelopes: [],
+			nextCursor: null,
+		});
+		queryClient.setQueryData(
+			spaceQueryKeys.displaySnapshot("space-a", "profile-a"),
+			{ status: { spaceId: "space-a" } }
+		);
+		const createStorage = vi.spyOn(store, "createStorage");
+		await controller.restoreSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		expect(createStorage).not.toHaveBeenCalled();
+		controller.deactivate();
+	});
+
+	it("keeps saving the open Space while another Space is restored for prefetch", async () => {
+		const store = createTestStore();
+		const queryClient = createQueryClient();
+		const controller = createBrowserQueryPersistenceController({
+			restoreBudgetMs: 100,
+			store,
+			throttleTimeMs: 0,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		await controller.restoreSpaceConversation({
+			...scope,
+			spaceId: "space-b",
+			openMeldProfileId: "profile-a",
+		});
+		const historyKey = spaceQueryKeys.history("space-a", "profile-a");
+		const history = {
+			envelopes: [createTextSignal("new-message", "space-a", "profile-a")],
+			nextCursor: null,
+		};
+		queryClient.setQueryData(historyKey, history);
+		const storage = store.createStorage({
+			organizationId: "organization-a",
+			ownerAccountId: "account-a",
+			scopeAlias: "organization-a",
+			scopeId: buildSpaceConversationQueryCacheScopeId("space-a", "profile-a"),
+			scopeKind: "space",
+		});
+		await waitForStoredQuery(storage, historyKey);
+		const payload = JSON.parse(
+			(await storage.getItem("tanstack-query-cache")) ?? "null"
+		) as { clientState?: { queries?: unknown[] } };
+		expect(payload.clientState?.queries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					queryKey: historyKey,
+					state: expect.objectContaining({ data: history }),
+				}),
+			])
+		);
+		controller.deactivate();
+	});
+
+	it("saves the latest message snapshot once after a burst of updates", async () => {
+		const store = createTestStore();
+		const queryClient = createQueryClient();
+		const record = vi.fn();
+		const controller = createBrowserQueryPersistenceController({
+			diagnostics: { record },
+			restoreBudgetMs: 100,
+			store,
+			throttleTimeMs: 1000,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		const storage = store.createStorage({
+			organizationId: "organization-a",
+			ownerAccountId: "account-a",
+			scopeAlias: "organization-a",
+			scopeId: buildSpaceConversationQueryCacheScopeId("space-a", "profile-a"),
+			scopeKind: "space",
+		});
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const historyKey = spaceQueryKeys.history("space-a", "profile-a");
+		for (const signalId of ["first", "second", "latest"]) {
+			queryClient.setQueryData(historyKey, {
+				envelopes: [createTextSignal(signalId, "space-a", "profile-a")],
+				nextCursor: null,
+			});
+		}
+		expect(await storage.getItem("tanstack-query-cache")).toBeNull();
+		await vi.advanceTimersByTimeAsync(1000);
+		const payload = JSON.parse(
+			(await storage.getItem("tanstack-query-cache")) ?? "null"
+		) as { clientState?: { queries?: Array<{ state?: { data?: unknown } }> } };
+		expect(payload.clientState?.queries?.[0]?.state?.data).toEqual({
+			envelopes: [createTextSignal("latest", "space-a", "profile-a")],
+			nextCursor: null,
+		});
+		expect(
+			record.mock.calls.filter(
+				([diagnostic]) => diagnostic.event === "save_preparation"
+			)
+		).toHaveLength(1);
+		controller.deactivate();
+	});
+
+	it("does not write a delayed Space snapshot after account cleanup", async () => {
+		const store = createTestStore();
+		const queryClient = createQueryClient();
+		const controller = createBrowserQueryPersistenceController({
+			restoreBudgetMs: 100,
+			store,
+			throttleTimeMs: 1000,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		queryClient.setQueryData(spaceQueryKeys.history("space-a", "profile-a"), {
+			envelopes: [createTextSignal("private", "space-a", "profile-a")],
+			nextCursor: null,
+		});
+		await controller.clearActiveAccount();
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(
+			await store
+				.createStorage({
+					organizationId: "organization-a",
+					ownerAccountId: "account-a",
+					scopeAlias: "organization-a",
+					scopeId: buildSpaceConversationQueryCacheScopeId(
+						"space-a",
+						"profile-a"
+					),
+					scopeKind: "space",
+				})
+				.getItem("tanstack-query-cache")
+		).toBeNull();
+	});
+
 	it("clears only the explicitly rejected Space conversation", async () => {
 		const store = createTestStore();
 		const sourceQueryClient = createQueryClient();
@@ -745,6 +928,20 @@ describe("BrowserQueryPersistenceController", () => {
 				lastJoinedAt: null,
 			})),
 		};
+		const savedSidebar = {
+			ok: true as const,
+			preferences: {
+				pinned: { sort: "priority" as const, spaceIds: [] },
+				spaces: { sort: "priority" as const, spaceIds: [] },
+				groups: [],
+				people: {
+					starred: { sort: "priority" as const, itemIds: ["profile-a"] },
+					people: { sort: "priority" as const, itemIds: [] },
+					groups: [],
+				},
+			},
+			revision: 3,
+		};
 		const computerToolbarSnapshot = createCurrentComputerToolbarDisplaySnapshot(
 			{
 				deviceId: "device-current",
@@ -775,6 +972,10 @@ describe("BrowserQueryPersistenceController", () => {
 		sourceQueryClient.setQueryData(
 			organizationQueryKeys.spaces("organization-a"),
 			organizationSpaces
+		);
+		sourceQueryClient.setQueryData(
+			accountSidebarQueryKey("account-a", "organization-a"),
+			savedSidebar
 		);
 		sourceQueryClient.setQueryData(
 			organizationPluginConnectionQueryKeys.statusSummary("organization-a"),
@@ -820,6 +1021,15 @@ describe("BrowserQueryPersistenceController", () => {
 					scopeKind: "account",
 				}),
 				startQueryKeys.profilesForStorageScope("account-a")
+			),
+			waitForStoredQuery(
+				store.createStorage({
+					ownerAccountId: "account-a",
+					scopeAlias: "organization-a",
+					scopeId: "organization-a",
+					scopeKind: "organization",
+				}),
+				accountSidebarQueryKey("account-a", "organization-a")
 			),
 			waitForStoredQuery(
 				store.createStorage({
@@ -936,6 +1146,16 @@ describe("BrowserQueryPersistenceController", () => {
 				organizationQueryKeys.spaces("organization-a")
 			)
 		).toEqual(restoredOrganizationSpaces);
+		expect(
+			restoredQueryClient.getQueryData(
+				accountSidebarQueryKey("account-a", "organization-a")
+			)
+		).toEqual(savedSidebar);
+		expect(
+			restoredQueryClient.getQueryState(
+				accountSidebarQueryKey("account-a", "organization-a")
+			)?.isInvalidated
+		).toBe(true);
 		expect(
 			restoredQueryClient.getQueryState(
 				organizationQueryKeys.spaces("organization-a")
@@ -1058,6 +1278,12 @@ describe("BrowserQueryPersistenceController", () => {
 			scopeId: "account-a",
 			scopeKind: "account",
 		});
+		const accountAOrganizationStorage = store.createStorage({
+			ownerAccountId: "account-a",
+			scopeAlias: "organization-shared",
+			scopeId: "organization-shared",
+			scopeKind: "organization",
+		});
 
 		await controller.activateAuthorizedScope({
 			organizationId: "organization-shared",
@@ -1073,9 +1299,25 @@ describe("BrowserQueryPersistenceController", () => {
 			organizationQueryKeys.spaces("organization-shared"),
 			createOrganizationSpacesFixture("organization-shared", [])
 		);
+		queryClient.setQueryData(
+			accountSidebarQueryKey("account-a", "organization-shared"),
+			{
+				ok: true,
+				preferences: {
+					pinned: { sort: "priority", spaceIds: [] },
+					spaces: { sort: "priority", spaceIds: [] },
+					groups: [],
+				},
+				revision: 1,
+			}
+		);
 		await waitForStoredQuery(
 			accountAStorage,
 			startQueryKeys.profilesForStorageScope("account-a")
+		);
+		await waitForStoredQuery(
+			accountAOrganizationStorage,
+			accountSidebarQueryKey("account-a", "organization-shared")
 		);
 
 		await controller.activateAuthorizedScope({
@@ -1087,6 +1329,9 @@ describe("BrowserQueryPersistenceController", () => {
 
 		expect(await accountAStorage.getItem("tanstack-query-cache")).toBeNull();
 		expect(
+			await accountAOrganizationStorage.getItem("tanstack-query-cache")
+		).toBeNull();
+		expect(
 			queryClient.getQueryData(
 				startQueryKeys.profilesForStorageScope("account-a")
 			)
@@ -1094,6 +1339,11 @@ describe("BrowserQueryPersistenceController", () => {
 		expect(
 			queryClient.getQueryData(
 				organizationQueryKeys.spaces("organization-shared")
+			)
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(
+				accountSidebarQueryKey("account-a", "organization-shared")
 			)
 		).toBeUndefined();
 	});

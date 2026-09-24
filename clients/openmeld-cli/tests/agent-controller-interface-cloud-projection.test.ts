@@ -62,6 +62,7 @@ describe("Agent Controller Interface cloud projection", () => {
         email: "felix@example.com",
         label: "2 providers connected",
         status: "unknown",
+        type: "opencode",
       },
       launch: {
         argsPrefix: [],

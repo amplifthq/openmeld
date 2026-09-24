@@ -6,7 +6,6 @@ import { AgentCreationRequestCard } from "./agent-creation-request-card";
 
 const CONTROLLER_AND_MODEL = /Codex.*gpt-5\.6-sol/u;
 const AVAILABLE_FOR_WAKE = /Available for Wake/u;
-const CHECKING_WAKE_AVAILABILITY = /Checking Wake availability/u;
 const REQUEST_ACCEPTED = /Request accepted/u;
 
 const request: AgentProfileCreationRequest = {
@@ -53,7 +52,8 @@ describe("AgentCreationRequestCard", () => {
 			/>
 		);
 
-		expect(screen.getByText("Creating Agent")).toBeTruthy();
+		expect(screen.getByText("Sending request")).toBeTruthy();
+		expect(screen.getByText("Sending this Agent request.")).toBeTruthy();
 		expect(screen.queryByText(REQUEST_ACCEPTED)).toBeNull();
 		expect(screen.queryByRole("button", { name: "View progress" })).toBeNull();
 	});
@@ -64,7 +64,7 @@ describe("AgentCreationRequestCard", () => {
 		expect(screen.getByText("Release Reviewer")).toBeTruthy();
 		expect(screen.getByText(CONTROLLER_AND_MODEL)).toBeTruthy();
 		expect(screen.getByText("Creating Agent")).toBeTruthy();
-		expect(screen.getByText(CHECKING_WAKE_AVAILABILITY)).toBeTruthy();
+		expect(screen.getByText("Setup is in progress.")).toBeTruthy();
 		expect(screen.queryByText(AVAILABLE_FOR_WAKE)).toBeNull();
 	});
 

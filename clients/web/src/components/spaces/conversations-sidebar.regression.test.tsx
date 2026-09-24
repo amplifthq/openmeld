@@ -162,17 +162,34 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 		Link: ({
 			children,
 			to,
+			search,
+			hash,
 			resetScroll: _resetScroll,
 			...props
 		}: {
 			children: ReactNode;
 			to: string;
+			search?: Record<string, string>;
+			hash?: string;
 			resetScroll?: boolean;
-		} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-			<a href={to} {...props}>
-				{children}
-			</a>
-		),
+		} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+			const href = new URL(to, "https://openmeld.invalid");
+			for (const [key, value] of Object.entries(search ?? {})) {
+				href.searchParams.set(key, value);
+			}
+			if (hash) {
+				href.hash = hash;
+			}
+			return (
+				<a
+					data-router-to={to}
+					href={`${href.pathname}${href.search}${href.hash}`}
+					{...props}
+				>
+					{children}
+				</a>
+			);
+		},
 		useNavigate: () => navigateMock,
 		useLocation: ({
 			select,
@@ -400,6 +417,9 @@ describe("ConversationsSidebar", () => {
 		});
 		expect(previewLink.getAttribute("href")).toContain(
 			"focusSignalId=message-alpha"
+		);
+		expect(previewLink.getAttribute("data-router-to")).toBe(
+			"/o/acme/spaces/space-alpha"
 		);
 		expect(row.getAttribute("href")).not.toContain("focusSignalId");
 		expect(previewLink.parentElement?.closest("a")).toBeNull();
