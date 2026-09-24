@@ -8,8 +8,9 @@ const SETUP_COMMAND_ERROR =
   "Use the official Staging Canary binary setup command copied from OpenMeld Staging.";
 const SAFE_UNQUOTED_SHELL_WORD = /^[A-Za-z0-9_./:@%+=,?&-]+$/u;
 const TOKEN_VALUE_PATTERN = /^[A-Za-z0-9_./:@%+=,-]{1,4096}$/u;
-const SETUP_PIPELINE_PATTERN =
-  /^curl -fsSL (('[^']*')|([^\s|]+)) \| sh -s -- (.+)$/u;
+const SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; shift; sh "$setup_file" "$@"`;
+const SETUP_COMMAND_PREFIX = `sh -c '${SETUP_DOWNLOAD_SCRIPT.replaceAll("'", "'\\''")}' sh `;
+const SETUP_COMMAND_SUFFIX_PATTERN = /^(('[^']*')|([^\s]+)) (.+)$/u;
 const UNSAFE_SHELL_SYNTAX_PATTERN = /[;$`()<>\\]/u;
 const SHELL_WORD_SEPARATOR_PATTERN = /\s+/u;
 
@@ -43,7 +44,11 @@ export function parseStagingWebSetupCommand(command) {
     if (normalized.includes("\n") || normalized.includes("\r")) {
       throw new Error("Setup command must be one line.");
     }
-    const match = SETUP_PIPELINE_PATTERN.exec(normalized);
+    const match = normalized.startsWith(SETUP_COMMAND_PREFIX)
+      ? SETUP_COMMAND_SUFFIX_PATTERN.exec(
+          normalized.slice(SETUP_COMMAND_PREFIX.length)
+        )
+      : null;
     if (!match) {
       throw new Error("Setup command shape is not recognized.");
     }
@@ -82,7 +87,7 @@ export function redactStagingSetupCommand(command) {
       redactedArgs[index + 1] = "[redacted]";
     }
   }
-  return `curl -fsSL '${parsed.setupUrl}' | sh -s -- ${redactedArgs.join(" ")}`;
+  return `${SETUP_COMMAND_PREFIX}'${parsed.setupUrl}' ${redactedArgs.join(" ")}`;
 }
 
 export function readStagingSetupSensitiveValues(args) {

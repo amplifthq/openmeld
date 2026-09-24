@@ -1,4 +1,8 @@
 import { Buffer } from "node:buffer";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildWebSetupCommand,
@@ -15,6 +19,16 @@ import {
 
 const POWERSHELL_ENCODED_COMMAND_RE =
 	/^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$/u;
+const SAFE_SHELL_WORD_RE = /^[A-Za-z0-9_./:@%+=,-]+$/u;
+const POSIX_SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; shift; sh "$setup_file" "$@"`;
+
+function expectedPosixSetupCommand(url: string, args: string): string {
+	const quote = (value: string) =>
+		SAFE_SHELL_WORD_RE.test(value)
+			? value
+			: `'${value.replaceAll("'", "'\\''")}'`;
+	return `sh -c ${quote(POSIX_SETUP_DOWNLOAD_SCRIPT)} sh ${quote(url)} ${args}`;
+}
 
 // The composed compiled-target tests cover the real environment loader. These
 // formatting fixtures supply explicit configuration and vary it per case.
@@ -100,7 +114,10 @@ describe("cli-entry-command", () => {
 				oneTimeToken: "ott_demo",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session starttok_demo --ott ott_demo --view human"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session starttok_demo --ott ott_demo --view human"
+			)
 		);
 		expect(
 			resolveWebAgentsRepairCommand({
@@ -127,8 +144,44 @@ describe("cli-entry-command", () => {
 				startSession: "starttok_demo",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session starttok_demo --device-code device-secret --view human"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session starttok_demo --device-code device-secret --view human"
+			)
 		);
+	});
+
+	it("does not run a failed or empty setup download and preserves setup failure", () => {
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
+		const command = buildWebSetupCommand({
+			deviceCode: "device-secret",
+			startSession: "starttok_demo",
+		});
+		const directory = mkdtempSync(join(tmpdir(), "openmeld-setup-command-"));
+		const curlPath = join(directory, "curl");
+		writeFileSync(
+			curlPath,
+			'#!/bin/sh\nwhile [ "$1" != "-o" ]; do shift; done\nshift\noutput=$1\ncase "$FAKE_CURL_MODE" in fail) exit 22 ;; empty) : > "$output" ;; success) printf "exit 17\\n" > "$output" ;; esac\n'
+		);
+		chmodSync(curlPath, 0o700);
+		try {
+			for (const [mode, expectedCode] of [
+				["fail", 1],
+				["empty", 1],
+				["success", 17],
+			] as const) {
+				const result = spawnSync("sh", ["-c", command], {
+					env: {
+						...process.env,
+						FAKE_CURL_MODE: mode,
+						PATH: `${directory}:${process.env.PATH ?? ""}`,
+					},
+				});
+				expect(result.status).toBe(expectedCode);
+			}
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("uses npx latest for selected production execution targets", () => {
@@ -170,7 +223,10 @@ describe("cli-entry-command", () => {
 				oneTimeToken: "ott_demo",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session preptok_demo --ott ott_demo --view human"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session preptok_demo --ott ott_demo --view human"
+			)
 		);
 		expect(
 			buildWebSetupCommand({
@@ -193,7 +249,10 @@ describe("cli-entry-command", () => {
 				view: "agent",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session preptok_demo --local-agents all --ott ott_demo --view agent"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session preptok_demo --local-agents all --ott ott_demo --view agent"
+			)
 		);
 		expect(
 			buildWebSetupCommand({
@@ -203,7 +262,10 @@ describe("cli-entry-command", () => {
 				view: "agent",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session preptok_demo --local-agent codex claude-code --ott ott_demo --view agent"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session preptok_demo --local-agent codex claude-code --ott ott_demo --view agent"
+			)
 		);
 	});
 
@@ -231,7 +293,10 @@ describe("cli-entry-command", () => {
 				oneTimeToken: "ott_demo",
 			})
 		).toBe(
-			"curl -fsSL 'http://localhost:3000/setup?lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh' | sh -s -- setup --start-session preptok_demo --ott ott_demo --view human"
+			expectedPosixSetupCommand(
+				"http://localhost:3000/setup?lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh",
+				"setup --start-session preptok_demo --ott ott_demo --view human"
+			)
 		);
 	});
 
@@ -249,7 +314,10 @@ describe("cli-entry-command", () => {
 				view: "agent",
 			})
 		).toBe(
-			"curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+			expectedPosixSetupCommand(
+				"https://staging.openmeld.ai/setup?dist=binary&lane=canary",
+				"setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+			)
 		);
 	});
 
@@ -272,7 +340,10 @@ describe("cli-entry-command", () => {
 				view: "agent",
 			})
 		).toBe(
-			"curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+			expectedPosixSetupCommand(
+				"https://staging.openmeld.ai/setup?dist=binary&lane=canary",
+				"setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+			)
 		);
 	});
 
@@ -463,7 +534,10 @@ describe("cli-entry-command", () => {
 				oneTimeToken: "ott_demo",
 			})
 		).toBe(
-			"curl -fsSL 'http://localhost:3000/setup?lane=dev-local' | sh -s -- setup --start-session starttok_demo --ott ott_demo --view human"
+			expectedPosixSetupCommand(
+				"http://localhost:3000/setup?lane=dev-local",
+				"setup --start-session starttok_demo --ott ott_demo --view human"
+			)
 		);
 	});
 });

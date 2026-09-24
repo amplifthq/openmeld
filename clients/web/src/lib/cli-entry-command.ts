@@ -17,6 +17,7 @@ const OPENMELD_COMMAND_PREFIX_RE = /^openmeld(?=$|\s)/u;
 const SAFE_SHELL_WORD_RE = /^[A-Za-z0-9_./:@%+=,-]+$/u;
 const BASE64_ALPHABET =
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const POSIX_SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; shift; sh "$setup_file" "$@"`;
 
 export type WebSetupCommandPlatform = "posix" | "windows";
 
@@ -243,7 +244,7 @@ function resolveSetupBootstrapCommand(
 		)}`;
 	}
 
-	return `curl -fsSL ${formatShellWord(setupUrl)} | sh -s -- ${args
+	return `sh -c ${formatShellWord(POSIX_SETUP_DOWNLOAD_SCRIPT)} sh ${formatShellWord(setupUrl)} ${args
 		.map(formatShellWord)
 		.join(" ")}`;
 }
