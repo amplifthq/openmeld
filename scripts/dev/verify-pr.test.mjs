@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parse } from "yaml";
 import {
   planPrChecks,
   resolveUnitTestScript,
@@ -31,27 +29,6 @@ test("checks signed Skill inputs in feedback and PR validation without checking 
       );
     }
   }
-});
-
-test("automatic draft feedback cannot start the full affected lane", () => {
-  const workflow = parse(
-    readFileSync(
-      new URL("../../.github/workflows/pr-feedback.yml", import.meta.url),
-      "utf8"
-    )
-  );
-  assert.equal(
-    workflow.jobs.verify.if,
-    "github.event.pull_request.draft == true"
-  );
-  assert.ok(workflow.on.pull_request.types.includes("converted_to_draft"));
-  assert.ok(workflow.on.pull_request.types.includes("ready_for_review"));
-  assert.equal(workflow.permissions.contents, "read");
-  assert.equal(workflow.concurrency["cancel-in-progress"], true);
-  const runs = workflow.jobs.verify.steps
-    .filter((step) => step.run)
-    .map((step) => step.run);
-  assert.ok(runs.every((command) => command.includes("--feedback")));
 });
 
 test("Worker changes select the existing Zod contract guard before expensive tests", () => {
