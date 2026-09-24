@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { OPENMELD_MACOS_CLI_SIGNING_IDENTITY } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
+import {
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+  OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+} from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ENTITLEMENTS_PATH = path.join(SCRIPT_DIR, "macos-cli.entitlements.plist");
@@ -417,7 +420,13 @@ function resolveDeveloperIdIdentity(input) {
 
 function verifySignedCliBinary(input) {
   runCommand({
-    args: ["--verify", "--strict", "--verbose=2", input.outFile],
+    args: [
+      "--verify",
+      "--strict",
+      "--verbose=2",
+      `-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`,
+      input.outFile,
+    ],
     command: "codesign",
     env: input.env,
     label: "Verify the Developer ID signature",
