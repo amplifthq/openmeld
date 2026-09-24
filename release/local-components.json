@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T04:47:24.304Z",
+  "updatedAt": "2026-09-24T05:31:21.852Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
-      "packageVersion": "0.3.222",
+      "packageVersion": "0.3.223",
       "updatePolicy": "available",
       "reason": "Existing CLI setup, Wake, Space actions, status, trace and self-rescue remain compatible with old and new cloud; Remote Agent creation options are additive, and new Space tools record existing reply or silence payloads."
     },
     "service": {
-      "bundleHash": "665fd38aeb36a23b8747ec21efed2446207b5713db72ac03f54db4ed1e033201",
-      "bundleVersion": "0.3.222",
+      "bundleHash": "b24f5fd16aeab9b051007bea6163ab3b71168782c7212aa05860c500d11c002f",
+      "bundleVersion": "0.3.223",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
