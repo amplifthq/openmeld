@@ -83,6 +83,9 @@ jobs:
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       OPENMELD_PARENT_TRAIN_ADMISSION: ${{ inputs.parent_admission_evidence }}
       OPENMELD_PARENT_WEB_ARTIFACT_ID: ${{ inputs.parent_web_artifact_id }}
+      # The parent Web snapshot is built with this heap; input identity must
+      # match before its verified bytes can be restored in this job.
+      OPENMELD_RENDERER_NODE_HEAP_MB: ${{ inputs.parent_admission_evidence != '' && '4608' || '' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     concurrency:

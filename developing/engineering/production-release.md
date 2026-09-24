@@ -1005,6 +1005,9 @@ implementation. Its database steps and guards are unchanged.
 The Web job additionally downloads the parent's immutable same-run artifact ID,
 verifies the receipt, actual build inputs and snapshot bytes, and restores the
 admitted Web output before its existing preflight, deploy and health gates.
+For a parent handoff, the child uses the same renderer heap budget that the
+parent used to build the snapshot; otherwise build-input identity must reject
+the artifact even when its downloaded bytes are intact.
 Other components do not download Web bytes. Desktop publication and CLI
 publication remain separate paths with their existing checks.
 
