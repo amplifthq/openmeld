@@ -40,6 +40,27 @@ export type DirectoryDocumentsStatus = "failed" | "loading" | "ready";
 
 export type DirectoryProjectionStatus = "failed" | "loading" | "ready";
 
+export function resolveCurrentOrganizationComputersProjection(input: {
+	data: OrganizationComputersResponse | undefined;
+	isError: boolean;
+	isPending: boolean;
+	isStale: boolean;
+}): {
+	data: OrganizationComputersResponse | null;
+	status: DirectoryProjectionStatus;
+} {
+	let status: DirectoryProjectionStatus = "ready";
+	if (input.isPending) {
+		status = "loading";
+	} else if (input.isError || input.isStale) {
+		status = "failed";
+	}
+	return {
+		data: status === "ready" ? (input.data ?? null) : null,
+		status,
+	};
+}
+
 export type DirectoryComputerDisplayState =
 	| "checking"
 	| "connected"

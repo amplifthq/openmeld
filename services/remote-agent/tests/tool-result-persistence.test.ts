@@ -250,11 +250,19 @@ describe("Remote Agent canonical tool result persistence", () => {
     ).not.toHaveProperty("workLoopCheckpoint");
   });
 
-  it("persists an oversized tool response as a bounded explicit error instead of a successful semantic shell", async () => {
+  it("persists an oversized tool response as explicit partial evidence without losing the completed receipt", async () => {
     const storage = await createToolExecutionStorage();
+    let executions = 0;
     const definition: RemoteAgentToolDefinition = {
       description: "Return an intentionally oversized read result.",
-      execute: async () => ({ data: "A".repeat(2_100_000) }),
+      execute: () => {
+        executions += 1;
+        return Promise.resolve({
+          data: "A".repeat(2_100_000),
+          operationId: "completed-operation",
+          status: "completed",
+        });
+      },
       input: object({}),
       name: TOOL_NAME,
     };
@@ -288,7 +296,7 @@ describe("Remote Agent canonical tool result persistence", () => {
         stopReason: "toolUse",
       }),
       fauxAssistantMessage(
-        "The read was too large, so I need a bounded request."
+        "The operation completed; only part of its returned evidence is shown."
       ),
     ]);
 
@@ -299,7 +307,7 @@ describe("Remote Agent canonical tool result persistence", () => {
     const agent = () => {
       useModel(`${PROVIDER_ID}/${MODEL_ID}`);
       useTool(tool);
-      return "Call the oversized read tool once, then explain its error.";
+      return "Call the tool once, then explain its result and presentation limits.";
     };
     const coordinator = createNodeAgentCoordinator({
       agents: [{ agent, name: AGENT_NAME }],
@@ -334,14 +342,22 @@ describe("Remote Agent canonical tool result persistence", () => {
 
     expect(toolOutcome, JSON.stringify(stream.batches, null, 2)).toBeDefined();
     expect(toolOutcome).toMatchObject({
-      isError: true,
+      isError: false,
       toolName: TOOL_NAME,
+      output: {
+        toolExecution: "returned",
+        resultMetadata: {
+          operationId: "completed-operation",
+          status: "completed",
+        },
+        presentation: { kind: "partial", continuation: null },
+      },
     });
-    expect(toolOutcome).not.toHaveProperty("output");
-    expect(JSON.stringify(toolOutcome?.content)).toContain(
+    expect(JSON.stringify(toolOutcome)).toContain(
       "remote_agent.tool_result_too_large"
     );
-    expect(JSON.stringify(toolOutcome)).not.toContain("AAAA");
+    expect(executions).toBe(1);
+    expect(JSON.stringify(toolOutcome)).not.toContain("A".repeat(20_000));
     for (const batch of stream.batches) {
       expect(utf8ByteLength(JSON.stringify(batch.records))).toBeLessThanOrEqual(
         CANONICAL_BATCH_SAFE_BUDGET_BYTES

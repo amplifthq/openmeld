@@ -140,12 +140,13 @@ locally fetched `origin/main`. Missing base history is an error: fetch it.
 Recheck identity and cleanliness after success. Deletions need no tests;
 protected release pushes retain strict release verification.
 
-The development push hook runs this focused lane for each pushed commit. The
-same `--feedback` command can validate the complete PR diff against `origin/main`
-once the implementation is stable. It is not an automatic hosted job on every
-Draft push. Keep leaf PRs in draft during development and batch preparation.
-Mark ready only after validating affected behavior and when a green FC would
-make merge the next action. New commits cancel superseded FC runs for that PR.
+The development push hook runs the focused lane for each pushed commit. Run
+`pnpm run verify:pr -- --feedback` against `origin/main` when the complete PR
+diff needs focused validation before Ready. This is a local, owner-selected
+check, not an automatic hosted job on every Draft push. Keep leaf PRs in draft
+during development and batch preparation. Mark ready only after validating
+affected behavior and when a green FC would make merge the next action. New
+commits cancel superseded FC runs for that PR.
 
 Focused selection is deliberately incomplete: a deleted import, a shared
 contract, a dependency change, or platform-specific behavior may need additional
@@ -253,8 +254,8 @@ Use `wait` for the pending Final Candidate instead of repeatedly polling
 Use the current-main entrypoint, never candidate-owned package scripts.
 GitHub Actions is the normal compute lane; the guarded local lane below is for
 Actions outages or explicit control bootstrap. A failed check, missing evidence,
-identity mismatch, or publication failure cannot become green. Local hook output
-and draft feedback cannot substitute for the required FC status.
+identity mismatch, or publication failure cannot become green. Local focused
+checks cannot substitute for the required FC status.
 
 For a batch, integrate compatible ready leaf changes, sync `main` once, validate
 the combined interactions, and run one FC on the batch PR. Do not pay for leaf

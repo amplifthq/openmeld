@@ -110,7 +110,7 @@ export async function requireOpenConnectorAction(input: {
   const action = actions.find((candidate) => candidate.id === input.actionId);
   if (!action) {
     throw new Error(
-      `OpenConnector action ${input.actionId} is not available for ${input.service}. Call openmeld_list_app_actions again.`
+      `OpenConnector action ${input.actionId} is not available for ${input.service}. Refresh this service's action catalog and select an exact executable action ID.`
     );
   }
   return action;

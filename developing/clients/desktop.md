@@ -222,14 +222,20 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   `onSessionChanged(listener: () => void): () => void` emits only an
   invalidation and returns its listener cleanup. It runs after the installed
   Electron plugin persists the successful token exchange cookie, and after
-  owned sign-out clears local credentials. The renderer rereads its existing
-  session query; it does not rely on focus timing or maintain another session.
+  owned sign-out clears local credentials. The renderer invalidates its shared
+  native-session query and rereads it; it does not rely on focus timing for
+  identity changes or maintain another session owner.
   Invalidation removes stale private query and persistence state but retains
   account-scoped Composer drafts until the authoritative reread confirms no
   session or a different account. Explicit sign-out still clears those drafts.
   Entry distinguishes an unknown/failed session read from confirmed sign-out.
   Manual Retry and focus reuse the same serialized, revision-fenced revalidation;
-  native session changes supersede older reads. Temporary workspace failures do
+  native session changes supersede older reads. A confirmed native session is
+  shared through the renderer's TanStack Query cache for 30 seconds of same-account
+  navigation, so child routes do not wait on a fresh remote session read for
+  each click. Native invalidation clears that cache immediately; focus and
+  Desktop entry force a remote recheck. Server requests remain authoritative for
+  access and mutations. Temporary workspace failures do
   not initiate browser sign-in or repeat an already handled account invalidation.
   Failed protected-route session reads return to this entry with the existing
   validated workspace path, query, and hash, without clearing account data.

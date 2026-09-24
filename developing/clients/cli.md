@@ -431,6 +431,8 @@ openmeld profiles create "Release Reviewer" --kind agent --owner <user-id> --com
 openmeld profiles create "API Debugger" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session resume --native-session <provider-native-id>
 openmeld profiles create "Release Investigator" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session fork --native-session <provider-native-id>
 openmeld profiles create "Migration Agent" --kind agent --computer <computer-id> --agent-controller builtin:codex --project <project-id> --model gpt-5.6-sol --reasoning-effort high --agent-controller-collaboration-mode plan --agent-controller-permission-mode custom-config
+openmeld profiles create "Remote Reviewer" --kind agent --agent-controller hosted:remote-agent --model openai/gpt-6-sol --reasoning-effort medium
+openmeld profile update <remote-agent-profile-id> --model openai/gpt-6-sol --reasoning-effort high
 openmeld profiles requests list
 openmeld profiles requests approve <request-id>
 openmeld profiles requests decline <request-id>

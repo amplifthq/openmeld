@@ -26,7 +26,15 @@ const showInboxNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxFactsMock = vi.hoisted(() => vi.fn());
 const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const getMessagePreferencesMock = vi.hoisted(() => vi.fn());
-const queryClientMock = vi.hoisted(() => ({ fetchQuery: vi.fn() }));
+const queryClientMock = vi.hoisted(() => ({
+	fetchQuery: vi.fn(),
+	invalidateQueries: vi.fn(
+		async (_filters?: {
+			queryKey?: readonly unknown[];
+			predicate?: (query: { queryKey: readonly string[] }) => boolean;
+		}) => undefined
+	),
+}));
 const pendingItemIds = vi.hoisted(() => new Set<string>());
 const notificationSettingsByUserId = vi.hoisted(
 	() => new Map<string, boolean>()
@@ -136,7 +144,9 @@ vi.mock("#/query/organizations/inbox", () => ({
 describe("InboxNotificationListener", () => {
 	let currentItems: InboxItem[];
 	let itemsDataUpdatedAt: number;
+	let itemsCursor: string;
 	let queryDataItems: InboxItem[] | null;
+	let queryDataCursor: string | null;
 	let queryData:
 		| {
 				items: InboxItem[];
@@ -163,7 +173,9 @@ describe("InboxNotificationListener", () => {
 			.mockResolvedValue({ effectiveMode: "mentions_and_replies" });
 		currentItems = [];
 		itemsDataUpdatedAt = 1;
+		itemsCursor = "test-position";
 		queryDataItems = null;
+		queryDataCursor = null;
 		queryData = undefined;
 		pendingItemIds.clear();
 		notificationSettingsByUserId.clear();
@@ -173,15 +185,17 @@ describe("InboxNotificationListener", () => {
 			.mockResolvedValue({ notification: {}, status: "delivered" });
 		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
 		queryClientMock.fetchQuery.mockReset();
+		queryClientMock.invalidateQueries.mockClear();
 		getCurrentInboxItemMock.mockReset();
 		itemsRefetch.mockClear();
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
 		itemsQueryMock.mockReset().mockImplementation(() => {
-			if (queryDataItems !== currentItems) {
+			if (queryDataItems !== currentItems || queryDataCursor !== itemsCursor) {
 				queryDataItems = currentItems;
+				queryDataCursor = itemsCursor;
 				queryData = {
 					items: currentItems,
-					cursor: "test-position",
+					cursor: itemsCursor,
 					hasMore: false,
 					organizationId: "organization-123",
 				};
@@ -391,6 +405,7 @@ describe("InboxNotificationListener", () => {
 		const initialCalls = setNotificationContext.mock.calls.length;
 
 		itemsDataUpdatedAt = 2;
+		itemsCursor = "next-position";
 		view.rerender(
 			<InboxNotificationListener
 				organizationId="organization-123"
@@ -452,6 +467,9 @@ describe("InboxNotificationListener", () => {
 			organizationId: "organization-123",
 			queryClient: queryClientMock,
 		});
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({ queryKey: ["spaces", "account-spaces"] })
+		);
 		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				item: newItem,
@@ -1115,9 +1133,55 @@ describe("InboxNotificationListener", () => {
 		});
 
 		expect(itemsQueryMock).toHaveBeenLastCalledWith(
-			expect.objectContaining({ enabled: false })
+			expect.objectContaining({ enabled: true })
 		);
 		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
+	});
+
+	it("refreshes an active Space directory from a new Inbox message even when notifications are off", () => {
+		notificationSettingsByUserId.set("user-123", false);
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		const view = renderListener();
+		const options = itemsQueryMock.mock.lastCall?.[0] as {
+			enabled: boolean;
+			refetchInterval: (query: {
+				state: { data: { hasMore: boolean } };
+			}) => number | false;
+		};
+		expect(options.enabled).toBe(true);
+		expect(
+			options.refetchInterval({ state: { data: { hasMore: false } } })
+		).toBe(1000);
+
+		currentItems = [createInboxItem({ id: "new-space-message" })];
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({ queryKey: ["spaces", "account-spaces"] })
+		);
+		const refreshFilter =
+			queryClientMock.invalidateQueries.mock.lastCall?.[0]?.predicate;
+		expect(
+			refreshFilter?.({
+				queryKey: ["spaces", "account-spaces", "profile-123", "account"],
+			})
+		).toBe(true);
+		expect(
+			refreshFilter?.({
+				queryKey: [
+					"spaces",
+					"account-spaces",
+					"profile-123",
+					"active-wake-summary",
+				],
+			})
+		).toBe(false);
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 	});
 
 	it("does not let a late recovery failure from an old Organization block the current feed retry", async () => {

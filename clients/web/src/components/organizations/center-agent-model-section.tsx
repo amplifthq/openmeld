@@ -18,6 +18,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import {
 	HostedModelSelect,
+	HostedReasoningSelect,
 	hostedModelPreferenceValue as modelPreferenceValue,
 } from "#/components/models/hosted-model-select";
 import { ModelBadge } from "#/components/models/model-badge";
@@ -35,6 +36,7 @@ type ModelDraft = {
 	configurationRevision: number;
 	organizationId: string;
 	value: string;
+	reasoningLevel: string;
 };
 
 export function CenterAgentModelSection(input: {
@@ -63,6 +65,13 @@ export function CenterAgentModelSection(input: {
 	const selectedChoice = configuration?.choices.find(
 		(choice) => modelPreferenceValue(choice.preference) === selectedValue
 	);
+	const savedReasoningLevel = configuration?.reasoningLevel ?? "";
+	const selectedReasoningLevel =
+		configuration &&
+		draft?.organizationId === input.organizationId &&
+		draft?.configurationRevision === configuration.configurationRevision
+			? draft.reasoningLevel
+			: savedReasoningLevel;
 	const canEdit =
 		input.canManage && configuration?.canManage === true && !modelQuery.isError;
 	const updateMutation = useMutation({
@@ -74,6 +83,9 @@ export function CenterAgentModelSection(input: {
 				expectedConfigurationRevision: configuration.configurationRevision,
 				organizationId: input.organizationId,
 				preference: selectedChoice.preference,
+				...(configuration.effectiveReasoningLevel === undefined
+					? {}
+					: { reasoningLevel: selectedReasoningLevel || null }),
 			});
 		},
 		onError: (error) => {
@@ -161,16 +173,28 @@ export function CenterAgentModelSection(input: {
 						configuration={configuration}
 						isSaving={updateMutation.isPending}
 						key={configuration.organizationId}
+						onReasoningLevelChange={(reasoningLevel) =>
+							setDraft({
+								configurationRevision: configuration.configurationRevision,
+								organizationId: input.organizationId,
+								value: selectedValue,
+								reasoningLevel,
+							})
+						}
 						onSave={() => updateMutation.mutate()}
 						onValueChange={(value) =>
 							setDraft({
 								configurationRevision: configuration.configurationRevision,
 								organizationId: input.organizationId,
 								value,
+								reasoningLevel:
+									value === selectedValue ? selectedReasoningLevel : "",
 							})
 						}
+						savedReasoningLevel={savedReasoningLevel}
 						savedValue={savedValue}
 						selectedChoice={selectedChoice}
+						selectedReasoningLevel={selectedReasoningLevel}
 						selectedValue={selectedValue}
 						updateError={updateMutation.isError ? updateMutation.error : null}
 					/>
@@ -186,8 +210,11 @@ function ModelConfigurationContent(input: {
 	isSaving: boolean;
 	onSave: () => void;
 	onValueChange: (value: string) => void;
+	onReasoningLevelChange: (value: string) => void;
 	savedValue: string;
+	savedReasoningLevel: string;
 	selectedChoice: CenterAgentModelChoice | undefined;
+	selectedReasoningLevel: string;
 	selectedValue: string;
 	updateError: unknown | null;
 }) {
@@ -197,19 +224,6 @@ function ModelConfigurationContent(input: {
 				<div className="space-y-2">
 					<div className="max-w-sm">
 						<HostedModelSelect
-							action={
-								<Button
-									disabled={
-										input.isSaving ||
-										input.selectedValue === input.savedValue ||
-										!input.selectedChoice
-									}
-									onClick={input.onSave}
-									type="button"
-								>
-									{input.isSaving ? "Saving..." : "Save model"}
-								</Button>
-							}
 							choices={input.configuration.choices.map((choice) => ({
 								value: modelPreferenceValue(choice.preference),
 								modelId:
@@ -226,6 +240,28 @@ function ModelConfigurationContent(input: {
 							savedValue={input.savedValue}
 							value={input.selectedValue}
 						/>
+						{input.selectedChoice?.defaultReasoningLevel &&
+						input.selectedChoice.supportedReasoningLevels ? (
+							<HostedReasoningSelect
+								defaultLevel={input.selectedChoice.defaultReasoningLevel}
+								disabled={input.isSaving}
+								levels={input.selectedChoice.supportedReasoningLevels}
+								onValueChange={input.onReasoningLevelChange}
+								value={input.selectedReasoningLevel}
+							/>
+						) : null}
+						<Button
+							disabled={
+								input.isSaving ||
+								!input.selectedChoice ||
+								(input.selectedValue === input.savedValue &&
+									input.selectedReasoningLevel === input.savedReasoningLevel)
+							}
+							onClick={input.onSave}
+							type="button"
+						>
+							{input.isSaving ? "Saving..." : "Save model settings"}
+						</Button>
 					</div>
 					{input.selectedValue !== input.savedValue && input.selectedChoice ? (
 						<output

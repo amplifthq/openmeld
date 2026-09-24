@@ -1192,6 +1192,10 @@ empty baseline, not historical replay; subsequent pages are retained before the
 cursor advances. This avoids first-page loss during bursts and delayed source
 projection. A visible Web window must also have document focus to suppress its
 current-conversation notification or automatically mark a message read.
+While visible, the same lightweight cursor is checked every second even when
+browser notifications are off. A new Space message invalidates the account
+Space directory, which remains the authority for sidebar previews; the five
+second directory poll still covers membership and delayed projections.
 
 ### Notification settings
 
@@ -1455,8 +1459,8 @@ includes the current effective model so a future system-default change is
 understandable without duplicating it into browser state. A model choice's
 optional catalog-owned badge appears in both the closed selector and its
 matching options; Web does not infer badges from model names or the current
-default. Reasoning is catalog-owned at `high` and is not a separate Web control
-in this release.
+default. The adjacent Reasoning effort selector offers only efforts supported
+by the chosen hosted model and shows its catalog default.
 
 The first-level **Provider** selector filters the second-level **Primary model**
 picker. Provider means the model vendor, derived from the exact OpenRouter ID
@@ -1477,7 +1481,11 @@ visible while browsing another provider. Selecting a candidate only changes the
 local draft. The current label changes after the Binding save succeeds.
 
 Personal Remote Agent creation and model editing reuse this same two-level
-selector and hosted catalog. They store the explicitly selected model ID.
+selector and hosted catalog. They store the explicitly selected model ID and
+an optional supported reasoning effort. Center Agent settings use the same
+reasoning selector. New personal Remote Agents initially select GPT-6 Sol with
+`medium` effort; Center Agent OpenMeld default is Claude Opus 5.5 with `medium`.
+Default reasoning follows the selected model's catalog effort.
 Changing to another provider clears an incompatible draft and requires a new
 model choice before Create or Save; an empty draft must not silently select
 the system default. Local Agent model controls keep their controller-owned
@@ -2361,6 +2369,21 @@ cross-tab invalidations. These are configured values, not evidence that an Agent
 can Wake or that a particular model executed work. Agent pages retain their
 Core-owned runtime overview and Wakeability checks.
 
+Entering People starts the Profile Directory and personal sidebar-preference
+reads as early as route intent allows, without holding navigation for either
+response. Known member rows and Team cards remain visible while personal
+sidebar preferences load; until those preferences arrive, the list uses its
+default Human-presence sections and saved-group actions stay unavailable. The
+same early reads apply to member details, Agents, and Agent details; Agent
+runtime availability remains a separate current read. Space member popovers
+also stop presenting an expired Computer connection as current. The
+account-and-Organization-scoped browser read cache may restore sidebar layout,
+then refresh it through the existing revisioned server read. It does not persist
+the Profile Directory's mixed identity, activity, and Agent configuration
+response. Human presence, Computer state, and Agent runtime/usage projections
+retain their separate current-read and unknown-state rules; saved layout never
+supplies those facts.
+
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
 bounded actual-interaction report; Core re-verifies the active member and that
@@ -3243,6 +3266,11 @@ below. Query-specific `staleTime`, live invalidation, and server reads still own
 freshness; the Organization scope query is not given either longer lifetime.
 Cached display data is therefore a first-paint aid, never membership,
 permission, or mutation authority.
+
+The account invalidation stream accelerates cross-Space Inbox and Space Index
+refreshes in Web and Desktop. Its frames carry no item or preview data. The
+client re-reads the owning projection on each frame and reconnect; bounded
+polling covers missed frames and older Desktop builds.
 
 Authenticated route loaders may warm these same Query keys during SSR and let
 the existing TanStack Router SSR Query integration hydrate them on direct entry.

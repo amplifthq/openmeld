@@ -139,16 +139,16 @@ export function SpaceEntryGate(input: {
 		return (
 			<Navigate
 				replace
+				search={{
+					focusSignalId:
+						resolutionQuery.data?.target.signalId ?? input.signalId,
+					focusThreadRootSignalId:
+						resolutionQuery.data?.target.threadRootSignalId ??
+						input.threadRootSignalId,
+				}}
 				to={buildOrganizationSpacePath({
 					orgSlug: organizationSlug,
 					spaceId: input.spaceId,
-					search: {
-						focusSignalId:
-							resolutionQuery.data?.target.signalId ?? input.signalId,
-						focusThreadRootSignalId:
-							resolutionQuery.data?.target.threadRootSignalId ??
-							input.threadRootSignalId,
-					},
 				})}
 			/>
 		);

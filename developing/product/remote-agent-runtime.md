@@ -352,10 +352,21 @@ session context, including intermediate choices and unpublished work; rebuilding
 Core memory or a visible-message excerpt alone does not establish that guarantee.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
-boundary before Flue stores them in the conversation session. A direct tool
-result that exceeds that boundary returns one compact structured failure that
-tells the model to narrow or segment the request; OpenMeld must not pass the
-oversized provider object through and hope Flue compaction repairs it later.
+boundary before Flue stores them in the conversation session. A returned tool
+result that exceeds that boundary becomes an explicit partial-evidence envelope,
+not an execution exception. Direct calls and Code Mode share this boundary.
+The envelope reserves its bounded metadata budget for standard top-level
+receipt and outcome fields before other fields, irrespective of provider field
+order. It copies only complete values and exposes small Unicode-safe
+beginning/end JSON excerpts.
+`toolExecution: returned` is not a derived business-success state. The original
+outcome and any provider-side completeness fields remain authoritative.
+Omitted content is not retained in another store or shared Computer; the envelope
+therefore has no continuation. Use existing bounded reads when available, never
+repeat a write merely to recover its display. This intentionally does not promise
+full retrieval of every large result. Small results and existing segmented reads
+remain unchanged. OpenMeld must not pass the oversized provider object through
+and hope Flue compaction repairs it later.
 File-content tools expose one bounded segment plus an explicit continuation
 offset. The Center Agent searches first, reads only the relevant segments, and
 follows the returned continuation offset when more content is actually needed.
@@ -1370,8 +1381,9 @@ tracked config. This is OpenMeld-operated provider configuration, not user
 BYOK.
 
 The repo-owned `center-agent` catalog exposes curated models from OpenAI,
-Anthropic, Google, DeepSeek, xAI, and Z.ai, with GLM 5.3 Flash as the OpenMeld
-default since 2026-08-27. The exact selection and captured metadata are owned by
+Anthropic, Google, DeepSeek, xAI, and Z.ai. Its current Center Agent default is
+Claude Opus 5.5 at `medium` reasoning; its distinct personal Remote Agent
+default is GPT-6 Sol at `medium`. The exact selection and captured metadata are owned by
 [Agent Profile Model Selection](agent-model-selection.md#55-hosted-center-agent-catalog).
 These are model vendors; all hosted routes still use OpenRouter. Core resolves
 a complete immutable route for each new turn. The
@@ -1421,9 +1433,9 @@ selected primary model.
 
 Model capacity and reasoning metadata are checked in with the catalog so
 admission needs no provider metadata lookup. Compaction derives its policy from
-the frozen route. Hosted reasoning is currently fixed to `high`; the Harness
-reads that frozen route value dynamically rather than reading a user setting or
-hard-coding one global effort. Usage remains recorded by the Remote Agent
+the frozen route. Core validates the Binding's optional reasoning selection
+against the selected model's catalog capabilities and freezes the effective
+effort at admission. The Harness reads that frozen route value. Usage remains recorded by the Remote Agent
 worker through OpenMeld-owned usage records and Analytics Engine and attributes
 the effective primary model.
 
@@ -2347,6 +2359,31 @@ uses action metadata only to classify effect; it never parses Routine free
 text, arbitrary input keys, or model-provided target values as permission.
 GitHub remains on its dedicated tools and is never routed through the generic
 executor.
+
+`github_list_actions` and `github_execute_action` complement the existing named
+GitHub tools. They use the same executable OpenConnector runtime catalog and
+schema projection as App discovery, while retaining explicit Organization or
+requester selection with no fallback. The GitHub catalog defaults to 25 entries
+and returns a real continuation offset. A current executable action, such as
+`github.get_workflow_job_logs`, needs no new business-specific wrapper; a missing
+or catalog-only action is not emulated. Scopes in discovery are requirements,
+not proof of repository access. Runtime execution returns exact provider data
+and its execution-owned output schema, under the shared bounded-result boundary;
+named segmented file/search tools remain available for their bounded projections.
+No omitted provider log prefix or harness excerpt is advertised as retrievable.
+
+The catalog executor shares the existing GitHub operation identity, claim,
+provider idempotency key, destructive preview, and result recovery path. Current
+catalog effects govern new operations and restricted-context calls; known GitHub
+delete/merge protection cannot be downgraded by metadata. Read-only connections,
+member research, unlinked Message Channel identity, and Routine restrictions
+remain enforced. Verified ordinary retries use the frozen operation and output
+schema without requiring today's catalog or selecting another connection.
+These contracts apply to direct tools and Code Mode, not a required task plan.
+The issue-to-Task binding owner acquires a stable observation timestamp only
+for an applicable issue creation or closure in a shared Space. Ordinary reads
+and unrelated writes do not create issue-observation records; existing operation
+receipts and the stable timestamp used to replay actual bindings are unchanged.
 
 Before every new action operation that is eligible to run, Remote Agent asks
 Core to resolve an active connection inside the turn Organization. A Routine

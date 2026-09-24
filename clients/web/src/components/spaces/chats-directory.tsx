@@ -325,10 +325,7 @@ export function ChatsDirectory() {
 											<TableCell>
 												<div className="flex items-center">
 													<span className="opacity-0 group-focus-within/directory-row:opacity-100 group-hover/directory-row:opacity-100 [@media(hover:none)]:opacity-100">
-														<ChatArchiveButton
-															profileId={model.profileId}
-															spaceId={chat.spaceId}
-														/>
+														<ChatArchiveButton spaceId={chat.spaceId} />
 													</span>
 													<DirectoryRowActions
 														disabled={
