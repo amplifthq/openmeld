@@ -825,6 +825,14 @@ describe("runtime transport session service", () => {
           lane: "dev-local",
           daemonSessionId: "daemon-session-components",
           acceptingDispatches: false,
+          admissionEvidence: {
+            acceptingDispatches: false,
+            connectionGeneration: 1,
+            revision: 2,
+            changedAtMs: 2900,
+            reasonCode: "controlled_stop",
+            detailCode: "controlled_service_update",
+          },
           stopCause: "controlled_service_update",
           leases: [{ profileId: "agt-components", leaseEpoch: 1 }],
           capabilities: {
@@ -843,6 +851,13 @@ describe("runtime transport session service", () => {
     );
 
     expect(heartbeat).toMatchObject({ ok: true, staleLeases: [] });
+    expect(
+      state.sessionsById.get("daemon-session-components")?.admissionEvidence
+    ).toMatchObject({
+      reasonCode: "controlled_stop",
+      detailCode: "controlled_service_update",
+      revision: 2,
+    });
     expect(
       state.sessionsById.get("daemon-session-components")?.capabilities
         .localComponents?.cli.packageVersion

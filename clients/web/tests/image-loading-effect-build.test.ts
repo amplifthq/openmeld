@@ -6,7 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "vite";
 import { expect, it } from "vitest";
-import { imageLoadingEffectModule } from "../scripts/image-loading-effect-module";
+import { optionalMediaModules } from "../scripts/optional-media-modules";
 
 const emittedImageEffectPattern = /^space-image-loading-effect-.*\.mjs$/;
 
@@ -37,7 +37,7 @@ it("bundles a lazy optional effect whose failure cannot become a critical Vite p
 			publicDir: false,
 			logLevel: "silent",
 			plugins: [
-				imageLoadingEffectModule(effect),
+				optionalMediaModules(effect),
 				{
 					name: "assert-single-application-entry",
 					generateBundle(_options, bundle) {
@@ -121,7 +121,7 @@ it("keeps the browser-only image effect out of server bundles", async () => {
 			root,
 			publicDir: false,
 			logLevel: "silent",
-			plugins: [imageLoadingEffectModule(effect)],
+			plugins: [optionalMediaModules(effect)],
 			build: {
 				ssr: path.join(root, "server-entry.ts"),
 				outDir: output,

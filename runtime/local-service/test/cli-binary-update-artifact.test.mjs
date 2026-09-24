@@ -1,10 +1,37 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { afterEach, mock, test } from "node:test";
-import { downloadCliBinaryUpdateArtifact } from "../dist/cli-binary-update-artifact.js";
+import {
+  allowUnsignedWindowsInternalPreview,
+  downloadCliBinaryUpdateArtifact,
+} from "../dist/cli-binary-update-artifact.js";
 
 const DOWNLOAD_URL = "https://downloads.openmeld.test/openmeld";
 const DELTA_DOWNLOAD_URL = `${DOWNLOAD_URL}.delta`;
+
+test("unsigned Windows preview requires the exact production manifest and explicit opt-in", () => {
+  const authorized = {
+    OPENMELD_ENV_PRESET: "prod",
+    OPENMELD_WINDOWS_INTERNAL_PREVIEW: "1",
+    OPENMELD_CLI_BINARY_MANIFEST_URL:
+      "https://openmeld.ai/cli/manifest.json?channel=windows-preview",
+  };
+  assert.equal(allowUnsignedWindowsInternalPreview(authorized), true);
+  assert.equal(
+    allowUnsignedWindowsInternalPreview({
+      ...authorized,
+      OPENMELD_CLI_BINARY_MANIFEST_URL: "https://openmeld.ai/cli/manifest.json",
+    }),
+    false
+  );
+  assert.equal(
+    allowUnsignedWindowsInternalPreview({
+      ...authorized,
+      OPENMELD_WINDOWS_INTERNAL_PREVIEW: "0",
+    }),
+    false
+  );
+});
 
 afterEach(() => mock.timers.reset());
 

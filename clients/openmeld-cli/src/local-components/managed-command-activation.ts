@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { activateWindowsManagedCommand } from "@openmeld/adapter-core/windows-system";
 import {
   acquireLock,
   isOpenMeldLockError,
@@ -9,6 +10,7 @@ import {
 } from "../config/lock";
 import {
   OPENMELD_HOME_ENV_KEY,
+  openMeldBinDir,
   resolveOpenMeldEnvPreset,
 } from "../config/paths";
 
@@ -23,6 +25,10 @@ const COMMAND_ACTIVATION_LOCK_RETRY_DELAY_MS = 50;
 const COMMAND_ACTIVATION_LOCK_TIMEOUT_MS = 5000;
 
 export type ManagedCliCommandActivation =
+  | {
+      status: "activated" | "already_active";
+      registryPath: "HKEY_CURRENT_USER\\Environment\\Path";
+    }
   | {
       status: "activated" | "already_active";
       profilePath: string;
@@ -52,6 +58,16 @@ export async function activateManagedCliCommand(input: {
     normalizeOptionalText(env[OPENMELD_HOME_ENV_KEY])
   ) {
     return { status: "not_applicable" };
+  }
+
+  if (process.platform === "win32") {
+    return await withManagedCliCommandActivationLock({
+      env,
+      run: async () => ({
+        status: await activateWindowsManagedCommand(openMeldBinDir({ env })),
+        registryPath: "HKEY_CURRENT_USER\\Environment\\Path" as const,
+      }),
+    });
   }
 
   const home = normalizeOptionalText(env.HOME);

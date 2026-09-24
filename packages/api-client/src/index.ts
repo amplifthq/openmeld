@@ -376,6 +376,7 @@ export {
   readOrUpdateSpaceFilePins,
   readOrUpdateSpaceMessagePins,
 } from "./space/message-pins";
+export { buildSpaceFileContentPath } from "./space/routes";
 export {
   createSpaceTask,
   getSpaceTask,

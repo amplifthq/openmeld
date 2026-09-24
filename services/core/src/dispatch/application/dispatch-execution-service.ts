@@ -1271,12 +1271,22 @@ function assertDaemonRouteExecutionContextCapable(input: {
   const adapterId = parseAgentControllerRef(
     input.message.controllerSnapshot.agentControllerRef
   )?.id;
+  let requiredExecutionContextVersion = 1;
+  if (
+    input.message.controllerSnapshot.agentControllerRef ===
+      "builtin:claude-code" &&
+    input.message.executionContext.access === "workspace"
+  ) {
+    requiredExecutionContextVersion = 3;
+  } else if (input.message.executionContext.legacyAssociation) {
+    requiredExecutionContextVersion = 2;
+  }
   if (
     input.route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
         (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
-          (input.message.executionContext?.legacyAssociation ? 2 : 1)
+          requiredExecutionContextVersion
     )
   ) {
     return;

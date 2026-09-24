@@ -946,6 +946,41 @@ describe("http schemas", () => {
       );
     });
 
+    it("narrows old client mixed action lists without granting a replacement permission", () => {
+      expect(
+        putSpaceContractBodySchema.parse(contractFields).allowedActions
+      ).toEqual(["post_message", "stay_silent"]);
+      expect(
+        patchSpaceContractBodySchema.parse({
+          allowedActions: ["post_status", "stay_silent"],
+        }).allowedActions
+      ).toEqual(["stay_silent"]);
+      expect(
+        patchSpaceContractBodySchema.safeParse({
+          allowedActions: ["post_status"],
+        }).success
+      ).toBe(false);
+      expect(
+        putSpaceContractBodySchema.safeParse({
+          ...contractFields,
+          allowedActions: ["post_status"],
+        }).success
+      ).toBe(false);
+      expect(
+        patchSpaceContractBodySchema.parse({ publicationMode: "collaboration" })
+      ).not.toHaveProperty("allowedActions");
+      const stored = {
+        ...contractFields,
+        version: 1,
+        updatedAt: "2026-03-19T00:00:00.000Z",
+        updatedBy: HUMAN_PROFILE_ID,
+        allowedActions: ["post_status"],
+      };
+      expect(
+        getSpaceContractResponseSchema.parse(stored).allowedActions
+      ).toEqual(["post_status"]);
+    });
+
     it("accepts a canonical PATCH body and rejects an empty patch", () => {
       expect(
         patchSpaceContractBodySchema.safeParse({

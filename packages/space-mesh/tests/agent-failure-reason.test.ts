@@ -30,7 +30,7 @@ describe("agent failure reason", () => {
         targetLabel: "Cursor",
       })
     ).toBe(
-      "Cursor answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted."
+      "OpenMeld could not confirm a Space response from Cursor, even after automatic recovery."
     );
 
     expect(
@@ -41,7 +41,7 @@ describe("agent failure reason", () => {
         targetLabel: "Cursor",
       })
     ).toBe(
-      "Cursor answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted."
+      "OpenMeld could not confirm a Space response from Cursor, even after automatic recovery."
     );
   });
 
@@ -58,7 +58,7 @@ describe("agent failure reason", () => {
     );
   });
 
-  it("publishes exact Cursor model failures as a model-selection problem", () => {
+  it("uses the shared model recovery copy for Cursor model failures", () => {
     expect(
       resolvePublicAgentFailureReason({
         defaultReason: "Cursor could not reply.",
@@ -67,7 +67,7 @@ describe("agent failure reason", () => {
         targetLabel: "Cursor",
       })
     ).toBe(
-      "The selected model is no longer available for this account. Choose another model in the Agent Profile, then try again."
+      "This model is unavailable. Check this agent's model and account settings."
     );
     expect(
       resolvePublicAgentFailureReason({
@@ -78,7 +78,7 @@ describe("agent failure reason", () => {
         targetLabel: "Cursor",
       })
     ).toBe(
-      "The selected model is no longer available for this account. Choose another model in the Agent Profile, then try again."
+      "This model is unavailable. Check this agent's model and account settings."
     );
   });
 

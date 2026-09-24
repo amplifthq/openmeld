@@ -418,7 +418,7 @@ async function loadAddon(): Promise<MacOsKeychainAddon> {
     throw new Error("macOS Keychain is only available on macOS");
   }
 
-  if (isBinaryDistribution()) {
+  if (process.platform === "darwin" && isBinaryDistribution()) {
     const embedded = await import("./macos-native-keychain-embedded");
     loadedAddon = embedded.loadEmbeddedMacOsKeychainAddon();
     return loadedAddon;

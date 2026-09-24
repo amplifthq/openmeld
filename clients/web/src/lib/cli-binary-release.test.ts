@@ -145,6 +145,17 @@ describe("CLI binary release metadata", () => {
 		expect(
 			resolveCliBinaryArtifactObjectKey("openmeld-cli-darwin-arm64")
 		).toBeNull();
+		const previewName = `openmeld-cli-windows-x64-0.3.222-${"a".repeat(64)}.exe`;
+		expect(
+			resolveCliBinaryArtifactObjectKey(previewName, "windows-preview")
+		).toBe(`cli/windows-preview/${previewName}`);
+		expect(resolveCliBinaryArtifactObjectKey(previewName)).toBeNull();
+		expect(
+			resolveCliBinaryArtifactObjectKey(
+				"../openmeld-windows-process.exe",
+				"windows-preview"
+			)
+		).toBeNull();
 	});
 
 	it("sets cache and content headers for manifest and binary downloads", () => {

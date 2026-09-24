@@ -101,9 +101,9 @@ export function resolveProductionTrain(input, dependencies = {}) {
   }
   return {
     artifactScopes: [
-      ...(plan.scopes.includes("cli") ? ["cli"] : []),
-      ...(desktopSelected ? ["desktop"] : []),
-      ...(plan.scopes.includes("web") ? ["web"] : []),
+      ...(selectedProductionScopes.includes("cli") ? ["cli"] : []),
+      ...(selectedDesktop ? ["desktop"] : []),
+      ...(selectedProductionScopes.includes("web") ? ["web"] : []),
     ],
     productionScopes: [...plan.scopes],
     selectedScopes: [...selectedScopes],

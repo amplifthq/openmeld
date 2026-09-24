@@ -28,7 +28,7 @@ import {
 } from "#/lib/spaces/api";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { buildWebSpaceAttachmentDownloadPath } from "#/lib/spaces/web-space-attachment-path";
-import { resolveSpaceFileImagePresentationKey } from "#/query/spaces/space-files";
+import { resolveSpaceFileMediaPresentationKey } from "#/query/spaces/space-files";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -63,6 +63,7 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { SpaceVideoPreview } from "./space-video-preview";
 import { useImageFrameActivity } from "./use-image-frame-activity";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
@@ -522,6 +523,8 @@ function SpaceMessageBodyContent(input: {
 		<div
 			className={cn(
 				"flex min-w-0 max-w-full flex-col gap-2",
+				input.files.some((file) => file.mimeType.startsWith("video/")) &&
+					"w-full",
 				input.containerClassName
 			)}
 			data-slot="space-message-body"
@@ -546,6 +549,7 @@ function SpaceMessageBodyContent(input: {
 				api={input.api}
 				files={input.files}
 				onOpenSpaceFile={input.onOpenSpaceFile}
+				organizationSlug={input.organizationSlug}
 				spaceId={input.spaceId}
 			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
@@ -715,6 +719,7 @@ export function SpaceMessageAttachmentGrid(input: {
 export function SpaceMessageFileList(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	files: NonNullable<SpaceTimelineItem["files"]>;
+	organizationSlug?: string;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	spaceId: string;
 }) {
@@ -725,8 +730,14 @@ export function SpaceMessageFileList(input: {
 	const imageFiles = input.files.filter((file) =>
 		file.mimeType.startsWith("image/")
 	);
+	const videoFiles = input.files.filter((file) =>
+		file.mimeType.startsWith("video/")
+	);
 	const ordinaryFiles = input.files.filter(
-		(file) => !file.mimeType.startsWith("image/")
+		(file) =>
+			!(
+				file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/")
+			)
 	);
 
 	return (
@@ -746,7 +757,7 @@ export function SpaceMessageFileList(input: {
 							api={input.api}
 							file={file}
 							isSingle={imageFiles.length === 1}
-							key={resolveSpaceFileImagePresentationKey(
+							key={resolveSpaceFileMediaPresentationKey(
 								queryClient,
 								input.spaceId,
 								file
@@ -757,6 +768,36 @@ export function SpaceMessageFileList(input: {
 					))}
 				</fieldset>
 			) : null}
+			{videoFiles.length > 0 && (
+				<fieldset
+					aria-label="Shared videos"
+					className="m-0 grid w-full min-w-0 max-w-2xl gap-3 border-0 p-0"
+				>
+					{videoFiles.map((file) => (
+						<SpaceVideoPreview
+							fileName={file.name}
+							isLocal={file.isLocal}
+							key={resolveSpaceFileMediaPresentationKey(
+								queryClient,
+								input.spaceId,
+								file
+							)}
+							localPreviewUrl={file.localPreviewUrl}
+							onOpenFile={
+								!file.isLocal && input.onOpenSpaceFile
+									? () => input.onOpenSpaceFile?.(file.fileId, file.revision)
+									: undefined
+							}
+							target={{
+								spaceId: input.spaceId,
+								fileId: file.fileId,
+								revision: file.revision,
+								organizationSlug: input.organizationSlug,
+							}}
+						/>
+					))}
+				</fieldset>
+			)}
 			{ordinaryFiles.length > 0 ? (
 				<fieldset
 					aria-label="Shared files"

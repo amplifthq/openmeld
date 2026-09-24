@@ -67,6 +67,37 @@ for (const arch of ["x64", "arm64"]) {
     assert(plan.nsis.artifactName.includes("-unsigned"));
   });
 }
+test("packages a production-account unsigned Windows preview without production updates", () => {
+  const selected = readDesktopSignedPackageMode(
+    {
+      OPENMELD_DESKTOP_INTERNAL_PREVIEW: "1",
+      OPENMELD_DESKTOP_TARGET: "production",
+    },
+    "win32"
+  );
+  assert.equal(selected, "internal-preview");
+  const plan = buildInstalledPlatformPlan({
+    env: {},
+    target: production,
+    signedMode: selected,
+    platform: "win32",
+    arch: "x64",
+  });
+  assert.equal(plan.forceCodeSigning, false);
+  assert.equal(plan.win.signExecutable, false);
+  assert.equal(plan.publish, null);
+  assert.equal(plan.windows, null);
+  assert(plan.nsis.artifactName.includes("-internal-preview"));
+  assert.throws(() =>
+    readDesktopSignedPackageMode(
+      {
+        OPENMELD_DESKTOP_INTERNAL_PREVIEW: "1",
+        OPENMELD_DESKTOP_TARGET: "production",
+      },
+      "darwin"
+    )
+  );
+});
 test("refuses an unsigned production Windows package and missing/ambiguous signing identity", () => {
   assert.throws(() =>
     buildInstalledPlatformPlan({

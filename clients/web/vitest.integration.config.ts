@@ -1,9 +1,9 @@
 import path from "node:path";
 import { defineConfig } from "vitest/config";
-import { imageLoadingEffectModule } from "./scripts/image-loading-effect-module";
+import { optionalMediaModules } from "./scripts/optional-media-modules";
 
 export default defineConfig({
-	plugins: [imageLoadingEffectModule()],
+	plugins: [optionalMediaModules()],
 	resolve: {
 		alias: {
 			"@openmeld/agent-profile": path.resolve(

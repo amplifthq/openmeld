@@ -27,9 +27,11 @@ import type {
 import {
   buildCliLaunchInvocation,
   createProviderOriginalError,
+  isDispatchSpaceActionDeliveryOnly,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { isLikelyOpenCodeContextLostError } from "../context/opencode-context-heal.js";
+import { prepareOpenCodeDeliveryOnlyTurn } from "./opencode-delivery-only.js";
 import { classifyOpenCodeFailureMessage } from "./opencode-failure.js";
 import {
   type OpenCodeInteractionFailure,
@@ -143,7 +145,8 @@ export async function invokeOpenCodeServerTransport(
     throwOnError: true,
   });
   const canonicalRepairSessionId =
-    input.executionMode === "repair"
+    input.executionMode === "repair" ||
+    isDispatchSpaceActionDeliveryOnly(input.env)
       ? normalizeOptionalText(input.sessionId)
       : null;
   let result:
@@ -162,6 +165,7 @@ export async function invokeOpenCodeServerTransport(
         })
       : normalizeOptionalText(input.sessionId);
     result = await runOpenCodeServerTurn({
+      env: input.env,
       onRuntimeEvent: input.onRuntimeEvent,
       client,
       conversationPolicy: input.conversationPolicy,
@@ -513,6 +517,7 @@ function readRemainingTimeoutMs(deadlineMs: number | null): number | null {
 }
 
 async function runOpenCodeServerTurn(input: {
+  env?: Record<string, string | undefined>;
   onRuntimeEvent?: AdapterRuntimeEventCallback;
   client: ReturnType<typeof createOpencodeClient>;
   conversationPolicy?: ConversationPolicy;
@@ -531,6 +536,15 @@ async function runOpenCodeServerTurn(input: {
   sessionId: string;
 }> {
   const { directory, sessionId } = await resolveOpenCodeSession(input);
+  if (isDispatchSpaceActionDeliveryOnly(input.env)) {
+    await prepareOpenCodeDeliveryOnlyTurn({
+      client: input.client,
+      directory,
+      sessionId,
+      sourceSessionId: input.observedSessionId,
+      env: input.env,
+    });
+  }
   input.server.emitProviderConversationObserved(
     normalizeOptionalText(input.observedSessionId) ?? sessionId
   );
@@ -1331,6 +1345,7 @@ class OpenCodeServerProcess {
     const invocation = buildCliLaunchInvocation({
       args: [
         "serve",
+        ...(isDispatchSpaceActionDeliveryOnly(this.#env) ? ["--pure"] : []),
         `--hostname=${SERVER_HOSTNAME}`,
         `--port=${port}`,
         "--print-logs",
@@ -1835,6 +1850,16 @@ function toOpenCodeServerTransportError(
   error: unknown,
   stderr: string
 ): OpenCodeServerTransportError {
+  if (
+    error instanceof Error &&
+    toRecord(error)?.code === "space.action.delivery_only_unverified"
+  ) {
+    return new OpenCodeServerTransportError({
+      code: "space.action.delivery_only_unverified",
+      errorType: "config",
+      message: error.message,
+    });
+  }
   if (error instanceof OpenCodeServerTransportError) {
     const originalError = createProviderOriginalError(
       error.originalError ??

@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
 import {
+  allowUnsignedWindowsInternalPreview,
   type CliBinaryUpdatePlan,
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
+  prepareCliBinaryProcessHelper,
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
@@ -16,6 +18,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import { hasIndependentMaintenanceRegistration } from "../config/daemon-service-update-worker-registration";
+import { resolveOpenMeldEnvPreset } from "../config/paths";
 import {
   buildNextVersionState,
   type CliBinaryReleaseInfo,
@@ -73,12 +76,10 @@ import { formatElapsedTime, resolveElapsedTimeMs } from "../ui/elapsed-time";
 import { emitTopLevelAgentOverview } from "./top-level-agent-overview";
 
 const OPENMELD_PACKAGE_NAME = "openmeld";
-const BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND =
-  "curl -fsSL 'https://openmeld.ai/setup?dist=binary' | sh";
+const BINARY_UPGRADE_RECOVERY_URL = "https://openmeld.ai";
 const STAGING_BINARY_MANIFEST_URL =
   "https://staging.openmeld.ai/cli/manifest.json";
-const STAGING_BINARY_SETUP_COMMAND =
-  "curl -fsSL 'https://staging.openmeld.ai/setup?lane=canary&dist=binary' | sh";
+const STAGING_BINARY_UPGRADE_RECOVERY_URL = "https://staging.openmeld.ai";
 const INSTALL_SELF_JSON_LINE_SPLIT_RE = /\r?\n/u;
 const SERVICE_CHECK_STARTED_TEXT = "Checking OpenMeld Service";
 const SERVICE_CHECK_COMPLETED_TEXT = "OpenMeld Service check finished.";
@@ -112,6 +113,9 @@ export function isUpgradeOutputHandledError(
 }
 
 type UpgradeDistribution = "npm" | "binary";
+type ManualUpgradeRecovery =
+  | { kind: "command"; value: string }
+  | { kind: "web"; value: string };
 
 type ResolvedUpgradeStatusBase = {
   distribution: UpgradeDistribution;
@@ -214,14 +218,14 @@ async function runUpgradeWithRuntime(
 
   const allowPrompt = canUseInteractivePrompts(runtime);
   const currentVersion = OPENMELD_VERSION;
-  const { currentGlobalInstall, manualUpgradeCommand } =
+  const { currentGlobalInstall, manualUpgradeRecovery } =
     await resolveUpgradeInstallContext();
   const previousVersionState = await readVersionState();
   if (!previousVersionState) {
     handleMissingVersionMetadata({
       presenter,
       resolvedView: runtime.resolvedView,
-      manualUpgradeCommand,
+      manualUpgradeRecovery,
     });
   }
 
@@ -296,7 +300,7 @@ async function runUpgradeWithRuntime(
       presenter,
       resolvedView: runtime.resolvedView,
       upgradeStatus,
-      manualUpgradeCommand,
+      manualUpgradeRecovery,
     });
   }
 
@@ -313,7 +317,7 @@ async function runUpgradeWithRuntime(
     await installAndReconcileBinaryUpgrade({
       upgradeStatus: installableUpgradeStatus,
       previousVersionState,
-      manualUpgradeCommand,
+      manualUpgradeRecovery,
       resolvedView: runtime.resolvedView,
       currentVersion,
       presenter,
@@ -325,7 +329,7 @@ async function runUpgradeWithRuntime(
     upgradeStatus: installableUpgradeStatus,
     previousVersionState,
     currentGlobalInstall,
-    manualUpgradeCommand,
+    manualUpgradeRecovery,
     resolvedView: runtime.resolvedView,
     currentVersion,
     presenter,
@@ -506,7 +510,7 @@ function requireInstallableUpgradeStatus(
 async function installAndReconcileBinaryUpgrade(input: {
   upgradeStatus: InstallableUpgradeStatus;
   previousVersionState: OpenMeldVersionStateV1 | null;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
   resolvedView: "human" | "agent";
   currentVersion: string;
   presenter: ReturnType<typeof createPresenter>;
@@ -535,7 +539,7 @@ async function installAndReconcileBinaryUpgrade(input: {
     startedText: `Downloading and installing OpenMeld CLI (about ${bytesToRoundedMb(updatePlan.downloadSizeBytes)} MB)`,
     completedText: `OpenMeld CLI ${input.upgradeStatus.latestVersion} installed.`,
     data: {
-      command: input.manualUpgradeCommand,
+      recoveryUrl: input.manualUpgradeRecovery.value,
       downloadSizeBytes: updatePlan.downloadSizeBytes,
       distribution: input.upgradeStatus.distribution,
       preferredTransport: updatePlan.transport,
@@ -544,7 +548,7 @@ async function installAndReconcileBinaryUpgrade(input: {
     run: async () =>
       await installLatestCliBinary({
         release: binaryRelease,
-        manualUpgradeCommand: input.manualUpgradeCommand,
+        manualUpgradeRecovery: input.manualUpgradeRecovery,
         updatePlan,
       }),
   });
@@ -590,7 +594,7 @@ async function installAndReconcileNpmUpgrade(input: {
   upgradeStatus: InstallableUpgradeStatus;
   previousVersionState: OpenMeldVersionStateV1 | null;
   currentGlobalInstall: CurrentGlobalInstall | null;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
   resolvedView: "human" | "agent";
   currentVersion: string;
   presenter: ReturnType<typeof createPresenter>;
@@ -604,7 +608,7 @@ async function installAndReconcileNpmUpgrade(input: {
     startedText: "Downloading and installing OpenMeld CLI with npm",
     completedText: `OpenMeld CLI ${input.upgradeStatus.latestVersion} installed.`,
     data: {
-      command: input.manualUpgradeCommand,
+      command: input.manualUpgradeRecovery.value,
       distribution: input.upgradeStatus.distribution,
     },
     failureCode: "cli.update.install_failed",
@@ -612,7 +616,7 @@ async function installAndReconcileNpmUpgrade(input: {
       await installLatestPackage({
         npmCommandSpec,
         currentGlobalInstall: input.currentGlobalInstall,
-        manualUpgradeCommand: input.manualUpgradeCommand,
+        manualUpgradeCommand: input.manualUpgradeRecovery.value,
       }),
   });
 
@@ -659,12 +663,15 @@ async function resolveUpgradeInstallContext(): Promise<{
   currentGlobalInstall: Awaited<
     ReturnType<typeof resolveCurrentNpmGlobalPackageInstall>
   > | null;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
 }> {
   if (isBinaryDistribution()) {
     return {
       currentGlobalInstall: null,
-      manualUpgradeCommand: resolveBinaryManualOpenMeldUpgradeCommand(),
+      manualUpgradeRecovery: {
+        kind: "web",
+        value: resolveBinaryUpgradeRecoveryUrl(),
+      },
     };
   }
   const currentGlobalInstall = await resolveCurrentNpmGlobalPackageInstall({
@@ -684,28 +691,37 @@ async function resolveUpgradeInstallContext(): Promise<{
   }
   return {
     currentGlobalInstall,
-    manualUpgradeCommand: buildManualOpenMeldUpgradeCommand({
-      globalPrefixPath: currentGlobalInstall?.globalPrefixPath ?? null,
-    }),
+    manualUpgradeRecovery: {
+      kind: "command",
+      value: buildManualOpenMeldUpgradeCommand({
+        globalPrefixPath: currentGlobalInstall?.globalPrefixPath ?? null,
+      }),
+    },
   };
 }
 
-export function resolveBinaryManualOpenMeldUpgradeCommand(
+export function resolveBinaryUpgradeRecoveryUrl(
   env: NodeJS.ProcessEnv = process.env
 ): string {
   return env.OPENMELD_ENV_PRESET === "canary" &&
     env.OPENMELD_CLI_BINARY_MANIFEST_URL === STAGING_BINARY_MANIFEST_URL
-    ? STAGING_BINARY_SETUP_COMMAND
-    : BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND;
+    ? STAGING_BINARY_UPGRADE_RECOVERY_URL
+    : BINARY_UPGRADE_RECOVERY_URL;
+}
+
+function formatManualUpgradeRecovery(recovery: ManualUpgradeRecovery): string {
+  return recovery.kind === "web"
+    ? `Open ${recovery.value}, go to Computers, and use Update manually or Connect Computer to get a fresh setup command. Run that command on this Mac.`
+    : `Run \`${recovery.value}\`.`;
 }
 
 function handleMissingVersionMetadata(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
 }): never {
   const errorMessage = formatOpenMeldCliTextBlock(
-    `OpenMeld version metadata is missing, so automatic upgrade cannot continue.\nManual fallback: \`${input.manualUpgradeCommand}\`\nIf you want to repair local OpenMeld state first, run \`openmeld reset --yes\` before \`openmeld upgrade\`.`
+    `OpenMeld version metadata is missing, so automatic upgrade cannot continue.\nManual fallback: ${formatManualUpgradeRecovery(input.manualUpgradeRecovery)}\nIf you want to repair local OpenMeld state first, run \`openmeld reset --yes\` before \`openmeld upgrade\`.`
   );
   if (input.resolvedView === "agent") {
     input.presenter.data({
@@ -714,12 +730,12 @@ function handleMissingVersionMetadata(input: {
         summary:
           "Local OpenMeld version metadata is missing, so automatic upgrade cannot verify downgrade safety.",
         nextSteps: [
-          input.manualUpgradeCommand,
+          formatManualUpgradeRecovery(input.manualUpgradeRecovery),
           "openmeld-dev reset --yes --view agent",
           "openmeld-dev start",
           "openmeld-dev upgrade --check --view agent",
         ],
-        humanActionRequired: false,
+        humanActionRequired: input.manualUpgradeRecovery.kind === "web",
       },
     });
     throw new UpgradeOutputHandledError(errorMessage);
@@ -731,12 +747,12 @@ function handleUpgradeCheckFailure(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
   upgradeStatus: Extract<UpgradeStatus, { status: "check_failed" }>;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
 }): never {
   const errorMessage = formatOpenMeldCliTextBlock(
     `Version check failed (${input.upgradeStatus.error}). Upgrade stopped because downgrade protection requires confirming that ${formatUpgradeLatestSource(
       input.upgradeStatus.distribution
-    )} is newer than the current CLI.\nManual fallback: \`${input.manualUpgradeCommand}\``
+    )} is newer than the current CLI.\nManual fallback: ${formatManualUpgradeRecovery(input.manualUpgradeRecovery)}`
   );
   if (input.resolvedView === "agent") {
     input.presenter.data({
@@ -744,11 +760,11 @@ function handleUpgradeCheckFailure(input: {
       payload: {
         ...input.upgradeStatus,
         nextSteps: [
-          input.manualUpgradeCommand,
+          formatManualUpgradeRecovery(input.manualUpgradeRecovery),
           "openmeld-dev upgrade --check --view agent",
           "openmeld-dev upgrade --yes --view agent",
         ],
-        humanActionRequired: false,
+        humanActionRequired: input.manualUpgradeRecovery.kind === "web",
       },
     });
     throw new UpgradeOutputHandledError(errorMessage);
@@ -862,7 +878,7 @@ async function resolveUpgradeConfirmation(input: {
 
 async function installLatestCliBinary(input: {
   release: CliBinaryReleaseInfo;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
   updatePlan: CliBinaryUpdatePlan;
 }): Promise<{
   version: string;
@@ -888,9 +904,18 @@ async function installLatestCliBinary(input: {
     await writeFile(artifactPath, artifactBytes);
     await chmod(artifactPath, 0o755);
     await verifyCliBinaryCodeSignature({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath,
+      allowUnsignedForDevelopment: resolveOpenMeldEnvPreset() === "dev-local",
       release: input.release,
       runCommand,
+    });
+    await prepareCliBinaryProcessHelper({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
+      artifactPath,
+      release: input.release,
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+      fetchImpl: fetch,
     });
 
     const installResult = await runCommand(artifactPath, [
@@ -905,7 +930,7 @@ async function installLatestCliBinary(input: {
         formatOpenMeldCliTextBlock(
           `binary install-self failed (exit ${installResult.code})${
             details ? `: ${details}` : ""
-          }\nManual fallback: \`${input.manualUpgradeCommand}\``
+          }\nManual fallback: ${formatManualUpgradeRecovery(input.manualUpgradeRecovery)}`
         )
       );
     }

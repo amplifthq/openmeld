@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { verifyWindowsArtifactSignature } from "@openmeld/local-service/windows-artifact-signature";
 import {
   desktopProductionSourceSchema,
   resolveDesktopReleasePlatform,
 } from "@openmeld/schemas";
 import { MacUpdater, NsisUpdater } from "electron-updater";
 import { parse as parseYaml } from "yaml";
-import { verifyWindowsDesktopSignature } from "./windows-signature";
 import { assertWindowsUpdaterConfiguration } from "./windows-updater-configuration";
 
 export function createNativeDesktopUpdater(input: {
@@ -46,7 +46,7 @@ export function createNativeDesktopUpdater(input: {
       return "OpenMeld update publisher configuration changed.";
     }
     try {
-      await verifyWindowsDesktopSignature(path, windows.publisherName);
+      await verifyWindowsArtifactSignature(path, windows.publisherName);
       return null;
     } catch {
       return "Windows could not verify this OpenMeld update's signature and publisher.";

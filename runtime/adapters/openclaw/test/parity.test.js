@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { capability } from "./fixtures/space-tool-fixture.js";
 
 const AUTH_RE = /not logged in|login required|unauthorized/i;
 const CHATGPT_ACCOUNT_RE = /chatgpt account/i;
@@ -281,6 +282,7 @@ test("openclaw adapter keeps an existing session while loading dispatch Space ac
       'const { readFile, writeFile } = await import("node:fs/promises");',
       "const args = process.argv.slice(2);",
       "if (args.includes('--version')) { console.log('OpenClaw 2026.3.13'); process.exit(0); }",
+      "if (args[0] === 'config' && args[1] === 'get') { console.log(JSON.stringify(args[2] === 'tools' ? {profile:'minimal'} : {enabled:false})); process.exit(0); }",
       "if (args[0] !== 'agent' || !args.includes('--local') || args.includes('gateway')) process.exit(10);",
       "const sessionIndex = args.indexOf('--session-id');",
       "const actualSessionId = sessionIndex >= 0 ? args[sessionIndex + 1] : '';",
@@ -323,6 +325,7 @@ test("openclaw adapter keeps an existing session while loading dispatch Space ac
       prompt: "hello",
       runtimeContext: createRuntimeContext(),
       sourceEventId: "evt-action-dispatch-1",
+      spaceActionTools: capability(),
       spaceId: "space-1",
       taskId: "task-action-dispatch-1",
     });

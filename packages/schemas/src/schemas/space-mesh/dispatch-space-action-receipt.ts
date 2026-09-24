@@ -26,6 +26,17 @@ export const dispatchSpaceActionReceiptSchema = z.discriminatedUnion("status", [
     publication: z.literal("unconfirmed"),
   }),
   z.strictObject({
+    status: z.literal("rejected_before_recording"),
+    reasonCode: z.enum([
+      "space_action.invalid_input",
+      "space_action.not_allowed",
+      "space_action.already_recorded",
+      "space_action.targets_unavailable",
+    ]),
+    coordinatorAcceptance: z.literal("unconfirmed"),
+    publication: z.literal("unconfirmed"),
+  }),
+  z.strictObject({
     status: z.literal("outcome_unknown"),
     reasonCode: z.literal("space_action.recording_outcome_unknown"),
     coordinatorAcceptance: z.literal("unconfirmed"),

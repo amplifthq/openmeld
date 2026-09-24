@@ -23,6 +23,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { acquireLock, releaseLock } from "../src/config/lock";
 import {
+  assertExecutionContextWorkspaceUse,
   markExecutionContextWorkspaceInUse,
   prepareExecutionContextWorkspace,
   readExecutionContextWorkspace,
@@ -115,6 +116,44 @@ function prepare(
 }
 
 describe("Execution Context workspaces", () => {
+  it("rejects a stale project shell from another dispatch attempt", async () => {
+    await initializeRepository();
+    await prepare();
+    const use = await markExecutionContextWorkspaceInUse({
+      context,
+      ledgerRootPath: ledger,
+      containerRuntime: {
+        binary: "/test/docker",
+        engineIdentity: "test-engine",
+        kind: "docker",
+      },
+      dispatchId: "dispatch-current",
+      attemptId: "attempt-current",
+    });
+    try {
+      await expect(
+        assertExecutionContextWorkspaceUse({
+          ledgerRootPath: ledger,
+          contextId: context.id,
+          dispatchId: "dispatch-current",
+          attemptId: "attempt-current",
+        })
+      ).resolves.toBeUndefined();
+      await expect(
+        assertExecutionContextWorkspaceUse({
+          ledgerRootPath: ledger,
+          contextId: context.id,
+          dispatchId: "dispatch-current",
+          attemptId: "attempt-previous",
+        })
+      ).rejects.toThrow("workspace_execution_authority_mismatch");
+    } finally {
+      if (use) {
+        await releaseLock(use.lock);
+      }
+    }
+  });
+
   it.each([
     "before Git",
     "after init",
