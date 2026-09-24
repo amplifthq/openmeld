@@ -753,6 +753,17 @@ function renderMandatoryCompletionSection(
     return null;
   }
 
+  if (
+    !publicationRequirement.allowedActions.some(
+      (action) => action === "post_message" || action === "stay_silent"
+    )
+  ) {
+    return [
+      "Mandatory completion:",
+      ...publicationRequirement.actionGuidanceLines,
+    ].join("\n");
+  }
+
   return [
     "Mandatory completion:",
     "- Plain text is not a Space reply.",
@@ -777,11 +788,6 @@ function buildMandatoryCompletionActionLine(
   if (publicationRequirement.allowedActions.includes("post_message")) {
     return `- Normal completion: call dispatch-scoped Space Action \`reply\` with the exact public message. Only if unavailable: \`${buildSpaceActionCommand(
       'reply "your public message"'
-    )}\` and wait for it to finish.`;
-  }
-  if (publicationRequirement.allowedActions.includes("post_status")) {
-    return `- Normal completion: call dispatch-scoped Space Action \`status\` with a final-safe status and short update. Only if unavailable: \`${buildSpaceActionCommand(
-      'status done "short completion update"'
     )}\` and wait for it to finish.`;
   }
   if (publicationRequirement.allowedActions.includes("stay_silent")) {
