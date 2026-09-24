@@ -22,7 +22,10 @@ describe("model catalog delivery", () => {
       codex.models.push(newModel);
       let available = true;
       const server = createServer((request, response) => {
-        if (request.url !== "/v1/config/model-catalog") {
+        if (
+          new URL(request.url ?? "", "http://localhost").pathname !==
+          "/v1/config/model-catalog"
+        ) {
           response.writeHead(404).end();
           return;
         }

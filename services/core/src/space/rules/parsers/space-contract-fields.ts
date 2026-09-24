@@ -107,7 +107,7 @@ function resolveLegacyAllowedActions(input: {
   agentCanPostMessages: boolean | undefined;
 }): PutSpaceContractBody["allowedActions"] {
   if (input.agentCanPostMessages === true) {
-    return DEFAULT_SPACE_CONTRACT_FIELDS.allowedActions;
+    return ["post_message", "post_status", "stay_silent"];
   }
   if (input.defaultReplyBehavior === "system_status") {
     return ["post_status", "stay_silent"];
