@@ -5047,6 +5047,122 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentCreateAgentProfile).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    undefined,
+    "test/remote-model",
+  ])("expresses a Remote Agent with model %j without inventing Local settings or readiness", async (modelId) => {
+    const request = createSubmitTurnRequest();
+    const response = createAgentProfileCreationRequestResponse();
+    const create = vi.fn(async () => response);
+    const readiness = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentCreateAgentProfileCreationRequest: create,
+        centerAgentCheckAgentProfileReadiness: readiness,
+      },
+      storage: await createStorageWithPendingContext(request),
+    });
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        connectionSelection: { kind: "remote" },
+        ...(modelId ? { configuration: { modelId } } : {}),
+        profileName: "Research Partner",
+        sessionStrategy: "new",
+        targetOwnerUserId: "user_1",
+      })
+    ).resolves.toEqual(response);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: {
+          ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+          agentControllerRef: "hosted:remote-agent",
+          modelId: modelId ?? null,
+        },
+        onBehalfOf: { profileId: request.author.profileId },
+      })
+    );
+    expect(create).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        localAgentConnectionCandidateId: expect.anything(),
+      })
+    );
+    expect(readiness).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    undefined,
+    { modelId: "test/model" },
+  ])("rejects a working request without an execution selection even with configuration %j", async (configuration) => {
+    const create = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest: create },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        configuration,
+        profileName: "Research Partner",
+        sessionStrategy: "new",
+        targetOwnerUserId: "user_1",
+      })
+    ).rejects.toThrow("Select Remote or one Local Agent candidate");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { defaultProjectId: "project-1" },
+    { reasoningLevel: "high", modelId: "test/model" },
+    { agentControllerPermissionMode: "codex:fullAccess" },
+  ])("rejects mixed Remote and Local configuration %j without discarding the user's choice", async (configuration) => {
+    const create = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest: create },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        connectionSelection: { kind: "remote" },
+        configuration,
+        profileName: "Research Partner",
+        sessionStrategy: "new",
+        targetOwnerUserId: "user_1",
+      })
+    ).rejects.toThrow("Remote Agents do not use local agent settings");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("preserves a created identity when later Remote setup fails, without claiming current reply readiness", async () => {
+    const base = createAgentProfileCreationRequestResponse();
+    const response = {
+      ...base,
+      request: {
+        ...base.request,
+        configuration: {
+          ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+          agentControllerRef: "hosted:remote-agent",
+        },
+        createdAgentProfileId: CREATED_AGENT_PROFILE_ID,
+        failureMessage: "Remote binding setup failed",
+        status: "failed",
+        statusReason: "profile_created",
+      },
+    };
+    const create = vi.fn(async () => response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest: create },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        connectionSelection: { kind: "remote" },
+        profileName: "Research Partner",
+        sessionStrategy: "new",
+        targetOwnerUserId: "user_1",
+      })
+    ).resolves.toEqual(response);
+    expect(create).toHaveBeenCalledOnce();
+  });
+
   it("keeps new Agent Profile requests compatible with the old strict Core contract", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
