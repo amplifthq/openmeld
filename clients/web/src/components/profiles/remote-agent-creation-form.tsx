@@ -83,7 +83,7 @@ export function RemoteAgentCreationForm(input: {
 	});
 	return (
 		<form
-			className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pb-6 sm:px-6 lg:px-8"
+			className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-6 px-4 pb-6 sm:px-6 lg:px-8"
 			onSubmit={(event) => {
 				event.preventDefault();
 				if (canSubmit && !mutation.isPending) {
@@ -111,7 +111,7 @@ export function RemoteAgentCreationForm(input: {
 						: "Couldn’t submit this Agent. Check your connection and try again."}
 				</p>
 			) : null}
-			<div className="flex items-center justify-between gap-3 border-border border-t pt-4">
+			<div className="mt-auto flex flex-col-reverse items-stretch justify-between gap-3 pt-6 sm:flex-row sm:items-end">
 				<Button onClick={input.onCancel} type="button" variant="secondary">
 					Cancel
 				</Button>

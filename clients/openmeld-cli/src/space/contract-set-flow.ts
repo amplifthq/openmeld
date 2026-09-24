@@ -65,7 +65,9 @@ export async function runSpaceContractSetFlow(input: {
   const allowedActions = await multiselect({
     message: "Allowed actions",
     required: true,
-    initialValues: [...input.currentContract.allowedActions],
+    initialValues: input.currentContract.allowedActions.filter(
+      (action) => action !== "post_status"
+    ),
     options: [
       {
         value: SPACE_CONTRACT_ALLOWED_ACTION_VALUES[0],
@@ -74,11 +76,6 @@ export async function runSpaceContractSetFlow(input: {
       },
       {
         value: SPACE_CONTRACT_ALLOWED_ACTION_VALUES[1],
-        label: "post_status",
-        hint: "Publish a status bubble",
-      },
-      {
-        value: SPACE_CONTRACT_ALLOWED_ACTION_VALUES[2],
         label: "stay_silent",
         hint: "Let system record a silent decision",
       },

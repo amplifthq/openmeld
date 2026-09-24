@@ -419,6 +419,19 @@ reporter. Reporting does not decide recovery, mutate application state, or
 retry a failed diagnostic request. See `docs/web-application-errors.md` for
 the privacy, coverage, and operator query contract.
 
+The Space composer isolates a rich-editor failure from the conversation shell.
+Its plain-text fallback keeps the draft and send action available, while edits
+there clear authored mention semantics. A failed editor must not replace the
+whole Desktop or Web workspace with the root error page.
+If a different React failure occurs in the Space or Direct Message conversation
+panel, its boundary keeps the app shell, header, and conversation sidebar
+usable, reports the error, and offers a local retry. It does not treat a caught
+error as a successful conversation load or erase the underlying failure.
+The shared Markdown editor likewise isolates Plate failures for Organization
+Documents, Organization Skills, and Space Files. Its fallback shows the owning
+Markdown draft as editable source, retains read-only mode and content-limit
+feedback, and leaves saving under the existing owner.
+
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 Vite's content-hashed `/assets/` responses use a one-year immutable browser
@@ -2681,8 +2694,11 @@ physical computer; it must never silently move a draft to another computer.
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
 request contract. The global page first asks whether the Agent runs locally or
-remotely and whether to start a Direct Message or add it to an existing joined
-Space. Local selection loads the existing local creation generator; Remote
+remotely. It opens a new Direct Message after setup without a destination
+choice. Creation from the Space Members panel or Add People or Agents dialog
+stays in that Space: the new Agent becomes selected in the picker, and the
+member can add the selection to the Space. Local selection loads the existing
+local creation generator; Remote
 selection reads the hosted model catalog without loading Computer setup or
 local Agent readiness. **Choose a Local Agent** always presents Codex, Claude
 Code, Grok Build, OpenCode, Antigravity, and Cursor in that order. The complete catalog is
@@ -3289,6 +3305,10 @@ reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
 when transient content fills the viewport, retain a nearby recorded signal and
 its offset instead. Existing stored positions are not migrated or invalidated.
+Below 640px, the history rail is not mounted or allocated layout space, while
+history loading and reading-position restoration remain available. The
+conversation notification bell also leaves the phone header; its saved
+per-conversation choice remains in Space settings.
 That account-and-Space-
 scoped semantic anchor is restored in the layout effect as soon as history
 mounts, before painting the default start position, loading earlier pages if
@@ -3779,7 +3799,7 @@ original bytes. Composer, thumbnail, and focused viewer subscribe to a shared
 object-URL handle; releasing the composer does not revoke a displayed image.
 Warm cache reads return the same handle during render, without a loading effect
 or effect-created URL. A local File is transferred without conversion. Idle
-originals have a five-minute GC lifetime and a 32-image/128-MiB retention budget;
+originals have a five-minute GC lifetime and a 32-media/128-MiB retention budget;
 mounted consumers are not evicted by that idle budget. The resource registry
 contains handles, not a second copy of bytes. It is scoped to the QueryClient.
 
@@ -3823,6 +3843,44 @@ acknowledgement ordering, decode retry, and privacy. Browser/native visual smoke
 is a separate acceptance gate, including the previously reported PNG grey
 preview; header metadata and jsdom tests alone do not establish that incident's
 root cause or verify GPU rendering.
+
+## Space Video Presentation
+
+Conversation, Thread replies, Files details, and the local composer share
+`SpaceVideoPreview`. Video remains a canonical Space File revision. Idle cards
+use the browser's native lazy video loading to show the first frame near the
+viewport. Once a visible frame is ready, they prepare the shared player so a
+Play click can start the same mounted media element in the user gesture. The
+player module loads once and no per-row observer is created. This introduces
+no poster-generation or transcoding service. The shared Media Chrome controls
+overlay the picture without an opaque control bar.
+
+Player preparation or explicit Play/Expand loads the player through `optional-media-modules`, the
+same content-addressed native-import boundary as image decoration. A missing
+player chunk exposes retry without triggering critical-route reload recovery.
+Critical application imports keep their existing behavior. The player is absent
+from server bundles and the initial Space dependency path.
+
+Remote playback uses the existing same-origin file-content route pinned to the
+message revision. The proxy owns cookies and the non-secret Organization
+selector; passwords and long-lived tokens never enter the URL. Core authorizes
+the revision before requesting a bounded R2 range. Private/no-store semantics
+remain unchanged. Remote movie bodies never enter TanStack or Dexie; the browser
+owns the active buffer. Historical Files previews wait for the requested revision
+descriptor and do not download whole movies through the text/image query.
+
+The existing resource owner is now named `space-file-media-resource`. It retains
+original local video Files and object URLs through staging and publication,
+without conversion, duplication, or a second cache. Image ownership, budgets and
+persistence exclusions remain unchanged. Active remote players also subscribe to
+this owner's account, Space, and file revocation events, without a cached body.
+
+Inline-to-dialog transfer records time, rate, volume, mute and playback intent,
+releases the old decoder, then restores the new one. Close releases playback;
+hidden documents and hidden React Activities pause without automatic resume.
+Only one video plays per document. Autoplay refusal leaves usable paused controls;
+unsupported formats retain retry and original download. Browser/Desktop visual,
+seeking, focus, and Space-switch timing smoke is separate from component tests.
 
 ## Space And Thread Presentation
 
@@ -4403,9 +4461,11 @@ the timeline. Direct messages keep the compact avatar-and-bubble layout without
 a separate header time. Each direct message shows its 24-hour, hour-and-minute
 time inside the floating toolbar. Message details remains available for an
 individual message. Message actions form one floating
-toolbar beside the bubble, or just above it when neither side has room. It
-prefers the opposite side of a right-aligned
-self message and the right side of a left-aligned message. Phone widths show
+toolbar beside the bubble, or slightly over its upper edge when neither side
+has room. As a long message scrolls past the top of the message viewport, the
+toolbar follows that message's lower visible edge so its actions remain in view.
+It prefers the opposite side of a right-aligned self message and the right side
+of a left-aligned message. Phone widths show
 reaction and More actions beside a narrower bubble, keeping the full set of
 actions available from More. The toolbar does not reserve a footer row or change
 the bubble's height. When a message has a failure, the visible
@@ -4693,6 +4753,12 @@ uses `To wake an agent, type @, then pick the agent.` as its placeholder;
 Human-only DMs use `Message {name}…`, Agent DMs use `Message {name}…`, Center
 Agent DMs use `Tell Center Agent what you need…`, and Threads use
 `Reply in thread…`.
+
+For Claude Code, leaving the Task menu on automatic selection starts an
+independent Space-only context without requiring a repository or container.
+Selecting a new project task explicitly enables an isolated worktree. The menu
+explains that this choice requires a committed Git repository and a running
+Docker or Podman engine on the Agent's computer before the Wake starts.
 
 Draft editing and opening the `+` and `@` tools do not require permission to
 send. The `+` menu explains why file selection is unavailable when uploads are
@@ -5093,6 +5159,20 @@ Neither snapshot omission, stream disappearance, ordinary Agent text nor human
 follow-ups establishes completion. Failed, stopped, publication-unknown and
 published outcomes retain their distinct meanings; Core still owns execution
 and viewer-authorized Stop policy.
+
+If Web presents a Wake restored from its local progress cache, an unverified
+active-summary cache, or a main-conversation stream seeded from an unverified
+bootstrap, without a matching current Core active-Wake read, it sends one
+bounded browser diagnostic through the existing application-error intake. The
+structured `web.openmeld.wake_progress_presentation_unconfirmed` log identifies
+the Web build, Space, Wake correlation pointers, source/reply Thread pointers,
+progress update time, phase, cache source, and which queries have fetched since
+mount. It never includes message text, target
+labels, prompts, or arbitrary browser state. This is an observation of what
+Web showed, not proof that the Wake is stale; agents use the dispatch trace to
+determine the actual outcome. Delivery is best effort. Normal newly submitted,
+freshly streamed, and currently confirmed Wake progress does not produce this
+diagnostic.
 
 Web explicitly requests the bounded controller-conversation occupancy wait
 reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
@@ -5530,8 +5610,10 @@ size, and the download button come from that same verified candidate. Missing,
 invalid, repeated, or mismatched selectors never select another package.
 
 The plain `/desktop` page reads the existing default manifest. When no default
-release exists, it explains that a full preview invitation link is needed and
-offers no download. Candidate pages do not select a default, write
+release exists, it may offer the separately published unsigned Windows x64
+internal installer on Windows only, with a clear warning and no automatic
+updates. Other platforms still explain that a full preview invitation link is
+needed. Candidate pages do not select a default, write
 `desktop/update.json`, add marketing navigation, or require login or Access.
 The page is marked noindex while the preview is shared directly.
 
@@ -5601,8 +5683,16 @@ normal verified download and repair path. Manifest and artifact downloads retry
 temporary transfer failures within a small bounded window, deleting partial
 output before each retry; integrity verification still decides whether the
 download is accepted. A legacy manifest without archive fields still uses the
-verified raw executable. Windows and explicit `?dist=npm` setup use the npm
-distribution. The bootstrap is only the
+verified raw executable. Windows x64 binary setup downloads the CLI and native
+process companion, verifies exact size/hash and Authenticode publisher for both
+on the signed channel, and follows the shared installer's receipt to the managed
+command. A separately published internal Windows x64 preview can use explicit
+unsigned metadata and an exact preview manifest URL for known coworkers. Its readable
+PowerShell 5.1 command contains setup's exit and environment in a child shell;
+the caller's terminal remains open. Windows setup still requires the selected
+channel's manifest and all three artifact bytes to be published before sharing
+the command; a Web deployment alone is insufficient.
+Explicit `?dist=npm` remains the package distribution. The bootstrap is only the
 setup entry, not necessarily the long-term command prefix. The final
 `setup.complete` event is the owner for follow-up commands:
 
@@ -5618,7 +5708,7 @@ CLI entry as `openmeld`. Setup is lane-scoped. The generated prompt and final
 bootstrap output must tell the agent the exact CLI command prefix for follow-up
 commands, such as `openmeld-dev` for local development or
 `$HOME/.openmeld/bin/openmeld` for production binary setup. The prompt may show
-`npx -y openmeld@latest` only for Windows, explicit `?dist=npm`, or npm recovery.
+`npx -y openmeld@latest` only for explicit `?dist=npm` or npm recovery.
 The agent must use the final prefix for `whoami`, service diagnostics, and later
 Space operations instead of guessing a lane.
 
@@ -5819,7 +5909,7 @@ expires, Web shows an explicit OpenMeld release-side failure instead of a false
 completion checkmark or an endless spinner.
 
 The human-facing command is the Web-generated setup command. On supported macOS
-it defaults to binary setup. For Windows, explicit `?dist=npm`, or npm recovery,
+and Windows x64 it selects binary setup. For explicit `?dist=npm` or npm recovery,
 the package-based command is:
 
 ```text

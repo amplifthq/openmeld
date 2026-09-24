@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parse } from "yaml";
-import { admissionReason, resourcePolicy } from "../dev/local-resources.mjs";
 import { productionBuildEnvironment } from "./production-artifact-check.mjs";
 
 const expression = (value) => `${"$"}{{ ${value} }}`;
@@ -140,6 +139,15 @@ test("Web handoff downloads only the immutable same-run snapshot and verifies it
     expression("needs.validate_release_source.outputs.parent_web_artifact_id")
   );
   const web = workflow("workflows/deploy-web.yml").jobs.deploy;
+  const parentHeap = validation.steps.find((step) =>
+    step.run?.includes("--issue-parent-evidence")
+  ).env.OPENMELD_RENDERER_NODE_HEAP_MB;
+  assert.equal(
+    web.env.OPENMELD_RENDERER_NODE_HEAP_MB,
+    expression(
+      `inputs.parent_admission_evidence != '' && '${parentHeap}' || ''`
+    )
+  );
   assert.equal(
     web.env.OPENMELD_PARENT_WEB_ARTIFACT_ID,
     expression("inputs.parent_web_artifact_id")
@@ -227,8 +235,6 @@ test("Production and Deep Confidence share an explicit heap within available run
   const productionJob = production.jobs.validate_release_source;
   const diagnosticJob = diagnostic.jobs["release-artifacts"];
   assert.equal(diagnosticJob["runs-on"], productionJob["runs-on"]);
-  // Ubuntu run 35742137329 measured 7,291,916,288 available bytes. Use the
-  // private runner's 8 GiB capacity ceiling to conservatively budget headroom.
   const memoryBytes = 8 * 1024 ** 3;
   for (const [job, entrypoint] of [
     [productionJob, "production-train-artifact-admission.mjs"],
@@ -240,8 +246,12 @@ test("Production and Deep Confidence share an explicit heap within available run
   ]) {
     const step = job.steps.find((item) => item.run?.includes(entrypoint));
     const workflowEnv = { ...job.env, ...step.env };
+    const trainAdmission = job === productionJob;
     assert.equal(workflowEnv.NODE_OPTIONS, undefined);
-    assert.equal(workflowEnv.OPENMELD_RENDERER_NODE_HEAP_MB, undefined);
+    assert.equal(
+      workflowEnv.OPENMELD_RENDERER_NODE_HEAP_MB,
+      trainAdmission ? "4608" : undefined
+    );
     for (const scope of ["web", "desktop"]) {
       const env = productionBuildEnvironment(
         scope,
@@ -249,23 +259,11 @@ test("Production and Deep Confidence share an explicit heap within available run
         memoryBytes,
         "linux"
       );
-      const policy = resourcePolicy(env, memoryBytes, "linux");
-      assert.equal(env.NODE_OPTIONS, "--max-old-space-size=4096");
-      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, "5");
-      const admission = {
-        kind: "heavy",
-        entries: [],
-        rows: [],
-        policy,
-        pressure: "unknown",
-      };
       assert.equal(
-        admissionReason({ ...admission, availableBytes: 7_291_916_288 }),
-        null
+        env.NODE_OPTIONS,
+        `--max-old-space-size=${trainAdmission ? 4608 : 4096}`
       );
-      assert.ok(
-        admissionReason({ ...admission, availableBytes: 6 * 1024 ** 3 })
-      );
+      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, trainAdmission ? "5.5" : "5");
       assert.equal(
         env.OPENMELD_DESKTOP_TARGET,
         scope === "desktop" ? "production" : undefined

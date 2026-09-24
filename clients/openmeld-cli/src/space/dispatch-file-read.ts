@@ -17,19 +17,18 @@ const execFileAsync = promisify(execFile);
 
 /** Keep file access outside the controller sandbox, under the existing CLI auth contract. */
 export async function readDispatchSpaceFile(input: {
+  env?: NodeJS.ProcessEnv;
   fileId: string;
   revision?: number;
 }) {
-  if (
-    process.env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] !==
-    DISPATCH_OWNED_RUNTIME_MODE
-  ) {
+  const env = input.env ?? process.env;
+  if (env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] !== DISPATCH_OWNED_RUNTIME_MODE) {
     throw new Error(
       "Space file tools require an active OpenMeld dispatch runtime."
     );
   }
-  const context = readDispatchSpaceActionContextFromEnv();
-  const command = resolveDispatchSpaceActionMcpServer(process.env);
+  const context = readDispatchSpaceActionContextFromEnv(env);
+  const command = resolveDispatchSpaceActionMcpServer(env);
   if (!command) {
     throw new Error("No active OpenMeld dispatch file reader was found.");
   }
@@ -53,6 +52,7 @@ export async function readDispatchSpaceFile(input: {
     fileId,
   ];
   const { stdout } = await execFileAsync(command.commandPath, args, {
+    env,
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
     timeout: 30_000,

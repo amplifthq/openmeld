@@ -26,7 +26,7 @@ node scripts/release/build-cli-binary.mjs
 ```
 
 - The build reads `clients/openmeld-cli/package.json` as the only version source.
-- The current output is written under `clients/openmeld-cli/dist/binary/`.
+- The current output is written under `cli/dist/`, outside the npm package.
 - The artifact name is `openmeld-cli-<platform>-<version>`.
 - Local and production download channels also publish
   `openmeld-cli-<platform>-<version>.gz`. Setup and current binary CLI upgrades
@@ -42,7 +42,24 @@ node scripts/release/build-cli-binary.mjs
   version, size, and sha256 all match that previous release. Any base, download,
   parse, reconstruction, or final-hash failure automatically falls back to the
   complete gzip archive.
-- The supported platform for this milestone is `darwin-arm64`.
+- The signed stable production binary channel currently supports `darwin-arm64`.
+  An explicitly selected, separate `windows-preview` manifest can carry the
+  unsigned internal Windows x64 trial; it does not change the signed stable
+  channel or authorize a public Windows release.
+- Signed Windows release records require `windows.publisherName` and an immutable
+  `windows.processHelper` URL, size, and SHA-256 alongside the primary carrier.
+  CLI and Service records use the same shape. Windows publisher metadata is
+  rejected on another platform and cannot be combined with Apple signing
+  identity. The shared native Authenticode verifier is used by CLI acquisition
+  and Desktop updates; missing Windows publisher metadata is an integrity
+  failure, not permission to run an unsigned binary. Companion acquisition
+  reuses the existing bounded download policy and verifies the same publisher
+  before installation. The caller owns the disposable directory and failure
+  cleanup. The separate internal preview record instead declares
+  `mode: internal-unsigned-preview` and requires exact manifest opt-in in the
+  production Windows clients. Its size/hash checks do not authenticate the
+  publisher, so it is limited to known coworkers and may encounter Windows
+  warnings or enterprise blocks.
 - The binary distribution marker is injected at compile time by `bun build --compile`.
 - Release builds minify bundled code while preserving function and class names
   for diagnostics. This reduces the current executable by about 4.4 MiB and
@@ -53,6 +70,18 @@ node scripts/release/build-cli-binary.mjs
 - Managed installs also retain the active binary Service's source version while
   it remains referenced, even if several CLI versions have been installed since.
   Service retention is independent of CLI rollback selection.
+- The Windows managed layout uses immutable `versions/<version>/openmeld.exe`
+  plus its process helper, and one `bin/cli-installation.json` selection record.
+  `bin/openmeld.exe` is a thin native console launcher built from the same helper
+  artifact; it forwards argv, inherited streams, and exit status to that selected
+  CLI. It has no account, connection, or update authority. Windows never creates
+  privileged symlinks or overwrites mapped executable bytes. Install and existing
+  maintenance reconcile an interrupted launcher replacement from the selected
+  immutable version. A retained running launcher is removed on a later pass.
+  The shared installer lock and semver/rollback policy remain the owners. Native
+  version cleanup acquires all known bundle files before removal; an in-use or
+  unrecognized directory is retained. These installation changes remain under
+  native acceptance and do not advertise a Windows production channel.
 - Managed installs retain the active CLI version and one usable rollback
   version older than the active version. Incomplete and older managed
   semantic-version directories are removed during `install-self`; unrecognized
@@ -83,6 +112,92 @@ node scripts/release/build-cli-binary.mjs
   setup. Follow-up commands name the managed binary path, so they remain usable
   even when the current terminal still resolves the older npm command;
   an already-authoritative command adds no npm install or network round trip.
+
+### Windows native carrier acceptance
+
+For the internal Windows x64 trial, `.github/workflows/windows-internal-preview.yml`
+builds CLI, Service, process helper, and the unsigned production-account
+Desktop installer on a native Windows runner. It exercises the delivered
+carriers without user Node/Bun in the fixture PATH and inspects the actual
+installer payload before exporting an exact-source GitHub artifact. It runs on
+explicit dispatch, not every Draft or Ready update. Dispatch it for a Windows
+preview candidate and check the run's source SHA:
+
+```sh
+gh workflow run windows-internal-preview.yml --ref <candidate-branch>
+```
+
+Run its
+read-only handoff check from a clean checkout of the artifact's source SHA:
+
+```sh
+node scripts/release/publish-windows-internal-preview.mjs check <extracted-artifact-directory>
+```
+
+The guarded `publish` mode is a separate, authorized release action after
+merging; do not run it merely to mark the feature PR Ready. On release, build
+again from the exact merged main SHA, check the downloaded artifact, then
+publish immutable executables first and the preview CLI manifest and Desktop
+pointer last. The Web deployment must include the preview routes before the
+command or Desktop link is shared. This trial does not change the signed stable
+CLI publisher, supply Authenticode trust, or enable Desktop auto-updates.
+
+On a Windows x64 build machine, build the console CLI and GUI-subsystem
+background Service from the same production entry:
+
+```powershell
+node scripts/release/build-windows-process-helper.mjs
+node scripts/release/build-cli-binary.mjs --platform windows-x64
+node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
+```
+
+Artifacts are `cli/dist/openmeld-cli-windows-x64-<version>.exe` and
+`cli/dist/openmeld-service-windows-x64-<version>.exe`, with the shared
+`cli/dist/openmeld-windows-process.exe` next to them. The native helper is built
+with .NET SDK 10.0.401 / Native AOT on Windows; it needs no user-installed .NET
+runtime or compiler. Both the binary version bundle and npm's `dist/windows`
+must carry that helper. Signing and multi-platform publication assembly remain
+part of the installation/release gate; these development artifacts must not be
+published as a complete Windows channel. The builder verifies the carriers'
+actual PE subsystem values; a build flag alone is not sufficient evidence.
+The Windows acceptance workflow pins Bun 1.4.2: the previous 1.3.14 Windows
+compiler returned before applying `--windows-hide-console`. This does not change
+the macOS publisher's toolchain.
+
+`native-artifacts` in Windows compatibility exercises the real Service/private
+Host channel, account fencing and shutdown, plus compiled SQLite and Agent SDK
+protocol boundaries. Its child consumption environment uses disposable user
+state and Windows-system-only PATH. Build tools on the hosted runner are not a
+clean standard-user environment, and the protocol peer is not model inference.
+Any failed native acceptance step fails its job. Artifacts are unsigned and
+retained for bounded review, not published to a product channel.
+This native workflow is also explicit, and is not a required PR check. Run it
+when changing Windows carrier or process behavior, or before a Windows release;
+check that the run used the intended candidate SHA:
+
+```sh
+gh workflow run windows-compatibility.yml --ref <candidate-branch>
+```
+
+For Mac development, a successful native artifact job also retains a small
+`windows-process-<run>-<attempt>` artifact. Download that exact artifact from a
+run of this branch, then import it with:
+
+```sh
+gh run download <run> --name windows-process-<run>-<attempt> --dir dev-tmp/windows-process-download
+node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-download
+```
+
+Import verifies the pinned native build inputs and binary hash before copying
+the helper into the workspace outputs. A changed C# source, SDK selection, or
+helper build script requires a new Windows build. CLI packaging verifies it
+again and rejects stale bytes; it never compiles C# on a user's machine. This
+is build-input integrity, not Authenticode or production provenance. Production
+assembly must consume its own trusted source-matched Windows build. That
+release integration is still required before this implementation can be ready.
+
+The implementation status and exact native evidence live in
+[Windows Computer Connection Design](../architecture/windows-computer-connection-design.md).
 
 ### Local Web Setup Download Smoke
 
@@ -119,7 +234,7 @@ http://127.0.0.1:3197/cli/download/openmeld-cli-darwin-arm64-<version>.gz
   manifest download, gzip download and verification, decompression, final
   executable verification, `install-self`, managed CLI path, and
   `openmeld setup`.
-- Directly running `clients/openmeld-cli/dist/binary/<artifact>` is useful for
+- Directly running `cli/dist/<artifact>` is useful for
   CLI debugging, but it does not test the Web setup download, manifest, sha256,
   or managed install path.
 

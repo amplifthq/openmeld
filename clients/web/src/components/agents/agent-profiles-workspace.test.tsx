@@ -557,11 +557,15 @@ describe("AgentProfilesWorkspace", () => {
 		expect(onViewChange).toHaveBeenCalledWith("agents");
 	});
 	it("confirms only visible selected Agents, cancels without deleting, and retains a failed selection", async () => {
-		const onDeleteProfiles = vi
-			.fn()
-			.mockResolvedValue([
-				{ profileId: "agent-current", message: "Permission changed." },
-			]);
+		let finishDeletion!: (
+			failures: { profileId: string; message: string }[]
+		) => void;
+		const onDeleteProfiles = vi.fn(
+			(_profiles: readonly AuthProfileView[]) =>
+				new Promise<{ profileId: string; message: string }[]>((resolve) => {
+					finishDeletion = resolve;
+				})
+		);
 		const onSelectProfile = vi.fn();
 		renderWorkspace({ onDeleteProfiles, onSelectProfile });
 		fireEvent.click(screen.getByRole("button", { name: "Select" }));
@@ -585,18 +589,30 @@ describe("AgentProfilesWorkspace", () => {
 				name: "Delete 1 Agent",
 			})
 		);
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(screen.getByText("Deleting 1 Agent…")).toBeTruthy();
+		expect(screen.queryByLabelText("Select Felix Agent")).toBeNull();
 		await waitFor(() => expect(onDeleteProfiles).toHaveBeenCalledTimes(1));
 		expect(
 			onDeleteProfiles.mock.calls[0]?.[0].map(
 				(profile: AuthProfileView) => profile.openMeldProfileId
 			)
 		).toEqual(["agent-current"]);
+		finishDeletion([
+			{ profileId: "agent-current", message: "Permission changed." },
+		]);
 		expect(
 			await screen.findByText("Felix Agent: Permission changed.")
 		).toBeTruthy();
 		expect(
 			(screen.getByLabelText("Select Felix Agent") as HTMLInputElement).checked
 		).toBe(true);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review failed Agents" })
+		);
+		expect(
+			within(screen.getByRole("dialog")).getByText("Felix Agent")
+		).toBeTruthy();
 	});
 
 	it("omits the Organization-only request entry in a personal workspace", () => {

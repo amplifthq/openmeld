@@ -9,7 +9,7 @@ export type InteractivePromptStatus = "active" | "submitted" | "cancelled";
 
 // Interactive prompts default to the process std streams, but callers can pass
 // an explicit terminal (e.g. /dev/tty) so a prompt can run even when stdin is
-// redirected to /dev/null — as happens in the `curl | sh` setup bootstrap.
+// redirected to /dev/null — as happens in the Web setup bootstrap.
 export type InteractivePromptStreams = {
   input: NodeJS.ReadStream;
   output: NodeJS.WriteStream;

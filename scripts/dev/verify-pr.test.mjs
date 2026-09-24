@@ -31,6 +31,49 @@ test("checks signed Skill inputs in feedback and PR validation without checking 
   }
 });
 
+test("focused PR validation keeps checks for changed workspaces with adjacent tests", () => {
+  const paths = [
+    "scripts/dev/verify-pr.test.mjs",
+    "clients/web/src/app.tsx",
+    "clients/openmeld-cli/src/commands/service.ts",
+    "clients/desktop/src/deleted.ts",
+  ];
+  const existingFiles = [
+    ...paths.slice(0, 3),
+    "clients/web/src/app.test.tsx",
+    "clients/openmeld-cli/src/commands/service.test.ts",
+  ];
+  const workspaces = [
+    { directory: "clients/web", name: "openmeld-web", test: "vitest run" },
+    { directory: "clients/openmeld-cli", name: "openmeld", test: "vitest run" },
+    {
+      directory: "clients/desktop",
+      name: "@openmeld/desktop",
+      test: "vitest run",
+    },
+  ];
+  const commands = planPrChecks(paths, {
+    feedback: true,
+    existingFiles,
+    workspaces,
+  });
+  assert.ok(
+    commands.some((args) => args.includes("scripts/dev/verify-pr.test.mjs"))
+  );
+  assert.ok(commands.some((args) => args.includes("biome")));
+  assert.ok(
+    commands.some((args) => args.includes("--filter=openmeld-web^..."))
+  );
+  assert.ok(commands.some((args) => args.includes("--filter=openmeld^...")));
+  assert.deepEqual(
+    commands.filter((args) => args.includes("vitest")).map((args) => args[1]),
+    ["clients/web", "clients/openmeld-cli"]
+  );
+  assert.ok(commands.every((args) => !args.includes("related")));
+  assert.ok(
+    commands.every((args) => !args.some((arg) => arg.startsWith("--shard=")))
+  );
+});
 test("Worker changes select the existing Zod contract guard before expensive tests", () => {
   for (const feedback of [true, false]) {
     for (const file of [
@@ -58,7 +101,7 @@ test("Worker changes select the existing Zod contract guard before expensive tes
   }
 });
 
-test("focused checks changed files and related tests without package builds", () => {
+test("focused checks changed files and adjacent tests without package builds", () => {
   const sources = [
     "clients/web/src/sidebar.tsx",
     "clients/web/src/sidebar.test.tsx",
@@ -80,14 +123,11 @@ test("focused checks changed files and related tests without package builds", ()
       "clients/web",
       "exec",
       "vitest",
-      "related",
-      "--run",
+      "run",
       "--config",
       "vitest.config.ts",
-      "--passWithNoTests",
       "--maxWorkers=2",
       "--no-file-parallelism",
-      "src/sidebar.tsx",
       "src/sidebar.test.tsx",
     ],
   ]);
@@ -131,15 +171,14 @@ test("docs-only focused checks avoid code, test discovery, and builds", () => {
   ]);
 });
 
-test("unsupported package runners execute their own test command instead of silently skipping", () => {
+test("focused feedback leaves non-Vitest package tests to the agent", () => {
   const commands = planPrChecks(["services/core/src/index.ts"], {
     feedback: true,
     workspaces: [
       { directory: "services/core", test: "pnpm run test:boundary" },
     ],
   });
-  assert.equal(commands.length, 3);
-  assert.deepEqual(commands[2], ["--dir", "services/core", "run", "test"]);
+  assert.equal(commands.length, 2);
   assert.ok(commands[1].includes("biome"));
 });
 
@@ -231,6 +270,7 @@ test("unit aliases retain package-owned configuration and reject cycles", () => 
 test("focused tests build dependencies once through Turbo, not the changed app", () => {
   const commands = planPrChecks(["clients/web/src/app.tsx"], {
     feedback: true,
+    existingFiles: ["clients/web/src/app.tsx", "clients/web/src/app.test.tsx"],
     workspaces: [
       { directory: "clients/web", name: "openmeld-web", test: "vitest run" },
     ],
@@ -243,7 +283,27 @@ test("focused tests build dependencies once through Turbo, not the changed app",
     "--filter=openmeld-web^...",
     "--concurrency=1",
   ]);
-  assert.ok(commands[2].includes("related"));
+  assert.ok(commands[2].includes("src/app.test.tsx"));
+});
+
+test("a shared component without an adjacent test does not trigger a workspace sweep", () => {
+  const commands = planPrChecks(["clients/web/src/shared-video.tsx"], {
+    feedback: true,
+    existingFiles: ["clients/web/src/shared-video.tsx"],
+    workspaces: [
+      { directory: "clients/web", name: "openmeld-web", test: "vitest run" },
+    ],
+  });
+  assert.deepEqual(commands, [
+    [
+      "exec",
+      "biome",
+      "check",
+      "--no-errors-on-unmatched",
+      "--",
+      "clients/web/src/shared-video.tsx",
+    ],
+  ]);
 });
 
 test("focused Node tests run after changed workspace dependencies are built", () => {
@@ -257,6 +317,7 @@ test("focused Node tests run after changed workspace dependencies are built", ()
       feedback: true,
       existingFiles: [
         "clients/desktop/src/main/main.ts",
+        "clients/desktop/src/main/main.test.ts",
         "clients/desktop/package.json",
         "scripts/release/desktop-preview.mjs",
         "scripts/release/desktop-preview.test.mjs",

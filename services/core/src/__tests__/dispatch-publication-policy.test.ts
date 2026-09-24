@@ -42,7 +42,7 @@ const PROVIDER_RATE_LIMIT_COPY =
 const CURSOR_MODEL_INVENTORY_UNAVAILABLE_COPY =
   "Cursor couldn't confirm which models are available right now. Try waking the agent again.";
 const malformedReplyCopy = (targetName: string) =>
-  `${targetName} answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.`;
+  `OpenMeld could not confirm a Space response from ${targetName}, even after automatic recovery.`;
 
 describe("dispatch publication policy", () => {
   it("settles a recorded self-Wake as a visible failure instead of retrying publication", () => {
@@ -401,7 +401,9 @@ describe("dispatch publication policy", () => {
   it("publishes explicit post_status with agent-authored text", () => {
     const plan = resolveDispatchPublicationPlan({
       actorName: "oh-my-claude",
-      dispatchMessage: createDispatchMessage(),
+      dispatchMessage: createDispatchMessage({
+        allowedActions: ["post_status"],
+      }),
       payload: {
         status: "success",
         spaceAction: {
@@ -428,7 +430,9 @@ describe("dispatch publication policy", () => {
   it("bounds explicit post_status text to the signal.status display contract", () => {
     const plan = resolveDispatchPublicationPlan({
       actorName: "oh-my-claude",
-      dispatchMessage: createDispatchMessage(),
+      dispatchMessage: createDispatchMessage({
+        allowedActions: ["post_status"],
+      }),
       payload: {
         status: "success",
         spaceAction: {
@@ -811,8 +815,10 @@ describe("dispatch publication policy", () => {
     });
   });
 
-  it("preserves structured status metadata when archiving all final results", () => {
-    const dispatchMessage = createDispatchMessage();
+  it("preserves legacy structured status metadata when archiving all final results", () => {
+    const dispatchMessage = createDispatchMessage({
+      allowedActions: ["post_status"],
+    });
     const plan = resolveDispatchPublicationPlan({
       actorName: "oh-my-claude",
       dispatchMessage: {

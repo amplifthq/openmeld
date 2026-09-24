@@ -11,6 +11,7 @@ import type {
   AdapterRuntimeEvent,
   AdapterToolActivityEvent,
 } from "@openmeld/adapter-core";
+import { DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV } from "@openmeld/adapter-core";
 import type { RuntimeTaskResult } from "@openmeld/local-execution";
 import {
   appendLedgerHistoryEntry,
@@ -98,6 +99,7 @@ import {
   supersedeDispatchSpaceActionRecordForReconsideration,
 } from "../../runtime/dispatch-space-action-context";
 import type { Presenter } from "../../runtime/presenter/types";
+import { createDispatchSpaceTools } from "../../space/action-mcp-server";
 import { fetchSpaceMeta } from "../../space/meta-api";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
@@ -117,6 +119,10 @@ import type {
   LedgerPaths,
 } from "../core/types";
 import { DaemonServiceRunError } from "../core/types";
+import {
+  type ClaudeProjectContainerRuntime,
+  prepareClaudeProjectContainer,
+} from "../file-access/claude-project-container";
 import { resolveComputerFileAccessAdmission } from "../file-access/computer-file-access-admission";
 import { applyComputerFileAccessAwareness } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
@@ -1117,6 +1123,7 @@ export async function handleDispatchDeliverFrame(input: {
   let dispatchSpaceActionContext: DispatchSpaceActionContext | null = null;
   let nativeQuiescence: Promise<void> | undefined;
   let workspaceUse: ExecutionContextWorkspaceUse | null = null;
+  let claudeProjectRuntime: ClaudeProjectContainerRuntime | null = null;
   const workspaceProcesses = new Map<number | null, boolean>();
   const observeWorkspaceProcess = (event: AdapterRuntimeEvent) =>
     observeExecutionContextWorkspaceProcess(workspaceProcesses, event);
@@ -1200,7 +1207,13 @@ export async function handleDispatchDeliverFrame(input: {
       providerRuntimeWorkingDirectory: handoffWorkingDirectory,
     };
     runtimePreparation.effectiveRuntimeContext = effectiveRuntimeContext;
+    claudeProjectRuntime = await prepareDispatchClaudeProjectContainer({
+      parsedTask,
+      taskWorkspace,
+      workingDirectory: handoffWorkingDirectory,
+    });
     computerFileAccessBoundary = await resolveDispatchComputerFileAccess({
+      claudeProjectRuntime,
       computerFileAccessStorePath: input.computerFileAccessStorePath,
       onInteractionRequest,
       parsedTask,
@@ -1247,9 +1260,12 @@ export async function handleDispatchDeliverFrame(input: {
     });
     const spaceActionRuntimeContext = createDispatchSpaceActionRuntimeContext({
       bootstrapContext,
+      claudeProjectRuntime,
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
       parsedTask,
       runtimePreparation,
       sendTargetReference,
+      taskWorkspace,
     });
     dispatchSpaceActionContext =
       spaceActionRuntimeContext.dispatchSpaceActionContext;
@@ -1297,7 +1313,10 @@ export async function handleDispatchDeliverFrame(input: {
         existingContextId,
       });
     workspaceUse = await markExecutionContextWorkspaceInUse({
+      attemptId: parsedTask.attemptId,
       context: parsedTask.executionContext,
+      containerRuntime: claudeProjectRuntime,
+      dispatchId: parsedTask.dispatchId,
       ledgerRootPath: input.ledgerPaths.rootDirPath,
     });
     runtimeEnvOverrides = {
@@ -2843,6 +2862,7 @@ function buildDispatchRuntimePrompt(input: {
   taskWorkspace?: ExecutionContextWorkspace;
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
+    executionContextAccess: input.parsedTask.executionContext?.access,
     callerContext: input.parsedTask.callerContext,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
@@ -2919,6 +2939,46 @@ async function prepareDispatchTaskWorkspace(input: {
   return { workingDirectory, boundaryRoot: workingDirectory };
 }
 
+async function prepareDispatchClaudeProjectContainer(input: {
+  parsedTask: ParsedDispatchTask;
+  taskWorkspace: ExecutionContextWorkspace;
+  workingDirectory: string;
+}): Promise<ClaudeProjectContainerRuntime | null> {
+  const context = input.parsedTask.executionContext;
+  if (
+    input.parsedTask.agentControllerRef !== "builtin:claude-code" ||
+    context?.access !== "workspace" ||
+    context.workspace !== "isolated"
+  ) {
+    return null;
+  }
+  try {
+    return await prepareClaudeProjectContainer({
+      boundaryRoot: input.taskWorkspace.boundaryRoot,
+      contextId: context.id,
+      workspacePath: input.workingDirectory,
+    });
+  } catch (error) {
+    const code =
+      error instanceof Error && error.message.startsWith("claude_project.")
+        ? error.message.split(":")[0]
+        : "claude_project.isolation_unverified";
+    let message =
+      "OpenMeld could not verify this task's project container isolation. Check Docker or Podman and try again.";
+    if (code === "claude_project.container_runtime_unavailable") {
+      message =
+        "Start Docker or Podman with a Linux container engine on this computer, then try this project task again.";
+    } else if (code === "claude_project.image_unavailable") {
+      message =
+        "Docker or Podman could not prepare the task image. Check the container engine and try again.";
+    }
+    throw new DaemonServiceRunError({
+      code: code ?? "claude_project.isolation_unverified",
+      message,
+    });
+  }
+}
+
 async function releaseDispatchTaskWorkspace(input: {
   workspaceUse: ExecutionContextWorkspaceUse | null;
   parsedTask: ParsedDispatchTask;
@@ -2972,6 +3032,7 @@ function observeExecutionContextWorkspaceProcess(
 }
 
 async function resolveDispatchComputerFileAccess(input: {
+  claudeProjectRuntime: ClaudeProjectContainerRuntime | null;
   computerFileAccessStorePath: string;
   onInteractionRequest: AdapterInteractionCallback;
   parsedTask: ParsedDispatchTask;
@@ -2992,6 +3053,14 @@ async function resolveDispatchComputerFileAccess(input: {
     if (
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
       context.access === "space_context"
+    ) {
+      return null;
+    }
+    if (
+      input.parsedTask.agentControllerRef === "builtin:claude-code" &&
+      context.access === "workspace" &&
+      context.workspace === "isolated" &&
+      input.claudeProjectRuntime
     ) {
       return null;
     }
@@ -3073,14 +3142,30 @@ async function resolveDispatchComputerFileAccess(input: {
 
 function createDispatchSpaceActionRuntimeContext(input: {
   bootstrapContext: DispatchBootstrapContext;
+  claudeProjectRuntime: ClaudeProjectContainerRuntime | null;
+  ledgerRootPath: string;
   parsedTask: ParsedDispatchTask;
   runtimePreparation: DispatchRuntimePreparation;
   sendTargetReference: DispatchSendTargetReferenceLoadResult;
+  taskWorkspace: ExecutionContextWorkspace;
 }): {
   dispatchSpaceActionContext: DispatchSpaceActionContext;
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    ...(input.claudeProjectRuntime && input.parsedTask.executionContext
+      ? {
+          projectShell: {
+            boundaryRoot: input.taskWorkspace.boundaryRoot,
+            executionContextId: input.parsedTask.executionContext.id,
+            ledgerRootPath: input.ledgerRootPath,
+            workspacePath:
+              input.runtimePreparation.effectiveRuntimeContext
+                .providerRuntimeWorkingDirectory,
+            runtime: input.claudeProjectRuntime,
+          },
+        }
+      : {}),
     workingCopyId: input.parsedTask.workingCopyId,
     attemptId: input.parsedTask.attemptId,
     dispatchId: input.parsedTask.dispatchId,
@@ -3839,7 +3924,10 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
           prompt,
           routeConfig: input.routeConfig,
           runtimeContext: input.runtimeContext,
-          runtimeEnvOverrides: input.runtimeEnvOverrides,
+          runtimeEnvOverrides: {
+            ...input.runtimeEnvOverrides,
+            [DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV]: "1",
+          },
           runtimeControllerSupport: input.runtimeControllerSupport,
           streamingModeOverride: "final",
           agentControllerConversationOverride:
@@ -4476,24 +4564,6 @@ async function maybeRepairStructuredSpaceAction(input: {
     },
   });
 
-  const skillRepair = await ensureDispatchControllerOpenMeldSkill({
-    agentControllerRef: input.parsedTask.agentControllerRef,
-  });
-  emitRunLine({
-    presenter: input.presenter,
-    code: "daemon.run.dispatch_controller_skill_repair_checked",
-    text: `OpenMeld skill repair checked for task ${input.parsedTask.taskId}`,
-    payload: {
-      agentControllerRef: input.parsedTask.agentControllerRef,
-      agentId: skillRepair.agentId,
-      dispatchId: input.parsedTask.dispatchId,
-      ...(skillRepair.reason ? { reason: skillRepair.reason } : {}),
-      status: skillRepair.status,
-      targetProfileId: input.parsedTask.targetProfileId,
-      taskId: input.parsedTask.taskId,
-    },
-  });
-
   if (!input.runControllerRepair) {
     return {
       finalFailureDiagnostics: resolveStructuredActionFailureDiagnostics({
@@ -4830,42 +4900,51 @@ async function runDispatchRuntimeExecution(input: {
   streamingModeOverride?: DispatchRuntimeRoute["streamingMode"];
   agentControllerConversationOverride?: AgentControllerConversationRef | null;
 }): Promise<Awaited<ReturnType<typeof runRuntimeTask>>> {
-  await input.onNativeTurnStarted();
-  const result = await runRuntimeTask({
-    // Admission/continuation already selected the conversation. An explicit
-    // null means start fresh, not permission to restore a retained ledger ID.
-    agentContextOverride: {
-      agentControllerConversationId: input.contextId,
-      agentControllerConversationOverride:
-        input.agentControllerConversationOverride ?? null,
-    },
-    io: input.io,
-    ...(input.onInteractionRequest
-      ? { onInteractionRequest: input.onInteractionRequest }
-      : {}),
-    ...(input.onPreview ? { onPreview: input.onPreview } : {}),
-    ...(input.onRuntimeEvent ? { onRuntimeEvent: input.onRuntimeEvent } : {}),
-    paths: input.ledgerPaths,
-    route: buildDispatchRuntimeRoute({
-      contextId: input.contextId,
-      envOverrides: input.runtimeEnvOverrides,
-      parsedTask: input.parsedTask,
-      routeConfig: input.routeConfig,
-      runtimeControllerSupport: input.runtimeControllerSupport,
-      streamingMode:
-        input.streamingModeOverride ?? input.parsedTask.streamingMode,
-    }),
-    task: buildDispatchRuntimeTask({
-      computerFileAccessBoundary: input.computerFileAccessBoundary,
-      executionMode: input.executionMode,
-      instructionPrompt: input.instructionPrompt,
-      parsedTask: input.parsedTask,
-      prompt: input.prompt,
-      runtimeContext: input.runtimeContext,
-    }),
+  const route = buildDispatchRuntimeRoute({
+    contextId: input.contextId,
+    envOverrides: input.runtimeEnvOverrides,
+    parsedTask: input.parsedTask,
+    routeConfig: input.routeConfig,
+    runtimeControllerSupport: input.runtimeControllerSupport,
+    streamingMode:
+      input.streamingModeOverride ?? input.parsedTask.streamingMode,
   });
-  input.onNativeTurnCompleted(result);
-  return result;
+  const spaceActionTools = route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+    ? createDispatchSpaceTools({ env: { ...process.env, ...route.env } })
+    : undefined;
+  try {
+    await input.onNativeTurnStarted();
+    const result = await runRuntimeTask({
+      spaceActionTools,
+      // Admission/continuation already selected the conversation. An explicit
+      // null means start fresh, not permission to restore a retained ledger ID.
+      agentContextOverride: {
+        agentControllerConversationId: input.contextId,
+        agentControllerConversationOverride:
+          input.agentControllerConversationOverride ?? null,
+      },
+      io: input.io,
+      ...(input.onInteractionRequest
+        ? { onInteractionRequest: input.onInteractionRequest }
+        : {}),
+      ...(input.onPreview ? { onPreview: input.onPreview } : {}),
+      ...(input.onRuntimeEvent ? { onRuntimeEvent: input.onRuntimeEvent } : {}),
+      paths: input.ledgerPaths,
+      route,
+      task: buildDispatchRuntimeTask({
+        computerFileAccessBoundary: input.computerFileAccessBoundary,
+        executionMode: input.executionMode,
+        instructionPrompt: input.instructionPrompt,
+        parsedTask: input.parsedTask,
+        prompt: input.prompt,
+        runtimeContext: input.runtimeContext,
+      }),
+    });
+    input.onNativeTurnCompleted(result);
+    return result;
+  } finally {
+    spaceActionTools?.close();
+  }
 }
 
 function buildDispatchRuntimeRoute(input: {

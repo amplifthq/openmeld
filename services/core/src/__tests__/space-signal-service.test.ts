@@ -529,7 +529,8 @@ const buildWakeProgressItemFromLookupTrace = async (
   includeWakeStopEligibility = wakeStopEligibility !== null,
   includeWaitReason = false,
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence,
-  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null = null
+  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null = null,
+  includeTiming = true
 ): Promise<WakeProgressItem> => {
   const lookupMatch = {
     dispatchId: "dispatch-head-progress-1",
@@ -561,6 +562,7 @@ const buildWakeProgressItemFromLookupTrace = async (
     ) => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressPreAgentWakeStopEligibility: () => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressRuntimeDeviceDisplayName: () => Promise<string | null>;
+    readWakeProgressPendingAgentInteraction: () => Promise<null>;
   };
   const bindings = {} as CoreBindings;
   Object.defineProperties(space, {
@@ -570,6 +572,9 @@ const buildWakeProgressItemFromLookupTrace = async (
       value: vi.fn(async () => ({ trace })),
     },
     readWakeProgressRuntimeDeviceDisplayName: {
+      value: vi.fn(async () => null),
+    },
+    readWakeProgressPendingAgentInteraction: {
       value: vi.fn(async () => null),
     },
     readWakeProgressWakeStopEligibility: {
@@ -582,7 +587,7 @@ const buildWakeProgressItemFromLookupTrace = async (
 
   return await space.buildWakeProgressItemFromLookupEvidence({
     clientMessageId: "client-message-1",
-    includeTiming: true,
+    includeTiming,
     includeWaitReason,
     includeWakeStopEligibility,
     nativeDeliveryEvidence,
@@ -4540,7 +4545,7 @@ describe("space signal service", () => {
     } as unknown as SpaceDispatchTraceSnapshot);
 
     expect(item).toMatchObject({
-      phase: "retrying",
+      phase: "connecting",
       message:
         "OpenMeld cannot read Wake owner status for @Codex Agent right now.",
       terminal: false,
@@ -4997,6 +5002,149 @@ describe("space signal service", () => {
       reasonCode: null,
       reliability: "openmeld_owned_pre_agent",
       status: "eligible",
+    });
+  });
+
+  it("does not promise a retry from a rejected delivery without a current owner decision", async () => {
+    const rejectedTrace = createRunningRuntimeCoordinatorTrace();
+    const rejectedExecution = rejectedTrace.runtimeCoordinatorExecution;
+    if (!rejectedExecution) {
+      throw new Error("Expected a RuntimeCoordinator execution");
+    }
+    const rejected = await buildWakeProgressItemFromLookupTrace(
+      {
+        ...rejectedTrace,
+        runtimeCoordinatorExecution: {
+          ...rejectedExecution,
+          status: "delivery_rejected",
+        },
+      },
+      [],
+      {
+        latestAttemptErrorCode: "daemon.profile.offline",
+        latestAttemptStatus: "failed_retryable",
+        status: "failed_retryable",
+      },
+      null,
+      false,
+      false,
+      undefined,
+      null,
+      false
+    );
+    expect(rejected).toMatchObject({
+      failureReasonCode: null,
+      message: "Checking the Wake status for @Codex Agent.",
+      phase: "connecting",
+      terminal: false,
+    });
+  });
+
+  it("does not infer a retry from a retryable ledger row alone", async () => {
+    const item = await buildWakeProgressItemFromLookupTrace(
+      {
+        ...createRunningRuntimeCoordinatorTrace(),
+        runtimeCoordinatorExecution: null,
+      },
+      [],
+      {
+        latestAttemptErrorCode: "daemon.profile.offline",
+        latestAttemptStatus: "failed_retryable",
+        status: "failed_retryable",
+      }
+    );
+
+    expect(item).toMatchObject({
+      failureReasonCode: null,
+      message: "Checking the Wake status for @Codex Agent.",
+      phase: "connecting",
+      terminal: false,
+    });
+  });
+
+  it("shows the bounded wait when the Wake owner retains a rejected delivery", async () => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    const item = await buildWakeProgressItemFromLookupTrace({
+      ...trace,
+      runtimeCoordinatorExecution: trace.runtimeCoordinatorExecution
+        ? {
+            ...trace.runtimeCoordinatorExecution,
+            status: "delivery_rejected",
+          }
+        : null,
+      runtimeCoordinatorHeadLifecycle: {
+        factSource: "runtime_coordinator_head_lifecycle",
+        readStatus: "found",
+        waitingBoundary: {
+          deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+          reasonCode: "local_service.not_accepting_wakes",
+          softDeadlineAt: new Date(Date.now() + 30_000).toISOString(),
+        },
+      },
+    } as unknown as SpaceDispatchTraceSnapshot);
+
+    expect(item).toMatchObject({
+      failureReasonCode: null,
+      message:
+        "Waiting for OpenMeld Service to accept new tasks for @Codex Agent.",
+      phase: "retrying",
+      terminal: false,
+    });
+  });
+
+  it("shows the bounded wait when a retryable ledger row has a current owner wait", async () => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    const item = await buildWakeProgressItemFromLookupTrace({
+      ...trace,
+      runtimeCoordinatorExecution: trace.runtimeCoordinatorExecution
+        ? { ...trace.runtimeCoordinatorExecution, status: "failed_retryable" }
+        : null,
+      runtimeCoordinatorHeadLifecycle: {
+        factSource: "runtime_coordinator_head_lifecycle",
+        readStatus: "found",
+        waitingBoundary: {
+          deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+          reasonCode: "local_service.not_accepting_wakes",
+          softDeadlineAt: new Date(Date.now() + 30_000).toISOString(),
+        },
+      },
+    } as unknown as SpaceDispatchTraceSnapshot);
+
+    expect(item).toMatchObject({
+      failureReasonCode: null,
+      phase: "retrying",
+      terminal: false,
+    });
+  });
+
+  it("keeps a Wake owner's no-execution decision ahead of retained wait evidence", async () => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    const item = await buildWakeProgressItemFromLookupTrace({
+      ...trace,
+      runtimeCoordinatorExecution: trace.runtimeCoordinatorExecution
+        ? {
+            ...trace.runtimeCoordinatorExecution,
+            status: "delivery_rejected",
+          }
+        : null,
+      runtimeCoordinatorHeadLifecycle: {
+        factSource: "runtime_coordinator_head_lifecycle",
+        readStatus: "found",
+        noExecutionDecision: {
+          reasonCode: "wake.device_wait.expired",
+        },
+        waitingBoundary: {
+          deadlineAt: new Date(Date.now() - 1000).toISOString(),
+          reasonCode: "local_service.not_accepting_wakes",
+          softDeadlineAt: new Date(Date.now() - 2000).toISOString(),
+        },
+      },
+    } as unknown as SpaceDispatchTraceSnapshot);
+
+    expect(item).toMatchObject({
+      failureReasonCode: "wake.device_wait.expired",
+      phase: "failed",
+      terminal: false,
     });
   });
 

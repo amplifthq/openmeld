@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import {
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
+  OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
+} from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ENTITLEMENTS_PATH = path.join(SCRIPT_DIR, "macos-cli.entitlements.plist");
@@ -24,7 +28,8 @@ const LINE_SPLIT_RE = /\r?\n/u;
 const HARDENED_RUNTIME_FLAG_RE = /flags=.*\bruntime\b/u;
 const SIGNING_TIMESTAMP_RE = /(?:Timestamp|Signed Time)=/u;
 
-export const DEFAULT_APPLE_TEAM_ID = "38FFHDPA3B";
+export const DEFAULT_APPLE_TEAM_ID =
+  OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier;
 export const DEFAULT_NOTARY_KEYCHAIN_PROFILE = "openmeld-notary";
 export const REQUIRED_BUN_ENTITLEMENTS = [
   "com.apple.security.cs.allow-jit",
@@ -76,7 +81,7 @@ export function buildCodeSignArgs(input) {
     "runtime",
     "--timestamp",
     "--identifier",
-    "sh.openmeld.cli",
+    OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier,
     "--entitlements",
     input.entitlementsPath,
     ...(input.keychainPath ? ["--keychain", input.keychainPath] : []),
@@ -415,7 +420,13 @@ function resolveDeveloperIdIdentity(input) {
 
 function verifySignedCliBinary(input) {
   runCommand({
-    args: ["--verify", "--strict", "--verbose=2", input.outFile],
+    args: [
+      "--verify",
+      "--strict",
+      "--verbose=2",
+      `-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`,
+      input.outFile,
+    ],
     command: "codesign",
     env: input.env,
     label: "Verify the Developer ID signature",

@@ -854,6 +854,7 @@ const resolveDefaultCodexAppServerInvoke = (input: {
       env: dispatchInput.env,
       executionMode: dispatchInput.executionMode,
       instructionPrompt: dispatchInput.instructionPrompt,
+      spaceActionTools: dispatchInput.spaceActionTools,
       newSessionTitle: dispatchInput.newSessionTitle,
       onActiveTurn: input.registerAppServerTurn,
       ...(dispatchInput.onInteractionRequest

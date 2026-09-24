@@ -5,7 +5,9 @@ import { organizationQueryKeys } from "#/query/organizations/organization-direct
 import type { AgentDeleteFailure } from "./agent-list-selection";
 import {
 	invalidateAgentProfileListCaches,
+	optimisticallyRemoveAgentProfileFromListCaches,
 	removeAgentProfileFromListCaches,
+	restoreFailedAgentProfilesInListCaches,
 } from "./agent-profile-delete-cache";
 import { isAgentProfileAlreadyRemovedError } from "./agents-page-formatters";
 
@@ -16,36 +18,73 @@ export async function deleteAgentProfiles(input: {
 	queryClient: QueryClient;
 	storageScope: string;
 }): Promise<AgentDeleteFailure[]> {
-	const failures: AgentDeleteFailure[] = [];
-	// Keep per-profile outcomes. A later failure must never restore an earlier deletion.
-	for (const profile of input.profiles) {
+	const outcomes: (AgentDeleteFailure | null)[] = Array.from(
+		{ length: input.profiles.length },
+		() => null
+	);
+	const eligible: { index: number; profileId: string }[] = [];
+	input.profiles.forEach((profile, index) => {
 		const profileId = profile.openMeldProfileId;
 		if (
 			profile.ownerUserId !== input.currentUserId ||
 			profile.profileKind !== "agent" ||
 			profile.managedRole
 		) {
-			failures.push({
+			outcomes[index] = {
 				profileId,
 				message: "You can only delete your own ordinary Agents.",
-			});
-			continue;
+			};
+			return;
 		}
-		try {
-			await deleteStartAgentProfile({ data: profileId });
-		} catch (error) {
-			if (!isAgentProfileAlreadyRemovedError(error)) {
-				failures.push({
-					profileId,
-					message:
-						error instanceof Error
-							? error.message
-							: "Couldn’t delete this Agent. Try again.",
-				});
-				continue;
+		eligible.push({ index, profileId });
+	});
+	let snapshot: Awaited<
+		ReturnType<typeof optimisticallyRemoveAgentProfileFromListCaches>
+	> | null = null;
+	const first = eligible[0];
+	if (first) {
+		snapshot = await optimisticallyRemoveAgentProfileFromListCaches({
+			...input,
+			agentProfileId: first.profileId,
+		});
+		for (const { profileId } of eligible.slice(1)) {
+			removeAgentProfileFromListCaches({ ...input, agentProfileId: profileId });
+		}
+	}
+	// Bound concurrent requests while keeping each Agent's result independent.
+	let next = 0;
+	await Promise.all(
+		Array.from({ length: Math.min(3, eligible.length) }, async () => {
+			while (next < eligible.length) {
+				const entry = eligible[next++];
+				if (!entry) {
+					break;
+				}
+				try {
+					await deleteStartAgentProfile({ data: entry.profileId });
+				} catch (error) {
+					if (!isAgentProfileAlreadyRemovedError(error)) {
+						outcomes[entry.index] = {
+							profileId: entry.profileId,
+							message:
+								error instanceof Error
+									? error.message
+									: "Couldn’t confirm deletion. Try again.",
+						};
+					}
+				}
 			}
-		}
-		removeAgentProfileFromListCaches({ ...input, agentProfileId: profileId });
+		})
+	);
+	const failures = outcomes.filter(
+		(outcome): outcome is AgentDeleteFailure => outcome !== null
+	);
+	if (snapshot && failures.length > 0) {
+		restoreFailedAgentProfilesInListCaches({
+			failedProfileIds: new Set(failures.map((failure) => failure.profileId)),
+			queryClient: input.queryClient,
+			snapshot,
+		});
 	}
 	// A refresh failure does not undo a committed deletion.
 	const refresh = await Promise.allSettled([

@@ -2,12 +2,17 @@ import { runOwnedCommand } from "../dev/owned-command.mjs";
 
 // Portable root entrypoints replace POSIX-only environment assignment syntax.
 const mode = process.argv[2];
-if (mode !== "acceptance" && mode !== "production-preview") {
-  throw new Error("Choose acceptance or production-preview Desktop packaging.");
+if (!["acceptance", "production-preview", "internal-preview"].includes(mode)) {
+  throw new Error(
+    "Choose acceptance, internal-preview, or production-preview Desktop packaging."
+  );
 }
 const env = { ...process.env };
 if (mode === "acceptance") {
   env.OPENMELD_DESKTOP_ACCEPTANCE = "1";
+} else if (mode === "internal-preview") {
+  env.OPENMELD_DESKTOP_INTERNAL_PREVIEW = "1";
+  env.OPENMELD_DESKTOP_TARGET = "production";
 } else {
   const { checkDesktopPublisher } = await import(
     "../release/desktop-publisher.mjs"

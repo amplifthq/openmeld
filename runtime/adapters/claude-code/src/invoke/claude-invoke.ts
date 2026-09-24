@@ -35,6 +35,7 @@ type ClaudeProviderAccessEvidence = NonNullable<
 >;
 
 type ClaudeInvokeOnceInput = {
+  spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
   executionContext?: AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -89,6 +90,7 @@ export class ClaudeRuntimeError extends Error {
 }
 
 export async function invokeClaudeWithSingleContextHeal(input: {
+  spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
   executionContext?: AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -137,6 +139,7 @@ export async function invokeClaudeWithSingleContextHeal(input: {
     },
     invokeOnce: (sessionId) =>
       invokeClaudeOnce({
+        spaceActionTools: input.spaceActionTools,
         executionContext: input.executionContext,
         agentControllerPermissionMode: input.agentControllerPermissionMode,
         launchContract: input.launchContract,
@@ -260,6 +263,7 @@ function invokeClaudeOnceWithAgentSdk(
   input: ClaudeInvokeOnceInput
 ): Promise<ClaudeInvokeResult> {
   return invokeClaudeAgentSdkTransport({
+    spaceActionTools: input.spaceActionTools,
     executionContext: input.executionContext,
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     launchContract: input.launchContract,

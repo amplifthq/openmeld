@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 
 import {
   assertNotarizationAccepted,
@@ -21,6 +25,8 @@ const REJECTED_NOTARIZATION_RE =
   /submission-id.*Invalid.*critical validation errors/su;
 const RESTRICTED_KEYCHAIN_ENTITLEMENT_RE =
   /<key>keychain-access-groups<\/key>/u;
+const CODE_REQUIREMENT_FAILURE_RE =
+  /failed to satisfy specified code requirement/u;
 const ENTITLEMENTS_PATH = fileURLToPath(
   new URL("./macos-cli.entitlements.plist", import.meta.url)
 );
@@ -118,6 +124,46 @@ test("keeps the bare Developer ID CLI free of provisioning-profile entitlements"
 
   assert.doesNotMatch(entitlements, RESTRICTED_KEYCHAIN_ENTITLEMENT_RE);
 });
+
+test(
+  "rejects a locally signed binary that passes ordinary codesign verification",
+  { skip: process.platform !== "darwin" },
+  () => {
+    const directory = mkdtempSync(
+      join(tmpdir(), "openmeld-signing-requirement-")
+    );
+    const binary = join(directory, "echo");
+    try {
+      copyFileSync("/bin/echo", binary);
+      const sign = spawnSync("/usr/bin/codesign", [
+        "--force",
+        "--sign",
+        "-",
+        binary,
+      ]);
+      assert.equal(sign.status, 0, sign.stderr.toString());
+      const ordinaryVerify = spawnSync("/usr/bin/codesign", [
+        "--verify",
+        "--strict",
+        binary,
+      ]);
+      assert.equal(ordinaryVerify.status, 0, ordinaryVerify.stderr.toString());
+      const trustedPublisherVerify = spawnSync("/usr/bin/codesign", [
+        "--verify",
+        "--strict",
+        `-R=${OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT}`,
+        binary,
+      ]);
+      assert.notEqual(trustedPublisherVerify.status, 0);
+      assert.match(
+        trustedPublisherVerify.stderr.toString(),
+        CODE_REQUIREMENT_FAILURE_RE
+      );
+    } finally {
+      rmSync(directory, { force: true, recursive: true });
+    }
+  }
+);
 
 test("adds the signing Keychain without hiding the normal user Keychains", () => {
   const plan = buildCiKeychainSearchListPlan({

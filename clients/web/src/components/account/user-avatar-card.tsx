@@ -34,6 +34,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { IdentityImageCropDialog } from "#/components/images/identity-image-crop-dialog";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { DesktopAccountLogOutButton } from "#/desktop/desktop-account-actions";
 import {
 	useAccountAvatar,
 	useAccountSession,
@@ -92,7 +93,7 @@ function formatJoinDate(input: unknown): string {
 	});
 }
 
-export function UserAvatarCard() {
+export function UserAvatarCard({ desktop = false }: { desktop?: boolean }) {
 	const { data: currentSession, isPending } = useAccountSession();
 	const { data: currentAccountAvatar } = useAccountAvatar();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
@@ -145,13 +146,17 @@ export function UserAvatarCard() {
 			displayName={displayName}
 			email={user.email ?? "No email"}
 			footerAction={
-				<Link
-					className={buttonVariants({ size: "sm", variant: "destructive" })}
-					to="/logout"
-				>
-					<SignOutIcon aria-hidden="true" data-icon="inline-start" />
-					Log out
-				</Link>
+				desktop ? (
+					<DesktopAccountLogOutButton />
+				) : (
+					<Link
+						className={buttonVariants({ size: "sm", variant: "destructive" })}
+						to="/logout"
+					>
+						<SignOutIcon aria-hidden="true" data-icon="inline-start" />
+						Log out
+					</Link>
+				)
 			}
 			footerMeta={
 				<span className="flex items-center gap-1">

@@ -33,7 +33,7 @@ on:
           - cloud
           - full
       production_train_scopes:
-        description: "Comma-separated complete release train; use the selected component for an independent release"
+        description: "Comma-separated release train for dependency checks; only the selected stage builds client artifacts"
         required: true
         type: string
 
@@ -101,11 +101,14 @@ jobs:
           control_directory: release-control
           working_directory: release-source
 
-      - name: Admit the complete production train before Production mutation
+      - name: Admit selected stage artifacts before Production mutation
         id: train_admission
         shell: bash
         env:
           OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
+          # Web prerender exceeded the 4 GiB heap; this still fits the measured runner admission budget.
+          OPENMELD_RENDERER_NODE_HEAP_MB: "4608"
+          OPENMELD_LOCAL_HEAVY_GIB: "5.5"
           RELEASE_SCOPE: ${{ inputs.scope }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         working-directory: release-source

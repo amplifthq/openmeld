@@ -1,9 +1,11 @@
 "use client";
 
+import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { ClientNotificationControl } from "#/components/inbox/client-notification-control";
 import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
 import { resolveClientNotificationDescription } from "#/lib/inbox/client-notifications";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { SpaceNotificationPreferenceField } from "./space-notification-preference-field";
 
 /**
  * Global client-notification switch surfaced inside Space Info.
@@ -12,8 +14,9 @@ import { useOptionalAppOrganization } from "#/lib/organizations/organization-con
  * conversation's account-saved message preference.
 
  */
-export function SpaceInfoNotificationsSection() {
+export function SpaceInfoNotificationsSection(input: { spaceId: string }) {
 	const organization = useOptionalAppOrganization();
+	const isMobile = useMediaQuery("(max-width: 639px)");
 	const currentUserId = organization?.currentUserId;
 	const { error, isPending, setEnabled, settings } =
 		useInboxNotificationSettings(currentUserId);
@@ -36,10 +39,23 @@ export function SpaceInfoNotificationsSection() {
 					{settings.permission === "unknown"
 						? "Applies to all your Spaces and chats on this Mac. You can also change this in Settings > Notifications."
 						: "Applies to all your Spaces and chats in this browser. You can also change this in Settings > Notifications."}
-					Use the bell at the top of this conversation to choose which messages
-					notify you.
 				</p>
+				{isMobile ? (
+					<p className="text-muted-foreground text-xs/relaxed">
+						Choose which messages from this conversation notify you below.
+					</p>
+				) : (
+					<p className="text-muted-foreground text-xs/relaxed">
+						Use the bell at the top of this conversation to choose which
+						messages notify you.
+					</p>
+				)}
 			</div>
+			{isMobile ? (
+				<div className="mb-3">
+					<SpaceNotificationPreferenceField spaceId={input.spaceId} />
+				</div>
+			) : null}
 			<div className="flex items-center justify-between gap-3">
 				<div className="min-w-0">
 					<p className="text-sm">

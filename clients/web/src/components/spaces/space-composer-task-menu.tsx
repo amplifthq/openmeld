@@ -57,7 +57,8 @@ export function buildSpaceTaskSources(
 }
 
 export function SpaceComposerTaskMenu(input: {
-	supportsLocalFiles: boolean;
+	supportsCurrentFolder: boolean;
+	requiresProjectContainer: boolean;
 	targetProfileId: string;
 	disabled: boolean;
 	sources: readonly SpaceTaskSource[];
@@ -82,7 +83,15 @@ export function SpaceComposerTaskMenu(input: {
 			selection && selection.mode !== "resume"
 				? selection
 				: { mode: "new" as const };
-		choose({ ...next, access, workspace }, input.choice?.label ?? "New task");
+		let label = input.choice?.label ?? "New task";
+		if (next.mode === "new") {
+			if (access === "space_context") {
+				label = "New Space-only task";
+			} else if (access === "workspace" && workspace === "isolated") {
+				label = "New project task";
+			}
+		}
+		choose({ ...next, access, workspace }, label);
 	};
 	return (
 		<DropdownMenu>
@@ -114,13 +123,28 @@ export function SpaceComposerTaskMenu(input: {
 				</FluidDropdownMenuItem>
 				<FluidDropdownMenuItem
 					index={1}
-					onClick={() => choose({ mode: "new" }, "New task")}
+					onClick={() =>
+						choose(
+							{ mode: "new", access: "workspace", workspace: "isolated" },
+							"New project task"
+						)
+					}
 				>
-					New task
+					New project task
+				</FluidDropdownMenuItem>
+				<FluidDropdownMenuItem
+					index={2}
+					onClick={() =>
+						choose(
+							{ mode: "new", access: "space_context", workspace: "isolated" },
+							"New Space-only task"
+						)
+					}
+				>
+					New Space-only task
 				</FluidDropdownMenuItem>
 				<p className="px-2 py-1 text-muted-foreground text-xs">
-					Independent tasks can run together, up to{" "}
-					{AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent.
+					{`Independent tasks can run together, up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent. Project tasks use an isolated worktree.`}
 				</p>
 				{sources.length > 0 ? (
 					<>
@@ -169,28 +193,27 @@ export function SpaceComposerTaskMenu(input: {
 						<DropdownMenuGroup>
 							<DropdownMenuLabel>Task files</DropdownMenuLabel>
 							<FluidDropdownMenuItem
-								index={2}
+								index={3}
 								onClick={() => changeAccess("space_context", "isolated")}
 							>
 								Space context only
 							</FluidDropdownMenuItem>
 							<FluidDropdownMenuItem
-								disabled={!input.supportsLocalFiles}
-								index={3}
+								index={4}
 								onClick={() => changeAccess("workspace", "isolated")}
 							>
-								Independent project worktree · Codex
+								Independent project worktree
 							</FluidDropdownMenuItem>
 							<FluidDropdownMenuItem
-								disabled={!input.supportsLocalFiles}
-								index={4}
+								disabled={!input.supportsCurrentFolder}
+								index={5}
 								onClick={() => changeAccess("read_only", "current")}
 							>
 								Read current folder · Codex
 							</FluidDropdownMenuItem>
 							<FluidDropdownMenuItem
-								disabled={!input.supportsLocalFiles}
-								index={5}
+								disabled={!input.supportsCurrentFolder}
+								index={6}
 								onClick={() => changeAccess("workspace", "current")}
 							>
 								Work in current folder · Codex
@@ -198,7 +221,9 @@ export function SpaceComposerTaskMenu(input: {
 							<p className="px-2 py-1 text-muted-foreground text-xs">
 								Project worktrees start from the connected repository's current
 								commit. Unsaved changes and local configuration are not copied.
-								Current-folder work waits for conflicting local tasks.
+								{input.requiresProjectContainer
+									? " Claude project tasks need Docker or Podman running on the Agent's computer."
+									: " Current-folder work waits for conflicting local tasks."}
 							</p>
 						</DropdownMenuGroup>
 					</>

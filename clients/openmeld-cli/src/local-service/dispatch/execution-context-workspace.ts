@@ -29,6 +29,11 @@ import {
   releaseLock,
   runWithHeldLock,
 } from "../../config/lock";
+import {
+  type ClaudeProjectContainerRuntime,
+  runClaudeProjectContainerCommand,
+  stopClaudeProjectContainersForContext,
+} from "../file-access/claude-project-container";
 import { createLedgerIo } from "../state/ledger-io";
 
 const execFileAsync = promisify(execFile);
@@ -56,6 +61,15 @@ const manifestSchema = z
       .optional(),
     copiedUncommittedFiles: z.literal(false),
     processSupervisionId: z.uuid().optional(),
+    activeDispatchId: z.string().min(1).optional(),
+    activeAttemptId: z.string().min(1).optional(),
+    containerRuntime: z
+      .strictObject({
+        binary: z.string().min(1),
+        engineIdentity: z.string().min(1),
+        kind: z.enum(["docker", "podman"]),
+      })
+      .optional(),
     retirement: z
       .strictObject({
         path: z.string(),
@@ -69,6 +83,9 @@ const manifestSchema = z
       ((manifest.status === "preparing" || manifest.status === "completed") &&
         !manifest.pristineFingerprint &&
         !manifest.processSupervisionId &&
+        !manifest.activeDispatchId &&
+        !manifest.activeAttemptId &&
+        !manifest.containerRuntime &&
         !manifest.retirement)
   )
   .refine((manifest) =>
@@ -218,6 +235,12 @@ async function reconcileRetainedWorkspace(
     await runWithHeldLock({
       lock: await acquireWorkspaceExecutionLock(ledgerRoot, record.identity.id),
       run: async () => {
+        if (record.containerRuntime) {
+          await stopClaudeProjectContainersForContext({
+            contextId: record.identity.id,
+            runtime: record.containerRuntime,
+          });
+        }
         if (
           !record.processSupervisionId ||
           (
@@ -231,7 +254,13 @@ async function reconcileRetainedWorkspace(
           throw failure("workspace_execution_quiescence_unconfirmed");
         }
         await verifyRetainedWorkspace(record);
-        await writeManifest(path, { ...record, status: "completed" }, "r+");
+        const {
+          activeAttemptId: _activeAttemptId,
+          activeDispatchId: _activeDispatchId,
+          containerRuntime: _containerRuntime,
+          ...reconciled
+        } = record;
+        await writeManifest(path, { ...reconciled, status: "completed" }, "r+");
       },
     });
   }
@@ -390,6 +419,9 @@ export type ExecutionContextWorkspaceUse = {
 export async function markExecutionContextWorkspaceInUse(input: {
   ledgerRootPath: string;
   context?: ExecutionContextTask;
+  containerRuntime?: ClaudeProjectContainerRuntime | null;
+  dispatchId?: string;
+  attemptId?: string;
 }): Promise<ExecutionContextWorkspaceUse | null> {
   const context = input.context;
   if (
@@ -419,7 +451,20 @@ export async function markExecutionContextWorkspaceInUse(input: {
       }
       await writeManifest(
         path,
-        { ...record, status: "in_use", processSupervisionId },
+        {
+          ...record,
+          status: "in_use",
+          processSupervisionId,
+          ...(input.containerRuntime && input.dispatchId && input.attemptId
+            ? {
+                activeDispatchId: input.dispatchId,
+                activeAttemptId: input.attemptId,
+              }
+            : {}),
+          ...(input.containerRuntime
+            ? { containerRuntime: input.containerRuntime }
+            : {}),
+        },
         "r+"
       );
     });
@@ -464,13 +509,25 @@ export async function releaseExecutionContextWorkspace(input: {
       if (!(record && ["completed", "in_use"].includes(record.status))) {
         throw failure("workspace_creation_incomplete");
       }
+      if (record.containerRuntime) {
+        await stopClaudeProjectContainersForContext({
+          contextId: record.identity.id,
+          runtime: record.containerRuntime,
+        });
+      }
       if (!input.ownedProcessesQuiescent) {
         return {
           status: "retained",
           reason: "execution_quiescence_unconfirmed",
         };
       }
-      const completed: Manifest = { ...record, status: "completed" };
+      const {
+        activeAttemptId: _activeAttemptId,
+        activeDispatchId: _activeDispatchId,
+        containerRuntime: _containerRuntime,
+        ...quiescentRecord
+      } = record;
+      const completed: Manifest = { ...quiescentRecord, status: "completed" };
       await writeManifest(path, completed, "r+");
       record = await removePristineRetirement(completed, path);
       if (record.retirement) {
@@ -501,6 +558,77 @@ export async function releaseExecutionContextWorkspace(input: {
       await releaseLock(input.use.lock);
     }
   }
+}
+
+export async function assertExecutionContextWorkspaceUse(input: {
+  ledgerRootPath: string;
+  contextId: string;
+  dispatchId: string;
+  attemptId: string;
+}): Promise<void> {
+  if (
+    !executionContextAssignmentSchema.shape.id.safeParse(input.contextId)
+      .success
+  ) {
+    throw failure("workspace_identity_mismatch");
+  }
+  const root = await canonicalDirectory(input.ledgerRootPath);
+  const record = await readManifest(
+    join(root, "execution-context-workspace-records", `${input.contextId}.json`)
+  );
+  if (
+    record?.status !== "in_use" ||
+    record.identity.id !== input.contextId ||
+    record.activeDispatchId !== input.dispatchId ||
+    record.activeAttemptId !== input.attemptId ||
+    !record.containerRuntime
+  ) {
+    throw failure("workspace_execution_authority_mismatch");
+  }
+}
+
+export async function runExecutionContextWorkspaceProjectShell(input: {
+  ledgerRootPath: string;
+  contextId: string;
+  dispatchId: string;
+  attemptId: string;
+  boundaryRoot: string;
+  workspacePath: string;
+  runtime: ClaudeProjectContainerRuntime;
+  command: string;
+}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const root = await canonicalDirectory(input.ledgerRootPath);
+  return await withWorkspaceLock(root, input.contextId, async () => {
+    await assertExecutionContextWorkspaceUse({
+      ledgerRootPath: root,
+      contextId: input.contextId,
+      dispatchId: input.dispatchId,
+      attemptId: input.attemptId,
+    });
+    const record = await readManifest(
+      join(
+        root,
+        "execution-context-workspace-records",
+        `${input.contextId}.json`
+      )
+    );
+    if (
+      record?.boundaryRoot !== input.boundaryRoot ||
+      record.workingDirectory !== input.workspacePath ||
+      record.containerRuntime?.binary !== input.runtime.binary ||
+      record.containerRuntime.engineIdentity !== input.runtime.engineIdentity ||
+      record.containerRuntime.kind !== input.runtime.kind
+    ) {
+      throw failure("workspace_execution_authority_mismatch");
+    }
+    return await runClaudeProjectContainerCommand({
+      command: input.command,
+      contextId: input.contextId,
+      runtime: input.runtime,
+      boundaryRoot: input.boundaryRoot,
+      workspacePath: input.workspacePath,
+    });
+  });
 }
 
 async function retirePristineWorkspace(
@@ -816,9 +944,11 @@ async function verifyOwnedRepository(manifest: Manifest): Promise<void> {
     throw failure("workspace_git_metadata_changed");
   }
   const expectedGitDir = join(repository, "worktrees", "worktree");
-  if (
-    (await readFile(gitFile, "utf8")).trim() !== `gitdir: ${expectedGitDir}`
-  ) {
+  const gitDirLine = (await readFile(gitFile, "utf8")).trim();
+  const gitDir = gitDirLine.startsWith("gitdir: ")
+    ? gitDirLine.slice("gitdir: ".length)
+    : null;
+  if (!(gitDir && isAbsolute(gitDir)) || relative(expectedGitDir, gitDir)) {
     throw failure("workspace_git_metadata_changed");
   }
   if (

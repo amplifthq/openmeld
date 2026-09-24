@@ -23,6 +23,9 @@ export default defineConfig({
       __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: JSON.stringify(
         process.env.OPENMELD_DESKTOP_PRIVATE_PACKAGE === "1"
       ),
+      __OPENMELD_DESKTOP_INTERNAL_PREVIEW__: JSON.stringify(
+        process.env.OPENMELD_DESKTOP_INTERNAL_PREVIEW === "1"
+      ),
       __OPENMELD_DESKTOP_WEB_BUILD__: JSON.stringify(
         desktopWebBuildIdentity(resolve(import.meta.dirname, "../.."))
       ),

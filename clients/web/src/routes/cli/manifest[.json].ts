@@ -3,9 +3,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
 	buildCliBinaryManifestHeaders,
 	readCliBinaryManifest,
+	WINDOWS_INTERNAL_PREVIEW_MANIFEST_R2_OBJECT_KEY,
 } from "#/lib/cli-binary-release";
 
-export async function getCliBinaryManifest(): Promise<Response> {
+export async function getCliBinaryManifest(
+	channel: "stable" | "windows-preview" = "stable"
+): Promise<Response> {
 	const bucket = cloudflareEnv.OPENMELD_DESKTOP_DOWNLOADS;
 	if (!bucket) {
 		return new Response("OpenMeld CLI binary downloads are not configured.", {
@@ -18,7 +21,12 @@ export async function getCliBinaryManifest(): Promise<Response> {
 	}
 
 	try {
-		const manifest = await readCliBinaryManifest({ store: bucket });
+		const manifest = await readCliBinaryManifest({
+			store: bucket,
+			...(channel === "windows-preview"
+				? { objectKey: WINDOWS_INTERNAL_PREVIEW_MANIFEST_R2_OBJECT_KEY }
+				: {}),
+		});
 		if (!manifest) {
 			return new Response("OpenMeld CLI binary manifest is not uploaded yet.", {
 				headers: {
@@ -28,6 +36,24 @@ export async function getCliBinaryManifest(): Promise<Response> {
 				},
 				status: 404,
 			});
+		}
+		if (channel === "windows-preview") {
+			const cli = manifest.channels.stable.platforms["windows-x64"];
+			const service =
+				manifest.channels.stable.service?.platforms["windows-x64"];
+			if (
+				!(
+					cli &&
+					service &&
+					"mode" in (cli.windows ?? {}) &&
+					"mode" in (service.windows ?? {})
+				) ||
+				Object.keys(manifest.channels.stable.platforms).length !== 1
+			) {
+				throw new Error(
+					"Windows preview manifest contains unexpected platforms."
+				);
+			}
 		}
 
 		return Response.json(manifest, {
@@ -49,7 +75,12 @@ export async function getCliBinaryManifest(): Promise<Response> {
 export const Route = createFileRoute("/cli/manifest.json")({
 	server: {
 		handlers: {
-			GET: () => getCliBinaryManifest(),
+			GET: ({ request }) =>
+				getCliBinaryManifest(
+					new URL(request.url).searchParams.get("channel") === "windows-preview"
+						? "windows-preview"
+						: "stable"
+				),
 		},
 	},
 });

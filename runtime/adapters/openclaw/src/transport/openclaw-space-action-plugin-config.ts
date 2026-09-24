@@ -2,20 +2,30 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { resolveDispatchSpaceActionMcpServer } from "@openmeld/adapter-core";
+import { promisify } from "node:util";
+import {
+  type AdapterDispatchSpaceTools,
+  buildCliLaunchInvocation,
+  describeDispatchSpaceTools,
+  isDispatchSpaceActionDeliveryOnly,
+  OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES,
+  type RuntimeAgentControllerLaunchContract,
+  resolveDispatchSpaceActionMcpServer,
+} from "@openmeld/adapter-core";
+import { execPlatformFile } from "@openmeld/adapter-core/process-launch";
+import { buildOpenClawSpaceActionPluginSource } from "./openclaw-space-action-plugin-source.js";
 
 const OPENCLAW_CONFIG_PATH_ENV = "OPENCLAW_CONFIG_PATH";
 const OPENCLAW_STATE_DIR_ENV = "OPENCLAW_STATE_DIR";
 const OPENCLAW_PLUGIN_ID = "openmeld-space-action";
 
-export const OPENCLAW_SPACE_ACTION_TOOL_NAMES = [
-  "openmeld_space_reply",
-  "openmeld_space_status",
-  "openmeld_space_stay_silent",
-] as const;
+export const OPENCLAW_SPACE_ACTION_TOOL_NAMES =
+  OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES.map((name) => `openmeld_space_${name}`);
 
 export async function withOpenClawDispatchSpaceActionPlugin<T>(input: {
   env: Record<string, string | undefined> | undefined;
+  spaceActionTools?: AdapterDispatchSpaceTools;
+  launchContract?: RuntimeAgentControllerLaunchContract;
   run: (input: {
     active: boolean;
     env: Record<string, string | undefined>;
@@ -24,10 +34,21 @@ export async function withOpenClawDispatchSpaceActionPlugin<T>(input: {
 }): Promise<T> {
   const env = { ...(input.env ?? {}) };
   const actionServer = resolveDispatchSpaceActionMcpServer(env);
+  const deliveryOnly = isDispatchSpaceActionDeliveryOnly(env);
+  if (!actionServer && deliveryOnly) {
+    throw scopeError(
+      "The correction invocation has no active delivery capability."
+    );
+  }
   if (!actionServer) {
     return await input.run({ active: false, env, pluginPath: "" });
   }
-
+  const definitions = resolveToolDefinitions({
+    capability: input.spaceActionTools,
+    sessionId: env.OPENMELD_OPENCLAW_TOOL_SESSION_ID,
+    deliveryOnly,
+    expectedNames: actionServer.toolNames,
+  });
   const baseConfigPath = resolveOpenClawConfigPath(env);
   const configDir = dirname(baseConfigPath);
   await mkdir(configDir, { recursive: true });
@@ -38,13 +59,63 @@ export async function withOpenClawDispatchSpaceActionPlugin<T>(input: {
   const baseConfigExists = Boolean(
     await stat(baseConfigPath).catch(() => null)
   );
+  const inspectionPath = join(configDir, `${temporaryStem}.inspect.json`);
+  let priorPlugins: Record<string, unknown> = {};
+  let priorTools: Record<string, unknown> = {};
+  if (baseConfigExists && input.launchContract) {
+    // Config commands execute enabled plugins. Disable them before inspection.
+    await writeFile(
+      inspectionPath,
+      JSON.stringify({
+        $include: `./${basename(baseConfigPath)}`,
+        plugins: { enabled: false },
+        hooks: { internal: { enabled: false } },
+        tools: {},
+      }),
+      { mode: 0o600 }
+    );
+    try {
+      const observationEnv = {
+        ...env,
+        [OPENCLAW_CONFIG_PATH_ENV]: inspectionPath,
+      };
+      priorTools = await readNativePlugins(
+        input.launchContract,
+        observationEnv,
+        ["config", "get", "tools", "--json"]
+      );
+      priorPlugins = await readNativePlugins(
+        input.launchContract,
+        observationEnv
+      );
+    } finally {
+      await rm(inspectionPath, { force: true });
+    }
+  }
+  const disabledEntries = resolveDisabledPluginEntries(
+    priorPlugins,
+    deliveryOnly
+  );
   const temporaryConfig = {
     ...(baseConfigExists ? { $include: `./${basename(baseConfigPath)}` } : {}),
+    ...(deliveryOnly ? { hooks: { internal: { enabled: false } } } : {}),
+    tools: {
+      // Native $include concatenates arrays. Negative groups therefore narrow
+      // even an existing allowlist; plugin hooks are a second execution fence.
+      ...(deliveryOnly
+        ? { deny: ["group:openclaw", "group:fs", "group:runtime"] }
+        : {}),
+      ...(Array.isArray(priorTools.allow) && priorTools.allow.length > 0
+        ? {}
+        : {
+            alsoAllow: definitions.map((tool) => `openmeld_space_${tool.name}`),
+          }),
+    },
     plugins: {
-      enabled: true,
       allow: [OPENCLAW_PLUGIN_ID],
       load: { paths: [pluginDir] },
       entries: {
+        ...disabledEntries,
         [OPENCLAW_PLUGIN_ID]: {
           enabled: true,
           hooks: { allowPromptInjection: false },
@@ -52,7 +123,6 @@ export async function withOpenClawDispatchSpaceActionPlugin<T>(input: {
       },
     },
   };
-
   try {
     await mkdir(pluginDir, { recursive: true, mode: 0o700 });
     await writeFile(
@@ -88,219 +158,155 @@ export async function withOpenClawDispatchSpaceActionPlugin<T>(input: {
       )}\n`,
       { encoding: "utf8", mode: 0o600 }
     );
-    await writeFile(pluginPath, buildOpenClawSpaceActionPluginSource(), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    await writeFile(
+      pluginPath,
+      buildOpenClawSpaceActionPluginSource(definitions, deliveryOnly),
+      { encoding: "utf8", mode: 0o600 }
+    );
     await writeFile(
       temporaryConfigPath,
       `${JSON.stringify(temporaryConfig, null, 2)}\n`,
       { encoding: "utf8", mode: 0o600 }
     );
-
+    if (deliveryOnly) {
+      const effective = await readNativePlugins(
+        input.launchContract,
+        { ...env, [OPENCLAW_CONFIG_PATH_ENV]: temporaryConfigPath },
+        ["plugins", "info", OPENCLAW_PLUGIN_ID, "--json"]
+      );
+      const expectedNames = definitions
+        .map((tool) => `openmeld_space_${tool.name}`)
+        .sort();
+      if (
+        effective.status !== "loaded" ||
+        !Array.isArray(effective.toolNames) ||
+        JSON.stringify([...effective.toolNames].sort()) !==
+          JSON.stringify(expectedNames)
+      ) {
+        throw scopeError(
+          "OpenClaw did not load the restricted delivery plugin. Disabled plugins and native policy are not bypassed."
+        );
+      }
+    }
     return await input.run({
       active: true,
-      env: {
-        ...env,
-        [OPENCLAW_CONFIG_PATH_ENV]: temporaryConfigPath,
-      },
+      env: { ...env, [OPENCLAW_CONFIG_PATH_ENV]: temporaryConfigPath },
       pluginPath,
     });
   } finally {
     await Promise.all([
       rm(temporaryConfigPath, { force: true }),
       rm(pluginDir, { force: true, recursive: true }),
-    ]).catch(() => undefined);
+    ]);
   }
 }
 
 function resolveOpenClawConfigPath(
   env: Record<string, string | undefined>
 ): string {
-  const explicit = normalizeOptionalText(env[OPENCLAW_CONFIG_PATH_ENV]);
+  const explicit = env[OPENCLAW_CONFIG_PATH_ENV]?.trim();
   if (explicit) {
     return explicit;
   }
   const stateDir =
-    normalizeOptionalText(env[OPENCLAW_STATE_DIR_ENV]) ??
-    join(normalizeOptionalText(env.HOME) ?? homedir(), ".openclaw");
+    env[OPENCLAW_STATE_DIR_ENV]?.trim() ??
+    join(env.HOME?.trim() || homedir(), ".openclaw");
   return join(stateDir, "openclaw.json");
 }
 
-function buildOpenClawSpaceActionPluginSource(): string {
-  return `import { spawn } from "node:child_process";
-import { basename, isAbsolute } from "node:path";
-
-const TOOL_NAMES = ${JSON.stringify(OPENCLAW_SPACE_ACTION_TOOL_NAMES)};
-const FINAL_STATUSES = new Set(["done", "blocked", "needs_input", "handoff"]);
-
-function requiredText(value, label) {
-  const normalized = String(value ?? "").trim();
-  if (!normalized) throw new Error(label + " is required.");
-  return normalized;
-}
-
-function optionalStringArray(value, label) {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new Error(label + " must be an array.");
-  return value.map((entry) => requiredText(entry, label));
-}
-
-function addRequiredTools(policy) {
-  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return;
-  const key = Array.isArray(policy.allow) && policy.allow.length > 0 ? "allow" : "alsoAllow";
-  const current = Array.isArray(policy[key]) ? policy[key] : [];
-  policy[key] = [...new Set([...current, ...TOOL_NAMES])];
-  if (Array.isArray(policy.deny)) {
-    const required = new Set(TOOL_NAMES.map((name) => name.toLowerCase()));
-    policy.deny = policy.deny.filter((name) => !required.has(String(name).toLowerCase()));
+function resolveDisabledPluginEntries(
+  plugins: Record<string, unknown>,
+  deliveryOnly: boolean
+): Record<string, { enabled: false }> {
+  const entries = record(plugins.entries) ?? {};
+  const allow = Array.isArray(plugins.allow) ? plugins.allow : [];
+  if (
+    Object.hasOwn(entries, OPENCLAW_PLUGIN_ID) ||
+    allow.includes(OPENCLAW_PLUGIN_ID)
+  ) {
+    throw scopeError(
+      "The native configuration already uses the reserved dispatch plugin identity. Its existing policy was not overwritten."
+    );
   }
-}
-
-function addProviderPolicies(tools) {
-  addRequiredTools(tools);
-  if (tools?.byProvider && typeof tools.byProvider === "object") {
-    for (const policy of Object.values(tools.byProvider)) addRequiredTools(policy);
+  if (!deliveryOnly) {
+    return {};
   }
-  addRequiredTools(tools?.sandbox?.tools);
-  addRequiredTools(tools?.subagents?.tools);
-}
-
-function makeToolsAvailable(config) {
-  if (!config || typeof config !== "object") return;
-  config.tools ??= {};
-  addProviderPolicies(config.tools);
-  const agentId = String(process.env.OPENMELD_DAEMON_RUNTIME_OPENCLAW_AGENT_ID ?? "").trim();
-  const agents = Array.isArray(config.agents?.list) ? config.agents.list : [];
-  for (const agent of agents) {
-    if (!agent || typeof agent !== "object") continue;
-    if (agentId && String(agent.id ?? "").trim() !== agentId) continue;
-    agent.tools ??= {};
-    addProviderPolicies(agent.tools);
-  }
-}
-
-function resolveCommandPath() {
-  const command = requiredText(
-    process.env.OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH,
-    "OpenMeld dispatch action command"
+  return Object.fromEntries(
+    [...new Set([...Object.keys(entries), ...allow])]
+      .filter((id): id is string => typeof id === "string")
+      .map((id) => [id, { enabled: false as const }])
   );
-  const expectedName = requiredText(
-    process.env.OPENMELD_USER_FACING_CLI_COMMAND,
-    "OpenMeld CLI command"
-  );
-  if (!isAbsolute(command) || basename(command) !== expectedName) {
-    throw new Error("OpenMeld dispatch action command is invalid.");
-  }
-  return command;
 }
 
-function runAction(args, input) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolveCommandPath(), args, {
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout = (stdout + chunk).slice(-8192); });
-    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-8192); });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (code === 0) {
-        resolve({
-          content: [{ type: "text", text: "Action recorded for the current OpenMeld Wake." }],
-          details: { recorded: true },
-        });
-        return;
-      }
-      reject(new Error((stderr || stdout || "OpenMeld could not record the Space action.").trim()));
-    });
-    child.stdin.end(input ?? "");
+function resolveToolDefinitions(input: {
+  capability: AdapterDispatchSpaceTools | undefined;
+  sessionId: string | undefined;
+  deliveryOnly: boolean;
+  expectedNames: readonly string[];
+}) {
+  const capability = input.capability;
+  if (!(capability && input.sessionId)) {
+    throw scopeError(
+      "The current native tool definitions and session identity are required."
+    );
+  }
+  if (
+    input.deliveryOnly !== capability.deliveryOnly ||
+    JSON.stringify(capability.tools.map((tool) => tool.name).sort()) !==
+      JSON.stringify([...input.expectedNames].sort())
+  ) {
+    throw scopeError(
+      "The current native tool catalog does not match the Wake's scope."
+    );
+  }
+  return describeDispatchSpaceTools(capability);
+}
+
+function scopeError(message: string): Error {
+  return Object.assign(new Error(message), {
+    code: "space.action.delivery_only_unverified",
+    errorType: "config",
   });
 }
 
-const stringSchema = { type: "string", minLength: 1 };
-const stringArraySchema = { type: "array", items: stringSchema };
-
-const plugin = {
-  id: "openmeld-space-action",
-  name: "OpenMeld Space Action",
-  description: "Dispatch-scoped OpenMeld collaboration actions.",
-  register(api) {
-    makeToolsAvailable(api.config);
-    api.registerTool({
-      name: "openmeld_space_reply",
-      label: "Reply in the current OpenMeld Space",
-      description: "Record the exact final public reply for this OpenMeld Wake. Use real newline characters for paragraph breaks.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          message: stringSchema,
-          mentionTargets: stringArraySchema,
-          referenceTargets: stringArraySchema,
-          wakeTargets: stringArraySchema,
-        },
-        required: ["message"],
-      },
-      async execute(_toolCallId, params) {
-        const message = requiredText(params?.message, "Reply message");
-        const wakeTargets = optionalStringArray(params?.wakeTargets, "wakeTargets");
-        const referenceTargets = optionalStringArray(params?.referenceTargets, "referenceTargets");
-        const mentionTargets = optionalStringArray(params?.mentionTargets, "mentionTargets");
-        const args = ["space", "action", "reply", "--message-file", "-"];
-        for (const target of wakeTargets) args.push("--wake", target);
-        for (const target of referenceTargets) args.push("--reference", target);
-        for (const target of mentionTargets) args.push("--mention", target);
-        return await runAction(args, message);
-      },
-    });
-    api.registerTool({
-      name: "openmeld_space_status",
-      label: "Set the final OpenMeld Space status",
-      description: "Record one final visible status for this OpenMeld Wake. Do not use it for interim progress.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          status: { type: "string", enum: [...FINAL_STATUSES] },
-          text: stringSchema,
-        },
-        required: ["status", "text"],
-      },
-      async execute(_toolCallId, params) {
-        const status = requiredText(params?.status, "Final status");
-        if (!FINAL_STATUSES.has(status)) throw new Error("Final status is invalid.");
-        const text = requiredText(params?.text, "Status text");
-        return await runAction(["space", "action", "status", status, text]);
-      },
-    });
-    api.registerTool({
-      name: "openmeld_space_stay_silent",
-      label: "Stay silent in the current OpenMeld Space",
-      description: "Record that this OpenMeld Wake intentionally needs no public reply.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: { reason: stringSchema },
-        required: ["reason"],
-      },
-      async execute(_toolCallId, params) {
-        const reason = requiredText(params?.reason, "Silent reason");
-        return await runAction(["space", "action", "silent", "--reason", reason]);
-      },
-    });
-  },
-};
-
-export default plugin;
-`;
+async function readNativePlugins(
+  launchContract: RuntimeAgentControllerLaunchContract | undefined,
+  env: Record<string, string | undefined>,
+  args: string[] = ["config", "get", "plugins", "--json"]
+): Promise<Record<string, unknown>> {
+  if (!launchContract) {
+    throw scopeError(
+      "The selected OpenClaw executable is required to verify correction."
+    );
+  }
+  const invocation = buildCliLaunchInvocation({ launchContract, args });
+  try {
+    const { stdout } = await promisify(execPlatformFile)(
+      invocation.bin,
+      invocation.args,
+      {
+        env: { ...process.env, ...env },
+        encoding: "utf8",
+        timeout: 15_000,
+        cwd: dirname(env[OPENCLAW_CONFIG_PATH_ENV] ?? process.cwd()),
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      }
+    );
+    const value = record(JSON.parse(stdout));
+    if (value) {
+      return value;
+    }
+  } catch {
+    // Native errors can contain private configuration; retain no raw secrets.
+  }
+  throw scopeError(
+    "OpenClaw's effective plugin scope could not be verified. No correction turn was started."
+  );
 }
 
-function normalizeOptionalText(value: unknown): string | null {
-  const normalized = String(value ?? "").trim();
-  return normalized.length > 0 ? normalized : null;
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

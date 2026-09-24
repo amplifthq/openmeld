@@ -127,7 +127,7 @@ export function resolveHistoricalWakeFailureBody(input: {
 		return `${targetName} could not complete this Wake because its selected model was unavailable.`;
 	}
 	if (reasonCode === "openmeld.space_action.repair_failed") {
-		return `${targetName} answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.`;
+		return `OpenMeld could not confirm a Space response from ${targetName}, even after automatic recovery.`;
 	}
 	if (reasonCode === "service.not_running") {
 		return `${targetName} could not complete this Wake because its computer was not connected to OpenMeld at the time.`;

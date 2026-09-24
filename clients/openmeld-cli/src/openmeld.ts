@@ -759,7 +759,7 @@ program
   });
 
 // Binary distribution only: install this binary into the managed layout.
-// Called by the install script (curl | sh delegates to `<tmp>/openmeld
+// Called by the downloaded install script (which delegates to `<tmp>/openmeld
 // install-self`) and by `openmeld update`. Hidden and absent under npm.
 if (isBinaryDistribution()) {
   program
@@ -2954,9 +2954,10 @@ spaceActionCmd
     });
   });
 
+// Compatibility for frozen/in-flight legacy work; not offered to new Agents.
 spaceActionCmd
-  .command("status")
-  .description("Record a final Space status for the current dispatch.")
+  .command("status", { hidden: true })
+  .description("Record a legacy final Space status for an existing dispatch.")
   .argument("<status>", "Final status: done|blocked|needs_input|handoff")
   .argument("<text...>", "Short status text")
   .action(async (status, textParts) => {
