@@ -10,7 +10,7 @@ import {
   DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   desktopWindowsInternalPreviewLocation,
   desktopWindowsInternalPreviewSchema,
-} from "../../packages/schemas/src/index.ts";
+} from "../../packages/schemas/dist/index.js";
 import {
   checkDesktopPublisher,
   DEFAULT_R2_BUCKET_NAME,

@@ -16,7 +16,7 @@ import {
   desktopProductionSourceSchema,
   desktopWindowsInternalPreviewLocation,
   desktopWindowsInternalPreviewSchema,
-} from "../../packages/schemas/src/index.ts";
+} from "../../packages/schemas/dist/index.js";
 import { inspectWindowsInternalPreview } from "../desktop/windows-artifact.mjs";
 import { buildCliBinary } from "./build-cli-binary.mjs";
 import { verifyWindowsProcessArtifact } from "./windows-process-artifact.mjs";

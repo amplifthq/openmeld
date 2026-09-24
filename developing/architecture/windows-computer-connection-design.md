@@ -34,7 +34,8 @@ evidence. The read-only `check` mode of
 `scripts/release/publish-windows-internal-preview.mjs` validates that bundle
 against the clean checkout. After an authorized merge and release decision, run
 the workflow again on the exact merged main SHA, download its artifact into a
-clean checkout of that SHA, run `check`, then use the guarded `publish` mode to
+clean checkout of that SHA, install dependencies and build `@openmeld/schemas`,
+run `check`, then use the guarded `publish` mode to
 upload immutable bytes before the manifest and Desktop pointer. Deploying Web
 only exposes these routes; it does not manufacture or publish the binaries.
 
