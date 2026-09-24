@@ -58,6 +58,7 @@ export class CodexCliTransportError extends Error {
   }
 }
 
+// Delivery correction requires App Server's per-turn environment/tool controls.
 export async function invokeCodexCliTransport(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
   codexTimeoutMs: number | null;
@@ -74,6 +75,14 @@ export async function invokeCodexCliTransport(input: {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
 }): Promise<CodexCliTransportResult> {
+  if (input.env?.OPENMELD_SPACE_ACTION_DELIVERY_ONLY === "1") {
+    throw new CodexCliTransportError({
+      code: "space.action.delivery_only_unsupported",
+      errorType: "config",
+      message:
+        "This Codex CLI path cannot restrict correction to delivery tools. No correction turn was started.",
+    });
+  }
   const prompt = normalizeOptionalText(input.prompt);
   if (!prompt) {
     throw new CodexCliTransportError({

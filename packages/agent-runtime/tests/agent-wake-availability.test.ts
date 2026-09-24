@@ -262,6 +262,44 @@ describe("agent wake availability", () => {
     );
   });
 
+  it("treats a connected Service admission pause as Checking across admission and display", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        refreshable: true,
+        reasonCodes: ["local_service.not_accepting_wakes"],
+        source: "runtime_transport",
+      },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-05-09T12:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "unknown",
+        ready: false,
+        reasonCodes: ["local_service.not_accepting_wakes"],
+      },
+    });
+
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "local_service.not_accepting_wakes"
+    );
+    expect(
+      resolveAgentWakeAvailability({
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+        readiness,
+      })
+    ).toMatchObject({
+      badgeLabel: "Checking",
+      category: "checking",
+      reasonCode: "local_service.not_accepting_wakes",
+      status: "checking_connection",
+    });
+  });
+
   it("keeps service drift a definite service problem, not an update requirement", () => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,

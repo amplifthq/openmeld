@@ -246,6 +246,7 @@ function createDefaultCursorInvoke(input: {
           cursorWorkdir:
             dispatchInput.runtimeContext.providerRuntimeWorkingDirectory,
           env: dispatchInput.env,
+          spaceActionTools: dispatchInput.spaceActionTools,
           launchContract,
           onActiveTurn: input.registerActiveTurn,
           ...(dispatchInput.onInteractionRequest

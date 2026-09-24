@@ -684,6 +684,7 @@ describe("handleDispatchQueueBatch", () => {
     runtimeDisplayState?: "unknown";
     runtimeReasonCode?:
       | "controller.registry.disabled"
+      | "local_service.not_accepting_wakes"
       | "service.update_required"
       | "usage_checking"
       | "usage_exhausted"
@@ -10668,6 +10669,7 @@ describe("handleDispatchQueueBatch", () => {
   it.each([
     undefined,
     "usage_checking",
+    "local_service.not_accepting_wakes",
     "working_folder.observation_coverage_invalid",
   ] as const)("retains a first Wake while readiness is unconfirmed (%s) without authorizing execution", async (runtimeReasonCode) => {
     const message = createDispatchBody({
@@ -10704,6 +10706,8 @@ describe("handleDispatchQueueBatch", () => {
     ["disabled", "working_folder.observation_coverage_invalid"],
     ["ready", "usage_checking"],
     ["disabled", "usage_checking"],
+    ["ready", "local_service.not_accepting_wakes"],
+    ["disabled", "local_service.not_accepting_wakes"],
   ] as const)("redrives the same first Wake after preparation (%s, %s) without publishing an early failure", async (nextState, preparationReason) => {
     const message = createDispatchQueueMessage({
       dispatchId: "dispatch-first-preparing",

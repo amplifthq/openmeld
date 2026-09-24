@@ -32,6 +32,7 @@ import {
   localProjectControlRemoveConnectionResultSchema,
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
+  OPENMELD_ADMISSION_EVIDENCE_HEADER,
   OPENMELD_COMPUTER_CARE_HEADER,
   OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
   OPENMELD_EXECUTION_ADMISSION_HEADER,
@@ -2463,6 +2464,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ownerUserId: string;
     targetProfileId: string;
     agentControllerRef: string;
+    requiredContextVersion?: 2 | 3;
   }): string | null {
     const route = lookupRoute(
       this.state,
@@ -2486,7 +2488,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
-        adapter.capabilityDeclaration.executionContextVersion === 2
+        (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
+          (input.requiredContextVersion ?? 2)
     )
       ? null
       : "service.update_required";
@@ -3673,6 +3676,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ...(readRuntimeTransportSocketAttachment(webSocket).computerCare
           ? { computerCare: true }
           : {}),
+        ...(readRuntimeTransportSocketAttachment(webSocket).admissionEvidence
+          ? { admissionEvidence: true }
+          : {}),
       },
     });
     if (response.ok) {
@@ -3807,6 +3813,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const request = {
       ...parsed.data,
+      admissionEvidence: readRuntimeTransportSocketAttachment(webSocket)
+        .admissionEvidence
+        ? parsed.data.admissionEvidence
+        : undefined,
       capabilities: applyRuntimeTransportNegotiatedCapabilities({
         attachment: readRuntimeTransportSocketAttachment(webSocket),
         capabilities: parsed.data.capabilities,
@@ -10637,6 +10647,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     writeRuntimeTransportSocketAttachment(server, {
       executionAdmissionConfirmation:
         request.headers.get(OPENMELD_EXECUTION_ADMISSION_HEADER) === "1",
+      admissionEvidence:
+        request.headers.get(OPENMELD_ADMISSION_EVIDENCE_HEADER) === "1",
       computerCare: request.headers.get(OPENMELD_COMPUTER_CARE_HEADER) === "1",
       spaceWorkHandoff:
         request.headers.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1",
@@ -12200,6 +12212,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           agentControllerRef:
             record.acceptedDispatchSnapshot?.controllerSnapshot
               .agentControllerRef ?? "",
+          requiredContextVersion:
+            record.acceptedDispatchSnapshot?.controllerSnapshot
+              .agentControllerRef === "builtin:claude-code" &&
+            record.acceptedDispatchSnapshot?.executionContext?.access ===
+              "workspace"
+              ? 3
+              : 2,
         }),
       blockForExecutionTargetMutation: true,
       nowMs,

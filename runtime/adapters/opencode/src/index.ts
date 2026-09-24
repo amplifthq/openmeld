@@ -10,7 +10,6 @@ import {
   type AdapterTransportMode,
   bridgeAgentControllerConversationRef,
   buildAdapterCancelRequest,
-  buildDispatchSpaceActionMcpToolIds,
   buildExecutableLaunchContract,
   createSharedControlShell,
   createSharedDispatchShell,
@@ -210,7 +209,6 @@ function buildOpenCodeEnv(
     };
   }
 
-  const toolIds = buildDispatchSpaceActionMcpToolIds("_");
   const config = parseOpenCodeConfigContent(
     input.env?.[OPENCODE_CONFIG_CONTENT_ENV]
   );
@@ -220,11 +218,8 @@ function buildOpenCodeEnv(
       "OpenMeld cannot start its dispatch Space Action tool because the reserved OpenCode MCP server name is already configured."
     );
   }
-  const tools = readRecord(config.tools);
-  const permission = {
-    ...(input.openCodePermission ?? {}),
-    ...Object.fromEntries(toolIds.map((toolId) => [toolId, "allow"])),
-  };
+  // Register the carrier, not a grant. Native config, per-Agent deny/ask rules,
+  // and the selected OpenMeld permission policy remain authoritative.
 
   return {
     ...(input.env ?? {}),
@@ -242,12 +237,10 @@ function buildOpenCodeEnv(
           type: "local",
         },
       },
-      tools: {
-        ...tools,
-        ...Object.fromEntries(toolIds.map((toolId) => [toolId, true])),
-      },
     }),
-    [OPENCODE_PERMISSION_ENV]: JSON.stringify(permission),
+    ...(input.openCodePermission
+      ? { [OPENCODE_PERMISSION_ENV]: JSON.stringify(input.openCodePermission) }
+      : {}),
   };
 }
 

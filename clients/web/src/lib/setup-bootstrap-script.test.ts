@@ -96,12 +96,15 @@ describe("setup-bootstrap-script", () => {
 		);
 		expect(script).toContain("trap cleanup_binary_download EXIT");
 		expect(script).toContain("download_file_with_retry");
+		expect(
+			script.trimEnd().endsWith("# openmeld-setup-script-complete-v1")
+		).toBe(true);
 		expect(script).toContain("OPENMELD_SETUP_DOWNLOAD_ATTEMPT=1");
 		expect(script).toContain("Download didn't finish. Retrying...");
-		expect(script).toContain("curl -fL --progress-bar");
+		expect(script).toContain("download_file_with_curl -fL --progress-bar");
 		expect(script).toContain("install_binary_openmeld");
 		expect(script).toContain(
-			'/usr/bin/codesign --verify --strict --verbose=2 "$OPENMELD_SETUP_SIGNATURE_PATH"'
+			'anchor apple generic and identifier "sh.openmeld.cli" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "38FFHDPA3B"'
 		);
 		expect(script).toContain(
 			'/usr/bin/codesign --display --verbose=4 "$OPENMELD_SETUP_SIGNATURE_PATH"'
@@ -401,6 +404,44 @@ describe("setup-bootstrap-script", () => {
 		},
 		SHELL_BOOTSTRAP_TEST_TIMEOUT_MS
 	);
+
+	it("stops production setup before installing a binary without signing identity", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "openmeld-setup-bootstrap-"));
+		const binDir = join(tempDir, "bin");
+		const callsPath = join(tempDir, "calls.txt");
+		try {
+			mkdirSync(binDir);
+			linkRealNodeRuntime(binDir);
+			linkFakeBootstrapCommand(binDir, "curl");
+			linkFakeBootstrapCommand(binDir, "uname");
+			const result = spawnBootstrapScript(
+				tempDir,
+				buildOpenMeldSetupBootstrapScript({ lane: "prod" }),
+				[
+					"setup",
+					"--start-session",
+					"preptok_demo",
+					"--ott",
+					"ott_demo",
+					"--view",
+					"agent",
+				],
+				{
+					env: {
+						HOME: tempDir,
+						OPENMELD_TEST_CALLS_PATH: callsPath,
+						OPENMELD_TEST_MANIFEST_SIGNING_IDENTITY: "missing",
+						PATH: bootstrapTestPath(binDir),
+					},
+				}
+			);
+			expect(result.status).not.toBe(0);
+			expect(result.stdout).toContain("unexpected code identifier");
+			expect(existsSync(callsPath)).toBe(false);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
 
 	it(
 		"updates an older npm CLI before binary setup can report completion",
@@ -1703,7 +1744,22 @@ function buildBootstrapShellArgs(
 
 function writeBootstrapScript(tempDir: string, script: string): string {
 	const scriptPath = join(tempDir, "setup-bootstrap.sh");
-	writeFileSync(scriptPath, script);
+	const fakeCodesignPath = join(tempDir, "bin", "codesign");
+	if (existsSync(dirname(fakeCodesignPath)) && !existsSync(fakeCodesignPath)) {
+		symlinkSync(
+			join(
+				dirname(fileURLToPath(import.meta.url)),
+				"__fixtures__",
+				"setup-bootstrap-fake-command.sh"
+			),
+			fakeCodesignPath
+		);
+	}
+	// Only the test copy replaces the absolute system verifier with a fixture.
+	writeFileSync(
+		scriptPath,
+		script.replaceAll("/usr/bin/codesign", fakeCodesignPath)
+	);
 	chmodSync(scriptPath, 0o755);
 	return scriptPath;
 }

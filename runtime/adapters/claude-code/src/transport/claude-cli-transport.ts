@@ -18,6 +18,7 @@ import {
   classifyCliDriverTimeoutFailure,
   classifyRuntimePermissionDenialMessage,
   createProviderOriginalError,
+  isDispatchSpaceActionDeliveryOnly,
   looksLikeRuntimePermissionDenialMessage,
   resolveDispatchSpaceActionMcpServer,
 } from "@openmeld/adapter-core";
@@ -317,6 +318,16 @@ export const buildClaudeArgs = (input: {
 }): string[] => {
   const args: string[] = [];
   const spaceActionMcpServer = resolveDispatchSpaceActionMcpServer(input.env);
+  const deliveryOnly = isDispatchSpaceActionDeliveryOnly(input.env);
+  if (deliveryOnly) {
+    args.push(
+      "--tools",
+      "",
+      "--strict-mcp-config",
+      "--settings",
+      JSON.stringify({ disableAllHooks: true })
+    );
+  }
   if (input.sessionId) {
     args.push("--resume", input.sessionId);
     if (input.executionMode === "repair") {
@@ -340,6 +351,8 @@ export const buildClaudeArgs = (input: {
   }
   args.push("-p", input.prompt);
   appendClaudeAgentControllerPermissionModeArgs(args, {
+    deliveryOnly,
+    env: input.env,
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     executionMode: input.executionMode,
     spaceActionMcpEnabled: spaceActionMcpServer !== null,
@@ -363,13 +376,15 @@ const appendClaudeAgentControllerPermissionModeArgs = (
     agentControllerPermissionMode?: AgentControllerPermissionMode;
     executionMode?: AdapterDispatchExecutionMode;
     spaceActionMcpEnabled?: boolean;
+    deliveryOnly?: boolean;
+    env?: Record<string, string | undefined>;
   }
 ): void => {
   args.push(
     "--allowedTools",
-    ...OPENMELD_CLAUDE_ALLOWED_TOOLS,
+    ...(input.deliveryOnly ? [] : OPENMELD_CLAUDE_ALLOWED_TOOLS),
     ...(input.spaceActionMcpEnabled
-      ? buildDispatchSpaceActionMcpToolIds("__").map(
+      ? buildDispatchSpaceActionMcpToolIds("__", input.env).map(
           (toolId) => `mcp__${toolId}`
         )
       : [])

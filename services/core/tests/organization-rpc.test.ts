@@ -3085,8 +3085,8 @@ describe("organization Core RPC", () => {
       canManage: false,
       configurationRevision: 4,
       effectiveModel: {
-        displayName: "GLM 5.3 Flash",
-        modelId: "z-ai/glm-5.3-flash",
+        displayName: "Claude Opus 5.5",
+        modelId: "anthropic/claude-opus-5.5",
       },
       preference: { kind: "system_default" },
     });

@@ -52,10 +52,13 @@ export function resolveClaudeAgentControllerPermissionMode(
 }
 
 export function resolveClaudePermissionMode(input: {
+  deliveryOnly?: boolean;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   executionMode?: AdapterDispatchExecutionMode;
 }): ClaudePermissionModeValue {
-  if (input.executionMode === "repair") {
+  // Concurrent-result reconsideration retains its existing isolated policy.
+  // Missing-action correction instead enforces an exact delivery-only toolset.
+  if (input.executionMode === "repair" && !input.deliveryOnly) {
     return "plan";
   }
 

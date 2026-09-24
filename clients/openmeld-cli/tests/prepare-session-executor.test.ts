@@ -990,14 +990,16 @@ describe("prepare session executor", () => {
     ).toBe("OpenMeld Service update failed. Run `openmeld service update`.");
   });
 
-  it("names the macOS Login Items block when a refresh fails with a never-spawned service", () => {
+  it("offers a conditional Login Items check when a service never spawned", () => {
     const message = formatTerminalStepFailureMessage({
       stepId: "refresh_service",
       rawMessage: "OpenMeld Service refresh did not complete: start_failed",
       serviceJobVerdict: "never_spawned",
     });
 
-    expect(message).toContain("macOS didn't start OpenMeld Service.");
+    expect(message).toContain("OpenMeld Service did not start.");
+    expect(message).toContain("openmeld service repair");
+    expect(message).toContain("If OpenMeld's background item is off");
     expect(message).toContain("Login Items & Extensions");
     expect(message).not.toContain("Path A");
     expect(message).not.toContain("Path B");
@@ -1013,7 +1015,7 @@ describe("prepare session executor", () => {
       serviceJobVerdict: "crashed",
     });
 
-    expect(message).toContain("keeps stopping after it starts");
+    expect(message).toContain("stopped after it started");
     expect(message).toContain("openmeld service repair");
     expect(message).toContain("saved the failure details");
     expect(message).not.toContain("--mode foreground");
@@ -1437,9 +1439,7 @@ describe("prepare session executor", () => {
     expect(failedWrite?.reasonCode).toBe(
       "prepare.refresh_service.service_never_spawned"
     );
-    expect(failedWrite?.message).toContain(
-      "macOS didn't start OpenMeld Service"
-    );
+    expect(failedWrite?.message).toContain("OpenMeld Service did not start");
   });
 
   it("writes and rethrows the exact local machine issue for Web and Desktop", async () => {

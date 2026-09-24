@@ -185,12 +185,11 @@ Proof rules:
 
 Use OpenMeld Space Action commands only when you are running inside an OpenMeld-launched Space Wake dispatch. Do not use \`space action\` from an ordinary local chat, setup flow, or manual Space-management thread.
 
-Inside an OpenMeld Space Wake, use the exact Space Action command prefix printed in the dispatch prompt instead of writing structured fallback text by hand. In this Skill, \`<DISPATCH_ACTION_CLI>\` means that exact dispatch-scoped prefix for the current lane. Do not guess it or rewrite it to \`npx\`; OpenMeld injects a dispatch-scoped command shim so the action is recorded for the current Space, message, and Agent Profile.
+Inside an OpenMeld Space Wake, use the supplied native reply or stay_silent tool. Answers, known limitations, errors and requests for help are replies; neither tool requires a shell. The following commands document a legacy CLI-only carrier, not a second choice alongside native tools. Use its exact supplied prefix instead of writing structured fallback text by hand. In this Skill, \`<DISPATCH_ACTION_CLI>\` means that exact dispatch-scoped prefix for the current lane. Do not guess it or rewrite it to \`npx\`; OpenMeld injects a dispatch-scoped command shim so the action is recorded for the current Space, message, and Agent Profile.
 
 \`\`\`sh
 <DISPATCH_ACTION_CLI> space action targets
 <DISPATCH_ACTION_CLI> space action reply "Here is the result."
-<DISPATCH_ACTION_CLI> space action status done "Finished the investigation."
 <DISPATCH_ACTION_CLI> space action wake "@Review Agent" "Please review this result."
 <DISPATCH_ACTION_CLI> space action reply --wake "@Review Agent" "I finished the first pass. Please review it."
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."

@@ -27,6 +27,7 @@ import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import { SpaceImagePreview } from "./space-image-preview";
+import { SpaceVideoPreview } from "./space-video-preview";
 
 export function useSpaceComposerFileInput(input: {
 	disabled: boolean;
@@ -184,31 +185,7 @@ export function SpaceComposerFileTray(input: {
 					>
 						<Tooltip>
 							<TooltipTrigger render={<span className="block" />}>
-								{file.previewUrl ? (
-									<SpaceImagePreview
-										altText={file.fileName}
-										imageSource={file.previewUrl}
-										isSingle={false}
-										thumbnailClassName="size-16 rounded-xl"
-									/>
-								) : (
-									<span
-										aria-label={file.fileName}
-										className="flex size-16 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground"
-										role="img"
-									>
-										{file.mimeType === "text/html" ? (
-											<SpaceFileHtmlBadge />
-										) : (
-											<FileIcon aria-hidden="true" className="size-7" />
-										)}
-										<span className="max-w-16 truncate text-[10px] uppercase">
-											{file.fileName.includes(".")
-												? file.fileName.split(".").at(-1)
-												: "File"}
-										</span>
-									</span>
-								)}
+								<SpaceComposerFileThumbnail file={file} />
 							</TooltipTrigger>
 							<TooltipContent
 								className="max-w-80 break-all text-left"
@@ -217,17 +194,15 @@ export function SpaceComposerFileTray(input: {
 								{file.fileName}
 							</TooltipContent>
 						</Tooltip>
-						<Button
+						<button
 							aria-label={`Remove ${file.fileName}`}
-							className="absolute top-1 right-1 z-10 size-4 rounded-full bg-white p-0 text-black shadow-sm hover:bg-white/90"
+							className="absolute top-0 right-0 z-10 flex size-7 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 							disabled={input.disabled}
 							onClick={() => input.onRemove(file.localId)}
-							size="icon-sm"
 							type="button"
-							variant="ghost"
 						>
 							<XIcon aria-hidden="true" className="size-3" />
-						</Button>
+						</button>
 					</div>
 					{file.status === "failed" ? (
 						<div className="mt-1 max-w-56">
@@ -266,6 +241,45 @@ export function SpaceComposerFileTray(input: {
 				</div>
 			))}
 		</fieldset>
+	);
+}
+
+function SpaceComposerFileThumbnail({ file }: { file: SpaceComposerFile }) {
+	if (file.previewUrl && file.mimeType.startsWith("video/")) {
+		return (
+			<SpaceVideoPreview
+				compact
+				fileName={file.fileName}
+				isLocal
+				localPreviewUrl={file.previewUrl}
+			/>
+		);
+	}
+	if (file.previewUrl) {
+		return (
+			<SpaceImagePreview
+				altText={file.fileName}
+				imageSource={file.previewUrl}
+				isSingle={false}
+				thumbnailClassName="size-16 rounded-xl"
+			/>
+		);
+	}
+	return (
+		<span
+			aria-label={file.fileName}
+			className="flex size-16 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground"
+			role="img"
+		>
+			{file.mimeType === "text/html" ? (
+				<SpaceFileHtmlBadge />
+			) : (
+				<FileIcon aria-hidden="true" className="size-7" />
+			)}
+			<span className="max-w-16 truncate text-[10px] uppercase">
+				{file.fileName.includes(".") ? file.fileName.split(".").at(-1) : "File"}
+			</span>
+		</span>
 	);
 }
 

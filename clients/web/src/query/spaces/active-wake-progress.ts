@@ -106,10 +106,12 @@ export function hasSpaceWakeProgressOutcome(input: {
 export function readSpaceWakeProgressSummaryItems(input: {
 	presentation: SpaceWakeProgressPresentation;
 	summary: SpaceWakeProgressSummary | undefined;
+	isFetchedAfterMount?: boolean;
 }): WakeProgressItem[] {
 	// Old summaries (including requests that outlive GC) cannot rejoin a new
 	// cache lifetime after its accepted outcomes have been retired.
-	return input.summary?.presentationEpoch === input.presentation.epoch
+	return input.isFetchedAfterMount !== false &&
+		input.summary?.presentationEpoch === input.presentation.epoch
 		? filterSpaceWakeProgressItems({
 				presentation: input.presentation,
 				items: input.summary.items,

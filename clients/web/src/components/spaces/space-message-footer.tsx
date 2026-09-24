@@ -226,14 +226,24 @@ type ToolbarPosition = {
 	top: number;
 };
 
-function resolveToolbarPosition(input: {
+export function resolveToolbarPosition(input: {
 	bubble: DOMRect;
 	container: DOMRect;
 	preferredSide: "after" | "before";
 	toolbar: DOMRect;
+	viewport?: DOMRect;
 }): ToolbarPosition {
-	const { bubble, container, preferredSide, toolbar } = input;
-	const bubbleTop = bubble.top - container.top;
+	const { bubble, container, preferredSide, toolbar, viewport } = input;
+	const visibleBottom = viewport
+		? Math.min(bubble.bottom, viewport.bottom)
+		: bubble.bottom;
+	const lowerEdgeTop = visibleBottom - toolbar.height - 8;
+	const verticalTop = (initialTop: number) =>
+		viewport &&
+		initialTop + toolbar.height <= viewport.top + 8 &&
+		lowerEdgeTop >= viewport.top + 8
+			? lowerEdgeTop - container.top
+			: initialTop - container.top;
 	for (const side of [
 		preferredSide,
 		preferredSide === "after" ? "before" : "after",
@@ -249,7 +259,7 @@ function resolveToolbarPosition(input: {
 						? bubble.right - container.left + 6
 						: bubble.left - container.left - toolbar.width - 6,
 				placement: side,
-				top: bubbleTop,
+				top: verticalTop(bubble.top),
 			};
 		}
 	}
@@ -264,7 +274,7 @@ function resolveToolbarPosition(input: {
 			)
 		),
 		placement: "overlay",
-		top: bubbleTop - toolbar.height + 4,
+		top: verticalTop(bubble.top - toolbar.height + 10),
 	};
 }
 
@@ -298,6 +308,9 @@ function MessageFooterActions({
 			"[data-slot='bubble-content']"
 		);
 		const container = row;
+		const viewport = row?.closest<HTMLElement>(
+			'[data-slot="message-scroller-viewport"]'
+		);
 		if (!(toolbar && row && bubble && container instanceof HTMLElement)) {
 			return;
 		}
@@ -313,6 +326,7 @@ function MessageFooterActions({
 						? "before"
 						: "after",
 				toolbar: toolbarRect,
+				viewport: viewport?.getBoundingClientRect(),
 			});
 			toolbar.style.insetInlineStart = `${next.left}px`;
 			toolbar.style.insetBlockStart = `${next.top}px`;
@@ -324,6 +338,8 @@ function MessageFooterActions({
 				observer = new ResizeObserver(position);
 				observer.observe(container);
 				observer.observe(bubble);
+				viewport?.addEventListener("scroll", position, { passive: true });
+				window.addEventListener("resize", position);
 			}
 		};
 		const deactivate = () => {
@@ -336,6 +352,8 @@ function MessageFooterActions({
 			}
 			observer?.disconnect();
 			observer = null;
+			viewport?.removeEventListener("scroll", position);
+			window.removeEventListener("resize", position);
 		};
 		const onFocusOut = () => queueMicrotask(deactivate);
 		row.addEventListener("pointerenter", activate);
@@ -351,6 +369,8 @@ function MessageFooterActions({
 			row.removeEventListener("focusin", activate);
 			row.removeEventListener("focusout", onFocusOut);
 			observer?.disconnect();
+			viewport?.removeEventListener("scroll", position);
+			window.removeEventListener("resize", position);
 		};
 	}, [inline, persistent]);
 	return (

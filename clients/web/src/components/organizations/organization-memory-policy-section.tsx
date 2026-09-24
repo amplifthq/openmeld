@@ -4,13 +4,18 @@ import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { Switch } from "@openmeld/ui/components/switch";
+import { BrainIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { AgentConfigurationCard } from "#/components/profiles/agent-configuration-card";
 import { setCurrentOrganizationCenterAgentMemoryPolicy } from "#/lib/organizations/center-agent-memory";
 import { centerAgentMemoryPolicyQueryOptions } from "#/query/organizations/center-agent";
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The policy query and mutation serve the existing page and the Center Agent card presentation.
 export function OrganizationMemoryPolicySection(input: {
 	isPersonalWorkspace: boolean;
 	organizationId: string;
+	presentation?: "card";
 	roleState: {
 		canManage: boolean;
 		errorMessage: string | null;
@@ -52,6 +57,42 @@ export function OrganizationMemoryPolicySection(input: {
 			<Skeleton className="h-5 w-8 rounded-full" />
 		</SkeletonRegion>
 	);
+	const control =
+		checked === undefined ? (
+			missingControl
+		) : (
+			<Switch
+				aria-label={
+					input.isPersonalWorkspace
+						? "Use Workspace memory"
+						: "Use shared Center Agent organization memory"
+				}
+				checked={checked}
+				disabled={isDisabled}
+				onCheckedChange={(nextChecked) =>
+					memoryPolicyMutation.mutate(nextChecked)
+				}
+			/>
+		);
+	if (input.presentation === "card") {
+		return (
+			<OrganizationMemoryPolicyCard
+				checked={checked}
+				control={control}
+				error={
+					memoryPolicyMutation.error?.message ??
+					memoryPolicyQuery.error?.message ??
+					input.roleState.errorMessage
+				}
+				isLoading={memoryPolicyQuery.isPending && !readUnavailable}
+				onRetry={
+					readUnavailable
+						? () => memoryPolicyQuery.refetch().catch(console.error)
+						: undefined
+				}
+			/>
+		);
+	}
 
 	return (
 		<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
@@ -120,23 +161,60 @@ export function OrganizationMemoryPolicySection(input: {
 						</p>
 					) : null}
 				</div>
-				{checked === undefined ? (
-					missingControl
-				) : (
-					<Switch
-						aria-label={
-							input.isPersonalWorkspace
-								? "Use Workspace memory"
-								: "Use shared Center Agent organization memory"
-						}
-						checked={checked}
-						disabled={isDisabled}
-						onCheckedChange={(nextChecked) => {
-							memoryPolicyMutation.mutate(nextChecked);
-						}}
-					/>
-				)}
+				{control}
 			</div>
 		</section>
+	);
+}
+
+function OrganizationMemoryPolicyCard(input: {
+	checked: boolean | undefined;
+	control: ReactNode;
+	error: string | null | undefined;
+	isLoading: boolean;
+	onRetry?: () => void;
+}) {
+	let summary = input.isLoading ? "Loading…" : "Unavailable";
+	if (input.checked === true) {
+		summary = "On";
+	}
+	if (input.checked === false) {
+		summary = "Off";
+	}
+	return (
+		<AgentConfigurationCard
+			description="Uses details from shared Spaces and channels. Private chats stay out."
+			icon={<BrainIcon aria-hidden="true" />}
+			inlineContent={
+				<>
+					<div className="flex items-center justify-between gap-3">
+						<span className="text-muted-foreground text-xs">
+							Remember shared conversations
+						</span>
+						{input.control}
+					</div>
+					{input.error ? (
+						<p className="mt-2 text-destructive text-xs" role="alert">
+							{input.error}
+						</p>
+					) : null}
+					{input.onRetry ? (
+						<Button
+							className="mt-2"
+							onClick={input.onRetry}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							Try again
+						</Button>
+					) : null}
+				</>
+			}
+			itemId="center-agent-memory"
+			label="Organization memory"
+			readOnly
+			summary={summary}
+		/>
 	);
 }

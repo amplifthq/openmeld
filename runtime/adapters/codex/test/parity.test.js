@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { mock } from "node:test";
+import { z } from "zod/v4";
 
 const AUTH_401_RE = /401 Unauthorized/;
 const MODEL_NOT_FOUND_RE = /model_not_found|requested model/i;
@@ -321,6 +322,10 @@ test("codex Stop keeps the turn a released writer retry already started", async 
       waitForThreadWriterAvailability: () =>
         Promise.resolve("release_observed"),
     });
+    let acceptTurn;
+    const acceptedTurn = new Promise((resolve) => {
+      acceptTurn = resolve;
+    });
     const dispatchOutcome = adapter.dispatch({
       agentControllerConversationId: "thread-default-stop-after-turn",
       agentId: "agt-demo",
@@ -334,6 +339,9 @@ test("codex Stop keeps the turn a released writer retry already started", async 
         if (event.phase.startsWith("agent_controller_conversation_")) {
           events.push(event.phase);
         }
+        if (event.phase === "provider_turn_accepted") {
+          acceptTurn();
+        }
       },
       prompt: "continue after the writer releases",
       runtimeContext: createRuntimeContext(dispatchDir),
@@ -345,7 +353,16 @@ test("codex Stop keeps the turn a released writer retry already started", async 
 
     // The retry won the writer lock and the native turn is running, so this
     // Stop lands after `turn/start` rather than ahead of it.
-    await waitForFakeAppServerMethod(logPath, "turn/start");
+    // Use actual native admission rather than assuming two controller starts
+    // and writer reconciliation fit inside an unrelated one-second file poll.
+    await Promise.race([
+      acceptedTurn,
+      dispatchOutcome.then((result) =>
+        assert.fail(
+          `The dispatch ended before accepting the native turn: ${JSON.stringify(result)}`
+        )
+      ),
+    ]);
     const stopResult = await adapter.interrupt({
       mode: "force",
       taskId: "task-default-stop-after-turn",
@@ -917,10 +934,12 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  if (message.method === 'initialize') {",
       "    const hangingStartupAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_STARTUP_ATTEMPTS ?? '0');",
       "    if (startupAttempt <= hangingStartupAttempts) return;",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { userAgent: 'fake-codex-app-server', codexHome: '/tmp/fake-codex-home', platformFamily: 'unix', platformOs: 'macos' } });",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { userAgent: process.env.OPENMELD_FAKE_CODEX_NATIVE_VERSION ? 'openmeld/' + process.env.OPENMELD_FAKE_CODEX_NATIVE_VERSION : 'fake-codex-app-server', codexHome: '/tmp/fake-codex-home', platformFamily: 'unix', platformOs: 'macos' } });",
       "    return;",
       "  }",
       "  if (message.method === 'initialized') return;",
+      "  if (message.method === 'config/read') { write({ id: message.id, result: { config: { mcp_servers: { openmeld_internal_dispatch_space_action: JSON.parse(process.env.OPENMELD_FAKE_CODEX_SPACE_POLICY ?? '{}') } }, origins: {}, layers: null } }); return; }",
+      "  if (message.method === 'configRequirements/read') { write({ id: message.id, result: { requirements: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS ?? 'null') } }); return; }",
       "  if (message.method === 'command/exec') { write({ jsonrpc: '2.0', id: message.id, result: { exitCode: 0, stdout: 'denied:denied:allowed:denied', stderr: '' } }); return; }",
       "  if (message.method === 'mcpServerStatus/list') { write({ jsonrpc: '2.0', id: message.id, result: { data: [], nextCursor: null } }); return; }",
       "  if (message.method === 'collaborationMode/list') {",
@@ -965,7 +984,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "      return;",
       "    }",
       "    const turns = statuses.map((status, index) => ({ id: 'turn-read-' + (index + 1), items: [], itemsView: 'complete', status, error: null, startedAt: 1, completedAt: status === 'completed' ? 1 : null, durationMs: null }));",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(message.params.threadId), turns: message.params.includeTurns ? turns : [] } } });",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(message.params.threadId, process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user'), turns: message.params.includeTurns ? turns : [] } } });",
       "    return;",
       "  }",
       "  if (message.method === 'thread/name/set') {",
@@ -975,6 +994,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'thread/start') {",
+      "    if (message.params.dynamicTools && process.env.OPENMELD_FAKE_CODEX_REJECT_DYNAMIC_DEFINITION === '1') { write({ id: message.id, error: { code: -32600, message: 'Invalid request: unknown field `dynamicTools`' } }); return; }",
       "    const requiredMcpFailure = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUIRED_MCP_FAILURE;",
       "    if (requiredMcpFailure) { write({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: requiredMcpFailure } }); return; }",
       "    const hangingThreadStartAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS ?? '0');",
@@ -996,6 +1016,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    const onStart = () => {",
       "      write({ jsonrpc: '2.0', id: message.id, result: { turn: { id: 'turn-1', items: [], itemsView: 'complete', status: 'inProgress', error: null, startedAt: 1, completedAt: null, durationMs: null } } });",
       "      activeTurn = { cwd, prompt, threadId: message.params.threadId, turnId: 'turn-1' };",
+      "      write({ method: 'turn/started', params: { threadId: activeTurn.threadId, turn: { id: activeTurn.turnId, status: 'inProgress', items: [] } } });",
       "      turnCompleted = false;",
       "      const serverRequest = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST;",
       "      if (serverRequest) {",
@@ -1034,6 +1055,334 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
     "utf8"
   );
 };
+
+for (const scenario of [
+  { name: "new native thread", version: "0.150.1", native: true },
+  { name: "older controller", version: "0.149.0", native: false },
+  {
+    name: "legacy MCP thread",
+    version: "0.150.1",
+    existing: true,
+    native: false,
+  },
+  {
+    name: "resumed native thread",
+    version: "0.150.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    native: true,
+  },
+  {
+    name: "explicit MCP denial",
+    version: "0.150.1",
+    policy: { disabled_tools: ["reply"] },
+    native: false,
+  },
+  {
+    name: "explicit MCP approval",
+    version: "0.150.1",
+    policy: { default_tools_approval_mode: "prompt" },
+    native: false,
+  },
+  {
+    name: "custom configuration",
+    version: "0.150.1",
+    custom: true,
+    native: false,
+  },
+  {
+    name: "disabled server",
+    version: "0.150.1",
+    policy: { enabled: false },
+    native: false,
+  },
+  {
+    name: "explicit allowlist",
+    version: "0.150.1",
+    policy: { enabled_tools: [] },
+    native: false,
+  },
+  {
+    name: "per-tool policy",
+    version: "0.150.1",
+    policy: { tools: { reply: { approval_mode: "prompt" } } },
+    native: false,
+  },
+  {
+    name: "unknown future policy",
+    version: "0.150.1",
+    policy: { future_policy: "deny" },
+    native: false,
+  },
+  {
+    name: "managed restrictions",
+    version: "0.150.1",
+    requirements: { featureRequirements: { hooks: true } },
+    native: false,
+  },
+  {
+    name: "changed native-thread policy",
+    version: "0.150.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    policy: { disabled_tools: ["reply"] },
+    error: "context.space_tool_policy_changed",
+  },
+  {
+    name: "native repair fork",
+    version: "0.150.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    repair: true,
+    native: true,
+  },
+  {
+    name: "foreign thread callback",
+    version: "0.150.1",
+    native: true,
+    request: { threadId: "foreign-thread" },
+  },
+  {
+    name: "stale turn callback",
+    version: "0.150.1",
+    native: true,
+    request: { turnId: "old-turn" },
+  },
+  {
+    name: "unknown tool callback",
+    version: "0.150.1",
+    native: true,
+    request: { tool: "openmeld_space_status" },
+  },
+  {
+    name: "unknown handler result",
+    version: "0.150.1",
+    native: true,
+    handlerThrows: true,
+  },
+  ...["codex:fullAccess", "codex:approveForMe", "codex:askForApproval"].map(
+    (mode) => ({
+      name: `delivery-only preserves ${mode}`,
+      version: "0.150.1",
+      native: true,
+      existing: true,
+      source: "user/openmeld-space-tools-v1",
+      repair: true,
+      deliveryOnly: true,
+      mode,
+    })
+  ),
+  {
+    name: "delivery-only rejects unsupported controller",
+    version: "0.149.0",
+    deliveryOnly: true,
+    error: "space.action.delivery_only_unsupported",
+  },
+  {
+    name: "delivery-only preserves managed requirements",
+    version: "0.150.1",
+    deliveryOnly: true,
+    requirements: { featureRequirements: { hooks: true } },
+    error: "space.action.delivery_only_unverified",
+  },
+  {
+    name: "pre-thread native rejection",
+    version: "0.150.1",
+    native: false,
+    rejectedDefinition: true,
+  },
+]) {
+  test(`codex Space Dynamic Tools preserve one transport: ${scenario.name}`, async () => {
+    const { createCodexAdapter } = await import("../dist/index.js");
+    const root = await mkdtemp(join(tmpdir(), "codex-space-tools-"));
+    const scriptPath = join(root, "controller.mjs");
+    const logPath = join(root, "rpc.jsonl");
+    await writeFakeCodexAppServerFixture(scriptPath);
+    const threadId = scenario.existing ? "existing-thread" : "thread-new-1";
+    const executionThreadId = scenario.repair ? "thread-fork-1" : threadId;
+    const calls = [];
+    try {
+      const result = await createCodexAdapter({
+        codexTimeoutMs: 5000,
+        launchContract: createNodeScriptLaunchContract(scriptPath),
+      }).dispatch({
+        agentId: "agt-demo",
+        agentControllerConversationId: scenario.existing ? threadId : undefined,
+        agentControllerPermissionMode:
+          scenario.mode ??
+          (scenario.custom ? "codex:customConfig" : "codex:askForApproval"),
+        executionMode: scenario.repair ? "repair" : "normal",
+        sourceEventId: "evt-delivery",
+        spaceId: "space-1",
+        taskId: "task-delivery",
+        transportMode: "codex-app-server",
+        runtimeContext: createRuntimeContext(root),
+        prompt:
+          "Use the supplied reply tool to explain that no repository is available.",
+        spaceActionTools: {
+          deliveryOnly: Boolean(scenario.deliveryOnly),
+          tools: [
+            {
+              name: "reply",
+              description: "Submit an explicit public reply.",
+              inputSchema: z.strictObject({ message: z.string().min(1) }),
+            },
+          ],
+          call: (name, args) => {
+            calls.push({ name, args });
+            if (scenario.handlerThrows) {
+              return Promise.reject(new Error("Synthetic lost receipt"));
+            }
+            return Promise.resolve({
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ status: "proposal_saved_locally" }),
+                },
+              ],
+            });
+          },
+          close: () => undefined,
+        },
+        env: {
+          HOME: root,
+          CODEX_HOME: root,
+          OPENMELD_SPACE_ACTION_CONTEXT_PATH: join(root, "context.json"),
+          OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: join(root, "openmeld"),
+          OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_NATIVE_VERSION: scenario.version,
+          ...(scenario.deliveryOnly
+            ? { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" }
+            : {}),
+          OPENMELD_FAKE_CODEX_SPACE_POLICY: JSON.stringify(
+            scenario.policy ?? {}
+          ),
+          OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS: JSON.stringify(
+            scenario.requirements ?? null
+          ),
+          OPENMELD_FAKE_CODEX_REJECT_DYNAMIC_DEFINITION:
+            scenario.rejectedDefinition ? "1" : "0",
+          OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE:
+            scenario.source ?? "user",
+          OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST: JSON.stringify({
+            method: "item/tool/call",
+            params: {
+              threadId: executionThreadId,
+              turnId: "turn-1",
+              callId: "delivery-1",
+              namespace: null,
+              tool: "openmeld_space_reply",
+              arguments: { message: "I cannot access the repository." },
+              ...scenario.request,
+            },
+          }),
+        },
+      });
+      const messages = await readFakeAppServerMessages(logPath);
+      if (scenario.error) {
+        assert.equal(result.status, "failed");
+        assert.equal(result.errorCode, scenario.error);
+        assert.equal(calls.length, 0);
+        assert.equal(
+          messages.some((message) => message.method === "turn/start"),
+          false
+        );
+        return;
+      }
+      assert.equal(result.status, "success");
+      const executed = scenario.native && !scenario.request;
+      assert.equal(calls.length, executed ? 1 : 0);
+      let threadMethod = scenario.existing ? "thread/resume" : "thread/start";
+      if (scenario.repair) {
+        threadMethod = "thread/fork";
+      }
+      const thread = messages.findLast(
+        (message) => message.method === threadMethod
+      );
+      assert.equal(
+        Boolean(thread.params.dynamicTools),
+        scenario.native && !scenario.existing
+      );
+      if (scenario.native) {
+        assert.equal(
+          scenario.deliveryOnly
+            ? thread.params.config.mcp_servers
+                .openmeld_internal_dispatch_space_action.enabled
+            : thread.params.config[
+                "mcp_servers.openmeld_internal_dispatch_space_action.enabled"
+              ],
+          false
+        );
+        if (executed) {
+          assert.deepEqual(calls[0], {
+            name: "reply",
+            args: { message: "I cannot access the repository." },
+          });
+        }
+      }
+      if (scenario.deliveryOnly) {
+        const turn = messages.find(
+          (message) => message.method === "turn/start"
+        ).params;
+        assert.deepEqual(turn.environments, []);
+        assert.equal(thread.params.config["agents.enabled"], false);
+        assert.equal(
+          thread.params.approvalPolicy,
+          scenario.mode === "codex:fullAccess" ? "never" : "on-request"
+        );
+        assert.equal(
+          thread.params.sandbox,
+          scenario.mode === "codex:fullAccess"
+            ? "danger-full-access"
+            : "workspace-write"
+        );
+        if (scenario.mode !== "codex:fullAccess") {
+          assert.equal(
+            thread.params.approvalsReviewer,
+            scenario.mode === "codex:approveForMe" ? "auto_review" : "user"
+          );
+        }
+      }
+      if (scenario.existing) {
+        assert.equal(
+          messages.some((message) => message.method === "thread/start"),
+          false
+        );
+        assert.equal(thread.params.threadId, threadId);
+      }
+      const callback = messages.find(
+        (message) =>
+          message.method === undefined && message.result?.success !== undefined
+      );
+      assert.equal(
+        callback.result.success,
+        Boolean(executed && !scenario.handlerThrows)
+      );
+      assert.equal(
+        messages.filter((message) => message.method === "turn/start").length,
+        1
+      );
+      if (scenario.rejectedDefinition) {
+        assert.equal(
+          messages.filter((message) => message.method === "thread/start")
+            .length,
+          2
+        );
+      }
+      if (scenario.policy) {
+        const argv = messages[0].argv.join("\n");
+        assert.equal(argv.includes(".disabled_tools=[]"), false);
+        assert.equal(
+          argv.includes('.default_tools_approval_mode="approve"'),
+          false
+        );
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
 
 const readFakeAppServerMethods = async (logPath) => {
   const text = await readFile(logPath, "utf8");
@@ -4046,10 +4395,20 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
     });
     const messages = await readFakeAppServerMessages(logPath);
 
+    assert.deepEqual(
+      messages.find((message) => message.method === "thread/read").params,
+      { threadId: "thread-source-1", includeTurns: false }
+    );
     assert.equal(result.threadId, "thread-fork-1");
     assert.deepEqual(
       messages.map((message) => message.method),
-      ["initialize", "initialized", "thread/fork", "thread/name/set"]
+      [
+        "initialize",
+        "initialized",
+        "thread/read",
+        "thread/fork",
+        "thread/name/set",
+      ]
     );
     assert.deepEqual(
       messages.find((message) => message.method === "thread/fork").params,

@@ -144,9 +144,7 @@ describe("system service startup failure diagnostics", () => {
       error: buildTimeoutError(CRASH_LOOP_JOB_DIAGNOSTICS),
     });
 
-    expect(report.summary).toBe(
-      "OpenMeld Service keeps stopping after it starts."
-    );
+    expect(report.summary).toBe("OpenMeld Service stopped after it started.");
     expect(findRowValue(report.rows, "Next")).toBe(
       "Run `openmeld service repair` once."
     );
@@ -199,7 +197,7 @@ describe("system service startup failure diagnostics", () => {
     expect(verdict.jobDiagnostics).toEqual(CRASH_LOOP_JOB_DIAGNOSTICS);
     expect(verdict.localMachineIssue).toBeNull();
     const report = buildSystemServiceStartupFailureReportFromVerdict(verdict);
-    expect(report.summary).toContain("keeps stopping");
+    expect(report.summary).toContain("stopped after it started");
   });
 
   it("keeps a never-spawned job generic without the macOS background marker", () => {

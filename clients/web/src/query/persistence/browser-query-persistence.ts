@@ -37,7 +37,7 @@ import {
 	SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES,
 } from "#/query/spaces/history";
 import { spaceMemberDirectoryDisplaySchema } from "#/query/spaces/member-directory-display";
-import { clearSpaceFileImageResources } from "#/query/spaces/space-file-image-resource";
+import { clearSpaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import type {
 	DexieQueryCacheStore,
@@ -823,13 +823,13 @@ function resolveKnownQueryKey(segment: KnownPersistedQuery): string {
 
 function removeSegmentQueries(segment: KnownPersistedQuery): void {
 	if (segment.scopeKind === "account") {
-		clearSpaceFileImageResources(segment.queryClient);
+		clearSpaceFileMediaResources(segment.queryClient);
 	} else if (segment.scopeKind === "space") {
 		const spaceId = segment.targetQueryKeys.find(
 			(key) => key[0] === "spaces" && key[1] === "history"
 		)?.[2];
 		if (typeof spaceId === "string") {
-			clearSpaceFileImageResources(segment.queryClient, spaceId);
+			clearSpaceFileMediaResources(segment.queryClient, spaceId);
 		}
 	}
 	for (const targetQueryKey of segment.targetQueryKeys) {

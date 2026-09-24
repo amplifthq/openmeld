@@ -44,6 +44,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "framer-motion": "^12.35.2",
+    "media-chrome": "4.19.2",
     "react-day-picker": "^10.0.1",
     "tailwind-merge": "^3.5.0"
   },

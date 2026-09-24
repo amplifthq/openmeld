@@ -63,6 +63,24 @@ it("delivers verified Space caller facts without changing the message or session
   );
 });
 
+it("tells a Space-only parallel task when repository review is unavailable", () => {
+  const plan = buildDispatchPromptPlan({
+    executionContextAccess: "space_context",
+    prompt: "Review PR #1249",
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+  });
+  expect(plan.userPrompt).toContain("Task access: Space context only.");
+  expect(plan.userPrompt).toContain(
+    "no authorized project repository or project code checkout"
+  );
+  expect(plan.userPrompt).toContain(
+    "Do not claim to have reviewed code or a PR diff"
+  );
+});
+
 function createDeliverRequest(input: {
   activationTargets?: string[];
   attachments?: SpaceMessageAttachment[];
