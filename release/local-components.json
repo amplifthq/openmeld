@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T14:30:13.327Z",
+  "updatedAt": "2026-09-24T14:54:25.813Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
@@ -9,7 +9,7 @@
       "reason": "Old Core and new CLI share the same setup, Wake, Space action, status, and trace contracts; catalog refresh only preserves healthy admission."
     },
     "service": {
-      "bundleHash": "5184f33ea42f50e6c40a3e3965c4f6b73e1cc99655824a6c17d3bfb31907ee99",
+      "bundleHash": "8c3ff645c6a824c94d0d24737fb0650434316bdc3b35144c7c88e08f31735dfc",
       "bundleVersion": "0.3.223",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
