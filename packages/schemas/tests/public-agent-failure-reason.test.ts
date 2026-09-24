@@ -121,6 +121,26 @@ describe("public agent failure reason mapping", () => {
       "OpenMeld could not read the latest Space messages to finish this reply. Open Diagnostics for details before trying again."
     );
   });
+  it("names the hosted Agent that failed instead of the Center Agent", () => {
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        agentLabel: "PR Review GPT-6 Sol High",
+        failureCode: "remote_agent.turn_not_completed",
+        failureMessage: "Remote Agent could not finish this request.",
+      })
+    ).toBe(
+      "OpenMeld ran into a problem, so PR Review GPT-6 Sol High couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        agentLabel: "Center Agent",
+        failureCode: "remote_agent.turn_not_completed",
+        failureMessage: "Remote Agent could not finish this request.",
+      })
+    ).toBe(
+      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
+    );
+  });
   it("canonicalizes mixed-version Center Agent callback failures before publication", () => {
     expect(
       resolveCenterAgentCallbackFailureMessage({
