@@ -523,10 +523,10 @@ function UnindexedJoinedRow(input: {
 				<Link
 					aria-label={`Open ${input.space.name}`}
 					className="flex items-center gap-2 font-medium text-sm"
+					search={{ profileId: input.profileId }}
 					to={buildOrganizationSpacePath({
 						orgSlug: input.orgSlug,
 						spaceId: input.space.spaceId,
-						search: { profileId: input.profileId },
 					})}
 				>
 					<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -558,11 +558,13 @@ function JoinedRow(input: {
 	disabled: boolean;
 }) {
 	const item = input.item;
-	const href = buildOrganizationSpacePath({
-		orgSlug: input.input.orgSlug,
-		spaceId: item.spaceId,
+	const route = {
+		to: buildOrganizationSpacePath({
+			orgSlug: input.input.orgSlug,
+			spaceId: item.spaceId,
+		}),
 		search: { profileId: item.openProfileId },
-	});
+	};
 	const status = input.summary
 		? resolveSpaceActiveWakePresentation(input.summary)
 		: null;
@@ -580,7 +582,7 @@ function JoinedRow(input: {
 				<Link
 					aria-label={`Open ${item.spaceName}`}
 					className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					to={href}
+					{...route}
 				>
 					<SpaceDirectorySummary
 						item={item}
@@ -589,11 +591,11 @@ function JoinedRow(input: {
 					/>
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
-					<RowStatus href={href} status={status} unread={input.unread} />
+					<RowStatus route={route} status={status} unread={input.unread} />
 				</div>
 			</TableCell>
 			<TableCell className="hidden lg:table-cell">
-				<RowStatus href={href} status={status} unread={input.unread} />
+				<RowStatus route={route} status={status} unread={input.unread} />
 			</TableCell>
 			<TableCell className="hidden md:table-cell">
 				<MemberPreview
@@ -652,13 +654,13 @@ function JoinedRow(input: {
 function RowStatus(input: {
 	status: ReturnType<typeof resolveSpaceActiveWakePresentation> | null;
 	unread: number;
-	href: string;
+	route: { to: string; search: { profileId: string } };
 }) {
 	return (
 		<div className="flex flex-col gap-1 text-xs">
 			{input.status && (
 				<TooltipHint content={input.status.label}>
-					<Link className="flex items-center gap-2" to={input.href}>
+					<Link className="flex items-center gap-2" {...input.route}>
 						{input.status.orbState && (
 							<SpaceAgentOrb state={input.status.orbState} />
 						)}
@@ -730,10 +732,10 @@ function MemberPreview(input: {
 					(input.item.memberPreviews?.length ?? 0) && (
 					<Link
 						className="p-2 text-muted-foreground"
+						search={{ profileId: input.item.openProfileId }}
 						to={buildOrganizationSpacePath({
 							orgSlug: input.orgSlug,
 							spaceId: input.item.spaceId,
-							search: { profileId: input.item.openProfileId },
 						})}
 					>
 						Open Space to see all {input.item.activeMemberCount} members
