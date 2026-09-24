@@ -81,10 +81,27 @@ const HTML_ERROR_BODY_RE = /^\s*</;
 
 export const DISPATCH_ERROR_SUMMARY_MAX_LENGTH = 512;
 
+/** Generic hosted-Agent failure copy that names the Agent that actually failed. */
+export function buildHostedAgentRequestFailedPublicCopy(agentLabel: string) {
+  const label = agentLabel.trim();
+  if (!label || label === "Center Agent") {
+    return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+  }
+  return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY.replace(
+    "so Center Agent couldn't",
+    `so ${label} couldn't`
+  );
+}
+
 export function resolveCenterAgentCallbackFailureMessage(input: {
+  /** Display name of the hosted Agent that failed; defaults to Center Agent. */
+  agentLabel?: string;
   failureCode: string;
   failureMessage: string;
 }): string {
+  const requestFailed = buildHostedAgentRequestFailedPublicCopy(
+    input.agentLabel ?? "Center Agent"
+  );
   switch (input.failureCode) {
     case "remote_agent.empty_assistant_response":
       return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
@@ -103,7 +120,7 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
         resolveMappedPublicAgentFailureReason(
           input.failureCode,
           "Center Agent"
-        ) ?? CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY
+        ) ?? requestFailed
       );
     case "remote_agent.turn.timeout":
       return CENTER_AGENT_TURN_TIMEOUT_PUBLIC_COPY;
@@ -116,9 +133,9 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
     case REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE:
       return REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
-      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+      return requestFailed;
     default:
-      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+      return requestFailed;
   }
 }
 
