@@ -2463,6 +2463,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ownerUserId: string;
     targetProfileId: string;
     agentControllerRef: string;
+    requiredContextVersion?: 2 | 3;
   }): string | null {
     const route = lookupRoute(
       this.state,
@@ -2486,7 +2487,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
-        adapter.capabilityDeclaration.executionContextVersion === 2
+        (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
+          (input.requiredContextVersion ?? 2)
     )
       ? null
       : "service.update_required";
@@ -12200,6 +12202,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           agentControllerRef:
             record.acceptedDispatchSnapshot?.controllerSnapshot
               .agentControllerRef ?? "",
+          requiredContextVersion:
+            record.acceptedDispatchSnapshot?.controllerSnapshot
+              .agentControllerRef === "builtin:claude-code" &&
+            record.acceptedDispatchSnapshot?.executionContext?.access ===
+              "workspace"
+              ? 3
+              : 2,
         }),
       blockForExecutionTargetMutation: true,
       nowMs,

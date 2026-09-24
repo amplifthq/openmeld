@@ -184,12 +184,12 @@ describe("space-contract-service", () => {
         updatedBy: "profile-1",
       }),
       publicationMode: "raw_context_sharing" as const,
+      allowedActions: ["post_status", "stay_silent"],
       spaceNote: "Keep this note.",
     };
 
     const response = handlePatchSpaceContractUseCase({
       body: {
-        allowedActions: ["post_status", "stay_silent"],
         dispatchBrief: "none",
       },
       store: {

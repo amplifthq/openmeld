@@ -651,10 +651,7 @@ function buildClaudeAgentSdkOptions(input: {
 }): ClaudeAgentOptions {
   const spawnProcess = input.spawnProcess;
   const deliveryOnly = isClaudeDeliveryOnly(input);
-  if (
-    input.executionContext &&
-    input.executionContext.access !== "space_context"
-  ) {
+  if (!isSupportedClaudeExecutionContext(input.executionContext)) {
     throw new Error("execution_context.file_access_unsupported");
   }
   const permissionMode = resolveClaudePermissionMode({
@@ -717,6 +714,13 @@ function buildClaudeAgentSdkOptions(input: {
   };
 
   Object.assign(options, buildClaudeSpaceToolOptions(input));
+  if (
+    input.executionContext?.access === "workspace" &&
+    input.executionMode !== "repair" &&
+    !deliveryOnly
+  ) {
+    applyClaudeProjectToolBoundary(options, permissionMode);
+  }
 
   const sessionId = normalizeOptionalText(input.sessionId);
   if (sessionId) {
@@ -745,6 +749,33 @@ function buildClaudeAgentSdkOptions(input: {
   }
 
   return options;
+}
+
+function isSupportedClaudeExecutionContext(
+  context?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"]
+): boolean {
+  return (
+    !context ||
+    context.access === "space_context" ||
+    (context.access === "workspace" && context.workspace === "isolated")
+  );
+}
+
+function applyClaudeProjectToolBoundary(
+  options: ClaudeAgentOptions,
+  permissionMode: PermissionMode
+): void {
+  if (permissionMode === "bypassPermissions") {
+    throw new Error("execution_context.permission_mode_unsupported");
+  }
+  // Claude's restricted file tools stay inside cwd. Host Bash is omitted;
+  // project_shell runs commands inside the verified task-only container.
+  options.extraArgs = { restricted: null };
+  options.tools = ["Read", "Edit", "Write", "Glob", "Grep"];
+  options.strictMcpConfig = true;
+  options.settingSources = [];
+  options.settings = { disableAllHooks: true };
+  options.additionalDirectories = [];
 }
 
 async function readLatestClaudePlanDocument(

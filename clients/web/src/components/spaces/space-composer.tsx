@@ -201,7 +201,7 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 				}
 				onChange={setChoice}
 				sources={input.taskSources ?? []}
-				supportsLocalFiles={target.agentControllerRef === "builtin:codex"}
+				supportsCurrentFolder={target.agentControllerRef === "builtin:codex"}
 				targetProfileId={target.profileId}
 			/>
 		) : null,

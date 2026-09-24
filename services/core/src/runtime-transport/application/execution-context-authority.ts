@@ -187,6 +187,7 @@ type AssignmentPlan = {
 type AssignmentInput = {
   legacyAssociation?: LegacyContextAssociation;
   contextModeActive?: boolean;
+  preferProjectContext?: boolean;
   record: RuntimeCoordinatorHeadLifecycleRecord;
   storage: Storage;
   authorizedContinuationSourceWakeId?: string;
@@ -359,7 +360,8 @@ export async function prepareExecutionContextAssignment(
     !source &&
     implicitRequest &&
     request.scope.threadId === null &&
-    !input.contextModeActive
+    !input.contextModeActive &&
+    !input.preferProjectContext
   ) {
     return { record: input.record, writes: {} };
   }
@@ -370,7 +372,13 @@ export async function prepareExecutionContextAssignment(
   const selectedContext =
     source && !createsContext
       ? source.context
-      : createContext(input.record, snapshot, request, source);
+      : createContext(
+          input.record,
+          snapshot,
+          request,
+          source,
+          input.preferProjectContext === true
+        );
   const context = input.legacyAssociation
     ? { ...selectedContext, legacyAssociation: input.legacyAssociation }
     : selectedContext;
@@ -637,7 +645,8 @@ function createContext(
   record: RuntimeCoordinatorHeadLifecycleRecord,
   snapshot: AcceptedSnapshot,
   request: ContextRequest,
-  source: ContextSource | null
+  source: ContextSource | null,
+  preferProjectContext: boolean
 ): ContextRecord {
   const selection = request.selection;
   const preferences: Partial<
@@ -652,7 +661,11 @@ function createContext(
       access:
         preferences.access ??
         source?.context.assignment.access ??
-        "space_context",
+        (preferProjectContext &&
+        selection.mode === "auto" &&
+        snapshot.controllerSnapshot.agentControllerRef === "builtin:claude-code"
+          ? "workspace"
+          : "space_context"),
       workspace: preferences.workspace ?? "isolated",
       ...(forkSource ? { forkSource } : {}),
     },
@@ -671,7 +684,8 @@ function supportsContextAccess(
 ): boolean {
   return (
     agentControllerRef === "builtin:codex" ||
-    (agentControllerRef === "builtin:claude-code" && access === "space_context")
+    (agentControllerRef === "builtin:claude-code" &&
+      (access === "space_context" || access === "workspace"))
   );
 }
 
@@ -692,6 +706,15 @@ function assertContextPreferences(
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.space_context_requires_isolated_workspace"
+    );
+  }
+  if (
+    context.agentControllerRef === "builtin:claude-code" &&
+    assignment.access === "workspace" &&
+    assignment.workspace !== "isolated"
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.claude_project_requires_isolated_workspace"
     );
   }
   const selection = request.selection;

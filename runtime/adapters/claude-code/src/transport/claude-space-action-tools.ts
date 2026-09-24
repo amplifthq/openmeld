@@ -120,7 +120,8 @@ export function createClaudeDispatchSpaceToolServer(
           alwaysLoad:
             tools.deliveryOnly ||
             definition.name === "reply" ||
-            definition.name === "stay_silent",
+            definition.name === "stay_silent" ||
+            definition.name === "project_shell",
           annotations: definition.annotations,
         }
       )
