@@ -8,6 +8,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	ArrowCounterClockwiseIcon,
 	CheckSquareIcon,
@@ -204,13 +205,15 @@ export function useAgentListSelection(
 								Existing messages stay in history. This can’t be undone.
 							</DialogDescription>
 						</DialogHeader>
-						<ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
-							{confirm?.map((profile) => (
-								<li className="break-words" key={profile.openMeldProfileId}>
-									{profile.profileName}
-								</li>
-							))}
-						</ul>
+						<ScrollArea className="max-h-48" orientation="vertical">
+							<ul className="space-y-2 pr-3 text-sm">
+								{confirm?.map((profile) => (
+									<li className="break-words" key={profile.openMeldProfileId}>
+										{profile.profileName}
+									</li>
+								))}
+							</ul>
+						</ScrollArea>
 						<DialogFooter>
 							<Button onClick={() => setConfirm(null)} variant="secondary">
 								Cancel

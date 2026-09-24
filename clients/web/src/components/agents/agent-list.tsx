@@ -425,7 +425,11 @@ export function AgentList(input: {
 							value={view}
 						/>
 					)}
-					{!collapsed && selection.trigger}
+					{!collapsed && selection.trigger && (
+						<div className="opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 [@media(hover:none)]:opacity-100">
+							{selection.trigger}
+						</div>
+					)}
 					{!input.hideControls && (
 						<div
 							className={`flex items-center gap-1 ${search || override ? "" : "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 has-[[data-popup-open]]:opacity-100 has-[input]:opacity-100 [@media(hover:none)]:opacity-100"}`}
