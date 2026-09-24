@@ -379,6 +379,61 @@ Runtime Transport, Prepare, Core/Gateway, Wake and Skills contracts are unchange
 The Service owner document now describes binary and retained npm paths separately;
 this change does not move readiness or execution authority to Desktop.
 
+## Running maintenance acceptance after the main sync
+
+Main sync commit `b7ab92fc056074447aa150759ef698271ea8041f`
+was checked by [Windows run 35959928860, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35959928860).
+Both native jobs passed at merge checkout
+`100296e6c24231c035c53118279589caa7599119` against main
+`7b8741ea2b096a8c36c5245d5d8810a8c568fc89`; the
+[unsigned artifacts and synthetic evidence](https://github.com/amplifthq/openmeld/actions/runs/35959928860/artifacts/10791334014)
+are retained. This checks the synchronized implementation before the new
+running-maintenance test, not that test's behavior.
+
+The first new-test run, [35960728910, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35960728910),
+used head `f88c2d219b1d0f20999e3ea1488ed0aff9031f9e` and actual merge
+checkout `8d52e4b39393c1c504e558234ab681d83149646c` against main
+`111fe3e5eb10caa26cc520797c8fc594c181b4cb`. Native contracts passed.
+The new fixture started the old GUI executable, recorded its PID and inherited
+logs, then failed a test-only path assertion before task replacement: Windows
+reported the same temporary directory once by its short name and once by its
+long name. [Synthetic evidence](https://github.com/amplifthq/openmeld/actions/runs/35960728910/artifacts/10791934896).
+Commit `c2e91e01d8f727062382545c23faea1d1d05ea43` compares resolved file
+paths instead.
+
+[Run 35961474826, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35961474826)
+used that head at merge checkout
+`0e46115d31925462b44b24f34b2aa3b42c54c2d5` against the same main.
+The old GUI fixture started and remained alive while Task Scheduler accepted
+the new action. The test then failed in its PowerShell `Wait-Process` observer,
+before it could establish that the old invocation completed and the new one
+started. Commit `b6ef8b2741b62ee92f3a33be579b6760e68948f7` replaces that
+observer with the task's own status plus an independent old-PID check and adds
+a fixture release marker. The run's native-contracts job separately reproduced
+the unresolved legacy task-host exit-0 and exit-7 `ETIMEDOUT`/`EBUSY` failures.
+Neither failure proves a defect in the direct-task replacement; the latter is
+not a validation pass. [Synthetic evidence](https://github.com/amplifthq/openmeld/actions/runs/35961474826/artifacts/10793080627).
+
+[Run 35962392304, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35962392304)
+used head `b6ef8b2741b62ee92f3a33be579b6760e68948f7` at actual merge
+checkout `d7c4740d0367fca1f6e4c62c6129620a6577f854` against main
+`111fe3e5eb10caa26cc520797c8fc594c181b4cb`. `native-artifacts`
+passed. Its two direct-task integration cases both passed, including the
+running-maintenance transition: the old GUI process remained alive while the
+owned Task Scheduler action selected a new immutable copy; after release the
+old PID disappeared, and the next invocation logged the new executable.
+Service/Host 5/5, compiled SQLite and vendor protocol checks also passed.
+[Unsigned artifact and synthetic evidence](https://github.com/amplifthq/openmeld/actions/runs/35962392304/artifacts/10792852194).
+
+The **whole Windows run failed** because `native-contracts` reproduced the
+separate legacy PowerShell task-host exit-7 failure: its unchanged 30-second
+`spawnSync` limit yielded `ETIMEDOUT` and fixture cleanup yielded `EBUSY`.
+The legacy exit-0 case passed in this run. This result neither diagnoses nor
+repairs the older task-host issue. All other completed native-contract steps,
+including signed bootstrap and Desktop acquisition boundaries, passed. No
+retry, timeout increase, production task-host change, or production signing
+was made for this acceptance.
+
 ## References
 
 - [Product model](../product/product-model.md), [Service owner](local-openmeld-service.md), [transport owner](agent-transport-contract.md), [Desktop owner](../clients/desktop.md), [CLI release](../engineering/cli-binary-release.md), [delivery](../engineering/agent-native-delivery.md).
