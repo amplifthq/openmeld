@@ -874,7 +874,9 @@ engineers and every coding agent. Read it before pushing a candidate or merging.
 
 - Commit hook: staged-file checks.
 - Development push hook: mandatory focused checks on the exact clean commit.
-- Draft PR: focused remote feedback; keep work draft until ready to merge.
+- Draft PR: mandatory focused push checks and risk-selected local validation;
+  keep work draft until ready to merge. There is no automatic full-PR hosted
+  unit-test run on every Draft push.
 - Standard FC: exact identity, trusted control, static contracts, and path-owned
   database/release readiness. No blanket unit or integration rerun.
 - The owner validates changed behavior and downstream risks before marking ready.

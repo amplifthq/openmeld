@@ -108,7 +108,7 @@ See [GitHub's issue-linking contract](https://docs.github.com/en/issues/tracking
 
 ## Focused Checks Before Push
 
-Inspect or run the shared local/draft entrypoint:
+Inspect or run the focused local entrypoint:
 
 ```sh
 pnpm run verify:pr -- --feedback --plan
@@ -140,16 +140,12 @@ locally fetched `origin/main`. Missing base history is an error: fetch it.
 Recheck identity and cleanliness after success. Deletions need no tests;
 protected release pushes retain strict release verification.
 
-Draft PR Checks plans from the full PR diff. Its small selection job starts
-workspace tests while the shared contracts, changed-file lint, dependency build,
-and adjacent Node tests run independently. Each changed workspace has its own
-related-test job. These jobs retain the package
-test command, isolated `OPENMELD_HOME`, and failure status; they do not combine
-several large workspace suites into one job's time budget. Web and CLI related
-Vitest files are each split across two independent jobs. These checks are early
-feedback, not permission to merge. Keep leaf PRs in draft during development
-and batch preparation. Mark ready only when a green FC would make merge the next
-action. New commits cancel superseded draft checks and FC runs for that PR.
+The development push hook runs this focused lane for each pushed commit. The
+same `--feedback` command can validate the complete PR diff against `origin/main`
+once the implementation is stable. It is not an automatic hosted job on every
+Draft push. Keep leaf PRs in draft during development and batch preparation.
+Mark ready only after validating affected behavior and when a green FC would
+make merge the next action. New commits cancel superseded FC runs for that PR.
 
 Focused selection is deliberately incomplete: a deleted import, a shared
 contract, a dependency change, or platform-specific behavior may need additional

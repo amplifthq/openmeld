@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parse } from "yaml";
 import {
-  feedbackWorkspaces,
   planPrChecks,
   resolveUnitTestScript,
   runPrChecks,
@@ -34,55 +31,7 @@ test("checks signed Skill inputs in feedback and PR validation without checking 
   }
 });
 
-test("automatic draft feedback cannot start the full affected lane", () => {
-  const workflow = parse(
-    readFileSync(
-      new URL("../../.github/workflows/pr-feedback.yml", import.meta.url),
-      "utf8"
-    )
-  );
-  assert.equal(
-    workflow.jobs.shared.if,
-    "github.event.pull_request.draft == true"
-  );
-  assert.equal(workflow.jobs.plan.if, workflow.jobs.shared.if);
-  assert.equal(workflow.jobs.workspaces.needs, "plan");
-  assert.equal(workflow.jobs.shared.needs, undefined);
-  assert.ok(
-    workflow.jobs.plan.outputs.workspaces.includes(
-      "steps.matrix.outputs.workspaces"
-    )
-  );
-  assert.equal(workflow.jobs.workspaces.strategy["fail-fast"], false);
-  assert.ok(
-    workflow.jobs.workspaces.strategy.matrix.includes(
-      "fromJSON(needs.plan.outputs.workspaces)"
-    )
-  );
-  assert.ok(workflow.on.pull_request.types.includes("converted_to_draft"));
-  assert.ok(workflow.on.pull_request.types.includes("ready_for_review"));
-  assert.equal(workflow.permissions.contents, "read");
-  assert.equal(workflow.concurrency["cancel-in-progress"], true);
-  assert.equal(workflow.name, "Draft PR Checks");
-  const shared = workflow.jobs.shared.steps.find(
-    (step) => step.name === "Run shared draft checks"
-  );
-  const workspace = workflow.jobs.workspaces.steps.find(
-    (step) => step.name === "Run selected workspace tests"
-  );
-  assert.ok(shared.run.includes("--feedback --shared"));
-  assert.ok(workspace.run.includes("--feedback"));
-  assert.ok(
-    workflow.jobs.workspaces.env.VERIFY_PR_WORKSPACE.includes(
-      "matrix.directory"
-    )
-  );
-  assert.ok(
-    workflow.jobs.workspaces.env.VERIFY_PR_SHARD.includes("matrix.shard")
-  );
-});
-
-test("draft feedback partitions every selected workspace without dropping shared checks", () => {
+test("focused PR validation retains shared checks and every changed workspace", () => {
   const paths = [
     "scripts/dev/verify-pr.test.mjs",
     "clients/web/src/app.tsx",
@@ -99,78 +48,25 @@ test("draft feedback partitions every selected workspace without dropping shared
       test: "vitest run",
     },
   ];
-  assert.deepEqual(feedbackWorkspaces(paths, workspaces), [
-    { directory: "clients/web", label: "clients/web, 1/2", shard: "1/2" },
-    { directory: "clients/web", label: "clients/web, 2/2", shard: "2/2" },
-    {
-      directory: "clients/openmeld-cli",
-      label: "clients/openmeld-cli, 1/2",
-      shard: "1/2",
-    },
-    {
-      directory: "clients/openmeld-cli",
-      label: "clients/openmeld-cli, 2/2",
-      shard: "2/2",
-    },
-    { directory: "clients/desktop", label: "clients/desktop", shard: "" },
-  ]);
-  const shared = planPrChecks(paths, {
+  const commands = planPrChecks(paths, {
     feedback: true,
-    shared: true,
     existingFiles,
     workspaces,
   });
   assert.ok(
-    shared.some((args) => args.includes("scripts/dev/verify-pr.test.mjs"))
+    commands.some((args) => args.includes("scripts/dev/verify-pr.test.mjs"))
   );
-  assert.ok(shared.some((args) => args.includes("biome")));
-  assert.ok(shared.some((args) => args.includes("--filter=openmeld-web^...")));
-  assert.ok(shared.some((args) => args.includes("--filter=openmeld^...")));
-  assert.ok(!shared.some((args) => args.includes("related")));
-  const partitionedTests = [];
-  for (const workspace of [
-    "clients/web",
-    "clients/openmeld-cli",
-    "clients/desktop",
-  ]) {
-    const commands = planPrChecks(paths, {
-      feedback: true,
-      workspace,
-      existingFiles,
-      workspaces,
-    });
-    assert.equal(commands.filter((args) => args.includes("related")).length, 1);
-    assert.ok(commands.at(-1).some((arg) => arg.startsWith("src/")));
-    assert.ok(!commands.some((args) => args.includes("biome")));
-    assert.ok(
-      !commands.some((args) => args.includes("scripts/dev/verify-pr.test.mjs"))
-    );
-    partitionedTests.push(commands.at(-1));
-  }
-  const originalTests = planPrChecks(paths, {
-    feedback: true,
-    existingFiles,
-    workspaces,
-  }).filter((args) => args.includes("related"));
-  assert.deepEqual(partitionedTests, originalTests);
-  for (const [workspace, shard] of [
-    ["clients/web", "1/2"],
-    ["clients/web", "2/2"],
-    ["clients/openmeld-cli", "1/2"],
-    ["clients/openmeld-cli", "2/2"],
-  ]) {
-    const commands = planPrChecks(paths, {
-      feedback: true,
-      workspace,
-      shard,
-      existingFiles,
-      workspaces,
-    });
-    assert.ok(commands.at(-1).includes(`--shard=${shard}`));
-  }
+  assert.ok(commands.some((args) => args.includes("biome")));
+  assert.ok(
+    commands.some((args) => args.includes("--filter=openmeld-web^..."))
+  );
+  assert.ok(commands.some((args) => args.includes("--filter=openmeld^...")));
   assert.deepEqual(
-    feedbackWorkspaces(["developing/README.md"], workspaces),
-    []
+    commands.filter((args) => args.includes("related")).map((args) => args[1]),
+    ["clients/web", "clients/openmeld-cli", "clients/desktop"]
+  );
+  assert.ok(
+    commands.every((args) => !args.some((arg) => arg.startsWith("--shard=")))
   );
 });
 
@@ -201,7 +97,7 @@ test("Worker changes select the existing Zod contract guard before expensive tes
   }
 });
 
-test("draft feedback checks changed files and related tests without package builds", () => {
+test("focused checks changed files and related tests without package builds", () => {
   const sources = [
     "clients/web/src/sidebar.tsx",
     "clients/web/src/sidebar.test.tsx",
@@ -249,7 +145,7 @@ test("deleted files never turn a focused lint command into a repository scan", (
   );
 });
 
-test("draft control feedback runs the owning Node regression tests once", () => {
+test("focused control checks run the owning Node regression tests once", () => {
   const commands = planPrChecks(
     ["scripts/dev/verify-pr.mjs", "scripts/dev/verify-pr.test.mjs"],
     {
@@ -268,7 +164,7 @@ test("draft control feedback runs the owning Node regression tests once", () => 
   );
 });
 
-test("docs-only draft feedback avoids code, test discovery, and builds", () => {
+test("docs-only focused checks avoid code, test discovery, and builds", () => {
   assert.deepEqual(planPrChecks(["developing/README.md"], { feedback: true }), [
     ["run", "verify:docs", "--", "--strict"],
   ]);
@@ -286,10 +182,9 @@ test("unsupported package runners execute their own test command instead of sile
   assert.ok(commands[1].includes("biome"));
 });
 
-test("isolated plain package tests build their own imported dist", () => {
+test("focused plain package tests build their own imported dist", () => {
   const commands = planPrChecks(["runtime/adapters/core/src/index.ts"], {
     feedback: true,
-    workspace: "runtime/adapters/core",
     workspaces: [
       {
         directory: "runtime/adapters/core",
@@ -298,8 +193,8 @@ test("isolated plain package tests build their own imported dist", () => {
       },
     ],
   });
-  assert.ok(commands[0].includes("--filter=@openmeld/adapter-core..."));
-  assert.deepEqual(commands[1], [
+  assert.ok(commands[1].includes("--filter=@openmeld/adapter-core..."));
+  assert.deepEqual(commands[2], [
     "--dir",
     "runtime/adapters/core",
     "run",
