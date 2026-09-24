@@ -236,6 +236,8 @@ describe("openmeld upgrade in binary distribution", () => {
       expect(vi.mocked(spawn).mock.calls[1]?.[0]).not.toBe(process.execPath);
       expect(stdout).toContain('"code":"upgrade.installing"');
       expect(stdout).toContain('"distribution":"binary"');
+      expect(stdout).toContain('"recoveryUrl":"https://openmeld.ai"');
+      expect(stdout).not.toContain('"command":"curl ');
       expect(stdout).toContain(
         `"downloadSizeBytes":${archiveBytes.byteLength}`
       );
