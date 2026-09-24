@@ -8,11 +8,41 @@
 - Do not use this for: Current production behavior, release authorization, or a claim that the unresolved task-host timeout has been diagnosed.
 - Source of truth: This proposal owns the proposed Windows work only; existing product, Service, transport, and delivery owner documents remain authoritative until changed with implementation.
 
-Status: IN PROGRESS. Implementation authorized on 2026-09-23, starting from main `d2b3ba43b773786cb658db55aef1b60598be15c8`. Native carrier acceptance is the first gate; subsequent installation and client work must not precede that evidence. No release or production entrypoint switch is authorized.
+Status: IN PROGRESS. Implementation began on 2026-09-23 from main `d2b3ba43b773786cb658db55aef1b60598be15c8`. Native carrier acceptance preceded installation and client work. An unsigned, internal-only Windows x64 trial is now authorized for a later coordinated merge, deployment, and release; this document does not authorize those actions or a public signed release.
 
 Remove this document after accepted decisions have moved into the scoped owner documents and the migration and acceptance evidence are recorded in the implementation PR.
 
-## Current implementation and release gates
+## Internal Windows x64 trial handoff
+
+The internal trial uses one exact-source, native Windows build of the CLI,
+Service, process helper, and Desktop installer. Its CLI manifest and Desktop
+pointer live in separate `windows-preview` R2 keys. Web setup and Desktop
+acquisition select that manifest explicitly; stable signed channels are not
+modified. Every executable URL includes its content SHA-256, and acquisition
+checks size and hash. This integrity check is **not publisher authentication**:
+the trial is unsigned, Windows may warn or block it, and the Desktop preview
+does not use automatic updates. The trial is for known coworkers only.
+
+The `Windows internal preview` workflow builds the deliverable on `windows-2025`,
+exercises the compiled CLI/Service, SQLite and official Codex protocol with
+developer runtimes removed from the fixture PATH, and inspects the Desktop
+installer's embedded production target, renderer, source receipt, architecture,
+and absent update feed. It emits a 14-day GitHub artifact plus exact SHA/run
+evidence. The read-only `check` mode of
+`scripts/release/publish-windows-internal-preview.mjs` validates that bundle
+against the clean checkout. After an authorized merge and release decision, run
+the workflow again on the exact merged main SHA, download its artifact into a
+clean checkout of that SHA, run `check`, then use the guarded `publish` mode to
+upload immutable bytes before the manifest and Desktop pointer. Deploying Web
+only exposes these routes; it does not manufacture or publish the binaries.
+
+Ready for this PR means the internal trial path and native artifact handoff pass
+at the current candidate. It does not claim a physical coworker connection,
+signed Windows trust, automatic Desktop updates, or release publication.
+Those user-path checks happen after the coordinated release. The earlier A
+task-host timeout remains undiagnosed and independent.
+
+## Current implementation and public signed release gates
 
 Draft PR [#1267](https://github.com/amplifthq/openmeld/pull/1267) contains the
 self-contained x64 carriers, prebuilt process helper, managed installer,
@@ -21,7 +51,7 @@ below proves actual Service/Host communication, SQLite, vendor protocol,
 installer recovery and stopped-task migration. It does not prove an
 authenticated model turn or a real user's Computer connection.
 
-Before this can be called release-ready:
+Before this can be called a public signed release:
 
 - Pass the new signed PowerShell bootstrap boundary and all required checks.
 - Confirm the production Windows signing identity and its supported signing
@@ -37,8 +67,9 @@ Before this can be called release-ready:
   direct binary task path is implemented; retained legacy ownership readers
   and the supported npm writer are not evidence that the old timeout is fixed.
 
-No merge, release, production entrypoint switch, or real-user smoke has been
-performed. Final Candidate skipped while Draft is not a passing result.
+As of the draft implementation, no merge, release, production entrypoint
+switch, or real-user smoke has been performed. A skipped Final Candidate is
+not a passing result; its status must be rechecked on the exact Ready candidate.
 
 ## Artifact continuity finding
 

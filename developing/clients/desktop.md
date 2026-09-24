@@ -362,8 +362,11 @@ maintains no parallel installation registry. No shell text, package name,
 registry URL or executable is accepted from renderer input. CLI setup still
 owns account/device identity, credentials and Service registration. ARM64
 acquisition remains unavailable until separately accepted. Disposable acceptance
-must use its fixed candidate and lane; production acquisition reads the stable
-manifest, whose Windows publication is a separate release gate.
+must use its fixed candidate and lane; production acquisition normally reads the
+stable manifest. The native Windows x64 internal trial build reads only the
+explicitly selected `windows-preview` manifest and enables its unsigned policy
+only for that exact production URL. Its CLI acquisition still verifies size and
+SHA-256. Signed Windows publication remains a separate release gate.
 
 The read-only local Computer projection recognizes only the same bootstrap
 conditions: a missing executable (`ENOENT`) or an exit-1 unknown `computer` /
@@ -486,7 +489,11 @@ external Node.js, npm, Bun, or .NET installation.
 
 Root packaging commands use portable JavaScript, not POSIX inline environment
 assignments. Windows packaging skips Mac icon/notarization tools. Unsigned
-packages are limited to disposable acceptance and cannot use production updates.
+packages ordinarily use disposable acceptance. The separate native Windows x64
+internal trial package uses the production account target so an existing
+same-account Computer can be reviewed, but it has no production update feed and
+must be distributed only to known coworkers. It is not a signed production
+preview or proof of ordinary-user installation.
 Production requires the exact clean, approved, merged source and
 `OPENMELD_DESKTOP_WINDOWS_PUBLISHER` matching the actual certificate. A missing
 signer is not replaced with the Apple team identity.

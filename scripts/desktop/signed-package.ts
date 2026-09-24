@@ -5,6 +5,21 @@ import { readInstalledDesktopTarget } from "./installed-target.ts";
 
 const releaseShaPattern = /^[a-f0-9]{40}$/u;
 
+function assertInternalPreviewPackage(
+  internalPreview: boolean,
+  platform: NodeJS.Platform,
+  target: ReturnType<typeof readInstalledDesktopTarget>
+) {
+  if (
+    internalPreview &&
+    (platform !== "win32" || target?.kind !== "production")
+  ) {
+    throw new Error(
+      "Unsigned internal Desktop preview requires native Windows and the production account target."
+    );
+  }
+}
+
 /** Build-time policy shared by the package entry and direct builder invocation. */
 export function readDesktopSignedPackageMode(
   env: NodeJS.ProcessEnv,
@@ -12,14 +27,16 @@ export function readDesktopSignedPackageMode(
 ) {
   const acceptance = env.OPENMELD_DESKTOP_ACCEPTANCE === "1";
   const production = env.OPENMELD_DESKTOP_PRODUCTION_PREVIEW === "1";
-  if (acceptance && production) {
-    throw new Error("Select either Desktop acceptance or production preview.");
+  const internalPreview = env.OPENMELD_DESKTOP_INTERNAL_PREVIEW === "1";
+  if ([acceptance, production, internalPreview].filter(Boolean).length > 1) {
+    throw new Error("Select one Desktop packaging mode.");
   }
   readInstalledComputerEnvironment(env);
-  if (!(acceptance || production)) {
+  if (!(acceptance || production || internalPreview)) {
     return null;
   }
   const target = readInstalledDesktopTarget(env);
+  assertInternalPreviewPackage(internalPreview, platform, target);
   if (production) {
     if (target?.kind !== "production") {
       throw new Error(
@@ -51,7 +68,13 @@ export function readDesktopSignedPackageMode(
       );
     }
   }
-  return production ? "production-preview" : "acceptance";
+  if (production) {
+    return "production-preview";
+  }
+  if (internalPreview) {
+    return "internal-preview";
+  }
+  return "acceptance";
 }
 
 export function desktopProductionSource(env: NodeJS.ProcessEnv) {
@@ -74,4 +97,20 @@ export function desktopProductionSource(env: NodeJS.ProcessEnv) {
   }
   git("merge-base", "--is-ancestor", sha, "origin/main");
   return { releaseSha: sha };
+}
+
+export function desktopInternalPreviewSource() {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  const releaseSha = git("rev-parse", "HEAD");
+  if (
+    !releaseShaPattern.test(releaseSha) ||
+    git("status", "--porcelain", "--untracked-files=normal")
+  ) {
+    throw new Error(
+      "Windows internal preview packaging requires a clean exact source commit."
+    );
+  }
+  return { releaseSha };
 }

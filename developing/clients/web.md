@@ -5530,8 +5530,10 @@ size, and the download button come from that same verified candidate. Missing,
 invalid, repeated, or mismatched selectors never select another package.
 
 The plain `/desktop` page reads the existing default manifest. When no default
-release exists, it explains that a full preview invitation link is needed and
-offers no download. Candidate pages do not select a default, write
+release exists, it may offer the separately published unsigned Windows x64
+internal installer on Windows only, with a clear warning and no automatic
+updates. Other platforms still explain that a full preview invitation link is
+needed. Candidate pages do not select a default, write
 `desktop/update.json`, add marketing navigation, or require login or Access.
 The page is marked noindex while the preview is shared directly.
 
@@ -5602,11 +5604,14 @@ temporary transfer failures within a small bounded window, deleting partial
 output before each retry; integrity verification still decides whether the
 download is accepted. A legacy manifest without archive fields still uses the
 verified raw executable. Windows x64 binary setup downloads the CLI and native
-process companion, verifies exact size/hash and Authenticode publisher for both,
-and follows the shared installer's receipt to the managed command. Its readable
+process companion, verifies exact size/hash and Authenticode publisher for both
+on the signed channel, and follows the shared installer's receipt to the managed
+command. A separately published internal Windows x64 preview can use explicit
+unsigned metadata and an exact preview manifest URL for known coworkers. Its readable
 PowerShell 5.1 command contains setup's exit and environment in a child shell;
-the caller's terminal remains open. Windows acquisition requires a published,
-signed Windows channel and must not be rolled out ahead of that channel.
+the caller's terminal remains open. Windows setup still requires the selected
+channel's manifest and all three artifact bytes to be published before sharing
+the command; a Web deployment alone is insufficient.
 Explicit `?dist=npm` remains the package distribution. The bootstrap is only the
 setup entry, not necessarily the long-term command prefix. The final
 `setup.complete` event is the owner for follow-up commands:

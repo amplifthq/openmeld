@@ -42,10 +42,11 @@ node scripts/release/build-cli-binary.mjs
   version, size, and sha256 all match that previous release. Any base, download,
   parse, reconstruction, or final-hash failure automatically falls back to the
   complete gzip archive.
-- The production binary channel currently supports `darwin-arm64`. Windows x64
-  builds are native acceptance artifacts until signing, managed installation,
-  update recovery, and client acquisition are accepted and released.
-- Windows release records require `windows.publisherName` and an immutable
+- The signed stable production binary channel currently supports `darwin-arm64`.
+  An explicitly selected, separate `windows-preview` manifest can carry the
+  unsigned internal Windows x64 trial; it does not change the signed stable
+  channel or authorize a public Windows release.
+- Signed Windows release records require `windows.publisherName` and an immutable
   `windows.processHelper` URL, size, and SHA-256 alongside the primary carrier.
   CLI and Service records use the same shape. Windows publisher metadata is
   rejected on another platform and cannot be combined with Apple signing
@@ -54,7 +55,11 @@ node scripts/release/build-cli-binary.mjs
   failure, not permission to run an unsigned binary. Companion acquisition
   reuses the existing bounded download policy and verifies the same publisher
   before installation. The caller owns the disposable directory and failure
-  cleanup. Managed activation remains under implementation and is not a release claim.
+  cleanup. The separate internal preview record instead declares
+  `mode: internal-unsigned-preview` and requires exact manifest opt-in in the
+  production Windows clients. Its size/hash checks do not authenticate the
+  publisher, so it is limited to known coworkers and may encounter Windows
+  warnings or enterprise blocks.
 - The binary distribution marker is injected at compile time by `bun build --compile`.
 - Release builds minify bundled code while preserving function and class names
   for diagnostics. This reduces the current executable by about 4.4 MiB and
@@ -109,6 +114,25 @@ node scripts/release/build-cli-binary.mjs
   an already-authoritative command adds no npm install or network round trip.
 
 ### Windows native carrier acceptance
+
+For the internal Windows x64 trial, `.github/workflows/windows-internal-preview.yml`
+builds CLI, Service, process helper, and the unsigned production-account
+Desktop installer on a native Windows runner. It exercises the delivered
+carriers without user Node/Bun in the fixture PATH and inspects the actual
+installer payload before exporting an exact-source GitHub artifact. Run its
+read-only handoff check from a clean checkout of the artifact's source SHA:
+
+```sh
+node scripts/release/publish-windows-internal-preview.mjs check <extracted-artifact-directory>
+```
+
+The guarded `publish` mode is a separate, authorized release action after
+merging; do not run it merely to mark the feature PR Ready. On release, build
+again from the exact merged main SHA, check the downloaded artifact, then
+publish immutable executables first and the preview CLI manifest and Desktop
+pointer last. The Web deployment must include the preview routes before the
+command or Desktop link is shared. This trial does not change the signed stable
+CLI publisher, supply Authenticode trust, or enable Desktop auto-updates.
 
 On a Windows x64 build machine, build the console CLI and GUI-subsystem
 background Service from the same production entry:
