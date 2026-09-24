@@ -52,15 +52,32 @@ function describeCreation(creation: PresentedCreation | null) {
 	} else if (stopped) {
 		detail = "You can review this request in creation history.";
 	}
+	let finishSummary = "Opening your chat.";
+	if (otherOwner) {
+		finishSummary = "Getting it ready for its owner.";
+	} else if (request?.requestedSpaceId) {
+		finishSummary = "Adding it to your Space.";
+	}
 	return {
 		completed,
 		detail,
 		otherOwner,
 		stage,
 		steps: [
-			"Request received",
-			request?.status === "pending" ? "Wait for approval" : "Create Agent",
-			"Finish setup",
+			{
+				summary: request ? "We have your request." : "Sending your request…",
+				title: "Send request",
+			},
+			request?.status === "pending"
+				? {
+						summary: "An owner needs to approve it.",
+						title: "Wait for approval",
+					}
+				: { summary: "Setting up your Agent.", title: "Create Agent" },
+			{
+				summary: finishSummary,
+				title: "Finish setup",
+			},
 		],
 		stopped,
 		targetLabel,
@@ -123,18 +140,18 @@ export function AgentCreationProgress(input: {
 				</h1>
 				<p className="text-base text-muted-foreground">{progress.detail}</p>
 			</div>
-			<SetupTimeline className="gap-8 rounded-lg border border-border/70 bg-card/50 p-6 sm:p-8">
-				{progress.steps.map((label, index) => (
+			<SetupTimeline className="gap-8 py-2">
+				{progress.steps.map((step, index) => (
 					<SetupTimelineStep
 						className="[&_h2]:text-base"
-						key={label}
+						key={step.title}
 						state={progressStepState({
 							index,
 							stage: progress.stage,
 							stopped: progress.stopped,
 						})}
-						summary=""
-						title={label}
+						summary={step.summary}
+						title={step.title}
 					/>
 				))}
 			</SetupTimeline>
