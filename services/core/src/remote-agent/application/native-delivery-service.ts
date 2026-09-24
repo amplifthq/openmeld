@@ -11339,15 +11339,24 @@ async function publishRemoteAgentCallbackFailureText(input: {
     env: input.env,
     profileId: input.delivery.profileId,
   });
+  const personalAgent = isPersonalRoutineDelivery(input.delivery);
   const profileName =
-    normalizeOptionalText(targetProfile.profileName) ?? "Center Agent";
+    normalizeOptionalText(targetProfile.profileName) ??
+    (personalAgent ? "Agent" : "Center Agent");
   const profile = buildDispatchReplyTargetProfile({
     targetProfileId: input.delivery.profileId,
     profileHandle: targetProfile.profileHandle,
     targetProfileName: profileName,
     ownerUserId: targetProfile.ownerUserId,
-    agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    agentControllerRef: personalAgent
+      ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      : HOSTED_CENTER_AGENT_CONTROLLER_REF,
     agentControllerConversationId: input.body.submissionId,
+  });
+  // Name the Agent that failed, not the Center Agent, in user-facing copy.
+  const failureText = resolveCenterAgentCallbackFailureMessage({
+    ...input.body,
+    agentLabel: profileName,
   });
   const context = buildRemoteAgentCallbackContext({
     delivery: input.delivery,
@@ -11373,7 +11382,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
         generatedBy: "openmeld",
         reasonCode: input.body.failureCode,
         failureStage: "execution",
-        text: resolveCenterAgentCallbackFailureMessage(input.body),
+        text: failureText,
         ...(author?.profileId &&
         author.displayName &&
         input.delivery.triggerText
@@ -11403,14 +11412,14 @@ async function publishRemoteAgentCallbackFailureText(input: {
     env: input.env,
     spaceId: input.delivery.spaceId,
     profile,
-    text: resolveCenterAgentCallbackFailureMessage(input.body),
+    text: failureText,
     authoringPolicy: "system_emitted",
     finalOutcomeAuthority: "remote_agent_native_delivery",
     messageEnvelope: {
       activationTargets: [],
       referenceTargets: [],
       replyToSignalId: input.delivery.triggerMessageId,
-      text: resolveCenterAgentCallbackFailureMessage(input.body),
+      text: failureText,
     },
     meta: {
       clientMessageId: input.body.submissionId,
