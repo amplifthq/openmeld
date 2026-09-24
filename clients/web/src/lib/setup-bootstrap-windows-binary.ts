@@ -8,12 +8,15 @@ export function buildWindowsBinaryBootstrap(input: {
 	gatewayUrl: string;
 	authUrl: string;
 	progressMessage: string;
+	internalPreview?: boolean;
 }): string {
 	const configuration = JSON.stringify(input).replaceAll("'", "''");
+	const internalPreview = input.internalPreview === true;
 	return String.raw`param([Parameter(ValueFromRemainingArguments=$true)][string[]]$OpenMeldArgs)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $c = ConvertFrom-Json '${configuration}'
+$internalPreview = ${internalPreview ? "$true" : "$false"}
 $temporary = $null
 $tls = [Net.ServicePointManager]::SecurityProtocol
 ${WINDOWS_ARTIFACT_SIGNATURE_FUNCTION}
@@ -56,7 +59,7 @@ function Get-OpenMeldArtifact($Artifact, [string]$Destination, [string]$Publishe
     $actual = [BitConverter]::ToString($hash.ComputeHash($file)).Replace('-', '').ToLowerInvariant()
     if ($actual -cne [string]$Artifact.sha256) { throw 'OpenMeld download failed its integrity check.' }
   } finally { $hash.Dispose(); $file.Dispose() }
-  Assert-OpenMeldArtifactSignature $Destination $Publisher
+  if (!$internalPreview) { Assert-OpenMeldArtifactSignature $Destination $Publisher }
 }
 
 function Quote-OpenMeldArgument([string]$Value) {
@@ -69,7 +72,7 @@ function Invoke-OpenMeld([string]$Executable, [string[]]$Arguments, [switch]$Rec
   $start.Arguments = (@($Arguments | ForEach-Object { Quote-OpenMeldArgument $_ }) -join ' ')
   $start.UseShellExecute = $false
   $start.RedirectStandardOutput = [bool]$Receipt
-  foreach ($name in @('OPENMELD_HOME','OPENMELD_GATEWAY_URL','OPENMELD_AUTH_URL','OPENMELD_CLI_BINARY_MANIFEST_URL','OPENMELD_USER_FACING_CLI_COMMAND','OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND')) { $start.EnvironmentVariables.Remove($name) }
+  foreach ($name in @('OPENMELD_HOME','OPENMELD_GATEWAY_URL','OPENMELD_AUTH_URL','OPENMELD_CLI_BINARY_MANIFEST_URL','OPENMELD_WINDOWS_INTERNAL_PREVIEW','OPENMELD_USER_FACING_CLI_COMMAND','OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND')) { $start.EnvironmentVariables.Remove($name) }
   $start.EnvironmentVariables['OPENMELD_ENV_PRESET'] = $c.envPreset
   # The parent terminal still has its old PATH. Point follow-up commands at the
   # selected stable launcher, including paths containing spaces or apostrophes.
@@ -77,6 +80,7 @@ function Invoke-OpenMeld([string]$Executable, [string[]]$Arguments, [switch]$Rec
   $start.EnvironmentVariables['OPENMELD_USER_FACING_CLI_COMMAND'] = $commandPrefix
   $start.EnvironmentVariables['OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND'] = $commandPrefix
   $start.EnvironmentVariables['OPENMELD_CLI_BINARY_MANIFEST_URL'] = $c.manifestUrl
+  if ($internalPreview) { $start.EnvironmentVariables['OPENMELD_WINDOWS_INTERNAL_PREVIEW'] = '1' }
   if ($c.openMeldHome) { $start.EnvironmentVariables['OPENMELD_HOME'] = $c.openMeldHome }
   if ($c.gatewayUrl) { $start.EnvironmentVariables['OPENMELD_GATEWAY_URL'] = $c.gatewayUrl }
   if ($c.authUrl) { $start.EnvironmentVariables['OPENMELD_AUTH_URL'] = $c.authUrl }
@@ -106,7 +110,12 @@ try {
   $manifest = ConvertFrom-Json ([IO.File]::ReadAllText($manifestPath))
   $release = $manifest.channels.stable.platforms.'windows-x64'
   $publisher = [string]$release.windows.publisherName
-  if ($manifest.schemaVersion -ne 1 -or !$release -or [string]::IsNullOrWhiteSpace($publisher) -or !$release.windows.processHelper -or !$manifest.channels.stable.service.platforms.'windows-x64') { throw 'OpenMeld Tools are unavailable for this Windows computer.' }
+  $service = $manifest.channels.stable.service.platforms.'windows-x64'
+  if ($manifest.schemaVersion -ne 1 -or !$release -or !$release.windows.processHelper -or !$service -or !$service.windows.processHelper) { throw 'OpenMeld Tools are unavailable for this Windows computer.' }
+  if ($internalPreview) {
+    if ($release.windows.mode -ne 'internal-unsigned-preview' -or $service.windows.mode -ne 'internal-unsigned-preview') { throw 'OpenMeld returned an unexpected Windows preview release.' }
+    Write-Host 'This internal Windows preview is unsigned. Windows may ask you to confirm before it runs.'
+  } elseif ([string]::IsNullOrWhiteSpace($publisher) -or [string]::IsNullOrWhiteSpace([string]$service.windows.publisherName)) { throw 'OpenMeld Tools are unavailable for this Windows computer.' }
   $cli = Join-Path $temporary 'openmeld.exe'
   Get-OpenMeldArtifact $release $cli $publisher
   Get-OpenMeldArtifact $release.windows.processHelper (Join-Path $temporary 'openmeld-windows-process.exe') $publisher

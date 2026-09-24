@@ -167,6 +167,7 @@ export * from "./desktop-notifications";
 export {
   DESKTOP_PROMOTED_RELEASE_KEY,
   DESKTOP_UPDATE_FEED_URL,
+  DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   type DesktopCandidateManifest,
   type DesktopReleasePlatform,
   desktopCandidateIdSchema,
@@ -181,6 +182,8 @@ export {
   desktopUpdaterFeedSchema,
   desktopUpdaterFeedSchemaForPlatform,
   desktopWindowsBuildSchema,
+  desktopWindowsInternalPreviewLocation,
+  desktopWindowsInternalPreviewSchema,
   resolveDesktopReleasePlatform,
 } from "./desktop-release";
 export * from "./desktop-transport-diagnostics";

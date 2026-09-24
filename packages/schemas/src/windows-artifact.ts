@@ -1,5 +1,8 @@
 import * as z from "zod/v4";
 
+export const WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL =
+  "https://openmeld.ai/cli/manifest.json?channel=windows-preview";
+
 export const WINDOWS_PROCESS_HELPER_FILENAME = "openmeld-windows-process.exe";
 
 // Cross-process record consumed by the native managed CLI launcher. It selects

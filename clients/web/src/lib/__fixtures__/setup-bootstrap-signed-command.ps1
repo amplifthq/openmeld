@@ -33,6 +33,7 @@ public static class SetupFixture {
 $exe = Join-Path $Root 'fixture.exe'
 [Console]::Out.WriteLine('fixture stage: compile')
 Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly $exe -OutputType ConsoleApplication -ReferencedAssemblies 'System.Web.Extensions.dll'
+Copy-Item -LiteralPath $exe -Destination (Join-Path $Root 'fixture-unsigned.exe')
 [Console]::Out.WriteLine('fixture stage: create certificate')
 $certificate = New-SelfSignedCertificate -Subject "CN=$Publisher" -Type CodeSigningCert -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(1)
 # Save the exact identity before importing trust, including for failed setup cleanup.

@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { pruneWindowsBinaryBundle } from "@openmeld/adapter-core/windows-system";
 import {
+  allowUnsignedWindowsInternalPreview,
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
   prepareCliBinaryProcessHelper,
@@ -619,6 +620,7 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
   try {
     await writeFile(executablePath, bytes, { mode: 0o755 });
     await verifyCliBinaryCodeSignature({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath: executablePath,
       release: input.release,
       runCommand: async (command, args) => {
@@ -629,6 +631,7 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
       },
     });
     await prepareCliBinaryProcessHelper({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath: executablePath,
       release: input.release,
       downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,

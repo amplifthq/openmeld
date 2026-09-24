@@ -20,6 +20,29 @@ export const desktopWindowsBuildSchema = z.strictObject({
   publisherName: windowsPublisherNameSchema,
 });
 
+export const DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY =
+  "desktop/internal-preview-windows-x64.json";
+export const desktopWindowsInternalPreviewSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  platform: z.literal("windows-x64"),
+  version: desktopVersionSchema,
+  releaseSha: z.string().regex(/^[a-f0-9]{40}$/u),
+  sha256: desktopCandidateIdSchema,
+  sizeBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+});
+
+export function desktopWindowsInternalPreviewLocation(
+  input: z.infer<typeof desktopWindowsInternalPreviewSchema>
+) {
+  const parsed = desktopWindowsInternalPreviewSchema.parse(input);
+  const artifactName = `OpenMeld-Desktop-${parsed.version}-windows-x64-internal-preview.exe`;
+  return {
+    artifactName,
+    objectKey: `desktop/internal-preview/${parsed.sha256}/${artifactName}`,
+    downloadPath: "/desktop/download?platform=windows-x64",
+  };
+}
+
 export function resolveDesktopReleasePlatform(
   platform: string,
   arch: string

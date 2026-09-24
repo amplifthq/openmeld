@@ -93,10 +93,16 @@ export const cliBinaryReleaseSchema = cliBinaryArtifactSchema
     deltas: z.array(cliBinaryDeltaTransportSchema).max(8).optional(),
     teamIdentifier: z.string().trim().min(1).optional(),
     windows: z
-      .strictObject({
-        publisherName: windowsPublisherNameSchema,
-        processHelper: cliBinaryArtifactSchema,
-      })
+      .union([
+        z.strictObject({
+          publisherName: windowsPublisherNameSchema,
+          processHelper: cliBinaryArtifactSchema,
+        }),
+        z.strictObject({
+          mode: z.literal("internal-unsigned-preview"),
+          processHelper: cliBinaryArtifactSchema,
+        }),
+      ])
       .optional(),
   })
   .superRefine((release, context) => {

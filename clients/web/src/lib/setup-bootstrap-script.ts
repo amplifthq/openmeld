@@ -1,3 +1,4 @@
+import { WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL } from "@openmeld/schemas";
 import {
 	getSetupFlowCopy,
 	OPENMELD_NODE_ENGINE_RANGE,
@@ -835,8 +836,12 @@ export function buildOpenMeldSetupBootstrapPowerShellScript(
 		input.distribution ?? resolveDefaultSetupDistribution(input.lane);
 	if (distribution === "binary") {
 		return buildWindowsBinaryBootstrap({
+			internalPreview: input.lane === "prod",
 			manifestUrl:
-				input.binaryManifestUrl ?? "https://openmeld.ai/cli/manifest.json",
+				input.lane === "prod"
+					? WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
+					: (input.binaryManifestUrl ??
+						"https://openmeld.ai/cli/manifest.json"),
 			envPreset: laneConfig.envPreset,
 			userFacingCommand: laneConfig.userFacingCommand,
 			openMeldHome: input.openMeldHome ?? "",

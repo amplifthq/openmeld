@@ -31,6 +31,7 @@ describe.skipIf(process.platform !== "win32")(
 	() => {
 		let root: string;
 		let bytes: Buffer;
+		let unsignedBytes: Buffer;
 		const publisher = `OpenMeld test ${randomUUID()}`;
 		const env = { ...process.env };
 		for (const name of Object.keys(env)) {
@@ -76,6 +77,7 @@ describe.skipIf(process.platform !== "win32")(
 			});
 			console.info("[windows signing fixture preparation]", prepared.stdout);
 			bytes = await readFile(join(root, "fixture.exe"));
+			unsignedBytes = await readFile(join(root, "fixture-unsigned.exe"));
 		}, 70_000);
 
 		afterAll(async () => {
@@ -105,15 +107,18 @@ describe.skipIf(process.platform !== "win32")(
 			"valid",
 			"corrupt-helper",
 			"wrong-publisher",
+			"unsigned-preview",
 		] as const)("%s: preserves the handoff or rejects it before installation", async (mode) => {
 			const callsPath = join(root, `${mode}.jsonl`);
 			const home = join(root, mode);
+			const artifactBytes = mode === "unsigned-preview" ? unsignedBytes : bytes;
 			let origin = "";
 			const server = createServer((request, response) => {
 				if (request.url?.startsWith("/setup?")) {
 					response.setHeader("Content-Type", "text/plain; charset=utf-8");
 					response.end(
 						buildWindowsBinaryBootstrap({
+							internalPreview: mode === "unsigned-preview",
 							manifestUrl: `${origin}/manifest.json`,
 							envPreset: "dev-local",
 							userFacingCommand: "openmeld-dev",
@@ -126,8 +131,8 @@ describe.skipIf(process.platform !== "win32")(
 				} else if (request.url === "/manifest.json") {
 					const artifact = {
 						url: `${origin}/fixture.exe`,
-						sha256: createHash("sha256").update(bytes).digest("hex"),
-						sizeBytes: bytes.length,
+						sha256: createHash("sha256").update(artifactBytes).digest("hex"),
+						sizeBytes: artifactBytes.length,
 					};
 					response.setHeader("Content-Type", "application/json");
 					response.end(
@@ -138,28 +143,50 @@ describe.skipIf(process.platform !== "win32")(
 									platforms: {
 										"windows-x64": {
 											...artifact,
-											windows: {
-												publisherName:
-													mode === "wrong-publisher"
-														? "Different publisher"
-														: publisher,
-												processHelper: {
-													...artifact,
-													sha256:
-														mode === "corrupt-helper"
-															? "0".repeat(64)
-															: artifact.sha256,
-												},
+											windows:
+												mode === "unsigned-preview"
+													? {
+															mode: "internal-unsigned-preview",
+															processHelper: artifact,
+														}
+													: {
+															publisherName:
+																mode === "wrong-publisher"
+																	? "Different publisher"
+																	: publisher,
+															processHelper: {
+																...artifact,
+																sha256:
+																	mode === "corrupt-helper"
+																		? "0".repeat(64)
+																		: artifact.sha256,
+															},
+														},
+										},
+									},
+									service: {
+										platforms: {
+											"windows-x64": {
+												...artifact,
+												windows:
+													mode === "unsigned-preview"
+														? {
+																mode: "internal-unsigned-preview",
+																processHelper: artifact,
+															}
+														: {
+																publisherName: publisher,
+																processHelper: artifact,
+															},
 											},
 										},
 									},
-									service: { platforms: { "windows-x64": artifact } },
 								},
 							},
 						})
 					);
 				} else if (request.url === "/fixture.exe") {
-					response.end(bytes);
+					response.end(artifactBytes);
 				} else {
 					response.writeHead(404).end();
 				}
@@ -230,7 +257,7 @@ describe.skipIf(process.platform !== "win32")(
 							.map((line) => JSON.parse(line))
 					)
 					.catch(() => []);
-				if (mode === "valid") {
+				if (mode === "valid" || mode === "unsigned-preview") {
 					expect(code, detail).toBe(7);
 					const prefix = `& '${join(home, "bin", "openmeld.exe").replaceAll("'", "''")}'`;
 					expect(calls).toEqual([
@@ -258,6 +285,9 @@ describe.skipIf(process.platform !== "win32")(
 					]);
 					expect(stdout).toContain("fixture setup output");
 					expect(stderr).toContain("fixture setup stderr");
+					if (mode === "unsigned-preview") {
+						expect(stdout).toContain("internal Windows preview is unsigned");
+					}
 				} else {
 					expect(code, detail).toBe(1);
 					expect(calls).toEqual([]);

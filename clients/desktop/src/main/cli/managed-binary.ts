@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import {
+  allowUnsignedWindowsInternalPreview,
   type CliBinaryDownloadProgress,
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
@@ -12,11 +13,27 @@ import {
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
 import {
+  type CliBinaryManifest,
   cliBinaryManifestSchema,
   cliInstallSelfResultSchema,
   resolveCliBinaryPlatform,
 } from "@openmeld/schemas";
 import type { CommandDeps } from "./commands";
+
+function hasAcceptedSigningIdentity(
+  platform: string,
+  release: CliBinaryManifest["channels"]["stable"]["platforms"][string],
+  env: CommandDeps["env"]
+) {
+  if (platform === "windows-x64") {
+    return Boolean(
+      release.windows &&
+        ("publisherName" in release.windows ||
+          allowUnsignedWindowsInternalPreview(env))
+    );
+  }
+  return Boolean(release.codeIdentifier && release.teamIdentifier);
+}
 
 /** Bootstrap only. The downloaded CLI owns managed installation and Service state. */
 export async function installManagedBinary(
@@ -83,7 +100,13 @@ export async function installManagedBinary(
       "OpenMeld Tools are available for Apple silicon Macs and 64-bit Windows PCs."
     );
   }
-  const manifestUrl = new URL("/cli/manifest.json", webOrigin);
+  const manifestUrl = new URL(
+    deps.env?.OPENMELD_CLI_BINARY_MANIFEST_URL ?? "/cli/manifest.json",
+    webOrigin
+  );
+  if (manifestUrl.origin !== new URL(webOrigin).origin) {
+    throw new Error("OpenMeld Tools returned an unexpected download location.");
+  }
   const response = await fetch(manifestUrl, {
     redirect: "error",
     signal: AbortSignal.timeout(30_000),
@@ -100,9 +123,7 @@ export async function installManagedBinary(
   }
   if (
     deps.env?.OPENMELD_ENV_PRESET === "prod" &&
-    !(platform === "windows-x64"
-      ? release.windows?.publisherName
-      : release.codeIdentifier && release.teamIdentifier)
+    !hasAcceptedSigningIdentity(platform, release, deps.env)
   ) {
     throw new Error(
       "OpenMeld Tools do not include a verified signing identity."
@@ -142,6 +163,7 @@ export async function installManagedBinary(
     await chmod(artifactPath, 0o700);
     reportStage("verifying");
     await verifyCliBinaryCodeSignature({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(deps.env),
       artifactPath,
       release,
       runCommand: async (command, args) => {
@@ -158,6 +180,7 @@ export async function installManagedBinary(
       },
     });
     await prepareCliBinaryProcessHelper({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(deps.env),
       artifactPath,
       release,
       downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,

@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import {
   type CliBinaryRelease,
+  WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
   WINDOWS_PROCESS_HELPER_FILENAME,
 } from "@openmeld/schemas";
 import { reconstructCliBinaryDelta } from "./cli-binary-delta.js";
@@ -201,8 +202,32 @@ export async function downloadCliBinaryUpdateArtifact(input: {
 }
 
 /** Prepare the Windows companion in the caller's disposable artifact directory. */
+
+export function allowUnsignedWindowsInternalPreview(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return (
+    env.OPENMELD_ENV_PRESET === "prod" &&
+    env.OPENMELD_WINDOWS_INTERNAL_PREVIEW === "1" &&
+    env.OPENMELD_CLI_BINARY_MANIFEST_URL ===
+      WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL
+  );
+}
+
+function assertWindowsPreviewPolicy(
+  windows: NonNullable<CliBinaryRelease["windows"]>,
+  allowed: boolean
+): void {
+  if ("mode" in windows && !allowed) {
+    throw integrityError(
+      "Unsigned Windows artifacts require the explicit OpenMeld internal preview channel"
+    );
+  }
+}
+
 export async function prepareCliBinaryProcessHelper(input: {
   artifactPath: string;
+  allowUnsignedPreview?: boolean;
   downloadPolicy: CliBinaryDownloadPolicy;
   fetchImpl: typeof fetch;
   release: CliBinaryRelease;
@@ -219,6 +244,7 @@ export async function prepareCliBinaryProcessHelper(input: {
   if (process.platform !== "win32") {
     throw integrityError("Windows artifact preparation requires Windows");
   }
+  assertWindowsPreviewPolicy(windows, input.allowUnsignedPreview === true);
   if (
     new URL(windows.processHelper.url).origin !==
     new URL(input.release.url).origin
@@ -241,11 +267,14 @@ export async function prepareCliBinaryProcessHelper(input: {
     WINDOWS_PROCESS_HELPER_FILENAME
   );
   await writeFile(helperPath, bytes, { mode: 0o700, flag: "wx" });
-  await verifyWindowsArtifactSignature(helperPath, windows.publisherName);
+  if (!("mode" in windows)) {
+    await verifyWindowsArtifactSignature(helperPath, windows.publisherName);
+  }
 }
 
 export async function verifyCliBinaryCodeSignature(input: {
   artifactPath: string;
+  allowUnsignedPreview?: boolean;
   release: CliBinaryRelease;
   runCommand: (command: string, args: string[]) => Promise<CommandResult>;
 }): Promise<void> {
@@ -254,6 +283,13 @@ export async function verifyCliBinaryCodeSignature(input: {
       throw integrityError(
         "Windows CLI artifacts must declare their publisher and process helper"
       );
+    }
+    assertWindowsPreviewPolicy(
+      input.release.windows,
+      input.allowUnsignedPreview === true
+    );
+    if ("mode" in input.release.windows) {
+      return;
     }
     try {
       await verifyWindowsArtifactSignature(
