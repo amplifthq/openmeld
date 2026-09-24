@@ -222,7 +222,7 @@ function ModelConfigurationContent(input: {
 		<>
 			{input.canEdit ? (
 				<div className="space-y-2">
-					<div className="max-w-sm">
+					<div className="grid max-w-sm gap-5">
 						<HostedModelSelect
 							choices={input.configuration.choices.map((choice) => ({
 								value: modelPreferenceValue(choice.preference),

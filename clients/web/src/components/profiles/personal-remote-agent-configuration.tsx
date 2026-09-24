@@ -66,21 +66,23 @@ export function PersonalRemoteAgentConfiguration(input: {
 					label="Model"
 					summary={modelName}
 				>
-					<HostedModelSelect
-						choices={models}
-						disabled={input.isSubmitting || !catalog}
-						onValueChange={input.onModelChange}
-						value={modelId}
-					/>
-					{selectedModel?.hostedRuntime ? (
-						<HostedReasoningSelect
-							defaultLevel={selectedModel.hostedRuntime.reasoningLevel}
-							disabled={input.isSubmitting}
-							levels={selectedModel.supportedReasoningLevels}
-							onValueChange={input.onReasoningLevelChange}
-							value={input.reasoningLevel}
+					<div className="grid gap-5">
+						<HostedModelSelect
+							choices={models}
+							disabled={input.isSubmitting || !catalog}
+							onValueChange={input.onModelChange}
+							value={modelId}
 						/>
-					) : null}
+						{selectedModel?.hostedRuntime ? (
+							<HostedReasoningSelect
+								defaultLevel={selectedModel.hostedRuntime.reasoningLevel}
+								disabled={input.isSubmitting}
+								levels={selectedModel.supportedReasoningLevels}
+								onValueChange={input.onReasoningLevelChange}
+								value={input.reasoningLevel}
+							/>
+						) : null}
+					</div>
 				</AgentConfigurationCard>
 			</AgentConfigurationGrid>
 		</div>

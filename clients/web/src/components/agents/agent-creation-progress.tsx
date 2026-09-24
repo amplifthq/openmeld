@@ -1,7 +1,9 @@
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
-import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
-import { CheckIcon } from "@phosphor-icons/react";
+import {
+	SetupTimeline,
+	SetupTimelineStep,
+} from "@openmeld/ui/components/setup-timeline";
 import { formatAgentCreationFailure } from "#/lib/profiles/agent-creation-failure";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 
@@ -85,18 +87,18 @@ function progressDetail(request: AgentProfileCreationRequest | null): string {
 	return "Creating Agent…";
 }
 
-function stepMarker(input: {
-	active: boolean;
-	complete: boolean;
+function progressStepState(input: {
 	index: number;
-}) {
-	if (input.complete) {
-		return <CheckIcon aria-hidden="true" className="size-3.5" />;
+	stage: number;
+	stopped: boolean;
+}): "active" | "blocked" | "complete" | "pending" {
+	if (input.stage > input.index) {
+		return "complete";
 	}
-	if (input.active) {
-		return <Bars aria-hidden="true" className="h-3 w-4" />;
+	if (input.stage < input.index) {
+		return "pending";
 	}
-	return input.index + 1;
+	return input.stopped ? "blocked" : "active";
 }
 
 export function AgentCreationProgress(input: {
@@ -113,36 +115,29 @@ export function AgentCreationProgress(input: {
 	return (
 		<section
 			aria-live="polite"
-			className="mx-auto grid w-full max-w-2xl gap-7 px-6 py-12"
+			className="mx-auto grid w-full max-w-4xl content-start gap-10 px-6 py-14 sm:px-10 sm:py-20"
 		>
-			<div className="grid gap-2">
-				<h1 className="font-semibold text-2xl tracking-tight">
+			<div className="grid gap-3">
+				<h1 className="font-semibold text-3xl tracking-tight">
 					{progress.title}
 				</h1>
-				<p className="text-muted-foreground text-sm">{progress.detail}</p>
+				<p className="text-base text-muted-foreground">{progress.detail}</p>
 			</div>
-			<ol className="grid gap-5 border-border border-l pl-5">
+			<SetupTimeline className="gap-8 rounded-lg border border-border/70 bg-card/50 p-6 sm:p-8">
 				{progress.steps.map((label, index) => (
-					<li className="flex items-center gap-3 text-sm" key={label}>
-						<span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground">
-							{stepMarker({
-								active: progress.stage === index && !progress.stopped,
-								complete: progress.stage > index,
-								index,
-							})}
-						</span>
-						<span
-							className={
-								progress.stage >= index
-									? "font-medium"
-									: "text-muted-foreground"
-							}
-						>
-							{label}
-						</span>
-					</li>
+					<SetupTimelineStep
+						className="[&_h2]:text-base"
+						key={label}
+						state={progressStepState({
+							index,
+							stage: progress.stage,
+							stopped: progress.stopped,
+						})}
+						summary={progress.stage === index ? progress.detail : ""}
+						title={label}
+					/>
 				))}
-			</ol>
+			</SetupTimeline>
 			{input.readFailed && (
 				<div className="grid justify-items-start gap-2" role="alert">
 					<p className="text-sm">Couldn’t check the latest setup status.</p>
