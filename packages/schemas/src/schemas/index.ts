@@ -592,6 +592,7 @@ export {
   localWakeRouteWorkingFolderObservationSchema,
   localWakeRouteWorkingFolderReasonCodeSchema,
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
+  OPENMELD_ADMISSION_EVIDENCE_HEADER,
   OPENMELD_EXECUTION_ADMISSION_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentControllerConversationOccupancySchema,
@@ -731,6 +732,7 @@ export {
   runtimeTransportWaitDispatchResultRequestSchema,
   runtimeTransportWaitDispatchResultResponseSchema,
 } from "./daemon/runtime-transport";
+export { runtimeTransportAdmissionEvidenceSchema } from "./daemon/runtime-transport-admission-evidence";
 export { runtimeTransportStopCauseSchema } from "./daemon/runtime-transport-stop-cause";
 export {
   DAEMON_SERVICE_CONTRACT_SCHEMA_VERSION,

@@ -3,12 +3,22 @@ import {
   type ServiceExecutionHostOutput,
   serviceExecutionHostMethods,
 } from "@openmeld/schemas";
-import type { RuntimeTransportLease } from "@openmeld/schemas/types";
+import type {
+  RuntimeTransportAdmissionEvidence,
+  RuntimeTransportLease,
+} from "@openmeld/schemas/types";
 import { warnDaemonEvent } from "../core/logger";
 import type { DaemonFrameSink, ParsedDaemonFrame } from "../core/types";
 import type { RuntimeReportingAuthenticationFailure } from "../reporting/runtime-reporting-auth-recovery";
 import { ExecutionHostError } from "./channel";
 import type { ExecutionHostPort } from "./port";
+
+const ADMISSION_DETAIL_CODE_PATTERN = /^[a-z][a-z0-9_.-]{0,79}$/u;
+
+const admissionDetailCode = (error: unknown, fallback: string): string => {
+  const code = error instanceof ExecutionHostError ? error.code : fallback;
+  return ADMISSION_DETAIL_CODE_PATTERN.test(code) ? code : fallback;
+};
 
 // Connection-local forwarding and observation only. Accepted work, approval
 // state and result receipts remain in the one process-lifetime Host.
@@ -29,16 +39,73 @@ export function createExecutionHostSocketLink(input: {
   let configuration: Promise<void> = Promise.resolve();
   let queuedFrames = 0;
   let publishedAdmission = false;
+  let admissionRevision = 0;
+  let admissionEvidence: RuntimeTransportAdmissionEvidence | null = null;
+  let configureFailureCode: string | null = null;
+  let healthFailureCode: string | null = null;
+  let connectionInitializingReason:
+    | "connection_initializing"
+    | "connection_replaced" = "connection_initializing";
   const canAccept = () =>
     !closed &&
     bound &&
     input.host.available() &&
     observed?.admission === "open" &&
     !observed.startupReplayPending;
-  const notifyAdmission = () => {
+  const currentAdmissionReason = (): {
+    reasonCode: RuntimeTransportAdmissionEvidence["reasonCode"];
+    detailCode?: string;
+  } => {
+    if (!bound) {
+      return configureFailureCode
+        ? {
+            reasonCode: "host_configure_failed",
+            detailCode: configureFailureCode,
+          }
+        : { reasonCode: connectionInitializingReason };
+    }
+    if (!input.host.available()) {
+      return { reasonCode: "host_unavailable" };
+    }
+    if (!observed) {
+      return healthFailureCode
+        ? {
+            reasonCode: "host_health_unconfirmed",
+            detailCode: healthFailureCode,
+          }
+        : { reasonCode: "host_health_unconfirmed" };
+    }
+    if (observed.admission !== "open") {
+      return { reasonCode: "host_draining" };
+    }
+    if (observed.startupReplayPending) {
+      return { reasonCode: "startup_replay_pending" };
+    }
+    return { reasonCode: "host_ready" };
+  };
+  const notifyAdmission = (
+    reasonCode?: RuntimeTransportAdmissionEvidence["reasonCode"]
+  ) => {
     const next = canAccept();
-    if (next !== publishedAdmission) {
+    const reason: ReturnType<typeof currentAdmissionReason> = reasonCode
+      ? { reasonCode }
+      : currentAdmissionReason();
+    if (
+      next !== publishedAdmission ||
+      (generation !== null &&
+        (admissionEvidence?.reasonCode !== reason.reasonCode ||
+          admissionEvidence?.detailCode !== reason.detailCode))
+    ) {
       publishedAdmission = next;
+      if (generation !== null) {
+        admissionEvidence = {
+          acceptingDispatches: next,
+          connectionGeneration: generation,
+          revision: ++admissionRevision,
+          changedAtMs: Date.now(),
+          ...reason,
+        };
+      }
       input.onAdmissionChanged();
     }
   };
@@ -54,9 +121,11 @@ export function createExecutionHostSocketLink(input: {
         .call("health", {})
         .then((next) => {
           observed = next;
+          healthFailureCode = null;
         })
         .catch((error: unknown) => {
           observed = null;
+          healthFailureCode = admissionDetailCode(error, "host.health_failed");
           input.onError(error);
         })
         .finally(() => {
@@ -109,6 +178,7 @@ export function createExecutionHostSocketLink(input: {
 
   return {
     canAccept,
+    admissionEvidence: () => admissionEvidence,
     snapshot: () => observed,
     async configure(request: {
       executionAdmissionConfirmation?: boolean;
@@ -120,8 +190,22 @@ export function createExecutionHostSocketLink(input: {
       // Catalog refreshes on the same socket do not replace execution
       // authority. Frames already wait for `configuration` below, so keep
       // admission open until the Host has applied the new catalog.
+      const previousGeneration = generation;
       if (generation !== request.connectionGeneration) {
         bound = false;
+        configureFailureCode = null;
+        connectionInitializingReason =
+          previousGeneration === null
+            ? "connection_initializing"
+            : "connection_replaced";
+        admissionRevision = 0;
+        admissionEvidence = {
+          acceptingDispatches: false,
+          connectionGeneration: request.connectionGeneration,
+          revision: 0,
+          changedAtMs: Date.now(),
+          reasonCode: connectionInitializingReason,
+        };
       }
       generation = request.connectionGeneration;
       notifyAdmission();
@@ -140,6 +224,8 @@ export function createExecutionHostSocketLink(input: {
           );
           if (!closed && generation === request.connectionGeneration) {
             observed = nextObservation;
+            healthFailureCode = null;
+            configureFailureCode = null;
             bound = true;
             notifyAdmission();
           }
@@ -148,6 +234,10 @@ export function createExecutionHostSocketLink(input: {
         if (!closed && generation === request.connectionGeneration) {
           bound = false;
           observed = null;
+          configureFailureCode = admissionDetailCode(
+            error,
+            "host.configure_failed"
+          );
           notifyAdmission();
         }
         throw error;
@@ -206,11 +296,16 @@ export function createExecutionHostSocketLink(input: {
         .then((next) => {
           if (!closed && generation === expectedGeneration) {
             observed = next;
+            healthFailureCode = null;
             notifyAdmission();
           }
         })
         .catch((error: unknown) => {
           observed = null;
+          healthFailureCode = admissionDetailCode(
+            error,
+            "host.heartbeat_failed"
+          );
           input.onError(error);
           if (!closed) {
             notifyAdmission();

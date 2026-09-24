@@ -63,6 +63,11 @@ describe("Host responsiveness observations", () => {
     };
     await link.configure(initial);
     expect(link.canAccept()).toBe(true);
+    expect(link.admissionEvidence()).toMatchObject({
+      acceptingDispatches: true,
+      connectionGeneration: 1,
+      reasonCode: "host_ready",
+    });
     expect(changed).toHaveBeenCalledTimes(1);
 
     const refresh = link.configure({ ...initial, catalogRevision: 2 });
@@ -78,6 +83,12 @@ describe("Host responsiveness observations", () => {
       link.configure({ ...initial, catalogRevision: 3 })
     ).rejects.toThrow("catalog rejected");
     expect(link.canAccept()).toBe(false);
+    expect(link.admissionEvidence()).toMatchObject({
+      acceptingDispatches: false,
+      connectionGeneration: 1,
+      reasonCode: "host_configure_failed",
+      detailCode: "host.configure_failed",
+    });
     expect(changed).toHaveBeenCalledTimes(2);
   });
 
@@ -127,6 +138,11 @@ describe("Host responsiveness observations", () => {
       catalogRevision: 3,
     });
     expect(link.canAccept()).toBe(false);
+    expect(link.admissionEvidence()).toMatchObject({
+      acceptingDispatches: false,
+      connectionGeneration: 2,
+      reasonCode: "connection_replaced",
+    });
     stale.resolve(snapshot);
     await refresh;
     await vi.waitFor(() => expect(host.call).toHaveBeenCalledTimes(3));
@@ -134,6 +150,11 @@ describe("Host responsiveness observations", () => {
     replacement.resolve(snapshot);
     await rebind;
     expect(link.canAccept()).toBe(true);
+    expect(link.admissionEvidence()).toMatchObject({
+      acceptingDispatches: true,
+      connectionGeneration: 2,
+      reasonCode: "host_ready",
+    });
   });
 
   it("withdraws responsiveness after a heartbeat timeout without losing historical work or restarting it", async () => {

@@ -13,6 +13,7 @@ import {
   projectSpaceDispatchTraceFinalVisibleOutcome,
   resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
+  runtimeTransportAdmissionEvidenceSchema,
 } from "@openmeld/schemas";
 import type {
   GetAgentProfilePrimaryBindingResponse,
@@ -243,6 +244,7 @@ export async function runServiceTrace(
   const agentSummary = buildAgentTraceCompactSummary({
     trace: traceResponse.trace,
   });
+  const admissionRejections = resolveAdmissionRejections(traceResponse.trace);
   const traceReadinessGuidance = shouldExposeCurrentReadinessGuidance(
     traceResponse.trace
   )
@@ -292,6 +294,7 @@ export async function runServiceTrace(
           },
     currentProfileWorkspace: targetContext.currentProfileWorkspace,
     agentSummary,
+    admissionRejections,
     guidance: traceReadinessGuidance,
   };
 
@@ -313,6 +316,7 @@ export async function runServiceTrace(
         projectFailureContext:
           traceResponse.trace?.resultInbox?.projectFailureContext ?? null,
         agentSummary,
+        admissionRejections,
         diagnosticSummary: buildAgentTraceSummary({
           dispatchId: traceResponse.query.dispatchId,
           trace: traceResponse.trace,
@@ -1723,6 +1727,32 @@ function parseRuntimeCoordinatorEventPayload(
   } catch {
     return null;
   }
+}
+
+function resolveAdmissionRejections(trace: DispatchTraceSnapshot) {
+  return (trace?.runtimeCoordinatorEvents ?? [])
+    .filter((event) => event.eventType === "delivery_rejected")
+    .slice(-10)
+    .map((event) => {
+      const payload = parseRuntimeCoordinatorEventPayload(event);
+      const routeEvidence = payload?.deliveryRouteEvidence;
+      const route =
+        routeEvidence &&
+        typeof routeEvidence === "object" &&
+        !Array.isArray(routeEvidence)
+          ? (routeEvidence as Record<string, unknown>)
+          : null;
+      const parsed = runtimeTransportAdmissionEvidenceSchema.safeParse(
+        route?.admissionEvidence
+      );
+      return {
+        observedAtMs: event.observedAtMs,
+        rejectionReasonCode: event.reasonCode,
+        acceptingDispatches: route?.acceptingDispatches ?? "unknown",
+        admissionEvidence: parsed.success ? parsed.data : null,
+        evidenceStatus: parsed.success ? "reported" : "not_reported",
+      };
+    });
 }
 
 function readRuntimeCoordinatorPayloadString(
