@@ -208,7 +208,7 @@ describe("space-contract-service", () => {
       updatedAt: "2026-03-21T00:00:00.000Z",
       updatedBy: "profile-2",
       publicationMode: "raw_context_sharing",
-      allowedActions: ["stay_silent"],
+      allowedActions: ["post_status", "stay_silent"],
       dispatchBrief: "none",
       spaceNote: "Keep this note.",
     });

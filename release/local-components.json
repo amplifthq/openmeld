@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T05:31:21.852Z",
+  "updatedAt": "2026-09-24T05:50:02.987Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
       "packageVersion": "0.3.223",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup, Wake, Space actions, status, trace and self-rescue remain compatible with old and new cloud; Remote Agent creation options are additive, and new Space tools record existing reply or silence payloads."
+      "reason": "Existing CLI commands remain compatible with old and new cloud; Claude project-container support is selected only for capable local runtimes."
     },
     "service": {
-      "bundleHash": "b24f5fd16aeab9b051007bea6163ab3b71168782c7212aa05860c500d11c002f",
+      "bundleHash": "5cc2e7afc328bd3a16802635f35df7bccf89a7d6d90f49a8f289df4c1d059e98",
       "bundleVersion": "0.3.223",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
-      "reason": "The Service transport and Wake contracts are unchanged; shared schema additions are optional, and outcome correction uses existing Space action payloads so old Services can continue current and new Wake work."
+      "reason": "Existing setup and Wake paths remain compatible; Claude project contexts require executionContextVersion 3 and older Services receive an explicit update-required outcome."
     },
     "skills": {
       "bundleHash": "d1adf5f61e413418e6c11cf7bab84ea41aed967ae0d118ef1ad84588739249cf",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Antigravity setup guidance is additive; new Space guidance prefers reply and silence while existing explicit-recipient dispatch contracts remain compatible with old and new cloud."
+      "reason": "Space reply and silence guidance is additive; existing explicit-recipient and older cloud dispatch instructions remain compatible."
     }
   }
 }

@@ -944,9 +944,11 @@ async function verifyOwnedRepository(manifest: Manifest): Promise<void> {
     throw failure("workspace_git_metadata_changed");
   }
   const expectedGitDir = join(repository, "worktrees", "worktree");
-  if (
-    (await readFile(gitFile, "utf8")).trim() !== `gitdir: ${expectedGitDir}`
-  ) {
+  const gitDirLine = (await readFile(gitFile, "utf8")).trim();
+  const gitDir = gitDirLine.startsWith("gitdir: ")
+    ? gitDirLine.slice("gitdir: ".length)
+    : null;
+  if (!(gitDir && isAbsolute(gitDir)) || relative(expectedGitDir, gitDir)) {
     throw failure("workspace_git_metadata_changed");
   }
   if (
