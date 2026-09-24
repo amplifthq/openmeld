@@ -18,7 +18,10 @@ export function readAuthoredModelCatalog(): ModelCatalog {
 export function readModelCatalog(
   options?: ModelCatalogReadOptions
 ): ModelCatalog {
-  return projectModelCatalog(readAuthoredModelCatalog(), options);
+  return projectModelCatalog(
+    readAuthoredModelCatalog(),
+    options ?? { personalRemoteAgentDefault: true }
+  );
 }
 
 /** Keep authored policy out of legacy responses; never flatten scoped withdrawal. */
@@ -32,10 +35,23 @@ export function projectModelCatalog(
       Object.entries(catalog.agentControllers).map(([id, controller]) => {
         const { creationDefaults: _creationDefaults, ...publicController } =
           controller;
+        const hostedRuntimePolicy = publicController.hostedRuntimePolicy;
+        const projectedHostedRuntimePolicy =
+          hostedRuntimePolicy && !options?.personalRemoteAgentDefault
+            ? {
+                automaticModelFallback:
+                  hostedRuntimePolicy.automaticModelFallback,
+                imageUnderstandingModelId:
+                  hostedRuntimePolicy.imageUnderstandingModelId,
+              }
+            : hostedRuntimePolicy;
         return [
           id,
           {
             ...publicController,
+            ...(projectedHostedRuntimePolicy
+              ? { hostedRuntimePolicy: projectedHostedRuntimePolicy }
+              : {}),
             models: controller.models.map((model) => {
               const { retirement, ...legacyModel } = model;
               return options?.retirement && retirement

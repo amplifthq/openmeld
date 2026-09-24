@@ -178,7 +178,7 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   actionInput: Record<string, unknown>;
   data: unknown;
   eventIdentity?: string;
-  now?: string;
+  now?: string | (() => Promise<string>);
   ports: SpaceTaskGitHubBindingPorts;
   toolContext: {
     context: OpenMeldRequestContext;
@@ -206,12 +206,17 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   if (!identity) {
     return null;
   }
-  const now = input.now ?? new Date().toISOString();
+  // A stable observation may require storage. Resolve it only for a binding
+  // that applies, never for reads, private conversations, or unrelated writes.
+  const readObservationAt = async () =>
+    typeof input.now === "function"
+      ? await input.now()
+      : (input.now ?? new Date().toISOString());
   if (input.actionId === "github.create_issue") {
     return await associateCreatedGitHubIssue({
       actionInput: input.actionInput,
       identity,
-      now,
+      now: await readObservationAt(),
       ports: {
         createSpaceTask: input.ports.createSpaceTask,
         getSpaceTask: input.ports.getSpaceTask,
@@ -236,7 +241,7 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
     return await closeSpaceTasksForGitHubIssue({
       identity,
       eventIdentity: input.eventIdentity,
-      now,
+      now: await readObservationAt(),
       ports: {
         getSpaceTask: input.ports.getSpaceTask,
         listSpaceTasks: input.ports.listSpaceTasks,

@@ -65,6 +65,8 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 		setRemoteName,
 		remoteModel,
 		setRemoteModel,
+		remoteReasoningLevel,
+		setRemoteReasoningLevel,
 		remoteReady,
 		submitRemote,
 	} = useRemoteAgentDraft(input.form);
@@ -154,8 +156,13 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 							model={remoteModel}
 							modelCatalog={form.modelCatalog}
 							name={remoteName}
-							onModelChange={setRemoteModel}
+							onModelChange={(model) => {
+								setRemoteModel(model);
+								setRemoteReasoningLevel("");
+							}}
 							onNameChange={setRemoteName}
+							onReasoningLevelChange={setRemoteReasoningLevel}
+							reasoningLevel={remoteReasoningLevel}
 						/>
 					</TabPanel>
 					<CreateProfileErrorNotice
@@ -285,6 +292,7 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 	const remoteName =
 		form.remoteProfileName ?? editedRemoteName ?? defaultRemoteName;
 	const [remoteModel, setRemoteModel] = useState<string | null>(null);
+	const [remoteReasoningLevel, setRemoteReasoningLevel] = useState("");
 	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 	const catalog = form.modelCatalog?.agentControllers["center-agent"];
 	const remoteModelId = remoteModel ?? catalog?.defaultModelId;
@@ -301,7 +309,11 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 		if (form.isSubmitting || !remoteReady || !form.remoteAgentCreation) {
 			return;
 		}
-		const fingerprint = JSON.stringify([remoteName.trim(), remoteModelId]);
+		const fingerprint = JSON.stringify([
+			remoteName.trim(),
+			remoteModelId,
+			remoteReasoningLevel,
+		]);
 		if (intent.current?.fingerprint !== fingerprint) {
 			intent.current = { fingerprint, key: crypto.randomUUID() };
 		}
@@ -309,6 +321,7 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 			idempotencyKey: intent.current.key,
 			modelId: remoteModelId ?? null,
 			profileName: remoteName.trim(),
+			reasoningLevel: remoteReasoningLevel || null,
 		});
 	};
 	return {
@@ -316,6 +329,8 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 		setRemoteName,
 		remoteModel: remoteModelId ?? "",
 		setRemoteModel,
+		remoteReasoningLevel,
+		setRemoteReasoningLevel,
 		remoteReady,
 		submitRemote,
 	};

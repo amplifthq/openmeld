@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-23T16:17:23.571Z",
+  "updatedAt": "2026-09-24T03:42:32.409Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
-      "packageVersion": "0.3.221",
+      "packageVersion": "0.3.222",
       "updatePolicy": "available",
-      "reason": "CLI commands are unchanged; existing CLI 0.3.220 remains compatible with the hosted Routine identity change."
+      "reason": "Existing CLI setup, Wake, Space actions, status, trace and self-rescue remain compatible with old and new cloud; the new Remote Agent creation options use additive optional request fields."
     },
     "service": {
-      "bundleHash": "3666c01688e932b494b0503b5013901b04bca7483ba20035ecf60a3c0bdb8650",
-      "bundleVersion": "0.3.221",
+      "bundleHash": "818b0a54c1578eb46c4f9373bee8c11b8764c90c2dad378161649e5efd8fbf7d",
+      "bundleVersion": "0.3.222",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
-      "reason": "The Routine execution identity changes only hosted Core-to-Remote-Agent requests; old and new local Services remain compatible with both cloud versions."
+      "reason": "The Service transport and Wake contracts are unchanged; shared schema additions are optional and old Services can safely continue current and new Wake work."
     },
     "skills": {
       "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",

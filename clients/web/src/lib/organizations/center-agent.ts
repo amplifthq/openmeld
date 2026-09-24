@@ -3,6 +3,7 @@ import {
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
+import { hostedModelReasoningLevelSchema } from "@openmeld/schemas";
 import type {
 	CenterAgentModelConfigurationResponse,
 	CenterAgentModelPreference,
@@ -172,11 +173,19 @@ export async function updateCurrentCenterAgentModel(input: {
 	expectedConfigurationRevision: number;
 	organizationId: string;
 	preference: CenterAgentModelPreference;
+	reasoningLevel?: string | null;
 }): Promise<UpdateCenterAgentModelResponse> {
 	try {
 		return await createWebCenterAgentApi(input.organizationId).updateModel({
 			expectedConfigurationRevision: input.expectedConfigurationRevision,
 			preference: input.preference,
+			...(input.reasoningLevel === undefined
+				? {}
+				: {
+						reasoningLevel: input.reasoningLevel
+							? hostedModelReasoningLevelSchema.parse(input.reasoningLevel)
+							: null,
+					}),
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

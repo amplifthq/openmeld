@@ -9,6 +9,8 @@ export function registerConfigRoutes(app: Hono<HonoBindings>): void {
   app.get(MODEL_CATALOG_ROUTE, (c) => {
     const catalog = readModelCatalog({
       retirement: c.req.query("retirement") === "1",
+      personalRemoteAgentDefault:
+        c.req.query("personalRemoteAgentDefault") === "1",
     });
     const parsed = getModelCatalogResponseSchema.safeParse(catalog);
     if (!parsed.success) {

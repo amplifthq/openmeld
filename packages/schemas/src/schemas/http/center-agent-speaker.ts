@@ -28,6 +28,8 @@ export const CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
   "openmeld_execute_app_action",
+  "github_execute_action",
+  "github_list_actions",
   "github_get_current_user",
   "github_list_my_repositories",
   "github_get_repository",

@@ -30,7 +30,13 @@ describe("model catalog config", () => {
       );
     expect(findModel(legacy)).not.toHaveProperty("retirement");
     expect(findModel(legacy)?.unavailable).toBe(false);
+    expect(
+      legacy.agentControllers["center-agent"]?.hostedRuntimePolicy
+    ).not.toHaveProperty("personalRemoteAgentDefaultModelId");
     expect(findModel(modern)?.retirement).toEqual(model.retirement);
+    expect(
+      modern.agentControllers["center-agent"]?.hostedRuntimePolicy
+    ).not.toHaveProperty("personalRemoteAgentDefaultModelId");
     expect(modern.agentControllers.codex).not.toHaveProperty(
       "creationDefaults"
     );
@@ -48,8 +54,12 @@ describe("model catalog config", () => {
       "claude-opus-5"
     );
     expect(catalog.agentControllers["center-agent"]?.defaultModelId).toBe(
-      "z-ai/glm-5.3-flash"
+      "anthropic/claude-opus-5.5"
     );
+    expect(
+      catalog.agentControllers["center-agent"]?.hostedRuntimePolicy
+        ?.personalRemoteAgentDefaultModelId
+    ).toBe("openai/gpt-6-sol");
     expect(catalog.agentControllers.opencode?.defaultModelId).toBe(
       "opencode/mimo-v2.6-flash-free"
     );
@@ -73,7 +83,9 @@ describe("model catalog config", () => {
       typeof readModelCatalog
     >;
 
-    expect(catalog).toEqual(readModelCatalog());
+    expect(catalog).toEqual(
+      readModelCatalog({ retirement: false, personalRemoteAgentDefault: false })
+    );
     expect(catalog).toMatchObject({
       schemaVersion: 1,
       agentControllers: {
@@ -87,10 +99,36 @@ describe("model catalog config", () => {
           defaultModelId: "opencode/mimo-v2.6-flash-free",
         },
         "center-agent": {
-          defaultModelId: "z-ai/glm-5.3-flash",
+          defaultModelId: "anthropic/claude-opus-5.5",
+          hostedRuntimePolicy: {
+            automaticModelFallback: false,
+          },
         },
       },
     });
+    expect(
+      catalog.agentControllers["center-agent"]?.hostedRuntimePolicy
+    ).not.toHaveProperty("personalRemoteAgentDefaultModelId");
+    const optedInResponse = await app.fetch(
+      new Request(
+        "http://local/v1/config/model-catalog?personalRemoteAgentDefault=1"
+      ),
+      {} as CloudflareBindings,
+      {
+        waitUntil: () => undefined,
+        passThroughOnException: () => undefined,
+        props: {},
+        exports: {},
+      } as unknown as ExecutionContext
+    );
+    expect(optedInResponse.status).toBe(200);
+    const optedInCatalog = (await optedInResponse.json()) as ReturnType<
+      typeof readModelCatalog
+    >;
+    expect(
+      optedInCatalog.agentControllers["center-agent"]?.hostedRuntimePolicy
+        ?.personalRemoteAgentDefaultModelId
+    ).toBe("openai/gpt-6-sol");
     expect(
       catalog.agentControllers.codex?.models.map((model) => model.id)
     ).toEqual(

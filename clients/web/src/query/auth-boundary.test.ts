@@ -127,6 +127,7 @@ function createQueryPersistenceMock(): BrowserQueryPersistenceController {
 	return {
 		activateAuthorizedScope: vi.fn(async () => undefined),
 		activateSpaceConversation: vi.fn(async () => undefined),
+		restoreSpaceConversation: vi.fn(async () => undefined),
 		clearActiveAccount: vi.fn(async () => undefined),
 		clearSpaceConversation: vi.fn(async () => undefined),
 		clearOrganization: vi.fn(async () => undefined),
