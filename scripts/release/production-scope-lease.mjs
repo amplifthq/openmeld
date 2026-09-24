@@ -119,13 +119,18 @@ export function releaseProductionScopeLease(input) {
   );
   if (push.status !== 0) {
     const winner = readProductionScopeLease(context);
+    const gitError = redactGitOutput(push.stderr || push.stdout);
+    let failure =
+      "Production scope lease release result is uncertain; the lease ref is absent.";
+    if (winner?.leaseSha === leaseSha) {
+      failure =
+        "Production scope lease release failed; the original lease is still held and may be retried.";
+    } else if (winner) {
+      failure =
+        "Production scope lease changed before atomic release; no newer lease was deleted.";
+    }
     throw new Error(
-      [
-        "Production scope lease changed before atomic release; no newer lease was deleted.",
-        winner
-          ? renderHeldLease(winner, context.now)
-          : redactGitOutput(push.stderr),
-      ]
+      [failure, gitError, winner ? renderHeldLease(winner, context.now) : null]
         .filter(Boolean)
         .join("\n")
     );

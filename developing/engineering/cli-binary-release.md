@@ -119,7 +119,15 @@ For the internal Windows x64 trial, `.github/workflows/windows-internal-preview.
 builds CLI, Service, process helper, and the unsigned production-account
 Desktop installer on a native Windows runner. It exercises the delivered
 carriers without user Node/Bun in the fixture PATH and inspects the actual
-installer payload before exporting an exact-source GitHub artifact. Run its
+installer payload before exporting an exact-source GitHub artifact. It runs on
+explicit dispatch, not every Draft or Ready update. Dispatch it for a Windows
+preview candidate and check the run's source SHA:
+
+```sh
+gh workflow run windows-internal-preview.yml --ref <candidate-branch>
+```
+
+Run its
 read-only handoff check from a clean checkout of the artifact's source SHA:
 
 ```sh
@@ -163,6 +171,13 @@ state and Windows-system-only PATH. Build tools on the hosted runner are not a
 clean standard-user environment, and the protocol peer is not model inference.
 Any failed native acceptance step fails its job. Artifacts are unsigned and
 retained for bounded review, not published to a product channel.
+This native workflow is also explicit, and is not a required PR check. Run it
+when changing Windows carrier or process behavior, or before a Windows release;
+check that the run used the intended candidate SHA:
+
+```sh
+gh workflow run windows-compatibility.yml --ref <candidate-branch>
+```
 
 For Mac development, a successful native artifact job also retains a small
 `windows-process-<run>-<attempt>` artifact. Download that exact artifact from a
