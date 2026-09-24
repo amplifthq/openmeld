@@ -90,6 +90,29 @@ describe("shared Agent lists", () => {
 			matchesAgentListItem({ ...old, controller: "Cursor" }, filters)
 		).toBe(false);
 		expect(matchesAgentListItem(old, filters, "Jordan")).toBe(false);
+		const availabilityFilters = {
+			...filters,
+			availability: ["available", "unavailable"],
+		};
+		expect(matchesAgentListItem(old, availabilityFilters)).toBe(true);
+		expect(
+			matchesAgentListItem(
+				{ ...old, availability: "unavailable" },
+				availabilityFilters
+			)
+		).toBe(true);
+		expect(
+			matchesAgentListItem(
+				{ ...old, availability: "checking" },
+				availabilityFilters
+			)
+		).toBe(false);
+		expect(
+			matchesAgentListItem(
+				{ ...old, availability: "offline" },
+				availabilityFilters
+			)
+		).toBe(false);
 	});
 	it("searches model and provider independently of the Agent name and narrows Local or Remote", () => {
 		const codex = buildAgentListItem({

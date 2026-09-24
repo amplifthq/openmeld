@@ -83,7 +83,7 @@ export function AgentCard(input: {
 	}
 	return (
 		<FluidCardItem
-			className={`border ${input.selection?.checked ? "border-primary bg-accent" : "border-border"}`}
+			className={`border border-border ${input.selection?.checked ? "bg-muted/60" : ""}`}
 			itemId={input.profileId}
 		>
 			{action}
