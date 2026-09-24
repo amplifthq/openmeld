@@ -67,6 +67,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
         run: |
           $env:OPENMELD_DESKTOP_TARGET = 'production'
+          $env:WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
           pnpm --dir clients/web build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package unsigned internal Desktop preview
