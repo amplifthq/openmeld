@@ -2,6 +2,8 @@ import {
   ORGANIZATION_SKILL_BUNDLE_MAX_BYTES,
   ORGANIZATION_SKILL_FILE_LIMIT,
   ORGANIZATION_SKILL_FILE_MAX_BYTES,
+  ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
+  ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillBundleSchema,
 } from "@openmeld/schemas";
 import type {
@@ -136,11 +138,127 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
   };
 }
 
+export async function previewOrganizationSkillRepositoryFromGitHub(input: {
+  fetch?: typeof fetch;
+  githubToken?: string;
+  url: string;
+}): Promise<{
+  commitSha: string;
+  catalogLimitBytes: number;
+  repository: string;
+  totalDeclaredBytes: number;
+  warnings: string[];
+  skills: Array<{
+    fileCount: number;
+    path: string;
+    totalBytes: number;
+    url: string;
+    warnings: string[];
+    blocker: { code: string; message: string } | null;
+  }>;
+}> {
+  const fetchImpl = input.fetch ?? fetch;
+  const githubToken = input.githubToken?.trim() || undefined;
+  const location = parseGitHubLocation(input.url);
+  const ref =
+    location.ref ?? (await readDefaultBranch(fetchImpl, location, githubToken));
+  const commitSha = await resolveCommitSha(
+    fetchImpl,
+    location,
+    ref,
+    githubToken
+  );
+  const tree = await readGitTree(fetchImpl, location, commitSha, githubToken);
+  const skillPaths = tree
+    .filter(
+      (item) =>
+        item.type === "blob" &&
+        typeof item.path === "string" &&
+        (item.path === "SKILL.md" || item.path.endsWith("/SKILL.md")) &&
+        (location.path === null ||
+          item.path === `${location.path}/SKILL.md` ||
+          item.path.startsWith(`${location.path}/`))
+    )
+    .map((item) => parentPath(requireTreePath(item)))
+    .sort();
+  if (skillPaths.length === 0) {
+    throw githubImportError(
+      "organization_skill.skill_markdown_missing",
+      "This repository does not contain a Skill in the selected path."
+    );
+  }
+  if (skillPaths.length > ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT) {
+    throw githubImportError(
+      "organization_skill.github_tree_too_large",
+      `This repository has ${skillPaths.length} Skills; the review limit is ${ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT}. Select a narrower directory.`
+    );
+  }
+  const skills = skillPaths.map((path) => {
+    const files = tree.filter(
+      (item) =>
+        item.type === "blob" &&
+        typeof item.path === "string" &&
+        (path.length === 0
+          ? !item.path.includes("/")
+          : item.path.startsWith(`${path}/`))
+    );
+    const totalBytes = files.reduce((sum, file) => sum + (file.size ?? 0), 0);
+    let blocker: { code: string; message: string } | null = null;
+    try {
+      requireSafeGitHubFileDeclarations(files);
+    } catch (error) {
+      const cause =
+        error instanceof Error
+          ? (error.cause as { code?: string; message?: string } | undefined)
+          : undefined;
+      if (!(cause?.code && cause.message)) {
+        throw error;
+      }
+      blocker = { code: cause.code, message: cause.message };
+    }
+    return {
+      blocker,
+      fileCount: files.length,
+      path,
+      totalBytes,
+      url: path
+        ? `${location.repositoryUrl}/tree/${commitSha}/${path.split("/").map(encodeURIComponent).join("/")}`
+        : `${location.repositoryUrl}?ref=${commitSha}`,
+      warnings: files.some((file) =>
+        file.path?.startsWith(path ? `${path}/scripts/` : "scripts/")
+      )
+        ? [
+            "Scripts are stored for portability but are not executable in OpenMeld Phase 1.",
+          ]
+        : [],
+    };
+  });
+  const totalDeclaredBytes = skills.reduce(
+    (sum, skill) => sum + skill.totalBytes,
+    0
+  );
+  return {
+    catalogLimitBytes: ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
+    commitSha,
+    repository: location.repositoryUrl,
+    totalDeclaredBytes,
+    warnings: [
+      "This file inventory is a preflight. Preview each Skill to validate its content before installing.",
+      ...(totalDeclaredBytes > ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES
+        ? [
+            `These Skills declare ${totalDeclaredBytes} bytes, above the ${ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES}-byte enabled catalog limit. They cannot all be enabled together under the current policy.`,
+          ]
+        : []),
+    ],
+    skills,
+  };
+}
+
 function requireSafeGitHubFileDeclarations(files: GitHubTreeItem[]): void {
   if (files.length > ORGANIZATION_SKILL_FILE_LIMIT + 1) {
     throw githubImportError(
       "organization_skill.file_limit_reached",
-      "This Skill contains too many files."
+      `This Skill has ${files.length - 1} supporting files; the limit is ${ORGANIZATION_SKILL_FILE_LIMIT}.`
     );
   }
   if (files.some((item) => item.mode === "120000")) {
@@ -159,7 +277,7 @@ function requireSafeGitHubFileDeclarations(files: GitHubTreeItem[]): void {
     if ((item.size ?? 0) > ORGANIZATION_SKILL_FILE_MAX_BYTES) {
       throw githubImportError(
         "organization_skill.bundle_too_large",
-        "This Skill contains a file that is too large to install."
+        `${requireTreePath(item)} is ${item.size} bytes; the single-file limit is ${ORGANIZATION_SKILL_FILE_MAX_BYTES} bytes.`
       );
     }
     return total + (item.size ?? 0);
@@ -167,7 +285,7 @@ function requireSafeGitHubFileDeclarations(files: GitHubTreeItem[]): void {
   if (declaredTotalBytes > ORGANIZATION_SKILL_BUNDLE_MAX_BYTES) {
     throw githubImportError(
       "organization_skill.bundle_too_large",
-      "This Skill is too large to install."
+      `This Skill is ${declaredTotalBytes} bytes; the bundle limit is ${ORGANIZATION_SKILL_BUNDLE_MAX_BYTES} bytes.`
     );
   }
 }

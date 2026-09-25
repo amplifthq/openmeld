@@ -744,6 +744,7 @@ export type {
   OrganizationSkillBundle,
   OrganizationSkillFile,
   OrganizationSkillGitHubPreview,
+  OrganizationSkillGitHubRepositoryPreview,
   OrganizationSkillGitHubSource,
   OrganizationSkillPortableMetadata,
   OrganizationSkillReleaseSummary,

@@ -13,13 +13,17 @@ import type {
   OrganizationSkill,
   OrganizationSkillBundle,
   OrganizationSkillGitHubPreview,
+  OrganizationSkillGitHubRepositoryPreview,
   OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
   OrganizationSkillSource,
   OrganizationSkillSummary,
 } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../rpc/errors";
-import { importOrganizationSkillBundleFromGitHub } from "./github-skill-import";
+import {
+  importOrganizationSkillBundleFromGitHub,
+  previewOrganizationSkillRepositoryFromGitHub,
+} from "./github-skill-import";
 
 export type OrganizationSkillActor = {
   organizationId: string;
@@ -42,6 +46,29 @@ type OrganizationSkillServiceDependencies = {
   newId?: () => string;
   now?: () => number;
 };
+
+export function describeOrganizationSkillBundleLimitations(
+  bundle: OrganizationSkillBundle
+): { storedButNotExecutable: string[]; warnings: string[] } {
+  const storedButNotExecutable = bundle.files
+    .filter((file) => file.path.startsWith("scripts/"))
+    .map((file) => file.path);
+  return {
+    storedButNotExecutable,
+    warnings: [
+      ...(storedButNotExecutable.length > 0
+        ? [
+            "Scripts are stored for portability but are not executable in OpenMeld Phase 1.",
+          ]
+        : []),
+      ...(bundle.portable.allowedTools !== null
+        ? [
+            "The allowed-tools field is preserved but does not grant OpenMeld permissions.",
+          ]
+        : []),
+    ],
+  };
+}
 
 type SkillRow = {
   active_release_id: string;
@@ -307,19 +334,9 @@ export function createOrganizationSkillService(
         githubToken: dependencies.githubToken,
         url,
       });
-      const warnings: string[] = [];
-      if (
-        imported.bundle.files.some((file) => file.path.startsWith("scripts/"))
-      ) {
-        warnings.push(
-          "Scripts are stored for portability but are not executable in OpenMeld Phase 1."
-        );
-      }
-      if (imported.bundle.portable.allowedTools !== null) {
-        warnings.push(
-          "The allowed-tools field is preserved but does not grant OpenMeld permissions."
-        );
-      }
+      const { warnings } = describeOrganizationSkillBundleLimitations(
+        imported.bundle
+      );
       return {
         files: imported.bundle.files.map((file) => ({
           encoding: file.encoding,
@@ -332,6 +349,18 @@ export function createOrganizationSkillService(
         source: imported.source,
         warnings,
       };
+    },
+
+    async previewRepositoryFromGitHub(
+      actor: OrganizationSkillActor,
+      url: string
+    ): Promise<OrganizationSkillGitHubRepositoryPreview> {
+      requireManager(actor);
+      return await previewOrganizationSkillRepositoryFromGitHub({
+        fetch: dependencies.fetch,
+        githubToken: dependencies.githubToken,
+        url,
+      });
     },
 
     async list(

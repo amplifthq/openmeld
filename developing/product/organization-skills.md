@@ -205,6 +205,18 @@ Skill, client response, or model-visible context. Import:
 An ambiguous repository containing multiple Skills requires an exact user
 selection. OpenMeld does not guess the intended directory.
 
+For a multi-Skill repository, Center Agent can request a bounded, metadata-only
+repository preview. It lists each Skill directory at one resolved commit, its
+declared file count and bytes, policy blockers with the offending path and
+actual limit where available, and script-execution warnings. It also reports
+the declared aggregate size against the enabled catalog limit. This is a
+preflight, not a complete bundle validation or a batch installation: the agent
+must still preview and install each selected directory at the reviewed commit,
+and report every success or failure. No partial batch is presented as complete.
+New Center Agent installations use an explicit reported import action so the
+success receipt repeats stored-but-inert script paths and ignored tool hints.
+The legacy import response retains its strict shape for already deployed agents.
+
 Editing an imported Skill in OpenMeld creates an OpenMeld-authored release based
 on the imported commit. It does not write back to GitHub. The UI preserves
 **Based on GitHub commit ...** provenance. A later upstream update must show a

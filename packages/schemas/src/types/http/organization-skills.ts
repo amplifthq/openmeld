@@ -72,6 +72,9 @@ export type PreviewOrganizationSkillFromGitHubBody = z.infer<
 export type OrganizationSkillGitHubPreview = z.infer<
   Schemas["organizationSkillGitHubPreviewSchema"]
 >;
+export type OrganizationSkillGitHubRepositoryPreview = z.infer<
+  Schemas["organizationSkillGitHubRepositoryPreviewSchema"]
+>;
 export type PreviewOrganizationSkillFromGitHubResponse = z.infer<
   Schemas["previewOrganizationSkillFromGitHubResponseSchema"]
 >;

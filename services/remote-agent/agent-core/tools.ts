@@ -1155,12 +1155,17 @@ const organizationSkillBundleToolSchema = strictObject({
   }),
 });
 const readOrganizationSkillsToolInputSchema = strictObject({
-  action: picklist(["list", "get", "preview_github"]),
+  action: picklist([
+    "list",
+    "get",
+    "preview_github",
+    "preview_github_repository",
+  ]),
   skillId: optional(organizationSkillIdentifierToolSchema),
   url: optional(pipe(trimmedNonEmptyStringSchema, maxLength(2048))),
 });
 const installOrganizationSkillToolInputSchema = strictObject({
-  action: picklist(["create", "import_github"]),
+  action: picklist(["create", "import_github", "import_github_with_report"]),
   bundle: optional(organizationSkillBundleToolSchema),
   expectedCommitSha: optional(pipe(trimmedNonEmptyStringSchema, maxLength(40))),
   operationId: organizationSkillOperationIdToolSchema,
@@ -2902,7 +2907,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_organization_skills",
       description:
-        "List the current Organization's Skills or read one complete Skill by id. Every Organization member may list and read, including a connected Slack, Lark, or Feishu member who has not linked an OpenMeld account. GitHub preview requires a verified OpenMeld identity and returns the exact commit SHA required for installation. This tool never installs or changes a Skill.",
+        "List the current Organization's Skills, read one complete Skill by id, or preview a GitHub Skill. Use preview_github_repository for a compact per-Skill inventory of a multi-Skill repository, including exact commit, file-size blockers, and script warnings; then preview_github for the chosen directory before installing it. Every Organization member may list and read. GitHub previews require a verified OpenMeld identity and manager authority. This tool never installs or changes a Skill.",
       input: readOrganizationSkillsToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -2937,7 +2942,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_install_organization_skill",
       description:
-        "Install one optional Organization Skill for the verified requester. Only Organization owners and admins may install. For GitHub, first use openmeld_read_organization_skills with preview_github, then pass its exact commit SHA. For a Skill authored in this conversation, pass the complete portable bundle. Reuse one stable operationId only when retrying the exact same installation. This tool is unavailable during Routines and never grants tool permissions from allowed-tools.",
+        "Install one optional Organization Skill for the verified requester. Only Organization owners and admins may install. For GitHub, first preview the exact directory, then use import_github_with_report with its commit SHA to receive script and permission warnings in the result. The older import_github action remains supported. For a Skill authored in this conversation, pass the complete portable bundle. Reuse one stable operationId only when retrying the exact same installation. This tool is unavailable during Routines and never grants tool permissions from allowed-tools.",
       input: installOrganizationSkillToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(

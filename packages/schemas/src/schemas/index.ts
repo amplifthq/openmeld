@@ -1852,6 +1852,7 @@ export {
   organizationSkillBundleSchema,
   organizationSkillFileSchema,
   organizationSkillGitHubPreviewSchema,
+  organizationSkillGitHubRepositoryPreviewSchema,
   organizationSkillGitHubSourceSchema,
   organizationSkillPermissionsSchema,
   organizationSkillPortableMetadataSchema,

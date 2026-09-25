@@ -308,6 +308,30 @@ export const organizationSkillGitHubPreviewSchema = z.strictObject({
   source: organizationSkillGitHubSourceSchema,
   warnings: z.array(z.string().trim().min(1).max(1024)),
 });
+export const organizationSkillGitHubRepositoryPreviewSchema = z.strictObject({
+  catalogLimitBytes: z.number().int().positive(),
+  commitSha: z.string().regex(/^[a-f0-9]{40}$/),
+  repository: sourceUrlSchema,
+  totalDeclaredBytes: z.number().int().nonnegative(),
+  warnings: z.array(z.string().trim().min(1).max(1024)),
+  skills: z
+    .array(
+      z.strictObject({
+        blocker: z
+          .strictObject({
+            code: z.string().trim().min(1),
+            message: z.string().trim().min(1),
+          })
+          .nullable(),
+        fileCount: z.number().int().nonnegative(),
+        path: z.string().max(1024),
+        totalBytes: z.number().int().nonnegative(),
+        url: sourceUrlSchema,
+        warnings: z.array(z.string().trim().min(1).max(1024)),
+      })
+    )
+    .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
+});
 export const previewOrganizationSkillFromGitHubResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   preview: organizationSkillGitHubPreviewSchema,
@@ -331,11 +355,19 @@ const centerAgentPreviewOrganizationSkillFromGitHubRpcInputSchema =
     speakerMember: centerAgentToolSpeakerSchema,
     url: sourceUrlSchema,
   });
+const centerAgentPreviewOrganizationSkillRepositoryRpcInputSchema =
+  z.strictObject({
+    action: z.literal("preview_github_repository"),
+    context: openMeldRequestContextSchema,
+    speakerMember: centerAgentToolSpeakerSchema,
+    url: sourceUrlSchema,
+  });
 export const centerAgentReadOrganizationSkillsRpcInputSchema =
   z.discriminatedUnion("action", [
     centerAgentListOrganizationSkillsRpcInputSchema,
     centerAgentGetOrganizationSkillRpcInputSchema,
     centerAgentPreviewOrganizationSkillFromGitHubRpcInputSchema,
+    centerAgentPreviewOrganizationSkillRepositoryRpcInputSchema,
   ]);
 export const centerAgentReadOrganizationSkillsResponseSchema =
   z.discriminatedUnion("action", [
@@ -355,6 +387,11 @@ export const centerAgentReadOrganizationSkillsResponseSchema =
       organizationId: identifierSchema,
       preview: organizationSkillGitHubPreviewSchema,
     }),
+    z.strictObject({
+      action: z.literal("preview_github_repository"),
+      organizationId: identifierSchema,
+      preview: organizationSkillGitHubRepositoryPreviewSchema,
+    }),
   ]);
 
 const centerAgentCreateOrganizationSkillRpcInputSchema = z.strictObject({
@@ -373,10 +410,15 @@ const centerAgentImportOrganizationSkillFromGitHubRpcInputSchema =
     speakerMember: centerAgentToolSpeakerSchema,
     url: sourceUrlSchema,
   });
+const centerAgentImportOrganizationSkillWithReportRpcInputSchema =
+  centerAgentImportOrganizationSkillFromGitHubRpcInputSchema.extend({
+    action: z.literal("import_github_with_report"),
+  });
 export const centerAgentInstallOrganizationSkillRpcInputSchema =
   z.discriminatedUnion("action", [
     centerAgentCreateOrganizationSkillRpcInputSchema,
     centerAgentImportOrganizationSkillFromGitHubRpcInputSchema,
+    centerAgentImportOrganizationSkillWithReportRpcInputSchema,
   ]);
 export const centerAgentInstallOrganizationSkillResponseSchema =
   z.discriminatedUnion("action", [
@@ -389,6 +431,13 @@ export const centerAgentInstallOrganizationSkillResponseSchema =
       action: z.literal("import_github"),
       organizationId: identifierSchema,
       skill: organizationSkillSummarySchema,
+    }),
+    z.strictObject({
+      action: z.literal("import_github_with_report"),
+      organizationId: identifierSchema,
+      skill: organizationSkillSummarySchema,
+      warnings: z.array(z.string().trim().min(1).max(1024)),
+      storedButNotExecutable: z.array(z.string().max(1024)),
     }),
   ]);
 

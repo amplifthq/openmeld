@@ -11,7 +11,10 @@ import {
   rpcCenterAgentInstallOrganizationSkill,
   rpcCenterAgentReadOrganizationSkills,
 } from "../src/organization-skills/center-agent-organization-skill-rpc";
-import { importOrganizationSkillBundleFromGitHub } from "../src/organization-skills/github-skill-import";
+import {
+  importOrganizationSkillBundleFromGitHub,
+  previewOrganizationSkillRepositoryFromGitHub,
+} from "../src/organization-skills/github-skill-import";
 import {
   createOrganizationSkillService,
   type OrganizationSkillActor,
@@ -697,6 +700,64 @@ describe("Organization Skills", () => {
       })
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.bundle_too_large", status: 400 },
+      message: expect.stringContaining(
+        `release/SKILL.md is ${ORGANIZATION_SKILL_BUNDLE_MAX_BYTES + 1} bytes; the single-file limit is 256000 bytes.`
+      ),
+    });
+    expect(
+      fetchMock.mock.calls.some(([request]) =>
+        String(request).startsWith("https://raw.githubusercontent.com/")
+      )
+    ).toBe(false);
+  });
+
+  it("previews every Skill directory and its blockers without downloading bundles", async () => {
+    const commitSha = "e".repeat(40);
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({
+            tree: [
+              { path: "skills/ready/SKILL.md", size: 100, type: "blob" },
+              { path: "skills/ready/scripts/run.py", size: 30, type: "blob" },
+              { path: "skills/blocked/SKILL.md", size: 100, type: "blob" },
+              {
+                path: "skills/blocked/references/large.pdf",
+                size: 300_000,
+                type: "blob",
+              },
+            ],
+            truncated: false,
+          })
+        );
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+    const preview = await previewOrganizationSkillRepositoryFromGitHub({
+      fetch: fetchMock,
+      url: "https://github.com/acme/skills?ref=main",
+    });
+    expect(preview).toMatchObject({
+      commitSha,
+      skills: [
+        {
+          path: "skills/blocked",
+          fileCount: 2,
+          blocker: {
+            code: "organization_skill.bundle_too_large",
+            message: expect.stringContaining(
+              "skills/blocked/references/large.pdf"
+            ),
+          },
+        },
+        {
+          path: "skills/ready",
+          fileCount: 2,
+          blocker: null,
+          warnings: [expect.stringContaining("not executable")],
+        },
+      ],
     });
     expect(
       fetchMock.mock.calls.some(([request]) =>
@@ -774,6 +835,7 @@ describe("Organization Skills", () => {
       coreEnv(),
       request
     );
+    expect(installed).not.toHaveProperty("warnings");
     const replayed = await rpcCenterAgentInstallOrganizationSkill(
       coreEnv(),
       request
@@ -860,6 +922,70 @@ describe("Organization Skills", () => {
         on_behalf_of_user_id: fixture.member.userId,
       },
     ]);
+  });
+
+  it("reports stored scripts and ignored tool hints after a GitHub install without changing the legacy reply", async () => {
+    const fixture = await seedFixture();
+    const commitSha = "f".repeat(40);
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({
+            tree: [
+              {
+                mode: "100644",
+                path: "release/SKILL.md",
+                size: 161,
+                type: "blob",
+              },
+              {
+                mode: "100644",
+                path: "release/scripts/run.sh",
+                size: 7,
+                type: "blob",
+              },
+            ],
+            truncated: false,
+          })
+        );
+      }
+      if (url.endsWith(`/${commitSha}/release/scripts/run.sh`)) {
+        return Promise.resolve(new Response("echo ok"));
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const request = {
+        action: "import_github_with_report" as const,
+        context: centerAgentRequestContext(fixture),
+        expectedCommitSha: commitSha,
+        operationId: "install-reported-release",
+        speakerMember: {
+          memberId: fixture.ownerMemberId,
+          userId: fixture.owner.userId,
+        },
+        url: "https://github.com/acme/skills/tree/main/release",
+      };
+      const installed = await rpcCenterAgentInstallOrganizationSkill(
+        coreEnv(),
+        request
+      );
+      expect(installed).toMatchObject({
+        action: "import_github_with_report",
+        storedButNotExecutable: ["scripts/run.sh"],
+        warnings: [
+          expect.stringContaining("not executable"),
+          expect.stringContaining("does not grant OpenMeld permissions"),
+        ],
+      });
+      await expect(
+        rpcCenterAgentInstallOrganizationSkill(coreEnv(), request)
+      ).resolves.toEqual(installed);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not turn a repeated install into success or delete a committed release after an edit", async () => {

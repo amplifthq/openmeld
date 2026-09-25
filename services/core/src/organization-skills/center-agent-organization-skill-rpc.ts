@@ -33,6 +33,7 @@ import {
 } from "./center-agent-organization-skill-operation-repository";
 import {
   createOrganizationSkillService,
+  describeOrganizationSkillBundleLimitations,
   type OrganizationSkillActor,
   type OrganizationSkillReadActor,
 } from "./organization-skill-service";
@@ -64,7 +65,11 @@ export async function rpcCenterAgentReadOrganizationSkills(
     env,
     speakerMember: request.speakerMember,
   });
-  if (request.action === "preview_github" && !prepared.member.profileId) {
+  if (
+    (request.action === "preview_github" ||
+      request.action === "preview_github_repository") &&
+    !prepared.member.profileId
+  ) {
     throw openMeldIdentityRequiredError();
   }
   const service = createOrganizationSkillService({
@@ -106,6 +111,27 @@ export async function rpcCenterAgentReadOrganizationSkills(
       skill,
     });
   }
+  if (request.action === "preview_github_repository") {
+    const preview = await service.previewRepositoryFromGitHub(
+      requireOpenMeldIdentity(prepared.actor),
+      request.url
+    );
+    await writeCenterAgentAuditEntry({
+      action: "preview_org_skill",
+      authorization: prepared.authorization,
+      onBehalfOfProfileId: prepared.member.profileId,
+      resource: {
+        id: preview.commitSha,
+        type: "organization_skill_github_preview",
+      },
+      sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
+    });
+    return parseReadResponse({
+      action: request.action,
+      organizationId: prepared.actor.organizationId,
+      preview,
+    });
+  }
   const preview = await service.previewFromGitHub(
     requireOpenMeldIdentity(prepared.actor),
     request.url
@@ -121,7 +147,7 @@ export async function rpcCenterAgentReadOrganizationSkills(
     sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
   });
   return parseReadResponse({
-    action: "preview_github",
+    action: request.action,
     organizationId: prepared.actor.organizationId,
     preview,
   });
@@ -213,11 +239,19 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     skill = recovered;
   }
 
-  const response = parseInstallResponse({
+  const baseResponse = {
     action: request.action,
     organizationId: prepared.actor.organizationId,
     skill: toSkillSummary(skill),
-  });
+  };
+  const response = parseInstallResponse(
+    request.action === "import_github_with_report"
+      ? {
+          ...baseResponse,
+          ...describeOrganizationSkillBundleLimitations(skill.bundle),
+        }
+      : baseResponse
+  );
   return await completeOperation({
     operation: begin.operation,
     prepared,
