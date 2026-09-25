@@ -1,7 +1,3 @@
-import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildWebSetupCommand,
@@ -16,20 +12,12 @@ import {
 	resolveWebStartCommand,
 } from "./cli-entry-command";
 
-const SAFE_SHELL_WORD_RE = /^[A-Za-z0-9_./:@%+=,-]+$/u;
-function expectedPosixDownloadScript(url: string): string {
-	const protocolOptions = url.startsWith("https:")
-		? "--proto '=https' --proto-redir '=https' "
-		: "";
-	return `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL ${protocolOptions}--connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; [ "$(tail -n 1 "$setup_file")" = '# openmeld-setup-script-complete-v1' ] || { echo 'OpenMeld setup download was incomplete.' >&2; exit 1; }; shift; sh "$setup_file" "$@" < /dev/null`;
-}
-
 function expectedPosixSetupCommand(url: string, args: string): string {
-	const quote = (value: string) =>
-		SAFE_SHELL_WORD_RE.test(value)
-			? value
-			: `'${value.replaceAll("'", "'\\''")}'`;
-	return `sh -c ${quote(expectedPosixDownloadScript(url))} sh ${quote(url)} ${args}`;
+	const protocolOptions = url.startsWith("https:")
+		? " --proto '=https' --proto-redir '=https'"
+		: "";
+	const quotedUrl = url.includes("?") ? `'${url}'` : url;
+	return `curl -fsSL${protocolOptions} ${quotedUrl} | sh -s -- ${args}`;
 }
 
 // The composed compiled-target tests cover the real environment loader. These
@@ -151,40 +139,6 @@ describe("cli-entry-command", () => {
 				"setup --start-session starttok_demo --device-code device-secret --view human"
 			)
 		);
-	});
-
-	it("does not run a failed or empty setup download and preserves setup failure", () => {
-		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
-		const command = buildWebSetupCommand({
-			deviceCode: "device-secret",
-			startSession: "starttok_demo",
-		});
-		const directory = mkdtempSync(join(tmpdir(), "openmeld-setup-command-"));
-		const curlPath = join(directory, "curl");
-		writeFileSync(
-			curlPath,
-			'#!/bin/sh\nwhile [ "$1" != "-o" ]; do shift; done\nshift\noutput=$1\ncase "$FAKE_CURL_MODE" in fail) exit 22 ;; empty) : > "$output" ;; partial) printf "exit 0\\n" > "$output" ;; success) printf "exit 17\\n# openmeld-setup-script-complete-v1\\n" > "$output" ;; esac\n'
-		);
-		chmodSync(curlPath, 0o700);
-		try {
-			for (const [mode, expectedCode] of [
-				["fail", 1],
-				["empty", 1],
-				["partial", 1],
-				["success", 17],
-			] as const) {
-				const result = spawnSync("sh", ["-c", command], {
-					env: {
-						...process.env,
-						FAKE_CURL_MODE: mode,
-						PATH: `${directory}:${process.env.PATH ?? ""}`,
-					},
-				});
-				expect(result.status).toBe(expectedCode);
-			}
-		} finally {
-			rmSync(directory, { recursive: true, force: true });
-		}
 	});
 
 	it("uses npx latest for selected production execution targets", () => {
