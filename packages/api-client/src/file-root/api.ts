@@ -2,10 +2,12 @@ import {
   fileRootEntryResponseSchema,
   fileRootFileResponseSchema,
   fileRootFolderResponseSchema,
+  fileRootUploadResponseSchema,
   listFileRootResponseSchema,
   listFileRootRevisionsResponseSchema,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceFileMimeTypeSchema,
+  spaceFileUploadIdForMutation,
   trashSpaceFileEntryResponseSchema,
 } from "@openmeld/schemas";
 import type {
@@ -16,6 +18,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 import { readApiClientTextResponse } from "../errors";
+import { uploadMultipart } from "./multipart-upload";
 
 export type FileRootLocation = "team" | "my";
 
@@ -159,11 +162,37 @@ export function createFileRootApi(client: OpenMeldApiClientFoundation) {
       name: string;
       parentId?: string | null;
       clientMutationId: string;
+      onProgress?: (uploadedBytes: number, totalBytes: number) => void;
+      signal?: AbortSignal;
     }): Promise<FileRootFileDescriptor> {
       const size =
         input.bytes instanceof Blob ? input.bytes.size : input.bytes.byteLength;
       if (size > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
-        throw new Error("This location supports files up to 10 MiB for now.");
+        const response = await uploadMultipart({
+          bytes: input.bytes,
+          mimeType: spaceFileMimeTypeSchema.parse(input.mimeType),
+          target: {
+            kind: "file",
+            clientMutationId: input.clientMutationId,
+            name: input.name,
+            parentId: input.parentId ?? null,
+          },
+          signal: input.signal,
+          onProgress: input.onProgress,
+          request: (command, part) =>
+            multipartRequest(
+              client,
+              input.location,
+              input.clientMutationId,
+              command,
+              part,
+              input.signal
+            ),
+        });
+        if (!response.file) {
+          throw new Error("The upload did not return a file.");
+        }
+        return response.file;
       }
       const mimeType = spaceFileMimeTypeSchema.parse(input.mimeType);
       const params = new URLSearchParams({
@@ -191,11 +220,37 @@ export function createFileRootApi(client: OpenMeldApiClientFoundation) {
       mimeType: string;
       baseRevision: number;
       clientMutationId: string;
+      onProgress?: (uploadedBytes: number, totalBytes: number) => void;
+      signal?: AbortSignal;
     }): Promise<FileRootFileDescriptor> {
       const size =
         input.bytes instanceof Blob ? input.bytes.size : input.bytes.byteLength;
       if (size > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
-        throw new Error("This location supports files up to 10 MiB for now.");
+        const response = await uploadMultipart({
+          bytes: input.bytes,
+          mimeType: spaceFileMimeTypeSchema.parse(input.mimeType),
+          target: {
+            kind: "revision",
+            clientMutationId: input.clientMutationId,
+            fileId: input.fileId,
+            baseRevision: input.baseRevision,
+          },
+          signal: input.signal,
+          onProgress: input.onProgress,
+          request: (command, part) =>
+            multipartRequest(
+              client,
+              input.location,
+              input.clientMutationId,
+              command,
+              part,
+              input.signal
+            ),
+        });
+        if (!response.file) {
+          throw new Error("The upload did not return a file.");
+        }
+        return response.file;
       }
       const query = new URLSearchParams({
         baseRevision: String(input.baseRevision),
@@ -241,4 +296,28 @@ export function createFileRootApi(client: OpenMeldApiClientFoundation) {
       };
     },
   };
+}
+
+async function multipartRequest(
+  client: OpenMeldApiClientFoundation,
+  location: FileRootLocation,
+  clientMutationId: string,
+  command: import("@openmeld/schemas/types").SpaceFileUploadCommand,
+  part?: Blob,
+  signal?: AbortSignal
+) {
+  const uploadId = await spaceFileUploadIdForMutation(clientMutationId);
+  const url = `${rootPath(location)}/file-uploads/${encodeURIComponent(uploadId)}`;
+  return await client.requestJson({
+    url: command.action === "part" ? `${url}?part=${command.partNumber}` : url,
+    operation: "files.upload.multipart",
+    signal,
+    method: "POST",
+    headers: {
+      "content-type": part ? "application/octet-stream" : "application/json",
+    },
+    body: part ?? JSON.stringify(command),
+    schema: fileRootUploadResponseSchema,
+    invalidMessage: "Invalid file upload response.",
+  });
 }

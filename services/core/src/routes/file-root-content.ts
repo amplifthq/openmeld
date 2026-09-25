@@ -4,11 +4,13 @@ import {
   commitSpaceFileWriteInputSchema,
   createSpaceFileUploadQuerySchema,
   fileRootFileDescriptorSchema,
+  fileRootUploadResponseSchema,
   resolveSpaceFileStreamMetadata,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceFileMimeTypeSchema,
   spaceFileRevisionNumberSchema,
   spaceFileStreamOptionsSchema,
+  spaceFileUploadCommandSchema,
   updateSpaceFileContentQuerySchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
@@ -20,12 +22,49 @@ import { mapRpcHttpError } from "./rpc-http-error";
 
 const ROOT_ROUTE = "/v1/organizations/current/files/:location";
 const CONTENT_ROUTE = `${ROOT_ROUTE}/:entryId/content`;
+const MULTIPART_ROUTE = `${ROOT_ROUTE}/file-uploads/:uploadId`;
 
 export function registerFileRootContentRoutes(app: Hono<HonoBindings>): void {
   app.post(ROOT_ROUTE, (c) => upload(c));
+  app.post(MULTIPART_ROUTE, (c) => multipartUpload(c));
   app.put(CONTENT_ROUTE, (c) => update(c));
   app.get(CONTENT_ROUTE, (c) => read(c));
   app.on("HEAD", CONTENT_ROUTE, (c) => read(c));
+}
+
+async function multipartUpload(c: Context<HonoBindings>): Promise<Response> {
+  const target = resolveTarget(c);
+  if (target instanceof Response) {
+    return target;
+  }
+  const command = spaceFileUploadCommandSchema.safeParse(
+    c.req.query("part")
+      ? { action: "part", partNumber: Number(c.req.query("part")) }
+      : await c.req.json().catch(() => null)
+  );
+  if (!command.success) {
+    return invalid(c);
+  }
+  try {
+    const result = await target.stub.upload({
+      ...rootRequest(target),
+      uploadId: c.req.param("uploadId"),
+      command: command.data,
+      ...(command.data.action === "part" && c.req.raw.body
+        ? { body: c.req.raw.body }
+        : {}),
+    });
+    return c.json(
+      fileRootUploadResponseSchema.parse({
+        ...result,
+        ...(result.file
+          ? { file: toFileRootEntry(target.root, result.file) }
+          : {}),
+      })
+    );
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
 }
 
 async function upload(c: Context<HonoBindings>): Promise<Response> {

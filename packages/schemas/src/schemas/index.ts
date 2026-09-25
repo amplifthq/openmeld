@@ -1549,6 +1549,7 @@ export {
   fileRootFolderDescriptorSchema,
   fileRootFolderResponseSchema,
   fileRootSchema,
+  fileRootUploadResponseSchema,
   listFileRootResponseSchema,
   listFileRootRevisionsResponseSchema,
 } from "./http/file-root";

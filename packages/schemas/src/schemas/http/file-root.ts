@@ -1,4 +1,5 @@
 import * as z from "../../lazy-zod";
+import { spaceFileUploadResponseSchema } from "./space-file-upload";
 import {
   spaceFileBreadcrumbSchema,
   spaceFileCapabilitiesSchema,
@@ -39,6 +40,10 @@ export const fileRootFileDescriptorSchema = spaceFileDescriptorSchema
 export const fileRootFileResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,
 });
+
+export const fileRootUploadResponseSchema = spaceFileUploadResponseSchema
+  .omit({ file: true, upload: true })
+  .extend({ file: fileRootFileDescriptorSchema.optional() });
 
 export const listFileRootRevisionsResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,

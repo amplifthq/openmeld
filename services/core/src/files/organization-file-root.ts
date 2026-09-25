@@ -1,11 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileRevisionIdFromDigest,
   commitSpaceFileWriteInputSchema,
   createSpaceFolderBodySchema,
   listSpaceFilesQuerySchema,
   restoreSpaceFileEntryBodySchema,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceFileAuditEventSchema,
+  spaceFileUploadCommandSchema,
   trashSpaceFileEntryBodySchema,
   updateSpaceFileEntryBodySchema,
 } from "@openmeld/schemas";
@@ -19,11 +22,15 @@ import type {
   SpaceFileEntry,
   SpaceFileMutationErrorCode,
   SpaceFileRevision,
+  SpaceFileUploadCommand,
+  SpaceFileUploadMetadata,
+  SpaceFileUploadResponse,
   SpaceFolderDescriptor,
   TrashSpaceFileEntryResponse,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import { hashSpaceFileStream } from "../space/application/space-file-stream";
 import { SpaceFileAuditRepository } from "../space/infrastructure/sql/space-file-audit-repo";
 import {
   SpaceFileRepository,
@@ -36,6 +43,7 @@ import {
   organizationFileRootName,
 } from "./file-root-identity";
 import { ensureFileRepositorySchema } from "./file-schema-repo";
+import { FileUploadSessions } from "./file-upload-sessions";
 
 type RootRequest = { context: OpenMeldRequestContext; root: FileRoot };
 
@@ -206,6 +214,173 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
       });
     }
     return await this.commitWrite(input);
+  }
+
+  async upload(
+    input: RootRequest & {
+      uploadId: string;
+      command: SpaceFileUploadCommand;
+      body?: ReadableStream<Uint8Array>;
+    }
+  ): Promise<SpaceFileUploadResponse> {
+    const actor = await this.authorize(input);
+    const command = spaceFileUploadCommandSchema.parse(input.command);
+    if (
+      command.action === "start" &&
+      (command.metadata.target.kind === "composer" ||
+        (command.metadata.target.kind === "file" &&
+          command.metadata.target.origin === "chat_upload"))
+    ) {
+      throw createCoreRpcHttpError({
+        code: "invalid_payload",
+        reason: "This Files location accepts ordinary files only.",
+        status: 400,
+      });
+    }
+    const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+    if (!bucket) {
+      throw createCoreRpcHttpError({
+        code: "file_root.storage_unavailable",
+        reason: "Files are temporarily unavailable.",
+        status: 503,
+      });
+    }
+    const uploads = new FileUploadSessions(this.ctx.storage.sql, bucket);
+    try {
+      return await uploads.execute({
+        actorId: actor.profileId,
+        scope: organizationFileRootName(input.root),
+        uploadId: input.uploadId,
+        command,
+        body: input.body,
+        prepare: async (metadata) => {
+          const write = await this.uploadWrite(
+            metadata,
+            `upload-${input.uploadId}`
+          );
+          await this.prepareWrite({ ...input, write });
+        },
+        finish: async (metadata, key) => ({
+          file: await this.finishUpload({ ...input, metadata, key, bucket }),
+        }),
+      });
+    } finally {
+      const expiry = uploads.nextExpiry();
+      if (expiry !== null) {
+        await this.ctx.storage.setAlarm(expiry);
+      }
+    }
+  }
+
+  async alarm(): Promise<void> {
+    const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+    if (!bucket) {
+      return;
+    }
+    const uploads = new FileUploadSessions(this.ctx.storage.sql, bucket);
+    await uploads.cleanup();
+    const expiry = uploads.nextExpiry();
+    if (expiry !== null) {
+      await this.ctx.storage.setAlarm(expiry);
+    }
+  }
+
+  private async uploadWrite(
+    metadata: SpaceFileUploadMetadata,
+    revisionId: string
+  ): Promise<CommitSpaceFileWriteInput> {
+    const target = metadata.target;
+    if (target.kind === "composer") {
+      throw createCoreRpcHttpError({
+        code: "invalid_payload",
+        reason: "Invalid file upload.",
+        status: 400,
+      });
+    }
+    return commitSpaceFileWriteInputSchema.parse({
+      spaceId: this.ctx.id.toString(),
+      fileId:
+        target.kind === "file"
+          ? await buildSpaceFileEntryIdForMutation(target.clientMutationId)
+          : target.fileId,
+      revisionId,
+      baseRevision: target.kind === "file" ? null : target.baseRevision,
+      clientMutationId: target.clientMutationId,
+      mimeType: metadata.mimeType,
+      sizeBytes: metadata.sizeBytes,
+      ...(target.kind === "file"
+        ? { name: target.name, parentId: target.parentId }
+        : {}),
+    });
+  }
+
+  private async finishUpload(
+    input: RootRequest & {
+      metadata: SpaceFileUploadMetadata;
+      key: string;
+      bucket: R2Bucket;
+    }
+  ): Promise<SpaceFileDescriptor> {
+    await this.authorize(input);
+    const object = await input.bucket.get(input.key);
+    if (!object || object.size !== input.metadata.sizeBytes) {
+      throw createCoreRpcHttpError({
+        code: "file_root.storage_failed",
+        reason: "The uploaded file is incomplete.",
+        status: 503,
+      });
+    }
+    const target = input.metadata.target;
+    if (target.kind === "composer") {
+      throw createCoreRpcHttpError({
+        code: "invalid_payload",
+        reason: "Invalid file upload.",
+        status: 400,
+      });
+    }
+    const revisionId = await buildSpaceFileRevisionIdFromDigest({
+      baseRevision: target.kind === "file" ? null : target.baseRevision,
+      clientMutationId: target.clientMutationId,
+      mimeType: input.metadata.mimeType,
+      contentDigest: await hashSpaceFileStream(object.body),
+      ...(target.kind === "file"
+        ? { name: target.name, parentId: target.parentId }
+        : {}),
+    });
+    const write = await this.uploadWrite(input.metadata, revisionId);
+    const committed = await this.prepareWrite({ ...input, write });
+    if (committed) {
+      return committed;
+    }
+    const source = await input.bucket.get(input.key);
+    if (!source) {
+      throw createCoreRpcHttpError({
+        code: "file_root.storage_failed",
+        reason: "The uploaded file is unavailable.",
+        status: 503,
+      });
+    }
+    const destinationKey = buildOrganizationFileObjectKey({
+      root: input.root,
+      fileId: write.fileId,
+      revisionId,
+    });
+    await input.bucket.put(destinationKey, source.body, {
+      httpMetadata: { contentType: input.metadata.mimeType },
+    });
+    try {
+      return await this.commitWrite({ ...input, write });
+    } catch (error) {
+      const committed = this.repository.resolveCommittedWrite(
+        write.clientMutationId,
+        write.fileId
+      );
+      if (committed) {
+        return committed;
+      }
+      await input.bucket.delete(destinationKey);
+      throw error;
+    }
   }
 
   async recordContentAudit(

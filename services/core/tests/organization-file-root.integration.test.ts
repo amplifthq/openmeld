@@ -3,6 +3,11 @@ import {
   applyOpenMeldRequestContextHeaders,
   OPENMELD_EXPECTED_FORWARDED_BY,
 } from "@openmeld/gateway-contract";
+import {
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  SPACE_FILE_UPLOAD_PART_BYTES,
+  spaceFileUploadIdForMutation,
+} from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { organizationFileRootName } from "../src/files/file-root-identity";
@@ -269,5 +274,89 @@ describe("Team and member Files roots", () => {
       .run();
     const revoked = await SELF.fetch(contentUrl, { headers: requestHeaders() });
     expect(revoked.status).toBe(403);
+  });
+
+  it("commits a multipart Team upload only after its verified parts arrive", async () => {
+    const { organizationId, contexts } = await fixture();
+    const headers = new Headers();
+    applyOpenMeldRequestContextHeaders(
+      headers,
+      { requestContext: contexts[0] },
+      OPENMELD_EXPECTED_FORWARDED_BY
+    );
+    const bytes = new Uint8Array(SPACE_FILE_RAW_UPLOAD_MAX_BYTES + 1);
+    bytes.fill(65);
+    bytes[bytes.length - 1] = 66;
+    const parts = [
+      bytes.slice(0, SPACE_FILE_UPLOAD_PART_BYTES),
+      bytes.slice(SPACE_FILE_UPLOAD_PART_BYTES),
+    ];
+    const digests = await Promise.all(
+      parts.map(async (part) => {
+        const digest = await crypto.subtle.digest("SHA-256", part);
+        return Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0")
+        ).join("");
+      })
+    );
+    const clientMutationId = crypto.randomUUID();
+    const uploadId = await spaceFileUploadIdForMutation(clientMutationId);
+    const url = `http://localhost/v1/organizations/current/files/team/file-uploads/${uploadId}`;
+    const start = await SELF.fetch(url, {
+      method: "POST",
+      headers: new Headers([...headers, ["content-type", "application/json"]]),
+      body: JSON.stringify({
+        action: "start",
+        metadata: {
+          mimeType: "application/octet-stream",
+          sizeBytes: bytes.length,
+          partDigests: digests,
+          target: {
+            kind: "file",
+            name: "large.bin",
+            parentId: null,
+            clientMutationId,
+          },
+        },
+      }),
+    });
+    expect(start.status).toBe(200);
+    for (const [index, part] of parts.entries()) {
+      const upload = await SELF.fetch(`${url}?part=${index + 1}`, {
+        method: "POST",
+        headers: new Headers([
+          ...headers,
+          ["content-type", "application/octet-stream"],
+        ]),
+        body: part.buffer,
+      });
+      expect(upload.status).toBe(200);
+    }
+    const complete = await SELF.fetch(url, {
+      method: "POST",
+      headers: new Headers([...headers, ["content-type", "application/json"]]),
+      body: JSON.stringify({ action: "complete" }),
+    });
+    expect(complete.status).toBe(200);
+    const payload = (await complete.json()) as {
+      file: {
+        id: string;
+        latestRevision: { sizeBytes: number };
+        root: unknown;
+      };
+    };
+    expect(payload.file.latestRevision.sizeBytes).toBe(bytes.length);
+    expect(payload.file.root).toEqual({ kind: "team", organizationId });
+    const contentUrl = `http://localhost/v1/organizations/current/files/team/${payload.file.id}/content`;
+    const firstHeaders = new Headers(headers);
+    firstHeaders.set("range", "bytes=0-0");
+    const first = await SELF.fetch(contentUrl, { headers: firstHeaders });
+    expect(first.status).toBe(206);
+    expect(new Uint8Array(await first.arrayBuffer())[0]).toBe(65);
+    const lastHeaders = new Headers(headers);
+    lastHeaders.set("range", `bytes=${bytes.length - 1}-${bytes.length - 1}`);
+    const last = await SELF.fetch(contentUrl, { headers: lastHeaders });
+    expect(last.status).toBe(206);
+    expect(new Uint8Array(await last.arrayBuffer())[0]).toBe(66);
   });
 });

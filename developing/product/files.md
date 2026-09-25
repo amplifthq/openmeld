@@ -1,6 +1,6 @@
 # Files
 
-> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser, Team/member metadata and small-content routes, and a basic Team Files page are implemented. Resumable Team/member uploads, complete file actions, Agent file tools, Skill storage, and Documents cutover remain acceptance requirements, not current capabilities.
+> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser, Team/member metadata and content routes, resumable Team/member uploads, and a basic Team Files page are implemented. Cross-root copy, Agent file tools, Skill storage, and Documents cutover remain acceptance requirements, not current capabilities.
 
 ## Agent Context
 
@@ -31,7 +31,7 @@ The user must always see the current location and audience before adding content
 - Folders, file names, metadata, history, Trash, restore, and audit use the same behavior where Team, My, and Space semantics match. Deletion is recoverable until a separate retention policy says otherwise.
 - Ordinary Team members may contribute ordinary files to Team files. My files require the owning member. Space writes continue to use Space policy. Server-side authorization owns every operation; hiding a UI control does not grant or revoke authority.
 - File content and metadata are read through an authenticated, bounded endpoint. A stored object key is never an access token.
-- The small-content route accepts at most 10 MiB per upload or revision. Larger files require the resumable multipart transport before the Team/member Files product is complete.
+- The small-content route accepts at most 10 MiB per upload or revision. Larger files use the shared resumable multipart transport, with per-part checksums, recovery, and a final metadata commit after the stored object is complete.
 
 Copying an exact revision to another root requires an authorized source read and destination write. The result gets a new identity, destination audience, revision history, and provenance; it does not follow later source edits. The UI calls the action **Copy to Space** or **Copy to Team** and shows the destination audience. A Team file may be read directly by an authorized member or Agent working in any Space of that Team; it needs a copy only when the file itself should become visible to that Space's participants, including guests. A personal or private Skill shared with a Team follows the same explicit publication boundary.
 

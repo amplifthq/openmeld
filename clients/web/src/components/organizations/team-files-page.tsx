@@ -61,6 +61,10 @@ function TeamFilesBrowser(input: {
 	);
 	const [movingEntry, setMovingEntry] = useState<FileRootEntry | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [uploadProgress, setUploadProgress] = useState<{
+		name: string;
+		percent: number;
+	} | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -208,6 +212,7 @@ function TeamFilesBrowser(input: {
 							event.currentTarget.value = "";
 							runAction(async () => {
 								for (const file of selected) {
+									setUploadProgress({ name: file.name, percent: 0 });
 									await api.upload({
 										location,
 										bytes: file,
@@ -215,9 +220,16 @@ function TeamFilesBrowser(input: {
 										name: file.name,
 										parentId,
 										clientMutationId: crypto.randomUUID(),
+										onProgress: (uploadedBytes, totalBytes) =>
+											setUploadProgress({
+												name: file.name,
+												percent: Math.round((uploadedBytes / totalBytes) * 100),
+											}),
 									});
 								}
-							}).catch(console.error);
+							})
+								.finally(() => setUploadProgress(null))
+								.catch(console.error);
 						}}
 						ref={inputRef}
 						type="file"
@@ -276,6 +288,13 @@ function TeamFilesBrowser(input: {
 				>
 					{actionError}
 				</p>
+			) : null}
+			{uploadProgress ? (
+				<output className="block border-b px-5 py-2 text-muted-foreground text-sm">
+					{uploadProgress.percent >= 100
+						? `Saving ${uploadProgress.name}…`
+						: `Uploading ${uploadProgress.name} · ${uploadProgress.percent}%`}
+				</output>
 			) : null}
 			<div className="min-h-0 flex-1 p-5">
 				<ContextMenu
