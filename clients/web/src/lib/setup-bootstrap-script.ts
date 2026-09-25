@@ -171,6 +171,9 @@ export function buildOpenMeldSetupBootstrapScript(
 		input.binaryManifestUrl ?? "https://openmeld.ai/cli/manifest.json";
 
 	return `#!/bin/sh
+# Keep setup in one top-level shell compound. A truncated stream without the
+# final fi cannot start installation when this script is piped to sh.
+if :; then
 set -u
 
 OPENMELD_SETUP_PACKAGE_NAME=${shellSingleQuote(OPENMELD_SETUP_PACKAGE_NAME)}
@@ -841,7 +844,7 @@ if [ "$OPENMELD_SETUP_DISTRIBUTION" = "npm" ]; then
   maybe_queue_old_global_openmeld_update_after_setup
   maybe_run_global_openmeld_update_after_setup
 fi
-${OPENMELD_SETUP_SCRIPT_END_MARKER}
+fi ${OPENMELD_SETUP_SCRIPT_END_MARKER}
 `;
 }
 
