@@ -19,7 +19,10 @@ import pythonModules from "@cloudflare/computer/shell/python";
 import sqliteModules from "@cloudflare/computer/shell/sqlite";
 import xanModules from "@cloudflare/computer/shell/xan";
 import yqModules from "@cloudflare/computer/shell/yq";
-import { agentComputerBrowserRequestSchema } from "@openmeld/schemas";
+import {
+  agentComputerBrowserRequestSchema,
+  agentComputerPreviewRequestSchema,
+} from "@openmeld/schemas";
 import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
 import {
@@ -116,8 +119,12 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     if (!this.env.BROWSER) {
       throw new Error("The Computer browser binding is unavailable.");
     }
+    const parsed = agentComputerPreviewRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new Error("The Computer preview request is invalid.");
+    }
     return await inspectComputerPreview({
-      ...input,
+      ...parsed.data,
       browser: this.env.BROWSER as unknown as PreviewBrowserBinding,
       computerId: this.ctx.id.toString(),
       ctx: this.ctx,

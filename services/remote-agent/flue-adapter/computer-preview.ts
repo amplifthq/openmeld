@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { agentComputerPreviewRoutePropsSchema } from "@openmeld/schemas";
 
 export const COMPUTER_PREVIEW_HOST = "computer-preview.example.test";
 const BROWSER_TIMEOUT_MS = 30_000;
@@ -17,7 +18,13 @@ export class ComputerPreviewOutbound extends WorkerEntrypoint<
   PreviewProps
 > {
   override async fetch(request: Request): Promise<Response> {
-    const { computerId, port } = this.ctx.props;
+    const parsed = agentComputerPreviewRoutePropsSchema.safeParse(
+      this.ctx.props
+    );
+    if (!parsed.success) {
+      return new Response("invalid preview route", { status: 400 });
+    }
+    const { computerId, port } = parsed.data;
     const computer = this.env.AGENT_COMPUTER.get(
       this.env.AGENT_COMPUTER.idFromString(computerId)
     );
