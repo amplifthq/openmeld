@@ -1267,6 +1267,14 @@ test("classifies release-sensitive paths narrowly", () => {
     true
   );
   assert.equal(isCliReleasePath("clients/openmeld-cli/package.json"), true);
+  for (const path of [
+    "packages/start/src/setup-download-command.ts",
+    "packages/start/package.json",
+    "packages/start/tsdown.config.ts",
+  ]) {
+    assert.equal(isCliReleasePath(path), true, path);
+    assert.equal(isServiceReleasePath(path), true, path);
+  }
   assert.equal(
     isCliReleasePath(
       "clients/openmeld-cli/native/macos-keychain/src/openmeld_keychain.mm"
