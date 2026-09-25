@@ -148,9 +148,19 @@ test("reuses only a successful helper job from the official main CLI workflow", 
 
   const workflow = readRepoFile(".github/workflows/cli-release.yml");
   assert.ok(workflow.includes("windows_artifact_run_id:"));
-  assert.ok(workflow.includes("Reuse the stamped Windows process helper"));
+  const windowsJob = workflow
+    .split("  windows_process_artifact:")[1]
+    .split("  cli_release:")[0];
+  const macJob = workflow.split("  cli_release:")[1];
+  assert.ok(windowsJob.includes("inputs.windows_artifact_run_id == ''"));
+  assert.ok(!windowsJob.includes("Reuse the stamped Windows process helper"));
+  assert.ok(macJob.includes("!cancelled()"));
   assert.ok(
-    workflow.includes("node scripts/release/reuse-windows-process-artifact.mjs")
+    macJob.includes("needs.windows_process_artifact.result == 'success'")
+  );
+  assert.ok(macJob.includes("Reuse the stamped Windows process helper"));
+  assert.ok(
+    macJob.includes("node scripts/release/reuse-windows-process-artifact.mjs")
   );
 });
 

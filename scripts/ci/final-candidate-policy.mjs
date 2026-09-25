@@ -246,33 +246,34 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
       )
     );
   }
-  if (context.repositoryControlChange) {
+  if (context.changedPaths.some((path) => DEPENDENCY_CONTROL_PATHS.has(path))) {
     selectedChecks.push(
       check(
         "repository-contracts",
         ["pnpm", "run", "verify:pre-push:checks"],
-        "CI, release, dependency, or repository control files changed."
+        "Dependency or task-graph controls changed; validate their repository-wide contracts."
       )
     );
-  } else {
-    if (context.changedPaths.some(isDocumentationPath)) {
-      selectedChecks.push(
-        check(
-          "documentation-contracts",
-          ["pnpm", "run", "verify:docs", "--", "--strict"],
-          "Tracked documentation changed."
-        )
-      );
-    }
-    if (context.changedPaths.some(isChangelogPath)) {
-      selectedChecks.push(
-        check(
-          "changelog-contract",
-          ["pnpm", "run", "verify:changelog"],
-          "Changelog source or projection changed."
-        )
-      );
-    }
+  } else if (context.changedPaths.some(isDocumentationPath)) {
+    selectedChecks.push(
+      check(
+        "documentation-contracts",
+        ["pnpm", "run", "verify:docs", "--", "--strict"],
+        "Tracked documentation changed."
+      )
+    );
+  }
+  if (
+    !context.changedPaths.some((path) => DEPENDENCY_CONTROL_PATHS.has(path)) &&
+    context.changedPaths.some(isChangelogPath)
+  ) {
+    selectedChecks.push(
+      check(
+        "changelog-contract",
+        ["pnpm", "run", "verify:changelog"],
+        "Changelog source or projection changed."
+      )
+    );
   }
   if (context.confidence === "full") {
     selectedChecks.push(

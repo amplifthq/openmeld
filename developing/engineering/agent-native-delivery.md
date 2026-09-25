@@ -30,6 +30,8 @@ branches used.
    and manifest changes only in the clean
    [publishing release worktree](development-workflow.md#local-components-release-tool)
    on a `codex/release-X.Y.Z-<baseSHA>` branch.
+   Reserve the `codex/release-` prefix for those versioned branches; ordinary
+   delivery-tool changes use a different `codex/` branch name.
 2. [Merge](#merge) against current `main`. If a merge command fails or returns
    an uncertain result, read the remote PR's `state` and `mergeCommit` before
    retrying. Pin the integrated product SHA; a later release-only version
@@ -180,6 +182,11 @@ Standard FC does not repeat broad workspace unit or integration tests. This
 keeps final merge latency separate from development feedback. Full confidence
 is explicit when remaining risk justifies a whole-repository rerun. The printed
 plan is the authority for selected/skipped commands, reasons, and durations:
+
+Release and CI script changes use focused owner tests before Ready; standard FC
+checks their exact diff and control identity without rerunning every repository
+workflow test. Dependency and task-graph controls still select the wider static
+repository contracts.
 
 ```sh
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
