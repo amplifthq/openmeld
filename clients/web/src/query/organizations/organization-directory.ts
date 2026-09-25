@@ -105,7 +105,9 @@ export function organizationComputersQueryOptions(input: {
 		OrganizationComputersFailure
 	>({
 		enabled: input.enabled,
-		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		// Keep the last successful display in this tab across long absences.
+		// Freshness still comes from the 30-second poll and focus refresh below.
+		gcTime: 24 * 60 * 60_000,
 		queryFn: async ({ signal }) =>
 			await readCurrentOrganizationComputers({
 				organizationId: input.organizationId,

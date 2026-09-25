@@ -96,8 +96,10 @@ from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
 switching remains at the top; the global Create entry is temporarily hidden.
 Creation remains available in the Spaces and Team contextual headers. Global search sits
 above Settings in the footer, using the same compact utility styling. Inbox
-retains the shared attention badge and active-route treatment. The Organization
-avatar fills its circular trigger. Account, theme, and Settings remain reachable
+retains the shared attention badge and active-route treatment. In the compact
+rail, hover and active backgrounds surround the icon and its attention marker;
+labels stay outside that background. The Organization avatar fills its 36px
+shape-aware trigger. Account, theme, and Settings remain reachable
 from the rail. Search, Settings, theme, and account controls share one footer
 hover scope, so the same background moves across all four without nested or
 competing highlights. Spaces and its contextual sidebar heading always open
@@ -106,8 +108,9 @@ Discover, in that order (Discover is absent in personal workspaces).
 
 The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal
-workspaces) and Agent creation route. People search and existing connection,
-activity, and group filters remain available beside the search field.
+workspaces) and Agent creation route. Its adjacent Filter people menu retains
+connection, activity, and group filters. The compact search field uses the
+same size as Spaces and says "Search people..." without a close action.
 Direct messages uses `?view=messages`; the old `/chats` index redirects there.
 Individual chat, profile, thread, and session links retain their existing routes.
 The contextual heading has no aggregate attention dot; the rail and individual
@@ -120,12 +123,15 @@ Spaces, direct messages, and Center Agent conversations share the Spaces
 list in the middle column. Team places its member list in that column instead;
 Settings retains its own settings navigation. A page without contextual
 navigation does not create an empty middle column or load the Spaces list.
-The work-area header toggles the middle list without hiding the application
-rail or remounting the conversation. The existing Fluid sidebar engine owns
-resizing and keyboard shortcuts. Dragging the middle column can collapse it,
+The contextual title holds the collapse control while the middle list is open;
+when collapsed, list-page work-area headers show the expand control beside that
+list's edge. Spaces uses this control in place of its decorative title icon,
+and Team uses the same placement. Toggling does not hide the application rail or
+remount the conversation. The existing Fluid sidebar engine owns resizing and
+keyboard shortcuts. Dragging the middle column can collapse it,
 and a 32px hover-intent strip along the content edge reveals a floating preview.
-The preview's top Expand sidebar action or the work-area header button restores
-the full column. The existing outer-sidebar cookie
+The preview keeps the same title toggle, which restores the full column even on
+detail pages without a work-area header. The existing outer-sidebar cookie
 now stores middle-column geometry, with a 308px default; legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in
@@ -150,12 +156,14 @@ Agent sessions once each. Its shared manual order uses the existing root
 sidebar preference; ordinary pin membership remains Space Index-owned and
 session pins remain in `chats` preferences. Unpin restores the saved group.
 Spaces, People, and Agents are optional filters. The plus menu offers New message
-and New Space. Search conversations filters existing conversations only. When no
-conversations match, Find someone opens the existing organization-wide people
-and Agents picker with the search text prefilled. Browse spaces is a compass icon
-in the Spaces header, before the plus menu, with a tooltip and accessible
-label. It remains visible in both Grouped and Recent, including with collapsed groups,
-filters, or empty results, and opens the existing Your Spaces / Discover page.
+and New Space. The adjacent View and filters menu holds separate Conversation
+view and Filter conversations submenus. The Spaces title remains the link to
+the Your Spaces / Discover directory; there is no separate Browse button.
+The compact search field says "Find a space..." while searching existing
+conversations. When no conversations match, Find someone opens the existing
+organization-wide people and Agents picker with the search text prefilled.
+The module sidebar header
+shares the work-area title row's vertical center.
 Team remains the member directory; there is no separate Contacts destination.
 Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.
@@ -2431,6 +2439,12 @@ time when known, and enabled local-agent icons. Computer explanations remain in
 the icon tooltip and accessible name; Channel identities and email are omitted.
 Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
 remain personal preferences; dragging cannot change Human presence.
+People keeps its last successful Computer and Local Agent display in the
+Organization-scoped in-memory query cache for up to one day after leaving Team.
+An expired query refreshes on return or through the visible 30-second poll
+without clearing that display; a failed read shows unavailable Computer status
+while retaining the last known Agent logos as read-only context.
+This Computer projection is not restored from IndexedDB.
 
 People and Space member/profile avatars show a small inset green dot only when
 the Human is Online. Offline and unknown states have no visible marker; accessible
@@ -3347,7 +3361,7 @@ client read-cache API. Dexie is the IndexedDB storage engine underneath the
 official TanStack Query persistence protocol; routes and components must not
 read Dexie directly or create a second browser data model.
 
-The persistence allowlist contains exactly seven successful query families:
+The persistence allowlist contains these successful query families:
 
 - `startQueryKeys.profilesForStorageScope(accountId)` for the confirmed account;
 - `startQueryKeys.currentComputerToolbarDisplaySnapshot(accountId)` for a
@@ -3356,6 +3370,8 @@ The persistence allowlist contains exactly seven successful query families:
   inventory, readiness payload, diagnostics, paths, accounts, and actions;
 - `organizationQueryKeys.spaces(organizationId)` for one confirmed account and
   Organization pair;
+- `accountSidebarQueryKey(accountId, organizationId)` for the same confirmed
+  account and Organization pair;
 - `organizationAppConnectionQueryKeys.statusSummary(organizationId)` for a
   privacy-safe App catalog hint containing only the Organization id and the
   service ids that had an active Core-returned connection;
@@ -3368,7 +3384,12 @@ The persistence allowlist contains exactly seven successful query families:
   recorded signals; and
 - `spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)` for a versioned,
   validated Space identity and presentation snapshot with current actions and
-  latest-message preview removed.
+  latest-message preview removed;
+- `spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId)` for
+  bounded member names and avatars used to render saved messages; and
+- `spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId)` for the
+  validated, bounded history slider directory. It is display-only, scoped to
+  the same confirmed Space and Human Profile, and revalidated by its query.
 
 No prefix, default-on, or exclusion-based persistence rule is allowed. Adding a
 query requires an explicit allowlist change, privacy and authority review, and a

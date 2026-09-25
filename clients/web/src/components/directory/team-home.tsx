@@ -13,9 +13,15 @@ import {
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import {
+	DesktopTowerIcon,
+	DevicesIcon,
+	FolderIcon,
+	MinusCircleIcon,
+	QuestionIcon,
 	SlidersHorizontalIcon,
 	StarIcon,
 	UserIcon,
+	WifiSlashIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -296,7 +302,7 @@ function TeamGroupIcon({ id }: { id: string }) {
 			/>
 		);
 	}
-	if (id === "offline") {
+	if (id === "offline" || id === "presence-unknown") {
 		return (
 			<UserIcon
 				aria-hidden="true"
@@ -304,7 +310,33 @@ function TeamGroupIcon({ id }: { id: string }) {
 			/>
 		);
 	}
-	return null;
+	return (
+		<FolderIcon
+			aria-hidden="true"
+			className="size-4 shrink-0 text-muted-foreground"
+		/>
+	);
+}
+
+const COMPUTER_FILTER_ICONS = {
+	connected: DesktopTowerIcon,
+	offline: WifiSlashIcon,
+	unconnected: MinusCircleIcon,
+	unknown: QuestionIcon,
+};
+
+function TeamComputerFilterIcon({
+	value,
+}: {
+	value: keyof typeof PEOPLE_COMPUTER_FILTER_LABELS;
+}) {
+	const Icon = COMPUTER_FILTER_ICONS[value];
+	return (
+		<Icon
+			aria-hidden="true"
+			className="size-4 shrink-0 text-muted-foreground"
+		/>
+	);
 }
 
 function TeamSectionFilter(input: {
@@ -355,6 +387,9 @@ function TeamComputerFilterItems(input: {
 						)
 					}
 				>
+					<TeamComputerFilterIcon
+						value={value as keyof typeof PEOPLE_COMPUTER_FILTER_LABELS}
+					/>
 					{label}
 				</DropdownMenuCheckboxItem>
 			))}
@@ -362,6 +397,10 @@ function TeamComputerFilterItems(input: {
 				checked={input.values.length === 0}
 				onCheckedChange={() => input.onChange([])}
 			>
+				<DevicesIcon
+					aria-hidden="true"
+					className="size-4 shrink-0 text-muted-foreground"
+				/>
 				All computer states
 			</DropdownMenuCheckboxItem>
 		</>

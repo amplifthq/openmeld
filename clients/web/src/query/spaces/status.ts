@@ -41,6 +41,8 @@ export const spaceQueryKeys = {
 		[...allSpaceMembersQueryKey, spaceId, openMeldProfileId ?? null] as const,
 	history: (spaceId: string, openMeldProfileId?: string | null) =>
 		["spaces", "history", spaceId, openMeldProfileId ?? null] as const,
+	historyNavigation: (spaceId: string, openMeldProfileId: string) =>
+		["spaces", spaceId, openMeldProfileId, "history-navigation"] as const,
 	historyDateWindow: (
 		spaceId: string,
 		startAtMs: number,

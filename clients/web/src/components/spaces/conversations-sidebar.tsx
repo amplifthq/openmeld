@@ -11,31 +11,29 @@ import {
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
-	DropdownMenuSubContent,
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
+	FluidDropdownMenuContent,
+	FluidDropdownMenuRadioItem,
+	FluidDropdownMenuSubContent,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	ArchiveIcon,
 	ChatCircleTextIcon,
 	ClockIcon,
-	CompassIcon,
 	DotsThreeIcon,
 	FolderIcon,
 	FunnelSimpleIcon,
 	ListIcon,
 	PlusIcon,
 	RobotIcon,
+	SlidersHorizontalIcon,
 	UsersIcon,
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -46,6 +44,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { AppModuleSidebarToggle } from "#/components/app/app-module-sidebar";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -119,7 +118,8 @@ function SpaceSidebarEmptyState({
 }
 
 function getConversationFailures(
-	dm: ReturnType<typeof useConversations>["directMessages"]
+	dm: ReturnType<typeof useConversations>["directMessages"],
+	hideAccountSpacesFailure: boolean
 ) {
 	return [
 		{
@@ -133,7 +133,7 @@ function getConversationFailures(
 		},
 		{
 			label: "conversations",
-			isError: dm.spaces.isError,
+			isError: dm.spaces.isError && !hideAccountSpacesFailure,
 			isFetching: dm.spaces.isFetching,
 			message: dm.spaces.data
 				? "Couldn't refresh conversations. Showing saved conversations."
@@ -162,7 +162,11 @@ function getConversationFailures(
 }
 
 export function ConversationsSidebar(
-	input: { currentProfileId?: string; currentSpaceId?: string } = {}
+	input: {
+		currentProfileId?: string;
+		currentSpaceId?: string;
+		hideAccountSpacesFailure?: boolean;
+	} = {}
 ) {
 	const model = useConversations(input);
 	const { dismiss } = useAppNavigationPresentation();
@@ -291,7 +295,10 @@ export function ConversationsSidebar(
 		dm.sessions.isPending ||
 		dm.directory.isPending ||
 		waitingForActivity;
-	const failures = getConversationFailures(dm);
+	const failures = getConversationFailures(
+		dm,
+		input.hideAccountSpacesFailure === true
+	);
 	const failed = failures.length > 0;
 	const showSpaceEmptyState = isSpaceEmptyStateVisible(
 		view,
@@ -352,12 +359,12 @@ export function ConversationsSidebar(
 				}}
 				value={view}
 			>
-				<DropdownMenuRadioItem closeOnClick value="grouped">
+				<FluidDropdownMenuRadioItem closeOnClick index={0} value="grouped">
 					<FolderIcon /> Grouped
-				</DropdownMenuRadioItem>
-				<DropdownMenuRadioItem closeOnClick value="recent">
+				</FluidDropdownMenuRadioItem>
+				<FluidDropdownMenuRadioItem closeOnClick index={1} value="recent">
 					<ClockIcon /> Recent
-				</DropdownMenuRadioItem>
+				</FluidDropdownMenuRadioItem>
 			</DropdownMenuRadioGroup>
 		</>
 	);
@@ -382,7 +389,8 @@ export function ConversationsSidebar(
 					className="relative flex min-w-0 items-center gap-1"
 					ref={headerRef}
 				>
-					<div className="shrink-0" ref={titleRef}>
+					<div className="flex shrink-0 items-center gap-1" ref={titleRef}>
+						<AppModuleSidebarToggle placement="sidebar" />
 						<SpacesDirectoryLink
 							onNavigate={onNavigate}
 							orgSlug={dm.org.slug}
@@ -397,24 +405,6 @@ export function ConversationsSidebar(
 						inert={compactActions}
 						ref={actionsRef}
 					>
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<Link
-										aria-label="Browse spaces"
-										className={buttonVariants({
-											size: "icon-sm",
-											variant: "ghost",
-										})}
-										onClick={onNavigate}
-										to={buildOrganizationSpacesPath(dm.org.slug)}
-									/>
-								}
-							>
-								<CompassIcon aria-hidden="true" />
-							</TooltipTrigger>
-							<TooltipContent>Browse spaces</TooltipContent>
-						</Tooltip>
 						<DropdownMenu>
 							<DropdownMenuTrigger
 								render={
@@ -435,34 +425,34 @@ export function ConversationsSidebar(
 							<DropdownMenuTrigger
 								render={
 									<Button
-										aria-label="Conversation view"
+										aria-label="View and filters"
 										size="icon-sm"
 										variant="ghost"
 									/>
 								}
 							>
-								<ListIcon />
+								<SlidersHorizontalIcon />
 							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end">{viewMenu}</DropdownMenuContent>
-						</DropdownMenu>
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={
-									<Button
-										aria-label="Filter conversations"
-										size="icon-sm"
-										variant="ghost"
-									/>
-								}
-							>
-								<FunnelSimpleIcon />
-							</DropdownMenuTrigger>
-							<DropdownMenuContent
-								align="end"
-								className="w-60 max-w-[calc(100vw-2rem)]"
-							>
-								{filterMenu}
-							</DropdownMenuContent>
+							<FluidDropdownMenuContent align="end" className="w-48">
+								<DropdownMenuSub>
+									<DropdownMenuSubTrigger>
+										<ListIcon aria-hidden="true" />
+										Conversation view
+									</DropdownMenuSubTrigger>
+									<FluidDropdownMenuSubContent className="w-44">
+										{viewMenu}
+									</FluidDropdownMenuSubContent>
+								</DropdownMenuSub>
+								<DropdownMenuSub>
+									<DropdownMenuSubTrigger>
+										<FunnelSimpleIcon aria-hidden="true" />
+										Filter conversations
+									</DropdownMenuSubTrigger>
+									<FluidDropdownMenuSubContent className="w-60 max-w-[calc(100vw-2rem)]">
+										{filterMenu}
+									</FluidDropdownMenuSubContent>
+								</DropdownMenuSub>
+							</FluidDropdownMenuContent>
 						</DropdownMenu>
 					</div>
 					<DropdownMenu>
@@ -479,53 +469,44 @@ export function ConversationsSidebar(
 						>
 							<DotsThreeIcon />
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align="start" className="w-56">
-							<DropdownMenuItem
-								render={
-									<Link
-										onClick={onNavigate}
-										to={buildOrganizationSpacesPath(dm.org.slug)}
-									/>
-								}
-							>
-								<CompassIcon aria-hidden="true" />
-								Browse spaces
-							</DropdownMenuItem>
+						<FluidDropdownMenuContent align="start" className="w-56">
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger>
 									<PlusIcon aria-hidden="true" />
 									New conversation
 								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent className="w-60">
+								<FluidDropdownMenuSubContent className="w-60">
 									{creationMenu}
-								</DropdownMenuSubContent>
+								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger>
 									<ListIcon aria-hidden="true" />
 									Conversation view
 								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent className="w-60">
+								<FluidDropdownMenuSubContent className="w-60">
 									{viewMenu}
-								</DropdownMenuSubContent>
+								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
 							<DropdownMenuSub>
 								<DropdownMenuSubTrigger>
 									<FunnelSimpleIcon aria-hidden="true" />
 									Filter conversations
 								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent className="w-60">
+								<FluidDropdownMenuSubContent className="w-60">
 									{filterMenu}
-								</DropdownMenuSubContent>
+								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
-						</DropdownMenuContent>
+						</FluidDropdownMenuContent>
 					</DropdownMenu>
 				</div>
 			</div>
 			<div className="mb-2 px-1">
 				<SidebarSearchInput
+					inputClassName="lg:h-7"
 					label="Search conversations"
 					onValueChange={setSearch}
+					placeholder="Find a space..."
 					value={search}
 				/>
 			</div>
@@ -857,14 +838,10 @@ function SpacesDirectoryLink({
 	return (
 		<Link
 			aria-label="Spaces"
-			className="flex min-w-20 flex-1 items-center gap-2 rounded-sm font-medium text-sm focus-visible:outline-2"
+			className="flex min-w-20 flex-1 items-center rounded-sm font-medium text-sm focus-visible:outline-2"
 			onClick={onNavigate}
 			to={buildOrganizationSpacesPath(orgSlug)}
 		>
-			<ChatCircleTextIcon
-				aria-hidden="true"
-				className="size-4 shrink-0 text-muted-foreground"
-			/>
 			<span className="truncate">Spaces</span>
 		</Link>
 	);

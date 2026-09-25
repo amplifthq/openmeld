@@ -49,6 +49,7 @@ import {
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import { useHistorySliderPreference } from "#/lib/spaces/history-slider-preference";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
@@ -720,7 +721,9 @@ function SpaceConversationPanelContent(
 		[readingHeader, registerConversationScrollElement]
 	);
 	const supportsHistoryRail = useMediaQuery("(min-width: 640px)");
+	const historySlider = useHistorySliderPreference();
 	const showHistoryRail =
+		historySlider.enabled &&
 		supportsHistoryRail &&
 		(input.historyNavigation?.directory?.total ?? 0) >
 			SPACE_INITIAL_HISTORY_MAX_MESSAGES;
@@ -754,7 +757,7 @@ function SpaceConversationPanelContent(
 				"flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
 				input.className
 			)}
-			data-space-history-rail={showHistoryRail ? "true" : undefined}
+			data-space-history-rail="true"
 		>
 			{input.historyActionErrorMessage || input.historyErrorMessage ? (
 				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
@@ -825,7 +828,7 @@ function SpaceConversationPanelContent(
 							scrollElement={conversationScrollElement}
 						/>
 						<MessageScroller className="relative min-h-0 flex-1">
-							{input.historyNavigation && showHistoryRail && (
+							{input.historyNavigation && (
 								<SpaceHistoryRail
 									controller={input.historyNavigation}
 									items={mainTimelineItems}
