@@ -277,7 +277,7 @@ import {
   runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
-  SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
@@ -20252,16 +20252,23 @@ export async function rpcWriteSpaceFileContent(
   input: WriteSpaceFileContentRpcInput
 ): Promise<SpaceFileDescriptor> {
   if (
-    input.write.sizeBytes > SPACE_FILE_MAX_SIZE_BYTES ||
+    input.write.sizeBytes > SPACE_FILE_RAW_UPLOAD_MAX_BYTES ||
     (input.bytes instanceof ArrayBuffer &&
       input.bytes.byteLength !== input.write.sizeBytes)
   ) {
     throw createCoreRpcHttpError({
       code: "space_file.too_large",
-      reason: "Files must be 250 MiB or smaller and match the declared size.",
+      reason: `Single-request writes must be ${SPACE_FILE_RAW_UPLOAD_MAX_BYTES / (1024 * 1024)} MiB or smaller and match the declared size. Use multipart upload for larger files.`,
       status: 413,
     });
   }
+  return await writePreparedSpaceFileContent(env, input);
+}
+
+async function writePreparedSpaceFileContent(
+  env: CoreBindings,
+  input: WriteSpaceFileContentRpcInput
+): Promise<SpaceFileDescriptor> {
   const spaceAccess = resolveRpcSpaceAccess(input);
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const prepared = await stub.rpcPrepareSpaceFileWrite({
@@ -20336,7 +20343,7 @@ export async function rpcStageSpaceComposerUpload(
   env: CoreBindings,
   input: StageSpaceComposerUploadRpcInput
 ): Promise<SpaceComposerUploadDescriptor> {
-  if (input.bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES) {
+  if (input.bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
     throw createCoreRpcHttpError({
       code: "space_file.too_large",
       reason: "Files must be 10 MiB or smaller.",
@@ -20426,7 +20433,7 @@ export async function rpcPublishSpaceComposerUpload(
     }
     return committedFile;
   }
-  return await rpcWriteSpaceFileContent(env, {
+  return await writePreparedSpaceFileContent(env, {
     bytes: (
       await readSpaceComposerUploadStream({
         bucket: requireSpaceFileBucket(env),
