@@ -538,7 +538,13 @@ export type {
   UpdateFeedbackIssueStatusForOrganizationRequest,
   UpdateFeedbackReportingPolicyBody,
 } from "./feedback";
-export type { FileRoot } from "./file-root";
+export type {
+  FileRoot,
+  FileRootEntry,
+  FileRootFileDescriptor,
+  FileRootFolderDescriptor,
+  ListFileRootResponse,
+} from "./file-root";
 export type { GatewayErrorCode, GatewayErrorEnvelope } from "./gateway-error";
 export type * from "./inbox";
 export type * from "./inbox-desktop-updates";

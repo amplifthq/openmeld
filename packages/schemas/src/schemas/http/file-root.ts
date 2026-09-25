@@ -1,4 +1,11 @@
 import * as z from "../../lazy-zod";
+import {
+  spaceFileBreadcrumbSchema,
+  spaceFileCapabilitiesSchema,
+  spaceFileDescriptorSchema,
+  spaceFileEntryIdSchema,
+  spaceFolderDescriptorSchema,
+} from "./space-files";
 
 const rootIdSchema = z.string().trim().min(1).max(512);
 
@@ -19,3 +26,25 @@ export const fileRootSchema = z.discriminatedUnion("kind", [
     spaceId: rootIdSchema,
   }),
 ]);
+
+export const fileRootFolderDescriptorSchema = spaceFolderDescriptorSchema
+  .omit({ spaceId: true })
+  .extend({ root: fileRootSchema });
+
+export const fileRootFileDescriptorSchema = spaceFileDescriptorSchema
+  .omit({ spaceId: true })
+  .extend({ root: fileRootSchema });
+
+export const fileRootEntrySchema = z.discriminatedUnion("kind", [
+  fileRootFolderDescriptorSchema,
+  fileRootFileDescriptorSchema,
+]);
+
+export const listFileRootResponseSchema = z.strictObject({
+  root: fileRootSchema,
+  parentId: spaceFileEntryIdSchema.nullable(),
+  view: z.enum(["active", "trash"]),
+  breadcrumbs: z.array(spaceFileBreadcrumbSchema),
+  entries: z.array(fileRootEntrySchema),
+  capabilities: spaceFileCapabilitiesSchema,
+});

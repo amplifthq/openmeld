@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { fileRootSchema } from "../src/schemas/http/file-root";
+import {
+  fileRootSchema,
+  listFileRootResponseSchema,
+} from "../src/schemas/http/file-root";
 
 describe("file root", () => {
   it("keeps each file location within its Organization", () => {
@@ -41,5 +44,18 @@ describe("file root", () => {
         spaceId: " ",
       }).success
     ).toBe(false);
+  });
+
+  it("does not expose the Space repository identity in a Team listing", () => {
+    const response = listFileRootResponseSchema.safeParse({
+      root: { kind: "team", organizationId: "team-1" },
+      parentId: null,
+      view: "active",
+      breadcrumbs: [{ id: null, name: "Files" }],
+      entries: [],
+      capabilities: { canRead: true, canWrite: true },
+      spaceId: "internal-writer-id",
+    });
+    expect(response.success).toBe(false);
   });
 });

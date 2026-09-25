@@ -1,6 +1,6 @@
 # Files
 
-> Target contract for the Files work in Draft PR #1318. Only existing Space Files and the first shared browser slice are implemented. The Team, member-private, Agent, Skill, and Documents cutover paths below are acceptance requirements, not current capabilities.
+> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser slice, and the first Team/member metadata roots are implemented. Team/member content upload, the user-facing Team entry, Agent file tools, Skill storage, and Documents cutover remain acceptance requirements, not current capabilities.
 
 ## Agent Context
 
