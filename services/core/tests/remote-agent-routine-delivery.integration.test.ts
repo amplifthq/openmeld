@@ -1250,7 +1250,9 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics.",
+        text: expect.stringContaining(
+          "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics."
+        ),
       })
     );
     await expect(
@@ -1365,7 +1367,9 @@ describe("Remote Agent Routine native delivery", () => {
         meta: expect.objectContaining({
           errorCode: "remote_agent.daily_quota_exceeded",
         }),
-        text: "Routine “Daily feedback review” could not run because the Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC.",
+        text: expect.stringContaining(
+          "Routine “Daily feedback review” could not run because the Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC."
+        ),
       })
     );
     const failedRun = await readRoutineRunRecord({
@@ -2823,6 +2827,7 @@ describe("Remote Agent Routine native delivery", () => {
     const testEnv = buildEnv({
       additionalSpaceIds: [futureSpaceId],
       fixture,
+      webAppUrl: "https://openmeld.ai",
       workerSubmit,
     });
     await submitRemoteAgentRoutineDelivery({
@@ -2842,8 +2847,9 @@ describe("Remote Agent Routine native delivery", () => {
       agentProfileId: fixture.profileId,
       bindingId: fixture.bindingId,
       dispatchId: fixture.runId,
-      failureCode: "remote_agent.turn_not_completed",
-      failureMessage: "Remote Agent could not finish this request.",
+      failureCode: "remote_agent.empty_assistant_response",
+      failureMessage:
+        "Center Agent couldn't generate a reply. Your message is saved.",
       idempotencyKey: fixture.runId,
       organizationId: fixture.organizationId,
       spaceId: fixture.spaceId,
@@ -2868,11 +2874,27 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
         ?.text
-    ).toContain(`Routine “${fixture.routine.name}”`);
+    ).toContain(
+      `Routine “${fixture.routine.name}” did not publish a result. The Agent produced no reply.`
+    );
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain(`Run ID: ${fixture.runId}`);
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain("[View Run details](https://openmeld.ai/o/");
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain(
+      `/center-agent/routines?routineId=${fixture.routineId}&runId=${fixture.runId})`
+    );
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({
-      failureCode: "remote_agent.turn_not_completed",
+      failureCode: "remote_agent.empty_assistant_response",
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
@@ -2889,7 +2911,7 @@ describe("Remote Agent Routine native delivery", () => {
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({
-      failureCode: "remote_agent.turn_not_completed",
+      failureCode: "remote_agent.empty_assistant_response",
       status: "failed",
     });
   });
@@ -4401,7 +4423,9 @@ describe("Remote Agent Routine native delivery", () => {
         meta: expect.objectContaining({
           errorCode: "center_agent_model_unknown",
         }),
-        text: "Routine “Daily feedback review” could not run because the selected Center Agent model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld.",
+        text: expect.stringContaining(
+          "Routine “Daily feedback review” could not run because the selected Center Agent model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld."
+        ),
       })
     );
   });
@@ -4600,6 +4624,7 @@ function buildEnv(input: {
   routineWorkflowSendEvent?: ReturnType<typeof vi.fn>;
   runtimeEnabled?: string;
   spaceGuide?: string;
+  webAppUrl?: string;
   workerReconcile?: ReturnType<typeof vi.fn>;
   workerSubmit: ReturnType<typeof vi.fn>;
 }): CoreBindings & {
@@ -4680,6 +4705,7 @@ function buildEnv(input: {
     OPENMELD_LOCAL_STATE_DB: env.OPENMELD_DB,
     OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT: input.dailyAdmissionLimit,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: input.runtimeEnabled ?? "true",
+    WEB_APP_URL: input.webAppUrl,
     OPENMELD_REMOTE_AGENT_WORKER: {
       ...(input.workerReconcile
         ? { reconcileExecution: input.workerReconcile }
