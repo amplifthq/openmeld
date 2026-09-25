@@ -152,12 +152,14 @@ Agent sessions once each. Its shared manual order uses the existing root
 sidebar preference; ordinary pin membership remains Space Index-owned and
 session pins remain in `chats` preferences. Unpin restores the saved group.
 Spaces, People, and Agents are optional filters. The plus menu offers New message
-and New Space. Search conversations filters existing conversations only. When no
-conversations match, Find someone opens the existing organization-wide people
-and Agents picker with the search text prefilled. Browse spaces is a compass icon
-in the Spaces header, before the plus menu, with a tooltip and accessible
-label. It remains visible in both Grouped and Recent, including with collapsed groups,
-filters, or empty results, and opens the existing Your Spaces / Discover page.
+and New Space. The adjacent View and filters menu holds separate Conversation
+view and Filter conversations submenus. The Spaces title remains the link to
+the Your Spaces / Discover directory; there is no separate Browse button.
+The compact search field says "Find a space..." while searching existing
+conversations. When no conversations match, Find someone opens the existing
+organization-wide people and Agents picker with the search text prefilled.
+The module sidebar header
+shares the work-area title row's vertical center.
 Team remains the member directory; there is no separate Contacts destination.
 Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.

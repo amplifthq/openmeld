@@ -1,6 +1,6 @@
 ---
 id: application-rail-compact-highlights
-title: Refine the application sidebar
+title: Refine the application and Spaces sidebars
 kind: improved
 areas: ["navigation"]
 audiences: ["users"]
@@ -8,4 +8,6 @@ audiences: ["users"]
 
 The compact sidebar now highlights each navigation icon without covering its
 label. Attention markers sit beside the icons, and organization and account
-avatars fill matching shape-aware squares.
+avatars fill matching shape-aware squares. The Spaces sidebar now keeps creation
+and view controls compact, with view and filters grouped in one menu and a
+shorter search field.
