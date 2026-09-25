@@ -1,3 +1,4 @@
+import { postSpaceWakeStopResponseSchema } from "@openmeld/schemas";
 import type { PostSpaceWakeStopResponse } from "@openmeld/schemas/types";
 import {
 	act,
@@ -157,6 +158,43 @@ describe("SpaceWakeStopControl", () => {
 				"Stop requested. Waiting for OpenMeld to confirm this Wake was stopped."
 			)
 		).toBeTruthy();
+	});
+
+	it.each([
+		["Hosted Agent", "remote_agent.cancellation_delivery_failed", null],
+		["local Wake", "runtime_coordinator.stop_delivery_failed", "rce_123"],
+	])("keeps %s Stop retryable without claiming a local Service failure", async (_source, reasonCode, runtimeCoordinatorExecutionId) => {
+		const target = createWakeStopTarget({});
+		const response = postSpaceWakeStopResponseSchema.parse({
+			cancellationState: {
+				observedAtMs: Date.UTC(2026, 5, 3, 22, 8),
+				reasonCode,
+				status: "delivery_rejected",
+			},
+			ok: false,
+			reasonCode,
+			runtimeCoordinatorExecutionId,
+			status: "retry_later",
+			targetProfileId: target.targetProfileId,
+		});
+		const onStopWake = vi.fn().mockResolvedValue(response);
+		render(<SpaceWakeStopControl onStopWake={onStopWake} target={target} />);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Stop Wake for Runner Agent" })
+		);
+		const dialog = within(
+			screen.getByRole("dialog", { name: "Stop this Wake?" })
+		);
+		fireEvent.click(dialog.getByRole("button", { name: "Stop Wake" }));
+		await waitFor(() => {
+			expect(
+				dialog.getByText(
+					"OpenMeld couldn't confirm the Stop request. Try again in a moment."
+				)
+			).toBeTruthy();
+		});
+		expect(dialog.getByRole("button", { name: "Stop Wake" })).toBeTruthy();
+		expect(onStopWake).toHaveBeenCalledExactlyOnceWith(target);
 	});
 
 	it("lets the user stop one target from a multi-target Wake", async () => {
