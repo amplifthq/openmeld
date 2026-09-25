@@ -963,6 +963,12 @@ includes token and cost usage from the discarded attempt. A second empty respons
 follows the ordinary visible terminal-failure path. Recovery never restarts the
 workflow, repeats tools, or changes an explicitly selected model.
 
+When the final assistant turn ends at its output limit without reply text, the
+worker records output exhaustion as a distinct terminal failure and Core shows
+an actionable failure notice. It does not retry that length-limited inference
+or replay earlier tool actions. A member may review completed work and send a
+shorter follow-up in the same conversation.
+
 Manual reply recovery uses the existing fenced Execution Recovery operation.
 Its worker request carries `replyRecovery` with the original dispatch, operation,
 and optional Space result reference. The same frozen runtime conversation and
