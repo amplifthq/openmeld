@@ -164,7 +164,7 @@ export function SpaceFileBrowser(input: {
 								size="sm"
 								variant="outline"
 							>
-								Hand off
+								Send to agent
 							</Button>
 						) : null}
 						<DropdownMenu>
@@ -186,6 +186,14 @@ export function SpaceFileBrowser(input: {
 									<FolderPlusIcon aria-hidden="true" />
 									Folder
 								</FluidDropdownMenuItem>
+								<DropdownMenuSeparator />
+								<FluidDropdownMenuItem
+									index={2}
+									onClick={() => input.fileInputRef.current?.click()}
+								>
+									<UploadSimpleIcon aria-hidden="true" />
+									Upload file…
+								</FluidDropdownMenuItem>
 							</FluidDropdownMenuContent>
 						</DropdownMenu>
 					</>
@@ -199,7 +207,7 @@ export function SpaceFileBrowser(input: {
 						onClick={() => input.onViewChange("trash")}
 						size="sm"
 						type="button"
-						variant="ghost"
+						variant="outline"
 					>
 						<TrashIcon aria-hidden="true" />
 						Trash
@@ -215,11 +223,14 @@ export function SpaceFileBrowser(input: {
 			error={input.error}
 			isPending={input.isPending}
 			onMove={input.onMove}
+			onNewFolder={input.onNewFolder}
+			onNewMarkdownFile={input.onNewMarkdownFile}
 			onOpen={input.onOpen}
 			onRename={input.onRename}
 			onRestore={input.onRestore}
 			onRetry={input.onRetry}
 			onTrash={input.onTrash}
+			onUpload={() => input.fileInputRef.current?.click()}
 			showChatUploads={input.showChatUploads}
 			spaceId={input.spaceId}
 			toolbarStart={toolbarStart}
@@ -269,17 +280,19 @@ export function SpaceFileBrowser(input: {
 										className="size-3.5 shrink-0 text-muted-foreground"
 									/>
 								) : null}
-								<button
-									className={cn(
-										"max-w-48 truncate rounded-sm px-1.5 py-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-										index === input.breadcrumbs.length - 1 &&
-											"font-medium text-foreground"
-									)}
-									onClick={() => input.onOpenBreadcrumb(crumb.id, crumb.name)}
-									type="button"
-								>
-									{crumb.name}
-								</button>
+								{index === input.breadcrumbs.length - 1 ? (
+									<span className="max-w-48 truncate font-medium text-foreground">
+										{crumb.name}
+									</span>
+								) : (
+									<button
+										className="max-w-48 truncate rounded-sm px-1.5 py-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										onClick={() => input.onOpenBreadcrumb(crumb.id, crumb.name)}
+										type="button"
+									>
+										{crumb.name}
+									</button>
+								)}
 							</span>
 						))}
 					</div>
@@ -330,6 +343,7 @@ export function SpaceFileBrowser(input: {
 	);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This boundary keeps the active Finder and Trash on their existing permission and error paths.
 function SpaceFileBrowserContent(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	canWrite: boolean;
@@ -338,10 +352,13 @@ function SpaceFileBrowserContent(input: {
 	isPending: boolean;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onMove: (entry: SpaceFileEntry) => void;
+	onNewFolder: () => void;
+	onNewMarkdownFile: () => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
 	onRestore: (entry: SpaceFileEntry) => void;
 	onTrash: (entry: SpaceFileEntry) => void;
+	onUpload: () => void;
 	showChatUploads: boolean;
 	spaceId: string;
 	toolbarStart: ReactNode;
@@ -354,32 +371,8 @@ function SpaceFileBrowserContent(input: {
 	if (input.isPending && input.view === "trash") {
 		return <SpaceFilesSkeleton />;
 	}
-	if (input.error) {
-		return (
-			<div
-				className="flex min-h-64 flex-col items-center justify-center rounded-md border border-destructive/40 bg-destructive/5 px-6 text-center"
-				role="alert"
-			>
-				<WarningCircleIcon
-					aria-hidden="true"
-					className="size-7 text-destructive"
-				/>
-				<h2 className="mt-3 font-medium">Files couldn’t be loaded</h2>
-				<p className="mt-1 max-w-md text-muted-foreground text-sm">
-					{resolveSpaceFileErrorMessage(input.error)}
-				</p>
-				<Button
-					className="mt-4"
-					onClick={input.onRetry}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					<ArrowClockwiseIcon aria-hidden="true" />
-					Try again
-				</Button>
-			</div>
-		);
+	if (input.error && input.view === "trash") {
+		return <SpaceFilesLoadError error={input.error} onRetry={input.onRetry} />;
 	}
 	if (input.entries.length === 0 && input.view === "trash") {
 		const description = resolveEmptyStateDescription({
@@ -448,6 +441,14 @@ function SpaceFileBrowserContent(input: {
 							<FileSystem
 								className="h-[min(65vh,48rem)] min-h-96"
 								embedded
+								errorContent={
+									input.error ? (
+										<SpaceFilesLoadError
+											error={input.error}
+											onRetry={input.onRetry}
+										/>
+									) : undefined
+								}
 								isLoading={input.isPending}
 								items={items}
 								onFileOpen={(file) => {
@@ -486,16 +487,34 @@ function SpaceFileBrowserContent(input: {
 						<SpaceFilesSkeleton />
 					)}
 				</ContextMenuTrigger>
-				{selectedEntry ? (
+				{selectedEntry || input.canWrite ? (
 					<ContextMenuContent className="min-w-44 p-1">
-						<SpaceFileContextActions
-							canWrite={input.canWrite}
-							entry={selectedEntry}
-							onMove={() => input.onMove(selectedEntry)}
-							onOpen={() => input.onOpen(selectedEntry)}
-							onRename={() => input.onRename(selectedEntry)}
-							onTrash={() => input.onTrash(selectedEntry)}
-						/>
+						{selectedEntry ? (
+							<SpaceFileContextActions
+								canWrite={input.canWrite}
+								entry={selectedEntry}
+								onMove={() => input.onMove(selectedEntry)}
+								onOpen={() => input.onOpen(selectedEntry)}
+								onRename={() => input.onRename(selectedEntry)}
+								onTrash={() => input.onTrash(selectedEntry)}
+							/>
+						) : (
+							<>
+								<ContextMenuItem onClick={input.onNewFolder}>
+									<FolderPlusIcon aria-hidden="true" />
+									New folder
+								</ContextMenuItem>
+								<ContextMenuItem onClick={input.onNewMarkdownFile}>
+									<FileTextIcon aria-hidden="true" />
+									New Markdown file
+								</ContextMenuItem>
+								<ContextMenuSeparator />
+								<ContextMenuItem onClick={input.onUpload}>
+									<UploadSimpleIcon aria-hidden="true" />
+									Upload file…
+								</ContextMenuItem>
+							</>
+						)}
 					</ContextMenuContent>
 				) : null}
 			</ContextMenu>
@@ -606,7 +625,7 @@ function ShowChatUploadsToggle(input: {
 			variant={input.showChatUploads ? "secondary" : "ghost"}
 		>
 			<ChatCircleIcon aria-hidden="true" />
-			{input.showChatUploads ? "Hide chat uploads" : "Show chat uploads"}
+			{input.showChatUploads ? "Hide chat files" : "Include chat files"}
 		</Button>
 	);
 }
@@ -619,9 +638,37 @@ function resolveFilesSubtitle(input: {
 		return "Restore files you still need.";
 	}
 	if (input.showChatUploads) {
-		return "Shared with the people and agents in this Space, including files shared in chat.";
+		return "Files in this Space, including files sent in chat.";
 	}
-	return "Shared with the people and agents in this Space. Files shared in chat are hidden; show them below.";
+	return "Files in this Space. Files sent in chat are hidden by default.";
+}
+
+function SpaceFilesLoadError(input: { error: unknown; onRetry: () => void }) {
+	return (
+		<div
+			className="flex min-h-64 flex-col items-center justify-center rounded-md border border-destructive/40 bg-destructive/5 px-6 text-center"
+			role="alert"
+		>
+			<WarningCircleIcon
+				aria-hidden="true"
+				className="size-7 text-destructive"
+			/>
+			<h2 className="mt-3 font-medium">Files couldn’t be loaded</h2>
+			<p className="mt-1 max-w-md text-muted-foreground text-sm">
+				{resolveSpaceFileErrorMessage(input.error)}
+			</p>
+			<Button
+				className="mt-4"
+				onClick={input.onRetry}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				<ArrowClockwiseIcon aria-hidden="true" />
+				Try again
+			</Button>
+		</div>
+	);
 }
 
 function resolveEmptyStateDescription(input: {

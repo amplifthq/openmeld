@@ -171,6 +171,8 @@ export type FileSystemProps = {
   /** Actions supplied by the owning Files location, before shared view controls. */
   toolbarStart?: React.ReactNode
   isLoading?: boolean
+  /** Keep the shared toolbar available when the owning file service fails. */
+  errorContent?: React.ReactNode
   /** Label for the root folder. */
   title?: string
   defaultView?: FileSystemView
@@ -1213,6 +1215,7 @@ export function FileSystem({
   embedded = false,
   toolbarStart,
   isLoading = false,
+  errorContent,
   title = "Files",
   defaultView = "icons",
   view: viewProp,
@@ -1499,6 +1502,8 @@ export function FileSystem({
     "full" | "compact" | "minimal"
   >("full")
   const [isBelowIpadWidth, setIsBelowIpadWidth] = React.useState(false)
+  const [isToolbarCompact, setIsToolbarCompact] = React.useState(false)
+  const hasToolbarStart = Boolean(toolbarStart)
   React.useEffect(() => {
     const root = rootRef.current
     if (!root || typeof ResizeObserver === "undefined") return
@@ -1508,6 +1513,7 @@ export function FileSystem({
         width < 360 ? "minimal" : width < 560 ? "compact" : "full"
       )
       setIsBelowIpadWidth(width < IPAD_MIN_WIDTH)
+      setIsToolbarCompact(embedded && hasToolbarStart && width < 1300)
     }
     const observer = new ResizeObserver((observerEntries) =>
       applyWidth(observerEntries[0]?.contentRect.width)
@@ -1517,7 +1523,7 @@ export function FileSystem({
     applyWidth(root.clientWidth)
     observer.observe(root)
     return () => observer.disconnect()
-  }, [])
+  }, [embedded, hasToolbarStart])
   const requestedFoldersRef = React.useRef(new Set<string>())
   const [loadingFolders, setLoadingFolders] = React.useState<Set<string>>(
     () => new Set()
@@ -1897,7 +1903,7 @@ export function FileSystem({
           {toolbarStart}
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1">
-        {headerLayout !== "full" || isBelowIpadWidth ? (
+        {headerLayout !== "full" || isBelowIpadWidth || isToolbarCompact ? (
           <FluidSelect
             value={view}
             onValueChange={(value) => setView(value as FileSystemView)}
@@ -1940,7 +1946,7 @@ export function FileSystem({
           <FileSystemSortSelect
             layout={headerLayout}
             onKeyChange={applySortKey}
-            showLabel={!isBelowIpadWidth}
+            showLabel={!isBelowIpadWidth && !isToolbarCompact}
             sort={sort}
           />
           <FileSystemFilterMenu
@@ -2019,7 +2025,9 @@ export function FileSystem({
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1">
-        {isLoading || (isLoadingCurrentFolder && currentEntries.length === 0) ? (
+        {errorContent ? (
+          errorContent
+        ) : isLoading || (isLoadingCurrentFolder && currentEntries.length === 0) ? (
           <FileSystemEmptyState label="Loading…" isLoading />
         ) : currentEntries.length === 0 &&
           (view !== "columns" || isSearching || hasActiveFilters) ? (
@@ -3135,7 +3143,7 @@ function FileSystemIconsView({
   const itemRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const viewportRef = React.useRef<HTMLDivElement | null>(null)
   const typeAhead = useEntryTypeAhead()
-  // The column count mirrors what `repeat(auto-fill, minmax(6.5rem, 1fr))`
+  // The column count mirrors what `repeat(auto-fill, minmax(6rem, 1fr))`
   // produces (the CSS owns the actual layout) so item indices map to grid
   // rows — the windowing below depends on that mapping. It stays null until
   // the first client measure; server markup must not guess.
@@ -3229,7 +3237,7 @@ function FileSystemIconsView({
           // a grid instead of flashing a single stacked column until the
           // first client measure.
           style={{
-            gridTemplateColumns: "repeat(auto-fill, minmax(6rem, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, 6rem)",
             top: start * ICON_ROW_STRIDE,
           }}
           onKeyDown={(event) => {
@@ -3285,11 +3293,11 @@ function FileSystemIconsView({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") onOpen(entry)
                 }}
-                className="group flex min-h-[5.875rem] flex-col items-center gap-1.5 outline-none"
+                className="group flex min-h-[5.875rem] w-24 flex-col items-center gap-1.5 outline-none"
               >
                 <span
                   className={cn(
-                    "flex h-14 w-18 shrink-0 items-center justify-center rounded-lg p-0.5 transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring",
+                    "mx-auto flex h-14 w-18 shrink-0 items-center justify-center rounded-lg p-0.5 transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring",
                     isSelected && "bg-accent"
                   )}
                 >
@@ -3313,7 +3321,7 @@ function FileSystemIconsView({
                 </span>
                 <span
                   className={cn(
-                    "max-w-full rounded-sm px-1.5 py-px text-center text-xs leading-tight break-words",
+                    "mx-auto max-w-full rounded-sm px-1.5 py-px text-center text-xs leading-tight break-words",
                     isSelected
                       ? "bg-primary text-primary-foreground"
                       : "text-foreground"
