@@ -299,6 +299,16 @@ navigation and interaction must occur in one call; persistent browser login,
 Live View, and human takeover are outside this increment. Existing browser
 Quick Actions remain available. The browser facet does not own Agent scheduling.
 
+`computer_preview` checks a development server already running in the same
+Agent Computer container. The Agent supplies an unprivileged port, a relative
+page path, and expected rendered text. Browser Run routes only the exact
+virtual preview hostname through a same-invocation Worker Entrypoint to that
+Computer's container port; no public preview URL or generic proxy is created.
+The browser session closes after the call. The result contains a bounded page
+text sample, assertion outcome, document status, JavaScript and console errors,
+and failed network requests. This is a developer
+smoke check, not proof of authenticated production behavior or backend state.
+
 Completion must not write personal conversation content into Center Agent
 memory. Organization administration, personal Channels, and Center memory
 remain excluded. Shared infrastructure does not confer Center duties.
@@ -1949,8 +1959,9 @@ surface adopts official features where they are free**:
     through `env.LOADER`, instant, no container, no public network, text
     tooling only) and container (computerd in a Cloudflare Container,
     FUSE-mounting this same workspace at `/computer` with `MOUNT_POINT`
-    pinned for same-path fidelity; full Linux userland with python3, git,
-    curl, jq; changes sync back over capnweb). The model selects the backend
+    pinned for same-path fidelity; full Linux userland with Node.js 24,
+    Corepack-managed pnpm, Python, git, curl, jq, and native build tools;
+    changes sync back over capnweb). The model selects the backend
     per bash call and is prompted to prefer worker-shell. Computer SDK and
     computerd use version 0.2.1 together. Container network access is explicitly
     direct; worker-shell remains network-disabled. A replaced runtime reports
