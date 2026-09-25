@@ -162,7 +162,7 @@ describe("SpaceWakeStopControl", () => {
 
 	it.each([
 		["Hosted Agent", "remote_agent.cancellation_delivery_failed", null],
-		["local Wake", "runtime_coordinator.stop_delivery_failed", "rce_123"],
+		["local Wake", "runtime_coordinator.wake_stop_service_offline", "rce_123"],
 	])("keeps %s Stop retryable without claiming a local Service failure", async (_source, reasonCode, runtimeCoordinatorExecutionId) => {
 		const target = createWakeStopTarget({});
 		const response = postSpaceWakeStopResponseSchema.parse({
@@ -178,7 +178,9 @@ describe("SpaceWakeStopControl", () => {
 			targetProfileId: target.targetProfileId,
 		});
 		const onStopWake = vi.fn().mockResolvedValue(response);
-		render(<SpaceWakeStopControl onStopWake={onStopWake} target={target} />);
+		const view = render(
+			<SpaceWakeStopControl onStopWake={onStopWake} target={target} />
+		);
 		fireEvent.click(
 			screen.getByRole("button", { name: "Stop Wake for Runner Agent" })
 		);
@@ -195,6 +197,19 @@ describe("SpaceWakeStopControl", () => {
 		});
 		expect(dialog.getByRole("button", { name: "Stop Wake" })).toBeTruthy();
 		expect(onStopWake).toHaveBeenCalledExactlyOnceWith(target);
+		fireEvent.click(dialog.getByRole("button", { name: "Keep Running" }));
+		view.rerender(
+			<SpaceWakeStopControl
+				onStopWake={onStopWake}
+				target={createWakeStopTarget({ status: "retry_later" })}
+				variant="details"
+			/>
+		);
+		expect(
+			screen.getByText(
+				"OpenMeld couldn't confirm the Stop request. Try again in a moment."
+			)
+		).toBeTruthy();
 	});
 
 	it("lets the user stop one target from a multi-target Wake", async () => {
