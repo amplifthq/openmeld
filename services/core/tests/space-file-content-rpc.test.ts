@@ -5,6 +5,7 @@ import {
 import {
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceFileRevisionSchema,
 } from "@openmeld/schemas";
 import type {
@@ -193,6 +194,18 @@ function makeEnv(input?: {
 }
 
 describe("Core Space file content RPC", () => {
+  it("keeps the buffered write path capped when the Space file limit grows", async () => {
+    const { env, stub } = makeEnv();
+    await expect(
+      rpcWriteSpaceFileContent(env, {
+        bytes: new ArrayBuffer(0),
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        write: { ...WRITE, sizeBytes: SPACE_FILE_RAW_UPLOAD_MAX_BYTES + 1 },
+      })
+    ).rejects.toThrow("Use multipart upload");
+    expect(stub.rpcPrepareSpaceFileWrite).not.toHaveBeenCalled();
+  });
   it("authorizes the exact revision and requests only its R2 range without buffering", async () => {
     const { env, bucket, stub } = makeEnv();
     const result = await rpcStreamSpaceFileContent(

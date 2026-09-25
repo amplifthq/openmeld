@@ -1,7 +1,7 @@
 import * as eagerZod from "zod/v4";
 import * as z from "../../lazy-zod";
 
-export const SPACE_FILE_MAX_SIZE_BYTES = 250 * 1024 * 1024;
+export const SPACE_FILE_MAX_SIZE_BYTES = 1024 * 1024 * 1024;
 const CONTENT_DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
 export const SPACE_FILE_RAW_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 export const SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES = 1024 * 1024;

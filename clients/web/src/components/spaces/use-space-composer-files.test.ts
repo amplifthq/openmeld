@@ -1,4 +1,5 @@
 import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -782,7 +783,9 @@ describe("composer attachment submission", () => {
 	it("rejects oversized files before upload while keeping other attachments", async () => {
 		const hook = setup();
 		const oversized = new File(["too large"], "large.pdf");
-		Object.defineProperty(oversized, "size", { value: 251 * 1024 * 1024 });
+		Object.defineProperty(oversized, "size", {
+			value: SPACE_FILE_MAX_SIZE_BYTES + 1,
+		});
 		await act(async () =>
 			hook.result.current.addFiles([
 				oversized,
@@ -795,7 +798,7 @@ describe("composer attachment submission", () => {
 		);
 		expect(hook.result.current.files[0]).toMatchObject({
 			status: "failed",
-			errorMessage: expect.stringContaining("250 MiB upload limit"),
+			errorMessage: expect.stringContaining("1024 MiB upload limit"),
 		});
 		expect(hook.result.current.files[0]?.errorMessage).toContain(
 			"paste a link"
