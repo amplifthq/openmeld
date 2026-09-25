@@ -3566,8 +3566,9 @@ retention, source-map handling, and manual queries are documented in
 
 Web also uses that intake for the bounded
 `web.openmeld.wake_progress_presentation_unconfirmed` event when a Space shows
-restored Wake progress, an unverified active-summary item, or a seeded main
-reply stream without a matching current active-Wake read. The additive shared
+restored Wake progress, an unverified active-summary item, a historical
+transient signal, or a seeded main reply stream without a matching current
+active-Wake read. The additive shared
 report schema permits only correlation IDs, source/reply Thread pointers,
 phase, update time, presentation source, and query-freshness flags, alongside
 the existing build and page-session identity. No message body, stream text,
