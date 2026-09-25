@@ -4408,7 +4408,11 @@ For hosted Center Agent and Remote Agent Space replies, Web may overlay
 explicit public progress updates and accumulated stream text while the turn is
 active. Neither live projection is a Space message or final outcome. Public
 updates appear inside the Agent bubble in the Work summary disclosure, sharing
-its bounded scroll viewport with tool steps when present. Web does not write
+its bounded scroll viewport with tool steps when present. Local Agent reasoning,
+when the owner permits it and the controller supplies it, uses this same
+disclosure and Markdown renderer instead of a second collapsible panel. The
+reasoning remains transient and retains its separate privacy policy; Web never
+turns it into hosted public progress or durable reply history. Web does not write
 an active stream to its browser read cache. On successful publication, the final
 Signal may retain up to 8,192 characters of explicit public updates as
 `agentPublicProgress`; failed and stopped streams retain none. The published
@@ -4430,7 +4434,7 @@ Connected App discovery names the App, and Connected App execution names both
 the App and its normalized catalog action. If either safe meaning is missing,
 the call is invisible instead of falling back to `connected app action`.
 
-The live Work summary shares the existing progress row instead of adding a
+The live work disclosure shares the existing progress row instead of adding a
 second row and keeps Stop immediately after the expandable work summary.
 While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows

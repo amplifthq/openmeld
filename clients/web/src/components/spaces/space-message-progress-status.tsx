@@ -10,7 +10,6 @@ import {
 	resolveWakeProgressThinkingEntry,
 	type SpaceMessageWakeThinkingEntry,
 } from "#/lib/spaces/wake-progress-presentation";
-import { SpaceAgentReasoning } from "./space-agent-reasoning";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
@@ -54,14 +53,11 @@ export function SpaceMessageProgressStatus(input: {
 	}
 	if (content.kind === "work") {
 		return wrapProgressStatus(
-			<div className="flex min-w-0 flex-col gap-1">
-				<SpaceAgentToolActivity
-					align={input.align}
-					control={input.control}
-					item={input.item}
-				/>
-				<SpaceAgentReasoning item={input.item} />
-			</div>,
+			<SpaceAgentToolActivity
+				align={input.align}
+				control={input.control}
+				item={input.item}
+			/>,
 			input.containerClassName,
 			input.item.activeWakeProgress
 		);
@@ -84,7 +80,6 @@ export function SpaceMessageProgressStatus(input: {
 					showAgentWorkingState={content.showAgentWorkingState}
 				/>
 			) : null}
-			<SpaceAgentReasoning item={input.item} />
 		</>,
 		input.containerClassName,
 		input.item.activeWakeProgress
@@ -198,7 +193,12 @@ function hasLiveSpaceAgentWork(item: SpaceTimelineItem): boolean {
 	return (
 		hasLiveSpaceAgentToolActivity(item) ||
 		(item.agentStreamState?.status === "streaming" &&
-			Boolean(item.agentStreamState.progress))
+			Boolean(
+				item.agentStreamState.progress ||
+					item.agentStreamState.thinking ||
+					(item.agentStreamState.reasoningState?.status &&
+						item.agentStreamState.reasoningState.status !== "streaming")
+			))
 	);
 }
 

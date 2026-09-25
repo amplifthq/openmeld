@@ -1795,8 +1795,9 @@ This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
 stream callback. Text WebSocket frames keep their legacy shape. Web renders
 explicit hosted public progress inside the transient Work summary disclosure,
-alongside tool steps when present. Local Agent reasoning uses its separate
-Thinking process viewport. The stream kinds keep distinct privacy boundaries.
+alongside tool steps when present. Local Agent reasoning uses the same
+disclosure and Markdown viewport without changing its transient privacy
+boundary. The stream kinds keep distinct privacy boundaries.
 Rollback removes the Remote Agent producer before Core or Web
 consumers.
 

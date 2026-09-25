@@ -1,9 +1,9 @@
 ---
 id: revisit-hosted-agent-work-progress
-title: Revisit hosted Agent work and progress
+title: Review Agent work and progress in one place
 kind: improved
-areas: ["spaces", "center-agent", "remote-agent"]
+areas: ["spaces", "agents", "center-agent", "remote-agent"]
 audiences: ["members"]
 ---
 
-Hosted Agent work opens as it happens and folds away when the reply is finished. Open the reply's Work summary later to review its recorded steps and public progress updates, including after a page refresh.
+Agent work opens as it happens and folds away when the reply is finished. Local Agent reasoning appears in the same panel as work steps when available. Open a hosted Agent reply's Work summary later to review its recorded steps and public progress updates, including after a page refresh.

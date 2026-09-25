@@ -1,4 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
@@ -187,15 +193,16 @@ describe("SpaceMessageProgressStatus", () => {
 		).toBeNull();
 	});
 
-	it("keeps local reasoning in its own viewport", () => {
+	it("shows local Markdown reasoning in the same work disclosure", () => {
 		const item = createStreamingItem();
 		if (!item.agentStreamState) {
 			throw new Error("Expected a live Agent stream fixture.");
 		}
 		item.agentStreamState = {
 			...item.agentStreamState,
-			thinking: "Checking the current Space context.",
+			thinking: "**Checking** the current Space context.",
 			thinkingActive: true,
+			toolParts: createStreamingToolActivityItem().agentStreamState?.toolParts,
 		};
 		render(
 			<SpaceMessageProgressStatus
@@ -204,11 +211,58 @@ describe("SpaceMessageProgressStatus", () => {
 			/>
 		);
 		expect(
-			screen.getByRole("button", { name: "Thinking process" })
+			screen.getByRole("button", {
+				name: "Agent is working. Work summary: Reviewing source files…",
+			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("region", { name: "Thinking process" }).textContent
+			screen.getByRole("list", { name: "Work steps and reasoning" }).textContent
 		).toContain("Checking the current Space context.");
+		expect(screen.getByText("Checking", { selector: "strong" })).toBeTruthy();
+		expect(screen.getAllByTestId("space-agent-tool-activity")).toHaveLength(1);
+	});
+
+	it("uses the shared disclosure when local reasoning has no tool steps", () => {
+		const item = createStreamingItem();
+		if (!item.agentStreamState) {
+			throw new Error("Expected a live Agent stream fixture.");
+		}
+		item.agentStreamState = {
+			...item.agentStreamState,
+			thinking: "Reviewing the request.",
+			thinkingActive: true,
+		};
+		const view = render(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={item}
+			/>
+		);
+
+		const trigger = screen.getByRole("button", {
+			name: "Agent is working. Thinking process",
+		});
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		expect(screen.getByText("Reviewing the request.")).toBeTruthy();
+		expect(screen.getAllByTestId("space-agent-tool-activity")).toHaveLength(1);
+		fireEvent.click(trigger);
+		view.rerender(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={{
+					...item,
+					agentStreamState: {
+						...item.agentStreamState,
+						thinking: "Reviewing the request. Checking files.",
+					},
+				}}
+			/>
+		);
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(trigger);
+		expect(
+			screen.getByRole("list", { name: "Work steps and reasoning" }).textContent
+		).toContain("Reviewing the request. Checking files.");
 	});
 
 	it("shows live output without repeating a generic working label", () => {

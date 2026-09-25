@@ -1,3 +1,4 @@
+import type { LocalAgentReasoningState } from "@openmeld/schemas/types";
 import {
 	ThinkingStep,
 	ThinkingSteps,
@@ -44,6 +45,12 @@ export function SpaceAgentToolActivity(input: {
 	const progress = isLive
 		? input.item.agentStreamState?.progress
 		: input.item.agentPublicProgress;
+	const reasoning = input.item.agentStreamState?.thinking;
+	const reasoningNotice = reasoning
+		? null
+		: resolveReasoningNotice(
+				input.item.agentStreamState?.reasoningState?.status
+			);
 	const [open, setOpen] = useState(isLive);
 	const wasLive = useRef(isLive);
 	useEffect(() => {
@@ -52,14 +59,16 @@ export function SpaceAgentToolActivity(input: {
 		}
 		wasLive.current = isLive;
 	}, [isLive]);
-	if (!(latestStep || progress)) {
+	if (!(latestStep || progress || reasoning || reasoningNotice)) {
 		return null;
 	}
 
-	let summary = isLive ? "Live updates" : "Progress updates";
-	if (latestStep) {
-		summary = resolveWorkSummary(steps, isLive);
-	}
+	const summary = resolveAgentWorkHeading({
+		isLive,
+		progress,
+		reasoning: reasoning ?? reasoningNotice,
+		steps,
+	});
 	const accessibleSummary = isLive
 		? `${SPACE_AGENT_WORKING_STATUS_TEXT}. ${latestStep ? `Work summary: ${summary}` : summary}`
 		: `Work summary: ${summary}`;
@@ -112,6 +121,12 @@ export function SpaceAgentToolActivity(input: {
 						isLive={isLive}
 						progress={progress}
 						progressActive={input.item.agentStreamState?.progressActive}
+						reasoning={reasoning}
+						reasoningActive={input.item.agentStreamState?.thinkingActive}
+						reasoningFirstOutputMs={
+							input.item.agentStreamState?.reasoningState?.firstOutputMs
+						}
+						reasoningNotice={reasoningNotice}
 						steps={steps}
 					/>
 				</ThinkingStepsContent>
@@ -138,6 +153,10 @@ function AgentWorkActivityViewport(input: {
 	isLive: boolean;
 	progress?: string;
 	progressActive?: boolean;
+	reasoning?: string;
+	reasoningActive?: boolean;
+	reasoningFirstOutputMs?: number;
+	reasoningNotice?: string | null;
 	steps: readonly SpaceAgentWorkStep[];
 }) {
 	const reduceMotion = useReducedMotion();
@@ -146,26 +165,28 @@ function AgentWorkActivityViewport(input: {
 	const [lastSeenStepCount, setLastSeenStepCount] = useState(() =>
 		totalStepCount(input.steps)
 	);
-	const [lastSeenProgress, setLastSeenProgress] = useState(input.progress);
+	const currentText = input.progress ?? input.reasoning;
+	const [lastSeenText, setLastSeenText] = useState(currentText);
 	const shownSteps = input.steps;
 	const totalCount = totalStepCount(input.steps);
-	const progressLength = input.progress?.length ?? 0;
+	const textLength =
+		(input.progress?.length ?? 0) + (input.reasoning?.length ?? 0);
 	const unseenStepCount =
 		input.isLive && !isFollowing
 			? Math.max(0, totalCount - lastSeenStepCount)
 			: 0;
-	const hasUnseenProgress =
-		input.isLive && !isFollowing && input.progress !== lastSeenProgress;
+	const hasUnseenText =
+		input.isLive && !isFollowing && currentText !== lastSeenText;
 
 	useLayoutEffect(() => {
 		if (
 			!(input.isLive && isFollowing) ||
-			(totalCount === 0 && progressLength === 0)
+			(totalCount === 0 && textLength === 0)
 		) {
 			return;
 		}
 		scrollWorkViewportToLatest(viewportRef.current, reduceMotion);
-	}, [input.isLive, isFollowing, progressLength, reduceMotion, totalCount]);
+	}, [input.isLive, isFollowing, textLength, reduceMotion, totalCount]);
 
 	const handleScroll = () => {
 		const viewport = viewportRef.current;
@@ -176,12 +197,12 @@ function AgentWorkActivityViewport(input: {
 			viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 12;
 		if (!isAtBottom && isFollowing) {
 			setLastSeenStepCount(totalCount);
-			setLastSeenProgress(input.progress);
+			setLastSeenText(currentText);
 		}
 		setIsFollowing(isAtBottom);
 		if (isAtBottom) {
 			setLastSeenStepCount(totalCount);
-			setLastSeenProgress(input.progress);
+			setLastSeenText(currentText);
 		}
 	};
 
@@ -189,13 +210,13 @@ function AgentWorkActivityViewport(input: {
 		scrollWorkViewportToLatest(viewportRef.current, reduceMotion);
 		setIsFollowing(true);
 		setLastSeenStepCount(totalCount);
-		setLastSeenProgress(input.progress);
+		setLastSeenText(currentText);
 	};
 
 	return (
 		<div className="relative">
 			<ul
-				aria-label={input.progress ? "Work steps and updates" : "Work steps"}
+				aria-label={resolveAgentWorkListLabel(input)}
 				className={cn(
 					"overscroll-contain pr-1",
 					"max-h-[min(12rem,30dvh)] overflow-y-auto"
@@ -226,20 +247,30 @@ function AgentWorkActivityViewport(input: {
 					);
 				})}
 				{input.progress ? (
-					<li className="list-none py-1.5" data-slot="agent-public-progress">
-						<p className="mb-1 text-muted-foreground text-xs">
-							Progress updates
-						</p>
-						<MessageResponse
-							isStreaming={input.isLive && input.progressActive !== false}
-							variant="reasoning"
-						>
-							{input.progress}
-						</MessageResponse>
+					<AgentStreamText
+						label="Progress updates"
+						slot="agent-public-progress"
+						streaming={input.isLive && input.progressActive !== false}
+						text={input.progress}
+					/>
+				) : null}
+				{input.reasoning ? (
+					<AgentStreamText
+						firstOutputMs={input.reasoningFirstOutputMs}
+						label="Thinking process"
+						showLabel={shownSteps.length > 0 || Boolean(input.progress)}
+						slot="agent-reasoning"
+						streaming={input.isLive && input.reasoningActive !== false}
+						text={input.reasoning}
+					/>
+				) : null}
+				{!input.reasoning && input.reasoningNotice ? (
+					<li className="list-none py-1.5 text-muted-foreground text-xs">
+						{input.reasoningNotice}
 					</li>
 				) : null}
 			</ul>
-			{unseenStepCount > 0 || hasUnseenProgress ? (
+			{unseenStepCount > 0 || hasUnseenText ? (
 				<button
 					className="mt-1 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					onClick={handleJumpToLatest}
@@ -252,6 +283,77 @@ function AgentWorkActivityViewport(input: {
 			) : null}
 		</div>
 	);
+}
+
+function AgentStreamText(input: {
+	firstOutputMs?: number;
+	label: string;
+	showLabel?: boolean;
+	slot: string;
+	streaming: boolean;
+	text: string;
+}) {
+	return (
+		<li className="list-none py-1.5" data-slot={input.slot}>
+			{input.showLabel !== false || input.firstOutputMs !== undefined ? (
+				<p className="mb-1 text-muted-foreground text-xs">
+					{input.showLabel !== false ? input.label : null}
+					{input.firstOutputMs !== undefined ? (
+						<span className={input.showLabel === false ? undefined : "ml-2"}>
+							First output in {(input.firstOutputMs / 1000).toFixed(1)}s
+						</span>
+					) : null}
+				</p>
+			) : null}
+			<MessageResponse isStreaming={input.streaming} variant="reasoning">
+				{input.text}
+			</MessageResponse>
+		</li>
+	);
+}
+
+function resolveReasoningNotice(
+	status: LocalAgentReasoningState["status"] | undefined
+): string | null {
+	switch (status) {
+		case "disabled":
+			return "Live reasoning is turned off by this Agent’s owner.";
+		case "unavailable":
+			return "This Agent connection doesn’t support live reasoning.";
+		case "waiting":
+			return "Waiting for reasoning output…";
+		default:
+			return null;
+	}
+}
+
+function resolveAgentWorkHeading(input: {
+	isLive: boolean;
+	progress?: string;
+	reasoning?: string | null;
+	steps: readonly SpaceAgentWorkStep[];
+}): string {
+	if (input.steps.length > 0) {
+		return resolveWorkSummary(input.steps, input.isLive);
+	}
+	if (input.reasoning) {
+		return "Thinking process";
+	}
+	return input.isLive ? "Live updates" : "Progress updates";
+}
+
+function resolveAgentWorkListLabel(input: {
+	progress?: string;
+	reasoning?: string;
+	reasoningNotice?: string | null;
+}): string {
+	if (input.reasoning) {
+		return "Work steps and reasoning";
+	}
+	if (input.progress) {
+		return "Work steps and updates";
+	}
+	return input.reasoningNotice ? "Thinking process" : "Work steps";
 }
 
 function resolveWorkSummary(
