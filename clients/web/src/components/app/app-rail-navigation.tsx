@@ -58,6 +58,7 @@ type AppRailDestination = {
 	attentionTone?: "danger" | "warning" | null;
 	attentionCount?: number;
 	icon: ReactNode;
+	inboxAttention?: ReturnType<typeof useInboxAttention>;
 	id: AppRailDestinationId;
 	label: string;
 	onIntentPrefetch?: () => void;
@@ -89,19 +90,9 @@ export function buildAppRailGroups(input: {
 					id: "inbox",
 					label: "Inbox",
 					accessibleLabel: input.inboxAttention?.label,
+					inboxAttention: input.inboxAttention,
 					to: buildOrganizationInboxPath(input.orgSlug),
-					icon: (
-						<>
-							<TrayIcon aria-hidden="true" className="size-5" />
-							{input.inboxAttention ? (
-								<InboxAttentionBadge
-									count={input.inboxAttention.count}
-									indicatorTone={input.inboxAttention.indicatorTone}
-									tone={input.inboxAttention.tone}
-								/>
-							) : null}
-						</>
-					),
+					icon: <TrayIcon aria-hidden="true" className="size-5" />,
 				},
 				{
 					id: "directMessages",
@@ -331,6 +322,9 @@ function AppRailDestinationIcon(input: {
 			ref={input.iconRef}
 		>
 			{input.destination.icon}
+			{input.destination.inboxAttention && input.tier === "icon" ? (
+				<InboxAttentionBadge {...input.destination.inboxAttention} />
+			) : null}
 			{input.statusIndicator && input.tier !== "expanded" ? (
 				<AppRailStatusDot
 					indicator={input.statusIndicator}
@@ -363,6 +357,12 @@ function AppRailDestinationLabel(input: {
 			)}
 		>
 			<CenterTruncatedText text={input.destination.label} />
+			{input.destination.inboxAttention && input.tier === "expanded" ? (
+				<InboxAttentionBadge
+					{...input.destination.inboxAttention}
+					placement="trailing"
+				/>
+			) : null}
 			{input.statusIndicator && input.tier === "expanded" ? (
 				<AppRailStatusDot
 					indicator={input.statusIndicator}

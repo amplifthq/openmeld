@@ -77,6 +77,36 @@ function PlatformAppMenuItem(input: { index: number; webPath: string }) {
 	);
 }
 
+function footerLayout(iconOnly: boolean, isDrawer: boolean) {
+	return {
+		actionClass: cn(
+			"shrink-0 justify-center p-0 text-sidebar-foreground/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground",
+			iconOnly ? "size-9" : "size-7",
+			isDrawer && "h-11 w-full justify-start gap-3 px-3"
+		),
+		actionsClassName: cn(
+			"app-sidebar-footer-actions gap-1",
+			iconOnly && "mx-auto w-9",
+			!(iconOnly || isDrawer) && "min-w-0 flex-1 flex-row items-center",
+			isDrawer && "min-w-0 flex-col items-stretch"
+		),
+		footerClassName: cn(
+			"app-sidebar-footer p-2",
+			isDrawer &&
+				"border-border border-t [&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11"
+		),
+		userItemClassName: cn(
+			iconOnly && "w-9",
+			!(iconOnly || isDrawer) && "min-w-0 flex-1",
+			isDrawer && "w-full min-w-0"
+		),
+	};
+}
+
+function drawerText(label: string, isDrawer: boolean) {
+	return isDrawer ? label : null;
+}
+
 export function AppSidebarFooter({
 	account,
 	humanProfileAvatar,
@@ -110,6 +140,8 @@ export function AppSidebarFooter({
 	);
 	const { resolvedTheme, setTheme } = useTheme();
 	const dark = resolvedTheme === "dark";
+	const isDrawer = presentation === "drawer";
+	const themeActionLabel = dark ? "Light mode" : "Dark mode";
 	const openAccount = () => {
 		dismiss();
 		setMenuOpen(false);
@@ -123,25 +155,11 @@ export function AppSidebarFooter({
 			name={name}
 		/>
 	);
-	const actionClass = cn(
-		"shrink-0 justify-center p-0 text-sidebar-foreground/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground",
-		iconOnly ? "size-9" : "size-7"
-	);
+	const { actionClass, actionsClassName, footerClassName, userItemClassName } =
+		footerLayout(iconOnly, isDrawer);
 	return (
-		<SidebarFooter
-			className={cn(
-				"app-sidebar-footer p-2",
-				presentation === "drawer" &&
-					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11"
-			)}
-		>
-			<SidebarMenu
-				aria-label="App utilities"
-				className={cn(
-					"app-sidebar-footer-actions gap-1",
-					iconOnly ? "mx-auto w-9" : "min-w-0 flex-1 flex-row items-center"
-				)}
-			>
+		<SidebarFooter className={footerClassName}>
+			<SidebarMenu aria-label="App utilities" className={actionsClassName}>
 				<SidebarMenuItem className="shrink-0">
 					<CollapsedRailTooltip
 						label="Search or run a command"
@@ -156,7 +174,9 @@ export function AppSidebarFooter({
 								window.dispatchEvent(new Event("openmeld:command-center"));
 							}}
 							tabIndex={0}
-						/>
+						>
+							{drawerText("Search", isDrawer)}
+						</SidebarMenuButton>
 					</CollapsedRailTooltip>
 				</SidebarMenuItem>
 				<SidebarMenuItem className="shrink-0">
@@ -175,7 +195,9 @@ export function AppSidebarFooter({
 								/>
 							}
 							tabIndex={0}
-						/>
+						>
+							{drawerText(settingsLabel, isDrawer)}
+						</SidebarMenuButton>
 					</CollapsedRailTooltip>
 				</SidebarMenuItem>
 				<SidebarMenuItem className="shrink-0">
@@ -189,7 +211,9 @@ export function AppSidebarFooter({
 							icon={dark ? SunIcon : MoonIcon}
 							onClick={() => setTheme(dark ? "light" : "dark")}
 							tabIndex={0}
-						/>
+						>
+							{drawerText(themeActionLabel, isDrawer)}
+						</SidebarMenuButton>
 					</CollapsedRailTooltip>
 				</SidebarMenuItem>
 				<SidebarUserMenuItem
@@ -198,7 +222,7 @@ export function AppSidebarFooter({
 							{avatar}
 						</AccountAvatarWithComputerAttention>
 					}
-					className={iconOnly ? "w-9" : "min-w-0 flex-1"}
+					className={userItemClassName}
 					iconOnly={iconOnly}
 					menu={
 						showAccounts && !desktop ? (

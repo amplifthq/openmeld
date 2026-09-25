@@ -11,6 +11,8 @@ label. Attention markers sit beside the icons, and organization and account
 avatars fill matching shape-aware squares. The Spaces sidebar now keeps creation
 and view controls compact, with view and filters grouped in one menu and a
 shorter search field.
+On phones, Inbox and Spaces status markers follow their labels, and navigation
+utilities and the account menu sit in a vertical footer at the bottom of the drawer.
 Team now places its people filters beside the Add menu and uses the same compact
 search field style. Its directory filters use clear icons for groups and
 computer states.
