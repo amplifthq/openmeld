@@ -67,14 +67,11 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
   const tree = await readGitTree(fetchImpl, location, commitSha, githubToken);
   const skillMarkdownPath = selectSkillMarkdownPath(tree, location.path);
   const skillDirectory = parentPath(skillMarkdownPath);
-  const files = tree.filter((item) => {
-    if (item.type !== "blob" || typeof item.path !== "string") {
-      return false;
-    }
-    return skillDirectory.length === 0
-      ? !item.path.includes("/")
-      : item.path.startsWith(`${skillDirectory}/`);
-  });
+  const files = filesInSkillDirectory(
+    tree,
+    skillDirectory,
+    skillDirectories(tree)
+  );
   requireSafeGitHubFileDeclarations(files);
 
   let totalBytes = 0;
@@ -169,18 +166,14 @@ export async function previewOrganizationSkillRepositoryFromGitHub(input: {
     githubToken
   );
   const tree = await readGitTree(fetchImpl, location, commitSha, githubToken);
-  const skillPaths = tree
-    .filter(
-      (item) =>
-        item.type === "blob" &&
-        typeof item.path === "string" &&
-        (item.path === "SKILL.md" || item.path.endsWith("/SKILL.md")) &&
-        (location.path === null ||
-          item.path === `${location.path}/SKILL.md` ||
-          item.path.startsWith(`${location.path}/`))
-    )
-    .map((item) => parentPath(requireTreePath(item)))
-    .sort();
+  const allSkillPaths = skillDirectories(tree);
+  const skillPaths = allSkillPaths.filter(
+    (path) =>
+      location.path === null ||
+      location.path === (path ? `${path}/SKILL.md` : "SKILL.md") ||
+      (path !== "" &&
+        (path === location.path || path.startsWith(`${location.path}/`)))
+  );
   if (skillPaths.length === 0) {
     throw githubImportError(
       "organization_skill.skill_markdown_missing",
@@ -194,14 +187,7 @@ export async function previewOrganizationSkillRepositoryFromGitHub(input: {
     );
   }
   const skills = skillPaths.map((path) => {
-    const files = tree.filter(
-      (item) =>
-        item.type === "blob" &&
-        typeof item.path === "string" &&
-        (path.length === 0
-          ? !item.path.includes("/")
-          : item.path.startsWith(`${path}/`))
-    );
+    const files = filesInSkillDirectory(tree, path, allSkillPaths);
     const totalBytes = files.reduce((sum, file) => sum + (file.size ?? 0), 0);
     let blocker: { code: string; message: string } | null = null;
     try {
@@ -223,7 +209,7 @@ export async function previewOrganizationSkillRepositoryFromGitHub(input: {
       totalBytes,
       url: path
         ? `${location.repositoryUrl}/tree/${commitSha}/${path.split("/").map(encodeURIComponent).join("/")}`
-        : `${location.repositoryUrl}?ref=${commitSha}`,
+        : `${location.repositoryUrl}/blob/${commitSha}/SKILL.md`,
       warnings: files.some((file) =>
         file.path?.startsWith(path ? `${path}/scripts/` : "scripts/")
       )
@@ -252,6 +238,40 @@ export async function previewOrganizationSkillRepositoryFromGitHub(input: {
     ],
     skills,
   };
+}
+
+function skillDirectories(tree: GitHubTreeItem[]): string[] {
+  return tree
+    .filter(
+      (item) =>
+        item.type === "blob" &&
+        typeof item.path === "string" &&
+        (item.path === "SKILL.md" || item.path.endsWith("/SKILL.md"))
+    )
+    .map((item) => parentPath(requireTreePath(item)))
+    .sort();
+}
+
+function filesInSkillDirectory(
+  tree: GitHubTreeItem[],
+  directory: string,
+  allSkillDirectories: string[]
+): GitHubTreeItem[] {
+  const nestedDirectories = allSkillDirectories.filter(
+    (path) =>
+      path !== directory && path.startsWith(directory ? `${directory}/` : "")
+  );
+  return tree.filter((item) => {
+    if (item.type !== "blob" || typeof item.path !== "string") {
+      return false;
+    }
+    if (directory && !item.path.startsWith(`${directory}/`)) {
+      return false;
+    }
+    return !nestedDirectories.some((nested) =>
+      item.path?.startsWith(`${nested}/`)
+    );
+  });
 }
 
 function requireSafeGitHubFileDeclarations(files: GitHubTreeItem[]): void {
@@ -324,10 +344,10 @@ function parseGitHubLocation(input: string): GitHubLocation {
   }
   const ref = kind ? (segments[3] ?? null) : url.searchParams.get("ref");
   const sourcePath = kind ? segments.slice(4).join("/") : null;
-  const path =
-    kind === "blob" && sourcePath?.endsWith("/SKILL.md")
-      ? parentPath(sourcePath)
-      : sourcePath || null;
+  let path = sourcePath || null;
+  if (kind === "blob" && sourcePath?.endsWith("/SKILL.md")) {
+    path = parentPath(sourcePath);
+  }
   return {
     owner,
     path,

@@ -766,6 +766,88 @@ describe("Organization Skills", () => {
     ).toBe(false);
   });
 
+  it("keeps root Skill resources while excluding nested Skill packages", async () => {
+    const commitSha = "f".repeat(40);
+    const markdown = [
+      "---",
+      "name: root-skill",
+      "description: Use the root Skill.",
+      "---",
+      "Follow the root instructions.",
+    ].join("\n");
+    const nestedMarkdown = markdown.replace("root-skill", "nested-skill");
+    const files = new Map([
+      ["SKILL.md", markdown],
+      ["references/guide.md", "# Guide"],
+      ["scripts/run.py", "print('hello')"],
+      ["nested/SKILL.md", nestedMarkdown],
+      ["nested/assets/example.txt", "Nested asset"],
+    ]);
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.endsWith(`/repos/acme/skills/commits/${commitSha}`)) {
+        return Promise.resolve(Response.json({ sha: commitSha }));
+      }
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({
+            tree: [...files].map(([path, content]) => ({
+              mode: "100644",
+              path,
+              size: new TextEncoder().encode(content).byteLength,
+              type: "blob",
+            })),
+            truncated: false,
+          })
+        );
+      }
+      if (
+        url.startsWith(
+          `https://raw.githubusercontent.com/acme/skills/${commitSha}/`
+        )
+      ) {
+        const path = url.split(`/${commitSha}/`)[1] ?? "";
+        const content = files.get(path);
+        return Promise.resolve(
+          content === undefined
+            ? new Response("not found", { status: 404 })
+            : new Response(content)
+        );
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+
+    const preview = await previewOrganizationSkillRepositoryFromGitHub({
+      fetch: fetchMock,
+      url: "https://github.com/acme/skills",
+    });
+    expect(preview.skills).toMatchObject([
+      {
+        fileCount: 3,
+        path: "",
+        totalBytes: [...files]
+          .slice(0, 3)
+          .reduce(
+            (sum, [, content]) =>
+              sum + new TextEncoder().encode(content).byteLength,
+            0
+          ),
+        warnings: [expect.stringContaining("not executable")],
+        url: `https://github.com/acme/skills/blob/${commitSha}/SKILL.md`,
+      },
+      { fileCount: 2, path: "nested" },
+    ]);
+    const imported = await importOrganizationSkillBundleFromGitHub({
+      fetch: fetchMock,
+      url: preview.skills[0]?.url ?? "",
+    });
+    expect(imported.bundle.files.map((file) => file.path)).toEqual([
+      "references/guide.md",
+      "scripts/run.py",
+    ]);
+    expect(imported.source.path).toBe("");
+  });
+
   it("lets managers preview the exact GitHub release before installation", async () => {
     const fixture = await seedFixture();
     const commitSha = "c".repeat(40);
