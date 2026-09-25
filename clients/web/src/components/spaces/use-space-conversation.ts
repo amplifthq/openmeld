@@ -235,7 +235,7 @@ export function useSpaceConversation(input: {
 }
 
 function buildPendingDeltaFrameKey(frame: SpaceAgentStreamDeltaFrame): string {
-	const kind = frame.kind === "thinking" ? "thinking" : "text";
+	const kind = frame.kind ?? "text";
 	return `${frame.streamId}:${kind}`;
 }
 

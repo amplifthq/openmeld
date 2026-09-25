@@ -70,6 +70,7 @@ export {
   generateCenterAgentSessionTitleInputSchema,
   generateCenterAgentSessionTitleResponseSchema,
 } from "./runtime/center-agent-session-title";
+export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-history";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
@@ -2831,7 +2832,11 @@ export {
   wakeDeviceWaitSchema,
   wakeDeviceWaitTargetSchema,
 } from "./protocol/wake-device-wait";
-export { agentComputerBrowserRequestSchema } from "./runtime/agent-computer-browser";
+export {
+  agentComputerBrowserRequestSchema,
+  agentComputerPreviewRequestSchema,
+  agentComputerPreviewRoutePropsSchema,
+} from "./runtime/agent-computer-browser";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,

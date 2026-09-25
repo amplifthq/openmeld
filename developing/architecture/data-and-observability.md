@@ -2486,8 +2486,22 @@ deduplication window, including CardKit mutation ambiguity, become
 republish them automatically or select another connected provider.
 
 Native-delivery admission also freezes the originating recovery destination
-and controller normalization evidence in the native-delivery ledger. The
-snapshot contains the Space thread, Slack channel/thread, or Lark/Feishu typed
+and controller normalization evidence in the native-delivery ledger. CardKit
+presentation receipts additionally occupy the nullable
+`provider_progress_card_history_json` column on that same row. Core is the only
+writer. The bounded, versioned value stores up to five retired card IDs and
+rendered hashes plus one pending source snapshot while a provider claim is
+unresolved. It is not execution truth or a second publication outbox. Successful
+updates discard the pending text; rollover handoff atomically retains the
+outgoing identity before replacing the active card. Work-loop continuation
+resets the current response's receipt range without altering earlier work.
+This history cannot be rebuilt from provider offsets alone. Legacy missing
+receipts produce an explicit supersession notice, not invented card identities.
+Apply the additive database migration before deploying a Core reader that selects
+this column. Older Core readers ignore it; a rollback does not remove the column.
+
+The frozen admission snapshot contains the Space thread, Slack channel/thread,
+or Lark/Feishu typed
 locator needed by publication and recovery. Inspect and execute read that
 historical snapshot; they never recalculate it from the current mutable
 Binding, caller surface, or current connector selection. Retained final payload
@@ -2900,9 +2914,11 @@ Hosted external tool usage is a separate Analytics Engine projection named
 `remote_agent.tool_usage.v1`. It records the organization, Space, submission,
 tool name, provider, operation, outcome, wall duration, bounded input/output
 byte counts, provider request count, and Browser Run milliseconds when
-available. Research records OpenRouter server-tool request counts, Browser Run
-records `X-Browser-Ms-Used`, and Cloudflare Sandbox records each filesystem or
-shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
+available. The Organization is its single Analytics Engine sampling index;
+Space and submission are blob dimensions, since Analytics Engine accepts only
+one index per data point. Research records OpenRouter server-tool request
+counts, Browser Run records `X-Browser-Ms-Used`, and Cloudflare Sandbox records
+each filesystem or shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
 execution with bounded generated-code input and result byte counts plus the
 number of inner tool calls. Each inner call keeps its existing capability-owned
 usage record. Generated code, tool arguments, commands, tool results, logs, page

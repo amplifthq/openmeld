@@ -2521,6 +2521,10 @@ export type ApplySpaceAgentStreamDeltaInput =
           thinkingSnapshot: string;
           reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
         }
+      | {
+          kind: "progress";
+          progressSnapshot: string;
+        }
     );
 
 export type ApplySpaceAgentStreamPartInput = {

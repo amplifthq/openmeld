@@ -458,7 +458,7 @@ import {
   type AgentStreamProjectionStorage,
   applyAgentStreamDelta,
   applyAgentStreamPart,
-  applyAgentStreamThinkingDelta,
+  applyAgentStreamTransientDelta,
   attachAgentActivityToFinalReply,
   cleanupExpiredAgentStreamProjections,
   closeAgentStreamProjection,
@@ -476,7 +476,6 @@ import {
   resolveHumanSpaceSelfJoinUserId,
   resolveOrganizationSpaceSelfJoinUserId,
 } from "../../application/organization-space-self-join";
-import { ReasoningReplay } from "../../application/reasoning-replay";
 import {
   assertSpaceAccessMatchesSpace,
   authorizeProtectedSpaceAccess,
@@ -595,6 +594,7 @@ import {
   assertSameSpaceWorkHandoff,
   validateSpaceWorkHandoff,
 } from "../../application/space-work-handoff";
+import { TransientAgentStreamReplay } from "../../application/transient-agent-stream-replay";
 import type {
   PasswordAuthorizationResult,
   SignalPublishContext,
@@ -2515,7 +2515,7 @@ export class Space extends DurableObject<CoreBindings> {
     CreatorProfileIdsByProfileId
   >();
   private readonly sessions: Map<WebSocket, Session> = new Map();
-  private readonly reasoningReplay = new ReasoningReplay();
+  private readonly transientStreamReplay = new TransientAgentStreamReplay();
   private readonly activeReplyingSignalsByDispatchId = new Map<
     string,
     {
@@ -6843,7 +6843,7 @@ export class Space extends DurableObject<CoreBindings> {
         presence,
       ])
     );
-    for (const frame of this.reasoningReplay.read(Date.now())) {
+    for (const frame of this.transientStreamReplay.read(Date.now())) {
       const presence = presences.get(frame.streamId);
       if (
         !presence ||
@@ -6851,7 +6851,7 @@ export class Space extends DurableObject<CoreBindings> {
         presence.profileId !== frame.profileId ||
         presence.triggerMessageId !== frame.triggerMessageId
       ) {
-        this.reasoningReplay.forget(frame.streamId);
+        this.transientStreamReplay.forget(frame.streamId);
         continue;
       }
       const projected = agentStreamForReplyPlacementReader(
@@ -6861,21 +6861,27 @@ export class Space extends DurableObject<CoreBindings> {
       if (!projected) {
         continue;
       }
-      if (!(await this.canReplayReasoning(frame))) {
+      if (!(await this.canReplayTransientStream(frame))) {
         continue;
       }
       if (
         (await this.authorizeLiveSession(session)) &&
-        this.reasoningReplay.isCurrent(frame)
+        this.transientStreamReplay.isCurrent(frame)
       ) {
         webSocket.send(JSON.stringify(projected));
       }
     }
   }
 
-  private async canReplayReasoning(
-    frame: Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }>
+  private async canReplayTransientStream(
+    frame: Extract<
+      SpaceAgentStreamDeltaFrame,
+      { kind: "thinking" | "progress" }
+    >
   ): Promise<boolean> {
+    if (frame.kind === "progress") {
+      return true;
+    }
     if (!frame.reasoningState) {
       return true;
     }
@@ -6894,7 +6900,7 @@ export class Space extends DurableObject<CoreBindings> {
       ) {
         return true;
       }
-      this.reasoningReplay.forget(frame.streamId);
+      this.transientStreamReplay.forget(frame.streamId);
     } catch {
       // Private replay fails closed when the preference owner is unavailable.
     }
@@ -8230,7 +8236,7 @@ export class Space extends DurableObject<CoreBindings> {
   rpcClearReasoningReplay(input: ClearSpaceReasoningReplay): void {
     const parsed = clearSpaceReasoningReplaySchema.parse(input);
     this.applySpaceRef(parsed.spaceId);
-    this.reasoningReplay.clearProfile(parsed.profileId);
+    this.transientStreamReplay.clearProfile(parsed.profileId);
   }
 
   async rpcApplyAgentStreamDelta(
@@ -8241,18 +8247,18 @@ export class Space extends DurableObject<CoreBindings> {
     | { status: "rejected"; lastSequence: number; reasonCode: string }
   > {
     this.applySpaceRef(input.spaceId);
-    if (input.kind === "thinking") {
+    if (input.kind === "thinking" || input.kind === "progress") {
       const nowMs = Date.now();
-      const replayRevision = this.reasoningReplay.revision;
-      const result = await applyAgentStreamThinkingDelta({
+      const replayRevision = this.transientStreamReplay.revision;
+      const result = await applyAgentStreamTransientDelta({
         storage: this.agentStreamProjectionStorage,
         delta: input,
         nowMs,
       });
       if (result.status === "accepted") {
-        const frame = buildAgentStreamThinkingDeltaFrame(input, nowMs);
-        if (replayRevision === this.reasoningReplay.revision) {
-          this.reasoningReplay.remember(frame);
+        const frame = buildAgentStreamTransientDeltaFrame(input, nowMs);
+        if (replayRevision === this.transientStreamReplay.revision) {
+          this.transientStreamReplay.remember(frame);
         }
         this.broadcast(frame);
         await this.syncSpaceBackgroundAlarm();
@@ -8330,7 +8336,7 @@ export class Space extends DurableObject<CoreBindings> {
       terminal: input.terminal,
       nowMs,
     });
-    this.reasoningReplay.forget(input.streamId);
+    this.transientStreamReplay.forget(input.streamId);
     if (!result.stream) {
       await this.syncSpaceBackgroundAlarm();
       return null;
@@ -22210,10 +22216,21 @@ function buildAgentStreamDeltaFrame(
   });
 }
 
-function buildAgentStreamThinkingDeltaFrame(
-  input: Extract<ApplySpaceAgentStreamDeltaInput, { kind: "thinking" }>,
+function buildAgentStreamTransientDeltaFrame(
+  input: Extract<
+    ApplySpaceAgentStreamDeltaInput,
+    { kind: "thinking" | "progress" }
+  >,
   updatedAtMs: number
 ): SpaceAgentStreamDeltaFrame {
+  if (input.kind === "progress") {
+    return spaceAgentStreamDeltaFrameSchema.parse({
+      ...input,
+      type: "space.agent_stream_delta",
+      state: "streaming",
+      updatedAtMs,
+    });
+  }
   return spaceAgentStreamDeltaFrameSchema.parse({
     type: "space.agent_stream_delta",
     v: input.v,

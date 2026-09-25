@@ -367,7 +367,7 @@ describe("SpaceThreadPanel", () => {
 		const activityTrigger = screen.getByRole("button", {
 			name: "Agent is working. Work summary: Reviewing source files…",
 		});
-		expect(activityTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
 			'[data-slot="space-message-progress-row"]'
 		);
@@ -384,7 +384,9 @@ describe("SpaceThreadPanel", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("button", { name: "Open message details" })
+			within(messageRow as HTMLElement).getByRole("button", {
+				name: "Message details",
+			})
 		);
 
 		expect(

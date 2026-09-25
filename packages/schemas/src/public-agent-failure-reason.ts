@@ -24,6 +24,8 @@ export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
   "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
   "Center Agent couldn't generate a reply. Your message is saved.";
+export const CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY =
+  "Center Agent reached the model's response limit before it could reply. Completed actions were not undone. Check the results, then send a shorter follow-up asking it to continue.";
 export const CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY =
   "Center Agent couldn't start this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY =
@@ -88,6 +90,8 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
   switch (input.failureCode) {
     case "remote_agent.empty_assistant_response":
       return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+    case "remote_agent.turn.output_limit_exceeded":
+      return CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY;
     case "remote_agent.execution_cancelled":
       return CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY;
     case "remote_agent.turn.context_window_exceeded":

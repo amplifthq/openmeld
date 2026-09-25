@@ -33,6 +33,8 @@ export type SpaceConversationVisibleStreamProjection =
 			textSequence: number;
 			thinking?: string;
 			thinkingActive?: boolean;
+			progress?: string;
+			progressActive?: boolean;
 			reasoningState?: LocalAgentReasoningState;
 	  })
 	| (SpaceConversationStreamCommon & {
@@ -85,7 +87,8 @@ export function applySpaceConversationStreamFrame(input: {
 				input.frame.kind === "thinking" &&
 				!currentProjection.thinking &&
 				!currentProjection.reasoningState
-			)
+			) &&
+			!(input.frame.kind === "progress" && !currentProjection.progress)
 		) {
 			return input.current;
 		}
@@ -257,6 +260,12 @@ function toPresenceProjection(input: {
 					thinkingActive: currentStreamingProjection.thinkingActive,
 				}
 			: {}),
+		...(currentStreamingProjection?.progress
+			? {
+					progress: currentStreamingProjection.progress,
+					progressActive: currentStreamingProjection.progressActive,
+				}
+			: {}),
 		...(currentStreamingProjection?.toolParts
 			? { toolParts: currentStreamingProjection.toolParts }
 			: {}),
@@ -295,6 +304,8 @@ export function clearSpaceConversationTransientStreams(
 		const {
 			thinking: _thinking,
 			thinkingActive: _thinkingActive,
+			progress: _progress,
+			progressActive: _progressActive,
 			reasoningState: _reasoningState,
 			toolParts: _toolParts,
 			...persistent
@@ -313,10 +324,6 @@ function toStreamingProjection(input: {
 		input.currentProjection?.status === "streaming"
 			? input.currentProjection
 			: undefined;
-	const thinking =
-		input.frame.kind === "thinking"
-			? input.frame.thinkingSnapshot
-			: currentStreamingProjection?.thinking;
 	return {
 		createdAtMs: input.createdAtMs,
 		dispatchId: input.frame.dispatchId,
@@ -331,33 +338,14 @@ function toStreamingProjection(input: {
 		status: "streaming",
 		streamId: input.frame.streamId,
 		text:
-			input.frame.kind === "thinking"
+			input.frame.kind === "thinking" || input.frame.kind === "progress"
 				? (currentStreamingProjection?.text ?? "")
 				: input.frame.textSnapshot,
 		textSequence:
-			input.frame.kind === "thinking"
+			input.frame.kind === "thinking" || input.frame.kind === "progress"
 				? (currentStreamingProjection?.textSequence ?? 0)
 				: input.frame.sequence,
-		...(thinking
-			? {
-					thinking,
-					thinkingActive:
-						input.frame.kind === "thinking" &&
-						input.frame.sequence >= (currentStreamingProjection?.sequence ?? 0),
-				}
-			: {}),
-		...((
-			input.frame.kind === "thinking"
-				? input.frame.reasoningState
-				: currentStreamingProjection?.reasoningState
-		)
-			? {
-					reasoningState:
-						input.frame.kind === "thinking"
-							? input.frame.reasoningState
-							: currentStreamingProjection?.reasoningState,
-				}
-			: {}),
+		...projectTransientStreamContent(input.frame, currentStreamingProjection),
 		triggerMessageId: input.frame.triggerMessageId,
 		...(input.currentProjection
 			? {
@@ -375,6 +363,39 @@ function toStreamingProjection(input: {
 		...(input.currentProjection?.toolParts
 			? { toolParts: input.currentProjection.toolParts }
 			: {}),
+	};
+}
+
+function projectTransientStreamContent(
+	frame: SpaceAgentStreamDeltaFrame,
+	current:
+		| Extract<SpaceConversationVisibleStreamProjection, { status: "streaming" }>
+		| undefined
+) {
+	const thinking =
+		frame.kind === "thinking" ? frame.thinkingSnapshot : current?.thinking;
+	const progress =
+		frame.kind === "progress" ? frame.progressSnapshot : current?.progress;
+	const reasoningState =
+		frame.kind === "thinking" ? frame.reasoningState : current?.reasoningState;
+	return {
+		...(thinking
+			? {
+					thinking,
+					thinkingActive:
+						frame.kind === "thinking" &&
+						frame.sequence >= (current?.sequence ?? 0),
+				}
+			: {}),
+		...(progress
+			? {
+					progress,
+					progressActive:
+						frame.kind === "progress" &&
+						frame.sequence >= (current?.sequence ?? 0),
+				}
+			: {}),
+		...(reasoningState ? { reasoningState } : {}),
 	};
 }
 
@@ -433,6 +454,10 @@ function toStreamingPartProjection(input: {
 		input.currentProjection.thinking
 			? { thinking: input.currentProjection.thinking, thinkingActive: false }
 			: {}),
+		...(input.currentProjection?.status === "streaming" &&
+		input.currentProjection.progress
+			? { progress: input.currentProjection.progress, progressActive: false }
+			: {}),
 		toolParts: boundedToolParts,
 		triggerMessageId: input.frame.triggerMessageId,
 		...(input.currentProjection
@@ -480,6 +505,13 @@ function toSnapshotProjection(input: {
 			? {
 					thinking: input.currentProjection.thinking,
 					thinkingActive: input.currentProjection.thinkingActive,
+				}
+			: {}),
+		...(input.currentProjection?.status === "streaming" &&
+		input.currentProjection.progress
+			? {
+					progress: input.currentProjection.progress,
+					progressActive: input.currentProjection.progressActive,
 				}
 			: {}),
 		triggerMessageId: input.snapshot.triggerMessageId,

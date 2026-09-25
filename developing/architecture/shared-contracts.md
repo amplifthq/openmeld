@@ -3322,9 +3322,9 @@ Shared schema surfaces define the hosted Center Agent and workstation Local
 Agent Space-stream paths:
 
 - `packages/schemas/src/schemas/runtime/remote-agent-worker.ts` owns the
-  worker-to-Core sequenced text/thinking snapshot and tool-part callbacks plus
+  worker-to-Core sequenced text/public-progress snapshot and tool-part callbacks plus
   their shared response. Core accepts the legacy text-only callback while the
-  current producer emits the typed callback. Thinking is transient and must not
+  current producer emits the typed callback. Public progress is transient and must not
   enter callback-context storage or the final completion callback. This schema
   also owns the durable execution query and targeted
   cancellation request/response unions for one native-delivery submission.
@@ -3367,13 +3367,13 @@ Agent Space-stream paths:
   or a stuck execution from silence. Old Service/Gateway combinations do not
   negotiate the header and therefore continue without live reasoning.
 - `packages/schemas/src/schemas/protocol/agent-stream.ts` owns Space live text,
-  thinking, tool-part, and terminal frames plus the active stream presence,
+  thinking, public-progress, tool-part, and terminal frames plus the active stream presence,
   active text snapshot, and durable privacy-bounded Agent reply work
   projection. Text frames preserve the legacy wire shape. The active presence
   contains only stream identity, sequence, gap, and timing evidence; it carries
-  no reply text or private thinking. Thinking frames are active-stream-only
+  no reply text or private thinking. Thinking and public-progress frames are active-stream-only
   refresh data: Space may advance the shared sequence cursor and expose its
-  privacy-safe presence, but must not store thinking in SQL, bootstrap,
+  privacy-safe presence, but must not store either transient tail in SQL, bootstrap,
   conversation snapshots, Message details, or final Signals. The optional
   versioned `work`
   object is the only user-presentation meaning: it contains an admitted
@@ -3429,6 +3429,11 @@ response field for callers that did not opt in. A successful
 final reply carries the complete optional durable projection in
 `signal.text.data.meta.agentWorkSummary` and may separately expose its
 timestamped bounded summary through Message details for 14 days. During a
+successful hosted turn, the same final Signal may carry up to 8,192 characters
+of explicit public updates in `meta.agentPublicProgress`. This additive field
+contains neither provider reasoning nor tool input or output. Space stores its
+draft only until a terminal outcome and omits it for failed or stopped turns.
+During a
 mixed-version rollout, Core may also emit `meta.agentActivity` containing only
 steps accepted by the previously deployed strict schema. A cached older Web
 client ignores the additive `agentWorkSummary` field and can therefore keep the
