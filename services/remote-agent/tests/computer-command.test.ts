@@ -126,9 +126,9 @@ function fixture() {
       operation: (value: WorkspaceClient) => Promise<T>
     ) => await operation(workspace),
   };
-  const tool = (submissionId = "execution-a") =>
+  const tool = (submissionId = "execution-a", personal = false) =>
     createComputerCommandTool({
-      context: context(submissionId),
+      context: context(submissionId, personal),
       storage,
       workspaceAccess,
       workingDirectory: "/computer/spaces/a",
@@ -353,9 +353,15 @@ describe("retained Computer commands", () => {
     expect(started).toMatchObject({ key: "lost", status: "running" });
   });
 
-  it("publishes failure when a stopped command's exact retained process has disappeared", async () => {
+  it.each([
+    { personal: false, commandCount: 1 },
+    { personal: true, commandCount: 4 },
+  ])("publishes one failure after $commandCount exact Computer records disappear (personal=$personal)", async ({
+    personal,
+    commandCount,
+  }) => {
     const f = fixture();
-    const executionContext = context("execution-a");
+    const executionContext = context("execution-a", personal);
     const identity = buildRemoteAgentExecutionIdentity(executionContext);
     await putRemoteAgentCallbackContext(f.storage, executionContext);
     await initializeRemoteAgentExecutionState({
@@ -363,18 +369,35 @@ describe("retained Computer commands", () => {
       storage: f.storage,
       acceptedAtMs: TEST_NOW_MS,
     });
-    const started = (await f
-      .tool()
-      .execute({ action: "start", key: "long", command: "sleep 300" })) as {
-      id: string;
-    };
-    await f.tool().execute({ action: "stop", key: "long" });
-    const missing = Object.assign(
-      new Error(`no exec record for id ${started.id}`),
-      { code: "ENOENT" }
+    const keys = Array.from(
+      { length: commandCount },
+      (_, index) => `long-${index}`
     );
-    f.getExec.mockRejectedValue(missing);
-    f.killExec.mockRejectedValue(missing);
+    for (const key of keys) {
+      await f.tool("execution-a", personal).execute({
+        action: "start",
+        key,
+        command: "sleep 300",
+      });
+    }
+    const missing = (id: string) =>
+      Object.assign(new Error(`no exec record for id ${id}`), {
+        code: "ENOENT",
+      });
+    f.getExec.mockImplementation((id) => Promise.reject(missing(id)));
+    f.killExec.mockImplementation((id) => Promise.reject(missing(id)));
+    for (const key of keys) {
+      await expect(
+        f.tool("execution-a", personal).execute({
+          action: "poll",
+          key,
+          waitSeconds: 0,
+        })
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        f.tool("execution-a", personal).execute({ action: "stop", key })
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    }
     cleanupAccess.mockReturnValue(f.workspaceAccess);
     const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
 
@@ -388,15 +411,20 @@ describe("retained Computer commands", () => {
     const completeRemoteAgentSubmission = vi.fn(async () => ({
       status: "accepted" as const,
     }));
-    await expect(
-      reconcileRemoteAgentExecution({
+    const reconcile = async () =>
+      await reconcileRemoteAgentExecution({
         coreWorker: { completeRemoteAgentSubmission },
         env,
         identity,
         readSubmission: async () => ({ status: "settled" }),
         storage: f.storage,
-      })
-    ).resolves.toMatchObject({ execution: { status: "failed" } });
+      });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "failed" },
+    });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "failed" },
+    });
     expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
     expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -407,7 +435,9 @@ describe("retained Computer commands", () => {
         ),
       })
     );
-    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.exec).toHaveBeenCalledTimes(commandCount);
+    expect(f.getExec).toHaveBeenCalledTimes(commandCount * 2);
+    expect(f.killExec).toHaveBeenCalledTimes(commandCount * 2);
   });
 
   it("keeps cleanup pending when inspection is missing but Stop has no exit proof", async () => {

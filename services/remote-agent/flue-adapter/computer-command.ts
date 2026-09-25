@@ -562,6 +562,13 @@ export async function stopRemoteAgentComputerCommands(input: {
         }
       });
     } catch (error) {
+      console.warn("[remote_agent.computer_command_cleanup_error]", {
+        submissionId: input.context.submissionId,
+        commandId: command.id,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorCode:
+          error instanceof Error && "code" in error ? error.code : undefined,
+      });
       failures.push(error);
     }
   }
