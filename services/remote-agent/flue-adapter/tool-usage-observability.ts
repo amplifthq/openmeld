@@ -31,7 +31,7 @@ export function emitRemoteAgentToolUsage(
 ): void {
   try {
     env.OPENMELD_OBSERVABILITY?.writeDataPoint({
-      indexes: [record.organizationId, record.spaceId, record.submissionId],
+      indexes: [record.organizationId],
       doubles: [
         record.durationMs,
         record.requestCount ?? 1,
@@ -46,6 +46,8 @@ export function emitRemoteAgentToolUsage(
         record.provider,
         record.operation,
         record.outcome,
+        record.spaceId,
+        record.submissionId,
         record.recordedAt,
       ],
     });

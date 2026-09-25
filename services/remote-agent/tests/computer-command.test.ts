@@ -23,6 +23,7 @@ import {
 } from "../flue-adapter/computer-command";
 import { createRemoteAgentComputerCapability } from "../flue-adapter/computer-sandbox";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
+import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
 import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
 import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
@@ -125,9 +126,9 @@ function fixture() {
       operation: (value: WorkspaceClient) => Promise<T>
     ) => await operation(workspace),
   };
-  const tool = (submissionId = "execution-a") =>
+  const tool = (submissionId = "execution-a", personal = false) =>
     createComputerCommandTool({
-      context: context(submissionId),
+      context: context(submissionId, personal),
       storage,
       workspaceAccess,
       workingDirectory: "/computer/spaces/a",
@@ -350,6 +351,190 @@ describe("retained Computer commands", () => {
     expect(f.killExec).not.toHaveBeenCalled();
     expect(f.exec).toHaveBeenCalledTimes(1);
     expect(started).toMatchObject({ key: "lost", status: "running" });
+  });
+
+  it.each([
+    { personal: false, commandCount: 1 },
+    { personal: true, commandCount: 4 },
+  ])("publishes one failure after $commandCount exact Computer records disappear (personal=$personal)", async ({
+    personal,
+    commandCount,
+  }) => {
+    const f = fixture();
+    const executionContext = context("execution-a", personal);
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    const keys = Array.from(
+      { length: commandCount },
+      (_, index) => `long-${index}`
+    );
+    for (const key of keys) {
+      await f.tool("execution-a", personal).execute({
+        action: "start",
+        key,
+        command: "sleep 300",
+      });
+    }
+    const missing = (id: string) =>
+      Object.assign(new Error(`no exec record for id ${id}`), {
+        code: "ENOENT",
+      });
+    f.getExec.mockImplementation((id) => Promise.reject(missing(id)));
+    f.killExec.mockImplementation((id) => Promise.reject(missing(id)));
+    for (const key of keys) {
+      await expect(
+        f.tool("execution-a", personal).execute({
+          action: "poll",
+          key,
+          waitSeconds: 0,
+        })
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        f.tool("execution-a", personal).execute({ action: "stop", key })
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
+
+    await expect(
+      finishRemoteAgentComputerCommands({
+        context: executionContext,
+        env,
+        storage: f.storage,
+      })
+    ).rejects.toThrow("a retained process record was missing");
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      status: "accepted" as const,
+    }));
+    const reconcile = async () =>
+      await reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        env,
+        identity,
+        readSubmission: async () => ({ status: "settled" }),
+        storage: f.storage,
+      });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "failed" },
+    });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "failed" },
+    });
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        submissionId: "execution-a",
+        failureDetail: expect.stringContaining(
+          "a retained process record was missing"
+        ),
+      })
+    );
+    expect(f.exec).toHaveBeenCalledTimes(commandCount);
+    expect(f.getExec).toHaveBeenCalledTimes(commandCount * 2);
+    expect(f.killExec).toHaveBeenCalledTimes(commandCount * 2);
+  });
+
+  it("acknowledges Stop and publishes one aborted outcome when a retained command is gone", async () => {
+    const f = fixture();
+    const executionContext = context("execution-a");
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    await f
+      .tool()
+      .execute({ action: "start", key: "long", command: "sleep 300" });
+    const missing = Object.assign(new Error("no exec record"), {
+      code: "ENOENT",
+    });
+    f.getExec.mockRejectedValue(missing);
+    f.killExec.mockRejectedValue(missing);
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
+    const abortSubmission = vi.fn(async () => {
+      await stopRemoteAgentComputerCommands({
+        context: executionContext,
+        env,
+        storage: f.storage,
+      });
+      return { aborted: true };
+    });
+
+    await expect(
+      cancelFlueRemoteAgentExecution({
+        abortSubmission,
+        identity,
+        nowMs: TEST_NOW_MS + 1,
+        reason: "Stopped by the user.",
+        storage: f.storage,
+      })
+    ).resolves.toMatchObject({
+      response: { status: "cancellation_requested" },
+    });
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      status: "accepted" as const,
+    }));
+    const reconcile = async () =>
+      await reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        env,
+        identity,
+        readSubmission: async () => ({ status: "settled" }),
+        storage: f.storage,
+      });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "aborted" },
+    });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "aborted" },
+    });
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(f.exec).toHaveBeenCalledOnce();
+  });
+
+  it("keeps cleanup pending when inspection is missing but Stop has no exit proof", async () => {
+    const f = fixture();
+    const started = (await f
+      .tool()
+      .execute({ action: "start", key: "long", command: "sleep 300" })) as {
+      id: string;
+    };
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
+    f.getExec.mockRejectedValueOnce(
+      Object.assign(new Error("no exec record"), { code: "ENOENT" })
+    );
+    await expect(
+      stopRemoteAgentComputerCommands({
+        context: context("execution-a"),
+        env,
+        storage: f.storage,
+      })
+    ).rejects.toThrow("Computer command cleanup failed");
+    expect(f.killExec).toHaveBeenCalledWith(started.id, {
+      backend: "container",
+      signal: "SIGTERM",
+    });
+    f.getExec.mockImplementation(async (id) =>
+      handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true)
+    );
+    await expect(
+      stopRemoteAgentComputerCommands({
+        context: context("execution-a"),
+        env,
+        storage: f.storage,
+      })
+    ).resolves.toBe(0);
+    expect(f.getExec).toHaveBeenCalledTimes(2);
   });
 
   it("reports a native live subscriber as running and later reads the retained exit", async () => {
