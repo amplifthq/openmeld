@@ -654,7 +654,12 @@ function buildRemoteAgentSourceText(
         (file) =>
           `- ${JSON.stringify(file.name)} — fileId=${file.fileId}, revision=${file.revision}, type=${file.mimeType}, size=${file.sizeBytes} bytes.`
       ),
-      "Use openmeld_read_space_file for text content and openmeld_save_space_file to create or update text files. The fileId and revision identify the exact bytes that were sent.",
+      "Use openmeld_read_space_file for text content. For binary content, download the exact revision into your Computer with openmeld_download_space_file. Use openmeld_save_space_file to create or update text files. The fileId and revision identify the exact bytes that were sent.",
+      ...(files.some((file) => file.mimeType.startsWith("video/"))
+        ? [
+            "For video content, download the file, then use openmeld_inspect_computer_video to sample frames and transcribe audio in bounded intervals. State which intervals you inspected; do not claim to have watched the entire video unless you covered it.",
+          ]
+        : []),
     ].join("\n"),
   ].join("\n\n");
 }
