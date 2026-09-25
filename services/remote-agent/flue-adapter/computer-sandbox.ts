@@ -23,6 +23,11 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import { callCoreRpc } from "../agent-core/core-rpc";
+import {
+  type RemoteAgentImagePreparer,
+  understandRemoteAgentImages,
+} from "../agent-core/image-understanding";
+import type { RemoteAgentModelEnv } from "../agent-core/model";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
@@ -39,6 +44,7 @@ import { createComputerCommandTool } from "./computer-command";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { getComputerSpaceFileTools } from "./computer-space-files";
+import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
 import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
@@ -79,11 +85,14 @@ export function isRemoteAgentComputerEnabled(env: {
 export async function createRemoteAgentComputerCapability(input: {
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
-  env: ComputerObservabilityEnv & {
-    AGENT_COMPUTER?: unknown;
-    BROWSER?: unknown;
-  };
+  env: ComputerObservabilityEnv &
+    RemoteAgentModelEnv & {
+      AGENT_COMPUTER?: unknown;
+      AI?: Ai;
+      BROWSER?: unknown;
+    };
   includeOrganizationDocuments: boolean;
+  prepareImage?: RemoteAgentImagePreparer;
   storage?: RemoteAgentStorage;
 }): Promise<{
   definitions: RemoteAgentToolDefinition[];
@@ -184,6 +193,9 @@ export async function createRemoteAgentComputerCapability(input: {
       },
     });
   }
+  const prepareImage = input.prepareImage;
+  const videoModel = input.context.modelRoute?.imageUnderstandingModel;
+  const transcriptionAi = input.env.AI;
   return {
     definitions: [
       ...getRemoteAgentSandboxToolDefinitions({
@@ -203,6 +215,38 @@ export async function createRemoteAgentComputerCapability(input: {
               workspaceAccess,
               workingDirectory,
             }),
+            ...(prepareImage && videoModel && transcriptionAi
+              ? [
+                  getComputerVideoInspectionTool({
+                    computerExec: (command, options) =>
+                      api.exec(command, options),
+                    understandFrames: async (frames) =>
+                      await understandRemoteAgentImages({
+                        env: input.env,
+                        images: frames,
+                        model: videoModel,
+                        organizationId: input.context.organizationId,
+                        prepareImage,
+                      }),
+                    transcribeAudio: async (bytes) => {
+                      const result = await transcriptionAi.run(
+                        "@cf/openai/whisper-large-v3-turbo",
+                        { audio: Buffer.from(bytes).toString("base64") }
+                      );
+                      if (typeof result.text !== "string") {
+                        throw new Error(
+                          "Audio transcription returned no text."
+                        );
+                      }
+                      return result.text.slice(0, 12_000);
+                    },
+                    storage: input.storage,
+                    submissionId: input.context.submissionId,
+                    workspaceAccess,
+                    workingDirectory,
+                  }),
+                ]
+              : []),
             createComputerCommandTool({
               context: input.context,
               storage: input.storage,

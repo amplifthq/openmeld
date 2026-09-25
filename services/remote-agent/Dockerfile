@@ -10,7 +10,7 @@ FROM node:24-trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       fuse3 libfuse2t64 ca-certificates \
-      git curl jq python3 tini build-essential \
+      git curl jq python3 tini build-essential ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 # Match the repository's supported Node and pnpm majors in the cloud Computer.

@@ -4304,7 +4304,7 @@ above the composer with a **Files** item so later composer actions can be added
 without changing the primary control. The file picker accepts arbitrary files;
 paste and drag and drop use the same path.
 
-A composer accepts up to ten files, each up to the shared 10 MiB limit.
+A composer accepts up to ten files, each up to the shared 1 GiB Space File limit.
 Selection immediately stages each file as a temporary Composer Upload and keeps
 a removable local row with image thumbnail when available, file name, progress,
 failure, and request id. A staged upload is not listed in Files. The file tray
