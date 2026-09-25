@@ -2914,7 +2914,7 @@ roll back callers before receivers. Gateway fails closed if an old Core omits
 stream metadata rather than mislabeling a full response as partial. MIME
 inference adds MP4, M4V, MOV and WebM extensions, not a universal codec guarantee.
 
-Space Files accept individual files up to 250 MiB. The single-request
+Space Files accept individual files up to 1 GiB. The single-request
 compatibility path remains capped at 10 MiB; larger files use the shared
 resumable multipart contract rather than buffering larger requests in Gateway:
 Core-authorized upload
@@ -2930,7 +2930,7 @@ The resumable contract uses one server-owned lifecycle for creates and new
 revisions:
 
 1. `start` carries the exact target, requested name and folder when creating,
-   MIME type, expected byte size, per-part SHA-256 digests, base revision, and client mutation id. The
+   MIME type, expected byte size, up to 128 per-part SHA-256 digests, base revision, and client mutation id. The
    owning Space reauthorizes the actor, freezes that metadata, and returns an
    client's opaque upload-session id plus the R2-compatible part policy.
 2. The owning Space creates or resumes the R2 multipart upload under a private
@@ -2972,19 +2972,22 @@ contract verification in one receiver-first rollout. Downloads stream through
 Core and Gateway; CLI downloads stream to disk. The existing buffered internal
 read RPC remains capped at 10 MiB and rejects larger reads explicitly.
 
-The 250 MiB policy widens existing strict file descriptors. An older client
-can still upload small files but can reject a response containing a larger file.
-Release updated readers before enabling large-file producers: local components
-and Remote Agent readers, then Core and Gateway receivers, then Web and CLI
-authoring. Already-open Web clients must refresh. Setup, Service lifecycle,
-Wake routing, and execution authority are unchanged. Rollback disables new
-producers first and keeps readers capable of reading existing large files.
-The CLI and Service contracts and runtime execution epoch advance because old
-dispatch validators reject file references above 10 MiB. Both local components
-are required updates before receiving new dispatches; Skills are unchanged.
-Publish their compatible channel before deploying Core's new epoch. This avoids
-accepting a Wake that the old Service cannot decode. Existing in-flight work
-retains its normal coordinator finalization path.
+The 1 GiB policy widens existing strict file descriptors. An older client can
+still upload small files but can reject a response containing a file above its
+previous 250 MiB ceiling. Release updated readers before enabling larger-file
+producers: local components and Remote Agent readers, then Core and Gateway
+receivers, then Web and CLI authoring. Already-open Web clients must refresh.
+Deploy the Remote Agent video tool and Workers AI binding before Core begins
+including the video-inspection hint in hosted submissions; its file RPC calls
+use already-existing Core methods during that brief mixed-version interval.
+Setup, Service lifecycle, Wake routing, and execution authority are unchanged.
+Rollback disables new producers first and keeps readers capable of reading
+existing large files. The CLI and Service contracts and runtime execution epoch
+advance because old dispatch validators reject file references above 250 MiB.
+Both local components are required updates before receiving new dispatches;
+Skills are unchanged. Publish their compatible channel before deploying Core's
+new epoch. This avoids accepting a Wake that the old Service cannot decode.
+Existing in-flight work retains its normal coordinator finalization path.
 
 The canonical Space File rollout is receiver-first across strict boundaries:
 

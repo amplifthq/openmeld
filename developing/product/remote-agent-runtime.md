@@ -236,7 +236,7 @@ keyed by the encoded pair, because a shell can traverse its entire filesystem.
 A working-directory convention alone cannot protect DM files from another
 Space. Center retains its existing profile-owned Computer and cross-Space
 continuity. Both roles share the same filesystem and execution implementation.
-Selected Space files, including binary files up to the existing 10 MiB limit,
+Selected Space files, including binary files up to the 1 GiB Space File limit,
 can be downloaded into the current Computer and published back through canonical
 Space Files. Published files attach their exact revision to the final reply.
 `openmeld_upload_computer_file` retains its create-and-attach behavior.
@@ -247,8 +247,20 @@ Space conflict; callers must not silently replace the base with the latest
 revision. `openmeld_attach_space_file` separately selects an authorized exact
 revision for the final reply. These operations use the existing Core writer,
 read authorization, and final publication checks for both hosted roles.
-Computer transfers retain the 10 MiB single-request limit independently of the
-larger Space Files multipart limit.
+Computer downloads stream the authorized exact revision into Computer storage.
+Computer uploads and saves stream 8 MiB parts through the existing Space Files
+multipart contract above 10 MiB; smaller files may use the bounded raw path.
+The attach tool resolves authorized metadata without reading file bytes.
+Neither hosted role automatically materializes every message file in Computer.
+For video, the Agent can download an exact Space File revision and explicitly
+inspect up to 30 seconds at a time, with at most ten intervals per Agent turn.
+Each inspection samples at most six frames
+for the configured image understanding model and transcribes only that interval's
+audio through Workers AI. Results state the inspected interval and sampling
+coverage, so the Agent must not claim complete observation of an uninspected
+video. Temporary frames and audio are deleted after the inspection; the
+original file remains the canonical Space File revision. The feature does not
+automatically process a video merely because it was received in a Space or DM.
 The existing `openmeld_save_space_file` tool continues to accept inline UTF-8
 text; its name and input contract remain distinct from Computer file transfers.
 

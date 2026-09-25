@@ -30,6 +30,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_FILE_MAX_SIZE_BYTES,
 } from "../../src/index";
 
 const TEST_CENTER_AGENT_MODEL_ROUTE = {
@@ -200,7 +201,7 @@ describe("Remote Agent worker contracts", () => {
       id: `space-file-${index + 1}`,
       mimeType: "image/png" as const,
       objectKey: `org/org_1/space/space_1/files/space-file-${index + 1}/revisions/revision-1`,
-      sizeBytes: 250 * 1024 * 1024,
+      sizeBytes: SPACE_FILE_MAX_SIZE_BYTES,
     }));
 
     expect(
