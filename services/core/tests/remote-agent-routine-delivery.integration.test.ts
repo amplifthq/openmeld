@@ -2814,7 +2814,13 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("projects a failed callback once and keeps late callbacks from reopening the Run", async () => {
+  it.each([
+    ["remote_agent.empty_assistant_response", "The Agent produced no reply."],
+    [
+      "remote_agent.turn.output_limit_exceeded",
+      "The Agent reached the model's response limit before it could reply.",
+    ],
+  ])("projects a %s callback once and keeps late callbacks from reopening the Run", async (failureCode, expectedFailureText) => {
     const fixture = await seedRoutineDeliveryFixture();
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
     const workerSubmit = vi.fn(async () => ({
@@ -2847,7 +2853,7 @@ describe("Remote Agent Routine native delivery", () => {
       agentProfileId: fixture.profileId,
       bindingId: fixture.bindingId,
       dispatchId: fixture.runId,
-      failureCode: "remote_agent.empty_assistant_response",
+      failureCode,
       failureMessage:
         "Center Agent couldn't generate a reply. Your message is saved.",
       idempotencyKey: fixture.runId,
@@ -2875,7 +2881,7 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
         ?.text
     ).toContain(
-      `Routine “${fixture.routine.name}” did not publish a result. The Agent produced no reply.`
+      `Routine “${fixture.routine.name}” did not publish a result. ${expectedFailureText}`
     );
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
@@ -2894,7 +2900,7 @@ describe("Remote Agent Routine native delivery", () => {
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({
-      failureCode: "remote_agent.empty_assistant_response",
+      failureCode,
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
@@ -2911,7 +2917,7 @@ describe("Remote Agent Routine native delivery", () => {
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({
-      failureCode: "remote_agent.empty_assistant_response",
+      failureCode,
       status: "failed",
     });
   });

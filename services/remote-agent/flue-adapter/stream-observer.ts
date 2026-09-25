@@ -631,7 +631,10 @@ function resolveObservedRemoteAgentTerminalFailure(input: {
   if (!input.hasAssistantText) {
     return createRemoteAgentTerminalFailureFact({
       reasonCode:
-        REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_EMPTY_ASSISTANT_RESPONSE,
+        input.event.agentOutput?.type === "text" &&
+        input.event.agentOutput.finishReason === "length"
+          ? REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_OUTPUT_LIMIT_EXCEEDED
+          : REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_EMPTY_ASSISTANT_RESPONSE,
       status: "failed",
     });
   }
