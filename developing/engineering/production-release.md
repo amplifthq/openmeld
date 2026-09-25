@@ -293,6 +293,12 @@ conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
 independent live-production acceptance check.
 
+For a verified Database release, status can classify later Database schema and
+migration changes independently when unrelated historical Worker contracts no
+longer compose into one plan. The database stage still checks the live pending
+migration list and committed schema before applying anything. Other components
+remain unknown when their historical compatibility plan cannot be established.
+
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
 Workers, and Web may legitimately be at different release sources such as R,
@@ -433,6 +439,17 @@ valid new rejection as a protocol error. The schema path alone remains
 non-directional, so request-only changes do not accidentally select this
 profile. This response-reader requirement takes precedence when the same diff
 also contains Center Agent Task or Context Manifest paths.
+
+The hosted public-progress bridge is a narrow reviewed exception: if the
+versioned worker schema differs only by its output-limit reason constant and
+the additive progress callback kind, and the target Remote Agent contains the
+old-Core rejection fallback, the planner does not invent a strict worker
+*response* change from that shared file path. It keeps the real Remote Agent
+request receiver-first dependency. Any other schema edit, missing historical
+content, or missing fallback retains the conservative response dependency.
+For this bridge, deploy Remote Agent before Core; an older Core can reject a
+public progress update while the agent still streams text and publishes its
+final reply. The new Core reader then enables the progress update.
 
 The planner selects the `center-agent-cli-receiver-first` profile when the diff
 contains a Center Agent Task or Context Manifest contract path. Within the
