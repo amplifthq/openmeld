@@ -46,6 +46,7 @@ import type {
 } from "#/components/directory/directory-human-profile-model";
 import {
 	buildDirectoryAgentProfilesByOwner,
+	resolveCurrentOrganizationComputersProjection,
 	resolveHumanProfileComputer,
 } from "#/components/directory/directory-human-profile-model";
 import {
@@ -120,6 +121,10 @@ export function AgentProfileDetailsContent(input: {
 	onNavigate?: () => void;
 }) {
 	const canEdit = input.details.viewerScope === "owner_self";
+	const availabilitySummary =
+		input.entry.availabilitySummary !== resolveAgentPresenceSummary(input.entry)
+			? input.entry.availabilitySummary
+			: null;
 
 	return (
 		<div
@@ -133,7 +138,6 @@ export function AgentProfileDetailsContent(input: {
 				isCenterAgent={input.isCenterAgent === true}
 				moreDetailsHref={input.moreDetailsHref}
 				onNavigate={input.onNavigate}
-				showAvailabilitySummary
 			/>
 			<AgentProfileDirectMessageAction
 				href={input.chatHref}
@@ -142,8 +146,13 @@ export function AgentProfileDetailsContent(input: {
 				onOpen={input.onOpenDirectMessage}
 				profileName={input.entry.profileName}
 			/>
+			{availabilitySummary ? (
+				<p className="mt-3 border-border border-t pt-3 text-muted-foreground text-xs">
+					{availabilitySummary}
+				</p>
+			) : null}
 			{!input.isCenterAgent && (
-				<div className="mt-3 border-border border-t pt-3">
+				<div className="mt-3 border-border border-t pt-3 empty:hidden">
 					<AgentProfileUsage
 						profileId={input.entry.profileId}
 						variant="popover"
@@ -161,7 +170,6 @@ function AgentProfileDetailsHeader(input: {
 	entry: SpaceMemberDirectoryEntry;
 	isCenterAgent: boolean;
 	moreDetailsHref?: string;
-	showAvailabilitySummary: boolean;
 	onNavigate?: () => void;
 }) {
 	const modelSummary =
@@ -169,10 +177,6 @@ function AgentProfileDetailsHeader(input: {
 		input.entry.controllerDisplayName ??
 		"Agent";
 	const presenceSummary = resolveAgentPresenceSummary(input.entry);
-	const showAvailabilitySummary =
-		input.showAvailabilitySummary &&
-		input.entry.availabilitySummary &&
-		input.entry.availabilitySummary !== presenceSummary;
 	return (
 		<ProfileCardHeader
 			action={
@@ -222,15 +226,10 @@ function AgentProfileDetailsHeader(input: {
 			}
 			name={input.entry.profileName}
 		>
-			<p className="mt-1 break-words text-muted-foreground text-sm">
+			<p className="mt-1 truncate text-muted-foreground text-sm">
 				{modelSummary}
 			</p>
 			{!input.isCenterAgent && <AgentProfileOwner entry={input.entry} />}
-			{showAvailabilitySummary ? (
-				<p className="mt-1 text-muted-foreground text-xs">
-					{input.entry.availabilitySummary}
-				</p>
-			) : null}
 		</ProfileCardHeader>
 	);
 }
@@ -252,7 +251,7 @@ function AgentProfileOwner({ entry }: { entry: SpaceMemberDirectoryEntry }) {
 	}
 	return (
 		<p className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
-			<span>Owned by</span>
+			<span className="shrink-0">Owned by</span>
 			{owner?.humanProfile && (
 				<DitherProfileAvatar
 					avatarImageUrl={owner.user.image}
@@ -262,7 +261,7 @@ function AgentProfileOwner({ entry }: { entry: SpaceMemberDirectoryEntry }) {
 					size={16}
 				/>
 			)}
-			<span className="min-w-0 break-words text-foreground">{name}</span>
+			<span className="min-w-0 truncate text-foreground">{name}</span>
 		</p>
 	);
 }
@@ -572,12 +571,10 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 		isError: profileDirectoryQuery.isError,
 		isPending: profileDirectoryQuery.isPending,
 	});
-	const computersStatus = resolveDirectoryProjectionStatus({
-		isError: computersQuery.isError,
-		isPending: computersQuery.isPending,
-	});
+	const { data: currentComputers, status: computersStatus } =
+		resolveCurrentOrganizationComputersProjection(computersQuery);
 	const computer = resolveHumanProfileComputer({
-		computers: computersQuery.data ?? null,
+		computers: currentComputers,
 		isCurrentUser: input.entry.ownerUserId === input.currentOwnerUserId,
 		orgSlug: input.orgSlug,
 		status: computersStatus,
@@ -638,32 +635,31 @@ function HumanProfileDetailsPopoverContent(input: {
 					size="md"
 				/>
 				<div className="min-w-0 flex-1 pt-0.5">
-					<div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
-						<p className="break-words font-semibold text-base text-foreground">
+					<div className="flex min-w-0 items-baseline gap-x-1.5">
+						<p className="truncate font-semibold text-base text-foreground">
 							{input.entry.profileName}
 						</p>
 						{input.isSelf ? (
-							<span className="text-muted-foreground text-sm before:mr-1.5 before:content-['·']">
+							<span className="shrink-0 text-muted-foreground text-sm before:mr-1.5 before:content-['·']">
 								You
 							</span>
 						) : null}
-					</div>
-					<div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
 						{input.activityTime ? (
 							<TooltipHint content="Last activity in this Space">
-								<span>{input.activityTime}</span>
+								<span className="shrink-0 whitespace-nowrap text-muted-foreground text-xs before:mr-1.5 before:content-['·']">
+									{input.activityTime}
+								</span>
 							</TooltipHint>
 						) : null}
-						{input.computer ? (
-							<>
-								{input.activityTime ? <span aria-hidden="true">·</span> : null}
-								<DirectoryHumanProfileComputerSummary
-									computer={input.computer}
-									ownerName={input.entry.profileName}
-								/>
-							</>
-						) : null}
 					</div>
+					{input.computer ? (
+						<div className="mt-2 min-w-0 text-muted-foreground text-xs">
+							<DirectoryHumanProfileComputerSummary
+								computer={input.computer}
+								ownerName={input.entry.profileName}
+							/>
+						</div>
+					) : null}
 				</div>
 				{input.profileHref ? (
 					<TooltipHint content="View profile">

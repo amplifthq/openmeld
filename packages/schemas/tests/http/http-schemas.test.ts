@@ -42,6 +42,7 @@ import {
   MAX_SPACE_GUIDE_LENGTH,
   MAX_SPACE_NAME_LENGTH,
   messageSearchQuerySchema,
+  mutateSpaceTaskBodySchema,
   normalizeListSignalsReadQuerySemantics,
   normalizeSpaceCursorPatch,
   OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
@@ -83,6 +84,7 @@ import {
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_SIGNAL_AUTHORING_POLICY_REQUIRED_ERROR_CODE,
+  SPACE_TASK_OPERATION_ID_MAX_CHARS,
   SPACE_UPDATES_DEFAULT_LIMIT,
   SPACE_UPDATES_MAX_LIMIT,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
@@ -101,6 +103,8 @@ import {
   spaceRouteParamsSchema,
   spaceSignalAuthoringPolicySchema,
   spaceStorageUsageSchema,
+  spaceTaskDetailOptionsSchema,
+  spaceTaskGitHubIssueOperationId,
   spaceTaskSchema,
   updateProfileResponseSchema,
   upsertProfileSpaceHistoryBodySchema,
@@ -940,6 +944,41 @@ describe("http schemas", () => {
       expect(putSpaceContractBodySchema.safeParse(contractFields).success).toBe(
         true
       );
+    });
+
+    it("narrows old client mixed action lists without granting a replacement permission", () => {
+      expect(
+        putSpaceContractBodySchema.parse(contractFields).allowedActions
+      ).toEqual(["post_message", "stay_silent"]);
+      expect(
+        patchSpaceContractBodySchema.parse({
+          allowedActions: ["post_status", "stay_silent"],
+        }).allowedActions
+      ).toEqual(["stay_silent"]);
+      expect(
+        patchSpaceContractBodySchema.safeParse({
+          allowedActions: ["post_status"],
+        }).success
+      ).toBe(false);
+      expect(
+        putSpaceContractBodySchema.safeParse({
+          ...contractFields,
+          allowedActions: ["post_status"],
+        }).success
+      ).toBe(false);
+      expect(
+        patchSpaceContractBodySchema.parse({ publicationMode: "collaboration" })
+      ).not.toHaveProperty("allowedActions");
+      const stored = {
+        ...contractFields,
+        version: 1,
+        updatedAt: "2026-03-19T00:00:00.000Z",
+        updatedBy: HUMAN_PROFILE_ID,
+        allowedActions: ["post_status"],
+      };
+      expect(
+        getSpaceContractResponseSchema.parse(stored).allowedActions
+      ).toEqual(["post_status"]);
     });
 
     it("accepts a canonical PATCH body and rejects an empty patch", () => {
@@ -3028,6 +3067,40 @@ describe("http schemas", () => {
       expect(
         gatewayErrorCodeSchema.safeParse("space_task.revision_conflict").success
       ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.result_revision_conflict")
+          .success
+      ).toBe(true);
+      const review = {
+        action: "review",
+        decision: "accepted",
+        expectedRevision: 5,
+        operationId: "review-current-result",
+      };
+      expect(mutateSpaceTaskBodySchema.safeParse(review).success).toBe(false);
+      expect(
+        mutateSpaceTaskBodySchema.safeParse({
+          ...review,
+          expectedResultRevision: 2,
+        }).success
+      ).toBe(true);
+      expect(
+        spaceTaskDetailOptionsSchema.safeParse({ includeAffordances: true })
+          .success
+      ).toBe(true);
+      expect(
+        spaceTaskDetailOptionsSchema.safeParse({ includeAffordances: "1" })
+          .success
+      ).toBe(false);
+      const providerOperation = spaceTaskGitHubIssueOperationId(
+        "observe-closed",
+        { owner: "o".repeat(39), repo: "r".repeat(100), number: 123_456_789 },
+        "tsk_55555555-5555-4555-8555-555555555555",
+        "9e230c99-4ed2-411c-862b-3978db60bfb2"
+      );
+      expect(providerOperation.length).toBeLessThanOrEqual(
+        SPACE_TASK_OPERATION_ID_MAX_CHARS
+      );
       expect(
         gatewayErrorCodeSchema.safeParse("space_task.operation_conflict")
           .success

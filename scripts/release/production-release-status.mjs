@@ -6,6 +6,10 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { buildFinalCandidateObservation } from "../ci/final-candidate-observer.mjs";
+import {
+  buildTrustedGitHubRepositoryUrl,
+  createTrustedGitEnvironment,
+} from "../ci/trusted-git-network.mjs";
 import { buildProductionReleasePlan } from "./production-release.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
 import {
@@ -21,7 +25,7 @@ const execFileAsync = promisify(execFile);
 const CHECKOUT_SOURCE_REGEX =
   /git log -1 --format=%H[^\r\n]*\r?\n[^\r\n]*\b([0-9a-f]{40})\b/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
-const RELEASE_JOB_BATCH_SIZE = 6;
+const RELEASE_JOB_BATCH_SIZE = 16;
 const RELEASE_TITLE_SOURCE_REGEX = /@ ([0-9a-f]{40})$/u;
 const SCOPED_RELEASE_WORKFLOW_REGEX = /Scoped Production Release/u;
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
@@ -50,6 +54,7 @@ export function parseProductionReleaseStatusArgs(argv) {
     changeBase: undefined,
     deployed: new Map(),
     json: false,
+    planStage: undefined,
     ref: DEFAULT_REF,
     repo: undefined,
   };
@@ -58,19 +63,15 @@ export function parseProductionReleaseStatusArgs(argv) {
     if (arg === "--") {
       continue;
     }
-    if (arg === "--ref") {
+    const valueOption = {
+      "--ref": "ref",
+      "--change-base": "changeBase",
+      "--repo": "repo",
+      "--plan-stage": "planStage",
+    }[arg];
+    if (valueOption) {
       index += 1;
-      options.ref = readRequiredArgument(argv, index, arg);
-      continue;
-    }
-    if (arg === "--change-base") {
-      index += 1;
-      options.changeBase = readRequiredArgument(argv, index, arg);
-      continue;
-    }
-    if (arg === "--repo") {
-      index += 1;
-      options.repo = readRequiredArgument(argv, index, arg);
+      options[valueOption] = readRequiredArgument(argv, index, arg);
       continue;
     }
     if (arg === "--deployed") {
@@ -112,14 +113,33 @@ export function resolveLatestSuccessfulReleaseSources(input) {
 }
 
 export async function runProductionReleaseStatus(input = {}) {
-  const result = await collectProductionReleaseStatus(input);
   const options = parseProductionReleaseStatusArgs(input.argv ?? []);
+  if (options.json && options.planStage) {
+    throw new Error("--plan-stage uses human output; omit --json.");
+  }
+  const result = await (input.collectStatus ?? collectProductionReleaseStatus)(
+    input
+  );
   const write = input.write ?? ((value) => process.stdout.write(value));
   write(
     options.json
       ? `${JSON.stringify(result, null, 2)}\n`
       : formatReleaseStatus(result)
   );
+  if (options.planStage) {
+    const { runProductionStageAdmission } = await import(
+      "./production-stage-admission.mjs"
+    );
+    await runProductionStageAdmission({
+      collectStatus: () => result,
+      scope: options.planStage,
+      sourceSha: result.sourceSha,
+      write,
+    });
+    write(
+      "Planning snapshot only. The guarded release entrypoint rechecks current state and its lease before any Production mutation.\n"
+    );
+  }
   return result.blockers.length > 0 ? 1 : 0;
 }
 
@@ -580,6 +600,12 @@ function describeComponentEvidence(releaseSource) {
     artifact:
       workerDeployment?.deploymentId ?? cliRelease?.artifact.sha256 ?? null,
     receiptEvidenceSha: releaseSource.evidenceSha ?? null,
+    ...(releaseSource.reconciliation
+      ? {
+          reconciliation: releaseSource.reconciliation,
+          reconciliationEvidenceSha: releaseSource.reconciliationEvidenceSha,
+        }
+      : {}),
     result:
       releaseSource.receipt?.status ??
       (releaseSource.source === "override" ? "declared" : "success"),
@@ -968,7 +994,7 @@ function defaultAdapters() {
       runGhJsonAsync(["api", `repos/${repo}/git/commits/${sourceSha}`]),
     readLocalReleaseSources: (repo) => {
       assertGuardedLocalEvidenceRepository(repo, resolveCheckoutRepository());
-      return readGuardedLocalReleaseSources();
+      return readGuardedReleaseSourcesForStatus({ repo });
     },
     readJobReleaseSha: async (job, repo, run) => {
       const titleSource = RELEASE_TITLE_SOURCE_REGEX.exec(
@@ -1026,6 +1052,36 @@ function defaultAdapters() {
       );
     },
   };
+}
+
+export function readGuardedReleaseSourcesForStatus(input) {
+  const environment = input.environment ?? process.env;
+  if (environment.GITHUB_ACTIONS !== "true") {
+    return readGuardedLocalReleaseSources({ cwd: input.cwd, environment });
+  }
+  if (
+    environment.GITHUB_REPOSITORY?.toLowerCase() !== input.repo.toLowerCase()
+  ) {
+    throw new Error(
+      "Hosted release evidence must belong to the workflow repository."
+    );
+  }
+  const github = {
+    repository: input.repo,
+    serverUrl: environment.GITHUB_SERVER_URL,
+    token: environment.GH_TOKEN,
+  };
+  // GH_TOKEN authenticates gh, but Git does not consume it. Keep the existing
+  // trusted HTTPS credential scoped to this reader's Git children only.
+  return readGuardedLocalReleaseSources({
+    cwd: input.cwd,
+    environment,
+    gitEnvironment: createTrustedGitEnvironment(environment, {
+      ...github,
+      authenticate: true,
+    }),
+    remote: buildTrustedGitHubRepositoryUrl(github),
+  });
 }
 
 export function assertGuardedLocalEvidenceRepository(

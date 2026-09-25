@@ -26,6 +26,11 @@ on:
           - normal
           - resume-after-binary-upload
           - resume-after-npm-publish
+      windows_artifact_run_id:
+        description: "Optional trusted main CLI run whose Windows helper bytes were used to stamp this release"
+        required: false
+        type: string
+        default: ""
       production_train_scopes:
         description: "Comma-separated complete release train; use cli for an independent CLI release"
         required: true
@@ -47,9 +52,41 @@ jobs:
           echo "::error::CLI releases must run from main. Current ref: ${GITHUB_REF}"
           exit 1
 
+  windows_process_artifact:
+    name: Build Windows Process Helper For CLI Package
+    if: github.ref == 'refs/heads/main' && inputs.windows_artifact_run_id == ''
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.release_sha || github.sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/release/build-windows-process-helper.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-process-${{ inputs.release_sha || github.sha }}
+          path: |
+            cli/dist/openmeld-windows-process.exe
+            cli/dist/windows-process-artifact.json
+          if-no-files-found: error
+          retention-days: 7
+
   cli_release:
     name: Publish CLI And Release Core
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      (inputs.windows_artifact_run_id != '' || needs.windows_process_artifact.result == 'success')
+    needs: windows_process_artifact
     runs-on: macos-15
     timeout-minutes: 45
     concurrency:
@@ -116,6 +153,26 @@ jobs:
         with:
           control_directory: release-control
           working_directory: release-source
+
+      - name: Download source-matched Windows process helper
+        if: inputs.windows_artifact_run_id == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-process-${{ env.RELEASE_SHA }}
+          path: release-source/dev-tmp/windows-process-helper
+
+      - name: Verify and import Windows process helper
+        if: inputs.windows_artifact_run_id == ''
+        run: node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-helper
+        working-directory: release-source
+
+      - name: Reuse the stamped Windows process helper
+        if: inputs.windows_artifact_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WINDOWS_ARTIFACT_RUN_ID: ${{ inputs.windows_artifact_run_id }}
+        run: node scripts/release/reuse-windows-process-artifact.mjs
+        working-directory: release-source
 
       - name: Require production database migrations current
         env:

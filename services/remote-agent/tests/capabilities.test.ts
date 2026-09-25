@@ -11,7 +11,10 @@ import {
   REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
   REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES,
 } from "../agent-core/tools";
-import { expandRemoteAgentCapabilityDependencies } from "../flue-adapter/capability-catalog";
+import {
+  expandRemoteAgentCapabilityDependencies,
+  rankRemoteAgentCapabilities,
+} from "../flue-adapter/capability-catalog";
 import {
   REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME,
   REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
@@ -114,6 +117,7 @@ describe("remote agent Flue capability inventory", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
@@ -122,6 +126,11 @@ describe("remote agent Flue capability inventory", () => {
     expect(tools.map((tool) => tool.name)).toContain("web_fetch");
     expect(tools.map((tool) => tool.name)).toContain("browser_read_page");
     expect(tools.map((tool) => tool.name)).toContain("browser_screenshot");
+    expect(
+      rankRemoteAgentCapabilities(tools, "web search fetch page")
+        .slice(0, 5)
+        .map(({ capability }) => capability.name)
+    ).toContain("browser_read_page");
     const recoveryTools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(turnEnvelope),
@@ -316,6 +325,7 @@ describe("remote agent Flue capability inventory", () => {
         "openmeld_create_agent_profile_request",
         "openmeld_read_organization_directory",
         "openmeld_read_agent_profile_creation_defaults",
+        "openmeld_list_hosted_models",
         "openmeld_list_local_agent_connection_candidates",
         "openmeld_list_projects",
       ])
@@ -503,6 +513,7 @@ describe("remote agent Flue capability inventory", () => {
     expect(names).toContain("openmeld_read_org_documents");
     expect(names).toContain("openmeld_draft_org_document");
     expect(names).toEqual([
+      "openmeld_report_progress",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
         (name) =>
           !REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES.some(
@@ -597,6 +608,7 @@ describe("remote agent Flue capability inventory", () => {
     );
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
       ...expectedOpenMeldToolNames,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
@@ -627,6 +639,7 @@ describe("remote agent Flue capability inventory", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
         (name) =>
           name !== "openmeld_remember_for_organization" &&
@@ -662,6 +675,7 @@ describe("remote agent Flue capability inventory", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "openmeld_report_progress",
       ...REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",

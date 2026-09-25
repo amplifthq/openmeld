@@ -24,8 +24,17 @@ export function parseMacMemory(output, pressure, totalBytes) {
   };
 }
 
+export function effectiveTotalMemory(systemBytes, constrainedBytes) {
+  // libuv can report UINT64_MAX for an unconstrained Linux process. A process
+  // constraint can reduce usable RAM, never increase physical machine memory.
+  return Math.min(systemBytes, constrainedBytes || systemBytes);
+}
+
 export function readMachineMemory() {
-  const totalBytes = process.constrainedMemory() || totalmem();
+  const totalBytes = effectiveTotalMemory(
+    totalmem(),
+    process.constrainedMemory()
+  );
   if (process.platform === "darwin") {
     // libuv 1.51's Darwin implementation reports free pages only. Include
     // reclaimable pages, and independently respect operating-system pressure.

@@ -5,6 +5,7 @@ import {
   type CliBinaryManifest,
   type CliBinaryRelease,
   cliBinaryManifestSchema,
+  resolveCliBinaryPlatform,
 } from "@openmeld/schemas";
 import { isBinaryDistribution } from "../runtime/distribution";
 import { openMeldRootDir } from "./paths";
@@ -242,7 +243,8 @@ export async function fetchLatestCliBinaryRelease(input?: {
 }): Promise<CliBinaryReleaseInfo> {
   const manifest = await requestCliBinaryManifest();
   const platform =
-    toNonEmptyString(input?.platform) ?? `${process.platform}-${process.arch}`;
+    toNonEmptyString(input?.platform) ??
+    resolveCliBinaryPlatform(process.platform, process.arch);
   const release = manifest.platforms[platform];
   if (!release) {
     throw new Error(

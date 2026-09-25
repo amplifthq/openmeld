@@ -16,9 +16,17 @@ export type {
   LocalAgentReasoningState,
 } from "../schemas/http/local-agent-reasoning";
 export type {
+  SpaceFileStreamMetadata,
+  SpaceFileStreamOptions,
+} from "../schemas/http/space-file-stream";
+export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type {
+  GenerateCenterAgentSessionTitleInput,
+  GenerateCenterAgentSessionTitleResponse,
+} from "../schemas/runtime/center-agent-session-title";
 export type { MessageChannelCardHistory } from "../schemas/runtime/message-channel-card-history";
 export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
 export type {

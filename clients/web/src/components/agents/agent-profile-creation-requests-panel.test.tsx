@@ -464,6 +464,58 @@ describe("AgentProfileCreationRequestsPanel", () => {
 		expect(screen.queryByText("Release Reviewer")).toBeNull();
 		expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
 	});
+	it("filters attention independently from work in progress and searches the model vendor", async () => {
+		const own = { ...BASE_REQUEST, requesterUserId: "user-felix" };
+		listRequestsMock.mockResolvedValue({
+			organizationId: "org-1",
+			requests: [
+				{
+					...own,
+					id: "failed",
+					profileName: "Broken setup",
+					status: "failed",
+					configuration: {
+						...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+						agentControllerRef: "builtin:codex",
+						modelId: "gpt-5.6-sol",
+					},
+				},
+				{
+					...own,
+					id: "running",
+					profileName: "Still creating",
+					status: "approved",
+				},
+				{
+					...own,
+					id: "local-pending",
+					profileName: "Folder needed",
+					status: "completed",
+					createdAgentProfileId: "agt-folder",
+				},
+			],
+		});
+		readLocalSetupMock.mockImplementation(
+			({ requestId }: { requestId: string }) =>
+				requestId === "local-pending" ? { workspacePath: null } : null
+		);
+		renderPanel();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Needs attention (2)" })
+		);
+		expect(screen.getByText("Broken setup")).toBeTruthy();
+		expect(screen.getByText("Folder needed")).toBeTruthy();
+		expect(screen.queryByText("Still creating")).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Search creation history" })
+		);
+		fireEvent.change(
+			screen.getByRole("searchbox", { name: "Search creation history" }),
+			{ target: { value: "OpenAI" } }
+		);
+		expect(screen.getByText("Broken setup")).toBeTruthy();
+		expect(screen.queryByText("Folder needed")).toBeNull();
+	});
 });
 
 function renderPanel() {

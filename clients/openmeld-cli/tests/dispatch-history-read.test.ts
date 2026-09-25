@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { SpaceApi } from "@openmeld/api-client";
+import {
+  dispatchSpaceReadResultPageSchema,
+  dispatchSpaceReadResultSchema,
+} from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenMeldProfile } from "../src/config/openmeld-profiles-api";
 import { DISPATCH_OWNED_RUNTIME_MODE } from "../src/runtime/dispatch-runtime-env";
@@ -11,7 +15,10 @@ import {
   createDispatchSpaceActionContext,
   readDispatchSpaceActionRecord,
 } from "../src/runtime/dispatch-space-action-context";
-import { createSpaceActionMcpServer } from "../src/space/action-mcp-server";
+import {
+  createDispatchSpaceTools,
+  createSpaceActionMcpServer,
+} from "../src/space/action-mcp-server";
 import { readDispatchSpaceHistory } from "../src/space/dispatch-history-read";
 
 const { listSignals, requireProfile } = vi.hoisted(() => ({
@@ -128,14 +135,16 @@ describe("dispatch Space history reader", () => {
         catalog.tools.find((tool) => tool.name === "read_history")?.outputSchema
       ).toMatchObject({
         type: "object",
-        properties: { signals: { type: "array", maxItems: 21 } },
+        properties: { result: { type: "object" }, page: { type: "object" } },
       });
       const result = await client.callTool({
         name: "read_history",
         arguments: {},
       });
       expect(result.isError).not.toBe(true);
-      expect(result.structuredContent).toMatchObject({
+      expect(
+        dispatchSpaceReadResultSchema.parse(result.structuredContent).result
+      ).toMatchObject({
         spaceId: context.spaceId,
         sourceSignalId: context.sourceEventId,
         beforeCount: 20,
@@ -170,6 +179,98 @@ describe("dispatch Space history reader", () => {
       expect(rejected.isError).toBe(true);
       expect(listSignals).toHaveBeenCalledTimes(1);
     } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it.each([
+    "native",
+    "mcp",
+  ] as const)("reads an entire large history through %s tools without a local file", async (carrier) => {
+    const { context, contextPath } = setup();
+    const text = `${'Repository review: 中文 😀 \\"\n'.repeat(3000)}End of history.`;
+    listSignals.mockResolvedValue({
+      signals: [
+        {
+          ...signal,
+          data: {
+            ...signal.data,
+            text,
+            messageEnvelope: { ...signal.data.messageEnvelope, text },
+          },
+        },
+      ],
+      nextCursor: null,
+    });
+    const native = createDispatchSpaceTools();
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "paged-history-test", version: "1" });
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+    const call = async (name: string, args: Record<string, unknown>) =>
+      carrier === "native"
+        ? native.call(name, args)
+        : client.callTool({ name, arguments: args });
+    try {
+      const first = await call("read_history", {});
+      expect(first.isError).not.toBe(true);
+      const page = dispatchSpaceReadResultPageSchema.parse(
+        dispatchSpaceReadResultSchema.parse(first.structuredContent).page
+      );
+      expect(page?.resultId).toBeTruthy();
+      let reconstructed = page.text;
+      let nextOffset = page.nextOffset;
+      while (nextOffset !== null) {
+        const response = await call("read_result", {
+          resultId: page.resultId,
+          offset: nextOffset,
+        });
+        expect(response.isError).not.toBe(true);
+        expect(Buffer.byteLength(JSON.stringify(response))).toBeLessThan(
+          24 * 1024
+        );
+        const next = dispatchSpaceReadResultPageSchema.parse(
+          dispatchSpaceReadResultSchema.parse(response.structuredContent).page
+        );
+        reconstructed += next.text;
+        nextOffset = next.nextOffset;
+      }
+      expect(JSON.parse(reconstructed).signals[0].data.text).toBe(text);
+      expect(listSignals).toHaveBeenCalledTimes(1);
+      expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+      const replay = await call("read_result", {
+        resultId: page.resultId,
+        offset: 0,
+      });
+      expect(replay.structuredContent).toEqual(first.structuredContent);
+      const foreign = createDispatchSpaceTools();
+      expect(
+        (
+          await foreign.call("read_result", {
+            resultId: page.resultId,
+            offset: 0,
+          })
+        ).isError
+      ).toBe(true);
+      foreign.close();
+      const stored = JSON.parse(readFileSync(contextPath, "utf8"));
+      writeFileSync(
+        contextPath,
+        JSON.stringify({ ...stored, expiresAtMs: Date.now() - 1 })
+      );
+      const expired = await call("read_result", {
+        resultId: page.resultId,
+        offset: 0,
+      });
+      expect(expired.isError).toBe(true);
+      expect(JSON.stringify(expired)).not.toContain("Repository review:");
+    } finally {
+      native.close();
       await client.close();
       await server.close();
     }

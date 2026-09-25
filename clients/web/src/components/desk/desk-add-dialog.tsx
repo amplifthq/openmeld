@@ -75,10 +75,7 @@ export function DeskAddDialog(input: {
 	const [category, setCategory] = useState<string>("spaces");
 	const [query, setQuery] = useState("");
 	const { currentOrganization } = useAppOrganization();
-	const sidebar = useSidebarPreferences(
-		input.profileId,
-		currentOrganization.id
-	);
+	const sidebar = useSidebarPreferences(currentOrganization.id);
 	const items = input.spaces.filter((item) => !item.directMessageProfileIds);
 	const groups = spaceDirectoryGroups(items, sidebar.preferences);
 	const filter = useSidebarFilter(groups, "All groups");

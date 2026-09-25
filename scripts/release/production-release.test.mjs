@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -70,6 +71,54 @@ const FULL_BACKLOG_PATHS = [
 const EVIDENCE_ORDER_ERROR = /evidence tools require the Core RPC receiver/u;
 const SPACE_MESSAGE_SEARCH_SCOPE_ERROR =
   /Web callers require the Gateway and Core short-query receivers/u;
+
+test("local execution honors control interpreter, arguments, and product root", async () => {
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "openmeld-control-step-"))
+  );
+  const script = path.join(root, "control.mjs");
+  const output = path.join(root, "observed.json");
+  try {
+    writeFileSync(path.join(root, "package.json"), '{"private":true}\n');
+    // This script is deliberately not executable. Its declared Node interpreter
+    // must run it, with control arguments rather than a package-script alias.
+    writeFileSync(
+      script,
+      `import { writeFileSync } from "node:fs";
+writeFileSync(process.argv[2], JSON.stringify({
+  args: process.argv.slice(3),
+  execArgv: process.execArgv,
+  cwd: process.cwd(),
+  verificationRoot: process.env.OPENMELD_VERIFICATION_ROOT,
+}));`
+    );
+    await executeProductionDeploySteps({
+      cwd: root,
+      steps: [
+        {
+          command: "pnpm",
+          args: ["run", "source-alias-must-not-run"],
+          controlCommand: process.execPath,
+          controlPath: path.relative(
+            path.resolve(import.meta.dirname, "../.."),
+            script
+          ),
+          controlNodeArgs: ["--no-warnings"],
+          controlArgs: [output, "--profile", "production"],
+          label: "Exercise the declared trusted control command",
+        },
+      ],
+    });
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), {
+      args: ["--profile", "production"],
+      execArgv: ["--no-warnings"],
+      cwd: root,
+      verificationRoot: root,
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("orders the complete backlog by its real receiver and producer boundaries", () => {
   const plan = buildProductionReleasePlan({
@@ -239,7 +288,7 @@ test("deploys Space Task RPC and HTTP receivers before their real callers", () =
     plan.deploySteps.map((step) => step.label),
     [
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
@@ -252,6 +301,7 @@ test("deploys Space Task RPC and HTTP receivers before their real callers", () =
   );
   assert.deepEqual(plan.deploySteps[0].args, [
     "scripts/release/deploy-core-current-cli-projection.mjs",
+    "--deployment-only",
     "--release-sha",
     REMOTE_SOURCE_SHA,
   ]);
@@ -280,7 +330,7 @@ test("allows a Space Task receiver stage with the immutable published CLI projec
     );
     assert.equal(
       plan.deploySteps[1].label,
-      "Verify Core deployment is visible"
+      "Verify Core receiver stable identity alignment"
     );
     assert.ok(
       !plan.deploySteps.some((step) => step.internalOperation === "publish-cli")
@@ -791,7 +841,7 @@ test("deploys the Wake Progress opt-in receiver chain before its CLI caller", ()
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]
@@ -1504,7 +1554,7 @@ test("stages Space invitation receivers before publishing the CLI caller", () =>
     assert.deepEqual(labels.slice(0, 5), [
       "Synchronize production database",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Auth Worker",
       "Verify Auth Worker health",
     ]);
@@ -1547,7 +1597,7 @@ test("combines invitation and Service receivers while keeping conflicting writer
   assert.deepEqual(labels, [
     "Synchronize production database",
     "Deploy Core with the current published CLI projection",
-    "Verify Core deployment is visible",
+    "Verify Core receiver stable identity alignment",
     "Deploy Auth Worker",
     "Verify Auth Worker health",
     "Deploy Gateway Worker",
@@ -1635,7 +1685,7 @@ test("keeps the Center Agent Task CLI behind every cloud receiver", () => {
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
@@ -1671,7 +1721,7 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
       "Deploy Auth Worker",
       "Verify Auth Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
@@ -1682,6 +1732,7 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
   );
   assert.deepEqual(plan.deploySteps[5]?.args, [
     "scripts/release/deploy-core-current-cli-projection.mjs",
+    "--deployment-only",
     "--release-sha",
     REMOTE_SOURCE_SHA,
   ]);
@@ -1715,7 +1766,7 @@ for (const changedPaths of [
       plan.deploySteps.map((step) => step.label),
       [
         "Deploy Core with the current published CLI projection",
-        "Verify Core deployment is visible",
+        "Verify Core receiver stable identity alignment",
         "Deploy Gateway Worker",
         "Verify Gateway Worker health",
         "Deploy Web",
@@ -1818,7 +1869,7 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
         "Deploy Gateway Worker",
         "Verify Gateway Worker health",
         "Deploy Core with the current published CLI projection",
-        "Verify Core deployment is visible",
+        "Verify Core receiver stable identity alignment",
         "Deploy Remote Agent Worker",
         "Verify Remote Agent deployment is visible",
         "Publish CLI and deploy its Core release projection",
@@ -2031,7 +2082,7 @@ test("deploys worker-response and activity readers before the Remote Agent produ
       "Deploy Auth Worker",
       "Verify Auth Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
@@ -2151,7 +2202,7 @@ test("deploys Inbox Message Channel receivers before the Core writer", () => {
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]
@@ -2180,7 +2231,7 @@ test("deploys Agent Interaction Inbox receivers before the Core writer", () => {
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]

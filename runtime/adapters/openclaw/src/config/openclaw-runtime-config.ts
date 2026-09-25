@@ -62,6 +62,7 @@ export async function resolveInstalledOpenClawLaunchContract() {
 
 export async function verifyOpenClawLaunchContract(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
+  env?: Record<string, string | undefined>;
   cwd?: string;
   timeoutMs?: number | null;
 }): Promise<LaunchContractVerificationResult> {
@@ -69,6 +70,7 @@ export async function verifyOpenClawLaunchContract(input: {
     cwd: input.cwd ?? process.cwd(),
     displayName: "OpenClaw",
     launchContract: input.launchContract,
+    env: input.env,
     probeArgs: ["--version"],
     timeoutMs: input.timeoutMs ?? resolveOpenClawTimeoutMs(),
   });

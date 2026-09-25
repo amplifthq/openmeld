@@ -1,10 +1,44 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+const schemaOutputs = ["desktop-client.js", "desktop-release.js"];
+if (
+  schemaOutputs.some(
+    (name) =>
+      !existsSync(
+        fileURLToPath(
+          new URL(`../../packages/schemas/dist/${name}`, import.meta.url)
+        )
+      )
+  )
+) {
+  const pnpmArgs = ["--filter", "@openmeld/schemas", "build"];
+  const packageManager = process.env.npm_execpath;
+  const result = packageManager
+    ? spawnSync(process.execPath, [packageManager, ...pnpmArgs], {
+        stdio: "inherit",
+      })
+    : spawnSync("pnpm", pnpmArgs, {
+        stdio: "inherit",
+        shell: process.platform === "win32",
+      });
+  if (result.status !== 0) {
+    throw new Error("Desktop release tests require built schemas");
+  }
+}
+
 const legacyPublicationDisabled =
   /Legacy unsigned Desktop publication is disabled/u;
+const MISSING_RELEASE_CREDENTIALS = /openmeld-release\/prd/u;
+const REJECTED_RELEASE_CREDENTIALS = /HTTP 401.*No Desktop object was written/u;
+const INTERRUPTED_PUBLIC_DOWNLOAD =
+  /connection terminated.*No pointer write was attempted.*same reviewed candidate/u;
+const POINTER_NOT_STARTED = /pointer write has not started/u;
 
 test("legacy unsigned upload refuses publication before reading artifacts", () => {
   const result = spawnSync(
@@ -19,17 +53,175 @@ test("legacy unsigned upload refuses publication before reading artifacts", () =
   assert.match(result.stderr, legacyPublicationDisabled);
 });
 
-import {
+const {
   assertDesktopPromotionVersion,
   buildDesktopCandidateMetadata,
   buildDesktopPreviewMetadata,
   buildWranglerObjectPutArgs,
   DEFAULT_DOWNLOAD_PAGE_URL,
   DEFAULT_DOWNLOAD_URL,
-  DEFAULT_R2_BUCKET_NAME,
   resolveDesktopArtifactName,
   resolveDesktopReleaseCommand,
-} from "./desktop-preview.mjs";
+  readDesktopReleaseStatus,
+  uploadDesktopCandidate,
+  verifyDesktopPublicArtifact,
+} = await import("./desktop-preview.mjs");
+
+test("Desktop status keeps absent and unreadable promoted pointers distinct", async () => {
+  const candidateId = "a".repeat(64);
+  const results = await readDesktopReleaseStatus({
+    readObject: (key) => {
+      if (key === "desktop/promoted.json") {
+        return {
+          schemaVersion: 1,
+          candidate: candidateId,
+          promotedAt: "2026-09-23T00:00:00.000Z",
+        };
+      }
+      if (key === `desktop/candidates/${candidateId}/manifest.json`) {
+        return {
+          schemaVersion: 1,
+          target: "production",
+          platform: "macos-arm64",
+          version: "0.1.9",
+          releaseSha: "b".repeat(40),
+          sha256: candidateId,
+          sizeBytes: 42,
+          zip: {
+            sha256: "c".repeat(64),
+            sha512: `${"A".repeat(86)}==`,
+            sizeBytes: 42,
+          },
+        };
+      }
+      if (key === "desktop/promoted-windows-x64.json") {
+        return null;
+      }
+      throw new Error("R2 read failed");
+    },
+  });
+  assert.deepEqual(results, [
+    {
+      platform: "macos-arm64",
+      state: "promoted",
+      version: "0.1.9",
+      sourceSha: "b".repeat(40),
+      candidate: candidateId,
+    },
+    { platform: "windows-x64", state: "unpublished" },
+    { platform: "windows-arm64", state: "unknown", reason: "R2 read failed" },
+  ]);
+});
+const { checkDesktopPublisher, DEFAULT_R2_BUCKET_NAME } = await import(
+  "./desktop-publisher.mjs"
+);
+
+test("Desktop publisher checks the named production token and exact bucket before touching an installer", async () => {
+  const accountId = "a".repeat(32);
+  const calls = [];
+  const env = {
+    CLOUDFLARE_ACCOUNT_ID: accountId,
+    CLOUDFLARE_API_TOKEN: "wrong-inherited-token",
+    CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: "release-token",
+  };
+  const publisherEnv = await checkDesktopPublisher({
+    env,
+    fetchBucket: (url, options) => {
+      calls.push({ url, authorization: options.headers.Authorization });
+      return {
+        ok: true,
+        json: () => ({
+          success: true,
+          result: { name: DEFAULT_R2_BUCKET_NAME },
+        }),
+      };
+    },
+    write: () => undefined,
+  });
+  assert.deepEqual(calls, [
+    {
+      url: `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets/${DEFAULT_R2_BUCKET_NAME}`,
+      authorization: "Bearer release-token",
+    },
+  ]);
+  assert.equal(publisherEnv.CLOUDFLARE_API_TOKEN, "release-token");
+  await assert.rejects(
+    uploadDesktopCandidate({ env: {} }),
+    MISSING_RELEASE_CREDENTIALS
+  );
+  await assert.rejects(
+    checkDesktopPublisher({
+      env,
+      fetchBucket: () => ({ ok: false, status: 401 }),
+    }),
+    REJECTED_RELEASE_CREDENTIALS
+  );
+});
+
+test("production Desktop packaging refuses a missing publisher credential before build or signing", () => {
+  const env = { ...process.env };
+  env.CLOUDFLARE_ACCOUNT_ID = undefined;
+  env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN = undefined;
+  const result = spawnSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("../desktop/package-mode.mjs", import.meta.url)),
+      "production-preview",
+    ],
+    { encoding: "utf8", env }
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, MISSING_RELEASE_CREDENTIALS);
+  assert.ok(!result.stdout.includes("electron-builder"));
+
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-desktop-entry-"));
+  try {
+    cpSync(
+      fileURLToPath(new URL("../", import.meta.url)),
+      path.join(root, "scripts"),
+      {
+        recursive: true,
+      }
+    );
+    const coldResult = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "scripts/desktop/package-mode.mjs"),
+        "production-preview",
+      ],
+      { cwd: root, encoding: "utf8", env }
+    );
+    assert.equal(coldResult.status, 1);
+    assert.match(coldResult.stderr, MISSING_RELEASE_CREDENTIALS);
+    const publisherCheck = spawnSync(
+      process.execPath,
+      [path.join(root, "scripts/release/desktop-publisher.mjs")],
+      { cwd: root, encoding: "utf8", env }
+    );
+    assert.equal(publisherCheck.status, 1);
+    assert.match(publisherCheck.stderr, MISSING_RELEASE_CREDENTIALS);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an interrupted public download reports the failed URL before pointer publication", async () => {
+  const pathname = "/desktop/download?candidate=reviewed";
+  const lines = [];
+  await assert.rejects(
+    verifyDesktopPublicArtifact({
+      pathname,
+      sha256: "a".repeat(64),
+      size: 155_004_884,
+      fetchArtifact: () => {
+        throw new Error("connection terminated");
+      },
+      write: (line) => lines.push(line),
+    }),
+    INTERRUPTED_PUBLIC_DOWNLOAD
+  );
+  assert.match(lines.join(""), POINTER_NOT_STARTED);
+});
 
 test("Desktop promotion requires an increasing stable app version", () => {
   assert.doesNotThrow(() => assertDesktopPromotionVersion("0.1.1", null));

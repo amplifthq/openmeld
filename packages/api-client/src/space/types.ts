@@ -61,6 +61,7 @@ import type {
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMeta,
+  SpaceTaskDetailOptions,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
   SpaceTaskResponse,
@@ -410,7 +411,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & { phase?: SpaceTaskPhase }
   ) => Promise<ListSpaceTasksResponse>;
   getTask: (
-    input: SpaceRequestInput & { taskId: string }
+    input: SpaceRequestInput & SpaceTaskDetailOptions & { taskId: string }
   ) => Promise<SpaceTaskResponse>;
   createTask: (
     input: SpaceRequestInput & { body: CreateSpaceTaskBody }

@@ -81,6 +81,7 @@ import { Route as SlackIdentityStartRouteImport } from './routes/slack/identity/
 import { Route as SlackOauthResultRouteImport } from './routes/slack/oauth/result'
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
 import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/display-name'
+import { Route as V1AccountInvalidationStreamRouteImport } from './routes/v1/account/invalidation-stream'
 import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/v1/account/last-selected-organization'
 import { Route as V1AccountOrganizationContextRouteImport } from './routes/v1/account/organization-context'
 import { Route as V1AccountSessionRouteImport } from './routes/v1/account/session'
@@ -540,6 +541,12 @@ const V1AccountDisplayNameRoute = V1AccountDisplayNameRouteImport.update({
   path: '/v1/account/display-name',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1AccountInvalidationStreamRoute =
+  V1AccountInvalidationStreamRouteImport.update({
+    id: '/v1/account/invalidation-stream',
+    path: '/v1/account/invalidation-stream',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1AccountLastSelectedOrganizationRoute =
   V1AccountLastSelectedOrganizationRouteImport.update({
     id: '/v1/account/last-selected-organization',
@@ -1147,6 +1154,7 @@ export interface FileRoutesByFullPath {
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
+  '/v1/account/invalidation-stream': typeof V1AccountInvalidationStreamRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
   '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/session': typeof V1AccountSessionRoute
@@ -1307,6 +1315,7 @@ export interface FileRoutesByTo {
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
+  '/v1/account/invalidation-stream': typeof V1AccountInvalidationStreamRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
   '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/session': typeof V1AccountSessionRoute
@@ -1474,6 +1483,7 @@ export interface FileRoutesById {
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
+  '/v1/account/invalidation-stream': typeof V1AccountInvalidationStreamRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
   '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/session': typeof V1AccountSessionRoute
@@ -1644,6 +1654,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/result'
     | '/slack/oauth/start'
     | '/v1/account/display-name'
+    | '/v1/account/invalidation-stream'
     | '/v1/account/last-selected-organization'
     | '/v1/account/organization-context'
     | '/v1/account/session'
@@ -1804,6 +1815,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/result'
     | '/slack/oauth/start'
     | '/v1/account/display-name'
+    | '/v1/account/invalidation-stream'
     | '/v1/account/last-selected-organization'
     | '/v1/account/organization-context'
     | '/v1/account/session'
@@ -1970,6 +1982,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/result'
     | '/slack/oauth/start'
     | '/v1/account/display-name'
+    | '/v1/account/invalidation-stream'
     | '/v1/account/last-selected-organization'
     | '/v1/account/organization-context'
     | '/v1/account/session'
@@ -2116,6 +2129,7 @@ export interface RootRouteChildren {
   SlackOauthResultRoute: typeof SlackOauthResultRoute
   SlackOauthStartRoute: typeof SlackOauthStartRoute
   V1AccountDisplayNameRoute: typeof V1AccountDisplayNameRoute
+  V1AccountInvalidationStreamRoute: typeof V1AccountInvalidationStreamRoute
   V1AccountLastSelectedOrganizationRoute: typeof V1AccountLastSelectedOrganizationRoute
   V1AccountOrganizationContextRoute: typeof V1AccountOrganizationContextRoute
   V1AccountSessionRoute: typeof V1AccountSessionRoute
@@ -2632,6 +2646,13 @@ declare module '@tanstack/react-router' {
       path: '/v1/account/display-name'
       fullPath: '/v1/account/display-name'
       preLoaderRoute: typeof V1AccountDisplayNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/account/invalidation-stream': {
+      id: '/v1/account/invalidation-stream'
+      path: '/v1/account/invalidation-stream'
+      fullPath: '/v1/account/invalidation-stream'
+      preLoaderRoute: typeof V1AccountInvalidationStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/account/last-selected-organization': {
@@ -3833,6 +3854,7 @@ const rootRouteChildren: RootRouteChildren = {
   SlackOauthResultRoute: SlackOauthResultRoute,
   SlackOauthStartRoute: SlackOauthStartRoute,
   V1AccountDisplayNameRoute: V1AccountDisplayNameRoute,
+  V1AccountInvalidationStreamRoute: V1AccountInvalidationStreamRoute,
   V1AccountLastSelectedOrganizationRoute:
     V1AccountLastSelectedOrganizationRoute,
   V1AccountOrganizationContextRoute: V1AccountOrganizationContextRoute,

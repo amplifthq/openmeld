@@ -7,6 +7,7 @@ export { CodemodeRuntime } from "@cloudflare/codemode";
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
 // and the WorkspaceProxy that carries the container's /ws egress home.
 export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
+export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
 
 import {
@@ -19,6 +20,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { summarizeAgentActivityDigest } from "../agent-core/agent-activity-digest";
+import { generateCenterAgentSessionTitle } from "../agent-core/center-agent-session-title";
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
@@ -38,6 +40,9 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async generateCenterAgentSessionTitle(input: unknown) {
+    return await generateCenterAgentSessionTitle({ env, request: input });
+  },
   async pluginRuntime(input: unknown) {
     return await executePluginRuntime(input, {
       baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,

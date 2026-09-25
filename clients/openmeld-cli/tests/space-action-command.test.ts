@@ -27,7 +27,10 @@ import {
   runSpaceActionTargets,
   runSpaceActionWake,
 } from "../src/space/action-command";
-import { createSpaceActionMcpServer } from "../src/space/action-mcp-server";
+import {
+  createDispatchSpaceTools,
+  createSpaceActionMcpServer,
+} from "../src/space/action-mcp-server";
 
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const AGENT_PROFILE_ID_TWO = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -592,6 +595,35 @@ describe("OpenMeld Space Action command", () => {
 });
 
 describe("OpenMeld Space Action MCP server", () => {
+  it("rejects a Task review without the exact result revision before invoking the action", async () => {
+    createTestContext([]);
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "review_task",
+        arguments: {
+          taskId: "tsk_55555555-5555-4555-8555-555555555555",
+          expectedRevision: 5,
+          decision: "accepted",
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain(
+        "expectedResultRevision"
+      );
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("rejects a self-Wake before recording and accepts the corrected plain reply", async () => {
     const context = createTestContext(
       [
@@ -617,6 +649,17 @@ describe("OpenMeld Space Action MCP server", () => {
         arguments: { message: "Done", wakeTargets: [AGENT_PROFILE_ID] },
       });
       expect(rejected.isError).toBe(true);
+      expect(rejected.structuredContent).toMatchObject({
+        receipt: {
+          status: "rejected_before_recording",
+          reasonCode: "space_action.invalid_input",
+          coordinatorAcceptance: "unconfirmed",
+          publication: "unconfirmed",
+        },
+      });
+      expect(JSON.stringify(rejected.content)).toContain(
+        "This call did not record an action"
+      );
       expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
       const corrected = await client.callTool({
         name: "reply",
@@ -684,6 +727,39 @@ describe("OpenMeld Space Action MCP server", () => {
     }
   });
 
+  it("does not expose a status tool and can explain a missing repository without shell access", async () => {
+    const context = createTestContext([]);
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "no-shell-agent", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const catalog = await client.listTools();
+      expect(catalog.tools.some((tool) => tool.name === "status")).toBe(false);
+      const result = await client.callTool({
+        name: "reply",
+        arguments: {
+          message:
+            "I cannot read this repository with my current tools, so I have not reviewed the code. Please provide authorized access.",
+        },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(readLoadedActionRecord(context).action).toMatchObject({
+        type: "post_message",
+        messageEnvelope: {
+          text: expect.stringContaining("have not reviewed the code"),
+        },
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("fails the second final tool call for the same Wake", async () => {
     createTestContext([]);
     const [clientTransport, serverTransport] =
@@ -701,8 +777,8 @@ describe("OpenMeld Space Action MCP server", () => {
         arguments: { reason: "No public reply is needed." },
       });
       const second = await client.callTool({
-        name: "status",
-        arguments: { status: "done", text: "Done." },
+        name: "reply",
+        arguments: { message: "Done." },
       });
 
       expect(first.isError).not.toBe(true);
@@ -715,7 +791,6 @@ describe("OpenMeld Space Action MCP server", () => {
   });
   it.each([
     { name: "reply", arguments: { message: "Done." } },
-    { name: "status", arguments: { status: "done", text: "Done." } },
     { name: "stay_silent", arguments: { reason: "Nothing to add." } },
   ])("recovers $name's original receipt after expiry without accepting a new action", async (request) => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
@@ -891,9 +966,88 @@ describe("OpenMeld Space Action MCP server", () => {
   });
 });
 
+describe("dispatch-owned native Space tools", () => {
+  it("keeps concurrent Wake capabilities bound to their own context and closes old invocations", async () => {
+    const first = createTestContext([], { targetProfileId: "agt_first" });
+    const toolsA = createDispatchSpaceTools({ env: { ...process.env } });
+    const second = createTestContext([], { targetProfileId: "agt_second" });
+    const toolsB = createDispatchSpaceTools({ env: { ...process.env } });
+    await toolsA.call("reply", { message: "First Wake reply." });
+    await toolsB.call("reply", { message: "Second Wake reply." });
+    expect(readLoadedActionRecord(first).action).toMatchObject({
+      messageEnvelope: { text: "First Wake reply." },
+    });
+    expect(readLoadedActionRecord(second).action).toMatchObject({
+      messageEnvelope: { text: "Second Wake reply." },
+    });
+    toolsA.close();
+    const late = await toolsA.call("reply", { message: "First Wake reply." });
+    expect(late.structuredContent).toMatchObject({
+      receipt: { status: "rejected_closed" },
+    });
+    expect(readLoadedActionRecord(second).action).toMatchObject({
+      messageEnvelope: { text: "Second Wake reply." },
+    });
+    toolsB.close();
+  });
+
+  it("corrects invalid native arguments before recording and recovers a lost receipt without another write", async () => {
+    const context = createTestContext([]);
+    const tools = createDispatchSpaceTools();
+    const invalid = await tools.call("reply", { message: 42 });
+    expect(invalid.structuredContent).toMatchObject({
+      receipt: {
+        status: "rejected_before_recording",
+        reasonCode: "space_action.invalid_input",
+      },
+    });
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+    const saved = await tools.call("reply", {
+      message: "I cannot access the repository.",
+    });
+    const bytes = readFileSync(context.actionRecordPath, "utf8");
+    const recovered = await tools.call("read_receipt", {});
+    expect(recovered.structuredContent).toEqual(saved.structuredContent);
+    expect(readFileSync(context.actionRecordPath, "utf8")).toBe(bytes);
+    tools.close();
+  });
+
+  it("restricts missing-action correction to delivery and does not grant legacy status-only permission", async () => {
+    const context = createTestContext([], { allowedActions: ["post_status"] });
+    const tools = createDispatchSpaceTools({
+      env: { ...process.env, OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" },
+    });
+    expect(tools.tools.map((tool) => tool.name)).toEqual([
+      "reply",
+      "stay_silent",
+      "read_receipt",
+    ]);
+    for (const [name, args] of [
+      ["reply", { message: "Must not be published." }],
+      ["stay_silent", { reason: "Must not change the policy." }],
+      ["create_task", { title: "Must not run business work." }],
+      ["status", { status: "done", text: "Retired." }],
+    ] as const) {
+      const denied = await tools.call(name, args);
+      expect(denied.structuredContent).toMatchObject({
+        receipt: {
+          status: "rejected_before_recording",
+          reasonCode: "space_action.not_allowed",
+        },
+      });
+    }
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+    tools.close();
+  });
+});
+
 function createTestContext(
   projection: SpaceMemberDirectorySendTargetEntry[],
-  options?: { ttlMs?: number; targetProfileId?: string }
+  options?: {
+    ttlMs?: number;
+    targetProfileId?: string;
+    allowedActions?: ("post_message" | "post_status" | "stay_silent")[];
+  }
 ): DispatchSpaceActionContext {
   const openMeldHome = mkdtempSync(`${tmpdir()}/openmeld-space-action-`);
   tempDirs.push(openMeldHome);
@@ -912,7 +1066,11 @@ function createTestContext(
     },
     sourceEventId: "sig-source",
     spaceContractSnapshot: {
-      allowedActions: ["post_message", "post_status", "stay_silent"],
+      allowedActions: options?.allowedActions ?? [
+        "post_message",
+        "post_status",
+        "stay_silent",
+      ],
       publicationMode: "collaboration",
     },
     spaceId: "space-1",

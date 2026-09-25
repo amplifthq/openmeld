@@ -47,7 +47,7 @@ test("publishes the proven CLI compatibility floor without forcing every older s
   );
   const minRequiredCliVersion = resolveCliMinRequiredVersion();
 
-  assert.equal(minRequiredCliVersion, "0.3.198");
+  assert.equal(minRequiredCliVersion, "0.3.220");
   assert.notEqual(
     minRequiredCliVersion,
     packageJson.version,

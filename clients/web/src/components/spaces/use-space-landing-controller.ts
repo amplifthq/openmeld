@@ -22,7 +22,9 @@ import type {
 } from "@openmeld/schemas/types";
 import {
 	applyWakeProgressSignals,
+	buildWakeProgressItemFromTransientSignal,
 	filterVisibleWakeProgressItems,
+	readWakeProgressTerminalSignalEvidence,
 	resolveSpaceDeleteActionVisibility,
 } from "@openmeld/space";
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -42,6 +44,7 @@ import type {
 	ComposerDraftRecord,
 	ComposerDraftScope,
 } from "#/lib/composer-draft-storage";
+import { reportUnconfirmedWakeProgressPresentation } from "#/lib/observability/application-error-client";
 import { updateProfileSpaceHistoryStatus } from "#/lib/onboarding/update-profile-space-history-status";
 import { upsertProfileSpaceHistory } from "#/lib/onboarding/upsert-profile-space-history";
 import { centerAgentPendingAttachmentScope } from "#/lib/organizations/center-agent-pending-message";
@@ -123,7 +126,7 @@ import {
 	readSpaceMembers,
 	spaceMembersQueryOptions,
 } from "#/query/spaces/members";
-import { clearSpaceFileImageResources } from "#/query/spaces/space-file-image-resource";
+import { clearSpaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import {
 	spaceThreadSignalsQueryOptions,
@@ -171,7 +174,10 @@ import {
 	buildLocalWakeProgressItems,
 	createClientMessageId,
 	createStatusAndMembersRefreshDedupe,
+	filterUnconfirmedRestoredWakeProgress,
 	findSessionExpiredError,
+	findUnconfirmedBootstrapWakeStream,
+	findUnconfirmedPresentedWakeProgress,
 	hasActiveSpaceMember,
 	listPendingWakeProgressClientMessageIds,
 	listRecoverableWakeProgressClientMessageIds,
@@ -1059,7 +1065,7 @@ function useClearRejectedSpaceConversationCache(input: {
 		if (!input.currentAccessRejection) {
 			return;
 		}
-		clearSpaceFileImageResources(input.queryClient, input.spaceId);
+		clearSpaceFileMediaResources(input.queryClient, input.spaceId);
 		if (!(input.organizationId && input.organizationSlug)) {
 			return;
 		}
@@ -1409,6 +1415,137 @@ function showSpaceExecutionRecoveryFailureToast(input: {
 	toast.error(`Couldn't recover this result. ${input.message}`);
 }
 
+function useRestoredWakeProgressItems(
+	key: string,
+	items: readonly WakeProgressItem[]
+): readonly WakeProgressItem[] {
+	const restoredRef = useRef({ key, items });
+	if (restoredRef.current.key !== key) {
+		restoredRef.current = { key, items };
+	}
+	return restoredRef.current.items;
+}
+
+function useWakeProgressPresentationInvariant(input: {
+	spaceId: string;
+	confirmedItems: readonly WakeProgressItem[];
+	presentedItems: readonly WakeProgressItem[];
+	restoredItems: readonly WakeProgressItem[];
+	historicalSignals: readonly SignalEnvelope[];
+	presentationCreatedAtMs: number;
+	cachedSpaceSummaryItems?: readonly WakeProgressItem[];
+	cachedOwnSummaryItems?: readonly WakeProgressItem[];
+	streamProjections: readonly SpaceConversationVisibleStreamProjection[];
+	spaceSummaryFetchedAfterMount: boolean;
+	ownSummaryFetchedAfterMount: boolean;
+	bootstrapFetchedAfterMount: boolean;
+}): void {
+	useEffect(() => {
+		const anomaly = findUnconfirmedPresentedWakeProgress(input);
+		if (anomaly) {
+			reportUnconfirmedWakeProgressPresentation({
+				spaceId: input.spaceId,
+				clientMessageId: anomaly.item.clientMessageId,
+				dispatchId: anomaly.item.dispatchId,
+				sourceSignalId: anomaly.item.sourceSignalId,
+				streamId: null,
+				sourceThreadId: anomaly.item.sourceContext?.threadId ?? null,
+				replyThreadRootSignalId: null,
+				targetProfileId: anomaly.item.targetProfileId,
+				phase: anomaly.item.phase,
+				updatedAtMs: anomaly.item.updatedAtMs,
+				fromRestoredPresentation: anomaly.fromRestoredPresentation,
+				fromCachedSpaceSummary: anomaly.fromCachedSpaceSummary,
+				fromCachedOwnSummary: anomaly.fromCachedOwnSummary,
+				fromBootstrapStream: false,
+				fromHistoricalSignal: anomaly.fromHistoricalSignal,
+				spaceSummaryFetchedAfterMount: input.spaceSummaryFetchedAfterMount,
+				ownSummaryFetchedAfterMount: input.ownSummaryFetchedAfterMount,
+				bootstrapFetchedAfterMount: input.bootstrapFetchedAfterMount,
+			});
+		}
+		const stream = findUnconfirmedBootstrapWakeStream({
+			bootstrapFetchedAfterMount: input.bootstrapFetchedAfterMount,
+			confirmedItems: input.confirmedItems,
+			streams: input.streamProjections,
+		});
+		if (!stream) {
+			return;
+		}
+		reportUnconfirmedWakeProgressPresentation({
+			spaceId: input.spaceId,
+			clientMessageId: null,
+			dispatchId: stream.dispatchId,
+			sourceSignalId: stream.triggerMessageId,
+			streamId: stream.streamId,
+			sourceThreadId: null,
+			replyThreadRootSignalId: stream.replyThreadRootSignalId ?? null,
+			targetProfileId: stream.profileId,
+			phase: "running",
+			updatedAtMs: stream.updatedAtMs,
+			fromRestoredPresentation: false,
+			fromCachedSpaceSummary: false,
+			fromCachedOwnSummary: false,
+			fromBootstrapStream: true,
+			fromHistoricalSignal: false,
+			spaceSummaryFetchedAfterMount: input.spaceSummaryFetchedAfterMount,
+			ownSummaryFetchedAfterMount: input.ownSummaryFetchedAfterMount,
+			bootstrapFetchedAfterMount: input.bootstrapFetchedAfterMount,
+		});
+	}, [input]);
+}
+
+type WakePresentation = Parameters<
+	typeof readSpaceWakeProgressSummaryItems
+>[0]["presentation"];
+type WakeSummary = Parameters<
+	typeof readSpaceWakeProgressSummaryItems
+>[0]["summary"];
+
+function readConfirmedWakeProgressItems(input: {
+	presentation: WakePresentation;
+	spaceSummary: WakeSummary;
+	ownSummary: WakeSummary;
+	spaceSummaryFetchedAfterMount: boolean;
+	ownSummaryFetchedAfterMount: boolean;
+	signals: readonly SignalEnvelope[];
+}): WakeProgressItem[] {
+	return mergeWakeProgressItemState({
+		currentItems: readSpaceWakeProgressSummaryItems({
+			presentation: input.presentation,
+			summary: input.spaceSummary,
+			isFetchedAfterMount: input.spaceSummaryFetchedAfterMount,
+		}),
+		incomingItems: readSpaceWakeProgressSummaryItems({
+			presentation: input.presentation,
+			summary: input.ownSummary,
+			isFetchedAfterMount: input.ownSummaryFetchedAfterMount,
+		}),
+		signals: input.signals,
+	});
+}
+
+function readPresentedWakeProgressItems(input: {
+	presentation: WakePresentation;
+	confirmedItems: readonly WakeProgressItem[];
+	currentItems: readonly WakeProgressItem[];
+	restoredItems: readonly WakeProgressItem[];
+	signals: readonly SignalEnvelope[];
+}): WakeProgressItem[] {
+	return filterSpaceWakeProgressItems({
+		presentation: input.presentation,
+		items: mergeActiveWakeProgressPresentation({
+			detailedItems: filterUnconfirmedRestoredWakeProgress({
+				confirmedItems: input.confirmedItems,
+				currentItems: input.currentItems,
+				restoredItems: input.restoredItems,
+			}),
+			signals: input.signals,
+			summaryItems: input.confirmedItems,
+		}),
+	});
+}
+
 export function useSpaceLandingController(input: {
 	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
@@ -1484,6 +1621,11 @@ export function useSpaceLandingController(input: {
 		})
 	);
 	const wakeProgressItems = wakeProgressPresentationQuery.data.items;
+	const wakeProgressEntryKey = `${input.spaceId}:${input.profileId}`;
+	const restoredWakeProgressItems = useRestoredWakeProgressItems(
+		wakeProgressEntryKey,
+		wakeProgressItems
+	);
 	const setWakeProgressItems = useCallback(
 		(items: SetStateAction<WakeProgressItem[]>) => {
 			setSpaceWakeProgressPresentationItems({
@@ -1660,6 +1802,7 @@ export function useSpaceLandingController(input: {
 		initialAgentStreams: bootstrapBelongsToProgressLifetime
 			? (bootstrapQuery.data?.activeAgentStreams ?? [])
 			: [],
+		unreadTargets: input.unreadTargets,
 		history: {
 			isPending: historyPending,
 			isSuccess: historyReady,
@@ -2155,34 +2298,59 @@ export function useSpaceLandingController(input: {
 			threadController.threadPreviews,
 		]
 	);
-	const presentedWakeProgressItems = useMemo(
+	const confirmedWakeProgressItems = useMemo(
 		() =>
-			filterSpaceWakeProgressItems({
+			readConfirmedWakeProgressItems({
 				presentation: wakeProgressPresentationQuery.data,
-				items: mergeActiveWakeProgressPresentation({
-					detailedItems: wakeProgressItems,
-					signals: wakeOutcomeSignals,
-					summaryItems: mergeWakeProgressItemState({
-						currentItems: readSpaceWakeProgressSummaryItems({
-							presentation: wakeProgressPresentationQuery.data,
-							summary: activeWakeProgressSummaryQuery.data,
-						}),
-						incomingItems: readSpaceWakeProgressSummaryItems({
-							presentation: wakeProgressPresentationQuery.data,
-							summary: ownActiveWakeProgressQuery.data,
-						}),
-						signals: wakeOutcomeSignals,
-					}),
-				}),
+				spaceSummary: activeWakeProgressSummaryQuery.data,
+				ownSummary: ownActiveWakeProgressQuery.data,
+				spaceSummaryFetchedAfterMount:
+					activeWakeProgressSummaryQuery.isFetchedAfterMount,
+				ownSummaryFetchedAfterMount:
+					ownActiveWakeProgressQuery.isFetchedAfterMount,
+				signals: wakeOutcomeSignals,
 			}),
 		[
 			activeWakeProgressSummaryQuery.data,
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
 			ownActiveWakeProgressQuery.data,
+			ownActiveWakeProgressQuery.isFetchedAfterMount,
+			wakeProgressPresentationQuery.data,
+			wakeOutcomeSignals,
+		]
+	);
+	const presentedWakeProgressItems = useMemo(
+		() =>
+			readPresentedWakeProgressItems({
+				presentation: wakeProgressPresentationQuery.data,
+				confirmedItems: confirmedWakeProgressItems,
+				currentItems: wakeProgressItems,
+				restoredItems: restoredWakeProgressItems,
+				signals: wakeOutcomeSignals,
+			}),
+		[
+			confirmedWakeProgressItems,
 			wakeProgressPresentationQuery.data,
 			wakeOutcomeSignals,
 			wakeProgressItems,
+			restoredWakeProgressItems,
 		]
 	);
+	useWakeProgressPresentationInvariant({
+		spaceId: input.spaceId,
+		confirmedItems: confirmedWakeProgressItems,
+		presentedItems: presentedWakeProgressItems,
+		restoredItems: restoredWakeProgressItems,
+		historicalSignals: wakeOutcomeSignals,
+		presentationCreatedAtMs: wakeProgressPresentationQuery.data.createdAtMs,
+		cachedSpaceSummaryItems: activeWakeProgressSummaryQuery.data?.items,
+		cachedOwnSummaryItems: ownActiveWakeProgressQuery.data?.items,
+		streamProjections: agentStreamProjections,
+		spaceSummaryFetchedAfterMount:
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
+		ownSummaryFetchedAfterMount: ownActiveWakeProgressQuery.isFetchedAfterMount,
+		bootstrapFetchedAfterMount: bootstrapQuery.isFetchedAfterMount,
+	});
 	usePublishSpaceWakeProgressVisibleProjection(presentedWakeProgressItems);
 
 	useWakeProgressPolling({
@@ -3009,24 +3177,18 @@ export function useSpaceLandingController(input: {
 					senderProfileId: input.profileId,
 					status: sendInput.status,
 				});
-		const pendingMessageEnvelope =
-			(centerAgentExecutionInput
-				? {
-						...sendInput.preparedSubmission.messageEnvelope,
-						activationTargets: [],
-						referenceTargets:
-							sendInput.preparedSubmission.messageEnvelope?.referenceTargets ??
-							[],
-						text: sendInput.preparedSubmission.text,
-					}
-				: sendInput.preparedSubmission.messageEnvelope) ??
-			(wakeProgressTargetProfileIds.length > 0
-				? {
-						activationTargets: wakeProgressTargetProfileIds,
-						referenceTargets: [],
-						text: sendInput.preparedSubmission.text,
-					}
-				: null);
+		// An implicit Direct Message Wake drives progress, but is not an authored
+		// @Agent target and must not appear in the optimistic message body.
+		const pendingMessageEnvelope = centerAgentExecutionInput
+			? {
+					...sendInput.preparedSubmission.messageEnvelope,
+					activationTargets: [],
+					referenceTargets:
+						sendInput.preparedSubmission.messageEnvelope?.referenceTargets ??
+						[],
+					text: sendInput.preparedSubmission.text,
+				}
+			: (sendInput.preparedSubmission.messageEnvelope ?? null);
 		const pendingOutgoingSignal = createPendingOutgoingSignal({
 			composerFiles: sendInput.composerFiles,
 			files: sendInput.files,
@@ -3287,7 +3449,7 @@ export function useSpaceLandingController(input: {
 			}).leaveSpace({
 				spaceId: input.spaceId,
 			});
-			clearSpaceFileImageResources(queryClient, input.spaceId);
+			clearSpaceFileMediaResources(queryClient, input.spaceId);
 			const historyReason =
 				response.status === "already_absent"
 					? "leave_space_already_absent"
@@ -3462,7 +3624,7 @@ export function useSpaceLandingController(input: {
 				spaceId: input.spaceId,
 			});
 			deleted = true;
-			clearSpaceFileImageResources(queryClient, input.spaceId);
+			clearSpaceFileMediaResources(queryClient, input.spaceId);
 
 			try {
 				await removeDeletedSpaceFromAccountHistory({
@@ -4480,10 +4642,19 @@ function useWakeProgressPolling(input: {
 			openMeldProfileId: profileId,
 			signals,
 		});
+		// History can close a Wake, but an old transient cannot prove it is still running.
+		const terminalSignals = signals.filter(
+			(signal) =>
+				buildWakeProgressItemFromTransientSignal(signal)?.terminal === true ||
+				readWakeProgressTerminalSignalEvidence(signal) !== null
+		);
+		if (terminalSignals.length === 0) {
+			return;
+		}
 		setItems((currentItems) => {
 			const nextItems = applyWakeProgressSignals({
 				currentItems,
-				signals,
+				signals: terminalSignals,
 			});
 			return areWakeProgressItemsEqual(currentItems, nextItems)
 				? currentItems

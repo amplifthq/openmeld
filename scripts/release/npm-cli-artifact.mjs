@@ -85,11 +85,20 @@ async function run(command, args, options = {}) {
   return result.stdout.trim();
 }
 
-export async function inspectNpmCliArtifact(artifactPath, expected = {}) {
+export async function readNpmCliArtifact(artifactPath) {
   const manifest = JSON.parse(
     await run("tar", ["-xOf", artifactPath, "package/package.json"])
   );
   const files = (await run("tar", ["-tf", artifactPath])).split(LINE_BREAK);
+  return {
+    manifest,
+    files,
+    integrity: `sha512-${createHash("sha512").update(readFileSync(artifactPath)).digest("base64")}`,
+  };
+}
+
+export async function inspectNpmCliArtifact(artifactPath, expected = {}) {
+  const { manifest, files, integrity } = await readNpmCliArtifact(artifactPath);
   assertNpmRuntimeDependencies(manifest);
   if (
     manifest.name !== "openmeld" ||
@@ -98,7 +107,11 @@ export async function inspectNpmCliArtifact(artifactPath, expected = {}) {
   ) {
     throw new Error("The npm artifact is not the OpenMeld CLI package.");
   }
-  for (const path of ["package/README.md", "package/dist/openmeld.js"]) {
+  for (const path of [
+    "package/README.md",
+    "package/dist/openmeld.js",
+    "package/dist/windows/openmeld-windows-process.exe",
+  ]) {
     if (!files.includes(path)) {
       throw new Error(
         `The npm artifact is missing ${path}. Build the packaged CLI before packing.`
@@ -127,7 +140,7 @@ export async function inspectNpmCliArtifact(artifactPath, expected = {}) {
   }
   return {
     manifest,
-    integrity: `sha512-${createHash("sha512").update(readFileSync(artifactPath)).digest("base64")}`,
+    integrity,
   };
 }
 

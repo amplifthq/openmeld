@@ -5,6 +5,7 @@ import {
 import {
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceFileRevisionSchema,
 } from "@openmeld/schemas";
 import type {
@@ -18,6 +19,7 @@ import { createCoreRpcHttpError } from "../src/rpc/errors";
 import {
   rpcReadSpaceFileContent,
   rpcRestoreSpaceFileRevision,
+  rpcStreamSpaceFileContent,
   rpcWriteSpaceFileContent,
 } from "../src/rpc/methods";
 
@@ -151,17 +153,30 @@ function makeEnv(input?: {
       }
       return Promise.resolve(null);
     }),
-    get: vi.fn(() => {
-      if (input?.getError) {
-        return Promise.reject(input.getError);
+    head: vi.fn(async () => ({ size: (input?.readBytes ?? BYTES).byteLength })),
+    get: vi.fn(
+      (
+        _key: string,
+        options?: { range?: { offset: number; length: number } }
+      ) => {
+        if (input?.getError) {
+          return Promise.reject(input.getError);
+        }
+        return Promise.resolve({
+          size: (input?.readBytes ?? BYTES).byteLength,
+          body: options?.range
+            ? new Blob([input?.readBytes ?? BYTES])
+                .slice(
+                  options.range.offset,
+                  options.range.offset + options.range.length
+                )
+                .stream()
+            : new Blob([input?.readBytes ?? BYTES]).stream(),
+          arrayBuffer: async () =>
+            input?.readBytes ?? Uint8Array.from(BYTES).buffer,
+        });
       }
-      return Promise.resolve({
-        size: (input?.readBytes ?? BYTES).byteLength,
-        body: new Blob([input?.readBytes ?? BYTES]).stream(),
-        arrayBuffer: async () =>
-          input?.readBytes ?? Uint8Array.from(BYTES).buffer,
-      });
-    }),
+    ),
     delete: vi.fn(async () => undefined),
   };
   const namespace = {
@@ -179,6 +194,88 @@ function makeEnv(input?: {
 }
 
 describe("Core Space file content RPC", () => {
+  it("keeps the buffered write path capped when the Space file limit grows", async () => {
+    const { env, stub } = makeEnv();
+    await expect(
+      rpcWriteSpaceFileContent(env, {
+        bytes: new ArrayBuffer(0),
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        write: { ...WRITE, sizeBytes: SPACE_FILE_RAW_UPLOAD_MAX_BYTES + 1 },
+      })
+    ).rejects.toThrow("Use multipart upload");
+    expect(stub.rpcPrepareSpaceFileWrite).not.toHaveBeenCalled();
+  });
+  it("authorizes the exact revision and requests only its R2 range without buffering", async () => {
+    const { env, bucket, stub } = makeEnv();
+    const result = await rpcStreamSpaceFileContent(
+      env,
+      {
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        content: { spaceId: SPACE_ID, fileId: FILE_ID, revision: 1 },
+      },
+      { range: "bytes=7-12" }
+    );
+    expect(result.stream).toEqual({
+      status: 206,
+      etag: `"${REVISION_ID}"`,
+      offset: 7,
+      length: 6,
+    });
+    expect(bucket.get).toHaveBeenCalledWith(OBJECT_KEY, {
+      range: { offset: 7, length: 6 },
+    });
+    expect(stub.rpcResolveSpaceFileContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: { spaceId: SPACE_ID, fileId: FILE_ID, revision: 1 },
+      })
+    );
+    expect(await new Response(result.bytes).text()).toBe("launch");
+    expect(stub.rpcRecordSpaceFileAuditEvent).toHaveBeenCalledOnce();
+  });
+
+  it("does not open file bytes for HEAD, rejected ranges, or access denial", async () => {
+    const { env, bucket, stub } = makeEnv();
+    const input = {
+      context: CONTEXT,
+      spaceId: SPACE_ID,
+      content: { spaceId: SPACE_ID, fileId: FILE_ID, revision: 1 },
+    };
+    const head = await rpcStreamSpaceFileContent(env, input, {
+      head: true,
+      range: "bytes=0-1",
+    });
+    expect(head.stream?.status).toBe(200);
+    expect(await new Response(head.bytes).text()).toBe("");
+    expect(bucket.head).toHaveBeenCalledWith(OBJECT_KEY);
+    const rejected = await rpcStreamSpaceFileContent(env, input, {
+      range: "bytes=900-",
+    });
+    expect(rejected.stream?.status).toBe(416);
+    expect(await new Response(rejected.bytes).text()).toBe("");
+    stub.rpcResolveSpaceFileContent.mockRejectedValueOnce(
+      new Error("Access denied")
+    );
+    await expect(
+      rpcStreamSpaceFileContent(env, input, { range: "bytes=0-1" })
+    ).rejects.toThrow("Access denied");
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("does not add opt-in stream metadata to legacy RPC results", async () => {
+    const { env } = makeEnv();
+    const result = await rpcStreamSpaceFileContent(env, {
+      context: CONTEXT,
+      spaceId: SPACE_ID,
+      content: { spaceId: SPACE_ID, fileId: FILE_ID },
+    });
+    expect(result).not.toHaveProperty("stream");
+    expect(await new Response(result.bytes).text()).toBe(
+      "Shared launch notes\n"
+    );
+  });
+
   it("negotiates geometry for Gateway callers while legacy Gateway and Remote Agent retain their revision contract", async () => {
     const { env } = makeEnv({ committedFile: FILE });
     const request = {

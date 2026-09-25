@@ -6,6 +6,7 @@ import {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildSlackIdentityLinkNavigationAction,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
   CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
@@ -653,7 +654,12 @@ function buildRemoteAgentSourceText(
         (file) =>
           `- ${JSON.stringify(file.name)} — fileId=${file.fileId}, revision=${file.revision}, type=${file.mimeType}, size=${file.sizeBytes} bytes.`
       ),
-      "Use openmeld_read_space_file for text content and openmeld_save_space_file to create or update text files. The fileId and revision identify the exact bytes that were sent.",
+      "Use openmeld_read_space_file for text content. For binary content, download the exact revision into your Computer with openmeld_download_space_file. Use openmeld_save_space_file to create or update text files. The fileId and revision identify the exact bytes that were sent.",
+      ...(files.some((file) => file.mimeType.startsWith("video/"))
+        ? [
+            "For video content, download the file, then use openmeld_inspect_computer_video to sample frames and transcribe audio in bounded intervals. State which intervals you inspected; do not claim to have watched the entire video unless you covered it.",
+          ]
+        : []),
     ].join("\n"),
   ].join("\n\n");
 }
@@ -3088,7 +3094,12 @@ type RemoteAgentTaskContinuationWorkerProtocol =
     >
   | Pick<
       Extract<RemoteAgentWorkerSubmitTurnRequest, { v: 4 }>,
-      "conversationId" | "modelRoute" | "runtimeConversation" | "v"
+      | "conversationId"
+      | "conversationIdentity"
+      | "modelRoute"
+      | "runtimeConversation"
+      | "spaceDispatchContext"
+      | "v"
     >;
 
 function inheritRemoteAgentTaskContinuationWorkerProtocol(
@@ -3102,8 +3113,14 @@ function inheritRemoteAgentTaskContinuationWorkerProtocol(
     case 4:
       return {
         conversationId: request.conversationId,
+        ...(request.conversationIdentity
+          ? { conversationIdentity: request.conversationIdentity }
+          : {}),
         modelRoute: request.modelRoute,
         runtimeConversation: request.runtimeConversation,
+        ...(request.spaceDispatchContext
+          ? { spaceDispatchContext: request.spaceDispatchContext }
+          : {}),
         v: request.v,
       };
     default: {
@@ -4718,11 +4735,17 @@ function buildRemoteAgentRoutineWorkerSubmitRequest(input: {
       : input.target.profileId,
     profileKind: input.target.personalAgent ? "human" : "agent",
   };
+  const conversationId = buildRemoteAgentRoutineRunConversationId({
+    agentProfileId: input.target.profileId,
+    organizationId: input.routine.organizationId,
+    runId: input.run.id,
+  });
   return remoteAgentWorkerSubmitTurnRequestSchema.parse({
     agentProfileId: input.target.profileId,
     agentProfileOwnerUserId: input.target.ownerUserId,
     author,
     bindingId: input.target.bindingId,
+    conversationId,
     dispatchId: input.run.id,
     idempotencyKey: input.run.id,
     messages: [{ content: input.routine.instructions, role: "user" }],
@@ -4735,25 +4758,17 @@ function buildRemoteAgentRoutineWorkerSubmitRequest(input: {
     triggerMessageId: input.run.id,
     turnEnvelope: input.turnEnvelope,
     ...(input.target.personalAgent
-      ? (() => {
-          const conversationId = buildPersonalRemoteAgentConversationId({
-            organizationId: input.routine.organizationId,
+      ? {
+          v: 4,
+          conversationIdentity: {
+            kind: "personal_agent",
             agentProfileId: input.target.profileId,
-            spaceId: requireRoutineConversationId(input.routine),
-          });
-          return {
-            v: 4,
-            conversationId,
-            conversationIdentity: {
-              kind: "personal_agent",
-              agentProfileId: input.target.profileId,
-            },
-            runtimeConversation: { generation: 0, id: conversationId },
-            spaceDispatchContext: createDispatchChainContext({
-              dispatchId: input.run.id,
-            }),
-          };
-        })()
+          },
+          runtimeConversation: { generation: 0, id: conversationId },
+          spaceDispatchContext: createDispatchChainContext({
+            dispatchId: input.run.id,
+          }),
+        }
       : { v: 2 }),
   });
 }
@@ -6068,10 +6083,20 @@ async function failRemoteAgentRoutineDelivery(input: {
       status: resolveRoutineFailureLedgerStatus(input.failureCode),
     });
   }
+  const runUrl = input.target?.personalAgent
+    ? undefined
+    : await resolveRoutineRunUrl({
+        env: input.env,
+        organizationId: input.routine.organizationId,
+        routineId: input.routine.id,
+        runId: input.run.id,
+      });
   const text = buildRoutineFailureText({
     failureCode: input.failureCode,
     failureReason: input.failureReason,
     routineName: input.routine.name,
+    runId: input.run.id,
+    runUrl,
   });
   let publishedSignalId: string | null = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -6372,10 +6397,20 @@ async function publishRetriedRoutineFailure(input: {
   env: CoreBindings;
   run: Awaited<ReturnType<typeof listUnpublishedFailedRoutineRuns>>[number];
 }): Promise<{ id?: string | null } | null> {
+  const runUrl = isPersonalRoutineDelivery(input.delivery)
+    ? undefined
+    : await resolveRoutineRunUrl({
+        env: input.env,
+        organizationId: input.run.organizationId,
+        routineId: input.run.routineId,
+        runId: input.run.runId,
+      });
   const text = buildRoutineFailureText({
     failureCode: input.run.failureCode,
     failureReason: resolveRoutineFailurePublicationReason(input.run),
     routineName: input.run.routineName,
+    runId: input.run.runId,
+    runUrl,
   });
   if (input.run.destinationKind === "message_channel") {
     return await publishRoutineMessageChannelText({
@@ -6460,12 +6495,58 @@ function buildRoutineFailureText(input: {
   failureCode: string;
   failureReason: string;
   routineName: string;
+  runId: string;
+  runUrl?: string;
 }): string {
+  const runReference = `Run ID: ${input.runId}${input.runUrl ? `\n[View Run details](${input.runUrl})` : ""}`;
+  if (input.failureCode === "remote_agent.empty_assistant_response") {
+    return `Routine “${input.routineName}” did not publish a result. The Agent produced no reply. If you still need the result, ask the Agent to do this work again.\n${runReference}`;
+  }
+  if (input.failureCode === "remote_agent.turn.output_limit_exceeded") {
+    return `Routine “${input.routineName}” did not publish a result. The Agent reached the model's response limit before it could reply. Completed actions were not undone. Check the results before asking the Agent to continue.\n${runReference}`;
+  }
   const reason = resolveRoutineFailureReasonForDisplay({
     failureCode: input.failureCode,
     failureDetail: input.failureReason,
   }).trim();
-  return `Routine “${input.routineName}” could not run because ${reason}`;
+  return `Routine “${input.routineName}” could not run because ${reason}\n${runReference}`;
+}
+
+async function resolveRoutineRunUrl(input: {
+  env: CoreBindings;
+  organizationId: string;
+  routineId: string;
+  runId: string;
+}): Promise<string | undefined> {
+  const webAppUrl = normalizeOptionalText(input.env.WEB_APP_URL);
+  if (!webAppUrl) {
+    return undefined;
+  }
+  try {
+    const organizationSlug = await readOrganizationRouteSlug({
+      env: input.env,
+      organizationId: input.organizationId,
+      requestId: input.runId,
+    });
+    if (!organizationSlug) {
+      return undefined;
+    }
+    const url = new URL(
+      buildOpenMeldOrganizationWebUrl({ organizationSlug, webAppUrl })
+    );
+    url.pathname = `${url.pathname}/center-agent/routines`;
+    url.searchParams.set("routineId", input.routineId);
+    url.searchParams.set("runId", input.runId);
+    return url.toString();
+  } catch (error) {
+    console.warn("[core.remote_agent.routine_run_navigation_unavailable]", {
+      error: toErrorMessage(error),
+      organizationId: input.organizationId,
+      routineId: input.routineId,
+      runId: input.runId,
+    });
+    return undefined;
+  }
 }
 
 function buildRoutinePublisherProfileOwner(input: {
@@ -11295,6 +11376,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
   }
 
   if (input.delivery.routineRunId) {
+    const runUrl = await resolveCallbackRoutineRunUrl(input);
     const targetProfile = await resolveRemoteAgentTargetProfile({
       env: input.env,
       profileId: input.delivery.profileId,
@@ -11321,6 +11403,8 @@ async function publishRemoteAgentCallbackFailureText(input: {
         routineName:
           normalizeOptionalText(input.delivery.routineNameSnapshot) ??
           "Scheduled Routine",
+        runId: input.delivery.routineRunId,
+        runUrl,
       }),
     });
   }
@@ -11344,7 +11428,10 @@ async function publishRemoteAgentCallbackFailureText(input: {
     profile,
     submissionId: input.body.submissionId,
   });
-  if (input.body.failureCode === "remote_agent.empty_assistant_response") {
+  if (
+    input.body.failureCode === "remote_agent.empty_assistant_response" ||
+    input.body.failureCode === "remote_agent.turn.output_limit_exceeded"
+  ) {
     const author = input.delivery.executionRecoverySubmitRequest?.author;
     return await emitSpaceSystemNoticeSignal({
       env: input.env,
@@ -11426,6 +11513,37 @@ async function publishRemoteAgentCallbackFailureText(input: {
     }),
     ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     context,
+  });
+}
+
+async function resolveCallbackRoutineRunUrl(input: {
+  delivery: NativeDeliveryPublishRecord;
+  env: CoreBindings;
+}): Promise<string | undefined> {
+  const db = routineDb(input.env);
+  const runId = input.delivery.routineRunId;
+  if (!(db && runId) || isPersonalRoutineDelivery(input.delivery)) {
+    return undefined;
+  }
+  let run: Awaited<ReturnType<typeof readRoutineRunRecord>>;
+  try {
+    run = await readRoutineRunRecord({ db, runId });
+  } catch (error) {
+    console.warn("[core.remote_agent.routine_run_navigation_unavailable]", {
+      error: toErrorMessage(error),
+      organizationId: input.delivery.organizationId,
+      runId,
+    });
+    return undefined;
+  }
+  if (!run) {
+    return undefined;
+  }
+  return await resolveRoutineRunUrl({
+    env: input.env,
+    organizationId: input.delivery.organizationId,
+    routineId: run.routineId,
+    runId: run.id,
   });
 }
 

@@ -2,6 +2,7 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
+	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
@@ -22,6 +23,7 @@ export function ChatTitleEditor(input: {
 		<>
 			<Button
 				aria-label="Rename chat"
+				className="rounded-full"
 				disabled={input.disabled}
 				onClick={() => {
 					setName(input.title === "New chat" ? "" : input.title);
@@ -68,9 +70,11 @@ export function ChatTitleEditor(input: {
 								{error}
 							</p>
 						)}
-						<Button disabled={pending || !name.trim()} type="submit">
-							Save
-						</Button>
+						<DialogFooter>
+							<Button disabled={pending || !name.trim()} type="submit">
+								Save
+							</Button>
+						</DialogFooter>
 					</form>
 				</DialogContent>
 			</Dialog>

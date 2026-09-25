@@ -144,6 +144,13 @@ html[data-space-conversation-layout="centered"]
   padding-inline: var(--space-conversation-inline-padding);
 }
 
+/* Keep the underlying columns laid out, but out of the focus and reading order,
+   while a narrow container presents Thread as a full-width reading panel. */
+[data-space-inline-panels]:has(> [data-space-panel-overlay="true"])
+  > :not([data-space-panel-overlay="true"]) {
+  visibility: hidden;
+}
+
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"][data-slot="message"] {
   flex-direction: row;
@@ -166,24 +173,20 @@ html[data-space-self-message-alignment="left"]
 
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"]
+  > [data-slot="message-content"]:not([data-direct-message])
   [data-slot="bubble"] {
   align-self: flex-start;
-  inline-size: 100%;
-  max-inline-size: 100%;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
-  [data-slot="bubble-content"] {
-  inline-size: 100%;
-  max-inline-size: 100%;
+[data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
+  max-inline-size: min(100%, 52rem);
 }
 
 html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"]
+  [data-space-self-message="true"]:not([data-thread-message])
   [data-slot="bubble"] {
   inline-size: fit-content;
-  max-inline-size: min(68%, 52rem);
+  max-inline-size: min(68%, calc(100% - 11rem), 52rem);
 }
 
 html[data-space-self-message-alignment="right"]
@@ -249,12 +252,128 @@ html[data-space-self-message-alignment="left"]
   text-align: start;
 }
 
-@media (max-width: 40rem) {
+/* Messages keep an avatar column beside the first header or bubble in a run.
+   Reserve it on every row so grouped messages and actions stay aligned. */
+[data-slot="message-content"] {
+  position: relative;
+  padding-inline-start: 2rem;
+}
+
+[data-slot="message-content"]:not([data-direct-message]) [data-slot="message-speaker-avatar"] {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+}
+
+[data-slot="message-speaker-avatar"] {
+  display: flex;
+}
+
+/* Offset the name line's font ascent inset so its visible text sits just above the avatar
+   top. Keep the header clear of the bubble in both the conversation and Thread. */
+[data-slot="message-content"]:not([data-direct-message]) > [data-slot="message-header"] {
+  margin-block-start: -5px;
+  margin-block-end: 0.125rem;
+}
+
+[data-direct-message] > [data-slot="message-header"] {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  margin-block-end: 0;
+}
+
+[data-direct-message] [data-slot="bubble"],
+[data-direct-message] [data-slot="bubble-content"] {
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  align-self: flex-start;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] > [data-slot="message-content"] {
+  padding-inline-start: 0;
+  padding-inline-end: 2rem;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-direct-message] > [data-slot="message-header"],
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-slot="message-content"]:not([data-direct-message]) [data-slot="message-speaker-avatar"] {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-direct-message] [data-slot="bubble"] {
+  align-self: flex-end;
+}
+
+/* Size message actions against their own column, including a resized Thread. */
+[data-message-row-id] {
+  container-name: space-message-row;
+  container-type: inline-size;
+}
+
+/* An overlaid toolbar can extend above the virtualized item's paint bounds. */
+[data-slot="message-scroller-item"]:hover,
+[data-slot="message-scroller-item"]:focus-within {
+  content-visibility: visible;
+}
+
+/* Main conversation messages reserve a side for floating actions. Thread actions
+   sit below the bubble, so Thread messages can use the panel's full width. */
+:root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
+  max-inline-size: min(calc(100% - 11rem), 52rem);
+}
+
+@container space-message-row (max-width: 32rem) {
+  :root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
+    max-inline-size: calc(100% - 4rem);
+  }
+
   html[data-space-self-message-alignment="right"]
-    [data-space-self-message="true"]
+    [data-space-self-message="true"]:not([data-thread-message])
+    [data-slot="bubble"] {
+    max-inline-size: calc(100% - 4rem);
+  }
+
+  [data-message-row-id]:not([data-thread-message])
+    [data-slot="message-footer-standard-actions"] {
+    display: none;
+  }
+}
+
+/* Direct messages keep their existing content width. Their time lives in the
+   shared hover toolbar, which can float above a bubble when the side is full. */
+:root [data-direct-message] [data-slot="bubble"] {
+  max-inline-size: 100%;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]:not([data-thread-message])
+  [data-direct-message]
+  [data-slot="bubble"] {
+  max-inline-size: min(68%, 52rem);
+}
+
+@container space-message-row (max-width: 32rem) {
+  html[data-space-self-message-alignment="right"]
+    [data-space-self-message="true"]:not([data-thread-message])
+    [data-direct-message]
     [data-slot="bubble"] {
     max-inline-size: min(88%, 52rem);
   }
+}
+
+/* A video needs a stable frame width; ordinary text bubbles still shrink to fit. */
+:root [data-message-row-id] [data-slot="bubble"][data-video-message="true"],
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]
+  [data-message-row-id]
+  [data-slot="bubble"][data-video-message="true"] {
+  inline-size: min(100%, 26rem);
+  max-inline-size: min(100%, 26rem);
 }
 
 @media (min-width: 1280px) {

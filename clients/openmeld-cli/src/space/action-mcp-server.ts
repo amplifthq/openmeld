@@ -1,10 +1,18 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
+  type AdapterDispatchSpaceTool,
+  type AdapterDispatchSpaceToolResult,
+  type AdapterDispatchSpaceTools,
+  isDispatchSpaceActionDeliveryOnly,
+} from "@openmeld/adapter-core";
+import {
+  dispatchProjectShellInputSchema,
+  dispatchProjectShellResultSchema,
   dispatchSpaceActionToolResultSchema,
   dispatchSpaceHistoryRequestSchema,
-  dispatchSpaceHistoryResultSchema,
-  listSpaceTasksResponseSchema,
+  dispatchSpaceReadResultRequestSchema,
+  dispatchSpaceReadResultSchema,
   openMeldRuntimeProfileIdSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
@@ -13,18 +21,22 @@ import {
   spaceTaskMutationReceiptSchema,
 } from "@openmeld/schemas";
 import { z } from "zod/v4";
+import { runExecutionContextWorkspaceProjectShell } from "../local-service/dispatch/execution-context-workspace";
 import type { DispatchSpaceActionRecord } from "../runtime/dispatch-space-action-context";
 import {
   DispatchSpaceActionClosedError,
+  DispatchSpaceActionRejectedError,
   readDispatchSpaceActionContextForReceiptFromEnv,
+  readDispatchSpaceActionContextFromEnv,
+  readDispatchSpaceActionRecord,
 } from "../runtime/dispatch-space-action-context";
 import {
   recordDispatchSpaceReply,
   recordDispatchSpaceSilent,
-  recordDispatchSpaceStatus,
 } from "./action-command";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
 import { readDispatchSpaceHistory } from "./dispatch-history-read";
+import { DispatchReadResults } from "./dispatch-read-result";
 import {
   createDispatchSpaceTask,
   listDispatchSpaceTasks,
@@ -32,24 +44,239 @@ import {
 } from "./dispatch-task";
 import { runDispatchWorkingCopy } from "./dispatch-working-copy";
 
-const FINAL_STATUS_SCHEMA = z.enum([
-  "done",
-  "blocked",
-  "needs_input",
-  "handoff",
-]);
+export const DISPATCH_SPACE_TOOL_INSTRUCTIONS =
+  "Use read_history for the bounded text history around the current Wake, and read_file for shared text files in the current Space. Use Space Task tools only when a clear deliverable needs durable ownership, progress, review, or later closure; questions and tiny same-turn actions stay in Messages. Task operations are non-final. Then choose exactly one permitted final OpenMeld Space Action: reply for an answer, limitation, error explanation, or request for help; stay_silent only when no public communication is appropriate. Do not create a Task just to acknowledge a message. Parameter validation errors record no action and may be corrected. Use read_receipt to reconcile an unknown outcome before resending. Private assistant output is not posted to the Space.";
 
-export function createSpaceActionMcpServer(): McpServer {
-  const server = new McpServer(
-    {
-      name: "openmeld-dispatch-space-action",
-      version: "1.0.0",
+/** Every carrier uses the same schemas, validation, authority and recorder. */
+class DispatchSpaceTools implements AdapterDispatchSpaceTools {
+  readonly tools: AdapterDispatchSpaceTool[] = [];
+  readonly deliveryOnly: boolean;
+  readonly #env: NodeJS.ProcessEnv;
+  readonly #context: ReturnType<
+    typeof readDispatchSpaceActionContextForReceiptFromEnv
+  >;
+  readonly #handlers = new Map<
+    string,
+    (args: unknown) => Promise<AdapterDispatchSpaceToolResult>
+  >();
+  #closed = false;
+  readonly #readResults = new DispatchReadResults();
+
+  constructor(env: NodeJS.ProcessEnv) {
+    this.#env = Object.freeze({ ...env });
+    this.#context = readDispatchSpaceActionContextForReceiptFromEnv(this.#env);
+    this.deliveryOnly = isDispatchSpaceActionDeliveryOnly(this.#env);
+  }
+
+  registerTool<Shape extends z.ZodRawShape>(
+    name: string,
+    config: Omit<AdapterDispatchSpaceTool, "name" | "inputSchema"> & {
+      inputSchema: Shape | z.ZodObject<Shape>;
     },
-    {
-      instructions:
-        "Use read_history for the bounded text history around the current Wake, and read_file for shared text files in the current Space. Use Space Task tools only when a clear deliverable needs durable ownership, progress, review, or later closure; questions and tiny same-turn actions stay in Messages. Task operations are non-final. Then choose exactly one final OpenMeld Space Action: reply for the exact public message, status for a final visible status, or stay_silent when no public message is needed. Private assistant output is not posted to the Space.",
+    handler: (
+      args: z.output<z.ZodObject<Shape>>
+    ) => Promise<AdapterDispatchSpaceToolResult>
+  ): void {
+    if (
+      this.deliveryOnly &&
+      !["reply", "stay_silent", "read_receipt"].includes(name)
+    ) {
+      return;
     }
-  );
+    const inputSchema =
+      config.inputSchema instanceof z.ZodObject
+        ? config.inputSchema
+        : z.strictObject(config.inputSchema);
+    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
+      name
+    );
+    this.tools.push({
+      ...config,
+      name,
+      inputSchema,
+      ...(pagedRead
+        ? {
+            outputSchema: dispatchSpaceReadResultSchema,
+            description: `${config.description} Small reads return result; large reads return page. Continue with read_result using page.resultId and page.nextOffset; no local file is needed.`,
+          }
+        : {}),
+    });
+    this.#handlers.set(name, (args) => {
+      const parsed = inputSchema.safeParse(args);
+      if (!parsed.success) {
+        return executeSpaceAction(() => {
+          throw new DispatchSpaceActionRejectedError(
+            "space_action.invalid_input",
+            parsed.error.message
+          );
+        }, this.#env);
+      }
+      return handler(parsed.data);
+    });
+  }
+
+  async call(
+    name: string,
+    args: unknown
+  ): Promise<AdapterDispatchSpaceToolResult> {
+    const context = readDispatchSpaceActionContextForReceiptFromEnv(this.#env);
+    if (
+      this.#closed ||
+      context.contextId !== this.#context.contextId ||
+      context.nonce !== this.#context.nonce
+    ) {
+      return executeSpaceAction(() => {
+        throw new DispatchSpaceActionClosedError(
+          "space_action.context_mismatch",
+          "This tool invocation no longer owns the active Wake. Do not retry through another transport."
+        );
+      }, this.#env);
+    }
+    const handler = this.#handlers.get(name);
+    if (!handler) {
+      return executeSpaceAction(() => {
+        throw new DispatchSpaceActionRejectedError(
+          "space_action.not_allowed",
+          "This tool is not available in the current invocation. Final communication uses reply or stay_silent, subject to the existing Space policy."
+        );
+      }, this.#env);
+    }
+    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
+      name
+    );
+    if (pagedRead || name === "read_result") {
+      try {
+        readDispatchSpaceActionContextFromEnv(this.#env);
+        const result = await handler(args);
+        const active = readDispatchSpaceActionContextFromEnv(this.#env);
+        if (
+          this.#closed ||
+          active.contextId !== this.#context.contextId ||
+          active.nonce !== this.#context.nonce
+        ) {
+          throw new Error(
+            "The Wake changed or closed during this read. No result is available."
+          );
+        }
+        return pagedRead ? this.#readResults.wrap(result) : result;
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text:
+                error instanceof Error
+                  ? error.message
+                  : "The Space read failed.",
+            },
+          ],
+        };
+      }
+    }
+    return await handler(args);
+  }
+
+  registerResultReader(): void {
+    this.registerTool(
+      "read_result",
+      {
+        title: "Continue reading a large Space tool result",
+        description:
+          "Read the next page of a large read_history, read_file, or list_tasks result. Pass the returned resultId and nextOffset exactly; append page.text in order to reconstruct the complete JSON. No local path or shell is needed. The snapshot belongs only to this active Wake and tool connection; after expiry or eviction, read the source again. Does not publish or repeat an operation.",
+        inputSchema: dispatchSpaceReadResultRequestSchema,
+        outputSchema: dispatchSpaceReadResultSchema,
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async ({ resultId, offset }) => this.#readResults.read(resultId, offset)
+    );
+  }
+
+  close(): void {
+    this.#closed = true;
+    this.#readResults.clear();
+  }
+}
+
+export function createDispatchSpaceTools(
+  input: { env?: NodeJS.ProcessEnv } = {}
+): AdapterDispatchSpaceTools {
+  const env = Object.freeze({ ...(input.env ?? process.env) });
+  const server = new DispatchSpaceTools(env);
+
+  const projectShell =
+    readDispatchSpaceActionContextForReceiptFromEnv(env).projectShell;
+  if (projectShell) {
+    server.registerTool(
+      "project_shell",
+      {
+        title: "Run a command in this task's project worktree",
+        description:
+          "Run one Bash command inside this task's isolated project container. Only its private worktree is mounted. The container has no network, host credentials, or Docker socket. This tool does not submit the final Space action.",
+        inputSchema: dispatchProjectShellInputSchema,
+        outputSchema: dispatchProjectShellResultSchema,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+      },
+      async ({ command }) => {
+        try {
+          const context = readDispatchSpaceActionContextForReceiptFromEnv(env);
+          if (
+            !context.projectShell ||
+            context.projectShell.executionContextId !==
+              projectShell.executionContextId ||
+            context.projectShell.boundaryRoot !== projectShell.boundaryRoot ||
+            context.projectShell.ledgerRootPath !==
+              projectShell.ledgerRootPath ||
+            context.projectShell.workspacePath !== projectShell.workspacePath ||
+            context.projectShell.runtime.binary !==
+              projectShell.runtime.binary ||
+            context.projectShell.runtime.engineIdentity !==
+              projectShell.runtime.engineIdentity ||
+            context.projectShell.runtime.kind !== projectShell.runtime.kind
+          ) {
+            throw new Error("claude_project.context_mismatch");
+          }
+          const result = dispatchProjectShellResultSchema.parse(
+            await runExecutionContextWorkspaceProjectShell({
+              ledgerRootPath: projectShell.ledgerRootPath,
+              contextId: projectShell.executionContextId,
+              dispatchId: context.dispatchId,
+              attemptId: context.attemptId,
+              command,
+              runtime: projectShell.runtime,
+              boundaryRoot: projectShell.boundaryRoot,
+              workspacePath: projectShell.workspacePath,
+            })
+          );
+          return {
+            structuredContent: result,
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          };
+        } catch (error) {
+          const code =
+            error instanceof Error &&
+            error.message.startsWith("claude_project.")
+              ? (error.message.split(":")[0] ??
+                "claude_project.execution_failed")
+              : "claude_project.execution_failed";
+          return {
+            isError: true,
+            content: [{ type: "text" as const, text: code }],
+          };
+        }
+      }
+    );
+  }
 
   server.registerTool(
     "working_copy",
@@ -70,7 +297,7 @@ export function createSpaceActionMcpServer(): McpServer {
             {
               type: "text" as const,
               text: JSON.stringify(
-                await runDispatchWorkingCopy(action, { fileId, revision })
+                await runDispatchWorkingCopy(action, { fileId, revision }, env)
               ),
             },
           ],
@@ -96,7 +323,6 @@ export function createSpaceActionMcpServer(): McpServer {
       description:
         "Read up to 20 text messages before the current Wake, plus its source message. Space, Agent identity and source are fixed by the active dispatch. Use this instead of terminal CLI history. This read does not submit a reply or close the Wake.",
       inputSchema: dispatchSpaceHistoryRequestSchema,
-      outputSchema: dispatchSpaceHistoryResultSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -106,7 +332,7 @@ export function createSpaceActionMcpServer(): McpServer {
     },
     async () => {
       try {
-        const result = await readDispatchSpaceHistory();
+        const result = await readDispatchSpaceHistory(env);
         return {
           structuredContent: result,
           content: [{ type: "text" as const, text: JSON.stringify(result) }],
@@ -144,7 +370,7 @@ export function createSpaceActionMcpServer(): McpServer {
     },
     async (input) => {
       try {
-        const result = await readDispatchSpaceFile(input);
+        const result = await readDispatchSpaceFile({ ...input, env });
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result) }],
         };
@@ -173,7 +399,6 @@ export function createSpaceActionMcpServer(): McpServer {
           .enum(["to_do", "in_progress", "in_review", "done", "canceled"])
           .optional(),
       },
-      outputSchema: listSpaceTasksResponseSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -181,7 +406,8 @@ export function createSpaceActionMcpServer(): McpServer {
         openWorldHint: false,
       },
     },
-    async ({ phase }) => executeTaskAction(() => listDispatchSpaceTasks(phase))
+    async ({ phase }) =>
+      executeTaskAction(() => listDispatchSpaceTasks(phase, env))
   );
 
   server.registerTool(
@@ -208,7 +434,7 @@ export function createSpaceActionMcpServer(): McpServer {
         openWorldHint: false,
       },
     },
-    async (body) => executeTaskAction(() => createDispatchSpaceTask(body))
+    async (body) => executeTaskAction(() => createDispatchSpaceTask(body, env))
   );
 
   server.registerTool(
@@ -231,10 +457,13 @@ export function createSpaceActionMcpServer(): McpServer {
     },
     async ({ expectedRevision, taskId }) =>
       executeTaskAction(() =>
-        mutateDispatchSpaceTask({
-          taskId,
-          body: { action: "mark_in_progress", expectedRevision },
-        })
+        mutateDispatchSpaceTask(
+          {
+            taskId,
+            body: { action: "mark_in_progress", expectedRevision },
+          },
+          env
+        )
       )
   );
 
@@ -243,7 +472,7 @@ export function createSpaceActionMcpServer(): McpServer {
     {
       title: "Submit a result for a Space Task",
       description:
-        "Submit the concrete result and verification for an in-progress Task. A Task with a reviewer moves to In review; otherwise the stated completion boundary moves it to Done. If the reviewer is an Agent, use your one final reply to wake that reviewer.",
+        "Submit the concrete result and verification for an in-progress Task. A Task with a reviewer moves to In review; otherwise the stated completion boundary moves it to Done. The Space delivers the review handoff to the reviewer.",
       inputSchema: {
         taskId: spaceTaskIdSchema,
         expectedRevision: z.number().int().min(1),
@@ -259,10 +488,13 @@ export function createSpaceActionMcpServer(): McpServer {
     },
     async ({ expectedRevision, summary, taskId }) =>
       executeTaskAction(() =>
-        mutateDispatchSpaceTask({
-          taskId,
-          body: { action: "submit_result", expectedRevision, summary },
-        })
+        mutateDispatchSpaceTask(
+          {
+            taskId,
+            body: { action: "submit_result", expectedRevision, summary },
+          },
+          env
+        )
       )
   );
 
@@ -271,10 +503,11 @@ export function createSpaceActionMcpServer(): McpServer {
     {
       title: "Review a Space Task result",
       description:
-        "Accept the current result or request specific changes as this Task's reviewer. Change requests require feedback. If the assignee is an Agent and the Task returns to In progress, use your one final reply to wake that assignee with the feedback. Do not wake more work when needsHumanDecision is true. Agent-to-Agent rework stops for a human decision after two automatic rounds.",
+        "Accept the exact result you read or request specific changes as this Task's reviewer. Pass that result's resultRevision as expectedResultRevision and the Task's revision as expectedRevision. A conflict requires reading the current Task and deciding again. Change requests require feedback. The Space delivers review and rework handoffs. Agent-to-Agent rework stops for a human decision after two automatic rounds.",
       inputSchema: {
         taskId: spaceTaskIdSchema,
         expectedRevision: z.number().int().min(1),
+        expectedResultRevision: z.number().int().min(1),
         decision: z.enum(["accepted", "changes_requested"]),
         feedback: z.string().trim().min(1).max(8000).nullable().optional(),
       },
@@ -286,17 +519,27 @@ export function createSpaceActionMcpServer(): McpServer {
         openWorldHint: false,
       },
     },
-    async ({ decision, expectedRevision, feedback, taskId }) =>
+    async ({
+      decision,
+      expectedRevision,
+      expectedResultRevision,
+      feedback,
+      taskId,
+    }) =>
       executeTaskAction(() =>
-        mutateDispatchSpaceTask({
-          taskId,
-          body: {
-            action: "review",
-            expectedRevision,
-            decision,
-            ...(feedback === undefined ? {} : { feedback }),
+        mutateDispatchSpaceTask(
+          {
+            taskId,
+            body: {
+              action: "review",
+              expectedRevision,
+              expectedResultRevision,
+              decision,
+              ...(feedback === undefined ? {} : { feedback }),
+            },
           },
-        })
+          env
+        )
       )
   );
 
@@ -321,10 +564,13 @@ export function createSpaceActionMcpServer(): McpServer {
     },
     async ({ expectedRevision, reason, taskId }) =>
       executeTaskAction(() =>
-        mutateDispatchSpaceTask({
-          taskId,
-          body: { action: "cancel", expectedRevision, reason },
-        })
+        mutateDispatchSpaceTask(
+          {
+            taskId,
+            body: { action: "cancel", expectedRevision, reason },
+          },
+          env
+        )
       )
   );
 
@@ -333,7 +579,7 @@ export function createSpaceActionMcpServer(): McpServer {
     {
       title: "Reply in the current OpenMeld Space",
       description:
-        "Record the exact final public reply for the active OpenMeld Wake. Use real newline characters for paragraph breaks. Optionally wake or reference an Agent, or mention a person, by mention label or profile ID.",
+        "Record the exact final public message for the active Wake: answers, known limitations, errors, and requests for help all belong here. Use real newlines. No shell, local repository, CLI, or Skill is needed to explain that you cannot complete a task. Omit recipient fields for a plain reply; use full Profile IDs from this Wake's send target reference when addressing recipients. Correct invalid arguments and retry; do not bypass denials or blindly resend an unknown outcome.",
       inputSchema: {
         message: z.string().min(1),
         files: z.array(spaceMessageFileReferenceSchema).max(10).optional(),
@@ -350,37 +596,18 @@ export function createSpaceActionMcpServer(): McpServer {
       },
     },
     async ({ files, mentionTargets, message, referenceTargets, wakeTargets }) =>
-      executeSpaceAction(() =>
-        recordDispatchSpaceReply({
-          files,
-          mentionTargets,
-          referenceTargets,
-          text: message,
-          wakeTargets,
-        })
+      executeSpaceAction(
+        () =>
+          recordDispatchSpaceReply({
+            env,
+            files,
+            mentionTargets,
+            referenceTargets,
+            text: message,
+            wakeTargets,
+          }),
+        env
       )
-  );
-
-  server.registerTool(
-    "status",
-    {
-      title: "Set the final OpenMeld Space status",
-      description:
-        "Record one final visible status for the active OpenMeld Wake. This closes the Wake; do not use it for interim progress.",
-      inputSchema: {
-        status: FINAL_STATUS_SCHEMA,
-        text: z.string().min(1),
-      },
-      outputSchema: dispatchSpaceActionToolResultSchema,
-      annotations: {
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false,
-        readOnlyHint: false,
-      },
-    },
-    async ({ status, text }) =>
-      executeSpaceAction(() => recordDispatchSpaceStatus({ status, text }))
   );
 
   server.registerTool(
@@ -401,9 +628,80 @@ export function createSpaceActionMcpServer(): McpServer {
       },
     },
     async ({ reason }) =>
-      executeSpaceAction(() => recordDispatchSpaceSilent({ reason }))
+      executeSpaceAction(() => recordDispatchSpaceSilent({ reason, env }), env)
   );
 
+  server.registerResultReader();
+
+  server.registerTool(
+    "read_receipt",
+    {
+      title: "Check this Wake's recorded final action",
+      description:
+        "Reconcile an uncertain final tool result without posting, replacing, or repeating the action. A saved receipt is a local proposal, not confirmation of publication. A missing record is an observation, not permission to bypass a denial or expiry.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const context = readDispatchSpaceActionContextForReceiptFromEnv(env);
+      const record = readDispatchSpaceActionRecord({ context });
+      if (record.status === "loaded") {
+        return await executeSpaceAction(() => record.record, env);
+      }
+      if (record.status === "missing") {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No local final action record is present. Correct invalid arguments and use a permitted final tool only while this Wake is still authorized. This read does not reserve a write or override a denial.",
+            },
+          ],
+        };
+      }
+      return executeSpaceAction(() => {
+        throw new Error(
+          "The existing final action record cannot be verified. Do not overwrite it or resend through another transport."
+        );
+      }, env);
+    }
+  );
+  return server;
+}
+
+export function createSpaceActionMcpServer(): McpServer {
+  const context = readDispatchSpaceActionContextForReceiptFromEnv();
+  const tools = createDispatchSpaceTools();
+  const server = new McpServer(
+    { name: "openmeld-dispatch-space-action", version: "1.0.0" },
+    { instructions: DISPATCH_SPACE_TOOL_INSTRUCTIONS }
+  );
+  for (const { name, ...definition } of tools.tools) {
+    server.registerTool(name, definition, async (args) => {
+      try {
+        const active = readDispatchSpaceActionContextForReceiptFromEnv();
+        if (
+          active.contextId !== context.contextId ||
+          active.nonce !== context.nonce
+        ) {
+          throw new DispatchSpaceActionClosedError(
+            "space_action.context_mismatch",
+            "This MCP server cannot be rebound to another Wake."
+          );
+        }
+        return await tools.call(name, args);
+      } catch (error) {
+        return executeSpaceAction(() => {
+          throw error;
+        });
+      }
+    });
+  }
+  server.server.onclose = () => tools.close();
   return server;
 }
 
@@ -414,10 +712,11 @@ export async function runSpaceActionMcpServer(): Promise<void> {
 }
 
 export async function executeSpaceAction(
-  action: () => DispatchSpaceActionRecord | Promise<DispatchSpaceActionRecord>
+  action: () => DispatchSpaceActionRecord | Promise<DispatchSpaceActionRecord>,
+  env: NodeJS.ProcessEnv = process.env
 ) {
   try {
-    const context = readDispatchSpaceActionContextForReceiptFromEnv();
+    const context = readDispatchSpaceActionContextForReceiptFromEnv(env);
     const record = await action();
     if (
       record.contextId !== context.contextId ||
@@ -453,6 +752,25 @@ export async function executeSpaceAction(
       ],
     };
   } catch (error) {
+    if (error instanceof DispatchSpaceActionRejectedError) {
+      return {
+        structuredContent: dispatchSpaceActionToolResultSchema.parse({
+          receipt: {
+            status: "rejected_before_recording",
+            reasonCode: error.reasonCode,
+            coordinatorAcceptance: "unconfirmed",
+            publication: "unconfirmed",
+          },
+        }),
+        content: [
+          {
+            type: "text" as const,
+            text: `Action rejected (receipt: rejected_before_recording, reason: ${error.reasonCode}). This call did not record an action. ${error.message} ${error.reasonCode === "space_action.invalid_input" ? "Correct the indicated arguments and call the same permitted tool again. " : ""}Any earlier records are preserved; Coordinator acceptance and Space publication are unconfirmed.`,
+          },
+        ],
+        isError: true,
+      };
+    }
     if (error instanceof DispatchSpaceActionClosedError) {
       return {
         structuredContent: dispatchSpaceActionToolResultSchema.parse({

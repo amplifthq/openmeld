@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
@@ -29,6 +30,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
   remoteAgentWorkerSubmitTurnResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_FILE_MAX_SIZE_BYTES,
 } from "../../src/index";
 
 const TEST_CENTER_AGENT_MODEL_ROUTE = {
@@ -107,6 +109,66 @@ describe("Remote Agent worker contracts", () => {
     expect(
       remoteAgentWorkerSubmitTurnRequestSchema.safeParse(request).success
     ).toBe(true);
+    const routineTrigger = {
+      authorizedActions: [],
+      destination: { kind: "space" as const, spaceId: identity.spaceId },
+      routineId: "routine_1",
+      routineName: "Daily review",
+      runId: "routine_run_1",
+      scheduledFor: 1_783_382_400_000,
+      source: "routine" as const,
+    };
+    const routineConversationId = buildRemoteAgentRoutineRunConversationId({
+      agentProfileId: identity.agentProfileId,
+      organizationId: identity.organizationId,
+      runId: routineTrigger.runId,
+    });
+    expect(
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: identity.agentProfileId,
+        organizationId: identity.organizationId,
+        runId: "routine_run_2",
+      })
+    ).not.toBe(routineConversationId);
+    const routineRequest = {
+      ...request,
+      conversationId: routineConversationId,
+      runtimeConversation: { generation: 0, id: routineConversationId },
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        sender: {
+          createdByUserId: "user_1",
+          delegatedBy: {
+            displayName: "Felix",
+            id: "member_1",
+            ownerUserId: "user_1",
+            verified: true,
+          },
+          kind: "routine",
+          routineId: routineTrigger.routineId,
+        },
+        trigger: routineTrigger,
+      },
+    };
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse(routineRequest).success
+    ).toBe(true);
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
+        ...routineRequest,
+        conversationId,
+        runtimeConversation: { generation: 0, id: conversationId },
+      }).success
+    ).toBe(true);
+    expect(
+      remoteAgentWorkerSubmitTurnRequestSchema.safeParse({
+        ...routineRequest,
+        turnEnvelope: {
+          ...routineRequest.turnEnvelope,
+          trigger: { ...routineTrigger, runId: "routine_run_2" },
+        },
+      }).success
+    ).toBe(false);
     for (const invalid of [
       { v: 3 },
       {
@@ -139,7 +201,7 @@ describe("Remote Agent worker contracts", () => {
       id: `space-file-${index + 1}`,
       mimeType: "image/png" as const,
       objectKey: `org/org_1/space/space_1/files/space-file-${index + 1}/revisions/revision-1`,
-      sizeBytes: 250 * 1024 * 1024,
+      sizeBytes: SPACE_FILE_MAX_SIZE_BYTES,
     }));
 
     expect(

@@ -3,8 +3,16 @@ import type { TElement, TText } from "platejs";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 
 export const SPACE_COMPOSER_PROFILE_ELEMENT_TYPE = "space_profile" as const;
+export type SpaceMentionAudience = "people" | "agents" | "both";
+
+export type SpaceComposerAudienceTarget = {
+	profileId: string;
+	relation: MessageMentionType;
+};
 
 export type SpaceComposerProfileElement = TElement & {
+	audience?: SpaceMentionAudience;
+	audienceTargets?: SpaceComposerAudienceTarget[];
 	children: [{ text: "" }];
 	mentionText: string;
 	profileId: string;
@@ -38,9 +46,14 @@ export function createSpaceComposerEditorValue(input: {
 	let cursor = 0;
 	const claimedProfileIds = new Set<string>();
 
-	for (const mention of [...input.authoredMentions].sort(
+	const orderedMentions = [...input.authoredMentions].sort(
 		(left, right) => left.start - right.start
-	)) {
+	);
+	const audienceMentionsByRange = groupAudienceMentionsByRange(orderedMentions);
+	for (const mention of orderedMentions) {
+		const audienceMentions = mention.audience
+			? (audienceMentionsByRange.get(audienceRangeKey(mention)) ?? [])
+			: [];
 		if (
 			mention.start < cursor ||
 			mention.end <= mention.start ||
@@ -51,6 +64,15 @@ export function createSpaceComposerEditorValue(input: {
 
 		appendText(children, input.text.slice(cursor, mention.start));
 		children.push({
+			...(mention.audience
+				? {
+						audience: mention.audience,
+						audienceTargets: audienceMentions.map((target) => ({
+							profileId: target.profileId,
+							relation: target.relation,
+						})),
+					}
+				: {}),
 			children: [{ text: "" }],
 			mentionText: mention.text,
 			profileId: mention.profileId,
@@ -60,7 +82,11 @@ export function createSpaceComposerEditorValue(input: {
 					: mention.relation,
 			type: SPACE_COMPOSER_PROFILE_ELEMENT_TYPE,
 		});
-		claimedProfileIds.add(mention.profileId);
+		for (const target of audienceMentions.length > 0
+			? audienceMentions
+			: [mention]) {
+			claimedProfileIds.add(target.profileId);
+		}
 		cursor = mention.end;
 	}
 
@@ -91,17 +117,14 @@ export function serializeSpaceComposerEditorValue(value: readonly TElement[]): {
 				const start = offset;
 				textParts.push(child.mentionText);
 				offset += child.mentionText.length;
-				authoredMentions.push({
-					end: offset,
-					profileId: child.profileId,
-					relation:
-						claimedProfileIds.has(child.profileId) && child.relation === "wake"
-							? "reference"
-							: child.relation,
-					start,
-					text: child.mentionText,
-				});
-				claimedProfileIds.add(child.profileId);
+				authoredMentions.push(
+					...serializeProfileElementMentions(
+						child,
+						start,
+						offset,
+						claimedProfileIds
+					)
+				);
 				continue;
 			}
 
@@ -115,6 +138,56 @@ export function serializeSpaceComposerEditorValue(value: readonly TElement[]): {
 		authoredMentions,
 		text: textParts.join(""),
 	};
+}
+
+function audienceRangeKey(mention: ComposerDraftAuthoredMention): string {
+	return JSON.stringify([
+		mention.start,
+		mention.end,
+		mention.audience,
+		mention.text,
+	]);
+}
+
+function groupAudienceMentionsByRange(
+	mentions: readonly ComposerDraftAuthoredMention[]
+): Map<string, ComposerDraftAuthoredMention[]> {
+	const grouped = new Map<string, ComposerDraftAuthoredMention[]>();
+	for (const mention of mentions) {
+		if (mention.audience) {
+			const key = audienceRangeKey(mention);
+			const group = grouped.get(key) ?? [];
+			group.push(mention);
+			grouped.set(key, group);
+		}
+	}
+	return grouped;
+}
+
+function serializeProfileElementMentions(
+	element: SpaceComposerProfileElement,
+	start: number,
+	end: number,
+	claimedProfileIds: Set<string>
+): ComposerDraftAuthoredMention[] {
+	const targets = element.audienceTargets?.length
+		? element.audienceTargets
+		: [element];
+	return targets.map((target) => {
+		const mention: ComposerDraftAuthoredMention = {
+			...(element.audience ? { audience: element.audience } : {}),
+			end,
+			profileId: target.profileId,
+			relation:
+				claimedProfileIds.has(target.profileId) && target.relation === "wake"
+					? "reference"
+					: target.relation,
+			start,
+			text: element.mentionText,
+		};
+		claimedProfileIds.add(target.profileId);
+		return mention;
+	});
 }
 
 export function createSpaceComposerPastedValue(input: {

@@ -178,7 +178,7 @@ function AppSpaceConversationPendingRoute() {
 	);
 }
 
-export function AppSpaceEntryRoute() {
+function AppSpaceEntryRoute() {
 	const { orgSlug, spaceId } = Route.useParams();
 	const search = Route.useSearch();
 	const { sidebarStates } = Route.useLoaderData();

@@ -457,6 +457,14 @@ export async function waitForNpmPropagation(input) {
       npm.action !== "RUN" ||
       npm.criterion !== "npm-target-version-missing"
     ) {
+      if (
+        npm.action === "SKIP" &&
+        npm.criterion === "npm-artifact-consumable"
+      ) {
+        input.write(
+          "\n[release:cli] npm availability — CONFIRMED: the exact published package is downloadable and verified. Final R2/npm/Core alignment remains to be checked.\n"
+        );
+      }
       break;
     }
   }
@@ -545,7 +553,7 @@ function resolveCliReleaseTarget(input) {
   };
 }
 
-async function probeCliBinaryStage(input) {
+export async function probeCliBinaryStage(input) {
   try {
     const manifest = await fetchCliChannelManifest({
       fetch: input.adapters.fetch,
@@ -791,7 +799,7 @@ function probeReleaseTagStage(input) {
   });
 }
 
-async function probeCoreProjectionStage(input) {
+export async function probeCoreProjectionStage(input) {
   let deploymentsResult;
   let versionsResult;
   try {

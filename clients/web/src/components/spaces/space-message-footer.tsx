@@ -25,13 +25,14 @@ import {
 	CheckSquareOffsetIcon,
 	CopyIcon,
 	DotsThreeIcon,
+	InfoIcon,
 	PencilSimpleIcon,
 	PushPinIcon,
 	SmileyIcon,
 	TargetIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceDeviceWaitOutcome } from "./space-device-wait-outcome";
@@ -49,6 +50,7 @@ import {
 	type useMessageReactions,
 	useMessageReactionsContext,
 } from "./space-message-reactions";
+import { SpaceMessageTime } from "./space-message-time";
 import { useSpaceMessagePinAction } from "./space-pins";
 import { SpaceMessageWakeRecommendation } from "./space-wake-recommendation";
 
@@ -123,12 +125,13 @@ type SpaceMessageFooterProps = {
 	align?: "end" | "start";
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
+	isDirectMessage?: boolean;
+	layout?: "floating" | "inline";
 	onCopy: () => void;
 	copyDisabled?: boolean;
 	reply?: SpaceMessageFooterAction;
 	task?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
-	timestamp: string;
 };
 
 export function SpaceMessageFooter(
@@ -217,6 +220,64 @@ function SpaceMessageFooterContent(
 	);
 }
 
+type ToolbarPosition = {
+	left: number;
+	placement: "after" | "before" | "overlay";
+	top: number;
+};
+
+export function resolveToolbarPosition(input: {
+	bubble: DOMRect;
+	container: DOMRect;
+	preferredSide: "after" | "before";
+	toolbar: DOMRect;
+	viewport?: DOMRect;
+}): ToolbarPosition {
+	const { bubble, container, preferredSide, toolbar, viewport } = input;
+	const visibleBottom = viewport
+		? Math.min(bubble.bottom, viewport.bottom)
+		: bubble.bottom;
+	const lowerEdgeTop = visibleBottom - toolbar.height - 8;
+	const verticalTop = (initialTop: number) =>
+		viewport &&
+		initialTop + toolbar.height <= viewport.top + 8 &&
+		lowerEdgeTop >= viewport.top + 8
+			? lowerEdgeTop - container.top
+			: initialTop - container.top;
+	for (const side of [
+		preferredSide,
+		preferredSide === "after" ? "before" : "after",
+	] as const) {
+		const available =
+			side === "after"
+				? container.right - bubble.right
+				: bubble.left - container.left;
+		if (available >= toolbar.width + 6) {
+			return {
+				left:
+					side === "after"
+						? bubble.right - container.left + 6
+						: bubble.left - container.left - toolbar.width - 6,
+				placement: side,
+				top: verticalTop(bubble.top),
+			};
+		}
+	}
+	return {
+		left: Math.max(
+			0,
+			Math.min(
+				container.width - toolbar.width,
+				preferredSide === "before"
+					? bubble.left - container.left - toolbar.width + 12
+					: bubble.right - container.left - 12
+			)
+		),
+		placement: "overlay",
+		top: verticalTop(bubble.top - toolbar.height + 10),
+	};
+}
+
 function MessageFooterActions({
 	input,
 	reactions,
@@ -235,21 +296,99 @@ function MessageFooterActions({
 }) {
 	const showPicker = input.reaction && !input.reaction.readOnly;
 	const pending = input.item?.deliveryState === "pending";
+	const inline = input.layout === "inline";
+	const toolbarRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (inline) {
+			return;
+		}
+		const toolbar = toolbarRef.current;
+		const row = toolbar?.closest<HTMLElement>("[data-message-row-id]");
+		const bubble = row?.querySelector<HTMLElement>(
+			"[data-slot='bubble-content']"
+		);
+		const container = row;
+		const viewport = row?.closest<HTMLElement>(
+			'[data-slot="message-scroller-viewport"]'
+		);
+		if (!(toolbar && row && bubble && container instanceof HTMLElement)) {
+			return;
+		}
+		let observer: ResizeObserver | null = null;
+		const position = () => {
+			const toolbarRect = toolbar.getBoundingClientRect();
+			const next = resolveToolbarPosition({
+				bubble: bubble.getBoundingClientRect(),
+				container: container.getBoundingClientRect(),
+				preferredSide:
+					row.closest('[data-space-self-message="true"]') &&
+					document.documentElement.dataset.spaceSelfMessageAlignment === "right"
+						? "before"
+						: "after",
+				toolbar: toolbarRect,
+				viewport: viewport?.getBoundingClientRect(),
+			});
+			toolbar.style.insetInlineStart = `${next.left}px`;
+			toolbar.style.insetBlockStart = `${next.top}px`;
+			toolbar.dataset.placement = next.placement;
+		};
+		const activate = () => {
+			position();
+			if (!observer) {
+				observer = new ResizeObserver(position);
+				observer.observe(container);
+				observer.observe(bubble);
+				viewport?.addEventListener("scroll", position, { passive: true });
+				window.addEventListener("resize", position);
+			}
+		};
+		const deactivate = () => {
+			if (
+				persistent ||
+				row.matches(":hover") ||
+				row.contains(document.activeElement)
+			) {
+				return;
+			}
+			observer?.disconnect();
+			observer = null;
+			viewport?.removeEventListener("scroll", position);
+			window.removeEventListener("resize", position);
+		};
+		const onFocusOut = () => queueMicrotask(deactivate);
+		row.addEventListener("pointerenter", activate);
+		row.addEventListener("pointerleave", deactivate);
+		row.addEventListener("focusin", activate);
+		row.addEventListener("focusout", onFocusOut);
+		if (persistent || window.matchMedia?.("(pointer: coarse)").matches) {
+			activate();
+		}
+		return () => {
+			row.removeEventListener("pointerenter", activate);
+			row.removeEventListener("pointerleave", deactivate);
+			row.removeEventListener("focusin", activate);
+			row.removeEventListener("focusout", onFocusOut);
+			observer?.disconnect();
+			viewport?.removeEventListener("scroll", position);
+			window.removeEventListener("resize", position);
+		};
+	}, [inline, persistent]);
 	return (
 		<div
 			className={cn(
-				"@container mt-0.5 flex min-h-7 w-full min-w-0 max-w-full items-center gap-x-1",
-				input.align === "end" ? "justify-end" : "justify-start",
+				"pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
+				inline ? "relative mt-1" : "absolute",
+				persistent && "pointer-events-auto opacity-100",
 				persistent && "gap-2"
 			)}
+			data-layout={inline ? "inline" : "floating"}
 			data-persistent={persistent ? "true" : undefined}
 			data-slot="message-footer"
+			ref={toolbarRef}
 		>
 			<div
 				className={cn(
-					"flex min-w-0 max-w-full shrink-0 items-center gap-0.5 text-muted-foreground text-xs opacity-0 transition-opacity duration-100 ease-out group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 motion-reduce:transition-none [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
-					"has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100",
-					persistent && "pointer-events-auto opacity-100"
+					"flex min-w-0 max-w-full shrink-0 items-center text-muted-foreground text-xs"
 				)}
 				data-slot="message-footer-primary-actions"
 			>
@@ -272,17 +411,28 @@ function MessageFooterActions({
 				) : null}
 				{persistent ? detailsButton : null}
 
-				{persistent ? null : <MessageFooterStandardActions input={input} />}
-				{persistent ? null : detailsButton}
+				{persistent ? null : (
+					<span
+						className="contents"
+						data-slot="message-footer-standard-actions"
+					>
+						<MessageFooterStandardActions input={input} />
+						{detailsButton}
+					</span>
+				)}
 				<MessageFooterOverflowActions
 					hasReactions={hasReactions}
 					input={input}
 					persistent={persistent}
 					reactions={reactions}
 				/>
-				<time className="ml-1 @max-[24rem]:hidden shrink-0 tabular-nums">
-					{input.timestamp}
-				</time>
+				{input.item ? (
+					<SpaceMessageTime
+						createdAtMs={input.item.createdAtMs}
+						isDirectMessage={input.isDirectMessage === true}
+						placement="toolbar"
+					/>
+				) : null}
 			</div>
 		</div>
 	);
@@ -305,14 +455,17 @@ function MessageFooterOverflowActions({
 	const [menuOpen, setMenuOpen] = useState(false);
 	const pin = useSpaceMessagePinAction(input.signalId);
 	const hasOverflowActions =
-		hasReactions || Boolean(input.onEdit || pin || input.task) || persistent;
+		hasReactions ||
+		Boolean(input.onEdit || pin || input.task || input.details) ||
+		persistent ||
+		Boolean(input.onCopy || input.reply || input.thread);
 
 	return hasOverflowActions ? (
 		<MessageFooterMoreMenu
 			addressingTargets={persistent ? input.addressingTargets : []}
-			alwaysVisible={persistent || hasReactions || Boolean(input.onEdit || pin)}
+			details={input.details}
 			edit={input.onEdit}
-			onCopy={persistent && !input.copyDisabled ? input.onCopy : undefined}
+			onCopy={input.copyDisabled ? undefined : input.onCopy}
 			onOpenChange={setMenuOpen}
 			onViewReactions={
 				hasReactions ? () => reactions.setViewerOpen(true) : undefined
@@ -320,9 +473,9 @@ function MessageFooterOverflowActions({
 			open={menuOpen}
 			pin={pin}
 			recall={input.onRecall}
-			reply={persistent ? input.reply : undefined}
+			reply={input.reply}
 			task={input.task}
-			thread={persistent ? input.thread : undefined}
+			thread={input.thread}
 		/>
 	) : null;
 }
@@ -446,6 +599,7 @@ function MessageAddressingPopover(input: {
 }
 
 function MessageFooterMoreMenu(input: {
+	details?: SpaceMessageFooterDetailsAction;
 	edit?: () => void;
 	recall?: () => void;
 	onViewReactions?: () => void;
@@ -453,7 +607,6 @@ function MessageFooterMoreMenu(input: {
 	onOpenChange: (open: boolean) => void;
 	pin?: SpaceMessageFooterAction;
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
-	alwaysVisible?: boolean;
 	onCopy?: () => void;
 	reply?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
@@ -464,6 +617,7 @@ function MessageFooterMoreMenu(input: {
 		input.pin && "pin",
 		input.onViewReactions && "reactions",
 		input.onCopy && "copy",
+		input.details && "details",
 		input.reply && "reply",
 		input.thread && "thread",
 		input.task && "task",
@@ -474,10 +628,7 @@ function MessageFooterMoreMenu(input: {
 			<MessageActionTooltip label="More actions">
 				<DropdownMenuTrigger
 					aria-label="More actions"
-					className={cn(
-						FOOTER_BUTTON_CLASS_NAME,
-						input.alwaysVisible || input.pin ? null : "@min-[36rem]:hidden"
-					)}
+					className={FOOTER_BUTTON_CLASS_NAME}
 					render={<Button size="icon-sm" type="button" variant="ghost" />}
 				>
 					<DotsThreeIcon aria-hidden="true" />
@@ -521,6 +672,15 @@ function MessageFooterMoreMenu(input: {
 						>
 							<CopyIcon aria-hidden="true" />
 							Copy message
+						</FluidDropdownMenuItem>
+					) : null}
+					{input.details ? (
+						<FluidDropdownMenuItem
+							index={actionIds.indexOf("details")}
+							onClick={input.details.onSelect}
+						>
+							<InfoIcon aria-hidden="true" />
+							Message details
 						</FluidDropdownMenuItem>
 					) : null}
 					{input.reply ? (

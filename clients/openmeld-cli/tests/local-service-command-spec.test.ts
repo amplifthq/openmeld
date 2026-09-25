@@ -1,3 +1,4 @@
+import { WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL } from "@openmeld/schemas";
 import { afterEach, describe, expect, it } from "vitest";
 import { daemonRuntimeRootPath } from "../src/config/daemon-state";
 import {
@@ -16,6 +17,7 @@ const ENV_KEYS = [
   "OPENMELD_HOME",
   "OPENMELD_USER_FACING_CLI_COMMAND",
   "OPENMELD_CLI_BINARY_MANIFEST_URL",
+  "OPENMELD_WINDOWS_INTERNAL_PREVIEW",
 ] as const;
 const DAEMON_SERVICE_LAUNCHER_PATH_PATTERN = /daemon-service-launcher\.mjs$/;
 const PROD_SERVICE_WRAPPER_PATH_PATTERN = /\/OpenMeld Service$/;
@@ -105,8 +107,10 @@ describe("local service system service command spec", () => {
       USERPROFILE: "C:\\Users\\Test",
       TEMP: "C:\\Temp",
       PRIVATE_SECRET: "not-forwarded",
-      OPENMELD_ENV_PRESET: "dev-local",
+      OPENMELD_ENV_PRESET: "prod",
       OPENMELD_HOME: "/test-owned/windows-environment",
+      OPENMELD_CLI_BINARY_MANIFEST_URL: WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
+      OPENMELD_WINDOWS_INTERNAL_PREVIEW: "1",
     };
     Object.defineProperty(process, "platform", {
       value: "win32",
@@ -122,6 +126,8 @@ describe("local service system service command spec", () => {
         SystemRoot: "C:\\Windows",
         USERPROFILE: "C:\\Users\\Test",
         TEMP: "C:\\Temp",
+        OPENMELD_CLI_BINARY_MANIFEST_URL: WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
+        OPENMELD_WINDOWS_INTERNAL_PREVIEW: "1",
       });
       expect(spec.env).not.toHaveProperty("Path");
       expect(spec.env).not.toHaveProperty("PRIVATE_SECRET");

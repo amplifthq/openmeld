@@ -31,7 +31,7 @@ function closeFdSafely(fd: number | null): void {
 
 // Resolve a terminal we can prompt on. The fast path reuses the process std
 // streams when both are real TTYs. Otherwise — most importantly under the
-// `curl | sh` setup bootstrap, where the CLI runs with stdin redirected to
+// Web setup bootstrap, where the CLI runs with stdin redirected to
 // /dev/null — we open the controlling terminal (/dev/tty) directly so an
 // interactive prompt can still read keys and render. Returns null when no
 // controlling terminal is available (Windows, CI, fully headless), so callers

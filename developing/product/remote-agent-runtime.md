@@ -95,6 +95,16 @@ reaches shell children and pipelines belonging to that command. Each command
 gets its own process group on the shared Computer. No parallel PID registry is
 introduced. Terminal cleanup still attempts every owned command when output
 inspection fails; an output transport error must not strand an active process.
+If the retained record for one exact command is absent from both inspection and
+Stop, cleanup records that loss and requests an explicit failed outcome for the
+same native delivery. The recovery reconciler may then publish that failure
+without repeatedly stopping a process that no longer exists. A failed
+inspection alone does not prove termination; a Stop request without an exit
+receipt keeps cleanup pending. Neither case replays the command.
+If the member already requested Stop, the durable cancellation request is
+acknowledged once exact-command absence is confirmed; reconciliation publishes
+the stopped outcome without treating the missing command as a local Service
+connection failure.
 
 Computer availability and conversation continuity are separate requirements.
 A Computer replacement may interrupt a native command; preserving that Linux
@@ -236,7 +246,7 @@ keyed by the encoded pair, because a shell can traverse its entire filesystem.
 A working-directory convention alone cannot protect DM files from another
 Space. Center retains its existing profile-owned Computer and cross-Space
 continuity. Both roles share the same filesystem and execution implementation.
-Selected Space files, including binary files up to the existing 10 MiB limit,
+Selected Space files, including binary files up to the 1 GiB Space File limit,
 can be downloaded into the current Computer and published back through canonical
 Space Files. Published files attach their exact revision to the final reply.
 `openmeld_upload_computer_file` retains its create-and-attach behavior.
@@ -247,8 +257,20 @@ Space conflict; callers must not silently replace the base with the latest
 revision. `openmeld_attach_space_file` separately selects an authorized exact
 revision for the final reply. These operations use the existing Core writer,
 read authorization, and final publication checks for both hosted roles.
-Computer transfers retain the 10 MiB single-request limit independently of the
-larger Space Files multipart limit.
+Computer downloads stream the authorized exact revision into Computer storage.
+Computer uploads and saves stream 8 MiB parts through the existing Space Files
+multipart contract above 10 MiB; smaller files may use the bounded raw path.
+The attach tool resolves authorized metadata without reading file bytes.
+Neither hosted role automatically materializes every message file in Computer.
+For video, the Agent can download an exact Space File revision and explicitly
+inspect up to 30 seconds at a time, with at most ten intervals per Agent turn.
+Each inspection samples at most six frames
+for the configured image understanding model and transcribes only that interval's
+audio through Workers AI. Results state the inspected interval and sampling
+coverage, so the Agent must not claim complete observation of an uninspected
+video. Temporary frames and audio are deleted after the inspection; the
+original file remains the canonical Space File revision. The feature does not
+automatically process a video merely because it was received in a Space or DM.
 The existing `openmeld_save_space_file` tool continues to accept inline UTF-8
 text; its name and input contract remain distinct from Computer file transfers.
 
@@ -276,6 +298,16 @@ SDK when the call completes, and bounded to 30 seconds per call. Multi-step
 navigation and interaction must occur in one call; persistent browser login,
 Live View, and human takeover are outside this increment. Existing browser
 Quick Actions remain available. The browser facet does not own Agent scheduling.
+
+`computer_preview` checks a development server already running in the same
+Agent Computer container. The Agent supplies an unprivileged port, a relative
+page path, and expected rendered text. Browser Run routes only the exact
+virtual preview hostname through a same-invocation Worker Entrypoint to that
+Computer's container port; no public preview URL or generic proxy is created.
+The browser session closes after the call. The result contains a bounded page
+text sample, assertion outcome, document status, JavaScript and console errors,
+and failed network requests. This is a developer
+smoke check, not proof of authenticated production behavior or backend state.
 
 Completion must not write personal conversation content into Center Agent
 memory. Organization administration, personal Channels, and Center memory
@@ -381,10 +413,21 @@ for usage records, including failed and stopped work with known consumption.
 No parallel execution truth or new publication path is introduced.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
-boundary before Flue stores them in the conversation session. A direct tool
-result that exceeds that boundary returns one compact structured failure that
-tells the model to narrow or segment the request; OpenMeld must not pass the
-oversized provider object through and hope Flue compaction repairs it later.
+boundary before Flue stores them in the conversation session. A returned tool
+result that exceeds that boundary becomes an explicit partial-evidence envelope,
+not an execution exception. Direct calls and Code Mode share this boundary.
+The envelope reserves its bounded metadata budget for standard top-level
+receipt and outcome fields before other fields, irrespective of provider field
+order. It copies only complete values and exposes small Unicode-safe
+beginning/end JSON excerpts.
+`toolExecution: returned` is not a derived business-success state. The original
+outcome and any provider-side completeness fields remain authoritative.
+Omitted content is not retained in another store or shared Computer; the envelope
+therefore has no continuation. Use existing bounded reads when available, never
+repeat a write merely to recover its display. This intentionally does not promise
+full retrieval of every large result. Small results and existing segmented reads
+remain unchanged. OpenMeld must not pass the oversized provider object through
+and hope Flue compaction repairs it later.
 File-content tools expose one bounded segment plus an explicit continuation
 offset. The Center Agent searches first, reads only the relevant segments, and
 follows the returned continuation offset when more content is actually needed.
@@ -959,6 +1002,12 @@ includes token and cost usage from the discarded attempt. A second empty respons
 follows the ordinary visible terminal-failure path. Recovery never restarts the
 workflow, repeats tools, or changes an explicitly selected model.
 
+When the final assistant turn ends at its output limit without reply text, the
+worker records output exhaustion as a distinct terminal failure and Core shows
+an actionable failure notice. It does not retry that length-limited inference
+or replay earlier tool actions. A member may review completed work and send a
+shorter follow-up in the same conversation.
+
 Manual reply recovery uses the existing fenced Execution Recovery operation.
 Its worker request carries `replyRecovery` with the original dispatch, operation,
 and optional Space result reference. The same frozen runtime conversation and
@@ -1409,8 +1458,9 @@ tracked config. This is OpenMeld-operated provider configuration, not user
 BYOK.
 
 The repo-owned `center-agent` catalog exposes curated models from OpenAI,
-Anthropic, Google, DeepSeek, xAI, and Z.ai, with GLM 5.3 Flash as the OpenMeld
-default since 2026-08-27. The exact selection and captured metadata are owned by
+Anthropic, Google, DeepSeek, xAI, and Z.ai. Its current Center Agent default is
+Claude Opus 5.5 at `medium` reasoning; its distinct personal Remote Agent
+default is GPT-6 Sol at `medium`. The exact selection and captured metadata are owned by
 [Agent Profile Model Selection](agent-model-selection.md#55-hosted-center-agent-catalog).
 These are model vendors; all hosted routes still use OpenRouter. Core resolves
 a complete immutable route for each new turn. The
@@ -1430,6 +1480,12 @@ Provider rerouting never authorizes switching between GLM 5.3 Flash, Grok 4.6,
 Grok 4.5, DeepSeek V4 Flash, or any other primary models. If all providers for
 the exact model fail, the turn still ends in one visible failure. Public-web
 research uses the same exact-model provider-rerouting rule.
+
+The separate session-title RPC uses the fixed `z-ai/glm-5.3-flash` helper model
+with low reasoning and structured output. It runs outside the conversation and
+execution queue, cannot call tools, and never blocks or changes the primary
+turn. Its bounded failure leaves the default chat title; see
+[session titles](space-collaboration.md#center-agent-session-titles).
 
 Provider registration is scoped by Organization and frozen route identity.
 Flue/pi-ai capability metadata, AI Gateway headers, usage attribution, and
@@ -1454,9 +1510,9 @@ selected primary model.
 
 Model capacity and reasoning metadata are checked in with the catalog so
 admission needs no provider metadata lookup. Compaction derives its policy from
-the frozen route. Hosted reasoning is currently fixed to `high`; the Harness
-reads that frozen route value dynamically rather than reading a user setting or
-hard-coding one global effort. Usage remains recorded by the Remote Agent
+the frozen route. Core validates the Binding's optional reasoning selection
+against the selected model's catalog capabilities and freezes the effective
+effort at admission. The Harness reads that frozen route value. Usage remains recorded by the Remote Agent
 worker through OpenMeld-owned usage records and Analytics Engine and attributes
 the effective primary model.
 
@@ -1685,6 +1741,16 @@ For a Space turn, the Space owner resolves the exact dispatch's frozen main or
 thread placement and returns only bounded text Signals before that dispatch's
 source Signal; the generic main-timeline reader is not a continuity source for
 a thread.
+Routine Runs use a Run-scoped execution conversation independent of the frozen
+Space or channel where their result is published. Their standing instructions,
+turn envelope, and explicitly authorized reads supply the current Run's input;
+destination conversation history is never silently replayed as Routine
+continuity. This applies to both Center and personal Agent Routines. The
+ordinary Space rollover source-signal path remains for actual Space turns.
+If one Run's own canonical history reaches the safety limit, admission returns
+an explicit limit failure rather than fabricating a destination source signal
+or discarding unfinished execution context. Persisted pre-change Routine
+requests keep their original runtime identity during recovery.
 Concurrent callers converge on the same active generation. Runtime generations
 are invisible implementation details: the member remains in the same DM,
 Space, or provider conversation and is never asked to start a new one.
@@ -1756,16 +1822,19 @@ probe without imposing a total execution deadline.
 
 ### Space reply streaming (shipped 2026-07-10)
 
-Space conversations may show accumulated assistant text and privacy-bounded tool
-progress before the final reply is published. Private model reasoning is never
+Space conversations may show accumulated assistant text, explicit public progress,
+and privacy-bounded tool progress before the final reply is published. Private model reasoning is never
 published to clients. Streaming is a bounded, best-effort presentation
 projection; it is not a second message writer, native-delivery status, or
 final-outcome authority.
 
 - The worker uses provider reasoning deltas only as private execution-progress
   evidence. It never sends their content to Core, Space, Web, or a Message
-  Channel. For active `space` deliveries, it emits one sequenced stream of
-  accumulated text snapshots and privacy-bounded tool lifecycle parts. A text snapshot that
+  Channel. For active Space and Web direct-message deliveries, the Agent may call
+  `openmeld_report_progress` to share a short public update. The update is a
+  separate transient stream kind, not provider reasoning or final reply text.
+  The worker also emits accumulated text snapshots and privacy-bounded tool
+  lifecycle parts. A text snapshot that
   exceeds its shared callback contract may stop the best-effort preview, but it
   cannot alter or suppress the authoritative final outcome.
   A user-visible part must carry one shared admitted semantic work key and may
@@ -1773,9 +1842,10 @@ final-outcome authority.
   id, and AI SDK-aligned lifecycle state remain transport evidence; they are
   not presentation copy. Tool parts never carry tool arguments, results, raw
   errors, commands, or paths. Outer Code Mode lifecycle and errors are hidden;
-  only an admitted inner tool that actually succeeded is forwarded, immediately
-  after that success. Inner failures do not create Work summary rows, and
-  optional Work summary publishing cannot alter the inner tool result. Safe
+  an admitted inner tool with safe work meaning emits a start part before its
+  execution and a matching completion or failure part. The failure part contains
+  no raw error text, and optional Work summary publishing cannot alter the
+  inner tool result. Safe
   subjects are allowlisted per tool and limited to a repository owner/name,
   website hostname, or bounded human-authored product object name or title.
   Slack conversations do not stream into OpenMeld Web.
@@ -1787,8 +1857,12 @@ final-outcome authority.
   and readable only through Message details. The retained projection includes
   only admitted semantic work; wrapper and legacy parts without it are not
   exposed.
-  Failed or stopped streams discard the draft; no arguments, results, raw
-  errors, commands, paths, model reasoning, or private Agent text are retained.
+  Public progress is kept as a bounded active tail for live replay and as a
+  short-lived Space draft until the terminal outcome. A successfully published
+  final Signal may retain its last 8,192 characters of explicit public updates
+  for the reply's Work summary. Failed or stopped streams discard the draft;
+  no arguments, results, raw errors, commands, paths, model reasoning, or
+  private Agent text are retained.
 - The persisted Space message or Space system notice remains the visible
   outcome. Finalization closes the projection, a successful terminal points to
   the published Space signal, and late deltas are rejected. Web must replace the
@@ -1796,12 +1870,12 @@ final-outcome authority.
 
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
-typed stream callback. Text WebSocket frames keep their legacy shape. Web also
-renders provider-emitted thinking in the same transient Thinking + Reasoning
-component used for Local Agents. Center Agent and Remote Agent conversations
-share its bounded viewport, manual scroll control, and reduced-motion behavior.
-Thinking keeps a bounded latest tail during long turns and never enters persisted
-stream state or final message metadata. Rollback removes the Remote Agent producer before Core or Web
+stream callback. Text WebSocket frames keep their legacy shape. Web renders
+explicit hosted public progress inside the transient Work summary disclosure,
+alongside tool steps when present. Local Agent reasoning uses the same
+disclosure and Markdown viewport without changing its transient privacy
+boundary. The stream kinds keep distinct privacy boundaries.
+Rollback removes the Remote Agent producer before Core or Web
 consumers.
 
 Workstation Local Agents may use the same downstream Space tool-part and
@@ -1938,8 +2012,9 @@ surface adopts official features where they are free**:
     through `env.LOADER`, instant, no container, no public network, text
     tooling only) and container (computerd in a Cloudflare Container,
     FUSE-mounting this same workspace at `/computer` with `MOUNT_POINT`
-    pinned for same-path fidelity; full Linux userland with python3, git,
-    curl, jq; changes sync back over capnweb). The model selects the backend
+    pinned for same-path fidelity; full Linux userland with Node.js 24,
+    Corepack-managed pnpm, Python, git, curl, jq, and native build tools;
+    changes sync back over capnweb). The model selects the backend
     per bash call and is prompted to prefer worker-shell. Computer SDK and
     computerd use version 0.2.1 together. Container network access is explicitly
     direct; worker-shell remains network-disabled. A replaced runtime reports
@@ -2370,6 +2445,31 @@ uses action metadata only to classify effect; it never parses Routine free
 text, arbitrary input keys, or model-provided target values as permission.
 GitHub remains on its dedicated tools and is never routed through the generic
 executor.
+
+`github_list_actions` and `github_execute_action` complement the existing named
+GitHub tools. They use the same executable OpenConnector runtime catalog and
+schema projection as App discovery, while retaining explicit Organization or
+requester selection with no fallback. The GitHub catalog defaults to 25 entries
+and returns a real continuation offset. A current executable action, such as
+`github.get_workflow_job_logs`, needs no new business-specific wrapper; a missing
+or catalog-only action is not emulated. Scopes in discovery are requirements,
+not proof of repository access. Runtime execution returns exact provider data
+and its execution-owned output schema, under the shared bounded-result boundary;
+named segmented file/search tools remain available for their bounded projections.
+No omitted provider log prefix or harness excerpt is advertised as retrievable.
+
+The catalog executor shares the existing GitHub operation identity, claim,
+provider idempotency key, destructive preview, and result recovery path. Current
+catalog effects govern new operations and restricted-context calls; known GitHub
+delete/merge protection cannot be downgraded by metadata. Read-only connections,
+member research, unlinked Message Channel identity, and Routine restrictions
+remain enforced. Verified ordinary retries use the frozen operation and output
+schema without requiring today's catalog or selecting another connection.
+These contracts apply to direct tools and Code Mode, not a required task plan.
+The issue-to-Task binding owner acquires a stable observation timestamp only
+for an applicable issue creation or closure in a shared Space. Ordinary reads
+and unrelated writes do not create issue-observation records; existing operation
+receipts and the stable timestamp used to replay actual bindings are unchanged.
 
 Before every new action operation that is eligible to run, Remote Agent asks
 Core to resolve an active connection inside the turn Organization. A Routine

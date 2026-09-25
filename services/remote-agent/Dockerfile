@@ -5,13 +5,18 @@
 # follows cloudflare/computer examples/container.
 FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.2.1 AS computerd
 
-FROM debian:stable-slim
+FROM node:24-trixie-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       fuse3 libfuse2t64 ca-certificates \
-      git curl jq python3 tini \
+      git curl jq python3 tini build-essential ffmpeg \
  && rm -rf /var/lib/apt/lists/*
+
+# Match the repository's supported Node and pnpm majors in the cloud Computer.
+# Corepack keeps pnpm pinned to each checked-out repository's packageManager.
+RUN corepack prepare pnpm@10.30.0 --activate \
+ && corepack enable
 
 COPY --from=computerd /usr/local/bin/computerd /usr/local/bin/computerd
 

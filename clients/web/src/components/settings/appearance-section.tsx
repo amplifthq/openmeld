@@ -44,6 +44,12 @@ const PHONE_APPEARANCE_CHOICES_QUERY = "(max-width: 639px)";
 
 const THEME_CHOICES: readonly ThemeChoice[] = [
 	{
+		description: "Follow your operating system appearance.",
+		icon: <DesktopIcon aria-hidden="true" className="size-4" />,
+		label: "System",
+		value: "system",
+	},
+	{
 		description: "Use the light appearance.",
 		icon: <SunDimIcon aria-hidden="true" className="size-4" />,
 		label: "Light",
@@ -55,12 +61,6 @@ const THEME_CHOICES: readonly ThemeChoice[] = [
 		label: "Dark",
 		value: "dark",
 	},
-	{
-		description: "Follow your operating system appearance.",
-		icon: <DesktopIcon aria-hidden="true" className="size-4" />,
-		label: "System",
-		value: "system",
-	},
 ] as const;
 
 type ShapeChoice = {
@@ -71,14 +71,14 @@ type ShapeChoice = {
 
 const SHAPE_CHOICES: readonly ShapeChoice[] = [
 	{
-		description: "Use sharp corners across controls and surfaces.",
-		label: "Square",
-		value: "square",
-	},
-	{
 		description: "Use medium-rounded corners across controls and surfaces.",
 		label: "Rounded",
 		value: "rounded",
+	},
+	{
+		description: "Use sharp corners across controls and surfaces.",
+		label: "Square",
+		value: "square",
 	},
 ] as const;
 
@@ -109,14 +109,14 @@ type SelfMessageAlignmentChoice = {
 
 const SELF_MESSAGE_ALIGNMENT_CHOICES: readonly SelfMessageAlignmentChoice[] = [
 	{
-		description: "Your messages appear on the right, with actions on the left.",
-		label: "Right",
-		value: "right",
-	},
-	{
 		description: "Your messages appear on the left, with actions on the right.",
 		label: "Left",
 		value: "left",
+	},
+	{
+		description: "Your messages appear on the right, with actions on the left.",
+		label: "Right",
+		value: "right",
 	},
 ] as const;
 

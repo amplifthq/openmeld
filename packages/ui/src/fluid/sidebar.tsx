@@ -389,8 +389,10 @@ function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
             aria-valuetext={
               state === "expanded" ? `${Math.round(widthPx)} pixels` : modeLabel
             }
+            // Match the inset surface at both ends: 8px inset, 12px corner
+            // clearance, then a mirrored 24px fade (Fluid's rounded preset).
             className={cn(
-              "absolute top-4 -right-1 bottom-14 z-50 w-2 cursor-col-resize touch-none outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-transparent hover:after:bg-foreground/25 focus-visible:after:bg-sidebar-ring after:[mask-image:linear-gradient(to_bottom,transparent,black_24px,black_calc(100%-24px),transparent)]",
+              "absolute inset-y-0 -right-1 z-50 w-2 cursor-col-resize touch-none outline-none after:pointer-events-none after:absolute after:inset-y-2 after:left-1/2 after:w-px after:bg-transparent hover:after:bg-foreground/25 focus-visible:after:bg-sidebar-ring after:[mask-image:linear-gradient(to_bottom,transparent_12px,black_36px,black_calc(100%-36px),transparent_calc(100%-12px))]",
               hiddenEdge && "right-auto left-0 w-1"
             )}
             data-sidebar="rail"

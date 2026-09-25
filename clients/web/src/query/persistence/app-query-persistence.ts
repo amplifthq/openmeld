@@ -23,6 +23,7 @@ let browserPersistenceState: BrowserPersistenceState | undefined;
 const serverQueryPersistenceController: BrowserQueryPersistenceController = {
 	activateAuthorizedScope: async () => undefined,
 	activateSpaceConversation: async () => undefined,
+	restoreSpaceConversation: async () => undefined,
 	clearActiveAccount: async () => undefined,
 	clearSpaceConversation: async () => undefined,
 	clearOrganization: async () => undefined,

@@ -98,6 +98,9 @@ type ConversationRowPreview = {
 	previewSignalId?: string;
 };
 
+const CONVERSATION_PREVIEW_CLASS_NAME =
+	"min-h-4 truncate font-normal text-muted-foreground/90 text-xs leading-4 dark:text-muted-foreground/80";
+
 export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 	if (input.conversation.kind === "space") {
 		const item = input.conversation.item;
@@ -105,7 +108,7 @@ export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 			<ConversationSidebarRowContent
 				{...input}
 				previewSignalId={item.messagePreview?.signalId}
-				previewText={item.messagePreview?.text ?? "No messages yet"}
+				previewText={item.messagePreview?.text ?? ""}
 				timestamp={resolveConversationTimestamp(
 					item.messagePreview?.timestamp,
 					item.spaceCreatedAt
@@ -220,7 +223,7 @@ function ConversationSidebarRowContent(
 							>
 								<span className="flex min-w-0 flex-1 items-center gap-1.5">
 									<span
-										className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : ""}`}
+										className={`truncate text-foreground ${hasUnread ? "font-semibold" : ""}`}
 										data-conversation-title="true"
 									>
 										{input.title}
@@ -244,6 +247,7 @@ function ConversationSidebarRowContent(
 								)}
 								{timestamp !== null && !presentation && (
 									<SidebarConversationTime
+										hideOlderUntilHover
 										now={new Date(nowMs)}
 										timestamp={timestamp}
 									/>
@@ -264,7 +268,7 @@ function ConversationSidebarRowContent(
 									url={input.url}
 								/>
 							) : (
-								<span className="truncate font-normal text-muted-foreground text-xs leading-4">
+								<span className={CONVERSATION_PREVIEW_CLASS_NAME}>
 									{needsInput ? presentation?.label : previewText}
 								</span>
 							)}
@@ -309,10 +313,11 @@ function ConversationPreviewLink(input: {
 	const navigate = useNavigate();
 	const currentHref = useLocation({ select: (location) => location.href });
 	const href = buildSpaceMessageFocusHref(input.url, input.signalId);
+	const destination = conversationNavigationTarget(href);
 	return (
 		<Link
 			aria-label={`Open preview message in ${input.title}: ${input.text}`}
-			className="pointer-events-auto relative truncate font-normal text-muted-foreground text-xs leading-4 decoration-muted-foreground/50 underline-offset-2 outline-none hover:underline focus-visible:underline focus-visible:ring-1 focus-visible:ring-ring"
+			className={`pointer-events-auto relative ${CONVERSATION_PREVIEW_CLASS_NAME} decoration-muted-foreground/50 underline-offset-2 outline-none hover:underline focus-visible:underline focus-visible:ring-1 focus-visible:ring-ring`}
 			onClick={(event) => {
 				if (
 					currentHref !== href ||
@@ -326,18 +331,18 @@ function ConversationPreviewLink(input: {
 				}
 				event.preventDefault();
 				navigate({
-					to: input.url,
+					...conversationNavigationTarget(input.url),
 					replace: true,
 					resetScroll: false,
 				})
-					.then(() => navigate({ to: href, resetScroll: false }))
+					.then(() => navigate({ ...destination, resetScroll: false }))
 					.catch((error: unknown) => {
 						console.error("Could not open preview message", error);
 						toast.error("Couldn't open this message. Try again.");
 					});
 			}}
 			resetScroll={false}
-			to={href}
+			{...destination}
 		>
 			{input.text}
 		</Link>
@@ -427,9 +432,16 @@ function ConversationActivityIndicator({
 			}
 			// Reset a previously consumed focus request so repeating this action scrolls again.
 			if (currentHref === destination && destination !== url) {
-				await navigate({ to: url, replace: true, resetScroll: false });
+				await navigate({
+					...conversationNavigationTarget(url),
+					replace: true,
+					resetScroll: false,
+				});
 			}
-			await navigate({ to: destination, resetScroll: false });
+			await navigate({
+				...conversationNavigationTarget(destination),
+				resetScroll: false,
+			});
 		} catch (error) {
 			console.error("Could not open active work", error);
 			toast.error(
@@ -463,7 +475,7 @@ function ConversationActivityIndicator({
 							}
 						}}
 						resetScroll={false}
-						to={href}
+						{...conversationNavigationTarget(href)}
 					/>
 				}
 			>
@@ -481,6 +493,15 @@ function ConversationActivityIndicator({
 			<TooltipContent side="top">{presentation.label}</TooltipContent>
 		</Tooltip>
 	);
+}
+
+function conversationNavigationTarget(href: string) {
+	const url = new URL(href, "https://openmeld.invalid");
+	return {
+		to: url.pathname,
+		search: Object.fromEntries(url.searchParams),
+		hash: url.hash.slice(1),
+	};
 }
 
 function ConversationIcon(input: {
@@ -522,7 +543,7 @@ export function resolvePreviewText(
 	if (!preview || preview.isPending) {
 		return "Loading message…";
 	}
-	return "No messages yet";
+	return "";
 }
 
 export function ChatIcon(input: {

@@ -1,18 +1,30 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
+import { appendFile, readFile } from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-
+import { verifyPublishedNpmCliArtifact } from "./npm-cli-artifact.mjs";
 import { checkProductionArtifact } from "./production-artifact-check.mjs";
 import {
   buildProductionReleasePlan,
   expandRequestedReleaseScopes,
 } from "./production-release.mjs";
+import {
+  admissionIdentity,
+  admissionSha256,
+  isCoordinatedRelease,
+  PARENT_ADMISSION_ENV,
+  parseAdmissionEvidence,
+  restoreParentWebArtifact,
+  verifyParentAdmission,
+} from "./production-train-admission-evidence.mjs";
 import { admitCliNpmArtifact } from "./release-cli-resume.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
+const ARTIFACT_ID_PATTERN = /^[1-9][0-9]*$/u;
 export const PRODUCTION_TRAIN_SCOPES_ENV = "OPENMELD_PRODUCTION_TRAIN_SCOPES";
 
 export function resolveProductionTrain(input, dependencies = {}) {
@@ -89,9 +101,9 @@ export function resolveProductionTrain(input, dependencies = {}) {
   }
   return {
     artifactScopes: [
-      ...(plan.scopes.includes("cli") ? ["cli"] : []),
-      ...(desktopSelected ? ["desktop"] : []),
-      ...(plan.scopes.includes("web") ? ["web"] : []),
+      ...(selectedProductionScopes.includes("cli") ? ["cli"] : []),
+      ...(selectedDesktop ? ["desktop"] : []),
+      ...(selectedProductionScopes.includes("web") ? ["web"] : []),
     ],
     productionScopes: [...plan.scopes],
     selectedScopes: [...selectedScopes],
@@ -100,8 +112,63 @@ export function resolveProductionTrain(input, dependencies = {}) {
   };
 }
 
-export async function admitProductionTrainArtifacts(input, dependencies = {}) {
+async function admitTrainCliArtifact(input, dependencies) {
+  let publishedIntegrity;
+  const result = await (dependencies.checkNpmArtifact ?? admitCliNpmArtifact)({
+    cwd: input.root,
+    env: input.env,
+    sourceSha: input.sourceSha,
+    ...(input.issueParentEvidence
+      ? {
+          adapters: {
+            verifyNpmArtifact: async (request) => {
+              await verifyPublishedNpmCliArtifact(request);
+              publishedIntegrity = request.metadata.dist.integrity;
+            },
+          },
+        }
+      : {}),
+  });
+  return input.issueParentEvidence
+    ? {
+        scope: "cli",
+        integrity: result.artifact?.integrity ?? publishedIntegrity,
+      }
+    : undefined;
+}
+
+async function admitTrainRendererArtifact(input, scope, dependencies) {
+  const previousNodeEnv = process.env.NODE_ENV;
+  try {
+    return await (dependencies.checkArtifact ?? checkProductionArtifact)({
+      root: input.root,
+      scope,
+      sourceSha: input.sourceSha,
+    });
+  } finally {
+    // Vite preview sets NODE_ENV in this process. A preceding Desktop SSR check
+    // must not change the Web build inputs relative to a fresh downstream job.
+    if (previousNodeEnv === undefined) {
+      Reflect.deleteProperty(process.env, "NODE_ENV");
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
+    }
+  }
+}
+
+async function buildProductionTrainArtifacts(input, dependencies = {}) {
   const train = resolveProductionTrain(input, dependencies);
+  let identity;
+  if (input.issueParentEvidence) {
+    if (input.env.GITHUB_JOB !== "validate_release_source") {
+      throw new Error(
+        "Only validate_release_source can issue parent admission evidence."
+      );
+    }
+    identity = await (dependencies.readAdmissionIdentity ?? admissionIdentity)(
+      input
+    );
+  }
   const checkoutSha = String(
     (
       dependencies.readHeadSha ??
@@ -122,23 +189,99 @@ export async function admitProductionTrainArtifacts(input, dependencies = {}) {
     desktop: "not_required",
     web: "not_required",
   };
+  const artifactEvidence = [];
   for (const scope of train.artifactScopes) {
     if (scope === "cli") {
-      await (dependencies.checkNpmArtifact ?? admitCliNpmArtifact)({
-        cwd: input.root,
-        env: input.env,
-        sourceSha: train.sourceSha,
-      });
+      const evidence = await admitTrainCliArtifact(input, dependencies);
+      if (input.issueParentEvidence) {
+        artifactEvidence.push(evidence);
+      }
     } else {
-      await (dependencies.checkArtifact ?? checkProductionArtifact)({
-        root: input.root,
+      const result = await admitTrainRendererArtifact(
+        input,
         scope,
-        sourceSha: train.sourceSha,
-      });
+        dependencies
+      );
+      if (input.issueParentEvidence) {
+        artifactEvidence.push({
+          scope,
+          inputIdentity: result.inputIdentity,
+          artifactSha256: result.artifactSha256,
+          runtime: result.runtime,
+          receiptSha256: admissionSha256(
+            await readFile(
+              path.join(
+                input.root,
+                "dev-tmp/release-artifact-check",
+                `${scope}.json`
+              )
+            )
+          ),
+        });
+      }
     }
     artifacts[scope] = "verified";
   }
+  if (input.issueParentEvidence) {
+    const evidence = parseAdmissionEvidence(
+      JSON.stringify({
+        version: 1,
+        sourceSha: train.sourceSha,
+        scopes: train.scopes,
+        artifactScopes: train.artifactScopes,
+        ...identity,
+        artifacts: artifactEvidence,
+      })
+    );
+    // Re-read exact clean inputs after every heavy check, before emitting proof.
+    await verifyParentAdmission(
+      {
+        ...input,
+        env: { ...input.env, [PARENT_ADMISSION_ENV]: JSON.stringify(evidence) },
+      },
+      train,
+      dependencies
+    );
+    return { ...train, artifacts, parentEvidence: evidence };
+  }
   return { ...train, artifacts };
+}
+
+export async function admitProductionTrainArtifacts(input, dependencies = {}) {
+  if (input.issueParentEvidence) {
+    if (input.env[PARENT_ADMISSION_ENV]) {
+      throw new Error(
+        "A parent admission issuer cannot reuse parent evidence."
+      );
+    }
+    return buildProductionTrainArtifacts(input, dependencies);
+  }
+  if (
+    isCoordinatedRelease(input.env) ||
+    input.env[PARENT_ADMISSION_ENV] ||
+    input.restoreWebArtifact
+  ) {
+    const train = resolveProductionTrain(input, dependencies);
+    const evidence = await verifyParentAdmission(input, train, dependencies);
+    if (train.selectedScopes.includes("web")) {
+      if (
+        !ARTIFACT_ID_PATTERN.test(
+          input.env.OPENMELD_PARENT_WEB_ARTIFACT_ID ?? ""
+        )
+      ) {
+        throw new Error(
+          "Parent Web admission requires an immutable same-run artifact ID."
+        );
+      }
+      if (input.restoreWebArtifact) {
+        await restoreParentWebArtifact(input, evidence);
+      }
+    } else if (input.restoreWebArtifact) {
+      throw new Error("Only a Web stage can restore the parent Web artifact.");
+    }
+    return { ...train, parentEvidenceVerified: true };
+  }
+  return buildProductionTrainArtifacts(input, dependencies);
 }
 
 if (
@@ -150,6 +293,8 @@ if (
       options: {
         scope: { type: "string" },
         "source-sha": { type: "string" },
+        "issue-parent-evidence": { type: "boolean", default: false },
+        "restore-web-artifact": { type: "boolean", default: false },
       },
     });
     const result = await admitProductionTrainArtifacts({
@@ -157,7 +302,18 @@ if (
       root: process.cwd(),
       selectedScopes: values.scope,
       sourceSha: values["source-sha"],
+      issueParentEvidence: values["issue-parent-evidence"],
+      restoreWebArtifact: values["restore-web-artifact"],
     });
+    if (result.parentEvidence) {
+      if (!process.env.GITHUB_OUTPUT) {
+        throw new Error("Parent admission requires GitHub step outputs.");
+      }
+      await appendFile(
+        process.env.GITHUB_OUTPUT,
+        `parent_admission_evidence=${JSON.stringify(result.parentEvidence)}\nhas_web_artifact=${result.artifactScopes.includes("web")}\n`
+      );
+    }
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     process.stderr.write(

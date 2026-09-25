@@ -271,6 +271,32 @@ describe("Agent Profile creation request CLI", () => {
     });
   });
 
+  it("creates a Remote Agent with model and reasoning without resolving local resources", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "hosted:remote-agent",
+      idempotencyKey: "remote-request-key",
+      modelId: "openai/gpt-6-sol",
+      profileName: "Remote Reviewer",
+      reasoningLevel: "medium",
+      targetOwner: "self",
+      view: "agent",
+    });
+
+    expect(mocks.api.getCurrentComputers).not.toHaveBeenCalled();
+    expect(mocks.api.getAgentProfileCreationDefaults).not.toHaveBeenCalled();
+    expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: expect.objectContaining({
+          agentControllerRef: "hosted:remote-agent",
+          defaultProjectId: null,
+          modelId: "openai/gpt-6-sol",
+          reasoningLevel: "medium",
+          targetComputerId: null,
+        }),
+      })
+    );
+  });
+
   it("rejects an unrelated identifier passed as --computer before creation", async () => {
     await runProfileCreationRequestCreate({
       agentController: "builtin:codex",

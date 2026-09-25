@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
+  buildRemoteAgentRoutineRunConversationId,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
@@ -14,7 +15,10 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveRemoteAgentTurnEnvelopeForName } from "../../remote-agent/agent-core/submission";
+import {
+  buildRemoteAgentName,
+  resolveRemoteAgentTurnEnvelopeForName,
+} from "../../remote-agent/agent-core/submission";
 import { registerAgentTaskCompletionSubscription } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import type { CenterAgentMemoryService } from "../src/center-agent-memory/memory-service";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -181,6 +185,136 @@ async function seedPersonalRoutineDeliveryFixture() {
 }
 
 describe("Remote Agent Routine native delivery", () => {
+  it("gives later occurrences of the same existing Routine separate execution conversations", async () => {
+    const fixture = await seedRoutineDeliveryFixture();
+    const nextRunId = `routine_run_${crypto.randomUUID()}`;
+    const nextScheduledFor = fixture.nowMs + 24 * 60 * 60 * 1000;
+    await env.OPENMELD_DB.prepare(
+      "INSERT INTO routine_runs (id, routine_id, organization_id, scheduled_for, status, routine_name_snapshot, target_space_id_snapshot, started_at_ms) VALUES (?, ?, ?, ?, 'claimed', ?, ?, ?)"
+    )
+      .bind(
+        nextRunId,
+        fixture.routineId,
+        fixture.organizationId,
+        nextScheduledFor,
+        fixture.routine.name,
+        fixture.spaceId,
+        nextScheduledFor
+      )
+      .run();
+    const nextRun = await readRoutineRunRecord({
+      db: env.OPENMELD_DB,
+      runId: nextRunId,
+    });
+    if (!nextRun) {
+      throw new Error("The next Routine Run fixture was not created");
+    }
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: fixture.nowMs,
+        idempotencyKey: request.idempotencyKey,
+        status: "pending" as const,
+        submissionId: `submission_${request.dispatchId}`,
+      })
+    );
+    const testEnv = buildEnv({ fixture, workerSubmit });
+
+    for (const run of [fixture.run, nextRun]) {
+      await expect(
+        submitRemoteAgentRoutineDelivery({
+          db: env.OPENMELD_DB,
+          env: testEnv,
+          nowMs: run.scheduledFor,
+          routine: fixture.routine,
+          run,
+        })
+      ).resolves.toEqual({ status: "submitted" });
+    }
+    expect(workerSubmit).toHaveBeenCalledTimes(2);
+    expect(workerSubmit.mock.calls.map(([request]) => request.spaceId)).toEqual(
+      [fixture.spaceId, fixture.spaceId]
+    );
+    expect(
+      workerSubmit.mock.calls.map(([request]) => request.conversationId)
+    ).toEqual([
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: fixture.runId,
+      }),
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: nextRunId,
+      }),
+    ]);
+  });
+
+  it("runs an existing Routine without reading an unstarted destination conversation", async () => {
+    const fixture = await seedRoutineDeliveryFixture();
+    await env.OPENMELD_DB.prepare(
+      `INSERT INTO openMeldRemoteAgent_conversation_generations (
+        organization_id, logical_conversation_id, active_generation,
+        started_at_ms, rollover_delivery_id, created_at_ms, updated_at_ms
+      ) VALUES (?, ?, 1, NULL, ?, ?, ?)`
+    )
+      .bind(
+        fixture.organizationId,
+        fixture.spaceId,
+        "earlier-interactive-dispatch",
+        fixture.nowMs,
+        fixture.nowMs
+      )
+      .run();
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: fixture.nowMs,
+        idempotencyKey: request.idempotencyKey,
+        status: "pending" as const,
+        submissionId: fixture.submissionId,
+      })
+    );
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    testEnv.__spaceStub.rpcListDispatchConversationContinuitySignalsResult =
+      vi.fn(async () => ({
+        code: "space.forbidden",
+        message: "dispatch source signal was not found",
+        ok: false as const,
+        status: 403,
+      }));
+
+    await expect(
+      submitRemoteAgentRoutineDelivery({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: fixture.nowMs,
+        routine: fixture.routine,
+        run: fixture.run,
+      })
+    ).resolves.toEqual({ status: "submitted" });
+    expect(workerSubmit).toHaveBeenCalledOnce();
+    expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: expect.not.stringMatching(fixture.spaceId),
+      spaceId: fixture.spaceId,
+      turnEnvelope: { trigger: { runId: fixture.runId, source: "routine" } },
+    });
+    expect(
+      testEnv.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
+    ).not.toHaveBeenCalled();
+    await completeRemoteAgentNativeDelivery(
+      testEnv,
+      buildCompletedCallback(fixture)
+    );
+    await expect(
+      readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).toHaveBeenCalledOnce();
+  });
+
   it("keeps personal Routine management scoped to its Agent and preserves pause and resume", async () => {
     const fixture = await seedPersonalRoutineDeliveryFixture();
     const stores = {
@@ -281,6 +415,11 @@ describe("Remote Agent Routine native delivery", () => {
     expect(workerSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         v: 4,
+        conversationId: buildRemoteAgentRoutineRunConversationId({
+          agentProfileId: fixture.profileId,
+          organizationId: fixture.organizationId,
+          runId: fixture.runId,
+        }),
         conversationIdentity: {
           kind: "personal_agent",
           agentProfileId: fixture.profileId,
@@ -445,7 +584,7 @@ describe("Remote Agent Routine native delivery", () => {
     const workerSubmit = vi.fn(
       (request: RemoteAgentWorkerSubmitTurnRequest) => {
         resolveRemoteAgentTurnEnvelopeForName({
-          agentName: request.spaceId,
+          agentName: buildRemoteAgentName(request),
           requestContext: request,
         });
         return {
@@ -1111,7 +1250,9 @@ describe("Remote Agent Routine native delivery", () => {
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics.",
+        text: expect.stringContaining(
+          "Routine “Daily feedback review” could not run because the Agent could not accept the request. Try running the Routine again or open diagnostics."
+        ),
       })
     );
     await expect(
@@ -1135,29 +1276,16 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("rolls a history-limited Routine on the same destination automatically", async () => {
+  it("fails a history-limited Run explicitly without reading its destination as execution history", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    const workerSubmit = vi
-      .fn()
-      .mockResolvedValueOnce({
-        idempotencyKey: fixture.runId,
-        message: "Worker diagnostic detail only.",
-        outcome: "rejected" as const,
-        reasonCode: "remote_agent.conversation_history_limit_exceeded" as const,
-        v: 1 as const,
-      })
-      .mockResolvedValueOnce({
-        accepted: true,
-        createdAt: fixture.nowMs,
-        idempotencyKey: fixture.runId,
-        status: "pending" as const,
-        submissionId: fixture.submissionId,
-      });
-    const testEnv = buildEnv({
-      continuitySignals: [createSignal("signal_previous_1", fixture)],
-      fixture,
-      workerSubmit,
+    const workerSubmit = vi.fn().mockResolvedValueOnce({
+      idempotencyKey: fixture.runId,
+      message: "Worker diagnostic detail only.",
+      outcome: "rejected" as const,
+      reasonCode: "remote_agent.conversation_history_limit_exceeded" as const,
+      v: 1 as const,
     });
+    const testEnv = buildEnv({ fixture, workerSubmit });
 
     await expect(
       submitRemoteAgentRoutineDelivery({
@@ -1167,31 +1295,26 @@ describe("Remote Agent Routine native delivery", () => {
         routine: fixture.routine,
         run: fixture.run,
       })
-    ).resolves.toEqual({ status: "submitted" });
+    ).resolves.toEqual({ status: "failed" });
 
-    expect(workerSubmit).toHaveBeenCalledTimes(2);
-    expect(workerSubmit.mock.calls[1]?.[0]).toMatchObject({
-      continuityContext: {
-        entries: [
-          {
-            content: { text: "Routine completed." },
-            source: { kind: "space_signal", signalId: "signal_previous_1" },
-          },
-        ],
-        fromGeneration: 0,
-        toGeneration: 1,
-      },
-      runtimeConversation: { generation: 1 },
+    expect(workerSubmit).toHaveBeenCalledOnce();
+    expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: fixture.runId,
+      }),
+      runtimeConversation: { generation: 0 },
       v: 4,
     });
     expect(
-      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+      testEnv.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
     ).not.toHaveBeenCalled();
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({
-      failureCode: null,
-      status: "submitted",
+      failureCode: "remote_agent.conversation_history_limit_exceeded",
+      status: "failed",
     });
     await expect(
       readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -1199,12 +1322,7 @@ describe("Remote Agent Routine native delivery", () => {
         idempotencyKey: fixture.runId,
       })
     ).resolves.toMatchObject({
-      failureCode: null,
-      status: "accepted",
-      workerSubmitRequest: {
-        runtimeConversation: { generation: 1 },
-        v: 4,
-      },
+      status: "failed",
     });
   });
 
@@ -1249,7 +1367,9 @@ describe("Remote Agent Routine native delivery", () => {
         meta: expect.objectContaining({
           errorCode: "remote_agent.daily_quota_exceeded",
         }),
-        text: "Routine “Daily feedback review” could not run because the Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC.",
+        text: expect.stringContaining(
+          "Routine “Daily feedback review” could not run because the Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC."
+        ),
       })
     );
     const failedRun = await readRoutineRunRecord({
@@ -2694,7 +2814,13 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("projects a failed callback once and keeps late callbacks from reopening the Run", async () => {
+  it.each([
+    ["remote_agent.empty_assistant_response", "The Agent produced no reply."],
+    [
+      "remote_agent.turn.output_limit_exceeded",
+      "The Agent reached the model's response limit before it could reply.",
+    ],
+  ])("projects a %s callback once and keeps late callbacks from reopening the Run", async (failureCode, expectedFailureText) => {
     const fixture = await seedRoutineDeliveryFixture();
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
     const workerSubmit = vi.fn(async () => ({
@@ -2707,6 +2833,7 @@ describe("Remote Agent Routine native delivery", () => {
     const testEnv = buildEnv({
       additionalSpaceIds: [futureSpaceId],
       fixture,
+      webAppUrl: "https://openmeld.ai",
       workerSubmit,
     });
     await submitRemoteAgentRoutineDelivery({
@@ -2726,8 +2853,9 @@ describe("Remote Agent Routine native delivery", () => {
       agentProfileId: fixture.profileId,
       bindingId: fixture.bindingId,
       dispatchId: fixture.runId,
-      failureCode: "remote_agent.turn_not_completed",
-      failureMessage: "Remote Agent could not finish this request.",
+      failureCode,
+      failureMessage:
+        "Center Agent couldn't generate a reply. Your message is saved.",
       idempotencyKey: fixture.runId,
       organizationId: fixture.organizationId,
       spaceId: fixture.spaceId,
@@ -2752,11 +2880,27 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
         ?.text
-    ).toContain(`Routine “${fixture.routine.name}”`);
+    ).toContain(
+      `Routine “${fixture.routine.name}” did not publish a result. ${expectedFailureText}`
+    );
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain(`Run ID: ${fixture.runId}`);
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain("[View Run details](https://openmeld.ai/o/");
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).toContain(
+      `/center-agent/routines?routineId=${fixture.routineId}&runId=${fixture.runId})`
+    );
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({
-      failureCode: "remote_agent.turn_not_completed",
+      failureCode,
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
@@ -2773,7 +2917,7 @@ describe("Remote Agent Routine native delivery", () => {
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({
-      failureCode: "remote_agent.turn_not_completed",
+      failureCode,
       status: "failed",
     });
   });
@@ -3181,7 +3325,11 @@ describe("Remote Agent Routine native delivery", () => {
       status: "skipped",
     });
     expect(workerReconcile).toHaveBeenCalledWith({
-      conversationId: fixture.spaceId,
+      conversationId: buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: fixture.runId,
+      }),
       idempotencyKey: fixture.runId,
       organizationId: fixture.organizationId,
       spaceId: fixture.spaceId,
@@ -4281,7 +4429,9 @@ describe("Remote Agent Routine native delivery", () => {
         meta: expect.objectContaining({
           errorCode: "center_agent_model_unknown",
         }),
-        text: "Routine “Daily feedback review” could not run because the selected Center Agent model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld.",
+        text: expect.stringContaining(
+          "Routine “Daily feedback review” could not run because the selected Center Agent model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld."
+        ),
       })
     );
   });
@@ -4480,6 +4630,7 @@ function buildEnv(input: {
   routineWorkflowSendEvent?: ReturnType<typeof vi.fn>;
   runtimeEnabled?: string;
   spaceGuide?: string;
+  webAppUrl?: string;
   workerReconcile?: ReturnType<typeof vi.fn>;
   workerSubmit: ReturnType<typeof vi.fn>;
 }): CoreBindings & {
@@ -4560,6 +4711,7 @@ function buildEnv(input: {
     OPENMELD_LOCAL_STATE_DB: env.OPENMELD_DB,
     OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT: input.dailyAdmissionLimit,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: input.runtimeEnabled ?? "true",
+    WEB_APP_URL: input.webAppUrl,
     OPENMELD_REMOTE_AGENT_WORKER: {
       ...(input.workerReconcile
         ? { reconcileExecution: input.workerReconcile }
@@ -4849,6 +5001,12 @@ async function cleanupOwnedRoutineRows(): Promise<void> {
         "daily admission rows",
         env.OPENMELD_DB.prepare(
           'DELETE FROM "openMeldRemoteAgent_daily_admissions" WHERE organization_id = ?'
+        ).bind(organizationId),
+      ],
+      [
+        "conversation generation rows",
+        env.OPENMELD_DB.prepare(
+          'DELETE FROM "openMeldRemoteAgent_conversation_generations" WHERE organization_id = ?'
         ).bind(organizationId),
       ],
       [

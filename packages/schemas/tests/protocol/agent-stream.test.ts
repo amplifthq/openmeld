@@ -78,6 +78,7 @@ describe("Space Agent stream frames", () => {
             purpose: "agent_reply_final",
             agentActivity: activity,
             agentWorkSummary: activity,
+            agentPublicProgress: "Checking the organization directory.\n\n",
           },
         },
       })
@@ -86,6 +87,7 @@ describe("Space Agent stream frames", () => {
         meta: {
           agentActivity: activity,
           agentWorkSummary: activity,
+          agentPublicProgress: "Checking the organization directory.\n\n",
         },
       },
     });

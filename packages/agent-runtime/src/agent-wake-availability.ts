@@ -81,6 +81,14 @@ export type AgentWakeAdmissionTerminalDecision = {
 const exactWakeAdmissionTerminalDecisions: Readonly<
   Record<string, Omit<AgentWakeAdmissionTerminalDecision, "reasonCode">>
 > = {
+  "model.retired": {
+    publicationCategory: "agent_profile_unavailable",
+    userRecoveryAction: "review_agent_settings",
+  },
+  "model.unavailable": {
+    publicationCategory: "agent_profile_unavailable",
+    userRecoveryAction: "review_agent_settings",
+  },
   "agent_profile_binding.missing": {
     publicationCategory: "binding_required",
     userRecoveryAction: "set_up_agent_binding",
@@ -250,6 +258,7 @@ export function isAgentWakeAdmissionPreparationPendingReason(
   return new Set([
     "agent_execution.readiness_unconfirmed",
     "usage_checking",
+    "local_service.not_accepting_wakes",
     "daemon.profile.pending_first_report",
     "agent_execution.route_missing",
     "route.not_registered",
@@ -280,6 +289,23 @@ export function resolveAgentWakeAdmissionBlockReasonCode(
     ) {
       return reasonCode;
     }
+  }
+  // A connected Service that temporarily closes admission is not a final
+  // refusal. Keep explicit profile, permission, and Usage blockers ahead of
+  // this route-derived gap, then let the existing bounded start wait decide.
+  const definitiveBlock = reasonCodes.find(
+    (reasonCode) =>
+      reasonCode !== "route.unavailable" &&
+      reasonCode !== "agent_execution.route_unavailable" &&
+      classifyAgentWakeAvailabilityReason(reasonCode) ===
+        "blocking_unavailable" &&
+      resolveAgentWakeAdmissionTerminalDecision(reasonCode) !== null
+  );
+  if (definitiveBlock) {
+    return definitiveBlock;
+  }
+  if (reasonCodes.includes("local_service.not_accepting_wakes")) {
+    return "local_service.not_accepting_wakes";
   }
   return (
     reasonCodes.find(
@@ -443,6 +469,16 @@ export function resolveAgentWakeAvailability(input: {
 
   if (isAgentWakeAvailable(input)) {
     return createAvailableWakeAvailability();
+  }
+
+  if (
+    resolveAgentWakeAdmissionBlockReasonCode(input.readiness) ===
+    "local_service.not_accepting_wakes"
+  ) {
+    return createCheckingAgentConnectionAvailability({
+      readiness: input.readiness,
+      reasonCode: "local_service.not_accepting_wakes",
+    });
   }
 
   if (
@@ -1047,6 +1083,26 @@ function createUnavailableWakeAvailability(
     );
   }
 
+  const modelReason = pickKnownReasonCode(readiness, [
+    "model.retired",
+    "model.unavailable",
+  ]);
+  if (modelReason) {
+    return createAvailability(
+      readiness,
+      {
+        ...unavailableWakeAvailabilityFallbackCopy,
+        category: "unavailable",
+        isRefreshing: false,
+        label: "Model unavailable",
+        phase: "provider_blocked",
+        reasonCode: modelReason,
+        status: "unavailable_for_wake",
+      },
+      { copyReasonCode: modelReason }
+    );
+  }
+
   if (hasReasonCode(readiness, "usage_exhausted")) {
     return createAvailability(readiness, {
       ...unavailableWakeAvailabilityFallbackCopy,
@@ -1105,6 +1161,7 @@ function createUnavailableWakeAvailability(
       "runtime.agent_controller_report_stale",
       "agent_profile_binding.controller_conversation_conflict",
       "agent_profile_binding.missing",
+      "local_service.not_accepting_wakes",
       "route.unavailable",
       "agent_execution.route_unavailable",
     ]),
@@ -1434,6 +1491,10 @@ function isPublicOfflineReasonCode(reasonCode: string): boolean {
 // service, and account facts (developing/architecture owner docs - evidence
 // sync health is owner-only diagnostics, not public availability).
 function isPublicUnavailableReasonCode(reasonCode: string): boolean {
+  if (reasonCode === "model.retired" || reasonCode === "model.unavailable") {
+    return true;
+  }
+
   if (reasonCode === "controller.interface.check_failed") {
     return false;
   }
@@ -1448,6 +1509,7 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
     reasonCode === "service.not_installed" ||
     reasonCode === "service.drifted" ||
     reasonCode === "local_service.identity_mismatch" ||
+    reasonCode === "local_service.not_accepting_wakes" ||
     reasonCode === "background_helper.update_required" ||
     isAgentProfileWorkspaceBlockerReasonCode(reasonCode) ||
     isPublicUnavailableAgentProfileBindingReason(reasonCode) ||

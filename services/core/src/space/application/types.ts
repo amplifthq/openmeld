@@ -24,6 +24,7 @@ export type FinalOutcomeWriteAuthority =
   | "approved_compatibility";
 
 export type SignalPublishContext = {
+  spaceTaskDeliveryId?: string;
   agentReplyObservation?: {
     observedThroughSignalId: string;
     sourceSignalId: string;

@@ -4,11 +4,106 @@ import {
   MODEL_CATALOG_SCHEMA_VERSION,
   modelCatalogSchema,
 } from "../../src/index";
+import { modelRetirementNoticeSchema } from "../../src/schemas/config/model-catalog";
+import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
+import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22.json";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
 import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
 
 describe("model catalog schema", () => {
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+  ])("keeps %s withdrawal scoped without disabling API-key access", (modelId) => {
+    const catalog = modelCatalogSchema.parse(vendorModelCatalog);
+    const model = catalog.agentControllers.codex?.models.find(
+      (entry) => entry.id === modelId
+    );
+    expect(model?.unavailable).toBe(false);
+    expect(model?.retirement).toEqual({
+      status: "withdrawn",
+      date: { value: "2026-08-31", kind: "on" },
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl:
+        "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
+      verifiedAt: "2026-09-23T14:09:57Z",
+    });
+  });
+
+  it("keeps lower-bound dates distinct and rejects unsafe or malformed notices", () => {
+    const notice = {
+      status: "announced",
+      date: { value: "2026-10-15", kind: "not_before" },
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl: "https://example.com/official-notice",
+      verifiedAt: "2026-09-23T00:00:00Z",
+    };
+    expect(modelRetirementNoticeSchema.parse(notice).date?.kind).toBe(
+      "not_before"
+    );
+    expect(
+      modelRetirementNoticeSchema.safeParse({
+        ...notice,
+        sourceUrl: "javascript:alert(1)",
+      }).success
+    ).toBe(false);
+    expect(
+      modelRetirementNoticeSchema.safeParse({
+        ...notice,
+        date: { value: "2026-02-30", kind: "on" },
+      }).success
+    ).toBe(false);
+  });
+
+  it("preserves the new local models' authenticated IDs and reasoning options", () => {
+    const { agentControllers } = modelCatalogSchema.parse(vendorModelCatalog);
+    for (const model of codexGpt6Capture.data) {
+      expect(agentControllers.codex?.models).toContainEqual(
+        expect.objectContaining({
+          id: model.model,
+          unavailable: false,
+          supportedReasoningLevels: model.supportedReasoningEfforts.map(
+            (effort) => effort.reasoningEffort
+          ),
+          minCliVersion: codexGpt6Capture.version,
+        })
+      );
+    }
+    const { cursor, grokBuild, opencode } = localModelCatalogCapture;
+    for (const model of cursor.availableModels) {
+      expect(cursor.configOptions).toContainEqual({
+        value: model.modelId,
+        name: model.name,
+      });
+      expect(agentControllers.cursor?.models).toContainEqual(
+        expect.objectContaining({
+          id: model.modelId,
+          unavailable: false,
+          supportedReasoningLevels: [],
+        })
+      );
+    }
+    for (const model of grokBuild.sessionModels) {
+      expect(grokBuild.initializeModels).toContainEqual(model);
+      const selected = agentControllers["grok-build"]?.models.find(
+        (entry) => entry.id === model.modelId
+      );
+      expect(selected?.unavailable).toBe(false);
+      expect(selected?.supportedReasoningLevels.toSorted()).toEqual(
+        model._meta.reasoningEfforts.map((effort) => effort.id).toSorted()
+      );
+    }
+    for (const model of opencode) {
+      expect(agentControllers.opencode?.models).toContainEqual(
+        expect.objectContaining({
+          id: `${model.providerID}/${model.id}`,
+          unavailable: model.status !== "active",
+          supportedReasoningLevels: Object.keys(model.variants),
+        })
+      );
+    }
+  });
   it("rejects unavailable creation recommendations and unsupported reasoning", () => {
     for (const creationDefaults of [
       { modelId: "missing", reasoningLevel: null },
@@ -36,16 +131,16 @@ describe("model catalog schema", () => {
       ).toBe(true);
       expect(result.data.agentControllers["grok-build"]).toMatchObject({
         defaultModelId: "grok-4.6",
-        models: [
-          {
+        models: expect.arrayContaining([
+          expect.objectContaining({
             id: "grok-4.6",
             supportedReasoningLevels: ["low", "medium", "high", "xhigh"],
-          },
-          {
+          }),
+          expect.objectContaining({
             id: "grok-4.5",
             supportedReasoningLevels: ["low", "medium", "high"],
-          },
-        ],
+          }),
+        ]),
       });
 
       for (const [id, displayName, supportedReasoningLevels, minCliVersion] of [
@@ -79,10 +174,26 @@ describe("model catalog schema", () => {
           unavailable: false,
           supportedReasoningLevels,
           minCliVersion,
+          ...(id === "gpt-5.5"
+            ? {
+                retirement: {
+                  status: "announced",
+                  date: { value: "2026-10-14", kind: "on" },
+                  scope: {
+                    controllerRef: "builtin:codex",
+                    authType: "chatgpt",
+                  },
+                  sourceUrl:
+                    "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
+                  verifiedAt: "2026-09-23T14:09:57Z",
+                },
+              }
+            : {}),
         });
       }
 
       for (const [id, displayName, minCliVersion, badgeLabel] of [
+        ["claude-opus-5-5", "Claude Opus 5.5", "2.1.280", "New"],
         ["claude-fable-5-1", "Claude Fable 5.1", "2.1.257", "New"],
         ["claude-fable-5", "Claude Fable 5", "2.1.170", null],
         ["claude-opus-5", "Claude Opus 5", "2.1.219", null],
@@ -104,8 +215,13 @@ describe("model catalog schema", () => {
       }
 
       expect(result.data.agentControllers.opencode?.defaultModelId).toBe(
-        "opencode/mimo-v2.5-free"
+        "opencode/mimo-v2.6-flash-free"
       );
+      expect(
+        result.data.agentControllers.opencode?.models.find(
+          (model) => model.id === "opencode/mimo-v2.5-free"
+        )?.unavailable
+      ).toBe(true);
       const opencodeModelIds =
         result.data.agentControllers.opencode?.models.map(
           (model) => model.id
@@ -239,10 +355,11 @@ describe("model catalog schema", () => {
       });
 
       expect(result.data.agentControllers["center-agent"]).toMatchObject({
-        defaultModelId: "z-ai/glm-5.3-flash",
+        defaultModelId: "anthropic/claude-opus-5.5",
         hostedRuntimePolicy: {
           automaticModelFallback: false,
           imageUnderstandingModelId: "x-ai/grok-4.6",
+          personalRemoteAgentDefaultModelId: "openai/gpt-6-sol",
         },
         models: expect.arrayContaining([
           expect.objectContaining({
@@ -265,7 +382,7 @@ describe("model catalog schema", () => {
               inputModalities: ["text", "image"],
               maxOutputTokens: 16_384,
               provider: "openrouter",
-              reasoningLevel: "high",
+              reasoningLevel: "medium",
             },
           }),
           expect.objectContaining({
@@ -276,7 +393,7 @@ describe("model catalog schema", () => {
               inputModalities: ["text", "image"],
               maxOutputTokens: 16_384,
               provider: "openrouter",
-              reasoningLevel: "high",
+              reasoningLevel: "medium",
             },
           }),
           expect.objectContaining({
@@ -396,6 +513,29 @@ describe("model catalog schema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("rejects a personal Remote Agent default outside the available hosted choices", () => {
+    const catalog = structuredClone(vendorModelCatalog);
+    catalog.agentControllers[
+      "center-agent"
+    ].hostedRuntimePolicy.personalRemoteAgentDefaultModelId = "missing-model";
+    const result = modelCatalogSchema.safeParse(catalog);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: [
+              "agentControllers",
+              "center-agent",
+              "hostedRuntimePolicy",
+              "personalRemoteAgentDefaultModelId",
+            ],
+          }),
+        ])
+      );
+    }
   });
 
   it("rejects an unsupported hosted reasoning level", () => {

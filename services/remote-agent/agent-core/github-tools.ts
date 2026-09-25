@@ -1,6 +1,7 @@
 import { centerAgentConnectorConnectionSelectionSchema } from "@openmeld/schemas";
 import type {
   CenterAgentConnectorActionExecutionConnection,
+  OpenConnectorRuntimeAction,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
@@ -17,14 +18,19 @@ import {
   number,
   object,
   optional,
+  parse,
   picklist,
   pipe,
   record,
   string,
   trim,
   union,
+  unknown as unknownSchema,
 } from "valibot";
-import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
+import {
+  type ConnectorExecutionConfig,
+  requireOpenConnectorAction,
+} from "../connectors/open-connector-runtime";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -34,13 +40,18 @@ import {
   recordRemoteAgentNavigationTarget,
 } from "./callback-context";
 import {
+  listConnectorActionCatalog,
   readConnectorActionOperation,
   recordConnectorActionOperation,
+  requireMemberResearchReadOnlyConnectorAction,
+  requiresHighRiskConnectorActionPolicy,
+  resolveConnectedMessageChannelActionPolicy,
   runAndFinalizeConnectorAction,
 } from "./connector-tools";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
 import {
   resolveRemoteAgentDestructiveAuthorization,
+  resolveRemoteAgentRoutineDestructiveActionBlock,
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
 import {
@@ -88,6 +99,7 @@ const GITHUB_WRITE_OPERATION_GUIDANCE =
   "Choose a unique operationId for this write, and reuse the same operationId only when retrying this exact write with the same githubActor and input.";
 
 export const REMOTE_AGENT_GITHUB_READ_TOOL_NAMES = [
+  "github_list_actions",
   "github_get_current_user",
   "github_list_my_repositories",
   "github_get_repository",
@@ -148,6 +160,7 @@ const REMOTE_AGENT_GITHUB_WRITE_TOOL_NAMES = [
 ] as const;
 
 export const REMOTE_AGENT_GITHUB_TOOL_NAMES = [
+  "github_execute_action",
   ...REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
   ...REMOTE_AGENT_GITHUB_WRITE_TOOL_NAMES,
 ] as const;
@@ -255,7 +268,9 @@ const pullRequestReviewerMutationInputSchema = pipe(
   )
 );
 
-type GitHubActionId =
+type GitHubActionId = string;
+
+type WrappedGitHubActionId =
   | "openmeld.github.create_issue_batch"
   | "github.add_issue_assignees"
   | "github.add_issue_labels"
@@ -344,6 +359,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
   submissionId: string;
 }): RemoteAgentGitHubToolDefinition[] {
   return [
+    ...githubCatalogToolDefinitions(input),
     githubToolDefinition({
       actionId: "github.get_current_user",
       description:
@@ -1609,8 +1625,89 @@ function hasGitHubIssueSearchCriteria(input: {
   );
 }
 
+function githubCatalogToolDefinitions(
+  dependencies: Parameters<typeof getRemoteAgentGitHubToolDefinitions>[0]
+): RemoteAgentGitHubToolDefinition[] {
+  const executeInput = object({
+    actionId: nonEmptyStringSchema,
+    githubActor: githubActorSchema,
+    input: record(string(), unknownSchema()),
+    operationId: githubWriteOperationIdSchema,
+    writeConfirmationToken: optional(nonEmptyStringSchema),
+  });
+  const listInput = object({
+    githubActor: githubActorSchema,
+    limit: optional(pipe(positiveIntegerSchema, maxValue(100))),
+    offset: optional(nonNegativeIntegerSchema),
+    query: optional(nonEmptyStringSchema),
+  });
+  return [
+    {
+      name: "github_execute_action",
+      description: `${GITHUB_ACTOR_GUIDANCE} Execute an exact GitHub action from github_list_actions using its upstream input schema. Returns provider data and its execution-owned outputSchema, plus the existing operation receipt. Reuse operationId only to recover the same execution with unchanged input; use a new ID for a fresh read. Ordinary writes require the verified request; destructive or unspecified effects use the existing exact-action confirmation, and are unavailable to Routines. No missing action is emulated. Existing named GitHub tools remain available, including segmented file reads. A completed action is not proof that a workflow or user task finished.`,
+      input: executeInput,
+      execute: async (payload) => {
+        const request = parse(executeInput, payload);
+        if (!request.actionId.startsWith("github.")) {
+          throw new Error(
+            "Select an exact github.* action from github_list_actions."
+          );
+        }
+        const toolContext = await buildRemoteAgentToolContext({
+          storage: dependencies.storage,
+          submissionId: dependencies.submissionId,
+          toolName: "github_execute_action",
+        });
+        return await executeIdempotentGitHubAction({
+          ...dependencies,
+          actionId: request.actionId,
+          actionInput: request.input,
+          githubActor: request.githubActor,
+          operationId: request.operationId,
+          toolContext,
+          useRuntimeCatalog: true,
+          writeConfirmationToken: request.writeConfirmationToken,
+          writeDisclosure: (actionInput) =>
+            `${request.actionId} with input ${JSON.stringify(actionInput)}`,
+        });
+      },
+    },
+    {
+      name: "github_list_actions",
+      description: `${GITHUB_ACTOR_GUIDANCE} Discover executable GitHub actions and their exact input/output schemas, effects, and required scopes from the deployed OpenConnector catalog. Includes upstream capabilities without a named OpenMeld wrapper, such as workflow job logs when supported by this deployment. Defaults to 25 actions; use query or nextOffset. Discovery does not grant repository access or guarantee a provider call will succeed.`,
+      input: listInput,
+      execute: async (payload) => {
+        const request = parse(listInput, payload);
+        const toolContext = await buildRemoteAgentToolContext({
+          storage: dependencies.storage,
+          submissionId: dependencies.submissionId,
+          toolName: "github_list_actions",
+        });
+        const { attribution, permission } = await resolveGitHubActionContext({
+          ...dependencies,
+          githubActor: request.githubActor,
+          includeAccessPolicy: true,
+          toolContext,
+        });
+        return {
+          attribution,
+          ...(await listConnectorActionCatalog({
+            ...request,
+            limit: request.limit ?? 25,
+            connectorExecution: dependencies.connectorExecution,
+            readOnly:
+              permission === "read" ||
+              toolContext.turnEnvelope?.trigger.source === "member_research",
+            service: "github",
+          })),
+        };
+      },
+    },
+  ];
+}
+
 function githubToolDefinition(input: {
-  actionId: GitHubActionId;
+  actionId: WrappedGitHubActionId;
   description: string | { writeSummary: string };
   input: RemoteAgentToolInputSchema;
   inputConfig: {
@@ -1655,6 +1752,7 @@ function githubToolDefinition(input: {
 async function resolveGitHubActionContext(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
+  includeAccessPolicy?: true;
   storage: RemoteAgentStorage;
   submissionId: string;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
@@ -1681,6 +1779,7 @@ async function resolveGitHubActionContext(input: {
   const resolved = centerAgentConnectorConnectionSelectionSchema.parse(
     await resolveConnection({
       connectionPreference,
+      ...(input.includeAccessPolicy ? { includeAccessPolicy: true } : {}),
       context: input.toolContext.context,
       requesterUserId,
       service: "github",
@@ -1733,6 +1832,7 @@ async function resolveGitHubActionContext(input: {
           : `${connection.ownerDisplayName}'s GitHub`,
     },
     requesterUserId,
+    permission: resolved.permission,
     selection: { connection, selection },
   };
 }
@@ -1797,7 +1897,7 @@ async function executeGitHubAction(input: {
     input: rawActionInput,
   });
   if (input.writeDisclosure) {
-    return await executeIdempotentGitHubWrite({
+    return await executeIdempotentGitHubAction({
       actionId: input.actionId,
       actionInput,
       connectorExecution: input.connectorExecution,
@@ -1870,7 +1970,87 @@ async function executeGitHubAction(input: {
   };
 }
 
-async function executeIdempotentGitHubWrite(input: {
+async function resolveGitHubCatalogActionPolicy(input: {
+  actionId: string;
+  connectorExecution?: ConnectorExecutionConfig;
+  replayed: boolean;
+  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+}): Promise<{
+  action?: OpenConnectorRuntimeAction;
+  blockedResult?: Record<string, unknown>;
+}> {
+  const speaker = resolveOrganizationMemberTurnEnvelopeSpeaker(
+    input.toolContext.turnEnvelope
+  );
+  const source = input.toolContext.turnEnvelope?.trigger.source;
+  // An ordinary verified replay uses the original operation's frozen contract,
+  // even if the provider's catalog or selected connection has since changed.
+  if (
+    input.replayed &&
+    source !== "routine" &&
+    source !== "member_research" &&
+    !(speaker && "kind" in speaker)
+  ) {
+    return {};
+  }
+  let action = await requireOpenConnectorAction({
+    actionId: input.actionId,
+    connectorExecution: input.connectorExecution,
+    service: "github",
+  });
+  if (GITHUB_DESTRUCTIVE_WRITE_ACTION_IDS.has(action.id)) {
+    action = { ...action, effect: "destructive" };
+  }
+  const policyInput = { ...input, action, service: "github" as const };
+  await requireMemberResearchReadOnlyConnectorAction(policyInput);
+  const channelPolicy =
+    await resolveConnectedMessageChannelActionPolicy(policyInput);
+  if (channelPolicy.blockedResult) {
+    return { blockedResult: channelPolicy.blockedResult };
+  }
+  if (action.effect !== "read") {
+    const block = resolveRemoteAgentRoutineExternalWriteBlock(
+      input.toolContext
+    );
+    if (block) {
+      return { blockedResult: block };
+    }
+  }
+  if (requiresHighRiskConnectorActionPolicy(action)) {
+    const block = resolveRemoteAgentRoutineDestructiveActionBlock(
+      input.toolContext
+    );
+    if (block) {
+      return { blockedResult: block };
+    }
+  }
+  return { action };
+}
+
+async function prepareNewGitHubAction(
+  input: Parameters<typeof executeIdempotentGitHubAction>[0],
+  action: OpenConnectorRuntimeAction | undefined
+) {
+  const context = await resolveGitHubActionContext({
+    ...input,
+    includeAccessPolicy: input.useRuntimeCatalog ? true : undefined,
+  });
+  if (context.permission === "read" && action?.effect !== "read") {
+    throw new Error("This GitHub connection grants read-only Agent access.");
+  }
+  const blockedResult = await resolvePendingGitHubDestructiveConfirmation({
+    ...input,
+    attribution: context.attribution,
+    destructive: action
+      ? requiresHighRiskConnectorActionPolicy(action)
+      : undefined,
+    selection: context.selection.connection,
+    token: input.writeConfirmationToken,
+  });
+  return { context, blockedResult };
+}
+
+async function executeIdempotentGitHubAction(input: {
   actionId: GitHubActionId;
   actionInput: Record<string, unknown>;
   connectorExecution?: ConnectorExecutionConfig;
@@ -1878,6 +2058,7 @@ async function executeIdempotentGitHubWrite(input: {
   githubActor: GitHubActor;
   operationId: string;
   skipSpaceTaskBinding?: boolean;
+  useRuntimeCatalog?: boolean;
   storage: RemoteAgentStorage;
   submissionId: string;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
@@ -1899,35 +2080,22 @@ async function executeIdempotentGitHubWrite(input: {
     service: "github",
     toolContext: input.toolContext,
   });
-  let actionContext:
-    | Awaited<ReturnType<typeof resolveGitHubActionContext>>
-    | undefined;
-  if (!existingOperation) {
-    actionContext = await resolveGitHubActionContext({
-      coreWorker: input.coreWorker,
-      githubActor: input.githubActor,
-      storage: input.storage,
-      submissionId: input.submissionId,
-      toolContext: input.toolContext,
-    });
-    const destructiveConfirmation =
-      await resolvePendingGitHubDestructiveConfirmation({
-        actionId: input.actionId,
-        actionInput: input.actionInput,
-        attribution: actionContext.attribution,
-        githubActor: input.githubActor,
-        operationId: input.operationId,
-        selection: actionContext.selection.connection,
-        storage: input.storage,
-        submissionId: input.submissionId,
-        token: input.writeConfirmationToken,
-        toolContext: input.toolContext,
-        writeDisclosure: input.writeDisclosure,
-      });
-    if (destructiveConfirmation) {
-      return destructiveConfirmation;
-    }
+  const action = input.useRuntimeCatalog
+    ? await resolveGitHubCatalogActionPolicy({
+        ...input,
+        replayed: Boolean(existingOperation),
+      })
+    : undefined;
+  if (action?.blockedResult) {
+    return action.blockedResult;
   }
+  const prepared = existingOperation
+    ? undefined
+    : await prepareNewGitHubAction(input, action?.action);
+  if (prepared?.blockedResult) {
+    return prepared.blockedResult;
+  }
+  const actionContext = prepared?.context;
 
   const connectionName =
     existingOperation?.connectionName ??
@@ -1946,6 +2114,7 @@ async function executeIdempotentGitHubWrite(input: {
   });
   const claim = await recordConnectorActionOperation({
     actionId: input.actionId,
+    effect: action?.action?.effect,
     connectionName,
     coreWorker: input.coreWorker,
     operationId: input.operationId,
@@ -2040,6 +2209,7 @@ async function executeIdempotentGitHubWrite(input: {
   const result = {
     attribution,
     data: run.data,
+    ...(input.useRuntimeCatalog ? { outputSchema: run.outputSchema } : {}),
     operationId: input.operationId,
     providerExecutionId: run.providerExecutionId,
     replayed: claim.replayed,
@@ -2087,11 +2257,24 @@ async function withGitHubIssueSpaceTaskBinding(input: {
 }): Promise<Record<string, unknown>> {
   let binding: Awaited<ReturnType<typeof applyGitHubIssueSpaceTaskBinding>> =
     null;
+  const connectionName = asRecord(input.result.attribution)?.connectionName;
   try {
     binding = await applyGitHubIssueSpaceTaskBinding({
       actionId: input.actionId,
       actionInput: input.actionInput,
       data: input.result.data,
+      eventIdentity: input.operationId,
+      now: () =>
+        readStableGitHubIssueObservationAt({
+          data: input.result.data,
+          operationId: input.operationId,
+          scope: [
+            input.toolContext.context.activeOrganizationId ?? "",
+            input.toolContext.context.actorContext.openMeldProfileId,
+            typeof connectionName === "string" ? connectionName : "",
+          ].join(":"),
+          storage: input.storage,
+        }),
       ports: input.coreWorker,
       toolContext: input.toolContext,
     });
@@ -2119,7 +2302,7 @@ async function withGitHubIssueSpaceTaskBinding(input: {
     );
     if (identity && nextBody) {
       try {
-        await executeIdempotentGitHubWrite({
+        await executeIdempotentGitHubAction({
           actionId: "github.update_issue",
           actionInput: {
             body: nextBody,
@@ -2156,10 +2339,45 @@ async function withGitHubIssueSpaceTaskBinding(input: {
   };
 }
 
+export async function readStableGitHubIssueObservationAt(input: {
+  data: unknown;
+  operationId: string;
+  scope: string;
+  storage: RemoteAgentStorage;
+}): Promise<string> {
+  const record = asRecord(input.data);
+  const nested = asRecord(record?.data);
+  const timestamp =
+    record?.updated_at ??
+    record?.updatedAt ??
+    nested?.updated_at ??
+    nested?.updatedAt;
+  if (typeof timestamp === "string" && Number.isFinite(Date.parse(timestamp))) {
+    return new Date(timestamp).toISOString();
+  }
+  const key = `github-space-task-observation:${input.scope}:${input.operationId}`;
+  const stored = await input.storage.get<string>(key);
+  if (stored) {
+    return stored;
+  }
+  const firstObservedAt = new Date().toISOString();
+  if (await input.storage.putIfAbsent(key, firstObservedAt)) {
+    return firstObservedAt;
+  }
+  const concurrent = await input.storage.get<string>(key);
+  if (!concurrent) {
+    throw new Error(
+      "The GitHub issue observation time could not be recovered."
+    );
+  }
+  return concurrent;
+}
+
 async function resolvePendingGitHubDestructiveConfirmation(input: {
   actionId: GitHubActionId;
   actionInput: Record<string, unknown>;
   attribution: Record<string, unknown>;
+  destructive?: boolean;
   githubActor: GitHubActor;
   operationId: string;
   selection: {
@@ -2175,7 +2393,12 @@ async function resolvePendingGitHubDestructiveConfirmation(input: {
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
   writeDisclosure?: GitHubWriteDisclosure;
 }): Promise<Record<string, unknown> | null> {
-  if (!GITHUB_DESTRUCTIVE_WRITE_ACTION_IDS.has(input.actionId)) {
+  if (
+    !(
+      input.destructive ||
+      GITHUB_DESTRUCTIVE_WRITE_ACTION_IDS.has(input.actionId)
+    )
+  ) {
     return null;
   }
   if (!input.writeDisclosure) {

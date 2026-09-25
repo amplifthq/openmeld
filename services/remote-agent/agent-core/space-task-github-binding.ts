@@ -19,7 +19,7 @@ import type {
   SpaceTaskExternalWorkItem,
   SpaceTaskMutationReceipt,
 } from "@openmeld/schemas/types";
-import { mutateSpaceTaskRefreshingOnRevisionConflict } from "./space-task-revision-retry";
+import { mutateSpaceTaskWithObservationConflictRetry } from "./space-task-observation-retry";
 
 export type GitHubIssueSpaceTaskIdentity = {
   number: number;
@@ -177,7 +177,8 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   actionId: string;
   actionInput: Record<string, unknown>;
   data: unknown;
-  now?: string;
+  eventIdentity?: string;
+  now?: string | (() => Promise<string>);
   ports: SpaceTaskGitHubBindingPorts;
   toolContext: {
     context: OpenMeldRequestContext;
@@ -205,12 +206,17 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   if (!identity) {
     return null;
   }
-  const now = input.now ?? new Date().toISOString();
+  // A stable observation may require storage. Resolve it only for a binding
+  // that applies, never for reads, private conversations, or unrelated writes.
+  const readObservationAt = async () =>
+    typeof input.now === "function"
+      ? await input.now()
+      : (input.now ?? new Date().toISOString());
   if (input.actionId === "github.create_issue") {
     return await associateCreatedGitHubIssue({
       actionInput: input.actionInput,
       identity,
-      now,
+      now: await readObservationAt(),
       ports: {
         createSpaceTask: input.ports.createSpaceTask,
         getSpaceTask: input.ports.getSpaceTask,
@@ -225,9 +231,17 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
     input.actionId === "github.update_issue" &&
     input.actionInput.state === "closed"
   ) {
+    if (!input.eventIdentity?.trim()) {
+      throw new SpaceTaskGitHubBindingError({
+        code: "space_task.github_event_identity_required",
+        message:
+          "OpenMeld cannot confirm this GitHub issue update's operation identity.",
+      });
+    }
     return await closeSpaceTasksForGitHubIssue({
       identity,
-      now,
+      eventIdentity: input.eventIdentity,
+      now: await readObservationAt(),
       ports: {
         getSpaceTask: input.ports.getSpaceTask,
         listSpaceTasks: input.ports.listSpaceTasks,
@@ -354,6 +368,7 @@ async function ensureGitHubIssueAttached(input: {
 }
 
 async function closeSpaceTasksForGitHubIssue(input: {
+  eventIdentity: string;
   identity: GitHubIssueSpaceTaskIdentity;
   now: string;
   ports: Pick<
@@ -384,7 +399,8 @@ async function closeSpaceTasksForGitHubIssue(input: {
         operationId: spaceTaskGitHubIssueOperationId(
           "observe-closed",
           input.identity,
-          task.taskId
+          task.taskId,
+          input.eventIdentity
         ),
         owner: input.identity.owner,
         provider: "github",
@@ -406,7 +422,8 @@ async function closeSpaceTasksForGitHubIssue(input: {
         operationId: spaceTaskGitHubIssueOperationId(
           "cancel",
           input.identity,
-          task.taskId
+          task.taskId,
+          input.eventIdentity
         ),
         reason: `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} was closed.`,
       },
@@ -441,7 +458,7 @@ async function mutateLinkedTask(input: {
     context: OpenMeldRequestContext;
   };
 }): Promise<SpaceTaskMutationReceipt> {
-  return await mutateSpaceTaskRefreshingOnRevisionConflict({
+  return await mutateSpaceTaskWithObservationConflictRetry({
     mutate: (mutation) =>
       input.ports.mutateSpaceTask({
         body: mutation,

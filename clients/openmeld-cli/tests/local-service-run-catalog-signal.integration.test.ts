@@ -1373,6 +1373,7 @@ describe("local service run catalog signal", () => {
     const releaseFirstConfigure = Promise.withResolvers<void>();
     const socket = createMockSocket({
       executionAdmissionConfirmation: true,
+      admissionEvidence: true,
       respondToHeartbeat: (frame) =>
         frame.payload.acceptingDispatches !== false,
     });
@@ -1398,6 +1399,14 @@ describe("local service run catalog signal", () => {
         isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
     );
     expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
+    expect(socket.sentFrames[falseHeartbeatIndex]).toMatchObject({
+      payload: {
+        admissionEvidence: {
+          acceptingDispatches: false,
+          reasonCode: "connection_initializing",
+        },
+      },
+    });
     const heartbeatCountWithFalseInFlight = socket.heartbeatSendCount;
 
     releaseFirstConfigure.resolve();
@@ -1421,7 +1430,8 @@ describe("local service run catalog signal", () => {
         .some(
           (frame) =>
             isHeartbeatFrame(frame) &&
-            frame.payload.acceptingDispatches !== false
+            frame.payload.acceptingDispatches !== false &&
+            frame.payload.admissionEvidence?.reasonCode === "host_ready"
         )
     ).toBe(true);
 
@@ -2821,6 +2831,7 @@ function isHeartbeatFrame(frame: unknown): frame is {
   code: "daemon.session.heartbeat";
   payload: {
     acceptingDispatches?: boolean;
+    admissionEvidence?: { reasonCode: string };
     stopCause?: string;
   };
 } {
@@ -2885,6 +2896,7 @@ async function flushMicrotasks(until?: () => boolean): Promise<void> {
 function createMockSocket(input?: {
   closeEventReason?: string;
   executionAdmissionConfirmation?: boolean;
+  admissionEvidence?: boolean;
   hangOnClose?: boolean;
   respondToKeepalive?: boolean;
   respondToHeartbeat?:
@@ -2973,6 +2985,9 @@ function createMockSocket(input?: {
                 connectionGeneration: 1,
                 ...(input?.executionAdmissionConfirmation !== false
                   ? { executionAdmissionConfirmation: true }
+                  : {}),
+                ...(input?.admissionEvidence
+                  ? { admissionEvidence: true }
                   : {}),
                 acceptedLeases,
                 rejectedProfiles: [],

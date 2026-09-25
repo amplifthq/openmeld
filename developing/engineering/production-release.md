@@ -5,10 +5,11 @@
 - Purpose: Define component-specific planning, ordering, commands, gates, and
   recovery for OpenMeld production releases without turning every change into
   a fleet rollout.
-- Read this when: You are planning or executing a local production deploy, a
-  GitHub production deploy, a production D1 migration, or a CLI publish.
+- Read this when: You are planning or executing a local or GitHub production
+  deploy, a D1 migration, a CLI publish, or Desktop release assessment.
 - Update this when: Release scopes, workflow inputs, production ordering,
-  database gates, CLI publication, health checks, or release evidence changes.
+  database gates, CLI publication, Desktop coverage, health checks, or release
+  evidence changes.
 - Do not use this for: Feature-specific smoke steps, local development lanes,
   database ownership, or CLI binary implementation details.
 - Source of truth: This file owns production release scopes, implementation
@@ -41,9 +42,53 @@ Release only what changed.
   existing schema do not require a CLI release.
 - `cloud` and `full` are explicit coordinated rollouts, not defaults.
 
+The reviewed Windows x64 internal preview is a narrow exception to the
+CLI-before-Web npm setup dependency. Its Web bootstrap selects a separate
+binary distribution, while the existing npm setup behavior is unchanged.
+Production admission recognizes only the reviewed before/after Git blobs for
+the three shared setup/artifact files and the preview-specific paths. Any later
+edit to those shared files restores the normal dependency. This exception does
+not publish the stable npm CLI or relax artifact, source, or stage admission.
+
 Do not redeploy unrelated services for ceremony. Broader validation may be
 appropriate for a cross-service contract change, but broader validation does
 not require a broader production rollout.
+
+### Desktop release coverage
+
+The scoped planner and `release:status` cover Database, cloud services, and
+CLI; neither `cloud` nor `full` publishes Desktop. For the same exact merged
+range, assess Desktop separately against its last promoted source on each
+supported platform. A direct Desktop Main or packaging change must be present
+in the promoted release on each affected platform; publish it if missing. A
+Web, shared-package, lockfile, or Desktop-build-script change enters Desktop
+impact review because those paths feed its renderer/build identity; publish
+only when the built Desktop or its installed behavior actually changes. Record
+a concrete exclusion reason when it does not.
+Compare the candidate's source with the product merge by ancestry; a later
+release-only version commit can include an earlier product merge.
+
+The authoritative release state is each platform's promoted R2 pointer:
+`desktop/promoted.json` for macOS and
+`desktop/promoted-windows-{x64,arm64}.json` for Windows. Each points to an
+immutable candidate with source, version, and artifact hash. Read all three
+without changing them:
+
+```sh
+pnpm --filter @openmeld/schemas build
+doppler --silent run --project openmeld-release --config prd \
+  --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+  --no-fallback -- node scripts/release/desktop-preview.mjs status
+```
+
+After the local schema build, the status command prints one JSON line per
+platform and exits nonzero if a pointer or candidate cannot be read or
+validated. A confirmed absent pointer is
+`unpublished`; a read failure is `unknown`. Public download and updater pages
+are separate user-facing checks. Keep candidate upload, promotion, and
+[installed update acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
+as separate facts; use the [Desktop release workflow](development-workflow.md#desktop-preview-release-workflow)
+for their publication steps.
 
 ## Choose The Release Lane
 
@@ -62,7 +107,12 @@ commit and use GitHub instead.
 
 ## Read Remote Release Status
 
-Before choosing a GitHub release scope, compare an immutable remote ref with
+Use this when choosing scopes, inspecting a backlog, or reconciling uncertain
+evidence. For a known scope, go directly to its guarded preflight instead of
+running this separate history scan first; the preflight performs the same
+read and checks the selected scope's dependencies.
+
+Compare an immutable remote ref with
 the latest successful component jobs recorded by GitHub Actions:
 
 ```sh
@@ -78,7 +128,25 @@ running. It does not dispatch a workflow, deploy a component, or edit a release
 file. Its `Deployment state` describes deployment history, not permission to
 release. `Source validation` reports exact-SHA push evidence when present and
 otherwise tells the operator to confirm exact Final Candidate evidence. Use
-`--json` for automation.
+`--json` for automation. Desktop is outside this status result; complete its
+[platform assessment](#desktop-release-coverage) before closing the release task.
+For one read-only planning pass, add `--plan-stage <scope>` to print the
+selected stage's prerequisite decision from the same status snapshot. This
+avoids an immediate second history collection while planning. It is not the
+final admission: the guarded release entrypoint still refreshes status and
+acquires its lease before any Production mutation.
+
+Read-only GitHub history requests retry a failed page at most twice for HTTP
+500, 502, 503, or 504, retaining pages already read. Exhausted retries,
+permissions failures and malformed collections remain incomplete evidence and
+fail closed; no mutation receives this retry policy.
+
+In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
+workflow repository and server identity to read private Git receipt refs.
+The existing trusted HTTPS helper supplies credentials only to those Git
+children; checkout credentials stay unpersisted. Missing credentials or a
+repository mismatch remain admission failures. Local reads retain the
+workstation's existing Git authentication.
 
 The resolved source SHA is the cutoff for that release. Commits that reach
 `main` after the cutoff belong to the next release; do not restart or widen an
@@ -128,6 +196,61 @@ checks through the same guarded command. If the retained source cannot satisfy
 the current contract, use an evidence-backed forward fix or a documented
 component-specific recovery; never run older guards, replace the receipt, or
 bypass admission to force a rollback.
+
+For local recovery after a control-only fix, keep the approved product checkout
+clean and invoke the current-main `scripts/release/production-release.mjs` by
+absolute path with the product checkout as the working directory. The executor
+honors each step's declared control interpreter, Node flags and arguments, and
+sets its verification root to the product source. Worker target resolution loads
+the pinned Wrangler parser from that source's installed dependencies; the
+minimal trusted-control checkout does not own product tool dependencies.
+
+Core receiver deployment uses the current trusted control's two-step receipt
+executor. After Cloudflare confirms the newly admitted version at 100% traffic,
+it persists `applied` before checking stable channel alignment. An alignment
+failure retains `failed/applied`; the same source, operation, projection and
+active deployment may resume alignment without another upload or deployment.
+Alignment reads the published CLI's required-update floor from that version's
+immutable tagged package metadata; the CLI version itself is not the floor.
+
+Historical stable alignment verifies the registry version/source and downloaded
+tarball integrity, immutable tag and tagged local-components manifest, R2 binary
+identity, and active Core projection. It reports historical non-portable npm
+dependencies without treating them as a new candidate packaging failure. Missing
+or unreadable registry evidence still fails. New CLI publication retains every
+strict portability, clean consumer, native SQLite, retained-tarball hash and
+published-byte verification gate, entirely in the official GitHub OIDC lane.
+
+The exact Stage A incident from run `35752925516`, attempt 1, has one reviewed
+reconciliation-only entrypoint:
+
+```sh
+node /path/to/current-main-control/scripts/release/core-receiver-reconciliation.mjs \
+  --release-source /path/to/clean-product-checkout
+```
+
+The product checkout must remain at
+`567c820e470de965b4ba5e3ab303fd02340e5ca8`. Add `--verify-only` to inspect the
+evidence before merging the control change; that mode writes no release evidence.
+The writing mode requires clean current-main control and the existing Core lease.
+It independently verifies the original failed run/job, admitted startup artifact
+and its pinned digest, immutable `v0.3.217` tag/manifest, and exact active Core
+deployment `297033ac-2c4f-4e28-807d-70e4145fc965` with version
+`b7a853b8-b272-436c-bce9-084645846f3b` at 100% traffic and the old projection.
+Any replacement or intervening deployment refuses reconciliation.
+
+The earlier local failed/unknown Core receipt is also retained. Its exact source
+was subsequently completed by official CLI Release run `35528171693`; that run
+must independently verify before the old receipt can be superseded. The new
+canonical receipt uses `proof=reconciled-hosted` and links an immutable schema 5
+provenance commit as its second Git parent. Its first parent preserves the prior
+receipt. The reconciliation attempt starts when reconciliation runs, not when
+Stage A ran. It records the original run, control, artifact, deployment time and
+superseded receipt explicitly; it never claims the old runner wrote a receipt.
+Alignment failure retains applied/failed evidence; retry reuses that same
+reconciliation attempt. This command cannot upload or deploy a Cloudflare Worker.
+After completion, rerun release status and CLI stage admission before publication.
+
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
 original release source, the retained failed attempt and its start event, the
@@ -254,6 +377,16 @@ safe superset for shared package changes. Development-only dependencies do not
 expand production release scope. Review the plan. An operator may narrow it
 with an explicit scope only when the changed contract and mixed-version behavior
 prove that narrower rollout is safe.
+
+Inbox notification observations add Core -> Gateway -> Web compatibility
+dependencies when the shared Inbox schema and Core observation owner change
+together. The existing dependency scheduler composes these edges with other
+contracts, including Remote Agent -> Core, and rejects cycles. Automatic scope
+selection includes all three components; a separate caller stage requires a
+verified receiver receipt. This additive observation API has the opposite
+direction from the older Core-written Inbox source-target contract below; do
+not infer one from the shared schema path alone. Desktop promotion retains its
+existing cloud-first gate.
 
 The planner selects the `remote-agent-receiver-first` deploy-order profile when
 the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
@@ -784,10 +917,9 @@ OPENMELD_PRODUCTION_TRAIN_SCOPES=core pnpm run release:preflight:local -- --scop
 Every preflight checks the cheap repository release contracts. Core additionally
 fails closed unless the production CLI channel can satisfy the local-component
 version it will project. The CLI publisher still owns the mandatory final
-release-readiness gate before irreversible publication; an earlier aggregate
-`release:preflight` result is diagnostic evidence and does not discharge that
-gate. Database generation, migration truth, remote application, physical
-verification, and optimization remain owned by `db:release:prod` itself.
+release-readiness gate before irreversible publication. Database generation,
+migration truth, remote application, physical verification, and optimization
+remain owned by `db:release:prod` itself.
 
 Whole-train preflight reads every component baseline and proves that all
 pending scopes satisfy their actual receiver/producer compatibility dependencies
@@ -809,24 +941,24 @@ component as the declared independent scope. A staged release passes the same
 comma-separated `OPENMELD_PRODUCTION_TRAIN_SCOPES` value to every Database, CLI,
 Web, and Worker invocation; for example, separate `db`, `cli`, and `web` runs
 for one release all declare `db,cli,web`. Every entry rejects a selected scope
-that is absent from that train. When the train includes Web, trusted current-main
-control verifies the exact-source Web artifact before Database, CLI, or Worker
-product mutation. An independent `db` train declares only `db` and therefore
-does not build Web.
+that is absent from that train. Trusted current-main control verifies a client
+artifact before the stage that publishes it. An independent `db` stage does not
+build Web even when Web is declared for a later stage in the same train.
 
-Artifact admission builds and runs only the exact-source CLI, Web, and Desktop
-artifacts declared in the train. A train without these scopes builds none of
-them. CLI admission uses the existing immutable npm probe: an already published
-package must pass artifact and isolated-consumer verification; a new package
-must pass strict release readiness, packing, and the same isolated-consumer
-check before any Database, CLI, or Worker mutation. The resumable publisher
+Artifact admission checks only the CLI, Web, and Desktop artifacts selected for
+the current stage. Declaring these components elsewhere in the train does not
+build them before an unrelated Worker or Database deployment. CLI admission
+uses the existing immutable npm probe: an already published package must pass
+artifact and isolated-consumer verification; a new package must pass strict
+release readiness, packing, and the same isolated-consumer check before CLI
+publication. The resumable publisher
 uses the retained checked tarball. Reuse requires a clean exact source, matching
 build inputs and tool runtime, and the same inspected tarball integrity.
 Changed inputs or bytes invalidate that local proof. Published-artifact recovery
 never rebuilds a historical package or overwrites its published version.
 
-Web and Desktop admission checks only the declared client scopes. When both are
-declared, it checks Desktop first and Web second so the retained output and
+Web and Desktop admission checks only the selected client scopes. When both are
+selected, it checks Desktop first and Web second so the retained output and
 receipt still identify the Web artifact used by the Web deploy. Scoped Web
 preflight repeats the Web artifact admission. The deploy command may reuse only
 a matching source, build-input, and output-hash receipt. When the other client
@@ -839,18 +971,59 @@ Production secret readiness remains a separate guard. Formal Web post-deploy
 health binds the live root SSR source and build ID to that exact clean artifact
 receipt.
 
-The hosted `cloud`/`full` parent job derives its plan from each component's
-receipt and verifies the declared train artifacts before any Database or Worker
-job starts.
-Desktop has no deployment job in that hosted scope. It may still be named in the
-complete train for artifact admission, while its production packaging entrypoint
+The hosted `cloud`/`full` parent job checks the client artifacts selected in
+that coordinated run once before its component jobs start. A single-component
+run checks only that component's artifact; it cannot fail on an unrelated Web
+or Desktop build. Desktop has no deployment job in the hosted scope. It may be
+selected explicitly for artifact admission, while its production packaging entrypoint
 verifies its renderer and prerender separately. Web and Desktop artifact
 snapshots remain component-specific recovery evidence: restoring one component
 selects that component's exact source and matching receipt without changing the
-other component's baseline. Artifact reuse is local to a checkout with matching
-source, build inputs, and output hash. A separate hosted deployment runner
-builds and verifies its own output rather than treating another runner's test
-result as proof of its bytes.
+other component's baseline.
+
+Hosted renderer builds use the runner's bounded Node heap and run immediately;
+the worktree resource queue applies only to builds on a shared local machine.
+
+Within one coordinated `release-on-main.yml` run, `validate_release_source`
+performs the selected stage's artifact admission once before any Production mutation.
+Only that job issues `production-train-admission` evidence through its protected
+job output. Consumers require the exact source, declared train and artifact
+scopes, repository, main workflow identity, trusted control SHA, run ID and
+attempt, clean Git tree, lockfile hash, and Node/platform/architecture.
+Coordinated consumers install the parent's exact Node version before dependency
+setup; independently resolving Node 24 on each runner can select different
+versions. Standalone callers retain the existing toolchain selection.
+The evidence retains the inspected CLI tarball integrity and each renderer's
+build-input, output and receipt hashes, including its Workerd SSR runtime.
+This is artifact admission evidence, not a deployment or reconciliation receipt.
+
+Component workflows and their nested preflight calls verify that output without
+repeating selected artifact builds or npm consumer installation. The Database
+action invokes the existing Database entrypoint from trusted control against the
+release-source checkout so historical source cannot select an older admission
+implementation. Its database steps and guards are unchanged.
+The Web job additionally downloads the parent's immutable same-run artifact ID,
+verifies the receipt, actual build inputs and snapshot bytes, and restores the
+admitted Web output before its existing preflight, deploy and health gates.
+For a parent handoff, the child uses the same renderer heap budget that the
+parent used to build the snapshot; otherwise build-input identity must reject
+the artifact even when its downloaded bytes are intact.
+Other components do not download Web bytes. Desktop publication and CLI
+publication remain separate paths with their existing checks.
+
+Missing, malformed or mismatched parent evidence, or a missing/corrupt Web
+snapshot, fails closed; it cannot silently fall back to rebuilding. A child
+cannot deploy a client artifact absent from its parent admission. Independent
+component callers without parent evidence check their selected artifacts.
+There is no cross-run cache or reuse: a partial rerun whose attempt differs from
+the parent proof must rerun that stage's admission. Existing local snapshot
+reuse still requires matching source, build inputs and output hash.
+
+While waiting for Actions, use bounded waits or backoff and read compact job
+status first. Read detailed logs only when a job changes state or a failure
+needs diagnosis; do not repeatedly fetch unchanged full logs. Finish the current
+stage before preparing the next one. In particular, defer Desktop, signing and
+environment preparation until that stage is actually selected and ready.
 
 Working-folder recovery introduces a Core cancellation receiver that must be
 healthy before the new CLI/Service can emit that outcome. Use the guarded
@@ -1149,9 +1322,8 @@ The command requires a clean worktree and runs exactly this sequence:
 
 Local release operators may authenticate Wrangler with its supported OAuth
 login. Automated release lanes provide `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN` instead. The release preflight verifies the active
-Wrangler authentication and then proves access to the configured production D1
-target with the read-only remote migration list. It does not require local
+`CLOUDFLARE_API_TOKEN` instead. `db:release:prod` proves access to the configured
+production D1 target with the read-only remote migration list. It does not require local
 schema generation or `db:check` to use production Drizzle HTTP credentials.
 
 Database release is selected only when committed schema or migration truth
@@ -1177,8 +1349,7 @@ Read `developing/engineering/cli-binary-release.md` for artifact and Apple
 credential details.
 
 Before publication, set `OPENMELD_PRODUCTION_TRAIN_SCOPES` to the complete
-intended train (`cli` for an independent CLI publication), run
-`pnpm run release:preflight`, then inspect the
+intended train (`cli` for an independent CLI publication), then inspect the
 base-aware local-component plan:
 
 ```sh
@@ -1244,10 +1415,21 @@ For GitHub, use `.github/workflows/cli-release.yml`:
 
 1. for a normal CLI publication, run `release_path=normal` directly;
 2. the workflow runs the `release_ready` gate before publication;
-3. use `release:verify:local -- --scope cli` for an earlier complete go/no-go
-   decision or handoff;
-4. use `Scoped Production Release` separately when the release card also
+3. use `Scoped Production Release` separately when the release card also
    requires database or cloud fleet changes.
+
+Windows Native AOT helper bytes can differ across builds of identical source.
+When a committed Service hash was stamped with a helper from an earlier trusted
+`main` CLI workflow run, set `windows_artifact_run_id` to that run instead of
+rebuilding the helper. The macOS publisher checks the producer workflow,
+branch, repository, and successful helper job, then verifies the downloaded
+helper's source fingerprint and bytes. This reuse path skips the Windows build
+job entirely. Use the run whose helper bytes were used for the stamp, not merely
+a run with the same source. A fresh Windows build can prepare a new candidate;
+stamp from its downloaded artifact and pin that run for publication.
+
+Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
+decision or handoff is needed; it is not a default extra gate.
 
 The workflow publishes the signed and notarized binary, R2 manifest, npm
 package, tag, and Core projection. It does not migrate the database or redeploy

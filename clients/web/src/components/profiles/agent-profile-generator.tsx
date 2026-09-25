@@ -45,6 +45,8 @@ import { PersonalRemoteAgentConfiguration } from "./personal-remote-agent-config
 
 export type AgentProfileGeneratorProps = {
 	form: CreateProfileFormProps;
+	hidePageHeading?: boolean;
+	hideRuntimeSelection?: boolean;
 	onCancel?: () => void;
 	surface: "dialog" | "page";
 };
@@ -63,6 +65,8 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 		setRemoteName,
 		remoteModel,
 		setRemoteModel,
+		remoteReasoningLevel,
+		setRemoteReasoningLevel,
 		remoteReady,
 		submitRemote,
 	} = useRemoteAgentDraft(input.form);
@@ -106,7 +110,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 					onValueChange={(value) => setRemote(value === "remote")}
 					value={remote ? "remote" : "local"}
 				>
-					{input.surface === "page" ? (
+					{input.surface === "page" && !input.hidePageHeading ? (
 						<div className="grid gap-2">
 							<div className="-ml-2 flex items-center gap-4">
 								<TooltipHint content="Back to Team">
@@ -129,10 +133,12 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 							</p>
 						</div>
 					) : null}
-					<AgentRuntimeTabs
-						isSubmitting={form.isSubmitting}
-						remoteAvailable={Boolean(form.remoteAgentCreation)}
-					/>
+					{input.hideRuntimeSelection ? null : (
+						<AgentRuntimeTabs
+							isSubmitting={form.isSubmitting}
+							remoteAvailable={Boolean(form.remoteAgentCreation)}
+						/>
+					)}
 					<TabPanel className="grid min-w-0 gap-5" value="local">
 						<LocalAgentConfiguration
 							computerRecovery={computerRecovery}
@@ -146,11 +152,17 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 					</TabPanel>
 					<TabPanel value="remote">
 						<PersonalRemoteAgentConfiguration
-							form={form}
+							isSubmitting={form.isSubmitting}
 							model={remoteModel}
+							modelCatalog={form.modelCatalog}
 							name={remoteName}
-							onModelChange={setRemoteModel}
+							onModelChange={(model) => {
+								setRemoteModel(model);
+								setRemoteReasoningLevel("");
+							}}
 							onNameChange={setRemoteName}
+							onReasoningLevelChange={setRemoteReasoningLevel}
+							reasoningLevel={remoteReasoningLevel}
 						/>
 					</TabPanel>
 					<CreateProfileErrorNotice
@@ -279,10 +291,11 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 			: "Your Remote Agent";
 	const remoteName =
 		form.remoteProfileName ?? editedRemoteName ?? defaultRemoteName;
-	const [remoteModel, setRemoteModel] = useState("");
+	const [remoteModel, setRemoteModel] = useState<string | null>(null);
+	const [remoteReasoningLevel, setRemoteReasoningLevel] = useState("");
 	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 	const catalog = form.modelCatalog?.agentControllers["center-agent"];
-	const remoteModelId = remoteModel || catalog?.defaultModelId;
+	const remoteModelId = remoteModel ?? catalog?.defaultModelId;
 	const remoteReady = Boolean(
 		remoteName.trim() &&
 			catalog?.models.some(
@@ -296,7 +309,11 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 		if (form.isSubmitting || !remoteReady || !form.remoteAgentCreation) {
 			return;
 		}
-		const fingerprint = JSON.stringify([remoteName.trim(), remoteModelId]);
+		const fingerprint = JSON.stringify([
+			remoteName.trim(),
+			remoteModelId,
+			remoteReasoningLevel,
+		]);
 		if (intent.current?.fingerprint !== fingerprint) {
 			intent.current = { fingerprint, key: crypto.randomUUID() };
 		}
@@ -304,13 +321,16 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 			idempotencyKey: intent.current.key,
 			modelId: remoteModelId ?? null,
 			profileName: remoteName.trim(),
+			reasoningLevel: remoteReasoningLevel || null,
 		});
 	};
 	return {
 		remoteName,
 		setRemoteName,
-		remoteModel,
+		remoteModel: remoteModelId ?? "",
 		setRemoteModel,
+		remoteReasoningLevel,
+		setRemoteReasoningLevel,
 		remoteReady,
 		submitRemote,
 	};

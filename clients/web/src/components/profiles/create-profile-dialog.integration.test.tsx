@@ -24,6 +24,10 @@ vi.mock("@openmeld/schemas", async (importOriginal) => ({
 }));
 
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
+import {
+	readAgentCreationIntent,
+	rememberAgentCreationIntent,
+} from "#/lib/profiles/agent-creation-intent";
 import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { startQueryKeys } from "#/query/query-keys";
@@ -1567,10 +1571,26 @@ describe("CreateProfileDialog", () => {
 		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
 			target: { value: "New Remote Partner" },
 		});
+		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Provider" }));
+		fireEvent.click(await screen.findByRole("option", { name: "OpenAI" }));
+		expect(
+			screen.getByRole("combobox", { name: "Model" }).textContent
+		).toContain("Choose a model");
+		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		fireEvent.click(await screen.findByRole("option", { name: "GPT-6 Astra" }));
+		fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
 		const readsBeforeCreation = readOrganizationDirectoryMock.mock.calls.length;
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		await waitFor(() => {
-			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						modelId: "openai/gpt-6-astra",
+					}),
+				})
+			);
 			expect(readOrganizationDirectoryMock.mock.calls.length).toBeGreaterThan(
 				readsBeforeCreation
 			);
@@ -2090,7 +2110,8 @@ describe("CreateProfileDialog", () => {
 		try {
 			await waitFor(() => {
 				expect(onAgentRequestCreated).toHaveBeenCalledWith(
-					expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
+					expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID }),
+					null
 				);
 				expect(onOpenChange).toHaveBeenCalledWith(false);
 			});
@@ -2155,7 +2176,8 @@ describe("CreateProfileDialog", () => {
 					createdAgentProfileId: NEW_AGENT_ID,
 					status: "failed",
 					statusReason: "profile_created",
-				})
+				}),
+				null
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
@@ -2269,7 +2291,8 @@ describe("CreateProfileDialog", () => {
 					createdAgentProfileId: NEW_AGENT_ID,
 					status: "failed",
 					statusReason: "profile_created",
-				})
+				}),
+				null
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
@@ -2968,6 +2991,72 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("keeps the Local Agent's custom folder with its retry intent before Core responds", async () => {
+		createAgentProfileCreationRequestMock.mockImplementation((requestInput) => {
+			rememberAgentCreationIntent({
+				fingerprint: "same-local-intent",
+				idempotencyKey: requestInput.idempotencyKey,
+				organizationId: requestInput.organizationId,
+				profileName: requestInput.profileName,
+				scope: "creation-reload-test",
+			});
+			requestInput.onStarted?.({
+				configuration: requestInput.configuration,
+				failureMessage: null,
+				id: `optimistic:${requestInput.idempotencyKey}`,
+				profileName: requestInput.profileName,
+				requestFingerprint: "same-local-intent",
+				status: "creating",
+				targetOwnerUserId: requestInput.targetOwnerUserId,
+			});
+			return buildAgentProfileCreationRequestResult(requestInput);
+		});
+		renderCreateProfileDialog({
+			clearIntentOnAcceptance: false,
+			intentStorageScope: "creation-reload-test",
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+			waitForAgentRequestCompletion: false,
+		});
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		await selectAgentProfileKind();
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Folder source" }));
+		fireEvent.focus(
+			await screen.findByRole("option", { name: "On this computer" })
+		);
+		fireEvent.click(
+			await screen.findByRole("option", { name: "On this computer" })
+		);
+		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
+			target: { value: "/tmp/recovered-agent-folder" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
+		);
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledOnce();
+			expect(
+				readAgentCreationIntent("creation-reload-test", "organization-123")
+			).toEqual(
+				expect.objectContaining({
+					customWorkspacePath: "/tmp/recovered-agent-folder",
+					profileName: "Research Agent",
+				})
+			);
+		});
+	});
+
 	it("keeps the committed Agent visible when custom working folder setup fails", async () => {
 		setCurrentAgentProfileWorkspaceMock.mockRejectedValue(
 			new Error("The working folder is temporarily unavailable.")
@@ -3014,7 +3103,8 @@ describe("CreateProfileDialog", () => {
 				expect.objectContaining({
 					createdAgentProfileId: NEW_AGENT_ID,
 					status: "completed",
-				})
+				}),
+				"The working folder is temporarily unavailable."
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});

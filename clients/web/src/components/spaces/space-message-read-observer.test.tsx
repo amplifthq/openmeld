@@ -39,8 +39,11 @@ function Harness(input: {
 }
 
 describe("Space message read visibility", () => {
-	it("does not mark a visible Desktop conversation read until it regains focus", async () => {
-		desktopPlatformMock.mockReturnValue({});
+	it.each([
+		"web",
+		"desktop",
+	])("does not mark a visible %s conversation read until it regains focus", async (client) => {
+		desktopPlatformMock.mockReturnValue(client === "desktop" ? {} : null);
 		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
 		const onRead = vi.fn();
 		render(<Harness onRead={onRead} />);
@@ -56,6 +59,7 @@ describe("Space message read visibility", () => {
 	let covered: boolean;
 	beforeEach(() => {
 		desktopPlatformMock.mockReturnValue(null);
+		vi.spyOn(document, "hasFocus").mockReturnValue(true);
 		vi.useFakeTimers();
 		firstTop = 150;
 		secondTop = 1800;
@@ -129,6 +133,7 @@ describe("Space message read visibility", () => {
 
 	it.each([
 		"hidden",
+		"unfocused",
 		"scrolled-away",
 		"access-withdrawn",
 		"closed",
@@ -143,6 +148,9 @@ describe("Space message read visibility", () => {
 				value: "hidden",
 			});
 			fireEvent(document, new Event("visibilitychange"));
+		} else if (reason === "unfocused") {
+			vi.mocked(document.hasFocus).mockReturnValue(false);
+			fireEvent.blur(window);
 		} else if (reason === "scrolled-away") {
 			firstTop = 480;
 			fireEvent.scroll(view.getByTestId("viewport"));

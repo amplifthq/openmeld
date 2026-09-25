@@ -111,7 +111,6 @@ import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
 import { setSpaceWakeProgressPresentationItems } from "#/query/spaces/active-wake-progress";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
-import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 import {
 	SPACE_LIVE_RECONNECTING_LABEL,
@@ -742,14 +741,17 @@ function renderSpaceLanding(
 					<WakeProgressVisibleProjectionProbe />
 				) : null}
 				<AppOrganizationProvider scope={organizationScope}>
-					<SpaceEntryConfirmationContext
-						value={{
-							confirmed: input.entryConfirmed ?? true,
-							ensureConfirmed: input.ensureEntryConfirmed ?? (async () => true),
-						}}
-					>
-						{ui}
-					</SpaceEntryConfirmationContext>
+					<StartFlowStateProvider storageScope="test-storage-scope">
+						<SpaceEntryConfirmationContext
+							value={{
+								confirmed: input.entryConfirmed ?? true,
+								ensureConfirmed:
+									input.ensureEntryConfirmed ?? (async () => true),
+							}}
+						>
+							{ui}
+						</SpaceEntryConfirmationContext>
+					</StartFlowStateProvider>
 				</AppOrganizationProvider>
 			</SpaceWakeProgressVisibleProjectionProvider>
 		</TestQueryClientProvider>
@@ -987,6 +989,7 @@ describe("SpaceLanding", () => {
 		toastMock.success.mockReset();
 		toastMock.warning.mockReset();
 		window.localStorage.clear();
+		window.sessionStorage.clear();
 		FakeWebSocket.reset();
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: vi.fn().mockResolvedValue({
@@ -2656,8 +2659,10 @@ describe("SpaceLanding", () => {
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(false);
-		const membersButton = screen.getByRole("button", { name: "Members" });
-		expect(membersButton.textContent).toBe("");
+		const membersButton = screen.getByRole("button", {
+			name: MEMBERS_TOGGLE_BUTTON_NAME,
+		});
+		expect(membersButton.textContent).toBe("2");
 		fireEvent.click(membersButton);
 		expect(membersButton.getAttribute("aria-expanded")).toBe("true");
 		expect(screen.queryByRole("dialog", { name: "Members" })).toBeNull();
@@ -3548,7 +3553,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("keeps transient dispatch activity out of the transcript and shows source Wake progress under the message", () => {
+	it("keeps historical dispatch activity out of the transcript without reviving a Wake", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -3594,6 +3599,25 @@ describe("SpaceLanding", () => {
 								profileName: "OpenMeld System",
 							},
 						}),
+						createTextSignal({
+							id: "sig-replying",
+							text: "@runner is replying...",
+							ts: RECENT_ACTIVITY_TS + 2,
+							meta: {
+								dispatchId: "dispatch-1",
+								purpose: AGENT_REPLYING_PURPOSE,
+								sourceClientMessageId: "client-message-1",
+								sourceEventId: "sig-user",
+								targetMentionLabel: "runner",
+								targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+								transient: true,
+							},
+							profile: {
+								kind: "system",
+								profileId: "openmeld-system",
+								profileName: "OpenMeld System",
+							},
+						}),
 					],
 					nextCursor: null,
 				},
@@ -3607,14 +3631,7 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
-		// Active Wake progress stays at the conversation tail while its source remains visible.
-		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
-		expect(sourceMessageGroup).not.toBeNull();
-		const thinkingIndicator = screen.getByTestId(
-			"space-wake-thinking-indicator"
-		);
-		expect(thinkingIndicator.textContent).toContain("Wake sent to runner");
-		expect(thinkingIndicator.textContent).not.toContain("Wake is queued");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 		expect(screen.queryByText("Starting Wake for @runner...")).toBeNull();
 		expect(screen.queryByText("OpenMeld System")).toBeNull();
 	});
@@ -3836,7 +3853,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("sends a Center Agent correction to the visible running response when the initial summary is empty", async () => {
+	it("sends a Center Agent correction to a running response confirmed by Core", async () => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -3882,6 +3899,17 @@ describe("SpaceLanding", () => {
 		});
 		mockSpaceQueries({
 			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			activeWakeProgressSummary: createQueryResult({
+				isSuccess: true,
+				isFetchedAfterMount: true,
+				data: {
+					items: [item],
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+					query: { spaceId: "space-123", targetProfileId: null },
+				},
+			}),
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
 				isSuccess: true,
@@ -3922,12 +3950,15 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("clears a cached Sending to agent row when Core confirms that no Wake is active", async () => {
+	it.each([
+		"request_sent",
+		"running",
+	] as const)("does not present cached %s progress as current before Core confirms it", async (phase) => {
 		const queryClient = createTestQueryClient();
 		const cachedItem = createWakeProgressItem({
 			clientMessageId: "client-message-stale",
 			dispatchId: "dispatch-stale",
-			phase: "request_sent",
+			phase,
 			sourceSignalId: "sig-user-stale",
 			targetLabel: "@runner",
 			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
@@ -3966,6 +3997,18 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			activeWakeProgressSummary: createQueryResult({
+				isSuccess: true,
+				isFetching: true,
+				isFetchedAfterMount: false,
+				data: {
+					items: [cachedItem],
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+					query: { spaceId: "space-123", targetProfileId: null },
+				},
+			}),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -3987,7 +4030,7 @@ describe("SpaceLanding", () => {
 							},
 							meta: { clientMessageId: "client-message-stale" },
 							text: "@runner(wake) status check",
-							ts: RECENT_ACTIVITY_TS - 6 * 60 * 1000,
+							ts: RECENT_ACTIVITY_TS - 12 * 60 * 60 * 1000,
 						}),
 					],
 					nextCursor: null,
@@ -3997,9 +4040,7 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding({ queryClient });
 
-		expect(
-			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("Wake sent to runner");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 
 		await act(async () => {
 			resolveActiveWakeProgress({
@@ -4466,7 +4507,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("restores cached active Wake progress immediately after switching away from and back to a Space", async () => {
+	it("does not restore unconfirmed cached Wake progress after switching away from and back to a Space", async () => {
 		const cachedItem = {
 			clientMessageId: "client-message-1",
 			dispatchId: "dispatch-1",
@@ -4786,11 +4827,7 @@ describe("SpaceLanding", () => {
 				timeoutMs: 15_000,
 			});
 		});
-		await waitFor(() => {
-			expect(
-				screen.getByTestId("space-wake-thinking-indicator").textContent
-			).toContain("runner is working");
-		});
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 
 		view.rerender(
 			<SpaceLanding
@@ -4817,9 +4854,7 @@ describe("SpaceLanding", () => {
 			/>
 		);
 
-		expect(
-			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toContain("runner is working");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 	});
 
 	it("does not show expired terminal Wake progress returned during history recovery", async () => {
@@ -6237,9 +6272,6 @@ describe("SpaceLanding", () => {
 						profileHandle: addedAgent.mentionAlias ?? "runner",
 						profileId: addedAgent.profileId,
 						profileName: addedAgent.profileName,
-						readiness: buildRemoteCenterAgentReadiness("available", {
-							agentProfileId: addedAgent.profileId,
-						}),
 						status: "active",
 					},
 				],
@@ -11574,9 +11606,6 @@ describe("SpaceLanding", () => {
 		await flushPromiseQueue();
 
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
-			predicate: expect.any(Function),
-		});
 		expect(statusRefetchMock).toHaveBeenCalledTimes(1);
 		expect(membersRefetchMock).toHaveBeenCalledTimes(1);
 		expect(refreshAllMock).not.toHaveBeenCalled();
@@ -11639,9 +11668,6 @@ describe("SpaceLanding", () => {
 		await flushPromiseQueue();
 
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
-			predicate: expect.any(Function),
-		});
 		for (const invalidation of buildLocalRuntimeCacheInvalidations()) {
 			expect(invalidateQueriesMock).not.toHaveBeenCalledWith(
 				expect.objectContaining(invalidation)
@@ -13283,7 +13309,7 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText(SPACE_LIVE_RECONNECTING_LABEL)).toBeNull();
 	});
 
-	it("uses only persisted live frames as reconnect catch-up anchors", async () => {
+	it("reconnects from the last authoritative history/updates cursor despite newer live frames", async () => {
 		vi.useFakeTimers();
 		const getUpdatesMock = vi.fn().mockResolvedValue({
 			signals: [],
@@ -13372,6 +13398,7 @@ describe("SpaceLanding", () => {
 			);
 			await FakeWebSocket.instances[0]?.emitClose(1011, "upstream_error");
 		});
+		expect(screen.getByText("Persisted live message")).toBeTruthy();
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1000);
 		});
@@ -13385,7 +13412,7 @@ describe("SpaceLanding", () => {
 		expect(getUpdatesMock).toHaveBeenCalledTimes(1);
 		expect(getUpdatesMock).toHaveBeenLastCalledWith({
 			spaceId: "space-123",
-			afterSignalId: "sig-live-persisted",
+			afterSignalId: "sig-seed",
 			limit: 50,
 			signal: expect.any(AbortSignal),
 		});
@@ -15166,6 +15193,7 @@ describe("SpaceLanding", () => {
 			.getByText("DM hello")
 			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
+		expect(sourceMessage?.textContent).not.toContain("Wake");
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
@@ -19823,9 +19851,6 @@ function createOrganizationDirectoryFixture(input: {
 				profileHandle: "center-agent",
 				profileId: input.centerAgentProfileId,
 				profileName: "Center Agent",
-				readiness: buildRemoteCenterAgentReadiness("available", {
-					agentProfileId: input.centerAgentProfileId,
-				}),
 				status: "active",
 			},
 		],

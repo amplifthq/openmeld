@@ -33,6 +33,7 @@ import type {
   SummarizeAgentActivityDigestRpcInput,
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
+import type { AccountInvalidationHub } from "../account-invalidation/account-invalidation-hub";
 import type { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
 import type { LarkChannelConnector } from "../remote-agent/transport/lark/lark-channel-connector";
 import type { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
@@ -128,6 +129,11 @@ type CoreAuthDispatchBindingRpc = {
 };
 
 export type RemoteAgentWorkerBindingRpc = {
+  generateCenterAgentSessionTitle?(
+    input: import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleInput
+  ): Promise<
+    import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleResponse
+  >;
   pluginRuntime?(
     input: import("@openmeld/schemas/types").PluginRuntimeRequest
   ): Promise<import("@openmeld/schemas/types").PluginRuntimeResponse>;
@@ -177,6 +183,7 @@ export type RemoteAgentWorkerBindingRpc = {
 // CloudflareBindings. Gateway typegen imports core source for service RPC
 // typing; using a global env type here causes cross-worker type collisions.
 export type CoreBindings = {
+  OPENMELD_ACCOUNT_INVALIDATIONS?: DurableObjectNamespace<AccountInvalidationHub>;
   OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
   OPENMELD_RUNTIME_TRANSPORT?: DurableObjectNamespace<RuntimeTransportHub>;

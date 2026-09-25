@@ -36,6 +36,7 @@
     "@flue/runtime": "2.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openmeld/agent-runtime": "workspace:*",
+    "@openmeld/gateway-contract": "workspace:*",
     "@openmeld/schemas": "workspace:*",
     "@openmeld/space-mesh": "workspace:*",
     "@openmeld/utils": "workspace:*",

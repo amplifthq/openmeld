@@ -1,6 +1,22 @@
 import * as z from "zod/v4";
+import { windowsPublisherNameSchema } from "#windows-artifact";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
+
+// Release manifests use product platform names, not Node's Windows OS token.
+export function resolveCliBinaryPlatform(os: string, arch: string): string {
+  return `${os === "win32" ? "windows" : os}-${arch}`;
+}
+// The macOS CLI publisher identity is a trusted client expectation, not a
+// value that a downloaded manifest may choose for itself.
+export const OPENMELD_MACOS_CLI_SIGNING_IDENTITY = {
+  codeIdentifier: "sh.openmeld.cli",
+  teamIdentifier: "38FFHDPA3B",
+} as const;
+
+// Require Apple's Developer ID Application chain, not just matching fields
+// printed by codesign --display or a requirement chosen by the artifact.
+export const OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT = `anchor apple generic and identifier "${OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier}" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier}"`;
 
 function isBase64(value: string): boolean {
   if (value.length === 0 || value.length % 4 !== 0) {
@@ -86,8 +102,26 @@ export const cliBinaryReleaseSchema = cliBinaryArtifactSchema
     codeIdentifier: z.string().trim().min(1).optional(),
     deltas: z.array(cliBinaryDeltaTransportSchema).max(8).optional(),
     teamIdentifier: z.string().trim().min(1).optional(),
+    windows: z
+      .union([
+        z.strictObject({
+          publisherName: windowsPublisherNameSchema,
+          processHelper: cliBinaryArtifactSchema,
+        }),
+        z.strictObject({
+          mode: z.literal("internal-unsigned-preview"),
+          processHelper: cliBinaryArtifactSchema,
+        }),
+      ])
+      .optional(),
   })
   .superRefine((release, context) => {
+    if (release.windows && (release.codeIdentifier || release.teamIdentifier)) {
+      context.addIssue({
+        code: "custom",
+        message: "Windows and macOS signature identities cannot be combined",
+      });
+    }
     const archiveFields = [
       release.archiveFormat,
       release.archiveSha256,
@@ -134,6 +168,17 @@ const binaryPlatformsSchema = z
   .record(z.string().trim().min(1), cliBinaryReleaseSchema)
   .refine((platforms) => Object.keys(platforms).length > 0, {
     message: "at least one platform is required",
+  })
+  .superRefine((platforms, context) => {
+    for (const [platform, release] of Object.entries(platforms)) {
+      if (platform.startsWith("windows-") !== Boolean(release.windows)) {
+        context.addIssue({
+          code: "custom",
+          path: [platform, "windows"],
+          message: "Windows artifact metadata must match its platform",
+        });
+      }
+    }
   });
 
 export const cliBinaryServiceReleaseSchema = z.object({

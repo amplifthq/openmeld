@@ -273,9 +273,9 @@ export function applyWakeProgressSignals(input: {
     if (!nextItem) {
       continue;
     }
-    // Transient text updates presentation, not Core's viewer-scoped Stop policy.
-    // Keep only the exact active execution's projection; full snapshots still
-    // replace it normally, including an explicit revocation or missing field.
+    // Transient text updates presentation, not Core's viewer-scoped controls.
+    // Keep the exact active execution's interaction and Stop projection; full
+    // snapshots still replace them, including a revocation or missing field.
     if (
       signal.type === "signal.text" &&
       signal.data.meta?.transient === true &&
@@ -288,7 +288,10 @@ export function applyWakeProgressSignals(input: {
           item.targetProfileId === nextItem.targetProfileId &&
           isActiveWakeProgressItem(item)
       );
-      if (current && Object.hasOwn(current, "wakeStopEligibility")) {
+      if (current) {
+        nextItem.pendingInteraction = current.pendingInteraction;
+        nextItem.runtimeCoordinatorExecutionId =
+          current.runtimeCoordinatorExecutionId;
         nextItem.wakeStopEligibility = current.wakeStopEligibility;
       }
     }

@@ -6,7 +6,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import {
   assertCurrentVersionedReleaseBranch,
-  isVersionedReleaseBranchRef,
+  isReleaseBranchRef,
 } from "./release-branch-policy.mjs";
 import { selectPrePushReleaseVerificationPaths } from "./release-ready-paths.mjs";
 
@@ -36,15 +36,18 @@ const REPOSITORY_LOCAL_GIT_ENV_VARS = [
 
 export function resolvePrePushReleaseMode(input) {
   const updates = parsePushUpdates(input);
-  if (!updates || updates.length === 0) {
+  if (!updates) {
     return "strict";
+  }
+  if (updates.length === 0) {
+    return "skip";
   }
 
   if (
     updates.some(
       (update) =>
         update.remoteRef === MAIN_REF ||
-        isVersionedReleaseBranchRef(update.remoteRef) ||
+        isReleaseBranchRef(update.remoteRef) ||
         !update.remoteRef.startsWith(BRANCH_REF_PREFIX)
     )
   ) {
@@ -190,16 +193,13 @@ function run() {
   const pushUpdates = readFileSync(0, "utf8");
   const mode = resolvePrePushReleaseMode(pushUpdates);
   if (mode === "skip") {
-    process.stdout.write(
-      "No release artifact check for this development push; focused checks run next.\n"
-    );
+    process.stdout.write("Development push: release artifact check skipped.\n");
     return;
   }
   assertPushedObjectsMatchHead(pushUpdates);
   assertReleaseVerificationWorktreeClean();
 
-  const releaseBranchName =
-    resolvePushedVersionedReleaseBranchName(pushUpdates);
+  const releaseBranchName = resolvePushedReleaseBranchName(pushUpdates);
   const baseSha = releaseBranchName ? resolveExactBaseSha() : null;
   if (releaseBranchName) {
     assertCurrentVersionedReleaseBranch({
@@ -223,7 +223,7 @@ function run() {
   process.exitCode = result.status ?? 1;
 }
 
-function resolvePushedVersionedReleaseBranchName(input) {
+export function resolvePushedReleaseBranchName(input) {
   const updates = parsePushUpdates(input) ?? [];
   const branchNames = [
     ...new Set(
@@ -231,14 +231,14 @@ function resolvePushedVersionedReleaseBranchName(input) {
         .filter(
           (update) =>
             !ZERO_SHA_PATTERN.test(update.localSha) &&
-            isVersionedReleaseBranchRef(update.remoteRef)
+            isReleaseBranchRef(update.remoteRef)
         )
         .map((update) => update.remoteRef.slice(BRANCH_REF_PREFIX.length))
     ),
   ];
   if (branchNames.length > 1) {
     throw new Error(
-      "A single push cannot designate more than one versioned release branch."
+      "A single push cannot designate more than one release branch."
     );
   }
   return branchNames[0] ?? null;

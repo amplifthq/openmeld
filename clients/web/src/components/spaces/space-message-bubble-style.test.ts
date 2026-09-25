@@ -23,13 +23,13 @@ describe("Space message vertical rhythm", () => {
 				isFirstInGroup: false,
 				isLastInGroup: false,
 			})
-		).toBe("px-3 pt-1 pb-0");
+		).toBe("px-3 pt-px pb-0");
 		expect(
 			resolveSpaceMessageRowLayoutClassName({
 				isFirstInGroup: false,
 				isLastInGroup: true,
 			})
-		).toBe("px-3 pt-1 pb-1.5");
+		).toBe("px-3 pt-px pb-1.5");
 	});
 
 	it("keeps section rows on their existing wider boundary", () => {

@@ -11,6 +11,8 @@ import type {
 } from "@openmeld/protocol";
 import {
   type ListCenterAgentSessionsResponse,
+  type ModelCatalogReadOptions,
+  modelCatalogReadOptionsSchema,
   peopleComputerTargetSchema,
   SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
   toLegacySpaceAddressingWireValue,
@@ -447,6 +449,7 @@ import {
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
   rpcMutateInboxFeed,
+  rpcObserveInboxNotifications,
   rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
@@ -1516,6 +1519,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcListInboxItems(this.env, input);
   }
 
+  observeInboxNotifications(
+    input: import("@openmeld/schemas/types").ObserveInboxNotificationsRpcInput
+  ) {
+    return rpcObserveInboxNotifications(this.env, input);
+  }
+
   dismissInboxItem(
     input: DismissInboxItemRpcInput
   ): Promise<DismissInboxItemResponse> {
@@ -1771,8 +1780,8 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return { ok: true, service: "openmeld-core" } as const;
   }
 
-  getModelCatalog(): GetModelCatalogResponse {
-    return readModelCatalog();
+  getModelCatalog(options?: ModelCatalogReadOptions): GetModelCatalogResponse {
+    return readModelCatalog(modelCatalogReadOptionsSchema.parse(options ?? {}));
   }
 
   readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {
@@ -2086,10 +2095,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   streamSpaceFileContent(
     input: ReadSpaceFileContentRpcInput,
     spaceFilesOriginVersion?: string,
-    spaceImageGeometryVersion?: string
+    spaceImageGeometryVersion?: string,
+    streamOptions?: import("@openmeld/schemas/types").SpaceFileStreamOptions
   ) {
     return withSpaceFilesOriginStreamRpcOutput(
-      rpcStreamSpaceFileContent(this.env, input),
+      rpcStreamSpaceFileContent(this.env, input, streamOptions),
       spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION,
       spaceImageGeometryVersion
     );
@@ -3853,8 +3863,8 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.createSpace(input);
   }
 
-  getModelCatalog(): GetModelCatalogResponse {
-    return super.getModelCatalog();
+  getModelCatalog(options?: ModelCatalogReadOptions): GetModelCatalogResponse {
+    return super.getModelCatalog(options);
   }
 
   readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {
@@ -4062,6 +4072,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ListInboxItemsRpcInput
   ): Promise<ListInboxItemsResponse> {
     return super.listInboxItems(input);
+  }
+
+  observeInboxNotifications(
+    input: import("@openmeld/schemas/types").ObserveInboxNotificationsRpcInput
+  ) {
+    return super.observeInboxNotifications(input);
   }
 
   dismissInboxItem(
@@ -6094,6 +6110,7 @@ class CoreEntrypoint extends CenterAgentRpcEntrypoint {
 }
 
 // biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
+export { AccountInvalidationHub } from "./account-invalidation/account-invalidation-hub";
 export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export {
   app,

@@ -6,9 +6,9 @@ import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { baseQueryOptions } from "#/query/query-config";
 import {
 	type CachedSpaceFileContent,
-	clearSpaceFileImage,
-	spaceFileImageResources,
-} from "./space-file-image-resource";
+	clearSpaceFileMedia,
+	spaceFileMediaResources,
+} from "./space-file-media-resource";
 
 export const spaceFileQueryKeys = {
 	all: ["space-files"] as const,
@@ -49,7 +49,7 @@ export function spaceFileContentQueryOptions(input: {
 		// Binary originals have a shorter idle lifetime than display history.
 		gcTime: 5 * 60 * 1000,
 		queryFn: async ({ client, signal }): Promise<CachedSpaceFileContent> => {
-			const owner = spaceFileImageResources(client);
+			const owner = spaceFileMediaResources(client);
 			const generation = owner.generation;
 			const content = await input.api
 				.downloadFileContent({
@@ -68,10 +68,10 @@ export function spaceFileContentQueryOptions(input: {
 						)
 					);
 					if (
-						cached?.imagePreview &&
+						cached?.mediaPreview &&
 						[401, 403, 404, 410].includes(failure.status ?? 0)
 					) {
-						clearSpaceFileImage(client, input.spaceId, input.fileId);
+						clearSpaceFileMedia(client, input.spaceId, input.fileId);
 					}
 					throw error;
 				});
@@ -94,14 +94,14 @@ export function spaceFileContentQueryOptions(input: {
 				spaceFileQueryKeys.content(input.spaceId, input.fileId, input.revision)
 			);
 			// A successful immutable-revision revalidation keeps the same URL.
-			if (existing?.imagePreview?.getSnapshot()) {
+			if (existing?.mediaPreview?.getSnapshot()) {
 				return existing;
 			}
 			const bytes = new Blob([content.bytes], { type: content.mimeType });
 			return {
 				...content,
 				bytes,
-				imagePreview: owner.create(
+				mediaPreview: owner.create(
 					bytes,
 					input.spaceId,
 					`${input.fileId}:${input.revision}`,
@@ -119,18 +119,22 @@ export function spaceFileContentQueryOptions(input: {
 	});
 }
 
-/** Canonical publication transfers the exact original before the message posts. */
-export function cacheSpaceComposerImage(input: {
+/** A local media selection retains the existing File; remote videos never enter this cache. */
+export function cacheSpaceComposerMedia(input: {
 	queryClient: QueryClient;
 	spaceId: string;
 	localId: string;
 	mimeType: string;
 	bytes: File;
 }): string | null {
-	if (!input.mimeType.startsWith("image/")) {
+	if (
+		!(
+			input.mimeType.startsWith("image/") || input.mimeType.startsWith("video/")
+		)
+	) {
 		return null;
 	}
-	const resource = spaceFileImageResources(input.queryClient).create(
+	const resource = spaceFileMediaResources(input.queryClient).create(
 		input.bytes,
 		input.spaceId,
 		input.localId
@@ -143,14 +147,14 @@ export function cacheSpaceComposerImage(input: {
 			bytes: input.bytes,
 			mimeType: input.mimeType,
 			revision: 1,
-			imagePreview: resource,
+			mediaPreview: resource,
 		}
 	);
 	return resource.getSnapshot();
 }
 
 /** Canonical publication transfers the exact original before the message posts. */
-export function seedPublishedSpaceFileImage(input: {
+export function seedPublishedSpaceFileMedia(input: {
 	queryClient: QueryClient;
 	spaceId: string;
 	fileId: string;
@@ -161,10 +165,16 @@ export function seedPublishedSpaceFileImage(input: {
 	previewUrl: string | null;
 	bytes: File;
 }): void {
-	if (!(input.mimeType.startsWith("image/") && input.previewUrl)) {
+	if (
+		!(
+			(input.mimeType.startsWith("image/") ||
+				input.mimeType.startsWith("video/")) &&
+			input.previewUrl
+		)
+	) {
 		return;
 	}
-	const resource = spaceFileImageResources(input.queryClient).find(
+	const resource = spaceFileMediaResources(input.queryClient).find(
 		input.previewUrl
 	);
 	if (
@@ -177,7 +187,7 @@ export function seedPublishedSpaceFileImage(input: {
 		return;
 	}
 	if (input.bytes.size !== input.sizeBytes) {
-		throw new Error("The published image did not match the selected file.");
+		throw new Error("The published media did not match the selected file.");
 	}
 	input.queryClient.setQueryData<CachedSpaceFileContent>(
 		spaceFileQueryKeys.content(input.spaceId, input.fileId, input.revision),
@@ -185,12 +195,12 @@ export function seedPublishedSpaceFileImage(input: {
 			bytes: input.bytes,
 			mimeType: input.mimeType,
 			revision: input.revision,
-			imagePreview: resource,
+			mediaPreview: resource,
 		}
 	);
 }
 
-export function resolveSpaceFileImagePresentationKey(
+export function resolveSpaceFileMediaPresentationKey(
 	client: QueryClient | undefined,
 	spaceId: string,
 	file: { fileId: string; revision: number; isLocal?: boolean }
@@ -201,6 +211,6 @@ export function resolveSpaceFileImagePresentationKey(
 	return (
 		client?.getQueryData<CachedSpaceFileContent>(
 			spaceFileQueryKeys.content(spaceId, file.fileId, file.revision)
-		)?.imagePreview?.identity ?? `${file.fileId}:${file.revision}`
+		)?.mediaPreview?.identity ?? `${file.fileId}:${file.revision}`
 	);
 }

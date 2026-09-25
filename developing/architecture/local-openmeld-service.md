@@ -93,6 +93,13 @@ its current-generation response confirms it is ready, and closes when that
 observation fails. A shared Host failure may affect all its Agents, not the
 independent connector. Last-known Host observations are not fresh health.
 
+The runner records only changes to dispatch admission, with a bounded reason
+from its current Host/connection observation. It includes the connection
+generation and revision in the next heartbeat only when Core advertised
+admission-evidence support in the register response. Old Core receives the old
+heartbeat shape. This evidence explains a closed route in Trace; it does not
+grant admission or replace the current Host health check.
+
 Before local preparation and again immediately before each native provider turn,
 the Host waits for a correlated acknowledgment of its existing lifecycle report
 from RuntimeCoordinator. Core validates the execution token and records lifecycle
@@ -1014,15 +1021,16 @@ install evidence but must not start a disabled controller.
 
 Cloud-bound ACI reporting is a minimized projection of the richer local
 snapshot. It must not send a local command path, launch argument prefix,
-authentication type, controller-provided skill inventory, or free-text local
+controller-provided skill inventory, or free-text local
 diagnostic message. It may send the optional provider email or bounded account
 label only for the authenticated owner's local-runtime inventory so that the
 owner can distinguish which account OpenMeld will use. Core receives only the
-bounded controller identity, enabled/readiness status, static native
+bounded authentication type for account-scoped model admission, controller
+identity, enabled/readiness status, static native
 capabilities, native interface, version evidence, bounded check status and
 last-success timestamp, optional owner-facing account identifier, and other
 fields explicitly required by a current owner-facing product surface. This
-account evidence must not enter Organization computer directories, Center Agent
+account evidence and authentication type must not enter Organization computer directories, Center Agent
 context, Agent Activity, or another member's Computer view. Local CLI and
 Desktop diagnostics may retain the richer local snapshot without turning every
 local field into the cloud contract.
@@ -1347,7 +1355,17 @@ kill arbitrary same-name processes. Provider permission enforcement remains
 separate. Work delegated through external brokers such as WMI or a remote
 machine is not claimed to be a normal descendant of this Job. Native provider
 sandbox/nested-Job compatibility requires Windows acceptance. The fixed helper
-uses system PowerShell and a reviewed native API bridge; denial by enterprise
+is a prebuilt Native AOT executable over the same reviewed Win32 API bridge;
+it also reads process creation FILETIME through an opened process handle.
+Windows builds compile it with the pinned SDK before packaging. Consumers do
+not install .NET or compile C# during Agent launch or cleanup. Node/npm reads
+the package's `dist/windows/openmeld-windows-process.exe`; this Service-owned
+asset is copied into the npm Service bundle and included in its content hash.
+All npm publishing platforms must use the same prebuilt Windows asset. A compiled carrier
+requires that executable alongside the CLI/Service in the same version bundle.
+There is no runtime PowerShell fallback for missing helper artifacts. The
+Task Scheduler task-host migration is a separate lifecycle boundary below;
+this change does not retire it or establish its timeout's cause. Denial by enterprise
 policy is a visible launch failure, never permission to fall back uncontained.
 
 A long-lived or multi-thread Agent Controller whose request protocol carries an
@@ -2161,7 +2179,7 @@ of the macOS LaunchAgent session. Locking the screen does not mean logging out.
 Task registration is process supervision, not Service readiness: startup still
 requires the current Service lease, account/lane alignment, and Core connection.
 
-Both the main and maintenance tasks start a lane-owned Windows-subsystem host,
+For the retained npm distribution, both tasks start a lane-owned Windows-subsystem host,
 not a console-subsystem PowerShell process. The host creates the existing system
 PowerShell action with `UseShellExecute=false` and `CreateNoWindow=true`, waits
 for it, and returns its exit code without detaching or breaking Task Scheduler
@@ -2170,7 +2188,31 @@ substitutes for preventing a console at process creation. The existing encoded
 action remains the only command/environment configuration and retains its log;
 outer PowerShell/host failures are appended beside the host as `<host>.log`.
 
-Guarded installation compiles fixed bundled C# source with Windows PowerShell
+The encoded Windows action has one canonical four-field contract: `executable`,
+`args`, `env`, and `logPath`. Its serializer projects and validates those fields
+rather than serializing a wider Service or maintenance registration spec.
+`workingDirectory` belongs to the Task Scheduler action, and `pendingJobPath`
+is maintenance registration metadata; neither is an encoded execution field.
+Readers narrowly accept the historical string-valued copies of these two fields
+from released writers, discard them, and return the canonical action. Unknown
+fields and malformed required or historical values still fail validation. This
+read compatibility permits status, ownership checks, and normal guarded repair
+of an existing task without deleting it or changing its user, permissions, or
+console-free host. The compatibility decoder does not create another execution
+configuration or make registration a claim of Service readiness.
+
+For the managed Windows binary distribution, Task Scheduler directly starts
+the selected verified x64 GUI Service (or an independent maintenance copy).
+Visible role arguments and a private four-field action envelope must agree.
+The entry applies its registered environment before importing business modules,
+writes stdout/stderr synchronously to the existing task log, and passes those
+file descriptors to the private Host while retaining its IPC channel. Task
+Scheduler observes the Service's actual exit status. Main Service replacement
+requires stopped state. An owned direct maintenance registration may select the
+next immutable copy while its current invocation finishes under the existing
+maintenance lease; it must not stop or overwrite that running worker.
+
+The existing npm compatibility path still compiles fixed bundled C# source with Windows PowerShell
 5.1's .NET compiler into a temporary WindowsApplication and atomically installs
 it at `<lane legacy script>.task-host-v1.exe`. Main and maintenance tasks have
 separate hosts, so neither replaces the other's running image. Compilation or
@@ -2389,6 +2431,18 @@ cannot manage a migrated task and fail closed; use the matching newer CLI for
 setup, repair and control. Cloud, Service transport, Wake and diagnostic payloads
 are unchanged by this local launch-carrier change.
 
+Managed Windows binary installations use the same account-admission protocol.
+Their read-only capability probe runs the integrity-aligned active GUI Service
+directly. Its `account-checked-service-control-v3` response identifies that
+executable after verifying native process identity; it has no fictitious Node
+entry script. A binary probe rejects the npm v2 response, and a Node probe
+still requires v2 plus the exact entry script. The active bundle must remain
+unchanged across the probe. A running Service must additionally answer the
+authenticated local control request. Older readers reject the new variant
+and leave controls disabled; the public Desktop capability shape is unchanged.
+Direct GUI task admission retains the same SID, lane, action and process
+ownership checks described above.
+
 ### Registration reconciliation
 
 A successfully confirmed explicit autostart command clears the repair marker
@@ -2483,7 +2537,12 @@ downloading or reinstalling the CLI. A missing, truncated,
 or same-size-but-different executable follows the verified download and
 `install-self` repair path, which also forces Service carrier refresh.
 
-For Windows, explicit `?dist=npm`, or npm recovery, the package-based commands
+Windows binary setup verifies the signed CLI and native helper, then follows
+the shared managed installer receipt. Its GUI Service is a separate selected
+artifact; neither Node nor the console CLI is used as that background carrier.
+This entrypoint requires the accepted Windows artifact channel before rollout.
+
+For explicit `?dist=npm` or npm recovery, the package-based commands
 are:
 
 ```text

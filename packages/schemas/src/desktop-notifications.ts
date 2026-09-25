@@ -19,6 +19,7 @@ export const desktopNotificationReferenceSchema = z.strictObject({
 export const desktopTrayComputerSchema = z.strictObject({
   available: z.boolean(),
   statusLabel: z.string().trim().min(1).max(120),
+  statusTone: z.enum(["connected", "offline", "attention"]).optional(),
 });
 export const desktopNotificationRequestSchema =
   desktopNotificationReferenceSchema.extend({

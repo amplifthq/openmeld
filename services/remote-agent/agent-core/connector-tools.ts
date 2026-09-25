@@ -179,40 +179,11 @@ export function getRemoteAgentConnectorToolDefinitions(
           service: request.service,
           toolContext,
         });
-        const catalog = await listOpenConnectorActions({
+        return await listConnectorActionCatalog({
+          ...request,
           connectorExecution: input.connectorExecution,
-          service: request.service,
+          readOnly: connection.permission === "read",
         });
-        const actions =
-          connection.permission === "read"
-            ? catalog.filter((action) => action.effect === "read")
-            : catalog;
-        const query = request.query?.trim();
-        const matchingActions = query
-          ? await searchOpenConnectorActions({
-              actions,
-              connectorExecution: input.connectorExecution,
-              query,
-              service: request.service,
-            })
-          : actions;
-        const offset = request.offset ?? 0;
-        const visibleActions =
-          request.limit === undefined
-            ? matchingActions.slice(offset)
-            : matchingActions.slice(offset, offset + request.limit);
-        return {
-          actions: visibleActions.map(toModelVisibleAction),
-          availableCount: actions.length,
-          hasMore: offset + visibleActions.length < matchingActions.length,
-          matchingCount: matchingActions.length,
-          nextOffset:
-            offset + visibleActions.length < matchingActions.length
-              ? offset + visibleActions.length
-              : null,
-          offset,
-          service: request.service,
-        };
       },
     },
     {
@@ -407,16 +378,17 @@ async function executeAppAction(input: {
   };
 }
 
-async function requireMemberResearchReadOnlyConnectorAction(input: {
+export async function requireMemberResearchReadOnlyConnectorAction(input: {
+  action?: OpenConnectorRuntimeAction;
   actionId: string;
   connectorExecution?: ConnectorExecutionConfig;
-  service: CenterAgentAppConnectorService;
+  service: ConnectorService;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }): Promise<void> {
   if (input.toolContext.turnEnvelope?.trigger.source !== "member_research") {
     return;
   }
-  const action = await requireOpenConnectorAction(input);
+  const action = input.action ?? (await requireOpenConnectorAction(input));
   if (readDeclaredConnectorActionEffect(action) !== "read") {
     throw new Error(
       "Member research can only execute connected App actions declared read."
@@ -424,10 +396,11 @@ async function requireMemberResearchReadOnlyConnectorAction(input: {
   }
 }
 
-async function resolveConnectedMessageChannelActionPolicy(input: {
+export async function resolveConnectedMessageChannelActionPolicy(input: {
+  action?: OpenConnectorRuntimeAction;
   actionId: string;
   connectorExecution?: ConnectorExecutionConfig;
-  service: CenterAgentAppConnectorService;
+  service: ConnectorService;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }): Promise<{
   action?: OpenConnectorRuntimeAction;
@@ -444,7 +417,7 @@ async function resolveConnectedMessageChannelActionPolicy(input: {
   if (!(speaker && "kind" in speaker)) {
     return {};
   }
-  const action = await requireOpenConnectorAction(input);
+  const action = input.action ?? (await requireOpenConnectorAction(input));
   const effect = readDeclaredConnectorActionEffect(action);
   // Registered `write` is the action owner's ordinary-member policy. Actions
   // declared destructive, or without a known effect, still require identity.
@@ -610,7 +583,7 @@ async function finalizeFailedConnectorAction(input: {
   }
 }
 
-function requiresHighRiskConnectorActionPolicy(
+export function requiresHighRiskConnectorActionPolicy(
   action: OpenConnectorRuntimeAction
 ): boolean {
   // An omitted effect is missing safety evidence, not evidence that the action
@@ -637,6 +610,41 @@ function toModelVisibleAction(action: OpenConnectorRuntimeAction) {
     name: action.name,
     outputSchema: action.outputSchema,
     requiredScopes: action.requiredScopes,
+  };
+}
+
+// Identity/permission resolution stays with the caller; every connector uses
+// the same executable runtime catalog, schemas, filtering, and pagination.
+export async function listConnectorActionCatalog(input: {
+  connectorExecution?: ConnectorExecutionConfig;
+  limit?: number;
+  offset?: number;
+  query?: string;
+  readOnly: boolean;
+  service: ConnectorService;
+}) {
+  const catalog = await listOpenConnectorActions(input);
+  const actions = input.readOnly
+    ? catalog.filter((action) => action.effect === "read")
+    : catalog;
+  const query = input.query?.trim();
+  const matchingActions = query
+    ? await searchOpenConnectorActions({ ...input, actions, query })
+    : actions;
+  const offset = input.offset ?? 0;
+  const visibleActions =
+    input.limit === undefined
+      ? matchingActions.slice(offset)
+      : matchingActions.slice(offset, offset + input.limit);
+  const hasMore = offset + visibleActions.length < matchingActions.length;
+  return {
+    actions: visibleActions.map(toModelVisibleAction),
+    availableCount: actions.length,
+    hasMore,
+    matchingCount: matchingActions.length,
+    nextOffset: hasMore ? offset + visibleActions.length : null,
+    offset,
+    service: input.service,
   };
 }
 

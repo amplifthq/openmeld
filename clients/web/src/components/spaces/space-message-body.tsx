@@ -28,7 +28,7 @@ import {
 } from "#/lib/spaces/api";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { buildWebSpaceAttachmentDownloadPath } from "#/lib/spaces/web-space-attachment-path";
-import { resolveSpaceFileImagePresentationKey } from "#/query/spaces/space-files";
+import { resolveSpaceFileMediaPresentationKey } from "#/query/spaces/space-files";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -63,6 +63,7 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { SpaceVideoPreview } from "./space-video-preview";
 import { useImageFrameActivity } from "./use-image-frame-activity";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
@@ -70,6 +71,9 @@ import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
 export const SPACE_RESPONSE_TRUNCATED_SUFFIX = `\n\n${SPACE_RESPONSE_TRUNCATED_MARKER}`;
+const HUMAN_MESSAGE_EXTRA_BLANK_LINES = /(?:\r?\n[ \t]*){3,}/;
+const HUMAN_MESSAGE_FENCE_START = /^ {0,3}(`{3,}|~{3,})/;
+const HUMAN_MESSAGE_FENCE_END = /^ {0,3}(?:`{3,}|~{3,})[ \t]*$/;
 
 type SpaceMessageBodyProps = {
 	className?: string;
@@ -125,22 +129,23 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 		() => splitServerTruncationMarker(displayedText),
 		[displayedText]
 	);
-	const collapsedText = useMemo(
+	const isMarkdown =
+		input.item.actorProfileKind === "agent" ||
+		input.item.isAgentFinalReply === true;
+	const visibleText = useMemo(
 		() =>
-			collapseSpaceMessage(
-				textProjection.visibleText,
-				input.item.actorProfileKind === "agent" ||
-					input.item.isAgentFinalReply === true
-			),
-		[
-			textProjection.visibleText,
-			input.item.actorProfileKind,
-			input.item.isAgentFinalReply,
-		]
+			isMarkdown
+				? textProjection.visibleText
+				: normalizeHumanMessageBlankLines(textProjection.visibleText),
+		[isMarkdown, textProjection.visibleText]
 	);
-	const shouldCollapse = collapsedText !== textProjection.visibleText;
+	const collapsedText = useMemo(
+		() => collapseSpaceMessage(visibleText, isMarkdown),
+		[visibleText, isMarkdown]
+	);
+	const shouldCollapse = collapsedText !== visibleText;
 	const renderedText =
-		shouldCollapse && !isExpanded ? collapsedText : textProjection.visibleText;
+		shouldCollapse && !isExpanded ? collapsedText : visibleText;
 	return {
 		isExpanded,
 		isStreaming,
@@ -149,6 +154,44 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 		shouldCollapse,
 		textProjection,
 	};
+}
+
+function normalizeHumanMessageBlankLines(text: string): string {
+	if (!HUMAN_MESSAGE_EXTRA_BLANK_LINES.test(text)) {
+		return text;
+	}
+	const lines = text.replace(/\r\n?/g, "\n").split("\n");
+	const normalized: string[] = [];
+	let fencedWith: string | null = null;
+	let hasBlankLine = false;
+	for (const line of lines) {
+		if (!fencedWith && line.trim() === "") {
+			hasBlankLine = true;
+			continue;
+		}
+		if (hasBlankLine) {
+			normalized.push("");
+			hasBlankLine = false;
+		}
+		normalized.push(line);
+		const marker = line.match(HUMAN_MESSAGE_FENCE_START);
+		if (fencedWith) {
+			if (
+				marker &&
+				marker[1][0] === fencedWith[0] &&
+				marker[1].length >= fencedWith.length &&
+				HUMAN_MESSAGE_FENCE_END.test(line)
+			) {
+				fencedWith = null;
+			}
+		} else if (marker) {
+			fencedWith = marker[1];
+		}
+	}
+	if (hasBlankLine) {
+		normalized.push("");
+	}
+	return normalized.join("\n");
 }
 
 function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
@@ -480,6 +523,8 @@ function SpaceMessageBodyContent(input: {
 		<div
 			className={cn(
 				"flex min-w-0 max-w-full flex-col gap-2",
+				input.files.some((file) => file.mimeType.startsWith("video/")) &&
+					"w-full",
 				input.containerClassName
 			)}
 			data-slot="space-message-body"
@@ -504,6 +549,7 @@ function SpaceMessageBodyContent(input: {
 				api={input.api}
 				files={input.files}
 				onOpenSpaceFile={input.onOpenSpaceFile}
+				organizationSlug={input.organizationSlug}
 				spaceId={input.spaceId}
 			/>
 			<SpaceMessageServerTruncatedNote visible={input.serverTruncated} />
@@ -673,6 +719,7 @@ export function SpaceMessageAttachmentGrid(input: {
 export function SpaceMessageFileList(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	files: NonNullable<SpaceTimelineItem["files"]>;
+	organizationSlug?: string;
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	spaceId: string;
 }) {
@@ -683,8 +730,14 @@ export function SpaceMessageFileList(input: {
 	const imageFiles = input.files.filter((file) =>
 		file.mimeType.startsWith("image/")
 	);
+	const videoFiles = input.files.filter((file) =>
+		file.mimeType.startsWith("video/")
+	);
 	const ordinaryFiles = input.files.filter(
-		(file) => !file.mimeType.startsWith("image/")
+		(file) =>
+			!(
+				file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/")
+			)
 	);
 
 	return (
@@ -704,7 +757,7 @@ export function SpaceMessageFileList(input: {
 							api={input.api}
 							file={file}
 							isSingle={imageFiles.length === 1}
-							key={resolveSpaceFileImagePresentationKey(
+							key={resolveSpaceFileMediaPresentationKey(
 								queryClient,
 								input.spaceId,
 								file
@@ -715,6 +768,36 @@ export function SpaceMessageFileList(input: {
 					))}
 				</fieldset>
 			) : null}
+			{videoFiles.length > 0 && (
+				<fieldset
+					aria-label="Shared videos"
+					className="m-0 grid w-full min-w-0 max-w-2xl gap-3 border-0 p-0"
+				>
+					{videoFiles.map((file) => (
+						<SpaceVideoPreview
+							fileName={file.name}
+							isLocal={file.isLocal}
+							key={resolveSpaceFileMediaPresentationKey(
+								queryClient,
+								input.spaceId,
+								file
+							)}
+							localPreviewUrl={file.localPreviewUrl}
+							onOpenFile={
+								!file.isLocal && input.onOpenSpaceFile
+									? () => input.onOpenSpaceFile?.(file.fileId, file.revision)
+									: undefined
+							}
+							target={{
+								spaceId: input.spaceId,
+								fileId: file.fileId,
+								revision: file.revision,
+								organizationSlug: input.organizationSlug,
+							}}
+						/>
+					))}
+				</fieldset>
+			)}
 			{ordinaryFiles.length > 0 ? (
 				<fieldset
 					aria-label="Shared files"

@@ -149,7 +149,7 @@ test("threads one explicit production train through every hosted mutation entry"
   assert.ok(!dispatcherTrainInput?.includes("default:"));
   assert.ok(
     validationJob?.includes(
-      "Admit the complete production train before Production mutation"
+      "Admit selected stage artifacts before Production mutation"
     )
   );
   assert.ok(
@@ -210,7 +210,9 @@ test("threads one explicit production train through every hosted mutation entry"
   assert.ok(databaseAction.includes("--scope db"));
   assert.ok(
     databaseAction.indexOf("production-train-artifact-admission.mjs") <
-      databaseAction.indexOf("run db:release:prod")
+      databaseAction.indexOf(
+        'node "$GITHUB_ACTION_PATH/../../../scripts/release/production-db.mjs"'
+      )
   );
   assert.ok(coreRecovery.includes("production_train_scopes: core"));
 });
@@ -700,7 +702,12 @@ test("runs the production database exactly once through its shared entrypoint", 
   assert.equal(separation.usesReleaseSource, true);
   assert.ok(dispatcher.includes(GITHUB_TOKEN_INPUT));
   assert.ok(dispatcher.includes("working_directory: release-source"));
-  assert.equal(databaseAction.match(/run db:release:prod/gu)?.length, 1);
+  assert.equal(
+    databaseAction.match(
+      /node "\$GITHUB_ACTION_PATH\/\.\.\/\.\.\/\.\.\/scripts\/release\/production-db\.mjs"/gu
+    )?.length,
+    1
+  );
   assert.ok(!databaseAction.includes("pnpm db:check"));
   assert.ok(!databaseAction.includes("pnpm db:migrate:prod"));
   assert.ok(!databaseAction.includes("pnpm db:optimize:prod"));
@@ -1091,7 +1098,9 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
   assert.ok(!recovery.includes("deploy-auth-worker.yml"));
   assert.ok(!recovery.includes("deploy-web.yml"));
   assert.ok(
-    core.includes("node scripts/release/deploy-core-current-cli-projection.mjs")
+    core.includes(
+      "node ../release-control/scripts/release/hosted-core-receiver.mjs"
+    )
   );
   assert.ok(core.includes("pnpm run evidence:startup:core"));
   assert.match(core, LOCAL_CORE_STARTUP_DIAGNOSTIC);

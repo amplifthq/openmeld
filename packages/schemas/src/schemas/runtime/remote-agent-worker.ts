@@ -64,6 +64,21 @@ export function buildPersonalRemoteAgentConversationId(input: {
   ].join("|");
 }
 
+/** A scheduled Run owns its execution history independently of its result destination. */
+export function buildRemoteAgentRoutineRunConversationId(input: {
+  agentProfileId: string;
+  organizationId: string;
+  runId: string;
+}): string {
+  const parts = [input.organizationId, input.agentProfileId, input.runId].map(
+    (value) => nonEmptyStringSchema.max(256).parse(value)
+  );
+  return [
+    "remote-agent-routine-run.v1",
+    ...parts.map((value) => `${value.length}:${value}`),
+  ].join("|");
+}
+
 export function buildRemoteAgentRuntimeConversationId(input: {
   generation: number;
   logicalConversationId: string;
@@ -250,6 +265,7 @@ export const REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES = {
   TURN_COMPLETED: "remote_agent.turn.completed",
   TURN_CONTEXT_WINDOW_EXCEEDED: "remote_agent.turn.context_window_exceeded",
   TURN_EMPTY_ASSISTANT_RESPONSE: "remote_agent.empty_assistant_response",
+  TURN_OUTPUT_LIMIT_EXCEEDED: "remote_agent.turn.output_limit_exceeded",
   TURN_FAILED: "remote_agent.turn.failed",
   TURN_NOT_COMPLETED: "remote_agent.turn_not_completed",
   TURN_TIMEOUT: "remote_agent.turn.timeout",
@@ -448,16 +464,26 @@ export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
           path: ["spaceDispatchContext"],
         });
       }
+      const legacyConversationId =
+        buildPersonalRemoteAgentConversationId(request);
+      const runConversationId =
+        request.turnEnvelope.trigger.source === "routine"
+          ? buildRemoteAgentRoutineRunConversationId({
+              agentProfileId: request.agentProfileId,
+              organizationId: request.organizationId,
+              runId: request.turnEnvelope.trigger.runId,
+            })
+          : null;
       if (
         request.conversationIdentity.agentProfileId !==
           request.agentProfileId ||
-        request.conversationId !==
-          buildPersonalRemoteAgentConversationId(request)
+        (request.conversationId !== legacyConversationId &&
+          request.conversationId !== runConversationId)
       ) {
         context.addIssue({
           code: "custom",
           message:
-            "Personal Agent conversations must match the Organization, Agent Profile, and Space.",
+            "Personal Agent conversations must match their Organization, Agent Profile, and source conversation or Routine Run.",
           path: ["conversationIdentity"],
         });
       }
@@ -864,6 +890,11 @@ export const remoteAgentStreamDeltaCallbackBodySchema = z.union([
     ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,
     kind: z.literal("thinking"),
     source: z.literal("flue.thinking_delta"),
+  }),
+  z.strictObject({
+    ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,
+    kind: z.literal("progress"),
+    source: z.literal("hosted.public_progress"),
   }),
 ]);
 

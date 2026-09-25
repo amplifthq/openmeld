@@ -107,6 +107,21 @@ phase and revision columns support bounded board reads and conflict-safe writes.
 Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
+The same transaction writes `space_task_delivery_outbox` rows for necessary
+handoff, completion, GitHub link projection, and authorized Stop effects.
+The Space alarm retries due rows, and Task detail exposes pending or failed
+effects without treating their state as execution truth. Deterministic Signal
+IDs prevent duplicate publication after a retry. Immediately before inserting
+a Task-authored Signal, Space rechecks the Task's phase, target, result, and
+brief so a cancellation or change cannot admit a stale handoff. The
+`space_task_wake_refs` table records exact Signal and Agent target pairs only
+for Task-associated Wakes; it is a Stop lookup, not an execution ledger.
+Only mutations that may create a delivery intent pre-arm recovery before their
+transaction; checking for due rows only after commit would leave a lost-alarm
+window. Each delivery has bounded backoff and becomes a visible terminal failure
+after twelve attempts. A malformed outbox row is quarantined without blocking
+other Task deliveries. Terminal rows remain available for diagnosis for thirty
+days, then the same bounded Space alarm lane reclaims them.
 
 Task phase is collaboration truth. RuntimeCoordinator and Remote Agent native
 delivery continue to own execution state. Cancellation may call their existing
@@ -114,6 +129,15 @@ Stop boundary after the Task transaction commits, but no Task row proves that a
 process started, stopped, or completed. Task handoff and completion messages are
 deterministic Space Signals, so retrying a Task operation cannot duplicate the
 visible transition or Agent Wake.
+An explicit cancellation may request Stop of each recorded Wake under a narrow
+Task cancellation authority: the same currently active, Auth-verified actor
+must have authored the retained cancellation operation, and the target must
+match a recorded Task Wake. Existing ordinary Wake Stop authority is unchanged.
+Reopening the Task supersedes an earlier cancellation's queued Stop, including
+when the Task is canceled again later. The retained cancellation event and exact
+Wake reference are checked again before the Stop side effect.
+The Stop result remains separate from the canceled Task phase. Provider events
+carry no actor authority and cannot use this Task-specific Stop path.
 
 Linked GitHub issues are references on the Task document. GitHub remains the
 only writer of issue state. `lastObservedState` is a Task-owned observation
@@ -126,10 +150,31 @@ PATCH GitHub when a Task closes.
 the Space Durable Object commits a Task with GitHub `externalWorkItems`. It
 is not Task truth and must not be used as a second Task writer. Detached
 links remain rows with `detached_at_ms` set so webhook fan-out can skip them.
+The Task delivery outbox retries this projection from the latest Task document
+and reconciles all of that Task's links in one D1 batch; replaying an older
+transition cannot revive a detached link.
 `github_app_webhook_deliveries` is the Core delivery-id ledger for GitHub App
 webhook processing on the existing `OPENMELD_DAEMON_DISPATCH_QUEUE`. Duplicate
 `X-GitHub-Delivery` ids are ignored after a successful claim. Missing link
 rows mean no Space is scanned. Webhook callbacks grant no execution authority.
+
+## Center Agent generated session titles
+
+Space owns the generated default title in `space_meta.name`; the existing
+Space index outbox carries the same name to the authorized session list.
+Auth-owned personal `chats.titles` override this default without being changed
+by inference. The title generator is a dedicated Remote Agent Worker RPC,
+outside the Flue conversation and execution queue. Its shared schemas are in
+`packages/schemas/src/schemas/runtime/center-agent-session-title.ts`.
+
+Only already-persisted, user-authored main-timeline messages from the active
+Human in the designated Center Agent DM pair qualify, while the Space name is
+still `New chat`. Space persists a maximum of three attempts in its own storage,
+allows one in-flight request, and checks the current pair and unchanged metadata
+before writing. Failures are best-effort presentation failures logged with
+Space/signal correlation, never Wake failures. Request text and filenames are
+bounded; logs must not contain prompt or response bodies. Existing metadata
+invalidation signals cause clients to reread the owners.
 
 ## Space message previews and slow Web experiences
 
@@ -2869,9 +2914,11 @@ Hosted external tool usage is a separate Analytics Engine projection named
 `remote_agent.tool_usage.v1`. It records the organization, Space, submission,
 tool name, provider, operation, outcome, wall duration, bounded input/output
 byte counts, provider request count, and Browser Run milliseconds when
-available. Research records OpenRouter server-tool request counts, Browser Run
-records `X-Browser-Ms-Used`, and Cloudflare Sandbox records each filesystem or
-shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
+available. The Organization is its single Analytics Engine sampling index;
+Space and submission are blob dimensions, since Analytics Engine accepts only
+one index per data point. Research records OpenRouter server-tool request
+counts, Browser Run records `X-Browser-Ms-Used`, and Cloudflare Sandbox records
+each filesystem or shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
 execution with bounded generated-code input and result byte counts plus the
 number of inner tool calls. Each inner call keeps its existing capability-owned
 usage record. Generated code, tool arguments, commands, tool results, logs, page
@@ -3521,14 +3568,29 @@ point and derives its physical field order from the shared schema.
 Web application errors use `web.openmeld.application_error` in Workers Logs.
 Web is the sole intake/log owner; `packages/schemas` owns the additive browser
 report contract. Browser reports are untrusted diagnostic evidence. The intake
-accepts only bounded same-origin JSON, validates and minimizes fields, and caps
-log volume. Raw exception text, full stacks, actual page URLs, user content,
-credentials, and local paths must not enter this report. Error categories,
+accepts bounded same-origin Web JSON and the fixed installed Desktop origin
+only when its native contract header matches. It validates and minimizes fields
+and caps log volume. Raw exception text, full stacks, actual page URLs, user
+content, credentials, and local paths must not enter this report. Error categories,
 code-template route IDs, build asset positions, build IDs, source SHAs, and
 Cloudflare request correlation support diagnosis without product payloads.
 This does not create another product audit or execution ledger. Coverage,
 retention, source-map handling, and manual queries are documented in
 `docs/web-application-errors.md`.
+
+Web also uses that intake for the bounded
+`web.openmeld.wake_progress_presentation_unconfirmed` event when a Space shows
+restored Wake progress, an unverified active-summary item, a historical
+transient signal, or a seeded main reply stream without a matching current
+active-Wake read. The additive shared
+report schema permits only correlation IDs, source/reply Thread pointers,
+phase, update time, presentation source, and query-freshness flags, alongside
+the existing build and page-session identity. No message body, stream text,
+prompt, reasoning, or arbitrary client state is accepted. This event proves
+only the browser presentation decision, not that the underlying execution
+ended; Core trace remains the execution authority. A missing event does not
+prove that Web never displayed the state because browser delivery and Workers
+log retention are best effort.
 
 Structured logs at service and runtime boundaries must stay searchable and
 correlation-friendly:

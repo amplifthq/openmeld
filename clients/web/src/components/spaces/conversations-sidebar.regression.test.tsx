@@ -162,17 +162,34 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 		Link: ({
 			children,
 			to,
+			search,
+			hash,
 			resetScroll: _resetScroll,
 			...props
 		}: {
 			children: ReactNode;
 			to: string;
+			search?: Record<string, string>;
+			hash?: string;
 			resetScroll?: boolean;
-		} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-			<a href={to} {...props}>
-				{children}
-			</a>
-		),
+		} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+			const href = new URL(to, "https://openmeld.invalid");
+			for (const [key, value] of Object.entries(search ?? {})) {
+				href.searchParams.set(key, value);
+			}
+			if (hash) {
+				href.hash = hash;
+			}
+			return (
+				<a
+					data-router-to={to}
+					href={`${href.pathname}${href.search}${href.hash}`}
+					{...props}
+				>
+					{children}
+				</a>
+			);
+		},
 		useNavigate: () => navigateMock,
 		useLocation: ({
 			select,
@@ -400,6 +417,9 @@ describe("ConversationsSidebar", () => {
 		});
 		expect(previewLink.getAttribute("href")).toContain(
 			"focusSignalId=message-alpha"
+		);
+		expect(previewLink.getAttribute("data-router-to")).toBe(
+			"/o/acme/spaces/space-alpha"
 		);
 		expect(row.getAttribute("href")).not.toContain("focusSignalId");
 		expect(previewLink.parentElement?.closest("a")).toBeNull();
@@ -795,7 +815,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("[S11] keeps cached Spaces visible when a foreground refresh fails", async () => {
+	it("[S11] keeps cached conversations visible and recovers a failed refresh through its retry", async () => {
 		focusManager.setFocused(false);
 		listAccountSpaceItemsMock
 			.mockResolvedValueOnce({
@@ -831,7 +851,25 @@ describe("ConversationsSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Existing" })).toBeTruthy();
 		expect(
-			screen.queryByText("OpenMeld could not load your spaces.")
+			screen.getByText(
+				"Couldn't refresh conversations. Showing saved conversations."
+			)
+		).toBeTruthy();
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-recovered",
+					spaceName: "Recovered",
+				}),
+			],
+		});
+		fireEvent.click(screen.getByLabelText("Retry conversations"));
+		await screen.findByText("Recovered");
+		expect(
+			screen.queryByText(
+				"Couldn't refresh conversations. Showing saved conversations."
+			)
 		).toBeNull();
 	});
 

@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
@@ -213,14 +213,14 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     REMOTE_AGENT_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
 };
-const INBOX_SOURCE_TARGET_SCHEMA_PATH =
-  "packages/schemas/src/schemas/http/inbox.ts";
+const INBOX_SCHEMA_PATH = "packages/schemas/src/schemas/http/inbox.ts";
 
 // Preferred scheduling order is not a compatibility dependency. Accumulate
 // only contract directions proven by the changed producer and receiver paths.
 export function resolveProductionCompatibilityDependencies(
   changedPaths,
-  taskInboxRetired = false
+  taskInboxRetired = false,
+  context = {}
 ) {
   const edges = [];
   const edgeKeys = new Set();
@@ -244,8 +244,17 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["core", "cli"]],
     },
     {
-      enabled: isNpmSetupArtifactDiff(changedPaths),
+      enabled:
+        isNpmSetupArtifactDiff(changedPaths) &&
+        !isReviewedWindowsPreviewOnlyNpmSetupDiff(changedPaths, context),
       edges: [["cli", "web"]],
+    },
+    {
+      enabled: isInboxNotificationObservationDiff(changedPaths),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
     },
     {
       enabled: isCenterAgentEvidenceDiff(changedPaths),
@@ -474,6 +483,61 @@ function isNpmSetupArtifactDiff(paths) {
     "clients/web/src/lib/setup-bootstrap-script.ts",
   ].every((file) => paths.includes(file));
 }
+
+// The reviewed Windows internal preview changed these three files only to
+// package the Windows helper and select a separate binary setup path. It did
+// not change the existing npm setup contract. Keep the CLI-before-Web edge
+// for every other source diff, including later edits to any of these files.
+const WINDOWS_PREVIEW_NPM_SETUP_BLOBS = [
+  [
+    "scripts/release/npm-cli-artifact.mjs",
+    "211536c3e0b3b5b792267e3aeabefd87c52df9ed",
+    "073c89763c3879d8b2cafb1555ce99d856cecd05",
+  ],
+  [
+    "clients/openmeld-cli/package.json",
+    "4669f73fa890a9bfc3ae87dac028ce495978bac1",
+    "de975f1e921c0237d18395936533911e67581569",
+  ],
+  [
+    "clients/web/src/lib/setup-bootstrap-script.ts",
+    "417ee09845f41184b889f41f60556dab13770d96",
+    "fc2af23865f1079533542f8aea638de4b283e923",
+  ],
+];
+
+function isReviewedWindowsPreviewOnlyNpmSetupDiff(paths, context) {
+  if (!(context.base && context.sourceSha)) {
+    return false;
+  }
+  if (
+    !paths.includes("clients/web/src/lib/setup-bootstrap-windows-binary.ts")
+  ) {
+    return false;
+  }
+  if (!paths.includes("scripts/release/publish-windows-internal-preview.mjs")) {
+    return false;
+  }
+  const readBlobSha =
+    context.readBlobSha ??
+    ((ref, file) => runGit(["rev-parse", "--verify", `${ref}:${file}`]).trim());
+  try {
+    return WINDOWS_PREVIEW_NPM_SETUP_BLOBS.every(
+      ([file, before, after]) =>
+        readBlobSha(context.base, file) === before &&
+        readBlobSha(context.sourceSha, file) === after
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isInboxNotificationObservationDiff(paths) {
+  return [
+    INBOX_SCHEMA_PATH,
+    "services/core/src/inbox/application/inbox-notification-observations.ts",
+  ].every((file) => paths.includes(file));
+}
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
   "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
 const TASK_INBOX_KIND_LINE = /^[ \t]*"center_agent_task",\r?\n/mu;
@@ -503,7 +567,7 @@ const INBOX_SOURCE_TARGET_WRITER_PATHS = new Set([
   "services/core/src/remote-agent/application/slack-inbox-source-target.ts",
   "services/core/src/runtime-transport/application/runtime-coordinator-interaction-inbox-producer.ts",
 ]);
-const INBOX_SOURCE_TARGET_REQUIRED_SCOPES = ["web", "gateway", "core"];
+const INBOX_CLOUD_SCOPES = ["web", "gateway", "core"];
 const LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH =
   "packages/schemas/src/schemas/daemon/runtime-transport.ts";
 const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
@@ -722,8 +786,11 @@ export function resolveAutomaticReleaseScopes(input) {
   ) {
     scopes.add("cli");
   }
-  if (isInboxSourceTargetReceiverFirstDiff(input.changedPaths)) {
-    for (const scope of INBOX_SOURCE_TARGET_REQUIRED_SCOPES) {
+  if (
+    isInboxSourceTargetReceiverFirstDiff(input.changedPaths) ||
+    isInboxNotificationObservationDiff(input.changedPaths)
+  ) {
+    for (const scope of INBOX_CLOUD_SCOPES) {
       scopes.add(scope);
     }
   }
@@ -1038,6 +1105,35 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   return steps;
 }
 
+export function buildCoreReceiverStepSpecs(releaseSha) {
+  const script = "scripts/release/deploy-core-current-cli-projection.mjs";
+  const source = releaseSha ? ["--release-sha", releaseSha] : [];
+  return [
+    {
+      command: "node",
+      args: [script, "--deployment-only", ...source],
+      controlPath: script,
+      label: "Deploy Core with the current published CLI projection",
+      workerDeploymentArgs: [
+        "--config",
+        "services/core/wrangler.jsonc",
+        "--env",
+        "prod",
+      ],
+      releaseScope: "core",
+      completesReleaseScope: false,
+    },
+    {
+      command: "node",
+      args: [script, "--verify-only", ...source],
+      controlPath: script,
+      label: "Verify Core receiver stable identity alignment",
+      releaseScope: "core",
+      completesReleaseScope: true,
+    },
+  ];
+}
+
 function annotateReleaseScope(steps, start, scope) {
   for (let index = start; index < steps.length; index += 1) {
     steps[index] = {
@@ -1137,26 +1233,7 @@ function appendProductionDeployScopeSteps(input) {
         input.coreReceiverFirst ||
         !doesCliReleaseOwnCoreProjection(input.deployOrderProfile)
       ) {
-        input.steps.push(
-          {
-            args: [
-              "scripts/release/deploy-core-current-cli-projection.mjs",
-              ...(input.releaseSha ? ["--release-sha", input.releaseSha] : []),
-            ],
-            command: "node",
-            label: "Deploy Core with the current published CLI projection",
-            workerDeploymentArgs: [
-              "--config",
-              "services/core/wrangler.jsonc",
-              "--env",
-              "prod",
-            ],
-          },
-          workerDeploymentHealthStep({
-            args: ["--config", "services/core/wrangler.jsonc", "--env", "prod"],
-            label: "Verify Core deployment is visible",
-          })
-        );
+        input.steps.push(...buildCoreReceiverStepSpecs(input.releaseSha));
       }
       return;
     }
@@ -1231,7 +1308,8 @@ function resolveProductionDeployScopeOrder(
   if (
     !(
       isWorkingFolderRecoveryDiff(changedPaths) ||
-      isNpmSetupArtifactDiff(changedPaths)
+      isNpmSetupArtifactDiff(changedPaths) ||
+      isInboxNotificationObservationDiff(changedPaths)
     )
   ) {
     return preferred;
@@ -1370,7 +1448,7 @@ function resolveOtherProductionDeployOrderProfile(
     // The exact retired contract is proven against Git below. Other contracts
     // still select their ordinary profile and must be composable with Core first.
     const profile = resolveProductionDeployOrderProfile(
-      changedPaths.filter((file) => file !== INBOX_SOURCE_TARGET_SCHEMA_PATH)
+      changedPaths.filter((file) => file !== INBOX_SCHEMA_PATH)
     );
     if (
       profile === "remote-agent-receiver-first" ||
@@ -1901,7 +1979,7 @@ function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
 
 function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
   return (
-    changedPaths.includes(INBOX_SOURCE_TARGET_SCHEMA_PATH) &&
+    changedPaths.includes(INBOX_SCHEMA_PATH) &&
     changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path))
   );
 }
@@ -1917,9 +1995,7 @@ function assertInboxSourceTargetReleaseScopes(
     return;
   }
   const selected = new Set(scopes);
-  const missing = INBOX_SOURCE_TARGET_REQUIRED_SCOPES.filter(
-    (scope) => !selected.has(scope)
-  );
+  const missing = INBOX_CLOUD_SCOPES.filter((scope) => !selected.has(scope));
   if (missing.length > 0) {
     throw new Error(
       `Inbox source-target receiver-first release requires the Web, Gateway, and Core scopes before Core can write durable targets. Missing: ${missing.join(", ")}.`
@@ -2003,7 +2079,8 @@ export function buildProductionReleasePlan(input) {
     coreProjectionFromCli: scopes.includes("cli"),
     compatibilityDependencies: resolveProductionCompatibilityDependencies(
       changedPaths,
-      taskInboxRetired
+      taskInboxRetired,
+      { base: input.base, sourceSha }
     ),
     compatibilityReceiverWitnesses:
       resolveProductionCompatibilityReceiverWitnesses(changedPaths),
@@ -2033,20 +2110,17 @@ export function buildProductionReleasePlan(input) {
 function inspectTaskInboxRetirement({ base, changedPaths, sourceSha }) {
   if (
     !(
-      changedPaths.includes(INBOX_SOURCE_TARGET_SCHEMA_PATH) &&
+      changedPaths.includes(INBOX_SCHEMA_PATH) &&
       changedPaths.includes(RETIRED_TASK_INBOX_PRODUCER_PATH)
     )
   ) {
     return false;
   }
   const mergeBase = runGit(["merge-base", base, sourceSha ?? "HEAD"]).trim();
-  const before = runGit([
-    "show",
-    `${mergeBase}:${INBOX_SOURCE_TARGET_SCHEMA_PATH}`,
-  ]);
+  const before = runGit(["show", `${mergeBase}:${INBOX_SCHEMA_PATH}`]);
   const after = sourceSha
-    ? runGit(["show", `${sourceSha}:${INBOX_SOURCE_TARGET_SCHEMA_PATH}`])
-    : readFileSync(INBOX_SOURCE_TARGET_SCHEMA_PATH, "utf8");
+    ? runGit(["show", `${sourceSha}:${INBOX_SCHEMA_PATH}`])
+    : readFileSync(INBOX_SCHEMA_PATH, "utf8");
   const retiredPatterns = [
     TASK_INBOX_KIND_LINE,
     TASK_INBOX_SOURCE_KIND_LINE,
@@ -2291,9 +2365,24 @@ export function assertProductionReleaseSource(input) {
 
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
-  const result = spawnSync(resolveCommandBinary(step.command), step.args, {
+  const command = step.controlPath
+    ? (step.controlCommand ?? step.command)
+    : step.command;
+  const args = step.controlPath
+    ? [
+        ...(step.controlNodeArgs ?? []),
+        fileURLToPath(new URL(`../../${step.controlPath}`, import.meta.url)),
+        ...(step.controlArgs ?? step.args.slice(1)),
+      ]
+    : step.args;
+  const result = spawnSync(resolveCommandBinary(command), args, {
     cwd: step.cwd,
-    env: step.env ?? process.env,
+    env: {
+      ...(step.env ?? process.env),
+      ...(step.controlPath
+        ? { OPENMELD_VERIFICATION_ROOT: step.cwd ?? process.cwd() }
+        : {}),
+    },
     stdio: "inherit",
   });
   if (result.error) {
@@ -2301,7 +2390,7 @@ function runStep(step) {
   }
   if (result.status !== 0) {
     throw new Error(
-      `${step.command} ${step.args.join(" ")} failed with exit code ${String(result.status)}`
+      `${command} ${args.join(" ")} failed with exit code ${String(result.status)}`
     );
   }
 }

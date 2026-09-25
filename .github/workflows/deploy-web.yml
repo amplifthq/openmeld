@@ -24,6 +24,16 @@ on:
         description: "Exact main commit to deploy"
         required: true
         type: string
+      parent_admission_evidence:
+        description: "Same-run release-on-main admission output; omitted for standalone admission"
+        required: false
+        type: string
+        default: ""
+      parent_web_artifact_id:
+        description: "Immutable Web snapshot artifact ID from the same parent job"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   validate_release_source:
@@ -71,6 +81,11 @@ jobs:
     env:
       NODE_OPTIONS: "--max-old-space-size=4096"
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
+      OPENMELD_PARENT_TRAIN_ADMISSION: ${{ inputs.parent_admission_evidence }}
+      OPENMELD_PARENT_WEB_ARTIFACT_ID: ${{ inputs.parent_web_artifact_id }}
+      # The parent Web snapshot is built with this heap; input identity must
+      # match before its verified bytes can be restored in this job.
+      OPENMELD_RENDERER_NODE_HEAP_MB: ${{ inputs.parent_admission_evidence != '' && '4608' || '' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     concurrency:
@@ -101,6 +116,7 @@ jobs:
       - name: Setup repository toolchain
         uses: ./release-control/.github/actions/setup-node-pnpm
         with:
+          node_version: ${{ inputs.parent_admission_evidence && fromJSON(inputs.parent_admission_evidence).buildInputs.node || '24' }}
           control_directory: release-control
           working_directory: release-source
 
@@ -112,6 +128,25 @@ jobs:
           node ../release-control/scripts/release/production-train-artifact-admission.mjs \
             --source-sha "$RELEASE_SHA" \
             --scope web
+
+      - name: Download the admitted Web snapshot from this run
+        if: inputs.parent_admission_evidence != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ inputs.parent_web_artifact_id }}
+          merge-multiple: true
+          path: release-source/dev-tmp/release-artifact-check
+
+      - name: Verify and restore the admitted Web bytes
+        if: inputs.parent_admission_evidence != ''
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/production-train-artifact-admission.mjs \
+            --source-sha "$RELEASE_SHA" \
+            --scope web \
+            --restore-web-artifact
 
       - name: Acquire shared Web release lease
         id: scope_lease

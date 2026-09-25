@@ -119,6 +119,21 @@ when read but remain pending; priority open requests stay yellow until resolved.
 First-contact information is yellow only while unread. Ended requests are
 history, never persistent priority.
 
+Confirmed model issues reuse `system_attention_event` with an exact Agent target
+and `agent-model:` source namespace. The model/Binding owner reconciles them on
+normal controller reports, successful user model edits, and explicit unbinding.
+Their owner-only source facts include the exact `personalAgentProfileIds`, not
+just generic Agent relevance, so normal access checks can establish and revoke
+current ownership. They are ordinary Needs action, not urgent email. Repeated
+observations retain the same episode; a change or an authoritatively absent
+Binding clears only that model issue, preserving read state and history.
+Unbind retries also retry reconciliation when the Binding is already absent;
+failed Binding reads and failed/unauthorized unbinds do not claim recovery.
+Unknown same-model account evidence cannot claim recovery. The Inbox projection
+never writes Wakeability, manual Profile enablement or model selection, and
+resolving it does not restart work. Offline Profiles receive the notice when the
+normal report resumes; no retirement-date job or immediate global sweep exists.
+
 Legacy owner-observer items without exact personal-Agent source facts cannot
 establish derived owner access, even if one or more owned Agents remain in the
 Space. Their rows, read/Dismiss state and receipts stay intact; current Human
@@ -836,13 +851,18 @@ optional delivery channels:
   active human participant even without a Wake correlation; ordinary Space
   replies retain explicit-recipient rules. Ordinary
   Space message updates stay in Inbox without a system notification under the
-  default Mentions and replies policy; All new messages includes them. A visible
-  tab suppresses delivery only for the conversation it is currently showing;
-  a hidden tab can deliver any eligible item. Current-conversation suppression
-  is temporary: leaving that conversation or hiding the tab re-evaluates the
-  same unread item. The client records an item as delivered only after this tab
-  creates the notification or another tab proves it already did; a permission,
-  claim, or delivery failure remains retryable. A low-frequency browser-local
+  default Mentions and replies policy; All new messages includes them. Only a
+  visible, focused window suppresses delivery for the conversation it is showing
+  or advances its automatic read position. A visible second window without focus
+  is not evidence of reading. Leaving the conversation, hiding the tab, or losing
+  focus re-evaluates the same unread item. Browser delivery is acknowledged only
+  on the Notification `show` event, never on constructor success. `error`, close
+  before `show`, or no acknowledgement within ten seconds remains retryable; the
+  unconfirmed attempt is closed. Account/Organization changes, disabling delivery,
+  and listener unmount abort pending locks and unacknowledged attempts. A late
+  event cannot settle an aborted attempt. Even `show` does not prove an OS banner
+  or that the member saw it. Browser-local receipts deduplicate acknowledged
+  attempts; permission, claim, and delivery failures remain retryable. A low-frequency browser-local
   timer re-evaluates pending failures even when the Inbox query data does not
   change. The browser-local pending ledger stores each member-, Organization-,
   and item-scoped retry independently so concurrent tabs cannot overwrite one
@@ -863,8 +883,8 @@ optional delivery channels:
   revalidation remains pending and retryable. Unmounting the authenticated
   listener invalidates that context, so a delivery waiting on a browser lock
   cannot publish content from the previous account. Browser delivery never
-  forms a second unread store. After Web successfully creates a browser
-  notification, it may play one browser-local OpenMeld sound. Ordinary
+  forms a second unread store. After the browser acknowledges a notification,
+  Web may play one browser-local OpenMeld sound. Ordinary
   directly addressed updates use the `ready` cue; urgent or open
   action-required items use the `chime` cue. Sounds default on for each member
   in each browser and can be turned off independently of browser permission.
@@ -873,6 +893,28 @@ optional delivery channels:
   there is no separate volume slider. Browser autoplay policy, missing audio
   support, or playback failure stays silent, never changes notification
   delivery truth, and never makes the Inbox item retry.
+  Notification observation uses the authenticated insertion cursor endpoint,
+  not the first page of the occurrence-sorted Inbox list. A fresh listener
+  establishes an empty baseline instead of replaying old unread history. Each
+  refresh reads at most 50 entries; remaining pages are requested at a one-second
+  cadence, with the normal ten-second browser poll after catching up. Delayed
+  source events retain their insertion position even when their occurrence time
+  is old. The observer advances only after eligible ids are retained in the same
+  pending ledger. Network or storage failure holds the cursor for retry; reload
+  recovers retained pending ids and establishes a fresh observation baseline.
+  Settings distinguish the saved preference from storage availability: blocked
+  reads or a failed pending-record write show a paused error, disable unusable
+  controls/sample delivery, and never rewrite the member's preference. Write
+  failures notify mounted settings subscribers immediately, including when reads
+  still succeed because storage is full. The observer keeps polling at its
+  retained cursor; successfully saving the failed pending record clears the pause.
+  Each authorized observation refresh with delivery enabled also checks recovery
+  once while a write failure is recorded, including empty pages in a hidden tab.
+  Recovery cannot depend on the failed item remaining unread or accessible.
+  Refresh and focus/visibility checks use the same fresh temporary write,
+  readback, and removal sized for the failed record. Reads and unrelated same-value
+  writes are not recovery evidence. Snapshot reads never perform recovery writes;
+  probes never change saved preferences, pending ids, or the observation cursor.
 - **Desktop notifications** independently deliver the same eligible Core Inbox
   items while the authenticated GUI is running, including unfocused, minimized,
   and hidden windows. Quit ends GUI delivery and does not stop the Service.

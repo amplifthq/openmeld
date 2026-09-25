@@ -1,9 +1,13 @@
-import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
+import {
+  getPersonalRemoteAgentDefaultModelId,
+  resolveCenterAgentContextScopePlan,
+} from "@openmeld/agent-runtime";
 import {
   accountSpaceActiveWakeSummaryResponseSchema,
   agentActivityOverviewResponseSchema,
   agentActivitySessionInventoryResponseSchema,
   agentControllerCollaborationModeSchema,
+  agentProfileCreationConfigurationSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentReplyPlacementSchema,
   agentTaskHandleSchema,
@@ -129,6 +133,7 @@ import {
   feedbackIssueRecordSchema,
   getActiveSpaceWakeProgressResponseSchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   inspectExecutionRecoveryResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
   listCenterAgentRoutinesResponseSchema,
@@ -136,6 +141,7 @@ import {
   listFeedbackIssuesForOrganizationResponseSchema,
   listSpaceTasksResponseSchema,
   MAX_TEXT_LENGTH,
+  modelCatalogSchema,
   mutateSpaceTaskBodySchema,
   nativeReplyPlacementSchema,
   OPPORTUNITY_DECISIONS,
@@ -280,10 +286,6 @@ import {
   extractSlackSearchThreadPublicationTargetKeys,
   parseSlackThreadPublicationTargetKey,
 } from "./slack-thread-publication-evidence";
-import {
-  mutateSpaceTaskRefreshingOnRevisionConflict,
-  readSpaceTaskRevision,
-} from "./space-task-revision-retry";
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
@@ -847,9 +849,10 @@ const agentProfileCreationConfigurationToolInputSchema = strictObject({
   openCodePermission: openCodePermissionSchema,
   reasoningLevel: optionalNonEmptyStringSchema,
 });
-const agentProfileCreationConnectionSelectionToolInputSchema = strictObject({
-  candidateId: trimmedNonEmptyStringSchema,
-});
+const agentProfileCreationConnectionSelectionToolInputSchema = union([
+  strictObject({ candidateId: trimmedNonEmptyStringSchema }),
+  strictObject({ kind: literal("remote") }),
+]);
 const createAgentProfileRequestToolInputSchema = strictObject({
   ...createAgentProfileRequestCommonInputEntries,
   configuration: optional(agentProfileCreationConfigurationToolInputSchema),
@@ -891,22 +894,34 @@ function resolveNewAgentProfileCreationRequestInput(input: {
     );
   }
   const {
-    configuration: requestedConfiguration,
+    configuration: _requestedConfiguration,
     connectionSelection,
     sessionSelection: _sessionSelection,
     ...newSessionInput
   } = input.input;
-  if (!(requestedConfiguration || connectionSelection)) {
-    return newSessionInput;
+  if (!connectionSelection) {
+    throw new Error(
+      'Select Remote or one Local Agent candidate in connectionSelection. Use { kind: "remote" } for Remote or { candidateId } for a discovered Local Agent.'
+    );
+  }
+  if ("kind" in connectionSelection) {
+    const configuration = agentProfileCreationConfigurationSchema.safeParse({
+      ...input.selectedConfiguration,
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      targetComputerId: null,
+    });
+    if (!configuration.success) {
+      throw new Error(
+        configuration.error.issues[0]?.message ??
+          "Invalid Remote Agent configuration."
+      );
+    }
+    return { ...newSessionInput, configuration: configuration.data };
   }
   return {
     ...newSessionInput,
-    configuration: {
-      ...input.selectedConfiguration,
-    },
-    ...(connectionSelection
-      ? { localAgentConnectionCandidateId: connectionSelection.candidateId }
-      : {}),
+    configuration: input.selectedConfiguration,
+    localAgentConnectionCandidateId: connectionSelection.candidateId,
   };
 }
 
@@ -1414,6 +1429,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_resume_controller_conversation",
   "openmeld_create_space",
   "openmeld_read_agent_profile_creation_defaults",
+  "openmeld_list_hosted_models",
   "openmeld_create_agent_profile_request",
   "openmeld_list_agent_profile_creation_requests",
   "openmeld_manage_agent_profile_creation_request",
@@ -1473,6 +1489,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_read_space_wake_progress",
   "openmeld_list_projects",
   "openmeld_read_agent_profile_creation_defaults",
+  "openmeld_list_hosted_models",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -1548,6 +1565,7 @@ export const REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
   "openmeld_execute_app_action",
+  "github_execute_action",
   ...REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
 ] as const satisfies readonly RemoteAgentOpenMeldToolName[];
 
@@ -1697,6 +1715,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
     )
   ),
   expectedRevision: optional(pipe(number(), integer(), minValue(1))),
+  expectedResultRevision: optional(pipe(number(), integer(), minValue(1))),
   feedback: optional(
     nullable(
       pipe(
@@ -1779,6 +1798,7 @@ function buildSpaceTaskMutationFromTool(input: ManageSpaceTasksToolInput) {
       return mutateSpaceTaskBodySchema.parse({
         ...base,
         action: input.action,
+        expectedResultRevision: input.expectedResultRevision,
         decision: input.decision,
         ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
       });
@@ -1949,27 +1969,16 @@ async function mutateSpaceTaskFromTool(input: {
     input.coreWorker.mutateSpaceTask,
     "mutateSpaceTask"
   );
-  const read = requireCoreRpc(input.coreWorker.getSpaceTask, "getSpaceTask");
   const body = buildSpaceTaskMutationFromTool(input.request);
   return withSpaceTaskGitHubClosePrompt(
-    await mutateSpaceTaskRefreshingOnRevisionConflict({
-      mutate: (mutation) =>
-        mutate({
-          body: mutation,
-          context: input.toolContext.context,
-          spaceId: input.spaceId,
-          taskId: input.request.taskId,
-        }),
-      readCurrentRevision: async () =>
-        readSpaceTaskRevision(
-          await read({
-            context: input.toolContext.context,
-            spaceId: input.spaceId,
-            taskId: input.request.taskId,
-          })
-        ),
-      request: body,
-    })
+    spaceTaskMutationReceiptSchema.parse(
+      await mutate({
+        body,
+        context: input.toolContext.context,
+        spaceId: input.spaceId,
+        taskId: input.request.taskId,
+      })
+    )
   );
 }
 
@@ -3624,7 +3633,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
-        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item to associate an existing issue. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Use list before changing an existing Task so expectedRevision is current. When an Agent reviewer must act, wake that reviewer after submitting the result. When an Agent reviewer requests changes and the Task returns to In progress, wake the assignee with the review feedback. Do not wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
+        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item to associate an existing issue. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Read the Task before changing it and pass its expectedRevision. Review must also pass the resultRevision you actually read as expectedResultRevision. A conflict requires reading the changed Task and deciding again. The Space delivers review and rework handoffs through the normal Wake path. Do not issue another Wake for those transitions or wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,
       execute: async (payload) =>
         await executeManageSpaceTasksTool({
@@ -4933,10 +4942,43 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_list_hosted_models",
+      description:
+        "List the current Remote Agent models and the exact reasoning efforts each supports. Read this before creating or changing a Remote Agent, then pass its modelId and an offered reasoningLevel to the Agent Profile creation or runtime settings tool.",
+      input: strictObject({}),
+      execute: async () => {
+        if (!input.coreWorker.getModelCatalog) {
+          throw new Error("Hosted model catalog is unavailable from Core.");
+        }
+        const catalog = modelCatalogSchema.parse(
+          await input.coreWorker.getModelCatalog({
+            personalRemoteAgentDefault: true,
+          })
+        );
+        const controller = catalog.agentControllers["center-agent"];
+        if (!controller) {
+          throw new Error("Hosted model catalog is unavailable.");
+        }
+        return {
+          defaultModelId: getPersonalRemoteAgentDefaultModelId(catalog),
+          models: controller.models
+            .filter((model) => !model.unavailable && model.hostedRuntime)
+            .map((model) => ({
+              modelId: model.id,
+              displayName: model.displayName,
+              defaultReasoningLevel: model.hostedRuntime?.reasoningLevel,
+              supportedReasoningLevels: model.supportedReasoningLevels,
+            })),
+        };
+      },
+    }),
+    toolDefinition({
       name: "openmeld_create_agent_profile_request",
-      description: TEAMMATE_AGENT_REQUESTS_ENABLED
-        ? 'The single creation entry point for a new working Agent Profile, whether it is owned by the represented member or a teammate. Use openmeld_read_organization_directory first and pass the exact target member user ID. For a new local Agent, read saved creation defaults, list Projects and local agent connection candidates, put the concrete Project, model, reasoning, permission, collaboration, and OpenCode choices in configuration, and copy one exact candidateId into connectionSelection. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. Omit requestedSpaceId when no Space is needed; when present, successful setup adds the Agent to that Space through the normal membership mutation. Do not assemble a new Agent Profile through the primitive create, enable, connect, workspace, or Project tools.'
-        : "Create a working Agent owned by the verified represented member only. Creating for another member is not available. Read saved creation defaults and current local agent connection candidates; preserve exact candidate and native Session identifiers. Resume and Fork require the member's own eligible Session. Optional requestedSpaceId uses normal Space membership authority. Creation runs in the background; use the creation progress tools to check completion or retry setup. Do not bypass this flow with primitive identity or Binding tools.",
+      description:
+        (TEAMMATE_AGENT_REQUESTS_ENABLED
+          ? "Create a working Agent through the owner-authorized creation request. Remote Agents remain self-owned only. "
+          : "Create a working Agent owned by the verified represented member only. Creating for another member is not available. ") +
+        'For a new Agent, connectionSelection must be { kind: "remote" } for Remote or { candidateId } from a current Local Agent candidate. For Remote, read openmeld_list_hosted_models and optionally provide configuration.modelId with one of its supported reasoningLevel values; without a modelId, Core uses its current default. Remote does not use Local Project, permission, collaboration, or OpenCode settings. Local configuration expresses those supported settings and saved preferences. Resume and Fork use the member\'s eligible sessionSelection instead: preserve nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row. Fork requires canFork; Resume requires canResume and an unbound Session. Optional requestedSpaceId uses normal Space membership authority. Returns a durable creation request: approved or pending is not completed; createdAgentProfileId proves identity creation, not current reply readiness. A failed request may already contain that identity; recover its setup rather than creating another. Completed means requested setup finished, not that a Wake ran. Use creation progress/retry tools and current readiness evidence when needed; no automatic parent continuation is promised. Primitive identity creation remains identity-only.',
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(

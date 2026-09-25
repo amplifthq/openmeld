@@ -5,11 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
-const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
+const itemsQueryMock = vi.hoisted(() => vi.fn());
 const itemsRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryQueryMock = vi.hoisted(() => vi.fn());
 const desktopPlatformMock = vi.hoisted(() => vi.fn());
+const currentComputerMock = vi.hoisted(() => vi.fn());
+vi.mock("#/components/app/current-computer", () => ({
+	useCurrentComputer: currentComputerMock,
+}));
 vi.mock("#/desktop/platform", () => ({
 	getDesktopPlatform: desktopPlatformMock,
 }));
@@ -22,7 +26,15 @@ const showInboxNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxFactsMock = vi.hoisted(() => vi.fn());
 const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const getMessagePreferencesMock = vi.hoisted(() => vi.fn());
-const queryClientMock = vi.hoisted(() => ({ fetchQuery: vi.fn() }));
+const queryClientMock = vi.hoisted(() => ({
+	fetchQuery: vi.fn(),
+	invalidateQueries: vi.fn(
+		async (_filters?: {
+			queryKey?: readonly unknown[];
+			predicate?: (query: { queryKey: readonly string[] }) => boolean;
+		}) => undefined
+	),
+}));
 const pendingItemIds = vi.hoisted(() => new Set<string>());
 const notificationSettingsByUserId = vi.hoisted(
 	() => new Map<string, boolean>()
@@ -48,8 +60,10 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-	useInfiniteQuery: useInfiniteQueryMock,
-	useQuery: summaryQueryMock,
+	useQuery: (options: { queryKey?: readonly unknown[] }) =>
+		options.queryKey?.includes("notification-observations")
+			? itemsQueryMock(options)
+			: summaryQueryMock(options),
 	useQueryClient: () => queryClientMock,
 }));
 
@@ -70,6 +84,7 @@ vi.mock("#/lib/inbox/client-notifications", async (importOriginal) => ({
 		userId: string;
 	}) => {
 		pendingItemIds.add(buildPendingItemKey(input));
+		return true;
 	},
 	readPendingInboxNotificationItemIds: (input: {
 		organizationId: string;
@@ -121,7 +136,7 @@ vi.mock("#/query/organizations/inbox", () => ({
 		...(input as object),
 		staleTime: 0,
 	}),
-	inboxItemsInfiniteQueryOptions: (input: unknown) => input,
+	inboxQueryKeys: { organization: (id: string) => ["inbox", id] },
 	inboxSummaryQueryOptions: (input: unknown) => input,
 	invalidateInboxFacts: invalidateInboxFactsMock,
 }));
@@ -129,21 +144,23 @@ vi.mock("#/query/organizations/inbox", () => ({
 describe("InboxNotificationListener", () => {
 	let currentItems: InboxItem[];
 	let itemsDataUpdatedAt: number;
+	let itemsCursor: string;
 	let queryDataItems: InboxItem[] | null;
+	let queryDataCursor: string | null;
 	let queryData:
 		| {
-				pageParams: undefined[];
-				pages: Array<{
-					items: InboxItem[];
-					nextCursor: null;
-					organizationId: string;
-				}>;
+				items: InboxItem[];
+				cursor: string;
+				hasMore: boolean;
+				organizationId: string;
 		  }
 		| undefined;
 
 	beforeEach(() => {
 		navigateMock.mockReset().mockResolvedValue(undefined);
 		desktopPlatformMock.mockReset().mockReturnValue(null);
+		currentComputerMock.mockReset().mockReturnValue(null);
+		vi.spyOn(document, "hasFocus").mockReturnValue(true);
 		summaryRefetch.mockClear();
 		summaryQueryMock.mockReset().mockReturnValue({
 			data: undefined,
@@ -156,7 +173,9 @@ describe("InboxNotificationListener", () => {
 			.mockResolvedValue({ effectiveMode: "mentions_and_replies" });
 		currentItems = [];
 		itemsDataUpdatedAt = 1;
+		itemsCursor = "test-position";
 		queryDataItems = null;
+		queryDataCursor = null;
 		queryData = undefined;
 		pendingItemIds.clear();
 		notificationSettingsByUserId.clear();
@@ -166,21 +185,19 @@ describe("InboxNotificationListener", () => {
 			.mockResolvedValue({ notification: {}, status: "delivered" });
 		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
 		queryClientMock.fetchQuery.mockReset();
+		queryClientMock.invalidateQueries.mockClear();
 		getCurrentInboxItemMock.mockReset();
 		itemsRefetch.mockClear();
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
-		useInfiniteQueryMock.mockReset().mockImplementation(() => {
-			if (queryDataItems !== currentItems) {
+		itemsQueryMock.mockReset().mockImplementation(() => {
+			if (queryDataItems !== currentItems || queryDataCursor !== itemsCursor) {
 				queryDataItems = currentItems;
+				queryDataCursor = itemsCursor;
 				queryData = {
-					pageParams: [undefined],
-					pages: [
-						{
-							items: currentItems,
-							nextCursor: null,
-							organizationId: "organization-123",
-						},
-					],
+					items: currentItems,
+					cursor: itemsCursor,
+					hasMore: false,
+					organizationId: "organization-123",
 				};
 			}
 			return {
@@ -312,6 +329,61 @@ describe("InboxNotificationListener", () => {
 		expect(setNotificationContext).toHaveBeenLastCalledWith(null);
 	});
 
+	it.each([
+		{
+			name: "connected",
+			statusLabel: "Connected",
+			reason: "ready",
+			expectedTone: "connected",
+		},
+		{
+			name: "offline",
+			statusLabel: "Not connected",
+			reason: null,
+			expectedTone: "offline",
+		},
+		{
+			name: "disconnected",
+			statusLabel: "Disconnected",
+			reason: "service_not_connected",
+			expectedTone: "offline",
+		},
+		{
+			name: "needs attention",
+			statusLabel: "Checking OpenMeld status",
+			reason: "checking",
+			expectedTone: "attention",
+		},
+	])("passes $name Computer tone to the native tray", ({
+		statusLabel,
+		reason,
+		expectedTone,
+	}) => {
+		const setNotificationContext = vi.fn(
+			async (_context: unknown) => undefined
+		);
+		desktopPlatformMock.mockReturnValue({
+			setNotificationContext,
+			onNotificationClick: () => () => undefined,
+			onNotificationPoll: () => () => undefined,
+		});
+		currentComputerMock.mockReturnValue({
+			destination: "/o/amplift/computers",
+			status: reason ? { reason } : null,
+			statusLabel,
+		});
+		renderListener();
+		expect(setNotificationContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				computer: {
+					available: true,
+					statusLabel,
+					statusTone: expectedTone,
+				},
+			})
+		);
+	});
+
 	it("refreshes the native preview when Inbox content changes without changing the unread count", () => {
 		const setNotificationContext = vi.fn(async () => undefined);
 		desktopPlatformMock.mockReturnValue({
@@ -333,6 +405,7 @@ describe("InboxNotificationListener", () => {
 		const initialCalls = setNotificationContext.mock.calls.length;
 
 		itemsDataUpdatedAt = 2;
+		itemsCursor = "next-position";
 		view.rerender(
 			<InboxNotificationListener
 				organizationId="organization-123"
@@ -394,6 +467,9 @@ describe("InboxNotificationListener", () => {
 			organizationId: "organization-123",
 			queryClient: queryClientMock,
 		});
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({ queryKey: ["spaces", "account-spaces"] })
+		);
 		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				item: newItem,
@@ -1056,10 +1132,56 @@ describe("InboxNotificationListener", () => {
 			await vi.advanceTimersByTimeAsync(10_000);
 		});
 
-		expect(useInfiniteQueryMock).toHaveBeenLastCalledWith(
-			expect.objectContaining({ enabled: false })
+		expect(itemsQueryMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({ enabled: true })
 		);
 		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
+	});
+
+	it("refreshes an active Space directory from a new Inbox message even when notifications are off", () => {
+		notificationSettingsByUserId.set("user-123", false);
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		const view = renderListener();
+		const options = itemsQueryMock.mock.lastCall?.[0] as {
+			enabled: boolean;
+			refetchInterval: (query: {
+				state: { data: { hasMore: boolean } };
+			}) => number | false;
+		};
+		expect(options.enabled).toBe(true);
+		expect(
+			options.refetchInterval({ state: { data: { hasMore: false } } })
+		).toBe(1000);
+
+		currentItems = [createInboxItem({ id: "new-space-message" })];
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith(
+			expect.objectContaining({ queryKey: ["spaces", "account-spaces"] })
+		);
+		const refreshFilter =
+			queryClientMock.invalidateQueries.mock.lastCall?.[0]?.predicate;
+		expect(
+			refreshFilter?.({
+				queryKey: ["spaces", "account-spaces", "profile-123", "account"],
+			})
+		).toBe(true);
+		expect(
+			refreshFilter?.({
+				queryKey: [
+					"spaces",
+					"account-spaces",
+					"profile-123",
+					"active-wake-summary",
+				],
+			})
+		).toBe(false);
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 	});
 
 	it("does not let a late recovery failure from an old Organization block the current feed retry", async () => {

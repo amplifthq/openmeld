@@ -1,6 +1,10 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes stable public entrypoints.
 
 export {
+  type AccountInvalidationFrame,
+  accountInvalidationFrameSchema,
+} from "./account-invalidation";
+export {
   ACCOUNT_ORGANIZATION_CONTEXT_PATH,
   type AccountOrganizationContext,
   accountOrganizationContextSchema,
@@ -136,6 +140,9 @@ export {
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
   DESKTOP_WEB_BUILD_HEADER,
+  type DesktopAccountStreamBridge,
+  type DesktopAccountStreamEvent,
+  type DesktopAccountStreamInput,
   type DesktopInstalledTarget,
   type DesktopLocalComputer,
   type DesktopPlatform,
@@ -143,6 +150,7 @@ export {
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
+  desktopAccountStreamInputSchema,
   desktopCompatibilitySchema,
   desktopInstalledTargetSchema,
   desktopLocalComputerSchema,
@@ -159,6 +167,7 @@ export * from "./desktop-notifications";
 export {
   DESKTOP_PROMOTED_RELEASE_KEY,
   DESKTOP_UPDATE_FEED_URL,
+  DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   type DesktopCandidateManifest,
   type DesktopReleasePlatform,
   desktopCandidateIdSchema,
@@ -173,6 +182,8 @@ export {
   desktopUpdaterFeedSchema,
   desktopUpdaterFeedSchemaForPlatform,
   desktopWindowsBuildSchema,
+  desktopWindowsInternalPreviewLocation,
+  desktopWindowsInternalPreviewSchema,
   resolveDesktopReleasePlatform,
 } from "./desktop-release";
 export * from "./desktop-transport-diagnostics";
@@ -221,6 +232,7 @@ export {
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
   CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY,
+  CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
@@ -405,6 +417,7 @@ export {
   webPerformancePolicySchema,
   webPerformanceReportSchema,
 } from "./web-performance";
+export * from "./windows-artifact";
 export {
   buildWorkingFolderRecoveryQuestion,
   isWorkingFolderRecoveryDecline,

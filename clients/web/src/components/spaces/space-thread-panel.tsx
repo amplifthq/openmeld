@@ -33,7 +33,6 @@ import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity"
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
-	buildSpaceConversationEntries,
 	orderSpaceTimelineItemsForConversation,
 } from "#/lib/spaces/presentation";
 import {
@@ -124,6 +123,7 @@ import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
 	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
@@ -156,6 +156,7 @@ import {
 } from "./space-message-reactions";
 import { SpaceMessageReadObserver } from "./space-message-read-observer";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
+import { SpaceMessageTime } from "./space-message-time";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -182,11 +183,6 @@ import type {
 import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 import { useSpaceUnread } from "./use-space-unread";
-
-const SINGLE_MESSAGE_GROUP_POSITION = {
-	isFirstInGroup: true,
-	isLastInGroup: true,
-} as const;
 
 type ThreadMessageDetailsSelection = {
 	item: SpaceTimelineItem;
@@ -293,6 +289,7 @@ type SpaceThreadPanelProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onClose: () => void;
+	onShowMessageInMain?: (signalId: string) => void;
 	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
@@ -577,6 +574,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				className={input.className}
 				id="space-thread-panel"
 				maxWidth={panelWidth.maxWidth}
+				minRemainingWidth={512}
 				minWidth={panelWidth.minWidth}
 				onWidthChange={panelWidth.onWidthChange}
 				open={input.open ?? input.activeThread !== null}
@@ -600,6 +598,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					ephemeralActivityItems={scopedActivityItems}
 					errorMessage={input.signalsErrorMessage}
 					firstUnreadSignalId={firstUnreadSignalId}
+					isDirectMessage={input.isDirectMessage === true}
 					isLoading={input.signalsIsLoading}
 					isPersonalContext={input.isPersonalContext === true}
 					items={threadTimelineItems}
@@ -684,7 +683,10 @@ function ThreadSelectedMessageDetails(input: {
 	return (
 		<SpaceMessageDetailsDrawer
 			agentRecoveryPlansByProfileId={panelInput.agentRecoveryPlansByProfileId}
-			canJumpToMessage={() => false}
+			canJumpToMessage={(signalId) =>
+				Boolean(panelInput.onShowMessageInMain) &&
+				signalId === input.activeThread?.rootSignalId
+			}
 			diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
 				isPending: panelInput.isDiagnosticReportPending(
 					input.messageDetailsItem.id
@@ -696,7 +698,7 @@ function ThreadSelectedMessageDetails(input: {
 			isPersonalContext={panelInput.isPersonalContext}
 			item={input.messageDetailsItem}
 			onAgentRecoveryAction={panelInput.onAgentRecoveryAction}
-			onJumpToMessage={() => undefined}
+			onJumpToMessage={(signalId) => panelInput.onShowMessageInMain?.(signalId)}
 			onOpenChange={(open) => {
 				if (!open) {
 					input.onClose();
@@ -1104,6 +1106,7 @@ function resolveThreadComputerSetupPresentation(input: {
 }
 
 function ThreadTimeline(input: {
+	isDirectMessage: boolean;
 	messageScrollActionRef: { current: SpaceMessageScrollAction | null };
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -1168,11 +1171,6 @@ function ThreadTimeline(input: {
 			}),
 		[input.allItems, input.ephemeralActivityItems]
 	);
-	const messageGroupPositionBySignalId = buildThreadMessageGroupPositions({
-		firstUnreadSignalId: input.firstUnreadSignalId,
-		items: input.items,
-		selfProfileId: input.selfProfileId,
-	});
 	if (input.errorMessage) {
 		return (
 			<p className="m-4 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
@@ -1231,9 +1229,6 @@ function ThreadTimeline(input: {
 								);
 							}
 
-							const messageGroupPosition =
-								messageGroupPositionBySignalId.get(item.id) ??
-								SINGLE_MESSAGE_GROUP_POSITION;
 							return (
 								<Fragment key={resolveSpaceConversationItemKey(item)}>
 									{item.id === input.firstUnreadSignalId ? (
@@ -1263,8 +1258,7 @@ function ThreadTimeline(input: {
 										}
 										computerSetupContext={input.computerSetupContext}
 										ephemeralActivityItems={input.ephemeralActivityItems}
-										isFirstInGroup={messageGroupPosition.isFirstInGroup}
-										isLastInGroup={messageGroupPosition.isLastInGroup}
+										isDirectMessage={input.isDirectMessage}
 										isPersonalContext={input.isPersonalContext}
 										item={item}
 										onAgentInteractionResponse={
@@ -1307,6 +1301,7 @@ function ThreadTimeline(input: {
 }
 
 const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
+	isDirectMessage: boolean;
 	centerAgentProfileId: string | null;
 	computerSetupActionSignalId: string | null;
 	computerSetupContext?: CenterAgentComputerSetupContext;
@@ -1320,8 +1315,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		readonly SpaceTimelineItem[]
 	>;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
-	isFirstInGroup: boolean;
-	isLastInGroup: boolean;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	isPersonalContext: boolean;
 	item: SpaceTimelineItem;
@@ -1494,56 +1487,71 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 					className={cn(
 						"group/message-row",
 						resolveSpaceMessageRowLayoutClassName({
-							isFirstInGroup: input.isFirstInGroup,
-							isLastInGroup: input.isLastInGroup,
+							isFirstInGroup: true,
+							isLastInGroup: true,
 						}),
 						SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
 					)}
 					data-message-row-id={input.item.id}
 					data-space-self-message={String(isSelfMessage)}
+					data-thread-message
 				>
 					<MessageContent
 						className={cn(
 							"w-full min-w-0 gap-0",
 							SPACE_MESSAGE_SURFACE_WIDTH_CLASS
 						)}
+						directMessage={input.isDirectMessage}
 					>
 						<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
-							<SpaceMessageProfileAvatar
-								agentControllerPending={input.item.actorAgentControllerPending}
-								agentControllerRef={input.item.actorAgentControllerRef}
-								avatarImageUrl={resolveThreadMessageAvatarImageUrl({
-									item: input.item,
-									selfAvatarImageUrl: input.selfAvatarImageUrl,
-									selfProfileId: input.selfProfileId,
-								})}
-								displayName={input.item.actorName}
-								isCenterAgent={
-									input.item.actorProfileKind === "agent" &&
-									input.item.actorProfileId === input.centerAgentProfileId
-								}
-								profileId={input.item.actorProfileId}
-								profileKind={input.item.actorProfileKind}
-								working={isSpaceMessageAgentWorking(input.item)}
-							/>
-							<span className="min-w-0 truncate font-bold text-foreground text-sm">
-								{input.item.actorName}
+							<span data-slot="message-speaker-avatar">
+								<SpaceMessageProfileAvatar
+									agentControllerPending={
+										input.item.actorAgentControllerPending
+									}
+									agentControllerRef={input.item.actorAgentControllerRef}
+									avatarImageUrl={resolveThreadMessageAvatarImageUrl({
+										item: input.item,
+										selfAvatarImageUrl: input.selfAvatarImageUrl,
+										selfProfileId: input.selfProfileId,
+									})}
+									displayName={input.item.actorName}
+									isCenterAgent={
+										input.item.actorProfileKind === "agent" &&
+										input.item.actorProfileId === input.centerAgentProfileId
+									}
+									profileId={input.item.actorProfileId}
+									profileKind={input.item.actorProfileKind}
+									working={isSpaceMessageAgentWorking(input.item)}
+								/>
 							</span>
-							{agentAttribution ? (
+							{!input.isDirectMessage && (
 								<>
-									<span className="shrink-0 text-muted-foreground">·</span>
-									<span className="min-w-0 text-muted-foreground">
-										{agentAttribution}
+									<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">
+										{input.item.actorName}
 									</span>
+									{agentAttribution ? (
+										<>
+											<span className="shrink-0 text-muted-foreground">·</span>
+											<span className="min-w-0 text-muted-foreground">
+												{agentAttribution}
+											</span>
+										</>
+									) : null}
 								</>
-							) : null}
+							)}
+							<SpaceMessageTime
+								createdAtMs={input.item.createdAtMs}
+								isDirectMessage={input.isDirectMessage}
+								placement="header"
+							/>
 						</MessageHeader>
 						<Bubble align={messageAlign}>
 							<BubbleContent
 								className={cn(
-									"group/thread-message relative flex w-full flex-col gap-2 transition-colors motion-reduce:transition-none",
+									"group/thread-message relative flex min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
 									SPACE_MESSAGE_CONTENT_PADDING_CLASS,
-									SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
+									SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
 									selfMessageContentLayoutClassName,
 									resolveSpaceMessageBubblePresentationClass({
 										isSelf: isSelfMessage,
@@ -1589,14 +1597,9 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										/>
 									)
 								)}
-								{input.item.agentActivity ? (
+								{input.item.agentActivity || input.item.agentPublicProgress ? (
 									<SpaceAgentToolActivity
 										item={input.item}
-										onOpenDetails={
-											messageDetailsItem
-												? () => input.onOpenMessageDetails(messageDetailsItem)
-												: undefined
-										}
 										placement="message"
 									/>
 								) : null}
@@ -1621,6 +1624,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							anchoredOutcomeNotices={anchoredOutcomeNotices}
 							failureSummary={failureSummary}
 							hasWakeProblem={hasWakeProblem}
+							isDirectMessage={input.isDirectMessage}
 							item={input.item}
 							messageDetailsItem={messageDetailsItem}
 							onOpenMessageDetails={input.onOpenMessageDetails}
@@ -1644,6 +1648,7 @@ function ThreadTimelineMessageFooter(input: {
 	align: "start" | "end";
 	failureSummary: ReturnType<typeof resolveSpaceMessageFooterFailureSummary>;
 	hasWakeProblem: boolean;
+	isDirectMessage: boolean;
 	item: SpaceTimelineItem;
 	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -1676,7 +1681,9 @@ function ThreadTimelineMessageFooter(input: {
 				sourceItem: input.item,
 			}}
 			failureSummary={input.failureSummary}
+			isDirectMessage={input.isDirectMessage}
 			item={input.item}
+			layout="inline"
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({
 					item: input.item,
@@ -1684,7 +1691,6 @@ function ThreadTimelineMessageFooter(input: {
 					organizationSlug: input.organizationSlug,
 				})
 			}
-			timestamp={THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
 		/>
 	);
 }
@@ -1721,38 +1727,6 @@ function useLatestCallback<Arguments extends unknown[], Result>(
 		callbackRef.current = callback;
 	}, [callback]);
 	return useCallback((...args: Arguments) => callbackRef.current(...args), []);
-}
-
-function buildThreadMessageGroupPositions(input: {
-	firstUnreadSignalId: string | null;
-	items: readonly SpaceTimelineItem[];
-	selfProfileId: string;
-}): ReadonlyMap<string, { isFirstInGroup: boolean; isLastInGroup: boolean }> {
-	const positions = new Map<
-		string,
-		{ isFirstInGroup: boolean; isLastInGroup: boolean }
-	>();
-	const entries = buildSpaceConversationEntries({
-		groupBoundarySignalIds: input.firstUnreadSignalId
-			? new Set([input.firstUnreadSignalId])
-			: undefined,
-		selfProfileId: input.selfProfileId,
-		timelineItems: input.items,
-	});
-
-	for (const entry of entries) {
-		if (entry.kind !== "bubble_run") {
-			continue;
-		}
-		entry.run.items.forEach((item, index) => {
-			positions.set(item.id, {
-				isFirstInGroup: index === 0,
-				isLastInGroup: index === entry.run.items.length - 1,
-			});
-		});
-	}
-
-	return positions;
 }
 
 function resolveThreadMessageDirectionalAlign(
@@ -1979,12 +1953,6 @@ function renderAnchoredThreadOutcomeRows(input: {
 		</>
 	);
 }
-
-const THREAD_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
-	hour: "2-digit",
-	minute: "2-digit",
-	second: "2-digit",
-});
 
 import {
 	buildSpaceTaskSources,

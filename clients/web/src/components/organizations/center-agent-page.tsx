@@ -157,10 +157,7 @@ function CenterAgentDirectMessageEntry(input: {
 		organizationSlug: input.organizationSlug,
 	};
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const sidebar = useSidebarPreferences(
-		defaultHumanProfile?.openMeldProfileId ?? "",
-		input.organizationId
-	);
+	const sidebar = useSidebarPreferences(input.organizationId);
 	const composerDraftScope = storageScope.trim()
 		? {
 				kind: "center_agent_pending" as const,

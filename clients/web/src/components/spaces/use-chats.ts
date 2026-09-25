@@ -42,7 +42,7 @@ export function useChats(input: {
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const profileId =
 		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
-	const store = useSidebarPreferences(profileId, org.id);
+	const store = useSidebarPreferences(org.id);
 	const spaces = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: !!profileId,

@@ -69,6 +69,61 @@ describe("browser application error reporting", () => {
 		expect(fetch).toHaveBeenCalledTimes(20);
 	});
 
+	it("sends one sanitized record when Wake progress is rendered without confirmation", async () => {
+		const { reportUnconfirmedWakeProgressPresentation } = await import(
+			"./application-error-client"
+		);
+		const wakeProgress = {
+			spaceId: "space-123",
+			clientMessageId: "message-123",
+			dispatchId: "dispatch-123",
+			sourceSignalId: "signal-123",
+			streamId: null,
+			sourceThreadId: null,
+			replyThreadRootSignalId: null,
+			targetProfileId: "profile-123",
+			phase: "running" as const,
+			updatedAtMs: 100,
+			fromRestoredPresentation: true,
+			fromCachedSpaceSummary: true,
+			fromCachedOwnSummary: false,
+			fromBootstrapStream: false,
+			fromHistoricalSignal: true,
+			spaceSummaryFetchedAfterMount: false,
+			ownSummaryFetchedAfterMount: false,
+			bootstrapFetchedAfterMount: false,
+		};
+		reportUnconfirmedWakeProgressPresentation(wakeProgress);
+		reportUnconfirmedWakeProgressPresentation(wakeProgress);
+		expect(fetch).toHaveBeenCalledOnce();
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body).toMatchObject({
+			source: "wake_progress_presentation",
+			error: { code: "unconfirmed_wake_progress_displayed" },
+			wakeProgress,
+		});
+		expect(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body)).not.toMatch(
+			PRIVATE_CONTENT
+		);
+		reportUnconfirmedWakeProgressPresentation({
+			...wakeProgress,
+			clientMessageId: null,
+			streamId: "stream-123",
+			fromRestoredPresentation: false,
+			fromCachedSpaceSummary: false,
+			fromBootstrapStream: true,
+		});
+		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(
+			JSON.parse(String(vi.mocked(fetch).mock.calls[1]?.[1]?.body)).wakeProgress
+		).toMatchObject({ streamId: "stream-123", fromBootstrapStream: true });
+		reportUnconfirmedWakeProgressPresentation({
+			...wakeProgress,
+			spaceId: "space-123?token=private",
+		});
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
 	it("allows an explicit report after automatic capture and returns its searchable ID", async () => {
 		const { reportClientApplicationError, submitApplicationErrorReport } =
 			await import("./application-error-client");

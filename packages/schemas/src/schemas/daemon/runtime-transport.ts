@@ -1,6 +1,8 @@
 import * as z from "../../lazy-zod";
 export const OPENMELD_EXECUTION_ADMISSION_HEADER =
   "x-openmeld-execution-admission";
+export const OPENMELD_ADMISSION_EVIDENCE_HEADER =
+  "x-openmeld-admission-evidence";
 
 import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-recovery";
 import {
@@ -88,13 +90,14 @@ import {
   runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeCoordinatorExecutionTokenEnvelopeSchema,
 } from "./runtime-coordinator-execution-token";
+import { runtimeTransportAdmissionEvidenceSchema } from "./runtime-transport-admission-evidence";
 import { runtimeTransportStopCauseSchema } from "./runtime-transport-stop-cause";
 import { daemonServiceLaneSchema } from "./service-contract";
 import { openMeldDaemonTaskResultEnvelopeSchema } from "./task-result";
 
 export const RUNTIME_TRANSPORT_SCHEMA_VERSION = 1 as const;
 export const CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH =
-  "runtime-transport-epoch-2026-09-antigravity-permissions" as const;
+  "runtime-transport-epoch-2026-09-space-files-1gib" as const;
 
 export const daemonRuntimeContractSchema = z.strictObject({
   epoch: z.string().min(1),
@@ -630,6 +633,7 @@ export const runtimeTransportRegisterSessionRequestSchema = z.strictObject({
 export const runtimeTransportRegisterSessionResponseSchema = z.strictObject({
   executionAdmissionConfirmation: z.literal(true).optional(),
   computerCare: z.literal(true).optional(),
+  admissionEvidence: z.literal(true).optional(),
   ok: z.boolean(),
   connectionGeneration: z.number().int().positive(),
   acceptedLeases: z.array(runtimeTransportLeaseSchema),
@@ -648,6 +652,7 @@ export const runtimeTransportHeartbeatRequestSchema = z.strictObject({
   lane: daemonServiceLaneSchema,
   daemonSessionId: z.string().min(1),
   acceptingDispatches: z.boolean().optional(),
+  admissionEvidence: runtimeTransportAdmissionEvidenceSchema.optional(),
   stopCause: runtimeTransportStopCauseSchema.optional(),
   serviceVersion: z.string().trim().min(1).optional(),
   leases: z.array(runtimeTransportLeaseSchema).max(512),

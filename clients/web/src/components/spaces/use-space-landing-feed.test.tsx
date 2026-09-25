@@ -9,12 +9,14 @@ import type {
 import type {
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
+	SpaceInboxUnreadTarget,
 } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
+import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceCursorLastSeenTs,
@@ -162,6 +164,7 @@ function renderFeed(
 		initialAgentStreams?: readonly SpaceAgentStreamSnapshot[];
 		participationEnabled?: boolean;
 		seededEnvelopes?: readonly SignalEnvelope[];
+		unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	} = {}
 ) {
 	// Stable references across renders. renderHook's callback runs on every
@@ -192,7 +195,11 @@ function renderFeed(
 		);
 	}
 	const view = renderHook(
-		(props: { history: FeedHistoryState; participationEnabled?: boolean }) =>
+		(props: {
+			history: FeedHistoryState;
+			participationEnabled?: boolean;
+			unreadTargets?: readonly SpaceInboxUnreadTarget[];
+		}) =>
 			useSpaceLandingFeed({
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-1111-1111-111111111111",
@@ -202,6 +209,7 @@ function renderFeed(
 				statusRefetch,
 				membersRefetch,
 				initialAgentStreams: options.initialAgentStreams ?? [],
+				unreadTargets: props.unreadTargets,
 				readinessScope: { organizationId: "org-1", storageScope: "account-1" },
 				history: props.history,
 			}),
@@ -209,9 +217,11 @@ function renderFeed(
 			initialProps: {
 				history: initialHistory,
 				participationEnabled: options.participationEnabled,
+				unreadTargets: options.unreadTargets,
 			} as {
 				history: FeedHistoryState;
 				participationEnabled?: boolean;
+				unreadTargets?: readonly SpaceInboxUnreadTarget[];
 			},
 			wrapper: ({ children }: { children: ReactNode }) => (
 				<QueryClientProvider client={queryClient}>
@@ -429,6 +439,34 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 	it("still routes business signals to the timeline after the PONG fast-path", async () => {
 		const { queryClient, view } = renderFeed();
+		const accountSpaces: AccountSpaceSections = {
+			pinnedItems: [
+				{
+					spaceId: "space-123",
+					spaceName: "Product planning",
+					organizationId: "org-1",
+					openProfileId: "11111111-1111-1111-1111-111111111111",
+					openProfileName: "Mira",
+					visibility: "private",
+					spacePurpose: null,
+					lastJoinedAt: "2026-09-23T00:00:00.000Z",
+					joinedProfiles: [],
+					pinnedAt: null,
+					pinnedProfileIds: [],
+					activeAgentCount: null,
+					activeHumanCount: null,
+					activeMemberCount: null,
+				},
+			],
+			spaceItems: [],
+		};
+		queryClient.setQueryData(
+			accountSpaceQueryKeys.items(
+				"11111111-1111-1111-1111-111111111111",
+				"account"
+			),
+			accountSpaces
+		);
 		await openLatestSocket();
 
 		await act(async () => {
@@ -439,6 +477,14 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 		expect(view.result.current.timelineEnvelopes).toHaveLength(1);
 		expect(view.result.current.timelineEnvelopes[0]?.id).toBe("sig-1");
+		expect(
+			queryClient.getQueryData<AccountSpaceSections>(
+				accountSpaceQueryKeys.items(
+					"11111111-1111-1111-1111-111111111111",
+					"account"
+				)
+			)?.pinnedItems[0]?.messagePreview?.text
+		).toBe("Hello from the stream");
 		expect(
 			queryClient
 				.getQueryData<SpaceHistorySnapshot>(
@@ -684,6 +730,14 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 	it("refreshes Space identity without refetching members after metadata changes", async () => {
 		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const sessionsKey = [
+			"center-agent",
+			"org-1",
+			"human-1",
+			"sessions",
+			"sidebar",
+		];
+		queryClient.setQueryData(sessionsKey, { pages: [] });
 		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 		await openLatestSocket();
 
@@ -707,6 +761,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).not.toHaveBeenCalled();
+		expect(queryClient.getQueryState(sessionsKey)?.isInvalidated).toBe(true);
 	});
 
 	it("refreshes Space Files without refetching members after file changes", async () => {
@@ -855,6 +910,47 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("does not repeatedly update when equivalent history gets a new wrapper", () => {
+		const envelopes = [createTextSignal({ id: "sig-1", ts: 10 })];
+		const queryClient = new QueryClient();
+		const statusRefetch = vi.fn(async () => undefined);
+		const membersRefetch = vi.fn(async () => undefined);
+		const initialAgentStreams: readonly SpaceAgentStreamSnapshot[] = [];
+		const readinessScope = {
+			organizationId: "org-1",
+			storageScope: "account-1",
+		};
+		let renders = 0;
+
+		const view = renderHook(
+			() => {
+				if (++renders > 10) {
+					throw new Error("Equivalent history caused repeated renders");
+				}
+				return useSpaceLandingFeed({
+					spaceId: "space-123",
+					openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+					participationEnabled: false,
+					statusReady: true,
+					statusRefetch,
+					membersRefetch,
+					initialAgentStreams,
+					readinessScope,
+					history: createReadyFeedHistory(envelopes),
+				});
+			},
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+
+		expect(view.result.current.timelineEnvelopes).toEqual(envelopes);
+	});
+
 	it("reconciles cached history on mount before the live socket opens", async () => {
 		readSpaceUpdatesMock.mockResolvedValue({
 			signals: [createTextSignal({ id: "sig-2", ts: 20 })],
@@ -889,6 +985,39 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 
 		expect(readSpaceUpdatesMock).not.toHaveBeenCalled();
 		expect(readSpaceHistoryMock).not.toHaveBeenCalled();
+	});
+
+	it("does not let a live frame create the first history anchor before bootstrap", async () => {
+		const { queryClient, view } = renderFeed({
+			history: createPendingFeedHistory(),
+		});
+		await openLatestSocket();
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify(createTextSignal({ id: "sig-3", ts: 30 }))
+			);
+		});
+		const key = spaceQueryKeys.history(
+			"space-123",
+			"11111111-1111-1111-1111-111111111111"
+		);
+		expect(queryClient.getQueryData(key)).toBeUndefined();
+		expect(
+			view.result.current.timelineEnvelopes.map((signal) => signal.id)
+		).toEqual(["sig-3"]);
+
+		act(() => {
+			view.rerender({
+				history: createReadyFeedHistory([
+					createTextSignal({ id: "sig-1", ts: 10 }),
+				]),
+			});
+		});
+		expect(
+			queryClient
+				.getQueryData<SpaceHistorySnapshot>(key)
+				?.envelopes.map((signal) => signal.id)
+		).toEqual(["sig-1", "sig-3"]);
 	});
 
 	it("waits for a speculative reconcile before running the mandatory post-acceptance read", async () => {
@@ -1092,7 +1221,7 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		);
 		expect(readSpaceUpdatesMock).toHaveBeenNthCalledWith(
 			3,
-			expect.objectContaining({ afterSignalId: "sig-100" })
+			expect.objectContaining({ afterSignalId: "sig-99" })
 		);
 		const ids = view.result.current.timelineEnvelopes.map(
 			(signal) => signal.id
@@ -1128,6 +1257,66 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(
 			view.result.current.timelineEnvelopes.map((signal) => signal.id)
 		).toContain("sig-2");
+	});
+
+	it("does not skip a missed message when a newer live frame arrives first", async () => {
+		const { view } = renderFeed({
+			seededEnvelopes: [createTextSignal({ id: "sig-1", ts: 10 })],
+		});
+		await openLatestSocket();
+		readSpaceUpdatesMock.mockClear();
+		readSpaceUpdatesMock.mockImplementation(async ({ afterSignalId }) => ({
+			signals:
+				afterSignalId === "sig-1"
+					? [
+							createTextSignal({ id: "sig-2", ts: 20 }),
+							createTextSignal({ id: "sig-3", ts: 30 }),
+						]
+					: [],
+		}));
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify(createTextSignal({ id: "sig-3", ts: 30 }))
+			);
+		});
+		act(() => emitVisibilityChange("visible"));
+		await flushMicrotasks();
+
+		expect(readSpaceUpdatesMock).toHaveBeenCalledWith(
+			expect.objectContaining({ afterSignalId: "sig-1" })
+		);
+		expect(
+			view.result.current.timelineEnvelopes.map((signal) => signal.id)
+		).toEqual(["sig-1", "sig-2", "sig-3"]);
+	});
+
+	it("reads the Space tail when Inbox reports an unseen message", async () => {
+		const { view } = renderFeed({
+			seededEnvelopes: [createTextSignal({ id: "sig-1", ts: 10 })],
+		});
+		await openLatestSocket();
+		readSpaceUpdatesMock.mockClear();
+		readSpaceUpdatesMock.mockResolvedValue({
+			signals: [createTextSignal({ id: "sig-2", ts: 20 })],
+		});
+		act(() => {
+			view.rerender({
+				history: createReadyFeedHistory([
+					createTextSignal({ id: "sig-1", ts: 10 }),
+				]),
+				unreadTargets: [
+					{ signalId: "sig-2", occurredAtMs: 20, threadRootSignalId: null },
+				],
+			});
+		});
+		await flushMicrotasks();
+
+		expect(readSpaceUpdatesMock).toHaveBeenCalledWith(
+			expect.objectContaining({ afterSignalId: "sig-1" })
+		);
+		expect(
+			view.result.current.timelineEnvelopes.map((signal) => signal.id)
+		).toEqual(["sig-1", "sig-2"]);
 	});
 
 	it("falls back to a recent-window reload on a stale anchor without looping reconnect", async () => {

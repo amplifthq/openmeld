@@ -4,6 +4,7 @@ import type {
   LocalWakeRouteReport,
   OpenMeldDaemonTaskResultEnvelope,
   RuntimeCoordinatorDeliveryRouteEvidence,
+  RuntimeTransportAdmissionEvidence,
   RuntimeTransportCapabilities,
   RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
@@ -28,6 +29,7 @@ export type RuntimeTransportSessionState = {
   lastHeartbeatMs: number;
   deliveryDisconnectedAtMs: number | null;
   acceptingDispatches?: boolean;
+  admissionEvidence?: RuntimeTransportAdmissionEvidence;
   stopCause?: RuntimeTransportStopCause;
   capabilities: RuntimeTransportCapabilities;
   executionCompatibility: DaemonExecutionCompatibility;

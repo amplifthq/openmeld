@@ -7,6 +7,8 @@ import {
 } from "@openmeld/agent-profile";
 import {
 	type AgentWakeAvailabilityCategory,
+	formatModelRetirementNotice,
+	getAgentControllerModelCatalogId,
 	getAgentControllerPermissionModeDisplayMetadata,
 	parseAgentControllerRef,
 	resolveAgentControllerPermissionModeForController,
@@ -130,6 +132,7 @@ import {
 	type AgentProfileModelCompatibilityContext,
 	AgentProfileModelSelectionFields,
 } from "#/components/profiles/create-profile-form";
+import { resolveModelRetirementDisplay } from "#/components/profiles/create-profile-form-logic";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import {
@@ -1951,6 +1954,9 @@ function resolveAgentProfileModelCompatibilityContext(input: {
 	}
 	return {
 		agentControllerId: controller.id,
+		agentControllerRef: controller.ref,
+		authType:
+			snapshot.auth.status === "authenticated" ? snapshot.auth.type : null,
 		controllerDisplayName:
 			input.controllerChangeOptions.find(
 				(option) => option.agentControllerRef === controller.ref
@@ -4341,8 +4347,29 @@ function AgentProfileModelConfigurationCard(input: {
 	input: AgentProfileConfigurationOverviewProps;
 }) {
 	const { editor, input: props } = input;
+	const selection = editor.modelSelection;
+	const controller = selection
+		? props.modelCatalog?.agentControllers[selection.agentControllerId]
+		: null;
+	const model = controller?.models.find(
+		(entry) => entry.id === (selection?.modelId || controller.defaultModelId)
+	);
+	const retirement = resolveModelRetirementDisplay(
+		model,
+		props.modelCompatibilityContext
+	);
+	let retirementTone: "danger" | "warning" | undefined;
+	if (retirement) {
+		retirementTone = retirement.status === "withdrawn" ? "danger" : "warning";
+	}
 	return (
 		<AgentConfigurationCard
+			actionLabel={retirement ? "Change model" : undefined}
+			attention={Boolean(retirement)}
+			attentionTone={retirementTone}
+			description={
+				retirement ? formatModelRetirementNotice(retirement) : undefined
+			}
 			disabled={props.disabled}
 			icon={<BrainIcon aria-hidden="true" />}
 			itemId="model"
@@ -5322,7 +5349,9 @@ function createAgentProfileEditStateForController(input: {
 		},
 		modelSelection: capabilities.modelSelection.editable
 			? {
-					agentControllerId: parsedAgentControllerRef.id,
+					agentControllerId: getAgentControllerModelCatalogId(
+						parsedAgentControllerRef
+					),
 					agentControllerRef: input.agentControllerRef,
 					modelId: "",
 					reasoningLevel: "",
@@ -5880,6 +5909,9 @@ function resolveAgentProfileEditModelId(input: {
 	const selectedModelId = normalizeAgentProfileEditText(input.selectedModelId);
 	if (selectedModelId) {
 		return selectedModelId;
+	}
+	if (input.modelSelection.agentControllerId === "center-agent") {
+		return null;
 	}
 	return (
 		normalizeAgentProfileEditText(

@@ -8,6 +8,7 @@ import {
   listAgentControllerPermissionModeOptions,
 } from "./agent-controller-permission-mode";
 import { parseAgentControllerRef } from "./agent-controller-ref";
+import { getAgentControllerModelCatalogId } from "./model-catalog";
 
 export type AgentProfileEditUnavailableReason =
   | "agent_controller_not_found"
@@ -77,16 +78,19 @@ export function resolveAgentProfileEditCapabilities(input: {
   modelCatalog: ModelCatalog | null;
 }): AgentProfileEditCapabilities {
   const parsedRef = parseAgentControllerRef(input.agentControllerRef);
+  const catalogId = parsedRef
+    ? getAgentControllerModelCatalogId(parsedRef)
+    : null;
   const unavailableReason = resolveModelCatalogUnavailableReason({
     hasCatalog: input.modelCatalog !== null,
     hasParsedRef: parsedRef !== null,
-    hasController: parsedRef
-      ? Object.hasOwn(input.modelCatalog?.agentControllers ?? {}, parsedRef.id)
+    hasController: catalogId
+      ? Object.hasOwn(input.modelCatalog?.agentControllers ?? {}, catalogId)
       : false,
   });
   const controller =
-    parsedRef && input.modelCatalog
-      ? (input.modelCatalog.agentControllers[parsedRef.id] ?? null)
+    catalogId && input.modelCatalog
+      ? (input.modelCatalog.agentControllers[catalogId] ?? null)
       : null;
   const models = (controller?.models ?? [])
     .filter((model) => !model.unavailable)

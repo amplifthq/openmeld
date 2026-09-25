@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildDesktopCommandEnv,
@@ -57,7 +58,9 @@ describe("Windows Desktop command environment", () => {
         APPDATA: process.env.APPDATA,
         TEMP: "C:\\Temp",
       });
-      expect(openMeldBin).toBeUndefined(); // Windows must discover npm/JS, not a fixed Mac binary.
+      expect(openMeldBin).toBe(
+        join(env?.OPENMELD_HOME ?? "", "bin", "openmeld.exe")
+      );
       expect(env).not.toHaveProperty("PRIVATE_SECRET");
     } finally {
       process.env = original;

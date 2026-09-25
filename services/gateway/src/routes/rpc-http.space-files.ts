@@ -32,6 +32,7 @@ import {
   spaceFileEntryIdSchema,
   spaceFileMimeTypeSchema,
   spaceFileRevisionNumberSchema,
+  spaceFileStreamMetadataSchema,
   spaceFileUpdateSettingsCommandSchema,
   spaceFileUpdateSettingsSchema,
   spaceFileUploadCommandSchema,
@@ -68,6 +69,7 @@ import {
 import { parseSpaceRouteParams } from "./rpc-http.parsers";
 import type { RpcHttpMethod } from "./rpc-http.types";
 
+const ATTACHMENT_DISPOSITION_PREFIX = /^attachment/u;
 const SPACE_FILES_ROUTE = "/v1/spaces/:spaceId/files";
 const SPACE_FILE_FOLDERS_ROUTE = "/v1/spaces/:spaceId/files/folders";
 const SPACE_FILE_ENTRY_ROUTE = "/v1/spaces/:spaceId/files/:entryId";
@@ -816,6 +818,8 @@ async function downloadSpaceFileContent(
   let resolved: ResolveSpaceFileContentResponse & {
     bytes: ReadableStream<Uint8Array>;
   };
+  let stream: import("@openmeld/schemas/types").SpaceFileStreamMetadata;
+  const head = c.req.method === "HEAD";
   try {
     const response = await c.var.coreRpc.streamSpaceFileContent(
       {
@@ -829,15 +833,38 @@ async function downloadSpaceFileContent(
         context: buildCoreRpcContext(c),
       },
       OPENMELD_SPACE_FILES_ORIGIN_VERSION,
-      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+      {
+        head,
+        ...(c.req.header("Range") ? { range: c.req.header("Range") } : {}),
+        ...(c.req.header("If-Range")
+          ? { ifRange: c.req.header("If-Range") }
+          : {}),
+      }
     );
-    const { bytes, ...metadata } = response;
+    const { bytes, stream: streamMetadata, ...metadata } = response;
+    const parsedStream =
+      spaceFileStreamMetadataSchema.safeParse(streamMetadata);
+    if (!parsedStream.success) {
+      await bytes.cancel();
+      throw new Error(
+        "Core does not support this file streaming contract yet."
+      );
+    }
+    stream = parsedStream.data;
     resolved = {
       ...resolveSpaceFileContentResponseSchema.parse(metadata),
       bytes,
     };
     if (!(resolved.bytes instanceof ReadableStream)) {
       throw new Error("Core returned invalid Space file bytes.");
+    }
+    if (
+      stream.status === 206 &&
+      stream.offset + stream.length > resolved.revision.sizeBytes
+    ) {
+      await resolved.bytes.cancel();
+      throw new Error("Core returned an invalid file range.");
     }
   } catch (error) {
     return respondCoreFileError({
@@ -848,16 +875,52 @@ async function downloadSpaceFileContent(
       spaceId: target.spaceId,
     });
   }
-  logFileSuccess(c, SPACE_FILE_CONTENT_ROUTE, "GET", target.spaceId, 200);
-  const content = resolved.bytes.pipeThrough(
-    // biome-ignore lint/correctness/noUndeclaredVariables: Workers native stream detects truncated downloads without buffering.
-    new FixedLengthStream(resolved.revision.sizeBytes)
+  logFileSuccess(
+    c,
+    SPACE_FILE_CONTENT_ROUTE,
+    "GET",
+    target.spaceId,
+    stream.status
   );
+  let length = resolved.revision.sizeBytes;
+  if (stream.status === 206) {
+    length = stream.length;
+  }
+  if (stream.status === 416) {
+    length = 0;
+  }
+  const bodyless = head || stream.status === 416;
+  if (bodyless) {
+    await resolved.bytes.cancel();
+  }
+  const content = bodyless
+    ? null
+    : resolved.bytes.pipeThrough(
+        // biome-ignore lint/correctness/noUndeclaredVariables: Workers native stream detects truncated downloads without buffering.
+        new FixedLengthStream(length)
+      );
   return withRequestIdHeader(
     new Response(content, {
+      status: stream.status,
       headers: {
+        "accept-ranges": "bytes",
+        "content-length": String(length),
+        etag: stream.etag,
+        ...(stream.status === 206
+          ? {
+              "content-range": `bytes ${stream.offset}-${stream.offset + stream.length - 1}/${resolved.revision.sizeBytes}`,
+            }
+          : {}),
+        ...(stream.status === 416
+          ? { "content-range": `bytes */${resolved.revision.sizeBytes}` }
+          : {}),
         "cache-control": PRIVATE_CONTENT_CACHE_CONTROL,
-        "content-disposition": buildContentDisposition(resolved.file.name),
+        "content-disposition": resolved.revision.mimeType.startsWith("video/")
+          ? buildContentDisposition(resolved.file.name).replace(
+              ATTACHMENT_DISPOSITION_PREFIX,
+              "inline"
+            )
+          : buildContentDisposition(resolved.file.name),
         "content-type": resolved.revision.mimeType,
         "x-content-type-options": "nosniff",
         "x-openmeld-file-revision": String(resolved.revision.revision),

@@ -41,6 +41,8 @@ const FORWARDED_HEADERS = new Set([
   OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
   "accept",
+  "range",
+  "if-range",
   "content-type",
   "x-tsr-redirect",
   "x-tsr-serverfn",
@@ -343,6 +345,11 @@ async function sanitizeCloudResponse(
   const responseHeaders = new Headers();
   for (const name of [
     "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "content-disposition",
+    "etag",
     "cache-control",
     "x-openmeld-file-revision",
     "x-request-id",

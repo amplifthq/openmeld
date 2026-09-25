@@ -1,6 +1,7 @@
 import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   computerConnectionIntentSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import { Command, Option } from "commander";
@@ -758,7 +759,7 @@ program
   });
 
 // Binary distribution only: install this binary into the managed layout.
-// Called by the install script (curl | sh delegates to `<tmp>/openmeld
+// Called by the downloaded install script (which delegates to `<tmp>/openmeld
 // install-self`) and by `openmeld update`. Hidden and absent under npm.
 if (isBinaryDistribution()) {
   program
@@ -2953,9 +2954,10 @@ spaceActionCmd
     });
   });
 
+// Compatibility for frozen/in-flight legacy work; not offered to new Agents.
 spaceActionCmd
-  .command("status")
-  .description("Record a final Space status for the current dispatch.")
+  .command("status", { hidden: true })
+  .description("Record a legacy final Space status for an existing dispatch.")
   .argument("<status>", "Final status: done|blocked|needs_input|handoff")
   .argument("<text...>", "Short status text")
   .action(async (status, textParts) => {
@@ -5144,6 +5146,7 @@ profileCmd
   });
 
 function shouldUseProfileCreationRequest(input: {
+  agentController?: unknown;
   agentControllerCollaborationMode?: unknown;
   computer?: unknown;
   defaultProject?: unknown;
@@ -5156,6 +5159,7 @@ function shouldUseProfileCreationRequest(input: {
   space?: unknown;
 }): boolean {
   return (
+    input.agentController === HOSTED_REMOTE_AGENT_CONTROLLER_REF ||
     typeof input.owner === "string" ||
     typeof input.computer === "string" ||
     typeof input.project === "string" ||

@@ -34,10 +34,10 @@ import {
 } from "#/lib/spaces/composer-file-drafts";
 import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors";
 import { SPACE_COMPOSER_FILE_PUBLISH_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
-import { spaceFileImageResources } from "#/query/spaces/space-file-image-resource";
+import { spaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import {
-	cacheSpaceComposerImage,
-	seedPublishedSpaceFileImage,
+	cacheSpaceComposerMedia,
+	seedPublishedSpaceFileMedia,
 	spaceFileQueryKeys,
 } from "#/query/spaces/space-files";
 import { formatSpaceFileSizeLimitError } from "./space-file-utils";
@@ -184,7 +184,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 					),
 					exact: true,
 				});
-				spaceFileImageResources(queryClient).find(url)?.release();
+				spaceFileMediaResources(queryClient).find(url)?.release();
 				session.previewUrlsByLocalId.delete(localId);
 			}
 		}
@@ -224,7 +224,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				session.sourceFiles.delete(localId);
 				const previewUrl = session.previewUrlsByLocalId.get(localId);
 				if (previewUrl) {
-					spaceFileImageResources(queryClient).find(previewUrl)?.release();
+					spaceFileMediaResources(queryClient).find(previewUrl)?.release();
 					session.previewUrlsByLocalId.delete(localId);
 				}
 			}
@@ -248,7 +248,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				}
 				for (const session of sessions.current.values()) {
 					for (const url of session.previewUrlsByLocalId.values()) {
-						spaceFileImageResources(queryClient).find(url)?.release();
+						spaceFileMediaResources(queryClient).find(url)?.release();
 					}
 				}
 			});
@@ -276,7 +276,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			session.sourceFiles.delete(localId);
 			const previewUrl = session.previewUrlsByLocalId.get(localId);
 			if (previewUrl) {
-				spaceFileImageResources(queryClient).find(previewUrl)?.release();
+				spaceFileMediaResources(queryClient).find(previewUrl)?.release();
 				session.previewUrlsByLocalId.delete(localId);
 			}
 			updateFiles((current) =>
@@ -379,7 +379,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 					declaredMimeType: file.type,
 					fileName: file.name,
 				});
-				const previewUrl = cacheSpaceComposerImage({
+				const previewUrl = cacheSpaceComposerMedia({
 					queryClient,
 					bytes: file,
 					mimeType,
@@ -584,7 +584,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				}
 				const bytes = session.sourceFiles.get(result.localId);
 				if (bytes) {
-					seedPublishedSpaceFileImage({
+					seedPublishedSpaceFileMedia({
 						...result.file,
 						bytes,
 						localId: result.localId,

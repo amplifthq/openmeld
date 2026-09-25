@@ -14,22 +14,31 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { buildProductionRenderer } from "../desktop/renderer-build.mjs";
 import { desktopWebBuildIdentity } from "../desktop/web-build-identity.mjs";
-import { runOwnedCommand } from "../dev/owned-command.mjs";
 import {
   checkProductionWeb,
   validateSsrPage,
 } from "./production-web-health.mjs";
+import {
+  buildProductionRenderer,
+  rendererBuildEnvironment,
+} from "./renderer-build.mjs";
 
 const ENV_FILE = /^\.env(?:\.|$)/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const BUILD_ENV =
-  /^(VITE_|CLOUDFLARE_ENV$|OPENMELD_DESKTOP_(TARGET|PILOT|NODE_HEAP_MB)$|OPENMELD_DEV_ISOLATED$|OPENMELD_GATEWAY_URL$|NODE_OPTIONS$|NODE_ENV$|BETTER_AUTH_URL$|WEB_APP_URL$)/u;
+  /^(VITE_|CLOUDFLARE_ENV$|OPENMELD_DESKTOP_(TARGET|PILOT)$|OPENMELD_RENDERER_NODE_HEAP_MB$|OPENMELD_DEV_ISOLATED$|OPENMELD_GATEWAY_URL$|NODE_OPTIONS$|NODE_ENV$|BETTER_AUTH_URL$|WEB_APP_URL$)/u;
 
-function productionBuildEnvironment(scope, env) {
+export function productionBuildEnvironment(scope, env, memoryBytes, platform) {
+  const desktopMacBuild =
+    scope === "desktop" && (platform ?? process.platform) === "darwin";
   return {
-    ...env,
+    ...rendererBuildEnvironment(
+      env,
+      memoryBytes,
+      platform,
+      desktopMacBuild ? 5120 : 4096
+    ),
     CLOUDFLARE_ENV: "prod",
     OPENMELD_RELEASE_ARTIFACT_CHECK: "1",
     OPENMELD_DESKTOP_PILOT: undefined,
@@ -357,7 +366,7 @@ export async function checkProductionArtifact({
   }
   // Vite preview may set NODE_ENV while loading its own configuration. Preserve
   // the caller's actual build inputs instead of hashing preview side effects.
-  const buildInputs = { ...process.env };
+  const buildInputs = productionBuildEnvironment(scope, process.env);
   const identity = await artifactInputIdentity(
     root,
     scope,
@@ -386,17 +395,7 @@ export async function checkProductionArtifact({
   // Anonymous local SSR needs the cookie module to initialize, not a real
   // production signing key. Production secret readiness has its own guard.
   env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = randomBytes(32).toString("hex");
-  if (scope === "desktop") {
-    await buildProductionRenderer(root, env);
-  } else if (
-    (await runOwnedCommand(
-      "pnpm",
-      ["--dir", "clients/web", "run", "build:prod"],
-      { cwd: root, env }
-    )) !== 0
-  ) {
-    throw new Error("Production Web build failed.");
-  }
+  await buildProductionRenderer(root, env);
 
   // Vite's Cloudflare preview consumes the generated output configuration and
   // runs that bundle in local Workerd, including SSR imports and asset modules.

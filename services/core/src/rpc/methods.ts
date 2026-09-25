@@ -271,12 +271,13 @@ import {
   resolvedSpaceMemberProfileSchema,
   resolveSpaceAttachmentForDownloadPayloadSchema,
   resolveSpaceComposerUploadScopeResponseSchema,
+  resolveSpaceFileStreamMetadata,
   respondToSpaceAgentInteractionInputSchema,
   runtimeReportingRouteParamsSchema,
   runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
-  SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
@@ -314,6 +315,8 @@ import {
   spaceFileClientMutationIdSchema,
   spaceFileMimeTypeSchema,
   spaceFileNameSchema,
+  spaceFileStreamOptionsSchema,
+  spaceTaskDetailOptionsSchema,
   submitRuntimeAgentControllerReportsBodySchema,
   submitRuntimeAgentControllerReportsResponseSchema,
   submitRuntimeProviderConversationProofsBodySchema,
@@ -675,6 +678,8 @@ import type {
   SpaceFileDescriptor,
   SpaceFilePinMutation,
   SpaceFilePinsResponse,
+  SpaceFileStreamMetadata,
+  SpaceFileStreamOptions,
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
@@ -685,6 +690,7 @@ import type {
   SpaceMessagePinMutation,
   SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
+  SpaceTaskDetailOptions,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
   SpaceTaskResponse,
@@ -915,6 +921,10 @@ import { createComputerFileAccessRpc } from "../computers/computer-file-access-r
 import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc";
 import { createServiceConnectionEvidenceRpc } from "../computers/service-connection-evidence-rpc";
 import { readOwnerServiceConnectionTrace } from "../computers/service-connection-trace";
+import {
+  reconcileAgentModelInbox,
+  reconcileRuntimeAgentModelInboxes,
+} from "../config/agent-model-inbox-reconciliation";
 import {
   readAuthoredModelCatalog,
   readModelCatalog,
@@ -2510,6 +2520,10 @@ export type ApplySpaceAgentStreamDeltaInput =
           kind: "thinking";
           thinkingSnapshot: string;
           reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
+        }
+      | {
+          kind: "progress";
+          progressSnapshot: string;
         }
     );
 
@@ -5237,6 +5251,18 @@ export async function rpcSubmitRuntimeAgentControllerReports(
       }
     }
 
+    if (result.status === "accepted") {
+      await reconcileRuntimeAgentModelInboxes({
+        env,
+        ownerUserId: request.userId,
+        nowMs: acceptedAtMs,
+        agentControllerRef: result.currentReport.agentControllerRef,
+        openMeldServiceRuntimeId: result.currentReport.openMeldServiceRuntimeId,
+      }).catch((error) =>
+        console.warn("[core.model_inbox.reconcile_failed]", { error })
+      );
+    }
+
     reports.push(
       result.status === "accepted"
         ? {
@@ -6286,6 +6312,21 @@ export async function rpcDisableAgentProfilePrimaryBinding(
         );
       });
     }
+
+    // Reconcile even on a no-op retry: the Binding write may have succeeded
+    // before an earlier Inbox projection failed. Keep target-mutation admission
+    // until this current-owner read finishes; never clear by an old model id.
+    await reconcileAgentModelInbox({
+      env,
+      ownerUserId: request.owner.id,
+      agentProfileId: request.agentProfileId,
+      nowMs: Date.now(),
+    }).catch((error) =>
+      console.warn("[core.model_inbox.reconcile_failed]", {
+        agentProfileId: request.agentProfileId,
+        error,
+      })
+    );
 
     return buildDisableAgentProfilePrimaryBindingResponse({
       agentProfileId: request.agentProfileId,
@@ -8407,6 +8448,7 @@ export async function rpcUpdateCenterAgentModel(
   const parsed = updateCenterAgentModelBodySchema.safeParse({
     expectedConfigurationRevision: input.expectedConfigurationRevision,
     preference: input.preference,
+    reasoningLevel: input.reasoningLevel,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -8435,6 +8477,7 @@ export async function rpcUpdateCenterAgentModel(
       binding: {
         configurationRevision: current.configurationRevision,
         modelId: requestedModelId,
+        reasoningLevel: parsed.data.reasoningLevel ?? null,
       },
       catalog: readModelCatalog(),
     });
@@ -8453,7 +8496,7 @@ export async function rpcUpdateCenterAgentModel(
       expectedConfigurationRevision: parsed.data.expectedConfigurationRevision,
       modelSelectionPatch: {
         modelId: requestedModelId,
-        reasoningLevel: null,
+        reasoningLevel: parsed.data.reasoningLevel ?? null,
       },
       owner: current.owner,
       updatedAtMs: Date.now(),
@@ -12549,8 +12592,15 @@ export async function rpcCenterAgentCreateSpace(
       code: "invalid_payload",
     });
   }
+  // The Center Agent has no owning member, so the represented member must
+  // become the initial human owner. Resolve it before any Space write.
+  const representedOwner = await resolveCenterAgentSpaceOwner({
+    authorization,
+    onBehalfOfProfileId: parsed.data.onBehalfOf?.profileId ?? null,
+  });
   const created = await createSpaceWithResolvedId(env, {
     spaceId: resolveNewSpaceId(env.OPENMELD_SPACES).toString(),
+    initialOwnerMember: representedOwner,
     ...(parsed.data.name === undefined ? {} : { name: parsed.data.name }),
     ...(typeof parsed.data.purpose === "string"
       ? { purpose: parsed.data.purpose }
@@ -12588,6 +12638,45 @@ export async function rpcCenterAgentCreateSpace(
     );
   }
   return validated.data;
+}
+
+async function resolveCenterAgentSpaceOwner(input: {
+  authorization: Awaited<
+    ReturnType<typeof requireCurrentDesignatedCenterAgentCaller>
+  >;
+  onBehalfOfProfileId: string | null;
+}): Promise<ResolvedSpaceMemberProfile> {
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization: input.authorization,
+    onBehalfOfProfileId: input.onBehalfOfProfileId,
+  });
+  const ownerUserId = attribution.onBehalfOf?.userId;
+  if (!(ownerUserId && input.onBehalfOfProfileId)) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "Choose the member who will own this Space.",
+      status: 403,
+    });
+  }
+  const member = await readResolvedOrganizationDirectorySpaceMember({
+    db: input.authorization.db,
+    organizationId: input.authorization.activeOrganization.organizationId,
+    profileId: input.onBehalfOfProfileId,
+  });
+  if (
+    !(
+      member &&
+      member.profileKind === "human" &&
+      member.ownerUserId === ownerUserId
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "Choose a current Organization member to own this Space.",
+      status: 403,
+    });
+  }
+  return member;
 }
 
 export async function rpcCenterAgentCreateAgentProfile(
@@ -18237,6 +18326,13 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
       env,
       mutate: async () =>
         await updatePrimaryAgentProfileBindingModelSelection({
+          runtimeAgentControllerReportStore: {
+            readCurrentReport: async (reportInput) =>
+              await readCurrentRuntimeAgentControllerReport({
+                ...reportInput,
+                db,
+              }),
+          },
           agentProfileId: request.agentProfileId,
           bindingStore: createD1AgentProfileBindingCommandStore({ db }),
           modelId: body.data.modelId,
@@ -18278,6 +18374,14 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
       error: toErrorMessage(error),
     });
   });
+  await reconcileAgentModelInbox({
+    env,
+    ownerUserId: request.owner.id,
+    agentProfileId: request.agentProfileId,
+    nowMs: Date.now(),
+  }).catch((error) =>
+    console.warn("[core.model_inbox.reconcile_failed]", { error })
+  );
   return buildAcceptedAgentProfileBindingResponse({
     binding: mapAgentProfileBindingLookupResultToProjection(lookupResult),
     result,
@@ -20032,9 +20136,13 @@ export async function rpcReadSpaceFileContent(
 
 export async function rpcStreamSpaceFileContent(
   env: CoreBindings,
-  input: ReadSpaceFileContentRpcInput
+  input: ReadSpaceFileContentRpcInput,
+  streamOptions?: SpaceFileStreamOptions
 ): Promise<
-  ResolveSpaceFileContentResponse & { bytes: ReadableStream<Uint8Array> }
+  ResolveSpaceFileContentResponse & {
+    bytes: ReadableStream<Uint8Array>;
+    stream?: SpaceFileStreamMetadata;
+  }
 > {
   const spaceAccess = resolveRpcSpaceAccess(input);
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
@@ -20042,6 +20150,25 @@ export async function rpcStreamSpaceFileContent(
     content: input.content,
     spaceAccess,
   });
+  // Authorization precedes both range validation and disclosure of file size.
+  const options =
+    streamOptions === undefined
+      ? undefined
+      : spaceFileStreamOptionsSchema.safeParse(streamOptions);
+  if (options && !options.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Invalid file streaming options.",
+      status: 400,
+    });
+  }
+  const stream = options?.success
+    ? resolveSpaceFileStreamMetadata({
+        options: options.data,
+        revisionId: resolved.revision.id,
+        sizeBytes: resolved.revision.sizeBytes,
+      })
+    : undefined;
   const auditEvent = buildSpaceFileContentAuditEvent({
     entryId: resolved.file.id,
     operation: "content_read",
@@ -20063,7 +20190,42 @@ export async function rpcStreamSpaceFileContent(
     const bucket = requireSpaceFileBucket(env);
     let object: R2ObjectBody | null;
     try {
-      object = await bucket.get(resolved.objectKey);
+      if (stream?.status === 416) {
+        // Do not open the original merely to report an unsatisfiable range.
+        return {
+          ...resolved,
+          stream,
+          bytes: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+        };
+      }
+      if (options?.success && options.data.head) {
+        const metadata = await bucket.head(resolved.objectKey);
+        if (!metadata || metadata.size !== resolved.revision.sizeBytes) {
+          throwSpaceFileStorageFailed(
+            "This file revision is unavailable or incomplete."
+          );
+        }
+        await stub.rpcRecordSpaceFileAuditEvent({ event: auditEvent });
+        return {
+          ...resolved,
+          stream,
+          bytes: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+        };
+      }
+      object =
+        stream?.status === 206
+          ? await bucket.get(resolved.objectKey, {
+              range: { offset: stream.offset, length: stream.length },
+            })
+          : await bucket.get(resolved.objectKey);
     } catch {
       throwSpaceFileStorageFailed("This file could not be read right now.");
     }
@@ -20072,6 +20234,7 @@ export async function rpcStreamSpaceFileContent(
     }
     bytes = object.body;
     if (object.size !== resolved.revision.sizeBytes) {
+      await bytes.cancel();
       throwSpaceFileStorageFailed("This file revision is incomplete.");
     }
   } catch (error) {
@@ -20085,7 +20248,7 @@ export async function rpcStreamSpaceFileContent(
     throw error;
   }
   await stub.rpcRecordSpaceFileAuditEvent({ event: auditEvent });
-  return { ...resolved, bytes };
+  return { ...resolved, bytes, ...(stream ? { stream } : {}) };
 }
 
 export async function rpcWriteSpaceFileContent(
@@ -20093,16 +20256,23 @@ export async function rpcWriteSpaceFileContent(
   input: WriteSpaceFileContentRpcInput
 ): Promise<SpaceFileDescriptor> {
   if (
-    input.write.sizeBytes > SPACE_FILE_MAX_SIZE_BYTES ||
+    input.write.sizeBytes > SPACE_FILE_RAW_UPLOAD_MAX_BYTES ||
     (input.bytes instanceof ArrayBuffer &&
       input.bytes.byteLength !== input.write.sizeBytes)
   ) {
     throw createCoreRpcHttpError({
       code: "space_file.too_large",
-      reason: "Files must be 250 MiB or smaller and match the declared size.",
+      reason: `Single-request writes must be ${SPACE_FILE_RAW_UPLOAD_MAX_BYTES / (1024 * 1024)} MiB or smaller and match the declared size. Use multipart upload for larger files.`,
       status: 413,
     });
   }
+  return await writePreparedSpaceFileContent(env, input);
+}
+
+async function writePreparedSpaceFileContent(
+  env: CoreBindings,
+  input: WriteSpaceFileContentRpcInput
+): Promise<SpaceFileDescriptor> {
   const spaceAccess = resolveRpcSpaceAccess(input);
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const prepared = await stub.rpcPrepareSpaceFileWrite({
@@ -20177,7 +20347,7 @@ export async function rpcStageSpaceComposerUpload(
   env: CoreBindings,
   input: StageSpaceComposerUploadRpcInput
 ): Promise<SpaceComposerUploadDescriptor> {
-  if (input.bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES) {
+  if (input.bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
     throw createCoreRpcHttpError({
       code: "space_file.too_large",
       reason: "Files must be 10 MiB or smaller.",
@@ -20267,7 +20437,7 @@ export async function rpcPublishSpaceComposerUpload(
     }
     return committedFile;
   }
-  return await rpcWriteSpaceFileContent(env, {
+  return await writePreparedSpaceFileContent(env, {
     bytes: (
       await readSpaceComposerUploadStream({
         bucket: requireSpaceFileBucket(env),
@@ -21726,6 +21896,7 @@ async function createSpaceWithResolvedId(
   env: CoreBindings,
   input: {
     spaceId: string;
+    initialOwnerMember?: ResolvedSpaceMemberProfile;
     name?: string;
     purpose?: string;
     guide?: string;
@@ -21757,42 +21928,103 @@ async function createSpaceWithResolvedId(
 
   const creator = toSpaceCreator(context);
   const spaceStub = stub as unknown as SpaceRpcStub;
-  if (input.password !== undefined) {
-    const meta = await spaceStub.rpcPatchMetaWithPasswordAtomic({
-      spaceId: normalizedSpaceId,
-      ...(input.name ? { name: input.name } : {}),
-      ...(typeof input.purpose === "string" ? { purpose: input.purpose } : {}),
-      creator,
-      ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
-      accessMode: input.accessMode ?? "protected",
+  const password = input.password;
+  if (password !== undefined) {
+    const meta = await initializeSpaceWithOwnerRecovery({
+      env,
       organizationId: input.organizationId,
-      password: input.password,
-      visibility: input.visibility,
-      context,
-    });
-    return {
+      ownerUserId: input.initialOwnerMember?.ownerUserId,
       spaceId: normalizedSpaceId,
-      meta,
-    };
+      initialize: () =>
+        spaceStub.rpcPatchMetaWithPasswordAtomic({
+          spaceId: normalizedSpaceId,
+          ...(input.name ? { name: input.name } : {}),
+          ...(typeof input.purpose === "string"
+            ? { purpose: input.purpose }
+            : {}),
+          creator,
+          ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
+          accessMode: input.accessMode ?? "protected",
+          organizationId: input.organizationId,
+          password,
+          visibility: input.visibility,
+          context,
+          ...(input.initialOwnerMember
+            ? { initialOwnerMember: input.initialOwnerMember }
+            : {}),
+        }),
+    });
+    return { spaceId: normalizedSpaceId, meta };
   }
 
-  const meta = await spaceStub.rpcPatchMeta({
-    spaceId: normalizedSpaceId,
-    ...(input.name ? { name: input.name } : {}),
-    ...(typeof input.purpose === "string" ? { purpose: input.purpose } : {}),
-    creator,
-    ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
-    ...(input.accessMode === undefined ? {} : { accessMode: input.accessMode }),
-    initializeIfAbsent: true,
+  const meta = await initializeSpaceWithOwnerRecovery({
+    env,
     organizationId: input.organizationId,
-    visibility: input.visibility,
-    context,
+    ownerUserId: input.initialOwnerMember?.ownerUserId,
+    spaceId: normalizedSpaceId,
+    initialize: () =>
+      spaceStub.rpcPatchMeta({
+        spaceId: normalizedSpaceId,
+        ...(input.initialOwnerMember
+          ? { initialOwnerMember: input.initialOwnerMember }
+          : {}),
+        ...(input.name ? { name: input.name } : {}),
+        ...(typeof input.purpose === "string"
+          ? { purpose: input.purpose }
+          : {}),
+        creator,
+        ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
+        ...(input.accessMode === undefined
+          ? {}
+          : { accessMode: input.accessMode }),
+        initializeIfAbsent: true,
+        organizationId: input.organizationId,
+        visibility: input.visibility,
+        context,
+      }),
   });
-
   return {
     spaceId: normalizedSpaceId,
     meta,
   };
+}
+
+async function initializeSpaceWithOwnerRecovery(input: {
+  env: CoreBindings;
+  organizationId: string;
+  ownerUserId?: string | null;
+  spaceId: string;
+  initialize: () => Promise<SpaceMeta>;
+}): Promise<SpaceMeta> {
+  try {
+    return await input.initialize();
+  } catch (error) {
+    if (!input.ownerUserId) {
+      throw error;
+    }
+    try {
+      // A new Space RPC runs after the failed call's DO reset. Its existing
+      // serial check retains protection if Space metadata did commit.
+      const recoveryStub = resolveSpaceStub(
+        input.env.OPENMELD_SPACES,
+        input.spaceId
+      );
+      if (!recoveryStub) {
+        throw new Error("Couldn't resolve Space owner protection recovery.");
+      }
+      await recoveryStub.rpcCheckSpaceOwnerDeparture({
+        organizationId: input.organizationId,
+        spaceId: input.spaceId,
+        userId: input.ownerUserId,
+      });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Space creation failed and owner protection could not be verified or cleaned up."
+      );
+    }
+    throw error;
+  }
 }
 
 function normalizeCreateSpaceName(value: unknown): string | undefined {
@@ -25194,15 +25426,17 @@ export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;
 };
 
-export type GetSpaceTaskInput = GetSpaceMetaInput & {
-  taskId: string;
-};
+export type GetSpaceTaskInput = GetSpaceMetaInput &
+  SpaceTaskDetailOptions & {
+    taskId: string;
+  };
 
 export type CreateSpaceTaskInput = GetSpaceMetaInput & {
   body: CreateSpaceTaskBody;
 };
 
-export type MutateSpaceTaskInput = GetSpaceTaskInput & {
+export type MutateSpaceTaskInput = GetSpaceMetaInput & {
+  taskId: string;
   body: MutateSpaceTaskBody;
 };
 
@@ -25258,12 +25492,16 @@ export async function rpcGetSpaceTask(
   env: CoreBindings,
   input: GetSpaceTaskInput
 ): Promise<SpaceTaskResponse> {
+  const options = spaceTaskDetailOptionsSchema.parse({
+    includeAffordances: input.includeAffordances,
+  });
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const context = input.context
     ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
     : undefined;
   return await stub.rpcGetTask({
     ...input,
+    ...options,
     spaceId,
     context,
     spaceAccess: resolveRpcSpaceAccess({ ...input, context }),

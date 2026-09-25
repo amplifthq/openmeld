@@ -121,7 +121,8 @@ export async function processGitHubAppWebhookQueueMessage(input: {
         cancelOperationId: spaceTaskGitHubIssueOperationId(
           "cancel",
           input.message.issue,
-          link.taskId
+          link.taskId,
+          input.message.deliveryId
         ),
         identity: {
           number: input.message.issue.number,
@@ -133,7 +134,8 @@ export async function processGitHubAppWebhookQueueMessage(input: {
             ? "observe-closed"
             : "observe-open",
           input.message.issue,
-          link.taskId
+          link.taskId,
+          input.message.deliveryId
         ),
         observedAt: input.message.issue.updatedAt,
         observedState: input.message.issue.state,

@@ -164,7 +164,7 @@ describe("space-mesh", () => {
         allowsRawReplyWithoutAction: false,
       })
     ).toEqual([
-      "Complete this Wake with exactly one final outcome: reply, status, or silent.",
+      "Complete this Wake with exactly one final outcome: reply or silent.",
       "A requested personal answer, acknowledgement, or result remains due even when it matches another member's answer. Choose silent only when no requested or useful contribution remains.",
     ]);
     expect(
@@ -173,9 +173,26 @@ describe("space-mesh", () => {
         allowsRawReplyWithoutAction: false,
       })
     ).toEqual([
-      "Complete this Wake with exactly one final outcome: status or silent.",
+      "Complete this Wake with exactly one final outcome: silent.",
       "A requested personal answer, acknowledgement, or result remains due even when it matches another member's answer. Choose silent only when no requested or useful contribution remains.",
     ]);
+  });
+
+  it("keeps a legacy status-only contract closed instead of granting reply permission", () => {
+    const policy = resolveSpacePublicationRequirement({
+      publicationMode: "collaboration",
+      allowedActions: ["post_status"],
+    });
+    expect(policy.allowedActions).toEqual(["post_status"]);
+    expect(policy.actionGuidanceLines.join("\n")).toContain(
+      "No current final tool is authorized"
+    );
+    const guidance = buildCompactDispatchActionGuidanceLines({
+      allowedActions: ["post_status"],
+      allowsRawReplyWithoutAction: false,
+    });
+    expect(guidance[0]).toContain("retired final action");
+    expect(guidance[0]).not.toContain("exactly one final outcome: reply");
   });
 
   it("derives continuity from objective runtime facts", () => {
@@ -198,11 +215,12 @@ describe("space-mesh", () => {
       })
     ).toEqual({
       actionGuidanceLines: [
-        "Use the dispatch-scoped Space Action reply for normal public replies, greetings, answers, and discussion.",
+        "Use reply for public answers, known limitations, error explanations, or requests for help. You do not need shell or repository access to explain that you cannot complete a task.",
         "Use the dispatch-scoped Space Action stay_silent action only when you intentionally do not want OpenMeld to publish a public reply.",
+        "Use existing Tasks for durable collaboration commitments and the Board to read their summary. Do not create a Task merely to acknowledge a message.",
       ],
       actionRequirementLine:
-        "Final outcome: record exactly one dispatch-scoped OpenMeld Space Action. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Your answer text never selects or substitutes for that action.",
+        "Final outcome: record exactly one permitted dispatch-scoped OpenMeld Space Action through the supplied interface. Your answer text never selects or substitutes for that action.",
       allowedActions: ["post_message", "stay_silent"],
       allowsRawReplyWithoutAction: false,
       howThisSpaceWorks:
@@ -222,9 +240,8 @@ describe("space-mesh", () => {
       })
     ).toEqual({
       actionGuidanceLines: [
-        'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.',
-        "Keep post_status text at 120 characters or fewer. Use post_message for answers, discussion, or anything longer.",
         "Use the dispatch-scoped Space Action stay_silent action only when you intentionally do not want OpenMeld to publish a public reply.",
+        "Use existing Tasks for durable collaboration commitments and the Board to read their summary. Do not create a Task merely to acknowledge a message.",
       ],
       actionRequirementLine:
         "Raw reply is allowed. Use OpenMeld Space Action only when you need a controlled visible outcome.",
@@ -234,7 +251,7 @@ describe("space-mesh", () => {
         "This Space uses transparent context sharing: OpenMeld may share your raw reply directly. Use OpenMeld Space Action when you need a controlled visible outcome.",
       publicationMode: "raw_context_sharing",
       repairRequirementLine:
-        "Return the plain raw reply, or record one dispatch-scoped OpenMeld Space Action for a controlled visible outcome. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Answer text never becomes an action.",
+        "Return the plain raw reply, or record one permitted dispatch-scoped OpenMeld Space Action through the supplied interface for a controlled visible outcome. Answer text never becomes an action.",
       requiresExplicitPublicAction: false,
     });
   });

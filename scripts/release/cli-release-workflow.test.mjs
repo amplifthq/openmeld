@@ -5,6 +5,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { requireProductionDatabaseCurrent } from "./require-production-db-current.mjs";
+import {
+  assertTrustedWindowsProcessArtifactRun,
+  selectReusableWindowsArtifact,
+} from "./reuse-windows-process-artifact.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -82,6 +86,82 @@ test("passes the explicit production train into hosted CLI admission", () => {
     assert.ok(workflow.includes(permission));
   }
   assert.ok(hostedRelease.includes("GH_TOKEN: token"));
+});
+
+test("reuses only a successful helper job from the official main CLI workflow", () => {
+  const repository = "amplifthq/openmeld";
+  const run = {
+    repository: { full_name: repository },
+    path: ".github/workflows/cli-release.yml",
+    event: "workflow_dispatch",
+    head_branch: "main",
+    head_sha: "a".repeat(40),
+    conclusion: "failure", // The later macOS publication may have failed.
+  };
+  const jobs = [
+    {
+      name: "Build Windows Process Helper For CLI Package",
+      conclusion: "success",
+    },
+  ];
+  assert.equal(
+    assertTrustedWindowsProcessArtifactRun({ run, jobs, repository }),
+    run.head_sha
+  );
+  for (const untrustedRun of [
+    { ...run, head_branch: "feature" },
+    { ...run, path: ".github/workflows/other.yml" },
+    { ...run, repository: { full_name: "other/repo" } },
+  ]) {
+    assert.throws(() =>
+      assertTrustedWindowsProcessArtifactRun({
+        run: untrustedRun,
+        jobs,
+        repository,
+      })
+    );
+  }
+  assert.throws(() =>
+    assertTrustedWindowsProcessArtifactRun({
+      run,
+      jobs: [{ ...jobs[0], conclusion: "failure" }],
+      repository,
+    })
+  );
+  assert.deepEqual(
+    selectReusableWindowsArtifact([
+      {
+        name: `windows-process-${"b".repeat(40)}`,
+        expired: false,
+      },
+    ]),
+    {
+      name: `windows-process-${"b".repeat(40)}`,
+      sourceSha: "b".repeat(40),
+    }
+  );
+  assert.throws(() =>
+    selectReusableWindowsArtifact([
+      { name: `windows-process-${"b".repeat(40)}`, expired: true },
+    ])
+  );
+
+  const workflow = readRepoFile(".github/workflows/cli-release.yml");
+  assert.ok(workflow.includes("windows_artifact_run_id:"));
+  const windowsJob = workflow
+    .split("  windows_process_artifact:")[1]
+    .split("  cli_release:")[0];
+  const macJob = workflow.split("  cli_release:")[1];
+  assert.ok(windowsJob.includes("inputs.windows_artifact_run_id == ''"));
+  assert.ok(!windowsJob.includes("Reuse the stamped Windows process helper"));
+  assert.ok(macJob.includes("!cancelled()"));
+  assert.ok(
+    macJob.includes("needs.windows_process_artifact.result == 'success'")
+  );
+  assert.ok(macJob.includes("Reuse the stamped Windows process helper"));
+  assert.ok(
+    macJob.includes("node scripts/release/reuse-windows-process-artifact.mjs")
+  );
 });
 
 test("keeps the signed and notarized CLI publisher fail closed", () => {
@@ -368,7 +448,24 @@ test("uses the exact release SHA for CLI publication and recovery", () => {
       source.indexOf("path: release-source")
   );
   assert.ok(source.includes("working-directory: release-source"));
-  assert.equal(source.match(/persist-credentials: false/gu)?.length, 2);
+  assert.equal(
+    source.match(/persist-credentials: false/gu)?.length,
+    source.match(/uses: actions\/checkout@v5/gu)?.length
+  );
+  assert.ok(
+    source.includes("node scripts/release/build-windows-process-helper.mjs")
+  );
+  assert.ok(
+    source.includes(
+      "node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-helper"
+    )
+  );
+  assert.ok(
+    source.indexOf("Verify and import Windows process helper") <
+      source.indexOf(
+        "Publish signed and notarized CLI, binary channel, npm package, tag, and Core"
+      )
+  );
 });
 
 test("validates current main first-parent membership before publication", () => {

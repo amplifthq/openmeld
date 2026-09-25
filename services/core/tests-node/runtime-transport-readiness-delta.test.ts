@@ -5,12 +5,14 @@ import {
 } from "../src/runtime-transport/application/runtime-transport-readiness-delta";
 
 function createSession(input: {
+  acceptingDispatches?: boolean;
   leases?: string[];
   included?: string[];
   skipped?: { profileId: string; skipReason: string }[];
   rejected?: { profileId: string; reasonCode: string }[];
 }) {
   return {
+    acceptingDispatches: input.acceptingDispatches,
     localWakeRouteReport:
       input.included || input.skipped
         ? {
@@ -28,6 +30,7 @@ function createSession(input: {
 describe("snapshotSessionReadinessComponents", () => {
   it("returns an empty snapshot for a missing session", () => {
     expect(snapshotSessionReadinessComponents(null)).toEqual({
+      acceptingDispatches: false,
       leaseProfileIds: [],
       reportIncludedProfileIds: [],
       reportSkippedKeys: [],
@@ -37,6 +40,25 @@ describe("snapshotSessionReadinessComponents", () => {
 });
 
 describe("diffSessionReadinessComponents", () => {
+  it.each([
+    true,
+    false,
+  ])("invalidates carried profiles when Service admission changes to %s", (acceptingDispatches) => {
+    const before = snapshotSessionReadinessComponents(
+      createSession({
+        leases: ["agt-a", "agt-b"],
+        acceptingDispatches: !acceptingDispatches,
+      })
+    );
+    const after = snapshotSessionReadinessComponents(
+      createSession({ leases: ["agt-a", "agt-b"], acceptingDispatches })
+    );
+    expect(diffSessionReadinessComponents(before, after)).toEqual([
+      "agt-a",
+      "agt-b",
+    ]);
+    expect(diffSessionReadinessComponents(after, after)).toEqual([]);
+  });
   it("returns nothing when a re-register carries identical facts", () => {
     const before = snapshotSessionReadinessComponents(
       createSession({

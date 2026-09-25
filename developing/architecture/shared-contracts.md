@@ -519,6 +519,26 @@ new tool to select main explicitly. This is a cloud-only capability: old/new
 CLI, Service, and Skills retain setup, Wake, Space actions, trace and recovery
 contracts. No local contract epoch or local component stamp changes are needed.
 
+## Center Agent session title generation
+
+`generateCenterAgentSessionTitle` is an additive, internal Core-to-Remote-Agent
+service-binding RPC. Its strict request and response live in `packages/schemas`.
+Space supplies bounded persisted message text and filenames; the receiver returns
+a validated short title or no topic. It has no tool, session, or Wake authority.
+The existing Space name and index projection carry the result, and existing
+metadata invalidations refresh readers. Auth personal titles retain precedence.
+
+Deploy the Remote Agent receiver before Core and Web. New Core with an older
+receiver keeps message publication working and leaves the default title when
+the optional RPC is unavailable. Older Core does not call the new receiver.
+Rollback Web/Core before removing the receiver. No public HTTP, WebSocket,
+native delivery, CLI, Service, or Skill payload changes; old and new clients
+retain setup, Wake, Space actions, and diagnostics interoperability. No database
+migration, contract epoch, or new binding is required. Packaged shared-input
+changes still follow the base-aware local-component stamp and publication rules
+in [Production Release](../engineering/production-release.md); an unchanged
+wire contract does not exempt changed bundle inputs from release readiness.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by
@@ -625,9 +645,10 @@ contracts. `externalWorkItems` defaults to `[]`, so stored Task JSON written
 before this field still parses. Gateway authenticates
 `GET/POST /v1/spaces/:spaceId/tasks` and
 `GET/PATCH /v1/spaces/:spaceId/tasks/:taskId`; Core RPC delegates to the owning
-Space Durable Object. Reads and writes require an active human or Agent member
-whose profile ownership matches the authenticated actor. Current Direct
-Messages reject the capability.
+Space Durable Object. Writes require an active human or Agent member whose
+profile ownership matches the authenticated actor. Member reads use the same
+actor boundary; public and shared-link reads use the existing read-only Space
+access contract. Current Direct Messages reject the capability.
 
 Create and mutation requests carry an operation id. Mutations also carry an
 expected revision. The Space Durable Object compares `expectedRevision` in the
@@ -636,13 +657,36 @@ HTTP 409. The SQL `UPDATE` is not a second concurrency authority. Replaying
 the same operation returns `applied: false`; reuse for different input is
 `space_task.operation_conflict` HTTP 409. Attaching too many GitHub issues is
 `space_task.external_work_item_limit`; detaching or observing a missing link is
-`space_task.external_work_item_not_found`. Those four codes belong to
+`space_task.external_work_item_not_found`. Reviews additionally require
+`expectedResultRevision`, identifying the submitted result the reviewer
+actually read. A different result is `space_task.result_revision_conflict`
+HTTP 409, even when the Task revision is current. New results use their
+submission's Task revision as their result revision, so reopening or
+reassigning a Task never reuses an earlier result identity. Those codes belong to
 `gatewayErrorCodeSchema` so mixed-version Gateways pass them through instead of
 wrapping them as `upstream_error`. Other Space Task codes such as
 `space_task.not_found`, `space_task.forbidden`, and `space_task.invalid_action`
 stay wrapped until a caller needs to distinguish them from generic upstream
-failures. Callers refresh the Task and retry once with a new operation id for
-revision conflicts; the writer does not last-write-wins over a stale brief.
+failures. Callers refresh the Task after a revision conflict and require a new
+decision before resubmitting a semantic change. They do not replace
+`expectedRevision` and blindly replay a stale brief or review. A provider
+observation may retry once with a refreshed revision because it reports
+provider-owned state rather than approving a changed Task.
+
+`GET` detail returns the legacy Task and event shape by default. A client may
+request `includeAffordances=1` to receive `allowedActions` and `pendingActions`.
+The former is projected by the same Core workflow preconditions used for
+mutations; it is a current affordance snapshot, not a permission grant. The
+writer rechecks actor, phase, revision, and action-specific input. Public
+readers receive no mutation actions or internal delivery status. Clients treat
+absent fields as empty and fail closed against older Core responses.
+`pendingActions` is a read projection of Task delivery intents with pending or
+failed status. It never reports that a Wake has actually stopped or that a
+provider update occurred merely because a Task changed phase. A canceled Task
+may request Stop for an exact recorded Wake when its retained cancellation
+actor is still an active, Auth-verified member; provider observations grant no
+such Stop authority. Stale handoffs are fenced when their Signal is persisted.
+
 List responses are bounded to 500 Tasks and report `truncated` rather than
 silently claiming complete history. GitHub issue association refuses to treat a
 truncated miss as "not found": it does not create another card and does not skip
@@ -671,12 +715,35 @@ consumers. A missing webhook secret fails closed. Old Gateway builds simply
 lack the route; old Core builds reject the new RPC. No local-component
 upgrade is required.
 
-Deploy schema consumers in Web, Gateway, and Core before the Remote Agent
-producer.
+The exact-result review change is not compatible with old review producers:
+new Core/Gateway reject review requests without `expectedResultRevision`.
+Old strict readers remain compatible because they do not request the optional
+detail fields. Deploy Web and Gateway consumers before Core, then the Remote
+Agent review producer. A new Web against old Core receives no affordances and
+shows no Task controls until Core is upgraded. New review producers fail closed
+against old strict receivers, so keep the mixed-version window short. The CLI
+command contract is bumped and the CLI update is required before the new Core
+release admits that capability.
+Do not infer a result revision on behalf of an old caller. Existing stored
+Tasks remain readable; their result revision is preserved until another
+result is submitted. Wake execution, finalization, Service carrier, and
+dispatch action-record contracts do not change.
+
+GitHub observation and cancellation operation IDs include a stable provider
+event identity. Retries of one event reuse its operation ID; distinct events
+for the same issue and state must not reuse a lifetime-wide operation ID. The
+shared operation ID limit is 512 characters so valid long GitHub owner and
+repository names still fit alongside a Task ID and event identity; deploy
+schema consumers before producers that emit longer IDs. Remote Agent uses the
+GitHub response's `updated_at` when present, or durably retains the first
+observation time under the provider write operation. Replaying that write must
+reuse both its event identity and observation time. A tool-driven issue close
+without a stable provider operation identity fails the Task association closed;
+the observation timestamp is never used as a substitute operation identity.
 
 The local Space Action MCP adds non-final Task tools alongside its one required
-final Space action. This is an additive CLI/OpenMeld Service/adapter contract
-and requires the normal local-component release audit. Remote Agent exposes the
+final Space action. Task review requires the exact-result CLI contract above
+and the normal local-component release audit. Remote Agent exposes the
 same Space-owned HTTP/RPC contract. Neither surface changes Agent Task Handles,
 RuntimeCoordinator envelopes, Wakeability, or final action receipts.
 `space.tasks.manage` is the additive privacy-safe Agent Activity key for the
@@ -983,6 +1050,22 @@ creation-preferences response remains unchanged. Remembered user choices take
 precedence, including explicit model-default reasoning. No Binding, Wake,
 Service lifecycle, or dispatch contract changes.
 
+### Reviewed Model Retirement
+
+The optional authored model `retirement` is reviewed policy, not scraped evidence
+or a time-triggered status. `announced` stays advisory; `withdrawn` requires an
+exact applicable controller/provider/sign-in scope. Model-catalog callers opt in
+with `?retirement=1` (or the optional Core RPC read preference); legacy strict
+version-1 projections omit it. Unknown scope never becomes a global unavailable
+flag. Share `model.retired` and `model.unavailable` reason semantics across Core,
+local routing and recovery; the public verdict remains `Unavailable`.
+
+The model owner feeds the existing Inbox source contract and current Core
+Wakeability. Neither projection mutates a Profile's manual enablement or model
+selection. Deploy accepting cloud readers before new local routing reasons. The
+model-selection owner document records the complete rollout and native-session
+limits; a catalog change alone does not upgrade old executable behavior.
+
 ### Organization Working Language Contracts
 
 `packages/schemas` owns the canonical BCP 47 language tag, `automatic` and
@@ -1205,6 +1288,30 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+`GET /v1/inbox/notification-observations` and Core `observeInboxNotifications`
+use the strict shared Inbox observation query, response and cursor schemas.
+Core derives the recipient/Organization from active membership, validates cursor
+scope and current source access, and reads a bounded insertion-ordered page from
+existing `inbox_items`. Initial requests return an empty baseline; continuation
+pins a finite upper row position until that window is consumed. Occurrence time
+is not an insertion position. Inbox uses soft clearing; this volatile cursor is
+not a durable cross-database-rebuild checkpoint. Browser reload starts a new
+baseline while its existing pending delivery ids remain recoverable.
+
+This endpoint is a read projection, not an unread writer or cross-device delivery
+lock. It returns current source facts and targets; no existing list/get/summary
+response changes. Web retains eligible ids in its existing scoped pending ledger
+before advancing. Browser delivery receipts require `show`, and aborting the
+current feed closes unacknowledged attempts. Storage availability is client-local
+capability, never a replacement for account preferences or Core read state.
+
+Contract impact: deploy **Core, then Gateway, then Web and the matching Desktop
+renderer**. New callers require the new receiver; do not expose them first or
+fall back to the lossy first-page reader. Roll back callers before the endpoint.
+Old Web/Desktop continue using unchanged APIs. No database migration, new Inbox
+table, CLI/Service/Skills contract floor, Wake/setup/trace change, or native IPC
+change is required; existing workstation execution can continue unchanged.
 
 The additive `/v1/inbox/feed` and `/v1/inbox/feed/state` endpoints use the shared
 `inbox-feed` HTTP/RPC contracts. Filters, counts, rank, group identity, request
@@ -2792,7 +2899,22 @@ metadata and grants no access. Clients refresh the shared file-list contract.
 Older clients safely ignore the topic and continue to observe current state on
 their next read.
 
-Space Files accept individual files up to 250 MiB. The single-request
+The file-content GET/HEAD surface supports single byte ranges for media.
+`spaceFileStreamOptionsSchema` and `spaceFileStreamMetadataSchema` own the optional
+fourth argument and metadata for Core's streaming RPC. Authorization precedes
+range resolution and size disclosure. Satisfiable ranges read only the R2 slice
+and return 206 with exact Content-Range and length; unsupported, multiple, or
+unsatisfiable ranges return 416. HEAD opens only storage metadata. A strong
+revision ETag owns If-Range; a mismatched or weak validator selects the full
+representation. Private cache policy and storage scoping do not change.
+
+Legacy RPC callers that do not opt in retain their old response shape. Deploy
+Core's optional receiver before Gateway's caller, then Web/Desktop media UI;
+roll back callers before receivers. Gateway fails closed if an old Core omits
+stream metadata rather than mislabeling a full response as partial. MIME
+inference adds MP4, M4V, MOV and WebM extensions, not a universal codec guarantee.
+
+Space Files accept individual files up to 1 GiB. The single-request
 compatibility path remains capped at 10 MiB; larger files use the shared
 resumable multipart contract rather than buffering larger requests in Gateway:
 Core-authorized upload
@@ -2808,7 +2930,7 @@ The resumable contract uses one server-owned lifecycle for creates and new
 revisions:
 
 1. `start` carries the exact target, requested name and folder when creating,
-   MIME type, expected byte size, per-part SHA-256 digests, base revision, and client mutation id. The
+   MIME type, expected byte size, up to 128 per-part SHA-256 digests, base revision, and client mutation id. The
    owning Space reauthorizes the actor, freezes that metadata, and returns an
    client's opaque upload-session id plus the R2-compatible part policy.
 2. The owning Space creates or resumes the R2 multipart upload under a private
@@ -2850,19 +2972,22 @@ contract verification in one receiver-first rollout. Downloads stream through
 Core and Gateway; CLI downloads stream to disk. The existing buffered internal
 read RPC remains capped at 10 MiB and rejects larger reads explicitly.
 
-The 250 MiB policy widens existing strict file descriptors. An older client
-can still upload small files but can reject a response containing a larger file.
-Release updated readers before enabling large-file producers: local components
-and Remote Agent readers, then Core and Gateway receivers, then Web and CLI
-authoring. Already-open Web clients must refresh. Setup, Service lifecycle,
-Wake routing, and execution authority are unchanged. Rollback disables new
-producers first and keeps readers capable of reading existing large files.
-The CLI and Service contracts and runtime execution epoch advance because old
-dispatch validators reject file references above 10 MiB. Both local components
-are required updates before receiving new dispatches; Skills are unchanged.
-Publish their compatible channel before deploying Core's new epoch. This avoids
-accepting a Wake that the old Service cannot decode. Existing in-flight work
-retains its normal coordinator finalization path.
+The 1 GiB policy widens existing strict file descriptors. An older client can
+still upload small files but can reject a response containing a file above its
+previous 250 MiB ceiling. Release updated readers before enabling larger-file
+producers: local components and Remote Agent readers, then Core and Gateway
+receivers, then Web and CLI authoring. Already-open Web clients must refresh.
+Deploy the Remote Agent video tool and Workers AI binding before Core begins
+including the video-inspection hint in hosted submissions; its file RPC calls
+use already-existing Core methods during that brief mixed-version interval.
+Setup, Service lifecycle, Wake routing, and execution authority are unchanged.
+Rollback disables new producers first and keeps readers capable of reading
+existing large files. The CLI and Service contracts and runtime execution epoch
+advance because old dispatch validators reject file references above 250 MiB.
+Both local components are required updates before receiving new dispatches;
+Skills are unchanged. Publish their compatible channel before deploying Core's
+new epoch. This avoids accepting a Wake that the old Service cannot decode.
+Existing in-flight work retains its normal coordinator finalization path.
 
 The canonical Space File rollout is receiver-first across strict boundaries:
 
@@ -3197,9 +3322,9 @@ Shared schema surfaces define the hosted Center Agent and workstation Local
 Agent Space-stream paths:
 
 - `packages/schemas/src/schemas/runtime/remote-agent-worker.ts` owns the
-  worker-to-Core sequenced text/thinking snapshot and tool-part callbacks plus
+  worker-to-Core sequenced text/public-progress snapshot and tool-part callbacks plus
   their shared response. Core accepts the legacy text-only callback while the
-  current producer emits the typed callback. Thinking is transient and must not
+  current producer emits the typed callback. Public progress is transient and must not
   enter callback-context storage or the final completion callback. This schema
   also owns the durable execution query and targeted
   cancellation request/response unions for one native-delivery submission.
@@ -3242,13 +3367,13 @@ Agent Space-stream paths:
   or a stuck execution from silence. Old Service/Gateway combinations do not
   negotiate the header and therefore continue without live reasoning.
 - `packages/schemas/src/schemas/protocol/agent-stream.ts` owns Space live text,
-  thinking, tool-part, and terminal frames plus the active stream presence,
+  thinking, public-progress, tool-part, and terminal frames plus the active stream presence,
   active text snapshot, and durable privacy-bounded Agent reply work
   projection. Text frames preserve the legacy wire shape. The active presence
   contains only stream identity, sequence, gap, and timing evidence; it carries
-  no reply text or private thinking. Thinking frames are active-stream-only
+  no reply text or private thinking. Thinking and public-progress frames are active-stream-only
   refresh data: Space may advance the shared sequence cursor and expose its
-  privacy-safe presence, but must not store thinking in SQL, bootstrap,
+  privacy-safe presence, but must not store either transient tail in SQL, bootstrap,
   conversation snapshots, Message details, or final Signals. The optional
   versioned `work`
   object is the only user-presentation meaning: it contains an admitted
@@ -3304,6 +3429,11 @@ response field for callers that did not opt in. A successful
 final reply carries the complete optional durable projection in
 `signal.text.data.meta.agentWorkSummary` and may separately expose its
 timestamped bounded summary through Message details for 14 days. During a
+successful hosted turn, the same final Signal may carry up to 8,192 characters
+of explicit public updates in `meta.agentPublicProgress`. This additive field
+contains neither provider reasoning nor tool input or output. Space stores its
+draft only until a terminal outcome and omits it for failed or stopped turns.
+During a
 mixed-version rollout, Core may also emit `meta.agentActivity` containing only
 steps accepted by the previously deployed strict schema. A cached older Web
 client ignores the additive `agentWorkSummary` field and can therefore keep the
@@ -5774,17 +5904,20 @@ reinterpret them into a second setup-or-retry decision.
 The shared schema supports both the rich local snapshot and its cloud-bound
 projection, but runtime reporting must construct the cloud projection through
 one shared allowlist. The cloud projection clears local command paths and launch
-arguments, authentication type, controller-provided skill inventory, and
+arguments, controller-provided skill inventory, and
 free-text local messages. It preserves the bounded controller-provided model IDs
 and display names as installation compatibility evidence, plus controller
-identity, coarse authentication status, optional provider email or bounded
+identity, coarse authentication status, the bounded authentication type needed
+for Core's account-scoped model admission, optional provider email or bounded
 account label, static capabilities, native interface, version/update evidence,
 launch status/count, bounded check evidence, Usage Limits, and stable readiness
 fields needed by Core and owner-facing clients. Provider account evidence is
 allowed only because the
 authenticated owner-only `listLocalRuntimes` surface needs to identify which
 local account OpenMeld will use; it must not flow into Organization computer
-directories or another member's read model. Do not make every schema field
+directories or another member's read model. Authentication type is retained in
+Core's report for admission and is omitted from Organization computer and owner
+computer detail projections. Do not make every schema field
 cloud-visible merely because a local adapter can populate it.
 
 The optional Organization Computer model ID is additive. Deploy Web and Gateway
@@ -6991,15 +7124,24 @@ A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
 
-An omitted access preference selects `space_context`; local project access is
-explicit or inherited from an authorized fork source. `workspace: isolated`
+An omitted access preference selects `space_context`, including an ordinary
+Claude Code Wake in parallel mode that creates a new implicit context. A retained
+context keeps its existing access. An explicit independent project task selects
+`workspace: isolated`. `workspace: isolated`
 with local access now means a committed project worktree with private Git data.
 The local preparation journal binds the shared assignment to its source and
 starting commit. Its paths remain local; it neither replaces the Core context
 association nor introduces a second Project connection. Source policy is checked
 before materialization, and native project access is probed before execution.
-Native platform temporary-directory access remains in effect; this contract
-does not promise complete temporary-directory isolation.
+Codex retains native platform temporary-directory access; that contract does
+not promise complete temporary-directory isolation. Claude Code project access
+requires a running Docker or Podman Linux-container engine on macOS, Linux, or
+Windows. The Service verifies one task-only mount before execution. Its
+dispatch-scoped `project_shell` MCP tool checks the current attempt's workspace
+lease on each call, then runs Bash with no container network, host credentials,
+or host socket. Claude's host file tools use restricted working-directory
+access; host Bash is unavailable. Container commands must stop before the
+Service releases or reconciles the task workspace.
 
 Core sets `contextRequest.required` only for an explicit client selection. An
 ordinary thread Wake carries its discussion scope with `required: false`; the
@@ -7007,8 +7149,11 @@ Context authority creates implicit thread contexts only for supported harnesses.
 Other harnesses retain their existing serial Binding path and do not select
 retained Context history from a previously configured harness. Explicit
 new/resume/fork/auto selections never fall back to that path. This changes Core's
-request-selection policy without changing the wire shape or Service capability
-version, and leaves existing Binding, lifecycle, and readiness checks in effect.
+request-selection policy while retaining existing Binding, lifecycle, and
+readiness checks. Claude project contexts additionally require Service adapter
+`executionContextVersion: 3`; older Services receive a visible update-required
+outcome. Version 2 remains sufficient for the legacy association and Codex
+contexts. The shared assignment wire shape remains v1.
 
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch
@@ -7041,7 +7186,9 @@ The separate Late reply presentation remains outside this implementation.
 Contract impact: HTTP signal/thread sends gain optional selection fields;
 accepted snapshots and RuntimeTransport gain version-1 context assignments;
 current task results gain context identity/completion fields; the local ledger
-and fork journal migrate to v2. Dispatch Space Action authority is unchanged.
+and fork journal migrate to v2. Dispatch Space Action authority is unchanged;
+the per-Wake tool catalog adds `project_shell` only for a verified Claude
+project context, without granting a second final action path.
 Setup, Service installation, CLI self-rescue, and managed Skill contracts are
 unchanged. Legacy unscoped execution keeps its existing payload and epoch.
 
@@ -7067,9 +7214,9 @@ association. An older Service receives a visible update-required outcome when
 it cannot read the selected task contract, never a delivery that silently reuses
 the Binding conversation. Assignment/history version remains 1; the capability
 increment identifies the new Service-side migration guard. Older Core strictly
-rejects unknown capability declarations, so deploy Core/Gateway support
-before distributing this Service and Web/CLI feature. This ordered rollout is
-required; publishing the local component first is unsupported. Local-component
+rejects unknown capability declarations, so deploy Core/Gateway support for
+version 3 before distributing this Service and Web/CLI feature. This ordered
+rollout is required; publishing the local component first is unsupported. Local-component
 release metadata is deferred in the feature PR and must be produced by the
 guarded release workflow before production rollout.
 
