@@ -80,6 +80,8 @@ const config = defineConfig(({ command, mode }) => {
 		},
 		// Keep browser diagnostics private. Full SSR maps exceed the current 4 GB
 		// release build budget; server errors retain native Worker invocation logs.
+		// Extend's document viewers split their worker bundles into ESM chunks.
+		worker: { format: "es" },
 		environments: {
 			client: {
 				build: {
