@@ -184,7 +184,11 @@ describe("SpaceMessageProgressStatus", () => {
 				.getByTestId("space-agent-tool-activity")
 				.getAttribute("aria-expanded")
 		).toBe("true");
-		expect(screen.getByText("Progress updates")).toBeTruthy();
+		expect(
+			within(
+				screen.getByRole("list", { name: "Work steps and updates" })
+			).getByText("Agent updates")
+		).toBeTruthy();
 		expect(
 			screen.getByRole("list", { name: "Work steps and updates" }).textContent
 		).toContain("Checking the current Space context.");

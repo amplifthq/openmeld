@@ -120,7 +120,6 @@ export function SpaceAgentToolActivity(input: {
 					<AgentWorkActivityViewport
 						isLive={isLive}
 						progress={progress}
-						progressActive={input.item.agentStreamState?.progressActive}
 						reasoning={reasoning}
 						reasoningActive={input.item.agentStreamState?.thinkingActive}
 						reasoningFirstOutputMs={
@@ -152,7 +151,6 @@ export function SpaceAgentToolActivity(input: {
 function AgentWorkActivityViewport(input: {
 	isLive: boolean;
 	progress?: string;
-	progressActive?: boolean;
 	reasoning?: string;
 	reasoningActive?: boolean;
 	reasoningFirstOutputMs?: number;
@@ -248,9 +246,9 @@ function AgentWorkActivityViewport(input: {
 				})}
 				{input.progress ? (
 					<AgentStreamText
-						label="Progress updates"
+						label="Agent updates"
 						slot="agent-public-progress"
-						streaming={input.isLive && input.progressActive !== false}
+						streaming={false}
 						text={input.progress}
 					/>
 				) : null}
@@ -339,7 +337,7 @@ function resolveAgentWorkHeading(input: {
 	if (input.reasoning) {
 		return "Thinking process";
 	}
-	return input.isLive ? "Live updates" : "Progress updates";
+	return "Agent updates";
 }
 
 function resolveAgentWorkListLabel(input: {

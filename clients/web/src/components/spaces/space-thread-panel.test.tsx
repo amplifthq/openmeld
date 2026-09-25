@@ -663,8 +663,8 @@ describe("SpaceThreadPanel", () => {
 		const activitySection = directChildren.find((child) =>
 			child.contains(activityTriggers[0] ?? null)
 		);
-		expect(directChildren.indexOf(answerSection as Element)).toBeLessThan(
-			directChildren.indexOf(activitySection as Element)
+		expect(directChildren.indexOf(activitySection as Element)).toBeLessThan(
+			directChildren.indexOf(answerSection as Element)
 		);
 	});
 

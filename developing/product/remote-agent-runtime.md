@@ -1852,11 +1852,11 @@ final-outcome authority.
 - Core validates every stream callback against the active native-delivery
   record before Space accepts it. Space owns the short-lived stream cursor,
   text projection, and companion text snapshot read model used for reconnect
-  recovery. Space retains only the privacy-bounded tool lifecycle summary
-  for a successfully published final reply, keyed by that Signal ID for 14 days
-  and readable only through Message details. The retained projection includes
-  only admitted semantic work; wrapper and legacy parts without it are not
-  exposed.
+  recovery. Space retains privacy-bounded tool working details keyed by the
+  published Signal ID for 14 days for Message details. It also attaches the
+  admitted semantic work summary to a successfully published final Signal for
+  the conversation's Work summary. Wrapper and legacy parts without admitted
+  work meaning are not exposed.
   Public progress is kept as a bounded active tail for live replay and as a
   short-lived Space draft until the terminal outcome. A successfully published
   final Signal may retain its last 8,192 characters of explicit public updates
@@ -1871,10 +1871,13 @@ final-outcome authority.
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
 stream callback. Text WebSocket frames keep their legacy shape. Web renders
-explicit hosted public progress inside the transient Work summary disclosure,
-alongside tool steps when present. Local Agent reasoning uses the same
-disclosure and Markdown viewport without changing its transient privacy
-boundary. The stream kinds keep distinct privacy boundaries.
+explicit hosted public Agent updates and admitted tool steps in one work
+disclosure above the streaming answer. The same placement and disclosure are
+used for Center Agent, personal Remote Agent, and Local Agent replies in main
+conversations and Threads. Public updates are milestone explanations, not
+execution heartbeats. Local Agent reasoning uses the same disclosure and
+Markdown viewport without changing its transient privacy boundary. The stream
+kinds keep distinct privacy boundaries.
 Rollback removes the Remote Agent producer before Core or Web
 consumers.
 

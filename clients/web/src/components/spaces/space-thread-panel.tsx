@@ -82,7 +82,6 @@ import {
 	type SpaceAgentInteractionPlacement,
 } from "./space-agent-interaction-placement";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
-import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import {
 	buildSpaceCollaborationProfilePresentations,
 	buildSpaceMemberDirectoryEntryByProfileId,
@@ -157,6 +156,7 @@ import {
 import { SpaceMessageReadObserver } from "./space-message-read-observer";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import { SpaceMessageTime } from "./space-message-time";
+import { SpaceMessageWork } from "./space-message-work";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -1564,6 +1564,10 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								}}
 								tabIndex={-1}
 							>
+								<SpaceMessageWork
+									item={input.item}
+									status={showProgressInAnswerArea ? progressStatus : null}
+								/>
 								<SpaceMessageBody
 									computerSetupContext={computerSetupPresentation.context}
 									computerSetupSourceSignalId={input.item.id}
@@ -1597,12 +1601,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										/>
 									)
 								)}
-								{input.item.agentActivity || input.item.agentPublicProgress ? (
-									<SpaceAgentToolActivity
-										item={input.item}
-										placement="message"
-									/>
-								) : null}
 								{renderAnchoredThreadOutcomeRows({
 									notices: anchoredOutcomeNotices,
 									onOpenMessageDetails: input.onOpenMessageDetails,
@@ -1613,7 +1611,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 									targetLabelsByProfileId:
 										input.wakeStopTargetLabelsByProfileId,
 								})}
-								{showProgressInAnswerArea ? progressStatus : null}
 								<MessageBubbleReactions />
 							</BubbleContent>
 						</Bubble>
