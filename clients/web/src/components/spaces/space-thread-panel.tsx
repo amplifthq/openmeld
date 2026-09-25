@@ -1564,10 +1564,12 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								}}
 								tabIndex={-1}
 							>
-								<SpaceMessageWork
-									item={input.item}
-									status={showProgressInAnswerArea ? progressStatus : null}
-								/>
+								{input.item.actorProfileKind === "agent" ? (
+									<SpaceMessageWork
+										item={input.item}
+										status={showProgressInAnswerArea ? progressStatus : null}
+									/>
+								) : null}
 								<SpaceMessageBody
 									computerSetupContext={computerSetupPresentation.context}
 									computerSetupSourceSignalId={input.item.id}
@@ -1601,6 +1603,10 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										/>
 									)
 								)}
+								{input.item.actorProfileKind !== "agent" &&
+								showProgressInAnswerArea
+									? progressStatus
+									: null}
 								{renderAnchoredThreadOutcomeRows({
 									notices: anchoredOutcomeNotices,
 									onOpenMessageDetails: input.onOpenMessageDetails,

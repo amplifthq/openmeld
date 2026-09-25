@@ -3010,7 +3010,12 @@ function ConversationBubbleContent(input: {
 				)}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
-			<SpaceMessageWork item={input.item} status={input.answerProgressStatus} />
+			{input.item.actorProfileKind === "agent" ? (
+				<SpaceMessageWork
+					item={input.item}
+					status={input.answerProgressStatus}
+				/>
+			) : null}
 			<SpaceMessageBody
 				computerSetupContext={input.computerSetupContext}
 				computerSetupSourceSignalId={input.item.id}
@@ -3025,6 +3030,9 @@ function ConversationBubbleContent(input: {
 				}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
+			{input.item.actorProfileKind !== "agent"
+				? input.answerProgressStatus
+				: null}
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>
