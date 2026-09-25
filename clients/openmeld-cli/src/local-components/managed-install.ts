@@ -14,6 +14,7 @@ import {
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
+import { allowUnsignedWindowsInternalPreview } from "@openmeld/local-service/cli-binary-update-artifact";
 import {
   cliInstallSelfResultSchema,
   resolveCliBinaryPlatform,
@@ -389,7 +390,8 @@ async function swapCurrentPointer(
   if (process.platform === "win32") {
     await activateWindowsManagedCli(
       resolveOpenMeldRootDir(),
-      path.basename(path.dirname(managedBinaryPath))
+      path.basename(path.dirname(managedBinaryPath)),
+      allowUnsignedWindowsInternalPreview() ? "windows-preview" : undefined
     );
     return;
   }
