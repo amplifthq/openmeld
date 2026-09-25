@@ -1541,6 +1541,7 @@ export {
   updateFeedbackIssueStatusForOrganizationRequestSchema,
   updateFeedbackReportingPolicyBodySchema,
 } from "./http/feedback";
+export { fileRootSchema } from "./http/file-root";
 export {
   gatewayErrorCodeSchema,
   gatewayErrorEnvelopeSchema,
