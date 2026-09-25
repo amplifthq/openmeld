@@ -97,6 +97,16 @@ class MissingComputerExecRecordError extends Error {
   }
 }
 
+export class ConfirmedMissingComputerCommandsError extends AggregateError {
+  constructor(errors: unknown[]) {
+    super(
+      errors,
+      "Computer command cleanup failed: a retained process record was missing during both inspection and Stop."
+    );
+    this.name = "ConfirmedMissingComputerCommandsError";
+  }
+}
+
 function commandPrefix(submissionId: string): string {
   return `${PREFIX}${encodeURIComponent(submissionId)}:`;
 }
@@ -573,12 +583,10 @@ export async function stopRemoteAgentComputerCommands(input: {
     }
   }
   if (failures.length > 0) {
-    throw new AggregateError(
-      failures,
-      lostDuringCleanup > 0
-        ? "Computer command cleanup failed: a retained process record was missing during both inspection and Stop."
-        : "Computer command cleanup failed."
-    );
+    if (lostDuringCleanup === failures.length) {
+      throw new ConfirmedMissingComputerCommandsError(failures);
+    }
+    throw new AggregateError(failures, "Computer command cleanup failed.");
   }
   return unfinished;
 }

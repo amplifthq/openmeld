@@ -101,6 +101,10 @@ same native delivery. The recovery reconciler may then publish that failure
 without repeatedly stopping a process that no longer exists. A failed
 inspection alone does not prove termination; a Stop request without an exit
 receipt keeps cleanup pending. Neither case replays the command.
+If the member already requested Stop, the durable cancellation request is
+acknowledged once exact-command absence is confirmed; reconciliation publishes
+the stopped outcome without treating the missing command as a local Service
+connection failure.
 
 Computer availability and conversation continuity are separate requirements.
 A Computer replacement may interrupt a native command; preserving that Linux

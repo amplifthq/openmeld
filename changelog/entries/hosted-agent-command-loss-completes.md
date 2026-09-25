@@ -9,3 +9,5 @@ audiences: ["members", "operators"]
 When a Hosted Agent's Computer confirms that a command is gone during cleanup,
 the request ends with a visible failure instead of staying in progress. It does
 not run the command again, so completed work is not repeated.
+If someone already selected Stop, OpenMeld confirms the request and shows the
+stopped outcome after cleanup settles.

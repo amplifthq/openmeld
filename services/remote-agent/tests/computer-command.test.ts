@@ -440,6 +440,67 @@ describe("retained Computer commands", () => {
     expect(f.killExec).toHaveBeenCalledTimes(commandCount * 2);
   });
 
+  it("acknowledges Stop and publishes one aborted outcome when a retained command is gone", async () => {
+    const f = fixture();
+    const executionContext = context("execution-a");
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    await f
+      .tool()
+      .execute({ action: "start", key: "long", command: "sleep 300" });
+    const missing = Object.assign(new Error("no exec record"), {
+      code: "ENOENT",
+    });
+    f.getExec.mockRejectedValue(missing);
+    f.killExec.mockRejectedValue(missing);
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
+    const abortSubmission = vi.fn(async () => {
+      await stopRemoteAgentComputerCommands({
+        context: executionContext,
+        env,
+        storage: f.storage,
+      });
+      return { aborted: true };
+    });
+
+    await expect(
+      cancelFlueRemoteAgentExecution({
+        abortSubmission,
+        identity,
+        nowMs: TEST_NOW_MS + 1,
+        reason: "Stopped by the user.",
+        storage: f.storage,
+      })
+    ).resolves.toMatchObject({
+      response: { status: "cancellation_requested" },
+    });
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      status: "accepted" as const,
+    }));
+    const reconcile = async () =>
+      await reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        env,
+        identity,
+        readSubmission: async () => ({ status: "settled" }),
+        storage: f.storage,
+      });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "aborted" },
+    });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "aborted" },
+    });
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(f.exec).toHaveBeenCalledOnce();
+  });
+
   it("keeps cleanup pending when inspection is missing but Stop has no exit proof", async () => {
     const f = fixture();
     const started = (await f
