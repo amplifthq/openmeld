@@ -22,6 +22,11 @@ import yqModules from "@cloudflare/computer/shell/yq";
 import { agentComputerBrowserRequestSchema } from "@openmeld/schemas";
 import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
+import {
+  inspectComputerPreview,
+  type PreviewBrowserBinding,
+  validateComputerPreviewPort,
+} from "./computer-preview";
 
 /**
  * The hosted Agent's computer: an identity-scoped durable workspace backed by
@@ -42,6 +47,7 @@ import { createBrowserTools } from "agents/browser/ai";
 export const AGENT_COMPUTER_BINDING = "AGENT_COMPUTER";
 export const AGENT_COMPUTER_SHELL_BACKEND_ID = "worker-shell";
 export const AGENT_COMPUTER_CONTAINER_BACKEND_ID = "container";
+const COMPUTER_PREVIEW_PATH = /^\/__preview\/(\d+)(\/.*)?$/u;
 
 /** Root layout of the computer. Prompt conventions reference these. */
 export const AGENT_COMPUTER_ROOT = "/computer";
@@ -102,6 +108,22 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     );
   }
 
+  async inspectPreview(input: {
+    expectedText: string;
+    path: string;
+    port: number;
+  }) {
+    if (!this.env.BROWSER) {
+      throw new Error("The Computer browser binding is unavailable.");
+    }
+    return await inspectComputerPreview({
+      ...input,
+      browser: this.env.BROWSER as unknown as PreviewBrowserBinding,
+      computerId: this.ctx.id.toString(),
+      ctx: this.ctx,
+    });
+  }
+
   readonly #containerBackend = new CloudflareContainerBackend({
     container: () => this,
     // Preserve the native Computer's existing public-network capability.
@@ -146,6 +168,21 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     const url = new URL(request.url);
     if (url.pathname === "/ws") {
       return await this.#containerBackend.handleFetch(request);
+    }
+    const preview = COMPUTER_PREVIEW_PATH.exec(url.pathname);
+    if (preview) {
+      const port = Number(preview[1]);
+      validateComputerPreviewPort(port);
+      if (!(request.method === "GET" || request.method === "HEAD")) {
+        return new Response("method not allowed", { status: 405 });
+      }
+      const headers = new Headers(request.headers);
+      headers.delete("host");
+      return await this.getWorkspaceContainer().fetchPort(
+        port,
+        `http://container${preview[2] ?? "/"}${url.search}`,
+        { method: request.method, headers, signal: AbortSignal.timeout(15_000) }
+      );
     }
     return new Response("not found", { status: 404 });
   }

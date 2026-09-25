@@ -277,6 +277,15 @@ navigation and interaction must occur in one call; persistent browser login,
 Live View, and human takeover are outside this increment. Existing browser
 Quick Actions remain available. The browser facet does not own Agent scheduling.
 
+`computer_preview` checks a development server already running in the same
+Agent Computer container. The Agent supplies an unprivileged port, a relative
+page path, and expected rendered text. Browser Run routes only the exact
+virtual preview hostname through a same-invocation Worker Entrypoint to that
+Computer's container port; no public preview URL or generic proxy is created.
+The browser session closes after the call. The result contains a bounded page
+text sample, assertion outcome, and JavaScript exceptions. This is a developer
+smoke check, not proof of authenticated production behavior or backend state.
+
 Completion must not write personal conversation content into Center Agent
 memory. Organization administration, personal Channels, and Center memory
 remain excluded. Shared infrastructure does not confer Center duties.

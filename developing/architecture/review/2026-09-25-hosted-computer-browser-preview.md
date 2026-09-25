@@ -8,7 +8,8 @@
 - Do not use this for: Current Browser Run tool behavior, production release authorization, or a claim that private preview is shipped.
 - Source of truth: Current package code, Cloudflare's Browser Run contracts, and an actual isolated deployed proof supersede this research note.
 
-Status: Research complete; private preview is not implemented.
+Status: Private preview implementation is in PR #1315; deployed Computer-port
+acceptance remains to be proven.
 
 Remove this note after a private preview implementation and deployed acceptance are recorded, with lasting contracts moved into `developing/product/remote-agent-runtime.md`.
 
@@ -44,7 +45,10 @@ package. Do not rely on an unrecognized option or assume it reached Browser Run.
 
 Cloudflare's official [browser binding example](https://developers.cloudflare.com/browser-run/features/outbound-workers/)
 already shows direct `launch({ outboundByHost })` and a bounded CDP connection.
-Use that path for an isolated deployed proof. Prefer the official Playwright
+An isolated deployed Worker proved that a Worker Entrypoint created in the same
+Durable Object invocation is accepted by Browser Run and renders JavaScript
+from a virtual `.test` hostname. A Durable Object stub passed directly to
+`outboundByHost` was rejected. Prefer the official Playwright
 helper once a published release implements the option; avoid maintaining a
 general browser harness solely to bridge this release gap.
 
