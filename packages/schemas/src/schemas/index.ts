@@ -1544,6 +1544,8 @@ export {
   updateFeedbackReportingPolicyBodySchema,
 } from "./http/feedback";
 export {
+  copyFileRootRevisionBodySchema,
+  copyFileRootRevisionResponseSchema,
   fileRootEntryResponseSchema,
   fileRootEntrySchema,
   fileRootFileDescriptorSchema,

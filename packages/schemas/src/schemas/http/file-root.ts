@@ -3,8 +3,11 @@ import { spaceFileUploadResponseSchema } from "./space-file-upload";
 import {
   spaceFileBreadcrumbSchema,
   spaceFileCapabilitiesSchema,
+  spaceFileClientMutationIdSchema,
   spaceFileDescriptorSchema,
   spaceFileEntryIdSchema,
+  spaceFileNameSchema,
+  spaceFileRevisionNumberSchema,
   spaceFileRevisionSchema,
   spaceFolderDescriptorSchema,
 } from "./space-files";
@@ -39,6 +42,26 @@ export const fileRootFileDescriptorSchema = spaceFileDescriptorSchema
 
 export const fileRootFileResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,
+});
+
+/** Copy one immutable revision into a new Team or member-owned file. */
+export const copyFileRootRevisionBodySchema = z.strictObject({
+  sourceLocation: z.enum(["team", "my"]),
+  sourceFileId: spaceFileEntryIdSchema,
+  sourceRevision: spaceFileRevisionNumberSchema,
+  name: spaceFileNameSchema,
+  parentId: spaceFileEntryIdSchema.nullable(),
+  clientMutationId: spaceFileClientMutationIdSchema,
+});
+
+export const copyFileRootRevisionResponseSchema = z.strictObject({
+  file: fileRootFileDescriptorSchema,
+  source: z.strictObject({
+    root: fileRootSchema,
+    fileId: spaceFileEntryIdSchema,
+    revision: spaceFileRevisionNumberSchema,
+    revisionId: z.string().min(1),
+  }),
 });
 
 export const fileRootUploadResponseSchema = spaceFileUploadResponseSchema

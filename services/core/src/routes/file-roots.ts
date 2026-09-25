@@ -223,7 +223,13 @@ async function restoreEntry(c: Context<HonoBindings>): Promise<Response> {
 export function resolveTarget(
   c: Context<HonoBindings>
 ): FileRootTarget | Response {
-  const location = c.req.param("location");
+  return resolveFileRootTarget(c, c.req.param("location"));
+}
+
+export function resolveFileRootTarget(
+  c: Context<HonoBindings>,
+  location: string
+): FileRootTarget | Response {
   const context = c.var.openMeldRequestContext;
   const organizationId = context.activeOrganizationId;
   const memberUserId = context.actorContext.callerPrincipalId;

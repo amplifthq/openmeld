@@ -539,6 +539,8 @@ export type {
   UpdateFeedbackReportingPolicyBody,
 } from "./feedback";
 export type {
+  CopyFileRootRevisionBody,
+  CopyFileRootRevisionResponse,
   FileRoot,
   FileRootEntry,
   FileRootFileDescriptor,

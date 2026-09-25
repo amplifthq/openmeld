@@ -87,6 +87,85 @@ async function fixture() {
 }
 
 describe("Team and member Files roots", () => {
+  it("copies an exact private revision to Team Files without changing its source or retry target", async () => {
+    const { organizationId, contexts } = await fixture();
+    const headersFor = (context: OpenMeldRequestContext) => {
+      const headers = new Headers({ "content-type": "application/json" });
+      applyOpenMeldRequestContextHeaders(
+        headers,
+        { requestContext: context },
+        OPENMELD_EXPECTED_FORWARDED_BY
+      );
+      return headers;
+    };
+    const original = await SELF.fetch(
+      `http://localhost/v1/organizations/current/files/my?name=notes.txt&clientMutationId=${crypto.randomUUID()}`,
+      {
+        method: "POST",
+        headers: new Headers({
+          ...Object.fromEntries(headersFor(contexts[0])),
+          "content-type": "text/plain",
+        }),
+        body: "first version",
+      }
+    );
+    expect(original.status).toBe(201);
+    const { file: privateFile } = (await original.json()) as {
+      file: { id: string };
+    };
+    const updated = await SELF.fetch(
+      `http://localhost/v1/organizations/current/files/my/${privateFile.id}/content?baseRevision=1&clientMutationId=${crypto.randomUUID()}`,
+      {
+        method: "PUT",
+        headers: new Headers({
+          ...Object.fromEntries(headersFor(contexts[0])),
+          "content-type": "text/plain",
+        }),
+        body: "second version",
+      }
+    );
+    expect(updated.status).toBe(200);
+    const mutationId = crypto.randomUUID();
+    const copyBody = {
+      sourceLocation: "my",
+      sourceFileId: privateFile.id,
+      sourceRevision: 1,
+      name: "shared-notes.txt",
+      parentId: null,
+      clientMutationId: mutationId,
+    };
+    const copy = (body: typeof copyBody, context = contexts[0]) =>
+      SELF.fetch(
+        "http://localhost/v1/organizations/current/files/team/copies",
+        {
+          method: "POST",
+          headers: headersFor(context),
+          body: JSON.stringify(body),
+        }
+      );
+    expect((await copy(copyBody, contexts[1])).status).toBe(404);
+    const first = await copy(copyBody);
+    expect(first.status).toBe(201);
+    const result = (await first.json()) as {
+      file: { id: string; root: unknown };
+      source: { revision: number };
+    };
+    expect(result.file.root).toEqual({ kind: "team", organizationId });
+    expect(result.source.revision).toBe(1);
+    const replay = await copy(copyBody);
+    expect(replay.status).toBe(201);
+    expect(((await replay.json()) as typeof result).file.id).toBe(
+      result.file.id
+    );
+    expect((await copy({ ...copyBody, sourceRevision: 2 })).status).toBe(409);
+    const teamRead = await SELF.fetch(
+      `http://localhost/v1/organizations/current/files/team/${result.file.id}/content`,
+      { headers: headersFor(contexts[1]) }
+    );
+    expect(teamRead.status).toBe(200);
+    expect(await teamRead.text()).toBe("first version");
+  });
+
   it("shares Team folders, isolates private folders, and revokes reads with membership", async () => {
     const { organizationId, users, contexts } = await fixture();
     const teamRoot = { kind: "team" as const, organizationId };

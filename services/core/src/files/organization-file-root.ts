@@ -55,6 +55,9 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS file_root_identity (
       id INTEGER PRIMARY KEY CHECK (id = 1), root_json TEXT NOT NULL
     )`);
+    this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS file_root_copy_requests (
+      client_mutation_id TEXT PRIMARY KEY, request_json TEXT NOT NULL
+    )`);
   }
 
   async list(
@@ -109,6 +112,47 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
     await this.authorize(input);
     const write = this.requireRootWrite(input.write);
     return this.repositoryOperation(() => this.repository.prepareWrite(write));
+  }
+
+  async reserveCopy(
+    input: RootRequest & {
+      clientMutationId: string;
+      sourceRoot: FileRoot;
+      sourceFileId: string;
+      sourceRevisionId: string;
+      name: string;
+      parentId: string | null;
+    }
+  ): Promise<void> {
+    await this.authorize(input);
+    const requestJson = JSON.stringify({
+      sourceRoot: organizationFileRootName(input.sourceRoot),
+      sourceFileId: input.sourceFileId,
+      sourceRevisionId: input.sourceRevisionId,
+      name: input.name,
+      parentId: input.parentId,
+    });
+    const existing = this.ctx.storage.sql
+      .exec<{ request_json: string }>(
+        "SELECT request_json FROM file_root_copy_requests WHERE client_mutation_id = ?",
+        input.clientMutationId
+      )
+      .toArray()[0];
+    if (existing) {
+      if (existing.request_json !== requestJson) {
+        throw createCoreRpcHttpError({
+          code: "file_root.copy_conflict",
+          reason: "This request ID was already used for another file copy.",
+          status: 409,
+        });
+      }
+      return;
+    }
+    this.ctx.storage.sql.exec(
+      "INSERT INTO file_root_copy_requests (client_mutation_id, request_json) VALUES (?, ?)",
+      input.clientMutationId,
+      requestJson
+    );
   }
 
   async commitWrite(

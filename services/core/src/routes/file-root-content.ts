@@ -1,7 +1,10 @@
 import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileRevisionIdForMutation,
+  buildSpaceFileRevisionIdFromDigest,
   commitSpaceFileWriteInputSchema,
+  copyFileRootRevisionBodySchema,
+  copyFileRootRevisionResponseSchema,
   createSpaceFileUploadQuerySchema,
   fileRootFileDescriptorSchema,
   fileRootUploadResponseSchema,
@@ -17,7 +20,13 @@ import type { Context, Hono } from "hono";
 import { buildOrganizationFileObjectKey } from "../files/file-root-identity";
 import type { HonoBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
-import { resolveTarget, rootRequest, toFileRootEntry } from "./file-roots";
+import { hashSpaceFileStream } from "../space/application/space-file-stream";
+import {
+  resolveFileRootTarget,
+  resolveTarget,
+  rootRequest,
+  toFileRootEntry,
+} from "./file-roots";
 import { mapRpcHttpError } from "./rpc-http-error";
 
 const ROOT_ROUTE = "/v1/organizations/current/files/:location";
@@ -26,10 +35,139 @@ const MULTIPART_ROUTE = `${ROOT_ROUTE}/file-uploads/:uploadId`;
 
 export function registerFileRootContentRoutes(app: Hono<HonoBindings>): void {
   app.post(ROOT_ROUTE, (c) => upload(c));
+  app.post(`${ROOT_ROUTE}/copies`, (c) => copyRevision(c));
   app.post(MULTIPART_ROUTE, (c) => multipartUpload(c));
   app.put(CONTENT_ROUTE, (c) => update(c));
   app.get(CONTENT_ROUTE, (c) => read(c));
   app.on("HEAD", CONTENT_ROUTE, (c) => read(c));
+}
+
+async function copyRevision(c: Context<HonoBindings>): Promise<Response> {
+  const destination = resolveTarget(c);
+  if (destination instanceof Response) {
+    return destination;
+  }
+  const body = copyFileRootRevisionBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return invalid(c);
+  }
+  const source = resolveFileRootTarget(c, body.data.sourceLocation);
+  if (source instanceof Response) {
+    return source;
+  }
+  try {
+    const resolved = await source.stub.resolveRevision({
+      ...rootRequest(source),
+      fileId: body.data.sourceFileId,
+      revision: body.data.sourceRevision,
+    });
+    const bucket = c.env.OPENMELD_SPACE_ATTACHMENTS;
+    if (!bucket) {
+      throw storageUnavailable();
+    }
+    const sourceKey = buildOrganizationFileObjectKey({
+      root: source.root,
+      fileId: body.data.sourceFileId,
+      revisionId: resolved.revision.id,
+    });
+    const sourceObject = await bucket.get(sourceKey);
+    if (!sourceObject || sourceObject.size !== resolved.revision.sizeBytes) {
+      throw storageUnavailable();
+    }
+    const digest = await hashSpaceFileStream(sourceObject.body);
+    const [fileId, revisionId] = await Promise.all([
+      buildSpaceFileEntryIdForMutation(body.data.clientMutationId),
+      buildSpaceFileRevisionIdFromDigest({
+        baseRevision: null,
+        contentDigest: digest,
+        clientMutationId: body.data.clientMutationId,
+        mimeType: resolved.revision.mimeType,
+        name: body.data.name,
+        parentId: body.data.parentId,
+      }),
+    ]);
+    const write = commitSpaceFileWriteInputSchema.parse({
+      spaceId: destination.rootId,
+      fileId,
+      revisionId,
+      name: body.data.name,
+      parentId: body.data.parentId,
+      baseRevision: null,
+      clientMutationId: body.data.clientMutationId,
+      mimeType: resolved.revision.mimeType,
+      sizeBytes: resolved.revision.sizeBytes,
+    });
+    await destination.stub.reserveCopy({
+      ...rootRequest(destination),
+      clientMutationId: body.data.clientMutationId,
+      sourceRoot: source.root,
+      sourceFileId: body.data.sourceFileId,
+      sourceRevisionId: resolved.revision.id,
+      name: body.data.name,
+      parentId: body.data.parentId,
+    });
+    await source.stub.recordContentAudit({
+      ...rootRequest(source),
+      entryId: body.data.sourceFileId,
+      revisionId: resolved.revision.id,
+      operation: "content_read",
+      operationId: body.data.clientMutationId,
+    });
+    let file = await destination.stub.prepareWrite({
+      ...rootRequest(destination),
+      write,
+    });
+    if (!file) {
+      const bytes = await bucket.get(sourceKey);
+      if (!bytes || bytes.size !== resolved.revision.sizeBytes) {
+        throw storageUnavailable();
+      }
+      // A copy keeps its source revision identity and destination audience explicit.
+      await source.stub.resolveRevision({
+        ...rootRequest(source),
+        fileId: body.data.sourceFileId,
+        revision: body.data.sourceRevision,
+      });
+      const destinationKey = buildOrganizationFileObjectKey({
+        root: destination.root,
+        fileId,
+        revisionId,
+      });
+      await bucket.put(destinationKey, bytes.body, {
+        httpMetadata: { contentType: resolved.revision.mimeType },
+        customMetadata: {
+          sourceRoot: body.data.sourceLocation,
+          sourceFileId: body.data.sourceFileId,
+          sourceRevisionId: resolved.revision.id,
+        },
+      });
+      await source.stub.resolveRevision({
+        ...rootRequest(source),
+        fileId: body.data.sourceFileId,
+        revision: body.data.sourceRevision,
+      });
+      file = await destination.stub.commitWrite({
+        ...rootRequest(destination),
+        write,
+      });
+    }
+    return c.json(
+      copyFileRootRevisionResponseSchema.parse({
+        file: toFileRootEntry(destination.root, file),
+        source: {
+          root: source.root,
+          fileId: body.data.sourceFileId,
+          revision: body.data.sourceRevision,
+          revisionId: resolved.revision.id,
+        },
+      }),
+      201
+    );
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
 }
 
 async function multipartUpload(c: Context<HonoBindings>): Promise<Response> {

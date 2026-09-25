@@ -1,4 +1,6 @@
 import {
+  copyFileRootRevisionBodySchema,
+  copyFileRootRevisionResponseSchema,
   fileRootEntryResponseSchema,
   fileRootFileResponseSchema,
   fileRootFolderResponseSchema,
@@ -11,6 +13,8 @@ import {
   trashSpaceFileEntryResponseSchema,
 } from "@openmeld/schemas";
 import type {
+  CopyFileRootRevisionBody,
+  CopyFileRootRevisionResponse,
   FileRootEntry,
   FileRootFileDescriptor,
   FileRootFolderDescriptor,
@@ -32,6 +36,27 @@ function contentPath(location: FileRootLocation, fileId: string): string {
 
 export function createFileRootApi(client: OpenMeldApiClientFoundation) {
   return {
+    async copyRevision(input: {
+      location: FileRootLocation;
+      body: CopyFileRootRevisionBody;
+    }): Promise<CopyFileRootRevisionResponse> {
+      const response = await client.requestJson({
+        url: `${rootPath(input.location)}/copies`,
+        operation: "files.copy",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(copyFileRootRevisionBodySchema.parse(input.body)),
+        schema: copyFileRootRevisionResponseSchema,
+        invalidMessage: "Invalid file copy response.",
+      });
+      if (
+        response.file.root.kind !==
+        (input.location === "my" ? "member" : "team")
+      ) {
+        throw new Error("Files returned a copy in a different location.");
+      }
+      return response;
+    },
     async list(input: {
       location: FileRootLocation;
       parentId?: string | null;
