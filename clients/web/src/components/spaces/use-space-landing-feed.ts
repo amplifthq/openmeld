@@ -16,7 +16,11 @@ import type {
 	SpaceThreadContext,
 	SpaceThreadSignalPlacement,
 } from "@openmeld/schemas/types";
-import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import {
+	type QueryClient,
+	replaceEqualDeep,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publishAgentReadinessInvalidationFrame } from "#/lib/agents/agent-readiness-invalidation-bus";
 import {
@@ -1861,10 +1865,17 @@ function mergeIncomingSignals(input: {
 	incoming: readonly SignalEnvelope[];
 	setState: (next: readonly SignalEnvelope[]) => void;
 }) {
-	const merged = mergeSpaceTimelineEnvelopes({
-		current: input.currentRef.current,
+	const current = input.currentRef.current;
+	const next = mergeSpaceTimelineEnvelopes({
+		current,
 		incoming: input.incoming,
 	});
+	// History may be rewrapped after cache writes; equivalent signals are not a state change.
+	const merged =
+		next.length === current.length ? replaceEqualDeep(current, next) : next;
+	if (merged === current) {
+		return current;
+	}
 	input.currentRef.current = merged;
 	input.setState(merged);
 	return merged;
