@@ -20262,6 +20262,13 @@ export async function rpcWriteSpaceFileContent(
       status: 413,
     });
   }
+  return await writePreparedSpaceFileContent(env, input);
+}
+
+async function writePreparedSpaceFileContent(
+  env: CoreBindings,
+  input: WriteSpaceFileContentRpcInput
+): Promise<SpaceFileDescriptor> {
   const spaceAccess = resolveRpcSpaceAccess(input);
   const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const prepared = await stub.rpcPrepareSpaceFileWrite({
@@ -20426,7 +20433,7 @@ export async function rpcPublishSpaceComposerUpload(
     }
     return committedFile;
   }
-  return await rpcWriteSpaceFileContent(env, {
+  return await writePreparedSpaceFileContent(env, {
     bytes: (
       await readSpaceComposerUploadStream({
         bucket: requireSpaceFileBucket(env),
