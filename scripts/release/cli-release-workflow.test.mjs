@@ -54,7 +54,7 @@ test("keeps the trusted GitHub release publication-only and focused on CLI and C
   assert.ok(!source.includes("  release_ready:"));
   assert.ok(source.includes("  reject_non_main:"));
   assert.ok(source.includes("  cli_release:"));
-  assert.ok(source.includes("if: github.ref == 'refs/heads/main'"));
+  assert.ok(source.includes("github.ref == 'refs/heads/main'"));
   assert.ok(source.includes("group: cli-production-release"));
   assert.equal(source.match(/cancel-in-progress: false/gu)?.length, 2);
 });
@@ -152,7 +152,16 @@ test("reuses only a successful helper job from the official main CLI workflow", 
     .split("  windows_process_artifact:")[1]
     .split("  cli_release:")[0];
   const macJob = workflow.split("  cli_release:")[1];
+  assert.ok(workflow.includes("      helper_only:"));
+  assert.ok(windowsJob.includes("inputs.helper_only ||"));
   assert.ok(windowsJob.includes("inputs.windows_artifact_run_id == ''"));
+  assert.equal(
+    windowsJob.match(
+      /inputs\.helper_only && github\.sha \|\| inputs\.release_sha \|\| github\.sha/gu
+    )?.length,
+    2
+  );
+  assert.ok(macJob.includes("!inputs.helper_only"));
   assert.ok(!windowsJob.includes("Reuse the stamped Windows process helper"));
   assert.ok(macJob.includes("!cancelled()"));
   assert.ok(

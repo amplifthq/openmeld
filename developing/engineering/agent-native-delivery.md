@@ -30,6 +30,9 @@ branches used.
    and manifest changes only in the clean
    [publishing release worktree](development-workflow.md#local-components-release-tool)
    on a `codex/release-X.Y.Z-<baseSHA>` branch.
+   Resolve Core/Service version-floor changes and the
+   [Windows helper source](production-release.md#cli-release) before paying for
+   the final candidate or stamping a release manifest.
    Reserve the `codex/release-` prefix for those versioned branches; ordinary
    delivery-tool changes use a different `codex/` branch name.
 2. [Merge](#merge) against current `main`. If a merge command fails or returns
@@ -45,6 +48,8 @@ branches used.
    before it. Guarded release commands recheck before publication.
    Do not repeat the full history scan after each stage; use that stage's
    workflow result, release receipt, and health evidence to track completion.
+   When every planned stage has those receipts, do not rescan solely to close
+   the task; rescan for missing, changed, or conflicting evidence.
    If unrelated commits landed between separate merges, plan those ranges
    separately instead of attributing them to this batch.
    It covers Database, cloud, and CLI; read current-change scopes separately
@@ -56,7 +61,9 @@ branches used.
    schema or Service inputs changed, run the read-only
    `pnpm release:local-components plan --next` before starting Core; it can run
    alongside an earlier independent deploy stage. Decide the supported Core/CLI
-   path from that result. Record each component and supported Desktop platform as
+   path from that result. Use one low-frequency workflow wait; read logs when
+   state changes or fails instead of polling unchanged output. Record each
+   component and supported Desktop platform as
    released, pending, excluded with a concrete
    reason, or unknown when evidence cannot be read. Promotion and [installed
    A-to-B acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
