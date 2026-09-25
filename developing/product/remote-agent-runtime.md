@@ -1927,8 +1927,9 @@ surface adopts official features where they are free**:
     through `env.LOADER`, instant, no container, no public network, text
     tooling only) and container (computerd in a Cloudflare Container,
     FUSE-mounting this same workspace at `/computer` with `MOUNT_POINT`
-    pinned for same-path fidelity; full Linux userland with python3, git,
-    curl, jq; changes sync back over capnweb). The model selects the backend
+    pinned for same-path fidelity; full Linux userland with Node.js 24,
+    Corepack-managed pnpm, Python, git, curl, jq, and native build tools;
+    changes sync back over capnweb). The model selects the backend
     per bash call and is prompted to prefer worker-shell. Computer SDK and
     computerd use version 0.2.1 together. Container network access is explicitly
     direct; worker-shell remains network-disabled. A replaced runtime reports
