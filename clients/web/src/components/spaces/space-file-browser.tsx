@@ -436,7 +436,11 @@ function SpaceFileBrowserContent(input: {
 			<ContextMenu>
 				<ContextMenuTrigger
 					className="block"
-					onContextMenuCapture={() => setSelectedId(null)}
+					onContextMenuCapture={(event) => {
+						if (!(event.target as Element).closest('[role="option"]')) {
+							setSelectedId(null);
+						}
+					}}
 				>
 					{mounted ? (
 						<Suspense fallback={<SpaceFilesSkeleton />}>
@@ -458,6 +462,9 @@ function SpaceFileBrowserContent(input: {
 								}
 								isLoading={input.isPending}
 								items={items}
+								onEntryContextMenu={(item) =>
+									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
+								}
 								onFileOpen={(file) => {
 									const entry = entriesByPath.get(file.path);
 									if (entry) {

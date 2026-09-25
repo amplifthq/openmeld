@@ -2,6 +2,16 @@
 
 import { createFileRootApi, type FileRootLocation } from "@openmeld/api-client";
 import type { FileRootEntry } from "@openmeld/schemas/types";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@openmeld/ui/components/alert-dialog";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	ContextMenu,
@@ -12,6 +22,7 @@ import {
 import {
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
+	CopyIcon,
 	FolderOpenIcon,
 	FolderPlusIcon,
 	PencilSimpleIcon,
@@ -60,6 +71,10 @@ function TeamFilesBrowser(input: {
 		null
 	);
 	const [movingEntry, setMovingEntry] = useState<FileRootEntry | null>(null);
+	const [copyingEntry, setCopyingEntry] = useState<Extract<
+		FileRootEntry,
+		{ kind: "file" }
+	> | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [uploadProgress, setUploadProgress] = useState<{
 		name: string;
@@ -155,6 +170,7 @@ function TeamFilesBrowser(input: {
 		setView("active");
 		setActionError(null);
 	};
+	const copyDestination: FileRootLocation = location === "team" ? "my" : "team";
 	const toolbarStart = (
 		<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 			{parentId && view === "active" ? (
@@ -302,7 +318,11 @@ function TeamFilesBrowser(input: {
 				>
 					<ContextMenuTrigger
 						className="block h-full"
-						onContextMenuCapture={() => setSelectedId(null)}
+						onContextMenuCapture={(event) => {
+							if (!(event.target as Element).closest('[role="option"]')) {
+								setSelectedId(null);
+							}
+						}}
 					>
 						<Suspense
 							fallback={
@@ -342,6 +362,9 @@ function TeamFilesBrowser(input: {
 								isLoading={files.isPending}
 								items={items}
 								key={`${currentOrganization.id}:${location}:${parentId ?? "root"}:${view}`}
+								onEntryContextMenu={(item) =>
+									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
+								}
 								onFolderOpen={(folder) => {
 									const entry = entriesByPath.get(folder.path);
 									if (entry?.kind === "folder") {
@@ -371,6 +394,18 @@ function TeamFilesBrowser(input: {
 										>
 											<FolderOpenIcon aria-hidden="true" />
 											Move to folder…
+										</ContextMenuItem>
+									) : null}
+									{view === "active" &&
+									selectedEntry.kind === "file" &&
+									!currentOrganization.isPersonal ? (
+										<ContextMenuItem
+											onClick={() => setCopyingEntry(selectedEntry)}
+										>
+											<CopyIcon aria-hidden="true" />
+											{location === "my"
+												? "Copy to Team files…"
+												: "Copy to My files…"}
 										</ContextMenuItem>
 									) : null}
 									{view === "active" ? (
@@ -494,6 +529,64 @@ function TeamFilesBrowser(input: {
 				]}
 				rootLabel={location === "my" ? "My files" : "Team files"}
 			/>
+			<AlertDialog
+				onOpenChange={(open) => {
+					if (!open) {
+						setCopyingEntry(null);
+					}
+				}}
+				open={copyingEntry !== null}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							Copy {copyingEntry?.name} to{" "}
+							{copyDestination === "team" ? "Team files" : "My files"}?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							{copyDestination === "team"
+								? "Team members will be able to open this copy. Your original stays private."
+								: "Only you can open this copy. The Team original stays in Team files."}{" "}
+							The copy keeps this version and won't follow later changes.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							disabled={busy}
+							onClick={() => {
+								const entry = copyingEntry;
+								if (!entry) {
+									return;
+								}
+								runAction(() =>
+									api.copyRevision({
+										location: copyDestination,
+										body: {
+											sourceLocation: location,
+											sourceFileId: entry.id,
+											sourceRevision: entry.latestRevision.revision,
+											name: entry.name,
+											parentId: null,
+											clientMutationId: crypto.randomUUID(),
+										},
+									})
+								)
+									.then((copied) => {
+										if (copied) {
+											setCopyingEntry(null);
+											changeLocation(copyDestination);
+										}
+									})
+									.catch(console.error);
+							}}
+							type="button"
+						>
+							Copy file
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</section>
 	);
 }

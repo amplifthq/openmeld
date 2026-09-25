@@ -197,6 +197,8 @@ export type FileSystemProps = {
   /** Folder prefix to open initially, e.g. `"invoices/"`. */
   defaultPath?: string
   onSelectionChange?: (item: FileSystemItem | null) => void
+  /** Reports the right-click target even when it is already selected. */
+  onEntryContextMenu?: (item: FileSystemItem) => void
   /**
    * Called on file open (double-click), replacing the built-in behavior. By
    * default PDF and image files open in a viewer dialog and
@@ -1247,6 +1249,7 @@ export function FileSystem({
   onViewChange,
   defaultPath = "",
   onSelectionChange,
+  onEntryContextMenu,
   onFileOpen,
   onFolderOpen,
   getFileUrl,
@@ -1809,6 +1812,13 @@ export function FileSystem({
     },
     [ensureChildren, selectEntry]
   )
+  const contextMenuEntry = React.useCallback(
+    (entry: FileSystemEntry) => {
+      selectAndPrefetchEntry(entry)
+      onEntryContextMenu?.(entry)
+    },
+    [onEntryContextMenu, selectAndPrefetchEntry]
+  )
   const goBack = React.useCallback(() => {
     setHistory((previous) => ({
       ...previous,
@@ -1843,7 +1853,7 @@ export function FileSystem({
     loadPreviewImageUrl,
     loadingFolders,
     onOpen: openEntry,
-    onContextMenuEntry: selectAndPrefetchEntry,
+    onContextMenuEntry: contextMenuEntry,
     onSelect: selectAndPrefetchEntry,
     onSortColumnClick: toggleSortColumn,
     pageUrlCache,
