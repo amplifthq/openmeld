@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-25T15:05:54.673Z",
+  "updatedAt": "2026-09-25T15:36:32.546Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
@@ -9,7 +9,7 @@
       "reason": "New cloud file references may reach 1 GiB; older CLI readers reject the expanded file contract."
     },
     "service": {
-      "bundleHash": "a54dc806fdbd00fcb24e0c64d0372ca432d97fb56a146d625ecf37ab15d1720f",
+      "bundleHash": "6c480b26d3aada9b92afe368bdc6ed256ff7ac88674048ca20eb89627c583afe",
       "portableBundleHash": "a3fcc45e40e93058c888cdc76624fa06e00f6897ff8e0d256bc79908e5479d9a",
       "bundleVersion": "0.3.224",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
