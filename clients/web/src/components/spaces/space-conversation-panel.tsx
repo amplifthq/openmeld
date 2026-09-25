@@ -49,6 +49,7 @@ import {
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import { useHistorySliderPreference } from "#/lib/spaces/history-slider-preference";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
@@ -111,7 +112,6 @@ import {
 	type SpaceAgentInteractionPlacement,
 } from "./space-agent-interaction-placement";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
-import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import {
 	buildSpaceCollaborationProfilePresentations,
 	buildSpaceMemberDirectoryEntryByProfileId,
@@ -208,6 +208,7 @@ import {
 	useSpaceMessageStateTuningPreviewItems,
 } from "./space-message-state-tuning-preview";
 import { SpaceMessageTime } from "./space-message-time";
+import { SpaceMessageWork } from "./space-message-work";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -720,7 +721,9 @@ function SpaceConversationPanelContent(
 		[readingHeader, registerConversationScrollElement]
 	);
 	const supportsHistoryRail = useMediaQuery("(min-width: 640px)");
+	const historySlider = useHistorySliderPreference();
 	const showHistoryRail =
+		historySlider.enabled &&
 		supportsHistoryRail &&
 		(input.historyNavigation?.directory?.total ?? 0) >
 			SPACE_INITIAL_HISTORY_MAX_MESSAGES;
@@ -754,7 +757,7 @@ function SpaceConversationPanelContent(
 				"flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
 				input.className
 			)}
-			data-space-history-rail={showHistoryRail ? "true" : undefined}
+			data-space-history-rail="true"
 		>
 			{input.historyActionErrorMessage || input.historyErrorMessage ? (
 				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
@@ -825,7 +828,7 @@ function SpaceConversationPanelContent(
 							scrollElement={conversationScrollElement}
 						/>
 						<MessageScroller className="relative min-h-0 flex-1">
-							{input.historyNavigation && showHistoryRail && (
+							{input.historyNavigation && (
 								<SpaceHistoryRail
 									controller={input.historyNavigation}
 									items={mainTimelineItems}
@@ -3007,6 +3010,12 @@ function ConversationBubbleContent(input: {
 				)}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
+			{input.item.actorProfileKind === "agent" ? (
+				<SpaceMessageWork
+					item={input.item}
+					status={input.answerProgressStatus}
+				/>
+			) : null}
 			<SpaceMessageBody
 				computerSetupContext={input.computerSetupContext}
 				computerSetupSourceSignalId={input.item.id}
@@ -3021,7 +3030,9 @@ function ConversationBubbleContent(input: {
 				}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
-			{input.answerProgressStatus}
+			{input.item.actorProfileKind !== "agent"
+				? input.answerProgressStatus
+				: null}
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>
@@ -3037,7 +3048,6 @@ function ConversationBubbleContent(input: {
 					/>
 				)
 			)}
-			{renderDurableAgentActivity(input.item)}
 			<ReplyStalenessMarker align={input.messageAlign} item={input.item} />
 			{renderAnchoredSpaceOutcomeRows({
 				notices: input.anchoredOutcomeNotices,
@@ -3337,13 +3347,6 @@ function getOpenMessageDetailsHandler(input: {
 		return undefined;
 	}
 	return () => input.onOpenMessageDetails(input.item);
-}
-
-function renderDurableAgentActivity(item: SpaceTimelineItem) {
-	if (!(item.agentActivity || item.agentPublicProgress)) {
-		return null;
-	}
-	return <SpaceAgentToolActivity item={item} placement="message" />;
 }
 
 function resolveConversationMessageFooterThreadAction(input: {

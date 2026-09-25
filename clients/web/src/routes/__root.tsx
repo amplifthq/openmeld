@@ -37,6 +37,7 @@ import {
 import { submitApplicationErrorReport } from "#/lib/observability/application-error-client";
 import { buildPublicPageHead, siteConfig } from "#/lib/site";
 import { SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/conversation-layout-preference";
+import { HISTORY_SLIDER_BOOTSTRAP_SCRIPT } from "#/lib/spaces/history-slider-preference";
 import { SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/self-message-alignment-preference";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import appCss from "../styles.css?url";
@@ -195,6 +196,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 					dangerouslySetInnerHTML={{
 						__html: SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT,
 					}}
+					suppressHydrationWarning
+				/>
+				<script
+					dangerouslySetInnerHTML={{ __html: HISTORY_SLIDER_BOOTSTRAP_SCRIPT }}
 					suppressHydrationWarning
 				/>
 				<script

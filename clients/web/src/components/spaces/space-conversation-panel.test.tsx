@@ -3752,14 +3752,19 @@ describe("SpaceConversationPanel", () => {
 		).toContain("runner is working");
 	});
 
-	it("renders completed Agent Activity once inside its durable reply", () => {
+	it.each([
+		["Center Agent", "hosted:center-agent"],
+		["Remote Agent", "hosted:remote-agent"],
+		["Local Agent", "codex"],
+	] as const)("puts completed %s work before its durable reply", (name, controller) => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
-					actorName: "Center Agent",
+					actorAgentControllerRef: controller,
+					actorName: name,
 					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
-					actorProfileName: "Center Agent",
+					actorProfileName: name,
 					agentActivity: {
 						v: 1,
 						steps: [
@@ -3798,8 +3803,8 @@ describe("SpaceConversationPanel", () => {
 		const activitySection = directChildren.find((child) =>
 			child.contains(activityTriggers[0] ?? null)
 		);
-		expect(directChildren.indexOf(answerSection as Element)).toBeLessThan(
-			directChildren.indexOf(activitySection as Element)
+		expect(directChildren.indexOf(activitySection as Element)).toBeLessThan(
+			directChildren.indexOf(answerSection as Element)
 		);
 	});
 

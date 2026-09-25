@@ -845,6 +845,14 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByText("Team inventory unavailable")).toBeNull();
 	});
 
+	it("uses the current Computer projection in details while keeping the display cache", () => {
+		renderWorkspace({
+			strictComputerGroups: [{ ...buildCurrentComputerGroup(), computers: [] }],
+		});
+		expect(screen.getByTestId("profile-computers-picker")).toBeTruthy();
+		expect(screen.queryByText("Felix's MacBook Pro")).toBeNull();
+	});
+
 	it("shows an owner inventory failure with a retry instead of a false empty or Add flow", () => {
 		const onRetryComputers = vi.fn();
 		renderWorkspace({ inventoryError: true, onRetryComputers });
@@ -877,6 +885,7 @@ function renderWorkspace(
 		inventoryError?: boolean;
 		onRetryComputers?: () => void;
 		computerGroups?: readonly OrganizationComputerGroup[];
+		strictComputerGroups?: readonly OrganizationComputerGroup[];
 		currentNotice?: string;
 		directoryError?: string | null;
 		directoryIsPending?: boolean;
@@ -931,6 +940,7 @@ function renderWorkspace(
 				profiles: "ready",
 				research: "idle",
 			}}
+			strictComputerGroups={input.strictComputerGroups}
 		/>
 	);
 }

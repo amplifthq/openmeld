@@ -407,12 +407,14 @@ The setting explains that people with access to the Space can see live output.
 OpenClaw is excluded.
 
 The existing working title, elapsed time, and Stop control remain available.
-A bounded Thinking + Reasoning viewport below them opens for live output and
-lets the reader pause following by scrolling up. It collapses when the stream
-transitions to text or tool work, and opens when reasoning resumes. Hosted Center
-and Remote Agents show explicit public updates inside the live Work summary's
-expandable, bounded viewport, alongside tool steps when present. Provider
-thinking stays private. Disabled local streaming is explicitly
+Agent work stays above the answer in both the main conversation and Threads,
+from live output through the settled reply. The shared bounded viewport opens
+for live work and lets the reader pause following by scrolling up. It collapses
+after a successful final reply and remains available for manual inspection.
+Hosted Center and Remote Agents show explicitly authored public Agent updates
+alongside automatic tool steps. These updates explain meaningful phases; they
+are not a continuous activity signal. Provider thinking stays private.
+Disabled local streaming is explicitly
 attributed to the Agent owner; an unsupported connection is distinguished from
 waiting for a provider that has not emitted reasoning. Absence of reasoning is
 never evidence that a running Agent is stuck.
