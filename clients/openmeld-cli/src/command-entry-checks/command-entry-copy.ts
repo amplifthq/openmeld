@@ -302,6 +302,11 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "reading file history",
     profileAction: null,
   },
+  "files.copy": {
+    ...DEFAULT_COPY,
+    signInAction: "copying a file",
+    profileAction: null,
+  },
   "files.upload": {
     ...DEFAULT_COPY,
     signInAction: "uploading a file",

@@ -1,6 +1,6 @@
 # Files
 
-> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser, Team/member metadata and content routes, resumable Team/member uploads, a basic Team Files page, Local Agent CLI access to Team/member files, and exact-revision Team/My copy with a file action are implemented. Space copy, Local Agent copy commands, Hosted Agent file tools, Skill storage, and Documents cutover remain acceptance requirements, not current capabilities.
+> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser, Team/member metadata and content routes, resumable Team/member uploads, a basic Team Files page, Local Agent CLI access to Team/member files, and exact-revision Team/My copy through the browser and CLI are implemented. Space copy, Hosted Agent file tools, Skill storage, and Documents cutover remain acceptance requirements, not current capabilities.
 
 ## Agent Context
 

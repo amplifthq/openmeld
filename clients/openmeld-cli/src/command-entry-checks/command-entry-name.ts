@@ -57,6 +57,7 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "files list": "files.list",
   "files read": "files.read",
   "files history": "files.history",
+  "files copy": "files.copy",
   "files upload": "files.upload",
   "files write": "files.write",
   "files download": "files.download",

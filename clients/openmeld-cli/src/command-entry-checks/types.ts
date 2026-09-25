@@ -90,6 +90,7 @@ export type CommandEntryName =
   | "files.list"
   | "files.read"
   | "files.history"
+  | "files.copy"
   | "files.upload"
   | "files.write"
   | "files.download"

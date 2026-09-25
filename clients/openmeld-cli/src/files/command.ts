@@ -241,6 +241,54 @@ export function registerFilesCommands(
     });
 
   files
+    .command("copy")
+    .description("Copy one saved revision between Team files and My files.")
+    .argument("<file-id>", "Source file ID")
+    .requiredOption("--source-location <team|my>", "Where the source file is")
+    .requiredOption("--location <team|my>", "Destination Files location")
+    .requiredOption("--revision <number>", "Exact source revision to copy")
+    .option("--folder <id>", "Destination folder ID, or root", "root")
+    .option("--name <name>", "Name for the new copy")
+    .option("--json", "Print canonical JSON", false)
+    .action(async (fileId: string, opts, command: Command) => {
+      await runChecked(["files", "copy"], async () => {
+        await withFiles({
+          command,
+          json: opts.json === true,
+          location: opts.location,
+          run: async ({ api, location: destination, output, presenter }) => {
+            const sourceLocation = location(opts.sourceLocation);
+            const sourceRevision = revision(opts.revision);
+            if (sourceRevision === undefined) {
+              throw new Error("--revision is required.");
+            }
+            const source = await api.getFile({
+              location: sourceLocation,
+              fileId,
+            });
+            const result = await api.copyRevision({
+              location: destination,
+              body: {
+                sourceLocation,
+                sourceFileId: fileId,
+                sourceRevision,
+                name: opts.name?.trim() || source.name,
+                parentId: folder(opts.folder),
+                clientMutationId: randomUUID(),
+              },
+            });
+            output("files.copy", result, () =>
+              presenter.line({
+                code: "files.copied",
+                text: `Copied revision ${sourceRevision} to ${destination === "team" ? "Team files" : "My files"} as ${result.file.path}.`,
+              })
+            );
+          },
+        });
+      });
+    });
+
+  files
     .command("upload")
     .description("Upload a local file to Team files or My files.")
     .argument("<file>", "Local file path")

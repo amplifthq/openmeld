@@ -125,7 +125,8 @@ whole multi-Skill repository in one call.
 member's private files in the active Organization. `--location team|my` is
 required so a person or Local Agent chooses the audience explicitly. The
 initial commands list files, read an exact text revision, download a binary
-revision, inspect history, upload local content, and write a new revision
+revision, inspect history, upload local content, copy one exact Team/My revision
+to a stated destination, and write a new revision
 against the version previously read. `--view agent` and `--json` expose the same server-authorized results
 without a second local file authority. Existing `openmeld space files`
 commands remain the Space location entry; adding a location to the CLI never
