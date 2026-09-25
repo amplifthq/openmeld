@@ -890,6 +890,11 @@ export const remoteAgentStreamDeltaCallbackBodySchema = z.union([
     kind: z.literal("thinking"),
     source: z.literal("flue.thinking_delta"),
   }),
+  z.strictObject({
+    ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,
+    kind: z.literal("progress"),
+    source: z.literal("hosted.public_progress"),
+  }),
 ]);
 
 export const remoteAgentStreamPartCallbackBodySchema = z.strictObject({

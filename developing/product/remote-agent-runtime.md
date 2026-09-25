@@ -1745,16 +1745,19 @@ probe without imposing a total execution deadline.
 
 ### Space reply streaming (shipped 2026-07-10)
 
-Space conversations may show accumulated assistant text and privacy-bounded tool
-progress before the final reply is published. Private model reasoning is never
+Space conversations may show accumulated assistant text, explicit public progress,
+and privacy-bounded tool progress before the final reply is published. Private model reasoning is never
 published to clients. Streaming is a bounded, best-effort presentation
 projection; it is not a second message writer, native-delivery status, or
 final-outcome authority.
 
 - The worker uses provider reasoning deltas only as private execution-progress
   evidence. It never sends their content to Core, Space, Web, or a Message
-  Channel. For active `space` deliveries, it emits one sequenced stream of
-  accumulated text snapshots and privacy-bounded tool lifecycle parts. A text snapshot that
+  Channel. For active Space and Web direct-message deliveries, the Agent may call
+  `openmeld_report_progress` to share a short public update. The update is a
+  separate transient stream kind, not provider reasoning or final reply text.
+  The worker also emits accumulated text snapshots and privacy-bounded tool
+  lifecycle parts. A text snapshot that
   exceeds its shared callback contract may stop the best-effort preview, but it
   cannot alter or suppress the authoritative final outcome.
   A user-visible part must carry one shared admitted semantic work key and may
@@ -1777,7 +1780,9 @@ final-outcome authority.
   and readable only through Message details. The retained projection includes
   only admitted semantic work; wrapper and legacy parts without it are not
   exposed.
-  Failed or stopped streams discard the draft; no arguments, results, raw
+  Public progress is held only as an active, bounded in-memory tail for live
+  replay; it is absent from Space SQL, final Signals, Message details, and
+  browser persistence. Failed or stopped streams discard the draft; no arguments, results, raw
   errors, commands, paths, model reasoning, or private Agent text are retained.
 - The persisted Space message or Space system notice remains the visible
   outcome. Finalization closes the projection, a successful terminal points to
@@ -1786,12 +1791,11 @@ final-outcome authority.
 
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
-typed stream callback. Text WebSocket frames keep their legacy shape. Web also
-renders provider-emitted thinking in the same transient Thinking + Reasoning
-component used for Local Agents. Center Agent and Remote Agent conversations
-share its bounded viewport, manual scroll control, and reduced-motion behavior.
-Thinking keeps a bounded latest tail during long turns and never enters persisted
-stream state or final message metadata. Rollback removes the Remote Agent producer before Core or Web
+stream callback. Text WebSocket frames keep their legacy shape. Web renders
+explicit hosted public progress through the existing transient Reasoning
+component, labeled Progress. Local Agent provider thinking remains a distinct
+stream kind. Both use the component's bounded viewport and scroll behavior.
+Rollback removes the Remote Agent producer before Core or Web
 consumers.
 
 Workstation Local Agents may use the same downstream Space tool-part and

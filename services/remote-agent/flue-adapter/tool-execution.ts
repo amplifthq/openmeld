@@ -60,7 +60,7 @@ export async function executeRemoteAgentToolDefinition(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
   toolInput: Record<string, unknown>;
-  onStarted?: () => Promise<void>;
+  onStarted?: () => void | Promise<void>;
 }): Promise<unknown> {
   return await runRemoteAgentToolSerially(input, async () => {
     input.signal?.throwIfAborted();

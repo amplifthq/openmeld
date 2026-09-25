@@ -141,6 +141,28 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(screen.queryByText("Responding...")).toBeNull();
 	});
 
+	it("shows hosted public progress in the existing live panel", () => {
+		const item = createStreamingItem();
+		if (!item.agentStreamState) {
+			throw new Error("Expected a live Agent stream fixture.");
+		}
+		item.agentStreamState = {
+			...item.agentStreamState,
+			progress: "Checking the current Space context.",
+			progressActive: true,
+		};
+		render(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={item}
+			/>
+		);
+		expect(screen.getByRole("button", { name: "Progress" })).toBeTruthy();
+		expect(
+			screen.getByRole("region", { name: "Live progress" }).textContent
+		).toContain("Checking the current Space context.");
+	});
+
 	it("shows live output without repeating a generic working label", () => {
 		render(
 			<SpaceMessageProgressStatus

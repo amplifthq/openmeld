@@ -52,9 +52,8 @@ type AgentStreamPartProjection = AgentStreamIdentity & {
   sequence: number;
 };
 
-type AgentStreamThinkingDeltaProjection = AgentStreamIdentity & {
+type AgentStreamTransientDeltaProjection = AgentStreamIdentity & {
   sequence: number;
-  thinkingSnapshot: string;
 };
 
 type AgentStreamCursor = AgentStreamIdentity & {
@@ -156,7 +155,7 @@ export type ApplyAgentStreamPartResult =
       lastSequence: number;
     };
 
-export type ApplyAgentStreamThinkingDeltaResult =
+export type ApplyAgentStreamTransientDeltaResult =
   | {
       status: "accepted";
       lastSequence: number;
@@ -221,11 +220,11 @@ export async function applyAgentStreamDelta(input: {
   });
 }
 
-export async function applyAgentStreamThinkingDelta(input: {
+export async function applyAgentStreamTransientDelta(input: {
   storage: AgentStreamProjectionStorage;
-  delta: AgentStreamThinkingDeltaProjection;
+  delta: AgentStreamTransientDeltaProjection;
   nowMs: number;
-}): Promise<ApplyAgentStreamThinkingDeltaResult> {
+}): Promise<ApplyAgentStreamTransientDeltaResult> {
   return await input.storage.transaction(async (transaction) => {
     const advanced = await advanceAgentStreamSequence({
       event: input.delta,

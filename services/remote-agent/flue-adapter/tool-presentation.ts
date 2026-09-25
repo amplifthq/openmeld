@@ -7,6 +7,7 @@ import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "./capability-disco
 const NATIVE_CAPABILITY_NAMES = new Set<string>([
   ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
   ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
+  "openmeld_report_progress",
   "openmeld_list_organization_members",
   "read",
   "write",

@@ -1,6 +1,6 @@
 import type { SpaceAgentStreamDeltaFrame } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { ReasoningReplay } from "../src/space/application/reasoning-replay";
+import { TransientAgentStreamReplay } from "../src/space/application/transient-agent-stream-replay";
 
 const frame: Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }> = {
   type: "space.agent_stream_delta",
@@ -18,9 +18,31 @@ const frame: Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }> = {
   updatedAtMs: 1000,
 };
 
-describe("transient reasoning replay", () => {
+describe("transient Agent stream replay", () => {
+  it("replays a bounded public progress tail without keeping an older frame", () => {
+    const replay = new TransientAgentStreamReplay();
+    const progress: Extract<SpaceAgentStreamDeltaFrame, { kind: "progress" }> =
+      {
+        ...frame,
+        kind: "progress",
+        progressSnapshot: "x".repeat(9000),
+      };
+    const updated = {
+      ...progress,
+      sequence: 2,
+      progressSnapshot: "Checking the result.",
+    };
+    replay.remember(progress);
+    expect(replay.read(1001)[0]).toMatchObject({
+      kind: "progress",
+      progressSnapshot: "x".repeat(8192),
+    });
+    replay.remember(updated);
+    replay.remember(progress);
+    expect(replay.read(1002)).toEqual([updated]);
+  });
   it("replays the latest tail and replaces private text on disable", () => {
-    const replay = new ReasoningReplay();
+    const replay = new TransientAgentStreamReplay();
     replay.remember(frame);
     expect(replay.read(1001)).toEqual([frame]);
     replay.remember({
@@ -35,11 +57,11 @@ describe("transient reasoning replay", () => {
     });
     replay.forget("stream");
     expect(replay.read(1003)).toEqual([]);
-    expect(new ReasoningReplay().read(1003)).toEqual([]);
+    expect(new TransientAgentStreamReplay().read(1003)).toEqual([]);
   });
 
   it("invalidates an already-read replay when its owner clears it", () => {
-    const replay = new ReasoningReplay();
+    const replay = new TransientAgentStreamReplay();
     replay.remember(frame);
     const pending = replay.read(1001)[0];
     if (!pending) {
@@ -54,7 +76,7 @@ describe("transient reasoning replay", () => {
   });
 
   it("bounds retained streams, tail size, and lifetime", () => {
-    const replay = new ReasoningReplay();
+    const replay = new TransientAgentStreamReplay();
     for (let index = 0; index < 129; index++) {
       replay.remember({
         ...frame,
@@ -66,7 +88,10 @@ describe("transient reasoning replay", () => {
     expect(frames).toHaveLength(128);
     expect(frames[0]?.streamId).toBe("stream-1");
     expect(
-      frames.every((value) => value.thinkingSnapshot.length === 8192)
+      frames.every(
+        (value) =>
+          value.kind === "thinking" && value.thinkingSnapshot.length === 8192
+      )
     ).toBe(true);
     expect(replay.read(1000 + 30 * 60 * 1000)).toEqual([]);
   });

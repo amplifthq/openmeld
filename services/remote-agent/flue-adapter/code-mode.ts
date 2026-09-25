@@ -254,6 +254,7 @@ function buildCodeModeToolSet(input: {
             `codemode:${definition.name}:${crypto.randomUUID()}`;
           const signal = input.signal ?? options?.abortSignal;
           let started = false;
+          let startPublication = Promise.resolve();
           const publishWork = async (
             state: "input-available" | "output-available" | "output-error",
             toolResult?: unknown
@@ -282,17 +283,19 @@ function buildCodeModeToolSet(input: {
               storage: input.storage,
               submissionId: input.submissionId,
               toolInput,
-              onStarted: async () => {
+              onStarted: () => {
                 started = true;
-                await publishWork("input-available");
+                startPublication = publishWork("input-available");
               },
             });
           } catch (error) {
             if (started && !signal?.aborted) {
+              await startPublication;
               await publishWork("output-error");
             }
             throw error;
           }
+          await startPublication;
           await publishWork("output-available", result);
           return (
             toBoundedRemoteAgentToolResult({

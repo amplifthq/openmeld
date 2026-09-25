@@ -18,6 +18,8 @@ export const ThinkingReasoning = memo(function ThinkingReasoning(input: {
   text: string;
   streaming: boolean;
   firstOutputMs?: number;
+  label?: string;
+  ariaLabel?: string;
   children?: ReactNode;
 }) {
   const id = useId();
@@ -55,7 +57,7 @@ export const ThinkingReasoning = memo(function ThinkingReasoning(input: {
               : "om-reasoning-label"
           }
         >
-          {input.streaming ? "Thinking" : "Reasoning"}
+          {input.label ?? (input.streaming ? "Thinking" : "Reasoning")}
         </span>
         <CaretDownIcon aria-hidden="true" size={12} />
         {input.firstOutputMs !== undefined ? (
@@ -72,7 +74,7 @@ export const ThinkingReasoning = memo(function ThinkingReasoning(input: {
       >
         <div className="om-reasoning-inner">
           <section
-            aria-label="Live reasoning"
+            aria-label={input.ariaLabel ?? "Live reasoning"}
             className="om-reasoning-viewport"
             onScroll={(event) => {
               const el = event.currentTarget;

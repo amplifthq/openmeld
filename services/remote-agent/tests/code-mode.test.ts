@@ -65,12 +65,18 @@ describe("Remote Agent Code Mode", () => {
   it("publishes admitted inner work before the tool finishes", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const started = Promise.withResolvers<void>();
+    const startPublished = Promise.withResolvers<void>();
     const finish = Promise.withResolvers<{ spaces: [] }>();
     const submitRemoteAgentStreamPart = vi.fn(
-      async (body: { sequence: number }) => ({
-        status: "accepted" as const,
-        lastSequence: body.sequence,
-      })
+      (body: { sequence: number; part: { state: string } }) => {
+        if (body.part.state === "input-available") {
+          startPublished.resolve();
+        }
+        return Promise.resolve({
+          status: "accepted" as const,
+          lastSequence: body.sequence,
+        });
+      }
     );
     const runtime = createRuntime({
       execute: async (tools) => ({
@@ -103,6 +109,7 @@ describe("Remote Agent Code Mode", () => {
       input: { code: "async () => null" },
     });
     await started.promise;
+    await startPublished.promise;
     expect(submitRemoteAgentStreamPart).toHaveBeenCalledOnce();
     expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
       expect.objectContaining({

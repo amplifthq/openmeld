@@ -7,6 +7,25 @@ export function SpaceAgentReasoning({ item }: { item: SpaceTimelineItem }) {
 	if (!stream) {
 		return null;
 	}
+	if (stream.progress) {
+		return (
+			<ThinkingReasoning
+				ariaLabel="Live progress"
+				label="Progress"
+				streaming={
+					stream.status === "streaming" && stream.progressActive !== false
+				}
+				text={stream.progress}
+			>
+				<MessageResponse
+					isStreaming={stream.progressActive !== false}
+					variant="reasoning"
+				>
+					{stream.progress}
+				</MessageResponse>
+			</ThinkingReasoning>
+		);
+	}
 	if (stream.thinking) {
 		return (
 			<ThinkingReasoning

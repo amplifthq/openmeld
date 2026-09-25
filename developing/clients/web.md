@@ -4404,15 +4404,15 @@ severity. Web must never deep-link to a retired authorization surface.
 
 Thread placement is conversation placement. It is not execution truth.
 
-For a hosted Center Agent Space reply, Web may overlay live model thinking and
-accumulated stream text while the turn is active. Neither projection is a Space
-message or final outcome. Thinking appears inside the Agent bubble as a
-collapsed `Thinking…` disclosure with the latest text visible in its summary;
-opening it shows the bounded live content. Web never writes thinking to its
-persisted browser read cache or a durable message, and removes it as soon as a
-terminal frame or durable outcome arrives. Reconnect restores the privacy-safe
-active stream presence and any accumulated text; thinking is not replayed from
-bootstrap.
+For hosted Center Agent and Remote Agent Space replies, Web may overlay
+explicit public Progress updates and accumulated stream text while the turn is
+active. Neither projection is a Space message or final outcome. Progress appears
+inside the Agent bubble using the shared transient Reasoning viewport with a
+`Progress` label. Web never writes the transient progress tail to its persisted
+browser read cache or a durable message, and removes it as soon as a terminal
+frame or durable outcome arrives. Reconnect restores the privacy-safe active
+stream presence and any accumulated text; a bounded progress tail can be replayed
+from the live Space instance, but is absent from bootstrap.
 
 For hosted Center Agents and workstation Local Agents, Web may also show one
 compact live **Work summary** from the sequenced Space stream. A row describes

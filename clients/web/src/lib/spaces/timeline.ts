@@ -112,6 +112,8 @@ export type SpaceTimelineItem = {
 		toolParts?: readonly AgentStreamToolPart[];
 		thinking?: string;
 		thinkingActive?: boolean;
+		progress?: string;
+		progressActive?: boolean;
 		reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
 	};
 	agentActivity?: SpaceAgentActivity;
@@ -303,6 +305,12 @@ export function buildSpaceTimelineItems(input: {
 						? {
 								thinking: stream.thinking,
 								thinkingActive: stream.thinkingActive,
+							}
+						: {}),
+					...(stream.status === "streaming" && stream.progress
+						? {
+								progress: stream.progress,
+								progressActive: stream.progressActive,
 							}
 						: {}),
 				},
