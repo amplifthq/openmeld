@@ -51,9 +51,11 @@ export {
   spaceFileStreamOptionsSchema,
 } from "./http/space-file-stream";
 export {
+  SPACE_FILE_UPLOAD_MAX_PARTS,
   SPACE_FILE_UPLOAD_PART_BYTES,
   SPACE_FILE_UPLOAD_TTL_MS,
   spaceFileUploadCommandSchema,
+  spaceFileUploadIdForMutation,
   spaceFileUploadMetadataSchema,
   spaceFileUploadPartSchema,
   spaceFileUploadResponseSchema,

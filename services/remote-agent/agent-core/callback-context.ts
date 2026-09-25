@@ -153,6 +153,8 @@ import type {
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
   SpaceFileDescriptor,
+  SpaceFileUploadCommand,
+  SpaceFileUploadResponse,
   SpaceMessageAttachment,
   SpaceMessageFileReference,
   StartCenterAgentMemberResearchResponse,
@@ -598,6 +600,31 @@ export type RemoteAgentCoreWorkerBinding = {
     spaceId: string;
     content: ResolveSpaceFileContentInput;
   }): Promise<ResolveSpaceFileContentResponse & { bytes: ArrayBuffer }>;
+  streamSpaceFileContent?(
+    input: {
+      context: OpenMeldRequestContext;
+      spaceId: string;
+      content: ResolveSpaceFileContentInput;
+    },
+    spaceFilesOriginVersion?: string
+  ): Promise<
+    ResolveSpaceFileContentResponse & { bytes: ReadableStream<Uint8Array> }
+  >;
+  resolveSpaceFileContent?(input: {
+    context: OpenMeldRequestContext;
+    spaceId: string;
+    content: ResolveSpaceFileContentInput;
+  }): Promise<ResolveSpaceFileContentResponse>;
+  spaceFileUpload?(
+    input: {
+      context: OpenMeldRequestContext;
+      spaceId: string;
+      uploadId: string;
+      command: SpaceFileUploadCommand;
+      body?: ReadableStream<Uint8Array>;
+    },
+    spaceFilesOriginVersion?: string
+  ): Promise<SpaceFileUploadResponse>;
   deleteSpaceAttachmentRecord?(input: {
     attachmentId: string;
   }): Promise<{ deleted: boolean }>;
