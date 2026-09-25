@@ -125,6 +125,7 @@ export const webApplicationErrorReportSchema = z.object({
       fromCachedSpaceSummary: z.boolean(),
       fromCachedOwnSummary: z.boolean(),
       fromBootstrapStream: z.boolean(),
+      fromHistoricalSignal: z.boolean().optional(),
       spaceSummaryFetchedAfterMount: z.boolean(),
       ownSummaryFetchedAfterMount: z.boolean(),
       bootstrapFetchedAfterMount: z.boolean(),

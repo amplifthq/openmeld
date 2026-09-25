@@ -483,6 +483,8 @@ export function findUnconfirmedPresentedWakeProgress(input: {
 	confirmedItems: readonly WakeProgressItem[];
 	presentedItems: readonly WakeProgressItem[];
 	restoredItems: readonly WakeProgressItem[];
+	historicalSignals?: readonly SignalEnvelope[];
+	presentationCreatedAtMs?: number;
 	cachedSpaceSummaryItems?: readonly WakeProgressItem[];
 	cachedOwnSummaryItems?: readonly WakeProgressItem[];
 	spaceSummaryFetchedAfterMount: boolean;
@@ -492,6 +494,7 @@ export function findUnconfirmedPresentedWakeProgress(input: {
 	fromRestoredPresentation: boolean;
 	fromCachedSpaceSummary: boolean;
 	fromCachedOwnSummary: boolean;
+	fromHistoricalSignal: boolean;
 } | null {
 	for (const item of input.presentedItems) {
 		if (
@@ -514,16 +517,26 @@ export function findUnconfirmedPresentedWakeProgress(input: {
 			(input.cachedOwnSummaryItems ?? []).some((cached) =>
 				doWakeProgressItemsMatch({ left: item, right: cached })
 			);
+		const fromHistoricalSignal = (input.historicalSignals ?? []).some(
+			(signal) =>
+				signal.type === "signal.text" &&
+				signal.data.meta?.transient === true &&
+				signal.ts < (input.presentationCreatedAtMs ?? 0) &&
+				signal.data.meta.dispatchId === item.dispatchId &&
+				signal.data.meta.targetProfileId === item.targetProfileId
+		);
 		if (
 			fromRestoredPresentation ||
 			fromCachedSpaceSummary ||
-			fromCachedOwnSummary
+			fromCachedOwnSummary ||
+			fromHistoricalSignal
 		) {
 			return {
 				item,
 				fromRestoredPresentation,
 				fromCachedSpaceSummary,
 				fromCachedOwnSummary,
+				fromHistoricalSignal,
 			};
 		}
 	}
