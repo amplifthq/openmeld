@@ -1,7 +1,10 @@
 "use client";
 
 import { formatStoredRoutineSchedule } from "@openmeld/routine-schedule";
-import type { CenterAgentRoutineManagement } from "@openmeld/schemas/types";
+import type {
+	CenterAgentRoutine,
+	CenterAgentRoutineManagement,
+} from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
@@ -33,15 +36,21 @@ import {
 
 export function CenterAgentRoutinesPanel(input: {
 	currentUserId: string;
+	focusRoutineId?: string | null;
+	focusRunId?: string | null;
 	isPersonalWorkspace: boolean;
+	onClearFocusedRun?: () => void;
 	organizationId: string;
 	orgSlug: string;
 }) {
 	return (
 		<CenterAgentRoutinesPanelContent
 			currentUserId={input.currentUserId}
+			focusRoutineId={input.focusRoutineId}
+			focusRunId={input.focusRunId}
 			isPersonalWorkspace={input.isPersonalWorkspace}
 			key={input.organizationId}
+			onClearFocusedRun={input.onClearFocusedRun}
 			organizationId={input.organizationId}
 			orgSlug={input.orgSlug}
 		/>
@@ -50,7 +59,10 @@ export function CenterAgentRoutinesPanel(input: {
 
 function CenterAgentRoutinesPanelContent(input: {
 	currentUserId: string;
+	focusRoutineId?: string | null;
+	focusRunId?: string | null;
 	isPersonalWorkspace: boolean;
+	onClearFocusedRun?: () => void;
 	organizationId: string;
 	orgSlug: string;
 }) {
@@ -73,6 +85,9 @@ function CenterAgentRoutinesPanelContent(input: {
 			enabled: true,
 			organizationId: input.organizationId,
 		})
+	);
+	const focusedRoutine = routinesQuery.data?.routines.find(
+		(routine) => routine.id === input.focusRoutineId
 	);
 	const targetSpacePreparation = {
 		errorMessage: targetPreparationMutation.isError
@@ -175,18 +190,16 @@ function CenterAgentRoutinesPanelContent(input: {
 			submitting={deleteMutation.isPending}
 		/>
 	) : null;
-	const runsDialog = runsRoutine ? (
-		<CenterAgentRoutineRunsDialog
-			onOpenChange={(open) => {
-				if (!open) {
-					management.setRunsRoutine(null);
-				}
-			}}
-			open={runsRoutine !== null}
+	const runsDialog = (
+		<SelectedRoutineRunsDialog
+			focusedRoutine={focusedRoutine}
+			focusRunId={input.focusRunId}
+			onClearFocusedRun={input.onClearFocusedRun}
+			onClose={() => management.setRunsRoutine(null)}
 			organizationId={input.organizationId}
-			routine={runsRoutine}
+			runsRoutine={runsRoutine}
 		/>
-	) : null;
+	);
 	const pageHeader = (
 		<CenterAgentRoutinesPageHeader
 			isPersonalWorkspace={input.isPersonalWorkspace}
@@ -250,11 +263,18 @@ function CenterAgentRoutinesPanelContent(input: {
 			</div>
 		);
 	}
+	const missingLinkedRoutineNotice =
+		input.focusRoutineId && !focusedRoutine ? (
+			<output className="rounded-md border border-border/70 p-4 text-muted-foreground text-sm">
+				This Routine is no longer available. Its Run ID is {input.focusRunId}.
+			</output>
+		) : null;
 
 	if (routinesQuery.data.routines.length === 0) {
 		return (
 			<div className="flex flex-col gap-6">
 				{pageHeader}
+				{missingLinkedRoutineNotice}
 				<CenterAgentSelfEvolutionCard
 					currentUserId={input.currentUserId}
 					existingRoutines={routinesQuery.data.routines}
@@ -283,6 +303,7 @@ function CenterAgentRoutinesPanelContent(input: {
 	return (
 		<div className="flex flex-col gap-6">
 			{pageHeader}
+			{missingLinkedRoutineNotice}
 			<CenterAgentSelfEvolutionCard
 				currentUserId={input.currentUserId}
 				existingRoutines={routinesQuery.data.routines}
@@ -327,6 +348,36 @@ function CenterAgentRoutinesPanelContent(input: {
 				{runsDialog}
 			</section>
 		</div>
+	);
+}
+
+function SelectedRoutineRunsDialog(input: {
+	focusedRoutine?: CenterAgentRoutine;
+	focusRunId?: string | null;
+	onClearFocusedRun?: () => void;
+	onClose: () => void;
+	organizationId: string;
+	runsRoutine: CenterAgentRoutine | null;
+}) {
+	const routine = input.runsRoutine ?? input.focusedRoutine;
+	if (!routine) {
+		return null;
+	}
+	return (
+		<CenterAgentRoutineRunsDialog
+			focusRunId={
+				routine.id === input.focusedRoutine?.id ? input.focusRunId : null
+			}
+			onOpenChange={(open) => {
+				if (!open) {
+					input.onClose();
+					input.onClearFocusedRun?.();
+				}
+			}}
+			open
+			organizationId={input.organizationId}
+			routine={routine}
+		/>
 	);
 }
 
