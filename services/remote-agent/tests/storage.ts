@@ -1,4 +1,5 @@
 import type {
+  RemoteAgentConditionalWrite,
   RemoteAgentReadableStorage,
   RemoteAgentWritableStorage,
 } from "../agent-core/callback-context";
@@ -8,6 +9,29 @@ export class InMemoryDurableObjectStorage
 {
   private readonly expiresAt = new Map<string, number>();
   private readonly records = new Map<string, unknown>();
+
+  compareAndSetPair<A, B>(
+    first: RemoteAgentConditionalWrite<A>,
+    second: RemoteAgentConditionalWrite<B>
+  ): Promise<boolean> {
+    if (first.key === second.key) {
+      throw new Error("An atomic record pair requires two distinct keys.");
+    }
+    for (const write of [first, second]) {
+      if (
+        JSON.stringify(this.records.get(write.key)) !==
+        JSON.stringify(write.expectedValue)
+      ) {
+        return Promise.resolve(false);
+      }
+    }
+    // Both comparisons and writes happen in this synchronous section.
+    for (const write of [first, second]) {
+      this.records.set(write.key, write.nextValue);
+      this.expiresAt.delete(write.key);
+    }
+    return Promise.resolve(true);
+  }
 
   compareAndSet<T>(
     key: string,

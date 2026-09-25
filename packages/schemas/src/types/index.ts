@@ -27,6 +27,7 @@ export type {
   GenerateCenterAgentSessionTitleInput,
   GenerateCenterAgentSessionTitleResponse,
 } from "../schemas/runtime/center-agent-session-title";
+export type { MessageChannelCardHistory } from "../schemas/runtime/message-channel-card-history";
 export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
 export type {
   CenterAgentReadAuditJournalResponse,

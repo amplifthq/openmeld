@@ -7,6 +7,7 @@ export type FlueStreamDelta = {
   delta: string;
   kind: "text" | "thinking";
   observedAtMs: number;
+  replaceTextPrefix?: string;
   submissionId: string;
 };
 
@@ -115,6 +116,9 @@ export function extractFlueStreamDelta(
     delta,
     kind: event.type === "thinking_delta" ? "thinking" : "text",
     observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
+    ...(event.type === "text_delta" && typeof event.textPrefix === "string"
+      ? { replaceTextPrefix: event.textPrefix }
+      : {}),
     submissionId: event.submissionId,
   };
 }

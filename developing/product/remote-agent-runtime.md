@@ -373,7 +373,7 @@ New provider-neutral Message Channel turns use
 conversation ids remain readable and continue through their current producer
 until the separately gated Slack adapter migration.
 
-The Flue 2.0.3 upgrade uses synchronous agent hooks and a fresh
+The initial Flue 2.0.3 cutover used synchronous agent hooks and a fresh
 `FlueCenterAgentV2Agent` namespace for the authorized prelaunch beta reset.
 The Computer namespace and Core business data remain separate. The adapter's
 [pinned integration contracts](../../services/remote-agent/flue-adapter/README.md)
@@ -382,6 +382,35 @@ This first reset does not authorize interrupting accepted work on subsequent
 releases. A real staging handoff must prove continued execution and the exact
 session context, including intermediate choices and unpublished work; rebuilding
 Core memory or a visible-message excerpt alone does not establish that guarantee.
+
+The subsequent Flue 2.1.0 upgrade retains those identities and existing
+conversations; it does not repeat the beta reset. Healthy executions have no
+fixed total wall-clock deadline. The five-attempt budget includes the initial
+execution and failed queued materialization, not elapsed healthy running time.
+Queued preparation failures are counted atomically on the existing runtime
+submission row; a stale failure cannot terminate a ready, claimed, cancelled,
+or already-settled submission. No additional execution ledger is introduced.
+
+Recovery reads canonical completion before checking cancellation, the retry
+budget, and positive deadlines. This classification must not require preparing
+Computer, model, or tool resources. A completed result survives an exhausted
+budget or a late stop; actual resumed execution still prepares resources under
+its immutable submission identity. A preparation error during that resumed
+execution follows the existing failure-settlement path rather than repeatedly
+failing the inspection step forever. Terminal recovery does not need a rendered
+advisory to commit the canonical settlement. A later live session repairs its
+interrupted conversation tail without blindly repeating unknown external effects.
+
+Canonical runtime completion and OpenMeld result delivery are separate facts.
+When a restart lands between them, the pinned runtime's read-only submission
+projection supplies the exact settled answer, model, and recorded usage. The
+existing OpenMeld reconciler rechecks callback authority, performs Computer
+cleanup, and competes for the existing execution-owner CAS; it never adopts a
+streamed draft or overwrites a cancellation or safety failure. The owner and
+existing callback model/usage fields are written atomically, preserving their
+previous persisted shapes. Callback retries reuse the owner's completion time
+for usage records, including failed and stopped work with known consumption.
+No parallel execution truth or new publication path is introduced.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
 boundary before Flue stores them in the conversation session. A returned tool
@@ -687,6 +716,16 @@ the connected provider API.
    may be visible. The worker places an explicit shortening notice inside the
    product-wide text ceiling if a model result is larger; CardKit itself never
    silently truncates the accepted callback.
+   Retry text is a replacement snapshot, not necessarily an append. The same
+   Native Delivery retains bounded retired-card identities and rendered hashes
+   so streaming and final publication can resegment the current answer, rewrite
+   obsolete card sections, and replace surplus sections with an explicit notice.
+   A pending rollover retains its bounded source snapshot so a shorter final
+   answer can finish that exact operation before correcting the card chain.
+   Existing claims, provider UUIDs, sequence fences and the six-card budget
+   remain authoritative. Legacy deliveries whose retired card identities were
+   never stored explicitly supersede earlier drafts on the current card; they
+   do not invent message identities or claim the unknown cards were retracted.
    Signed native controls bind the current card message to the same Native
    Delivery, connection, app, tenant, chat, and verified requester. Stop requests
    go to the existing Remote Agent execution owner; a click never marks the

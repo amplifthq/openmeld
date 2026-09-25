@@ -262,7 +262,18 @@ export type RemoteAgentReadableStorage = {
   ): Promise<Map<string, T>>;
 };
 
+export type RemoteAgentConditionalWrite<T = unknown> = {
+  key: string;
+  expectedValue: T;
+  nextValue: T;
+};
+
 export type RemoteAgentWritableStorage = {
+  /** Update both existing records atomically, or neither when either is stale. */
+  compareAndSetPair<A, B>(
+    first: RemoteAgentConditionalWrite<A>,
+    second: RemoteAgentConditionalWrite<B>
+  ): Promise<boolean>;
   compareAndSet<T>(
     key: string,
     expectedValue: T,

@@ -186,6 +186,51 @@ describe("Remote Agent SQLite adapter storage", () => {
     ).resolves.toBe(false);
     await expect(storage.get("tool-progress")).resolves.toEqual(second);
   });
+
+  it("commits an owner and its metadata together, rejecting either stale value and rolling back SQL failures", async () => {
+    const database = new DatabaseSync(":memory:");
+    databases.push(database);
+    const storage = createRemoteAgentSqlStorage(
+      createCloudflareSqlHarness(database)
+    );
+    const owner = {
+      key: "owner",
+      expectedValue: { status: "running" },
+      nextValue: { status: "completed" },
+    };
+    const metadata = {
+      key: "callback",
+      expectedValue: { modelId: null as string | null },
+      nextValue: { modelId: "actual/model" },
+    };
+    await storage.put(owner.key, owner.expectedValue);
+    await storage.put(metadata.key, metadata.expectedValue);
+    expect(
+      await storage.compareAndSetPair(owner, {
+        ...metadata,
+        expectedValue: { modelId: "stale" },
+      })
+    ).toBe(false);
+    expect(await storage.get(owner.key)).toEqual(owner.expectedValue);
+    expect(await storage.get(metadata.key)).toEqual(metadata.expectedValue);
+    expect(await storage.compareAndSetPair(owner, metadata)).toBe(true);
+    expect(await storage.compareAndSetPair(owner, metadata)).toBe(false);
+    expect(await storage.get(owner.key)).toEqual(owner.nextValue);
+    expect(await storage.get(metadata.key)).toEqual(metadata.nextValue);
+    expect(() => storage.compareAndSetPair(owner, owner)).toThrow(
+      "distinct keys"
+    );
+
+    await storage.put(owner.key, owner.expectedValue);
+    await storage.put(metadata.key, metadata.expectedValue);
+    database.exec(`CREATE TRIGGER reject_callback BEFORE UPDATE ON ${TABLE_NAME}
+      WHEN NEW.key = 'callback' BEGIN SELECT RAISE(ABORT, 'controlled metadata write failure'); END`);
+    expect(() => storage.compareAndSetPair(owner, metadata)).toThrow(
+      "controlled metadata write failure"
+    );
+    expect(await storage.get(owner.key)).toEqual(owner.expectedValue);
+    expect(await storage.get(metadata.key)).toEqual(metadata.expectedValue);
+  });
 });
 
 function createCloudflareSqlHarness(database: DatabaseSync) {

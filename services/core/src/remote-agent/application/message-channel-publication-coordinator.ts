@@ -26,11 +26,11 @@ import {
   scheduleRemoteAgentMessageChannelFinalPublicationRetry,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
+import { projectMessageChannelCardRevision } from "./message-channel-card-revision";
 import {
   advanceRemoteAgentMessageChannelCardRollover,
   type MessageChannelCardRolloverResult,
 } from "./message-channel-card-rollover-service";
-import { splitMessageChannelCardSegment } from "./message-channel-card-segmentation";
 import {
   buildMessageChannelIdentityLinkUrl,
   createMessageChannelIdentityLinkToken,
@@ -886,10 +886,7 @@ function requiresTerminalCardRollover(
     return false;
   }
   return (
-    splitMessageChannelCardSegment({
-      sourceOffset: delivery.providerProgressSourceOffset,
-      text,
-    }).tail.length > 0
+    projectMessageChannelCardRevision(delivery, text).active.tail.length > 0
   );
 }
 

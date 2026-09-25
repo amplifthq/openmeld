@@ -1,0 +1,1 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `provider_progress_card_history_json` text;

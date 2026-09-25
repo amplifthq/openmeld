@@ -18,6 +18,11 @@ import type {
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
 
+import {
+  type MessageChannelCardHistory,
+  parseMessageChannelCardHistory,
+} from "./message-channel-card-history";
+
 export type RemoteAgentNativeDeliveryConversationKind =
   | "message_channel"
   | "slack"
@@ -229,6 +234,7 @@ export type RemoteAgentNativeDeliveryRecord = {
   providerProgressClaimedAtMs: number | null;
   providerProgressClaimExpiresAtMs: number | null;
   providerProgressCardId: string | null;
+  providerProgressCardHistory?: MessageChannelCardHistory | null;
   providerProgressMessageId: string | null;
   providerProgressPublicationIdempotencyKey: string | null;
   providerProgressSequence: number | null;
@@ -327,6 +333,7 @@ type RemoteAgentNativeDeliveryRow = {
   provider_progress_claimed_at_ms: number | null;
   provider_progress_claim_expires_at_ms: number | null;
   provider_progress_card_id: string | null;
+  provider_progress_card_history_json?: string | null;
   provider_progress_message_id: string | null;
   provider_progress_publication_idempotency_key: string | null;
   provider_progress_sequence: number | null;
@@ -407,6 +414,7 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
     provider_progress_claimed_at_ms,
     provider_progress_claim_expires_at_ms,
     provider_progress_card_id,
+    provider_progress_card_history_json,
     provider_progress_message_id,
     provider_progress_publication_idempotency_key,
     provider_progress_sequence,
@@ -1700,6 +1708,11 @@ export async function rearmRemoteAgentNativeDeliveryForWorkLoop(input: {
               ELSE provider_progress_source_offset
             END,
             provider_progress_pending_source_offset = NULL,
+            provider_progress_card_history_json = CASE
+              WHEN conversation_kind = 'message_channel' THEN
+                json_object('v', 1, 'firstIndex', provider_progress_rollover_index, 'cards', json('[]'))
+              ELSE provider_progress_card_history_json
+            END,
             provider_progress_pending_text_hash = NULL,
             provider_progress_pending_card_id = NULL,
             provider_progress_failure_code = NULL,
@@ -5052,6 +5065,7 @@ export async function markRemoteAgentMessageChannelFinalPublicationPublished(inp
           final_publication_claim_expires_at_ms = NULL,
           final_publication_payload_json = NULL,
           final_publication_next_attempt_at_ms = NULL,
+          provider_progress_card_history_json = json_remove(provider_progress_card_history_json, '$.pendingSnapshot'),
           failure_code = CASE
             WHEN status = 'failed' THEN failure_code
             ELSE NULL
@@ -5895,6 +5909,9 @@ function mapNativeDeliveryRow(
     providerProgressClaimedAtMs: row.provider_progress_claimed_at_ms,
     providerProgressClaimExpiresAtMs: row.provider_progress_claim_expires_at_ms,
     providerProgressCardId: row.provider_progress_card_id,
+    providerProgressCardHistory: parseMessageChannelCardHistory(
+      row.provider_progress_card_history_json
+    ),
     providerProgressMessageId: row.provider_progress_message_id,
     providerProgressPublicationIdempotencyKey:
       row.provider_progress_publication_idempotency_key,

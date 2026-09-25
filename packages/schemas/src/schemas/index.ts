@@ -70,6 +70,7 @@ export {
   generateCenterAgentSessionTitleInputSchema,
   generateCenterAgentSessionTitleResponseSchema,
 } from "./runtime/center-agent-session-title";
+export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-history";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
