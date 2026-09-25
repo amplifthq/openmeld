@@ -23,7 +23,12 @@ import {
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { ReactElement, ReactNode } from "react";
+import {
+	type ReactElement,
+	type ReactNode,
+	type RefObject,
+	useRef,
+} from "react";
 import {
 	APP_NAV_GROUP_CLASS_NAME,
 	APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
@@ -139,13 +144,19 @@ export function AppRailNavigationGroup(input: {
 	));
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
-			{input.tier === "icon" ? (
-				<ul className="flex flex-col gap-1.5">{links}</ul>
-			) : (
-				<SidebarMenu activeLayoutId={`main-sidebar-selection-${presentation}`}>
-					{links}
-				</SidebarMenu>
-			)}
+			<SidebarMenu
+				activeLayoutId={
+					input.tier === "expanded"
+						? `main-sidebar-selection-${presentation}`
+						: undefined
+				}
+				className={input.tier === "icon" ? "gap-1.5" : undefined}
+				indicatorTargetSelector={
+					input.tier === "icon" ? '[data-slot="app-rail-icon"]' : undefined
+				}
+			>
+				{links}
+			</SidebarMenu>
 		</nav>
 	);
 	const groupClassName = cn(
@@ -161,6 +172,7 @@ export function AppRailNavigationGroup(input: {
 }
 
 export function CollapsedRailTooltip(input: {
+	anchor?: RefObject<Element | null>;
 	children: ReactElement;
 	disabled?: boolean;
 	label: string;
@@ -169,7 +181,7 @@ export function CollapsedRailTooltip(input: {
 	return (
 		<Tooltip disabled={input.disabled}>
 			<TooltipTrigger render={input.children} />
-			<TooltipContent side={input.side ?? "right"}>
+			<TooltipContent anchor={input.anchor} side={input.side ?? "right"}>
 				{input.label}
 			</TooltipContent>
 		</Tooltip>
@@ -183,6 +195,7 @@ export function AppRailLink(input: {
 }) {
 	const { dismiss } = useAppNavigationPresentation();
 	const isIcon = input.tier === "icon";
+	const iconRef = useRef<HTMLSpanElement>(null);
 
 	const attentionCount = Math.max(0, input.destination.attentionCount ?? 0);
 	const unreadCount = Math.max(0, input.destination.unreadCount ?? 0);
@@ -215,9 +228,9 @@ export function AppRailLink(input: {
 	const children = (
 		<>
 			<AppRailDestinationIcon
-				active={input.active}
 				attentionCount={attentionCount}
 				destination={input.destination}
+				iconRef={iconRef}
 				statusIndicator={statusIndicator}
 				tier={input.tier}
 			/>
@@ -242,8 +255,7 @@ export function AppRailLink(input: {
 		"flex min-w-0 items-center border border-transparent outline-none focus-visible:text-sidebar-accent-foreground",
 		APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 		APP_NAV_ITEM_TONE_CLASS_NAME,
-		isIcon &&
-			"group/rail-link h-[3.25rem] w-full flex-col justify-center gap-0.5 px-1 py-0",
+		isIcon && "h-[3.25rem] w-full flex-col justify-center gap-0.5 px-1 py-0",
 		input.tier === "expanded" && APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
 		input.tier === "expanded" && "gap-1.5 ps-[5px]",
 		input.active && "text-sidebar-accent-foreground"
@@ -273,11 +285,13 @@ export function AppRailLink(input: {
 
 	if (isIcon) {
 		return (
-			<li className="mx-auto h-[3.25rem] w-full">
-				<CollapsedRailTooltip label={accessibleLabel}>
-					{link}
+			<SidebarMenuItem className="mx-auto h-[3.25rem] w-full">
+				<CollapsedRailTooltip anchor={iconRef} label={accessibleLabel}>
+					<SidebarMenuButton isActive={input.active} render={link}>
+						{children}
+					</SidebarMenuButton>
 				</CollapsedRailTooltip>
-			</li>
+			</SidebarMenuItem>
 		);
 	}
 
@@ -301,9 +315,9 @@ export function AppRailLink(input: {
 }
 
 function AppRailDestinationIcon(input: {
-	active: boolean;
 	attentionCount: number;
 	destination: AppRailDestination;
+	iconRef: RefObject<HTMLSpanElement | null>;
 	statusIndicator: AppRailStatusIndicator | null;
 	tier: SidebarMode;
 }) {
@@ -311,11 +325,10 @@ function AppRailDestinationIcon(input: {
 		<span
 			className={cn(
 				"relative flex shrink-0 items-center justify-center rounded-md",
-				input.tier === "icon"
-					? "size-9 group-hover/rail-link:bg-sidebar-accent group-focus-visible/rail-link:bg-sidebar-accent"
-					: "size-5",
-				input.tier === "icon" && input.active && "bg-interaction-active"
+				input.tier === "icon" ? "size-9" : "size-5"
 			)}
+			data-slot={input.tier === "icon" ? "app-rail-icon" : undefined}
+			ref={input.iconRef}
 		>
 			{input.destination.icon}
 			{input.statusIndicator && input.tier !== "expanded" ? (
