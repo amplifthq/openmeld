@@ -141,15 +141,23 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(screen.queryByText("Responding...")).toBeNull();
 	});
 
-	it("shows hosted public progress in the existing live panel", () => {
+	it.each([
+		[
+			"hosted progress",
+			{ progress: "Checking the current Space context.", progressActive: true },
+		],
+		[
+			"local reasoning",
+			{ thinking: "Checking the current Space context.", thinkingActive: true },
+		],
+	] as const)("shows %s in the Thinking process panel", (_source, update) => {
 		const item = createStreamingItem();
 		if (!item.agentStreamState) {
 			throw new Error("Expected a live Agent stream fixture.");
 		}
 		item.agentStreamState = {
 			...item.agentStreamState,
-			progress: "Checking the current Space context.",
-			progressActive: true,
+			...update,
 		};
 		render(
 			<SpaceMessageProgressStatus
@@ -157,9 +165,11 @@ describe("SpaceMessageProgressStatus", () => {
 				item={item}
 			/>
 		);
-		expect(screen.getByRole("button", { name: "Progress" })).toBeTruthy();
 		expect(
-			screen.getByRole("region", { name: "Live progress" }).textContent
+			screen.getByRole("button", { name: "Thinking process" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("region", { name: "Thinking process" }).textContent
 		).toContain("Checking the current Space context.");
 	});
 
