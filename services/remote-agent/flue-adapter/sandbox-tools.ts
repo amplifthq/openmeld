@@ -178,7 +178,7 @@ export function getRemoteAgentSandboxToolDefinitions(input: {
     {
       name: "bash",
       description:
-        'Run a shell command on your computer. Both backends operate on the same persistent files. Default backend "worker-shell" is instant text tooling in an isolate: cat, ls, grep, sed, awk, sort, head, tail, find, wc — no npm, node, python, package managers, or network. Pass backend "container" when the command needs a real Linux userland (python3, git, curl, jq, real binaries); it is slower to start because the container must boot, so prefer worker-shell when it can do the job. Returns bounded stdout, stderr, and the exit code.',
+        'Run a shell command on your computer. Both backends operate on the same persistent files. Default backend "worker-shell" is instant text tooling in an isolate: cat, ls, grep, sed, awk, sort, head, tail, find, wc — no npm, node, python, package managers, or network. Pass backend "container" for Node.js 24, pnpm, Python, git, curl, package installation, builds, or other Linux commands; it is slower to start because the container must boot, so prefer worker-shell when it can do the job. Returns bounded stdout, stderr, and the exit code.',
       input: bashInputSchema,
       execute: async (rawInput, options) => {
         const request = parse(bashInputSchema, rawInput);
