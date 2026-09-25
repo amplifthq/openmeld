@@ -89,6 +89,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	researchErrorMessage: string | null;
 	selectedProfileId: string | null;
 	state: DirectoryHumanProfilesViewState;
+	strictComputerGroups?: readonly OrganizationComputerGroup[];
 }) {
 	const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
 	const presence = useHumanPresence();
@@ -108,7 +109,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 		selectedProfileId: input.selectedProfileId,
 	});
 	const selectedComputerGroup = selectedMember
-		? (preview.computerGroups.find(
+		? ((input.strictComputerGroups ?? preview.computerGroups).find(
 				(group) => group.ownerUserId === selectedMember.userId
 			) ?? null)
 		: null;

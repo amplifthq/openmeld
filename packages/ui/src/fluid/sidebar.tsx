@@ -192,6 +192,7 @@ export function Sidebar({
             aria-label="Peek sidebar"
             className="group/peek-strip absolute inset-y-2 left-0 z-40 w-2 cursor-pointer outline-none"
             data-sidebar="reveal"
+            inert={isPeeking}
             onClick={() => setIsPeeking(true)}
             onPointerEnter={(event) => {
               if (event.pointerType === "mouse") {
@@ -240,8 +241,9 @@ export function SidebarTrigger({
   className,
   children,
   onClick,
+  tooltipSide = "right",
   ...props
-}: ComponentProps<"button">) {
+}: ComponentProps<"button"> & { tooltipSide?: "right" | "bottom" }) {
   const { state, toggleSidebar, schedulePeek, cancelPeekTimer, isPeeking } =
     useSidebar();
   return (
@@ -278,7 +280,7 @@ export function SidebarTrigger({
       >
         {children ?? <SidebarSimpleIcon className="size-4" />}
       </TooltipTrigger>
-      <TooltipContent side="right">
+      <TooltipContent side={tooltipSide}>
         {state === "expanded" ? "Hide sidebar" : "Show sidebar"}{" "}
         <kbd className="ml-1">[</kbd>
       </TooltipContent>

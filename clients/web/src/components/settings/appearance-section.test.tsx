@@ -52,6 +52,7 @@ describe("AppearanceSection", () => {
 	afterEach(() => {
 		cleanup();
 		localStorage.clear();
+		document.documentElement.removeAttribute("data-space-history-slider");
 		document.documentElement.removeAttribute("data-hidden-toolbar-shortcuts");
 		themeState.setTheme.mockReset();
 		themeState.theme = "system";
@@ -93,6 +94,23 @@ describe("AppearanceSection", () => {
 		expect(
 			screen
 				.getByRole("switch", { name: "Show Inbox in toolbar" })
+				.getAttribute("aria-checked")
+		).toBe("false");
+	});
+
+	it("keeps the history slider setting across Appearance mounts", () => {
+		renderAppearance();
+		const toggle = screen.getByRole("switch", { name: "Show history slider" });
+		expect(toggle.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(toggle);
+		expect(
+			document.documentElement.getAttribute("data-space-history-slider")
+		).toBe("off");
+		cleanup();
+		renderAppearance();
+		expect(
+			screen
+				.getByRole("switch", { name: "Show history slider" })
 				.getAttribute("aria-checked")
 		).toBe("false");
 	});
