@@ -34,7 +34,6 @@ export type SpaceConversationVisibleStreamProjection =
 			thinking?: string;
 			thinkingActive?: boolean;
 			progress?: string;
-			progressActive?: boolean;
 			reasoningState?: LocalAgentReasoningState;
 	  })
 	| (SpaceConversationStreamCommon & {
@@ -263,7 +262,6 @@ function toPresenceProjection(input: {
 		...(currentStreamingProjection?.progress
 			? {
 					progress: currentStreamingProjection.progress,
-					progressActive: currentStreamingProjection.progressActive,
 				}
 			: {}),
 		...(currentStreamingProjection?.toolParts
@@ -305,7 +303,6 @@ export function clearSpaceConversationTransientStreams(
 			thinking: _thinking,
 			thinkingActive: _thinkingActive,
 			progress: _progress,
-			progressActive: _progressActive,
 			reasoningState: _reasoningState,
 			toolParts: _toolParts,
 			...persistent
@@ -390,9 +387,6 @@ function projectTransientStreamContent(
 		...(progress
 			? {
 					progress,
-					progressActive:
-						frame.kind === "progress" &&
-						frame.sequence >= (current?.sequence ?? 0),
 				}
 			: {}),
 		...(reasoningState ? { reasoningState } : {}),
@@ -456,7 +450,7 @@ function toStreamingPartProjection(input: {
 			: {}),
 		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.progress
-			? { progress: input.currentProjection.progress, progressActive: false }
+			? { progress: input.currentProjection.progress }
 			: {}),
 		toolParts: boundedToolParts,
 		triggerMessageId: input.frame.triggerMessageId,
@@ -511,7 +505,6 @@ function toSnapshotProjection(input: {
 		input.currentProjection.progress
 			? {
 					progress: input.currentProjection.progress,
-					progressActive: input.currentProjection.progressActive,
 				}
 			: {}),
 		triggerMessageId: input.snapshot.triggerMessageId,

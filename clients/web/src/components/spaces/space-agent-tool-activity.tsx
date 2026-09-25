@@ -247,6 +247,7 @@ function AgentWorkActivityViewport(input: {
 				{input.progress ? (
 					<AgentStreamText
 						label="Agent updates"
+						showLabel={shownSteps.length > 0 || Boolean(input.reasoning)}
 						slot="agent-public-progress"
 						streaming={false}
 						text={input.progress}

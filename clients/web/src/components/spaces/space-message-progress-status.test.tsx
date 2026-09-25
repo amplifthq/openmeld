@@ -171,7 +171,6 @@ describe("SpaceMessageProgressStatus", () => {
 		item.agentStreamState = {
 			...item.agentStreamState,
 			progress: "Checking the current Space context.",
-			progressActive: true,
 		};
 		render(
 			<SpaceMessageProgressStatus
