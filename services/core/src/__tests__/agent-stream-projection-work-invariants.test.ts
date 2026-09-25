@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   type AgentStreamProjectionStorage,
   applyAgentStreamPart,
+  applyAgentStreamTransientDelta,
   attachAgentActivityToFinalReply,
   closeAgentStreamProjection,
   readAgentWorkingDetailsForSignal,
@@ -19,6 +20,86 @@ const STREAM = {
 };
 
 describe("Agent stream work invariants", () => {
+  it("records bounded public progress only with the matching final reply", async () => {
+    const storage = createStorage();
+    await applyAgentStreamTransientDelta({
+      storage,
+      delta: {
+        ...STREAM,
+        kind: "progress",
+        sequence: 1,
+        progressSnapshot: "Checking the organization directory.\n\n",
+      },
+      nowMs: 1,
+    });
+
+    const signal = await attachAgentActivityToFinalReply({
+      storage,
+      agentStreamId: STREAM.streamId,
+      nowMs: 2,
+      signal: {
+        v: 1,
+        id: "signal-final",
+        ts: 2,
+        spaceId: STREAM.spaceId,
+        profile: {
+          kind: "agent",
+          profileId: STREAM.profileId,
+          profileName: "Center Agent",
+        },
+        type: "signal.text",
+        data: {
+          text: "Done.",
+          meta: {
+            dispatchId: STREAM.dispatchId,
+            purpose: AGENT_REPLY_FINAL_PURPOSE,
+          },
+        },
+      },
+    });
+    expect(
+      signal.type === "signal.text"
+        ? signal.data.meta?.agentPublicProgress
+        : null
+    ).toBe("Checking the organization directory.\n\n");
+    await closeAgentStreamProjection({
+      storage,
+      streamId: STREAM.streamId,
+      terminal: { kind: "final_message", publishedSignalId: "signal-final" },
+      nowMs: 3,
+    });
+    expect(
+      await storage.get(`agent_stream_public_progress_draft:${STREAM.streamId}`)
+    ).toBeUndefined();
+  });
+
+  it("discards public progress when the stream stops without a reply", async () => {
+    const storage = createStorage();
+    await applyAgentStreamTransientDelta({
+      storage,
+      delta: {
+        ...STREAM,
+        kind: "progress",
+        sequence: 1,
+        progressSnapshot: "Checking the organization directory.\n\n",
+      },
+      nowMs: 1,
+    });
+    await closeAgentStreamProjection({
+      storage,
+      streamId: STREAM.streamId,
+      terminal: {
+        kind: "stopped",
+        reasonCode: "agent_stopped",
+        noticeText: "Stopped.",
+      },
+      nowMs: 2,
+    });
+    expect(
+      await storage.get(`agent_stream_public_progress_draft:${STREAM.streamId}`)
+    ).toBeUndefined();
+  });
+
   it("locks the tool identity and semantic work after their first frame", async () => {
     const storage = createStorage();
 

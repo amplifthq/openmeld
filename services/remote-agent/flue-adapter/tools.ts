@@ -30,6 +30,7 @@ import {
   createRemoteAgentCodeModeFlueTool,
   type RemoteAgentCodeModeRuntime,
 } from "./code-mode";
+import { createHostedPublicProgressTool } from "./public-progress";
 import {
   executeRemoteAgentToolDefinition,
   toBoundedRemoteAgentToolResult,
@@ -67,6 +68,7 @@ export async function getRemoteAgentFlueTools(input: {
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
   const availableDefinitions = [
+    createHostedPublicProgressTool(input),
     ...(input.personalAgent
       ? [
           ...getPersonalRemoteAgentTools(input),

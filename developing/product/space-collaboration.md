@@ -409,13 +409,15 @@ OpenClaw is excluded.
 The existing working title, elapsed time, and Stop control remain available.
 A bounded Thinking + Reasoning viewport below them opens for live output and
 lets the reader pause following by scrolling up. It collapses when the stream
-transitions to text or tool work, and opens when reasoning resumes. Center Agent
-and Remote Agent streams use the same component and interaction. Disabled streaming is explicitly
+transitions to text or tool work, and opens when reasoning resumes. Hosted Center
+and Remote Agents show explicit public updates inside the live Work summary's
+expandable, bounded viewport, alongside tool steps when present. Provider
+thinking stays private. Disabled local streaming is explicitly
 attributed to the Agent owner; an unsupported connection is distinguished from
 waiting for a provider that has not emitted reasoning. Absence of reasoning is
 never evidence that a running Agent is stuck.
 
-Reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
+Local Agent reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
 search input, notification, export, transcript, execution journal, or diagnostic
 body. OpenMeld retains no reasoning text in storage or browser persistence.
 The live tail is cleared on disconnect, navigation, privacy disable, and terminal
@@ -1584,13 +1586,12 @@ from a privacy-bounded tool lifecycle part only when the part carries an
 admitted semantic work meaning. The row is a transient projection and must not
 expose or derive copy from a technical tool name, orchestration wrapper, tool
 input, output, raw error content, command, path, or private Agent text. A
-meaningless wrapper such as Code Mode is hidden; admitted inner work may still
-appear after the inner tool succeeds. An inner error stays in the execution
-outcome and must not become a Work summary row. Unknown work has no generic
-fallback.
+meaningless wrapper such as Code Mode is hidden; admitted inner work appears
+when it starts and updates the same row when it completes or fails. Failure
+does not reveal the raw error. Unknown work has no generic fallback.
 
 The Work summary replaces the existing progress row while visible instead of
-adding a second status row, defaults closed while work is active, groups
+adding a second status row, opens while work is active, groups
 consecutive identical work, and stays inside a bounded scroll viewport. A user
 who scrolls up controls their reading position until they explicitly jump to
 the latest step. A single failed admitted step is named explicitly in the final
@@ -1599,7 +1600,9 @@ instead of vague `had a problem` copy. When an Agent successfully publishes a fi
 durable Signal may retain an ordered work projection containing only admitted
 semantic work, lifecycle states, technical compatibility names, and truncation
 evidence. The final answer renders first; its Work summary follows and defaults
-closed. Separately, Message details may retain the same bounded semantic work
+closed. The final Signal may also retain bounded explicit hosted public updates
+for readers to reopen in that summary. Provider reasoning remains private.
+Separately, Message details may retain the same bounded semantic work
 and lifecycle states with timestamps for 14 days in the unified **Activity**
 timeline.
 Neither projection is a transcript, raw tool journal, or the separate Agent

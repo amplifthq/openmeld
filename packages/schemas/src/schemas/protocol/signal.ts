@@ -118,6 +118,7 @@ const signalTextMetaSchema = z.object({
   transient: z.literal(true).optional(),
   agentActivity: legacySpaceAgentActivitySchema.optional(),
   agentWorkSummary: spaceAgentActivitySchema.optional(),
+  agentPublicProgress: z.string().min(1).max(8192).optional(),
   clientMessageId: clientMessageIdSchema.optional(),
   centerAgentExecutionInput: z
     .strictObject({
@@ -250,6 +251,7 @@ const postedSignalTextMetaSchema = signalTextMetaSchema
     changedMessageId: true,
     agentActivity: true,
     agentWorkSummary: true,
+    agentPublicProgress: true,
     conversationCompaction: true,
   })
   .extend({
@@ -265,6 +267,7 @@ const systemEmittedSignalTextMetaSchema = signalTextMetaSchema
   .omit({
     agentActivity: true,
     agentWorkSummary: true,
+    agentPublicProgress: true,
   })
   .superRefine(validateAuthoredSignalTextMeta);
 

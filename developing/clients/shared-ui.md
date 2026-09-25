@@ -53,6 +53,9 @@ including dropdowns, selects, and action menus. Do not reconstruct menus from
 generic Popover and Button components; reuse Fluid interaction behavior and the
 shared radius tokens. Sidebar section actions reveal on their own section's
 hover or keyboard focus, with open-menu and touch-device visibility preserved.
+Space Agent work and reasoning share `fluid/thinking-steps` as their disclosure;
+client code supplies the private reasoning, public progress, and admitted work
+content without a second shared disclosure component.
 
 ## Import Rule
 
