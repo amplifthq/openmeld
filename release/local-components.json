@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-24T19:26:36.872Z",
+  "updatedAt": "2026-09-25T15:05:54.673Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
-      "packageVersion": "0.3.223",
-      "updatePolicy": "available",
-      "reason": "Existing CLI commands and new optional diagnostics remain compatible with deployed cloud receivers."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
+      "packageVersion": "0.3.224",
+      "updatePolicy": "required",
+      "reason": "New cloud file references may reach 1 GiB; older CLI readers reject the expanded file contract."
     },
     "service": {
-      "bundleHash": "ac2a5670f4f1a5ae8bba2c898575c68ffb61e80250f9326bb8d05fce8eabfacc",
-      "portableBundleHash": "068d5c3925637dc63e5549297592ec97e050feae15c7a72314476356dbc68ccd",
-      "bundleVersion": "0.3.223",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
-      "updatePolicy": "available",
-      "reason": "Older Services retain compatible Space and Wake behavior; the updated Service works with the existing cloud protocol."
+      "bundleHash": "a54dc806fdbd00fcb24e0c64d0372ca432d97fb56a146d625ecf37ab15d1720f",
+      "portableBundleHash": "a3fcc45e40e93058c888cdc76624fa06e00f6897ff8e0d256bc79908e5479d9a",
+      "bundleVersion": "0.3.224",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-space-files-1gib-v1",
+      "updatePolicy": "required",
+      "reason": "New cloud file references may reach 1 GiB; older OpenMeld Service readers reject the expanded file contract."
     },
     "skills": {
       "bundleHash": "d1adf5f61e413418e6c11cf7bab84ea41aed967ae0d118ef1ad84588739249cf",
