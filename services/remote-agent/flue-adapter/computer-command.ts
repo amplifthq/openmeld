@@ -74,6 +74,7 @@ type Command = {
   createdAt: number;
   stopRequested?: boolean;
   lossReported?: boolean;
+  lostDuringCleanup?: boolean;
   completed?: boolean;
 };
 type CommandResult = {
@@ -86,6 +87,15 @@ type CommandResult = {
   after: number;
   outputPending?: true;
 };
+
+class MissingComputerExecRecordError extends Error {
+  readonly code = "ENOENT";
+
+  constructor(id: string, cause: unknown) {
+    super(`Computer execution record ${id} is missing.`, { cause });
+    this.name = "MissingComputerExecRecordError";
+  }
+}
 
 function commandPrefix(submissionId: string): string {
   return `${PREFIX}${encodeURIComponent(submissionId)}:`;
@@ -334,6 +344,9 @@ async function pollComputerCommand(
       // output already has a subscriber. Cap'n Web cancellation need not reach
       // a silent producer until its next write. This proves running, not lost
       // execution. Its retained output is replayable when the process exits.
+      if (hasErrorCode(error, "ENOENT")) {
+        throw new MissingComputerExecRecordError(command.id, error);
+      }
       if (
         !(
           error instanceof Error &&
@@ -478,12 +491,16 @@ export async function stopRemoteAgentComputerCommands(input: {
     ),
   });
   let unfinished = 0;
+  let lostDuringCleanup = 0;
   const failures: unknown[] = [];
   for (const command of commands.values()) {
-    // The SDK proved this process belonged to a replaced Computer, and its
-    // failure was returned to the model. Do not override later recovery with
-    // another attempt to signal that now-absent process.
-    if (command.lossReported || command.completed) {
+    // A reported loss reached the model. A cleanup loss has already requested
+    // a durable execution failure. Neither absent process should be retried.
+    if (
+      command.lossReported ||
+      command.lostDuringCleanup ||
+      command.completed
+    ) {
       continue;
     }
     try {
@@ -494,6 +511,8 @@ export async function stopRemoteAgentComputerCommands(input: {
       );
       await access.withWorkspace(async (workspace) => {
         let completed = false;
+        let execRecordMissing = false;
+        let stopError: unknown;
         try {
           const result = await pollComputerCommand(
             workspace.runtime,
@@ -502,17 +521,44 @@ export async function stopRemoteAgentComputerCommands(input: {
             1000
           );
           completed = result.status === "completed";
+        } catch (error) {
+          execRecordMissing = error instanceof MissingComputerExecRecordError;
+          throw error;
         } finally {
           // Output transport failure must never strand an owned process after
           // its turn ends. Signal its exact retained identity even when its
           // output cannot be read; preserve the inspection error for diagnosis.
           if (!completed) {
             unfinished++;
-            await workspace.runtime.killExec(command.id, {
-              backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-              signal: "SIGTERM",
-            });
+            try {
+              await workspace.runtime.killExec(command.id, {
+                backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+                signal: "SIGTERM",
+              });
+            } catch (error) {
+              // The exact process is absent from both native read and signal
+              // operations. A prior Stop may have removed its retained record;
+              // keep the requested execution failure, then let reconciliation
+              // publish it without replaying this command or retrying forever.
+              if (execRecordMissing && hasErrorCode(error, "ENOENT")) {
+                await input.storage.putExpiring(
+                  `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
+                  { ...command, stopRequested: true, lostDuringCleanup: true },
+                  Date.now() + 7 * 24 * 60 * 60 * 1000
+                );
+                lostDuringCleanup++;
+                console.warn("[remote_agent.computer_command_cleanup_lost]", {
+                  submissionId: input.context.submissionId,
+                  commandId: command.id,
+                  commandKey: command.key,
+                });
+              }
+              stopError = error;
+            }
           }
+        }
+        if (stopError) {
+          throw stopError;
         }
       });
     } catch (error) {
@@ -520,7 +566,16 @@ export async function stopRemoteAgentComputerCommands(input: {
     }
   }
   if (failures.length > 0) {
-    throw new AggregateError(failures, "Computer command cleanup failed.");
+    throw new AggregateError(
+      failures,
+      lostDuringCleanup > 0
+        ? "Computer command cleanup failed: a retained process record was missing during both inspection and Stop."
+        : "Computer command cleanup failed."
+    );
   }
   return unfinished;
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
 }

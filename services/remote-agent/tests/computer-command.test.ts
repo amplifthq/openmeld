@@ -23,6 +23,7 @@ import {
 } from "../flue-adapter/computer-command";
 import { createRemoteAgentComputerCapability } from "../flue-adapter/computer-sandbox";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
+import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
 import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
 import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
@@ -350,6 +351,99 @@ describe("retained Computer commands", () => {
     expect(f.killExec).not.toHaveBeenCalled();
     expect(f.exec).toHaveBeenCalledTimes(1);
     expect(started).toMatchObject({ key: "lost", status: "running" });
+  });
+
+  it("publishes failure when a stopped command's exact retained process has disappeared", async () => {
+    const f = fixture();
+    const executionContext = context("execution-a");
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    const started = (await f
+      .tool()
+      .execute({ action: "start", key: "long", command: "sleep 300" })) as {
+      id: string;
+    };
+    await f.tool().execute({ action: "stop", key: "long" });
+    const missing = Object.assign(
+      new Error(`no exec record for id ${started.id}`),
+      { code: "ENOENT" }
+    );
+    f.getExec.mockRejectedValue(missing);
+    f.killExec.mockRejectedValue(missing);
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
+
+    await expect(
+      finishRemoteAgentComputerCommands({
+        context: executionContext,
+        env,
+        storage: f.storage,
+      })
+    ).rejects.toThrow("a retained process record was missing");
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      status: "accepted" as const,
+    }));
+    await expect(
+      reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        env,
+        identity,
+        readSubmission: async () => ({ status: "settled" }),
+        storage: f.storage,
+      })
+    ).resolves.toMatchObject({ execution: { status: "failed" } });
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        submissionId: "execution-a",
+        failureDetail: expect.stringContaining(
+          "a retained process record was missing"
+        ),
+      })
+    );
+    expect(f.exec).toHaveBeenCalledOnce();
+  });
+
+  it("keeps cleanup pending when inspection is missing but Stop has no exit proof", async () => {
+    const f = fixture();
+    const started = (await f
+      .tool()
+      .execute({ action: "start", key: "long", command: "sleep 300" })) as {
+      id: string;
+    };
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
+    f.getExec.mockRejectedValueOnce(
+      Object.assign(new Error("no exec record"), { code: "ENOENT" })
+    );
+    await expect(
+      stopRemoteAgentComputerCommands({
+        context: context("execution-a"),
+        env,
+        storage: f.storage,
+      })
+    ).rejects.toThrow("Computer command cleanup failed");
+    expect(f.killExec).toHaveBeenCalledWith(started.id, {
+      backend: "container",
+      signal: "SIGTERM",
+    });
+    f.getExec.mockImplementation(async (id) =>
+      handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true)
+    );
+    await expect(
+      stopRemoteAgentComputerCommands({
+        context: context("execution-a"),
+        env,
+        storage: f.storage,
+      })
+    ).resolves.toBe(0);
+    expect(f.getExec).toHaveBeenCalledTimes(2);
   });
 
   it("reports a native live subscriber as running and later reads the retained exit", async () => {
