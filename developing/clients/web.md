@@ -2439,6 +2439,12 @@ time when known, and enabled local-agent icons. Computer explanations remain in
 the icon tooltip and accessible name; Channel identities and email are omitted.
 Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
 remain personal preferences; dragging cannot change Human presence.
+People keeps its last successful Computer and Local Agent display in the
+Organization-scoped in-memory query cache for up to one day after leaving Team.
+An expired query refreshes on return or through the visible 30-second poll
+without clearing that display; a failed read shows unavailable Computer status
+while retaining the last known Agent logos as read-only context.
+This Computer projection is not restored from IndexedDB.
 
 People and Space member/profile avatars show a small inset green dot only when
 the Human is Online. Offline and unknown states have no visible marker; accessible
