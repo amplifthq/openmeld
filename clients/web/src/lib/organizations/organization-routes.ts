@@ -301,6 +301,10 @@ export function buildOrganizationSkillsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/skills`;
 }
 
+export function buildOrganizationFilesPath(orgSlug: string): string {
+	return `${buildOrganizationRootPath(orgSlug)}/files`;
+}
+
 export function buildOrganizationSkillPath(input: {
 	orgSlug: string;
 	skillId: string;
@@ -515,6 +519,8 @@ function resolveProductHomeSwitchPath(input: {
 	switch (section) {
 		case "skills":
 			return buildOrganizationSkillsPath(input.nextOrgSlug);
+		case "files":
+			return buildOrganizationFilesPath(input.nextOrgSlug);
 		case "plugins":
 			return subsection
 				? buildOrganizationPluginPath({

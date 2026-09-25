@@ -1,6 +1,7 @@
 export type AppShellSection =
 	| "plugins"
 	| "skills"
+	| "files"
 	| "newAgent"
 	| "agentActivity"
 	| "agents"
@@ -47,6 +48,7 @@ export const APP_SPACE_FRAME_CLASS_NAME = "max-w-[96rem]";
 export const appShellStaticData = {
 	plugins: { appShellSection: "plugins" },
 	skills: { appShellSection: "skills" },
+	files: { appShellSection: "files" },
 	newAgent: { appShellSection: "newAgent" },
 	agentActivity: { appShellSection: "agentActivity" },
 	agents: { appShellSection: "agents" },
@@ -108,6 +110,7 @@ export function resolveAppOuterRailDestinationFromMatches(
 	switch (section) {
 		case "plugins":
 		case "skills":
+		case "files":
 			return "people";
 		case "newAgent":
 		case "agentActivity":

@@ -1542,9 +1542,12 @@ export {
   updateFeedbackReportingPolicyBodySchema,
 } from "./http/feedback";
 export {
+  fileRootEntryResponseSchema,
   fileRootEntrySchema,
   fileRootFileDescriptorSchema,
+  fileRootFileResponseSchema,
   fileRootFolderDescriptorSchema,
+  fileRootFolderResponseSchema,
   fileRootSchema,
   listFileRootResponseSchema,
 } from "./http/file-root";

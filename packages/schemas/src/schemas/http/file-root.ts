@@ -35,10 +35,22 @@ export const fileRootFileDescriptorSchema = spaceFileDescriptorSchema
   .omit({ spaceId: true })
   .extend({ root: fileRootSchema });
 
+export const fileRootFileResponseSchema = z.strictObject({
+  file: fileRootFileDescriptorSchema,
+});
+
+export const fileRootFolderResponseSchema = z.strictObject({
+  folder: fileRootFolderDescriptorSchema,
+});
+
 export const fileRootEntrySchema = z.discriminatedUnion("kind", [
   fileRootFolderDescriptorSchema,
   fileRootFileDescriptorSchema,
 ]);
+
+export const fileRootEntryResponseSchema = z.strictObject({
+  entry: fileRootEntrySchema,
+});
 
 export const listFileRootResponseSchema = z.strictObject({
   root: fileRootSchema,

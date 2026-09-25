@@ -1,6 +1,6 @@
 # Files
 
-> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser slice, and the first Team/member metadata and small-content routes are implemented. Resumable Team/member uploads, the user-facing Team entry, Agent file tools, Skill storage, and Documents cutover remain acceptance requirements, not current capabilities.
+> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser, Team/member metadata and small-content routes, and a basic Team Files page are implemented. Resumable Team/member uploads, complete file actions, Agent file tools, Skill storage, and Documents cutover remain acceptance requirements, not current capabilities.
 
 ## Agent Context
 
