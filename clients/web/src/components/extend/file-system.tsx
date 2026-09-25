@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTheme } from "next-themes"
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area"
 import {
   createFileTreeIconResolver,
@@ -106,6 +107,21 @@ function LeftToRightListBulletGlyph(props: InlineRegistryIconProps) {
 const LazyPDFViewer = React.lazy(() =>
   import("#/components/extend/pdf-viewer").then((mod) => ({
     default: mod.PDFViewer,
+  }))
+)
+const LazyDocxViewer = React.lazy(() =>
+  import("#/components/extend/docx-viewer").then((mod) => ({
+    default: mod.DocxViewerPreview,
+  }))
+)
+const LazyPptxViewer = React.lazy(() =>
+  import("#/components/extend/pptx-viewer").then((mod) => ({
+    default: mod.PptxViewerPreview,
+  }))
+)
+const LazyXlsxViewer = React.lazy(() =>
+  import("#/components/extend/xlsx-viewer").then((mod) => ({
+    default: mod.XlsxViewerPreview,
   }))
 )
 export type FileSystemView = "icons" | "list" | "columns" | "gallery"
@@ -410,14 +426,20 @@ function fileTypeFilterGroup(mime: string): FileTypeFilterGroup {
   }
   return "Archives & binary"
 }
-export type FileSystemViewerKind = "image" | "pdf"
+export type FileSystemViewerKind = "image" | "pdf" | "docx" | "pptx" | "xlsx"
 function viewerKindForFile(
   file: FileSystemFileItem
 ): FileSystemViewerKind | null {
   if (file.contentType?.startsWith("image/")) return "image"
   if (file.contentType === "application/pdf") return "pdf"
+  if (file.contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx"
+  if (file.contentType === "application/vnd.openxmlformats-officedocument.presentationml.presentation") return "pptx"
+  if (file.contentType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "xlsx"
   const name = (file.name ?? file.path).toLowerCase()
   if (name.endsWith(".pdf")) return "pdf"
+  if (name.endsWith(".docx")) return "docx"
+  if (name.endsWith(".pptx")) return "pptx"
+  if (name.endsWith(".xlsx")) return "xlsx"
   if (/\.(avif|gif|jpe?g|png|svg|webp)$/.test(name)) return "image"
   return null
 }
@@ -425,6 +447,9 @@ function viewerKindForFile(
 const VIEWER_DIALOG_CLASSNAMES: Record<FileSystemViewerKind, string> = {
   image: "max-h-[88vh] w-fit max-w-[min(96vw,64rem)]",
   pdf: "h-[88vh] w-[min(96vw,68rem)] max-w-none",
+  docx: "h-[88vh] w-[min(96vw,68rem)] max-w-none",
+  pptx: "h-[88vh] w-[min(96vw,72rem)] max-w-none",
+  xlsx: "h-[88vh] w-[min(96vw,72rem)] max-w-none",
 }
 function FileSystemViewerLoading() {
   return (
@@ -4434,6 +4459,18 @@ function FileSystemGalleryStage({
       </div>
     )
   }
+  if ((viewerKind === "docx" || viewerKind === "pptx" || viewerKind === "xlsx") && url) {
+    return (
+      <FileSystemOfficeViewer
+        className={cn("h-full", isDialog && "min-h-0 overflow-hidden rounded-2xl")}
+        fileName={file.name}
+        kind={viewerKind}
+        showToolbar={isDialog}
+        toolbarActions={toolbarActions}
+        url={url}
+      />
+    )
+  }
   return (
     <FileVisual
       file={file}
@@ -4444,6 +4481,46 @@ function FileSystemGalleryStage({
       previewAspectRatio={0.78}
       renderFilePreview={renderFilePreview}
     />
+  )
+}
+
+function FileSystemOfficeViewer({
+  className,
+  fileName,
+  kind,
+  showToolbar,
+  toolbarActions,
+  url,
+}: {
+  className: string
+  fileName: string
+  kind: "docx" | "pptx" | "xlsx"
+  showToolbar: boolean
+  toolbarActions?: React.ReactNode
+  url: string
+}) {
+  const { resolvedTheme } = useTheme()
+  const [isDark, setIsDark] = React.useState(resolvedTheme === "dark")
+  React.useEffect(() => setIsDark(resolvedTheme === "dark"), [resolvedTheme])
+  const common = {
+    className,
+    fileName,
+    showDownload: false,
+    showToolbar,
+    showUpload: false,
+    src: url,
+    toolbarActions,
+  }
+  return (
+    <React.Suspense fallback={<FileSystemViewerLoading />}>
+      {kind === "docx" ? (
+        <LazyDocxViewer {...common} isDark={isDark} onIsDarkChange={setIsDark} />
+      ) : kind === "xlsx" ? (
+        <LazyXlsxViewer {...common} isDark={isDark} onIsDarkChange={setIsDark} />
+      ) : (
+        <LazyPptxViewer {...common} />
+      )}
+    </React.Suspense>
   )
 }
 function FileSystemGalleryView(props: FileSystemViewProps) {
