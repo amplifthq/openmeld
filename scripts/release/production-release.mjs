@@ -405,7 +405,7 @@ export function resolveProductionCompatibilityDependencies(
     {
       enabled:
         isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
-        isRemoteAgentReceiverFirstContractDiff(changedPaths),
+        changedPaths.some(isRemoteAgentReceiverFirstContractPath),
       edges: [["remote-agent", "core"]],
     },
     {
@@ -446,7 +446,7 @@ export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
   if (
     !(
       isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
-      isRemoteAgentReceiverFirstContractDiff(changedPaths)
+      changedPaths.some(isRemoteAgentReceiverFirstContractPath)
     )
   ) {
     return witnesses;
@@ -1574,8 +1574,9 @@ function resolveExistingProductionDeployOrderProfile(changedPaths) {
     isInboxSourceTargetReceiverFirstDiff(changedPaths);
   const isRemoteAgentRequestReceiverFirst =
     isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths);
-  const isRemoteAgentReceiverFirst =
-    isRemoteAgentReceiverFirstContractDiff(changedPaths);
+  const isRemoteAgentReceiverFirst = changedPaths.some(
+    isRemoteAgentReceiverFirstContractPath
+  );
   const isLocalServiceReceiverFirst =
     isLocalServiceRuntimeReceiverFirstDiff(changedPaths);
   const isCoreWorkerResponseReaderFirst =
@@ -2053,12 +2054,8 @@ export function buildProductionReleasePlan(input) {
     changedPaths.includes(REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH) &&
     changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
     !isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) &&
-    !isRemoteAgentReceiverFirstContractDiff(changedPaths) &&
-    !(
-      isCoreWorkerResponseReaderFirstDiff(changedPaths) &&
-      changedPaths.includes(
-        "services/remote-agent/flue-adapter/execution-reconciliation.ts"
-      )
+    !changedPaths.some((file) =>
+      REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS.has(file)
     )
   ) {
     throw new Error(
@@ -2683,24 +2680,6 @@ function isCenterAgentTaskContractPath(path) {
 
 function isRemoteAgentReceiverFirstContractPath(path) {
   return REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS.has(path);
-}
-
-function isRemoteAgentReceiverFirstContractDiff(changedPaths) {
-  if (
-    changedPaths.includes(
-      "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts"
-    )
-  ) {
-    return true;
-  }
-  // Cloudflare exports and Flue execution recovery do not change the Core
-  // request envelope. When this same diff adds a strict worker response, the
-  // Core reader must precede the Remote Agent producer unless the explicit
-  // request-owner trio also changed.
-  return (
-    changedPaths.some(isRemoteAgentReceiverFirstContractPath) &&
-    !isCoreWorkerResponseReaderFirstDiff(changedPaths)
-  );
 }
 
 function isCoreWorkerResponseReaderFirstDiff(changedPaths) {

@@ -975,7 +975,6 @@ test("rejects a generic Remote Agent receiver combined with its worker response 
           "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
           "services/core/src/space/transport/do/space.ts",
           "services/remote-agent/flue-adapter/execution-reconciliation.ts",
-          "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
           "services/remote-agent/.flue/agents/center-agent.ts",
         ],
         scope: "remote-agent,gateway,core,cli",
