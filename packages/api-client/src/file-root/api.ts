@@ -3,6 +3,7 @@ import {
   fileRootFileResponseSchema,
   fileRootFolderResponseSchema,
   listFileRootResponseSchema,
+  listFileRootRevisionsResponseSchema,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceFileMimeTypeSchema,
   trashSpaceFileEntryResponseSchema,
@@ -100,6 +101,26 @@ export function createFileRootApi(client: OpenMeldApiClientFoundation) {
       });
       return response.entry;
     },
+    async getFile(input: {
+      location: FileRootLocation;
+      fileId: string;
+    }): Promise<FileRootFileDescriptor> {
+      const response = await client.requestJson({
+        url: `${rootPath(input.location)}/${encodeURIComponent(input.fileId)}`,
+        operation: "files.get",
+        schema: fileRootFileResponseSchema,
+        invalidMessage: "Invalid file response.",
+      });
+      return response.file;
+    },
+    async listRevisions(input: { location: FileRootLocation; fileId: string }) {
+      return await client.requestJson({
+        url: `${rootPath(input.location)}/${encodeURIComponent(input.fileId)}/revisions`,
+        operation: "files.revisions.list",
+        schema: listFileRootRevisionsResponseSchema,
+        invalidMessage: "Invalid file revision history response.",
+      });
+    },
     async trash(input: {
       location: FileRootLocation;
       entryId: string;
@@ -160,6 +181,36 @@ export function createFileRootApi(client: OpenMeldApiClientFoundation) {
         body: input.bytes,
         schema: fileRootFileResponseSchema,
         invalidMessage: "Invalid file upload response.",
+      });
+      return response.file;
+    },
+    async updateContent(input: {
+      location: FileRootLocation;
+      fileId: string;
+      bytes: Blob | ArrayBuffer;
+      mimeType: string;
+      baseRevision: number;
+      clientMutationId: string;
+    }): Promise<FileRootFileDescriptor> {
+      const size =
+        input.bytes instanceof Blob ? input.bytes.size : input.bytes.byteLength;
+      if (size > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
+        throw new Error("This location supports files up to 10 MiB for now.");
+      }
+      const query = new URLSearchParams({
+        baseRevision: String(input.baseRevision),
+        clientMutationId: input.clientMutationId,
+      });
+      const response = await client.requestJson({
+        url: `${contentPath(input.location, input.fileId)}?${query}`,
+        operation: "files.content.update",
+        method: "PUT",
+        headers: {
+          "content-type": spaceFileMimeTypeSchema.parse(input.mimeType),
+        },
+        body: input.bytes,
+        schema: fileRootFileResponseSchema,
+        invalidMessage: "Invalid file revision response.",
       });
       return response.file;
     },

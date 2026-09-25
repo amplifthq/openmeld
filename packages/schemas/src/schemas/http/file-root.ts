@@ -4,6 +4,7 @@ import {
   spaceFileCapabilitiesSchema,
   spaceFileDescriptorSchema,
   spaceFileEntryIdSchema,
+  spaceFileRevisionSchema,
   spaceFolderDescriptorSchema,
 } from "./space-files";
 
@@ -37,6 +38,11 @@ export const fileRootFileDescriptorSchema = spaceFileDescriptorSchema
 
 export const fileRootFileResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,
+});
+
+export const listFileRootRevisionsResponseSchema = z.strictObject({
+  file: fileRootFileDescriptorSchema,
+  revisions: z.array(spaceFileRevisionSchema),
 });
 
 export const fileRootFolderResponseSchema = z.strictObject({

@@ -1550,6 +1550,7 @@ export {
   fileRootFolderResponseSchema,
   fileRootSchema,
   listFileRootResponseSchema,
+  listFileRootRevisionsResponseSchema,
 } from "./http/file-root";
 export {
   gatewayErrorCodeSchema,
