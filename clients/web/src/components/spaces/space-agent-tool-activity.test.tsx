@@ -61,6 +61,39 @@ describe("SpaceAgentToolActivity", () => {
 		expect(screen.queryByText("Ran a command")).toBeNull();
 	});
 
+	it("opens the existing work steps when a public update arrives", () => {
+		const state = createStreamingState([
+			createPart("spaces.read", "input-available"),
+		]);
+		const view = render(
+			<SpaceAgentToolActivity item={{ agentStreamState: state }} />
+		);
+		expect(
+			screen
+				.getByTestId("space-agent-tool-activity")
+				.getAttribute("aria-expanded")
+		).toBe("false");
+
+		view.rerender(
+			<SpaceAgentToolActivity
+				item={{
+					agentStreamState: {
+						...state,
+						progress: "Checking the current Space context.",
+					},
+				}}
+			/>
+		);
+		expect(
+			screen
+				.getByTestId("space-agent-tool-activity")
+				.getAttribute("aria-expanded")
+		).toBe("true");
+		expect(
+			screen.getByRole("list", { name: "Work steps and updates" }).textContent
+		).toContain("Checking the current Space context.");
+	});
+
 	it.each([
 		["output-available", "Reviewed source files"],
 		["output-error", "Couldn't review source files"],

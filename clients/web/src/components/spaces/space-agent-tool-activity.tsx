@@ -8,12 +8,22 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import { InfoIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useReducedMotion } from "motion/react";
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
+import { MessageResponse } from "#/components/ai/message-response";
 import { SPACE_AGENT_WORKING_STATUS_TEXT } from "#/lib/spaces/message-state";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { resolveAgentWorkPresentation } from "./agent-work-presentation";
 import { SpaceAgentOrb } from "./space-agent-orb";
-import { resolveSpaceAgentWorkOrbState } from "./space-agent-orb-state";
+import {
+	DEFAULT_SPACE_AGENT_ORB_STATE,
+	resolveSpaceAgentWorkOrbState,
+} from "./space-agent-orb-state";
 import {
 	resolveVisibleSpaceAgentWorkSteps,
 	type SpaceAgentWorkStep,
@@ -33,21 +43,33 @@ export function SpaceAgentToolActivity(input: {
 }) {
 	const steps = resolveVisibleSpaceAgentWorkSteps(input.item);
 	const latestStep = steps.at(-1);
-	if (!latestStep) {
+	const isLive = input.item.agentStreamState?.status === "streaming";
+	const progress = isLive ? input.item.agentStreamState?.progress : undefined;
+	const [open, setOpen] = useState(Boolean(progress));
+	const hadProgress = useRef(Boolean(progress));
+	useEffect(() => {
+		if (progress && !hadProgress.current) {
+			setOpen(true);
+		}
+		hadProgress.current = Boolean(progress);
+	}, [progress]);
+	if (!(latestStep || progress)) {
 		return null;
 	}
 
-	const isLive = input.item.agentStreamState?.status === "streaming";
-	const summary = resolveWorkSummary(steps, isLive);
+	const summary = latestStep
+		? resolveWorkSummary(steps, isLive)
+		: "Live updates";
 	const accessibleSummary = isLive
-		? `${SPACE_AGENT_WORKING_STATUS_TEXT}. Work summary: ${summary}`
+		? `${SPACE_AGENT_WORKING_STATUS_TEXT}. ${latestStep ? `Work summary: ${summary}` : summary}`
 		: `Work summary: ${summary}`;
 	const activity = (
 		<div className="flex w-full max-w-xl items-start gap-1 text-left">
 			<ThinkingSteps
 				aria-busy={isLive}
 				className="min-w-0 flex-1"
-				defaultOpen={false}
+				onOpenChange={setOpen}
+				open={open}
 			>
 				<ThinkingStepsHeader
 					active={isLive}
@@ -60,7 +82,11 @@ export function SpaceAgentToolActivity(input: {
 					{isLive ? (
 						<span className="flex min-w-0 items-center gap-1.5">
 							<SpaceAgentOrb
-								state={resolveSpaceAgentWorkOrbState(latestStep)}
+								state={
+									latestStep
+										? resolveSpaceAgentWorkOrbState(latestStep)
+										: DEFAULT_SPACE_AGENT_ORB_STATE
+								}
 							/>
 							<span className="whitespace-nowrap">
 								{SPACE_AGENT_WORKING_STATUS_TEXT}
@@ -75,6 +101,8 @@ export function SpaceAgentToolActivity(input: {
 						hasMoreDetails={input.item.agentActivity?.truncated === true}
 						isLive={isLive}
 						onOpenDetails={input.onOpenDetails}
+						progress={progress}
+						progressActive={input.item.agentStreamState?.progressActive}
 						steps={steps}
 					/>
 				</ThinkingStepsContent>
@@ -115,6 +143,8 @@ function AgentWorkActivityViewport(input: {
 	hasMoreDetails: boolean;
 	isLive: boolean;
 	onOpenDetails?: () => void;
+	progress?: string;
+	progressActive?: boolean;
 	steps: readonly SpaceAgentWorkStep[];
 }) {
 	const reduceMotion = useReducedMotion();
@@ -123,25 +153,32 @@ function AgentWorkActivityViewport(input: {
 	const [lastSeenStepCount, setLastSeenStepCount] = useState(() =>
 		totalStepCount(input.steps)
 	);
+	const [lastSeenProgress, setLastSeenProgress] = useState(input.progress);
 	const shownSteps = input.isLive
 		? input.steps
 		: input.steps.slice(-COLLAPSED_COMPLETED_STEP_LIMIT);
 	const totalCount = totalStepCount(input.steps);
+	const progressLength = input.progress?.length ?? 0;
 	const unseenStepCount =
 		input.isLive && !isFollowing
 			? Math.max(0, totalCount - lastSeenStepCount)
 			: 0;
+	const hasUnseenProgress =
+		input.isLive && !isFollowing && input.progress !== lastSeenProgress;
 	const shouldOfferDetails =
 		!input.isLive &&
 		Boolean(input.onOpenDetails) &&
 		(input.hasMoreDetails || totalCount > COLLAPSED_COMPLETED_STEP_LIMIT);
 
 	useLayoutEffect(() => {
-		if (!(input.isLive && isFollowing) || totalCount === 0) {
+		if (
+			!(input.isLive && isFollowing) ||
+			(totalCount === 0 && progressLength === 0)
+		) {
 			return;
 		}
 		scrollWorkViewportToLatest(viewportRef.current, reduceMotion);
-	}, [input.isLive, isFollowing, reduceMotion, totalCount]);
+	}, [input.isLive, isFollowing, progressLength, reduceMotion, totalCount]);
 
 	const handleScroll = () => {
 		const viewport = viewportRef.current;
@@ -152,10 +189,12 @@ function AgentWorkActivityViewport(input: {
 			viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 12;
 		if (!isAtBottom && isFollowing) {
 			setLastSeenStepCount(totalCount);
+			setLastSeenProgress(input.progress);
 		}
 		setIsFollowing(isAtBottom);
 		if (isAtBottom) {
 			setLastSeenStepCount(totalCount);
+			setLastSeenProgress(input.progress);
 		}
 	};
 
@@ -163,12 +202,13 @@ function AgentWorkActivityViewport(input: {
 		scrollWorkViewportToLatest(viewportRef.current, reduceMotion);
 		setIsFollowing(true);
 		setLastSeenStepCount(totalCount);
+		setLastSeenProgress(input.progress);
 	};
 
 	return (
 		<div className="relative">
 			<ul
-				aria-label="Work steps"
+				aria-label={input.progress ? "Work steps and updates" : "Work steps"}
 				className={cn(
 					"overscroll-contain pr-1",
 					input.isLive
@@ -200,14 +240,29 @@ function AgentWorkActivityViewport(input: {
 						</li>
 					);
 				})}
+				{input.progress ? (
+					<li className="list-none py-1.5" data-slot="agent-public-progress">
+						<p className="mb-1 text-muted-foreground text-xs">
+							Thinking process
+						</p>
+						<MessageResponse
+							isStreaming={input.isLive && input.progressActive !== false}
+							variant="reasoning"
+						>
+							{input.progress}
+						</MessageResponse>
+					</li>
+				) : null}
 			</ul>
-			{unseenStepCount > 0 ? (
+			{unseenStepCount > 0 || hasUnseenProgress ? (
 				<button
 					className="mt-1 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					onClick={handleJumpToLatest}
 					type="button"
 				>
-					{formatNewStepLabel(unseenStepCount)}
+					{unseenStepCount > 0
+						? formatNewStepLabel(unseenStepCount)
+						: "New update · Jump to latest"}
 				</button>
 			) : null}
 			{shouldOfferDetails ? (

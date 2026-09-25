@@ -142,22 +142,47 @@ describe("SpaceMessageProgressStatus", () => {
 	});
 
 	it.each([
-		[
-			"hosted progress",
-			{ progress: "Checking the current Space context.", progressActive: true },
-		],
-		[
-			"local reasoning",
-			{ thinking: "Checking the current Space context.", thinkingActive: true },
-		],
-	] as const)("shows %s in the Thinking process panel", (_source, update) => {
+		["without tools", createStreamingItem],
+		["beside tool activity", createStreamingToolActivityItem],
+	] as const)("shows hosted progress inside the work panel %s", (_case, createItem) => {
+		const item = createItem();
+		if (!item.agentStreamState) {
+			throw new Error("Expected a live Agent stream fixture.");
+		}
+		item.agentStreamState = {
+			...item.agentStreamState,
+			progress: "Checking the current Space context.",
+			progressActive: true,
+		};
+		render(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={item}
+			/>
+		);
+		expect(
+			screen
+				.getByTestId("space-agent-tool-activity")
+				.getAttribute("aria-expanded")
+		).toBe("true");
+		expect(screen.getByText("Thinking process")).toBeTruthy();
+		expect(
+			screen.getByRole("list", { name: "Work steps and updates" }).textContent
+		).toContain("Checking the current Space context.");
+		expect(
+			screen.queryByRole("button", { name: "Thinking process" })
+		).toBeNull();
+	});
+
+	it("keeps local reasoning in its own viewport", () => {
 		const item = createStreamingItem();
 		if (!item.agentStreamState) {
 			throw new Error("Expected a live Agent stream fixture.");
 		}
 		item.agentStreamState = {
 			...item.agentStreamState,
-			...update,
+			thinking: "Checking the current Space context.",
+			thinkingActive: true,
 		};
 		render(
 			<SpaceMessageProgressStatus

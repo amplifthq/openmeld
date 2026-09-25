@@ -4407,8 +4407,8 @@ Thread placement is conversation placement. It is not execution truth.
 For hosted Center Agent and Remote Agent Space replies, Web may overlay
 explicit public progress updates and accumulated stream text while the turn is
 active. Neither projection is a Space message or final outcome. Public updates
-appear inside the Agent bubble in the same transient Thinking process viewport
-used for local Agent reasoning. Web never writes the transient progress tail to
+appear inside the Agent bubble in the live Work summary disclosure, sharing its
+bounded scroll viewport with tool steps when present. Web never writes the transient progress tail to
 its persisted browser read cache or a durable message, and removes it as soon as a terminal
 frame or durable outcome arrives. Reconnect restores the privacy-safe active
 stream presence and any accumulated text; a bounded progress tail can be replayed

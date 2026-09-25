@@ -52,7 +52,7 @@ export function SpaceMessageProgressStatus(input: {
 	if (!content) {
 		return null;
 	}
-	if (content.kind === "tool") {
+	if (content.kind === "work") {
 		return wrapProgressStatus(
 			<div className="flex min-w-0 flex-col gap-1">
 				<SpaceAgentToolActivity
@@ -93,7 +93,7 @@ export function SpaceMessageProgressStatus(input: {
 }
 
 type SpaceMessageProgressContent =
-	| { kind: "tool" }
+	| { kind: "work" }
 	| {
 			deliveryPresentation: SpaceMessageDeliveryPresentation | null;
 			entries: readonly SpaceMessageWakeThinkingEntry[];
@@ -141,8 +141,8 @@ function resolveSpaceMessageProgressContent(input: {
 			showAgentWorkingState: false,
 		};
 	}
-	if (hasLiveSpaceAgentToolActivity(input.item)) {
-		return { kind: "tool" };
+	if (hasLiveSpaceAgentWork(input.item)) {
+		return { kind: "work" };
 	}
 	if (activeEntries.length > 0) {
 		return {
@@ -193,6 +193,14 @@ function resolveSpaceMessageProgressContent(input: {
 		kind: "status",
 		showAgentWorkingState: input.deliveryPresentation === "agent_streaming",
 	};
+}
+
+function hasLiveSpaceAgentWork(item: SpaceTimelineItem): boolean {
+	return (
+		hasLiveSpaceAgentToolActivity(item) ||
+		(item.agentStreamState?.status === "streaming" &&
+			Boolean(item.agentStreamState.progress))
+	);
 }
 
 function wrapProgressStatus(

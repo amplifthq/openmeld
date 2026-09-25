@@ -7,17 +7,13 @@ export function SpaceAgentReasoning({ item }: { item: SpaceTimelineItem }) {
 	if (!stream) {
 		return null;
 	}
-	const processText = stream.progress || stream.thinking;
+	const processText = stream.thinking;
 	if (processText) {
-		const processActive = stream.progress
-			? stream.progressActive !== false
-			: stream.thinkingActive !== false;
+		const processActive = stream.thinkingActive !== false;
 		return (
 			<ThinkingReasoning
 				ariaLabel="Thinking process"
-				firstOutputMs={
-					stream.progress ? undefined : stream.reasoningState?.firstOutputMs
-				}
+				firstOutputMs={stream.reasoningState?.firstOutputMs}
 				label="Thinking process"
 				streaming={stream.status === "streaming" && processActive}
 				text={processText}
