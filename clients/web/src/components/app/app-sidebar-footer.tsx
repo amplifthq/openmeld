@@ -115,17 +115,13 @@ export function AppSidebarFooter({
 		setMenuOpen(false);
 		openSettings().catch((error: Error) => toast.error(error.message));
 	};
-	const avatar = humanProfileAvatar ? (
-		<DitherProfileAvatar
-			{...humanProfileAvatar}
-			profileKind="human"
-			size={20}
+	const avatar = (
+		<AccountFooterAvatar
+			account={account}
+			humanProfileAvatar={humanProfileAvatar}
+			iconOnly={iconOnly}
+			name={name}
 		/>
-	) : (
-		<Avatar className="size-5">
-			<AvatarImage alt="" src={account.image ?? undefined} />
-			<AvatarFallback>{name.slice(0, 1)}</AvatarFallback>
-		</Avatar>
 	);
 	const actionClass = cn(
 		"shrink-0 justify-center p-0 text-sidebar-foreground/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground",
@@ -311,6 +307,44 @@ export function AppSidebarFooter({
 			</SidebarMenu>
 			{invitationEntry.dialog}
 		</SidebarFooter>
+	);
+}
+
+function AccountFooterAvatar(input: {
+	account: AppOuterRailAccount;
+	humanProfileAvatar: HumanProfileAvatarIdentity | null;
+	iconOnly: boolean;
+	name: string;
+}) {
+	if (input.humanProfileAvatar) {
+		return (
+			<DitherProfileAvatar
+				{...input.humanProfileAvatar}
+				className={
+					input.iconOnly
+						? "rounded-md after:rounded-md [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-image]]:rounded-md"
+						: undefined
+				}
+				profileKind="human"
+				size={input.iconOnly ? 36 : 20}
+			/>
+		);
+	}
+	return (
+		<Avatar
+			className={
+				input.iconOnly ? "size-9 rounded-md after:rounded-md" : "size-5"
+			}
+		>
+			<AvatarImage
+				alt=""
+				className={input.iconOnly ? "rounded-md" : undefined}
+				src={input.account.image ?? undefined}
+			/>
+			<AvatarFallback className={input.iconOnly ? "rounded-md" : undefined}>
+				{input.name.slice(0, 1)}
+			</AvatarFallback>
+		</Avatar>
 	);
 }
 

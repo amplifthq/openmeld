@@ -96,8 +96,10 @@ from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
 switching remains at the top; the global Create entry is temporarily hidden.
 Creation remains available in the Spaces and Team contextual headers. Global search sits
 above Settings in the footer, using the same compact utility styling. Inbox
-retains the shared attention badge and active-route treatment. The Organization
-avatar fills its circular trigger. Account, theme, and Settings remain reachable
+retains the shared attention badge and active-route treatment. In the compact
+rail, hover and active backgrounds surround the icon and its attention marker;
+labels stay outside that background. The Organization avatar fills its 36px
+shape-aware trigger. Account, theme, and Settings remain reachable
 from the rail. Search, Settings, theme, and account controls share one footer
 hover scope, so the same background moves across all four without nested or
 competing highlights. Spaces and its contextual sidebar heading always open

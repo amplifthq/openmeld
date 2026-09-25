@@ -124,27 +124,28 @@ export function AppRailNavigationGroup(input: {
 	tier: SidebarMode;
 }) {
 	const { presentation } = useAppNavigationPresentation();
+	const links = input.group.destinations.map((destination) => (
+		<AppRailLink
+			active={
+				destination.id === input.activeDestination ||
+				(destination.id === "directMessages" &&
+					input.activeDestination === "spaces") ||
+				(destination.id === "people" && input.activeDestination === "agents")
+			}
+			destination={destination}
+			key={destination.id}
+			tier={input.tier}
+		/>
+	));
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
-			<SidebarMenu
-				activeLayoutId={`main-sidebar-selection-${presentation}`}
-				className={input.tier === "icon" ? "gap-1.5" : undefined}
-			>
-				{input.group.destinations.map((destination) => (
-					<AppRailLink
-						active={
-							destination.id === input.activeDestination ||
-							(destination.id === "directMessages" &&
-								input.activeDestination === "spaces") ||
-							(destination.id === "people" &&
-								input.activeDestination === "agents")
-						}
-						destination={destination}
-						key={destination.id}
-						tier={input.tier}
-					/>
-				))}
-			</SidebarMenu>
+			{input.tier === "icon" ? (
+				<ul className="flex flex-col gap-1.5">{links}</ul>
+			) : (
+				<SidebarMenu activeLayoutId={`main-sidebar-selection-${presentation}`}>
+					{links}
+				</SidebarMenu>
+			)}
 		</nav>
 	);
 	const groupClassName = cn(
@@ -214,6 +215,7 @@ export function AppRailLink(input: {
 	const children = (
 		<>
 			<AppRailDestinationIcon
+				active={input.active}
 				attentionCount={attentionCount}
 				destination={input.destination}
 				statusIndicator={statusIndicator}
@@ -240,7 +242,8 @@ export function AppRailLink(input: {
 		"flex min-w-0 items-center border border-transparent outline-none focus-visible:text-sidebar-accent-foreground",
 		APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 		APP_NAV_ITEM_TONE_CLASS_NAME,
-		isIcon && "h-12 w-full flex-col justify-center gap-1 px-1 py-1",
+		isIcon &&
+			"group/rail-link h-[3.25rem] w-full flex-col justify-center gap-0.5 px-1 py-0",
 		input.tier === "expanded" && APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
 		input.tier === "expanded" && "gap-1.5 ps-[5px]",
 		input.active && "text-sidebar-accent-foreground"
@@ -268,50 +271,52 @@ export function AppRailLink(input: {
 		</Link>
 	);
 
-	const Item = SidebarMenuItem;
-	const MenuButton = SidebarMenuButton;
-	return (
-		<Item
-			className={isIcon ? "mx-auto h-12 w-full" : "group/destination relative"}
-		>
-			{isIcon ? (
+	if (isIcon) {
+		return (
+			<li className="mx-auto h-[3.25rem] w-full">
 				<CollapsedRailTooltip label={accessibleLabel}>
-					<SidebarMenuButton
-						className="h-12"
-						isActive={input.active}
-						render={link}
-					>
-						{children}
-					</SidebarMenuButton>
+					{link}
 				</CollapsedRailTooltip>
-			) : (
-				<MenuButton isActive={input.active} render={link}>
-					{children}
-				</MenuButton>
+			</li>
+		);
+	}
+
+	return (
+		<SidebarMenuItem className="group/destination relative">
+			<SidebarMenuButton isActive={input.active} render={link}>
+				{children}
+			</SidebarMenuButton>
+			{(input.destination.id === "directMessages" ||
+				input.destination.id === "home" ||
+				input.destination.id === "people" ||
+				input.destination.id === "spaces" ||
+				input.destination.id === "agents") && (
+				<SidebarDestinationActionSlot
+					active={input.active}
+					destination={input.destination.id}
+				/>
 			)}
-			{!isIcon &&
-				(input.destination.id === "directMessages" ||
-					input.destination.id === "home" ||
-					input.destination.id === "people" ||
-					input.destination.id === "spaces" ||
-					input.destination.id === "agents") && (
-					<SidebarDestinationActionSlot
-						active={input.active}
-						destination={input.destination.id}
-					/>
-				)}
-		</Item>
+		</SidebarMenuItem>
 	);
 }
 
 function AppRailDestinationIcon(input: {
+	active: boolean;
 	attentionCount: number;
 	destination: AppRailDestination;
 	statusIndicator: AppRailStatusIndicator | null;
 	tier: SidebarMode;
 }) {
 	return (
-		<span className="relative flex size-5 shrink-0 items-center justify-center">
+		<span
+			className={cn(
+				"relative flex shrink-0 items-center justify-center rounded-md",
+				input.tier === "icon"
+					? "size-9 group-hover/rail-link:bg-sidebar-accent group-focus-visible/rail-link:bg-sidebar-accent"
+					: "size-5",
+				input.tier === "icon" && input.active && "bg-interaction-active"
+			)}
+		>
 			{input.destination.icon}
 			{input.statusIndicator && input.tier !== "expanded" ? (
 				<AppRailStatusDot
@@ -374,7 +379,7 @@ function AppRailAttentionBadge(input: {
 			className={cn(
 				"inline-flex items-center justify-center rounded-full border font-semibold tabular-nums leading-none",
 				input.placement === "overlay"
-					? "absolute -end-2 -top-2 h-4 min-w-4 px-1 text-[9px] shadow-sm"
+					? "absolute -end-1.5 -top-1.5 h-4 min-w-4 px-1 text-[9px] shadow-sm"
 					: "ms-auto h-5 min-w-5 px-1.5 text-[10px]",
 				resolveStatusToneCompactBadgeClassName("warning")
 			)}

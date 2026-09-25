@@ -50,7 +50,12 @@ export function SidebarUserMenuItem({
               isActive={props.open}
               tabIndex={0}
             >
-              <span className="flex size-5 shrink-0 items-center justify-center">
+              <span
+                className={cn(
+                  "flex shrink-0 items-center justify-center",
+                  props.iconOnly ? "size-9" : "size-5"
+                )}
+              >
                 {props.avatar}
               </span>
               {!props.iconOnly && (

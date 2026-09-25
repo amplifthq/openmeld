@@ -26,7 +26,7 @@ export function InboxAttentionBadge({
 		<span
 			aria-hidden="true"
 			className={cn(
-				"pointer-events-none absolute end-0 top-0 h-3 min-w-3 rounded-full px-0.5 text-center font-semibold text-[8px] text-white tabular-nums leading-3",
+				"pointer-events-none absolute -end-1 -top-1 h-3 min-w-3 rounded-full px-0.5 text-center font-semibold text-[8px] text-white tabular-nums leading-3",
 				resolveStatusToneIndicatorClassName(tone ?? "muted", "solid"),
 				tone === "warning" && "dark:text-amber-950"
 			)}
