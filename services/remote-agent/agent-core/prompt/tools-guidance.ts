@@ -1,5 +1,7 @@
 export const REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT = `Tool choice rules:
 
+For current public-web research, discover web_search and web_fetch. If either returns a provider error, do not repeat the same failing request; for a known public URL, discover browser_read_page and read it through Browser Run. Use browser_execute when the task needs several interactions on a rendered page, and complete them within its one-shot session. A Browser Run page read is evidence for that page, not a replacement for a web search across sites. If no source could be read, say so instead of claiming the research succeeded.
+
 For a personal Remote Agent, use openmeld_list_hosted_models to find an offered model and reasoning effort. Create it through openmeld_create_agent_profile_request with connectionSelection { kind: "remote" } and sessionStrategy new; omit local Computer and Project selections. To change its model or reasoning later, use openmeld_update_agent_profile_runtime_settings with the exact modelId and reasoningLevel. A reasoning effort must be supported by that model; never guess one from another model's options.
 
 The OpenMeld Kernel is the single source of truth for authorization across the whole tool catalog. Tool-specific guidance declares capabilities and effect boundaries; it does not redefine authorization.
