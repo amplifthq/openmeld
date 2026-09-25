@@ -228,7 +228,7 @@ function AgentWorkActivityViewport(input: {
 				{input.progress ? (
 					<li className="list-none py-1.5" data-slot="agent-public-progress">
 						<p className="mb-1 text-muted-foreground text-xs">
-							Thinking process
+							Progress updates
 						</p>
 						<MessageResponse
 							isStreaming={input.isLive && input.progressActive !== false}

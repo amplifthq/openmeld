@@ -1763,6 +1763,7 @@ function createTextSignal(input: {
 	ts: number;
 	text: string;
 	meta?: {
+		agentPublicProgress?: string;
 		agentActivity?: SpaceAgentActivity;
 		agentWorkSummary?: SpaceAgentActivity;
 		centerAgentInteractionSource?: {
