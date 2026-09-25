@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 
 // Provider presentation receipts only. The existing six-card budget leaves
