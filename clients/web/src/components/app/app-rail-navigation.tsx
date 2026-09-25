@@ -409,7 +409,7 @@ function AppRailStatusDot(input: {
 			className={cn(
 				"status-dot",
 				resolveInboxIndicatorClassName(input.indicator.tone),
-				input.placement === "overlay" && "absolute end-0.5 top-0.5"
+				input.placement === "overlay" && "absolute end-1 top-1"
 			)}
 			data-app-rail-status-indicator={input.indicator.kind}
 			data-app-rail-status-placement={input.placement}

@@ -14,7 +14,7 @@ export function InboxAttentionBadge({
 		return (
 			<span
 				aria-hidden="true"
-				className="status-dot pointer-events-none absolute end-0.5 top-0.5 bg-unread"
+				className="status-dot pointer-events-none absolute end-1 top-1 bg-unread"
 			/>
 		);
 	}
