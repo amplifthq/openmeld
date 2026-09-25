@@ -30,6 +30,8 @@ branches used.
    and manifest changes only in the clean
    [publishing release worktree](development-workflow.md#local-components-release-tool)
    on a `codex/release-X.Y.Z-<baseSHA>` branch.
+   Reserve the `codex/release-` prefix for those versioned branches; ordinary
+   delivery-tool changes use a different `codex/` branch name.
 2. [Merge](#merge) against current `main`. If a merge command fails or returns
    an uncertain result, read the remote PR's `state` and `mergeCommit` before
    retrying. Pin the integrated product SHA; a later release-only version
