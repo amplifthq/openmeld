@@ -58,6 +58,17 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("explains output exhaustion and the next safe action without vendor details", () => {
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.turn.output_limit_exceeded",
+        failureMessage: "private provider response",
+      })
+    ).toBe(
+      "Center Agent reached the model's response limit before it could reply. Completed actions were not undone. Check the results, then send a shorter follow-up asking it to continue."
+    );
+  });
+
   it.each([
     "model.retired",
     "model.unavailable",

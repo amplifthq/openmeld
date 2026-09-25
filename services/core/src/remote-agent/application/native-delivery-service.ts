@@ -11425,7 +11425,10 @@ async function publishRemoteAgentCallbackFailureText(input: {
     profile,
     submissionId: input.body.submissionId,
   });
-  if (input.body.failureCode === "remote_agent.empty_assistant_response") {
+  if (
+    input.body.failureCode === "remote_agent.empty_assistant_response" ||
+    input.body.failureCode === "remote_agent.turn.output_limit_exceeded"
+  ) {
     const author = input.delivery.executionRecoverySubmitRequest?.author;
     return await emitSpaceSystemNoticeSignal({
       env: input.env,
