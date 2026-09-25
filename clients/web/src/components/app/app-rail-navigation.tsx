@@ -141,7 +141,10 @@ export function AppRailNavigationGroup(input: {
 						? `main-sidebar-selection-${presentation}`
 						: undefined
 				}
-				className={input.tier === "icon" ? "gap-1.5" : undefined}
+				className={cn(
+					input.tier === "icon" && "gap-1.5",
+					presentation === "drawer" && "gap-2"
+				)}
 				indicatorTargetSelector={
 					input.tier === "icon" ? '[data-slot="app-rail-icon"]' : undefined
 				}
@@ -184,8 +187,9 @@ export function AppRailLink(input: {
 	destination: AppRailDestination;
 	tier: SidebarMode;
 }) {
-	const { dismiss } = useAppNavigationPresentation();
+	const { dismiss, presentation } = useAppNavigationPresentation();
 	const isIcon = input.tier === "icon";
+	const isDrawer = presentation === "drawer";
 	const iconRef = useRef<HTMLSpanElement>(null);
 
 	const attentionCount = Math.max(0, input.destination.attentionCount ?? 0);
@@ -247,8 +251,11 @@ export function AppRailLink(input: {
 		APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 		APP_NAV_ITEM_TONE_CLASS_NAME,
 		isIcon && "h-[3.25rem] w-full flex-col justify-center gap-0.5 px-1 py-0",
-		input.tier === "expanded" && APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
-		input.tier === "expanded" && "gap-1.5 ps-[5px]",
+		input.tier === "expanded" &&
+			!isDrawer &&
+			APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
+		input.tier === "expanded" && !isDrawer && "gap-1.5 ps-[5px]",
+		isDrawer && "h-12 w-full gap-3 px-3 text-[15px]",
 		input.active && "text-sidebar-accent-foreground"
 	);
 	const link = (
