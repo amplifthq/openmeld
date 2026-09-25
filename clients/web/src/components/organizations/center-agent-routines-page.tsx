@@ -11,7 +11,13 @@ import { buildOrganizationCenterAgentSettingsPath } from "#/lib/organizations/or
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
 import { CenterAgentRoutinesPanel } from "./center-agent-routines-panel";
 
-export function CenterAgentRoutinesPage() {
+export function CenterAgentRoutinesPage(
+	input: {
+		focusRoutineId?: string | null;
+		focusRunId?: string | null;
+		onClearFocusedRun?: () => void;
+	} = {}
+) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const designationQuery = useQuery(
 		centerAgentDesignationQueryOptions({
@@ -104,7 +110,10 @@ export function CenterAgentRoutinesPage() {
 			designationQuery.data.designation !== null ? (
 				<CenterAgentRoutinesPanel
 					currentUserId={currentUserId}
+					focusRoutineId={input.focusRoutineId}
+					focusRunId={input.focusRunId}
 					isPersonalWorkspace={currentOrganization.isPersonal === true}
+					onClearFocusedRun={input.onClearFocusedRun}
 					organizationId={currentOrganization.id}
 					orgSlug={currentOrganization.slug}
 				/>
