@@ -181,6 +181,11 @@ keeps final merge latency separate from development feedback. Full confidence
 is explicit when remaining risk justifies a whole-repository rerun. The printed
 plan is the authority for selected/skipped commands, reasons, and durations:
 
+Release and CI script changes use focused owner tests before Ready; standard FC
+checks their exact diff and control identity without rerunning every repository
+workflow test. Dependency and task-graph controls still select the wider static
+repository contracts.
+
 ```sh
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
