@@ -154,6 +154,7 @@ async function prepareCenterAgentRender() {
             coreWorker,
             env,
             storage,
+            prepareImage: prepareImageForContext,
             includeOrganizationDocuments:
               runtimeContextPlan.includeOrganizationDocuments,
           })

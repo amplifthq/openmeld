@@ -11,6 +11,7 @@ import {
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   SPACE_FILE_UPLOAD_PART_BYTES,
   spaceFileMimeTypeSchema,
+  spaceFileUploadIdForMutation,
   spaceFileUploadResponseSchema,
   stageSpaceComposerUploadResponseSchema,
   trashSpaceFileEntryResponseSchema,
@@ -63,17 +64,6 @@ export type SpaceFileContent = {
 
 function bodySize(body: ArrayBuffer | Blob): number {
   return body instanceof Blob ? body.size : body.byteLength;
-}
-
-async function mutationUploadId(mutation: string): Promise<string> {
-  const hash = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(mutation)
-  );
-  const hex = Array.from(new Uint8Array(hash), (b) =>
-    b.toString(16).padStart(2, "0")
-  ).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 async function uploadMultipart(
@@ -405,7 +395,7 @@ export async function uploadSpaceFile(
         origin: input.origin,
         parentId: input.parentId ?? null,
       },
-      await mutationUploadId(input.clientMutationId)
+      await spaceFileUploadIdForMutation(input.clientMutationId)
     );
     if (!response.file) {
       throw new Error("The upload did not return a file.");
@@ -529,7 +519,7 @@ export async function updateSpaceFileContent(
         fileId: input.fileId,
         baseRevision: input.baseRevision,
       },
-      await mutationUploadId(input.clientMutationId)
+      await spaceFileUploadIdForMutation(input.clientMutationId)
     );
     if (!response.file) {
       throw new Error("The upload did not return a file.");
@@ -629,6 +619,8 @@ function toRequestBody(bytes: SpaceFileContentBytes): ArrayBuffer | Blob {
 function validateSize(body: ArrayBuffer | Blob): void {
   const size = body instanceof Blob ? body.size : body.byteLength;
   if (size > SPACE_FILE_MAX_SIZE_BYTES) {
-    throw new Error("Space files must be 250 MiB or smaller");
+    throw new Error(
+      `Space files must be ${SPACE_FILE_MAX_SIZE_BYTES / (1024 * 1024)} MiB or smaller`
+    );
   }
 }
