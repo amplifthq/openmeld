@@ -19,3 +19,5 @@ and show the expand button in the content header when collapsed. The button also
 remains available when a collapsed sidebar is revealed from the edge. The Spaces
 directory shows a single refresh warning when its saved conversation list cannot
 be updated.
+The Agents directory now uses the same quiet search, filter, and collapse controls
+as People, showing their background on hover instead of at rest.
