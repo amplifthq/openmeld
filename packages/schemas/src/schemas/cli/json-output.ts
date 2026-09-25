@@ -546,6 +546,28 @@ export const cliJsonSkillsListEnvelopeSchema = defineStrictSuccessEnvelope(
   listOrganizationSkillsResponseSchema.shape
 );
 
+const skillAddFields = {
+  commitSha: z.string().regex(/^[a-f0-9]{40}$/),
+  files: z.array(
+    z.strictObject({ path: z.string(), size: z.number().int().nonnegative() })
+  ),
+  name: z.string().min(1),
+  organizationId: organizationSkillSummarySchema.shape.organizationId,
+  warnings: z.array(z.string()),
+};
+
+export const cliJsonSkillsAddPreviewEnvelopeSchema =
+  defineStrictSuccessEnvelope("skills.add.preview", skillAddFields);
+
+export const cliJsonSkillsAddEnvelopeSchema = defineStrictSuccessEnvelope(
+  "skills.add",
+  {
+    ...skillAddFields,
+    releaseId: organizationSkillReleaseSummarySchema.shape.id,
+    skillId: organizationSkillSummarySchema.shape.id,
+  }
+);
+
 export const cliJsonSkillsShowEnvelopeSchema = defineStrictSuccessEnvelope(
   "skills.show",
   getOrganizationSkillResponseSchema.shape
@@ -669,6 +691,8 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonOrganizationInviteLinkCreateEnvelopeSchema,
   cliJsonOrganizationInviteLinkRevokeEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
+  cliJsonSkillsAddPreviewEnvelopeSchema,
+  cliJsonSkillsAddEnvelopeSchema,
   cliJsonSkillsShowEnvelopeSchema,
   cliJsonSkillsLoadEnvelopeSchema,
 ]);

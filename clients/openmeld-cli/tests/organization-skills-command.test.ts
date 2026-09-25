@@ -14,6 +14,7 @@ import type {
 import type { OpenMeldProfile } from "../src/config/openmeld-profiles-api";
 import {
   type OrganizationSkillsCommandDependencies,
+  runOrganizationSkillsAdd,
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
   runOrganizationSkillsShow,
@@ -69,6 +70,89 @@ const skill: OrganizationSkill = {
 };
 
 describe("Organization Skills CLI", () => {
+  it("pins the previewed GitHub commit when a Local Agent adds a Team Skill", async () => {
+    await withTempHome(async () => {
+      const commitSha = "a".repeat(40);
+      const previewFromGitHub = vi.fn(async () => ({
+        organizationId: organization.id,
+        preview: {
+          files: [],
+          instructionsCharacters: bundle.instructions.length,
+          portable: bundle.portable,
+          source: {
+            commitSha,
+            kind: "github" as const,
+            path: "release-review",
+            repository: "https://github.com/example/skills",
+          },
+          warnings: [],
+        },
+      }));
+      const importFromGitHub = vi.fn(async () => ({ skill }));
+      const { dependencies } = createDependencies();
+      const resolveApi = async () =>
+        ({
+          previewFromGitHub,
+          importFromGitHub,
+        }) as unknown as OrganizationSkillsApi;
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runOrganizationSkillsAdd(
+          {
+            url: "https://github.com/example/skills/tree/main/release-review",
+            json: true,
+          },
+          { ...dependencies, resolveApi }
+        );
+      });
+      expect(importFromGitHub).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedCommitSha: commitSha,
+          expectedOrganizationId: organization.id,
+        })
+      );
+      expect(plainStdout).toContain('"type":"skills.add"');
+      expect(plainStdout).toContain('"skillId":"skill-1"');
+    });
+  });
+
+  it("only previews a GitHub Skill when requested", async () => {
+    await withTempHome(async () => {
+      const { dependencies } = createDependencies();
+      const importFromGitHub = vi.fn();
+      const resolveApi = async () =>
+        ({
+          previewFromGitHub: async () => ({
+            organizationId: organization.id,
+            preview: {
+              files: [],
+              instructionsCharacters: 10,
+              portable: bundle.portable,
+              source: {
+                commitSha: "a".repeat(40),
+                kind: "github",
+                path: "release-review",
+                repository: "https://github.com/example/skills",
+              },
+              warnings: [],
+            },
+          }),
+          importFromGitHub,
+        }) as unknown as OrganizationSkillsApi;
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runOrganizationSkillsAdd(
+          {
+            url: "https://github.com/example/skills",
+            previewOnly: true,
+            json: true,
+          },
+          { ...dependencies, resolveApi }
+        );
+      });
+      expect(importFromGitHub).not.toHaveBeenCalled();
+      expect(plainStdout).toContain('"type":"skills.add.preview"');
+    });
+  });
+
   it("lists the active Organization catalog in Agent View", async () => {
     await withTempHome(async () => {
       const { dependencies, list } = createDependencies();

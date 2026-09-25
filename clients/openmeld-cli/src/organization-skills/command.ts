@@ -3,6 +3,8 @@ import {
   type OrganizationSkillsApi,
 } from "@openmeld/api-client";
 import {
+  cliJsonSkillsAddEnvelopeSchema,
+  cliJsonSkillsAddPreviewEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
   cliJsonSkillsLoadEnvelopeSchema,
   cliJsonSkillsShowEnvelopeSchema,
@@ -91,6 +93,101 @@ export async function runOrganizationSkillsList(
       renderSkillsList(context, response.skills);
     }
   );
+}
+
+export async function runOrganizationSkillsAdd(
+  input: OrganizationSkillsCommandInput & {
+    url: string;
+    previewOnly?: boolean;
+  },
+  dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
+): Promise<void> {
+  await runOrganizationSkillsCommand(
+    input,
+    dependencyOverrides,
+    async (context) => {
+      const preview = await context.api.previewFromGitHub({
+        expectedOrganizationId: context.organization.id,
+        requestContext: context.requestContext,
+        url: input.url,
+      });
+      requireOrganizationIdentity(context, preview.organizationId);
+      const summary = {
+        name: preview.preview.portable.name,
+        commitSha: preview.preview.source.commitSha,
+        files: preview.preview.files,
+        warnings: preview.preview.warnings,
+      };
+      if (input.previewOnly) {
+        emitOrganizationSkillAddResult(context, "skills.add.preview", summary);
+        return;
+      }
+      const installed = await context.api.importFromGitHub({
+        expectedCommitSha: preview.preview.source.commitSha,
+        expectedOrganizationId: context.organization.id,
+        requestContext: context.requestContext,
+        url: input.url,
+      });
+      requireOrganizationIdentity(context, installed.skill.organizationId);
+      if (installed.skill.name !== preview.preview.portable.name) {
+        throw new Error("The installed Skill does not match its preview.");
+      }
+      emitOrganizationSkillAddResult(context, "skills.add", {
+        ...summary,
+        skillId: installed.skill.id,
+        releaseId: installed.skill.activeRelease.id,
+      });
+    }
+  );
+}
+
+function emitOrganizationSkillAddResult(
+  context: OrganizationSkillsCommandContext,
+  code: "skills.add" | "skills.add.preview",
+  result: {
+    name: string;
+    commitSha: string;
+    files: readonly { path: string; size: number }[];
+    warnings: readonly string[];
+    skillId?: string;
+    releaseId?: string;
+  }
+): void {
+  const payload = {
+    organizationId: context.organization.id,
+    ...result,
+  };
+  if (context.json) {
+    if (code === "skills.add.preview") {
+      emitCliJsonEnvelope(
+        cliJsonSkillsAddPreviewEnvelopeSchema.parse({
+          schemaVersion: 1,
+          type: code,
+          ...payload,
+        })
+      );
+    } else {
+      emitCliJsonEnvelope(
+        cliJsonSkillsAddEnvelopeSchema.parse({
+          schemaVersion: 1,
+          type: code,
+          ...payload,
+        })
+      );
+    }
+    return;
+  }
+  if (context.presenter.view === "agent") {
+    context.presenter.data({ code, payload });
+    return;
+  }
+  context.presenter.line({
+    code,
+    text: `${code === "skills.add.preview" ? "Preview" : "Added"} ${result.name} (${result.files.length} supporting files) from commit ${result.commitSha.slice(0, 12)}.`,
+  });
+  for (const warning of result.warnings) {
+    context.presenter.line({ code: "skills.add.warning", text: warning });
+  }
 }
 
 export async function runOrganizationSkillsShow(

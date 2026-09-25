@@ -231,6 +231,7 @@ import {
 } from "./org/command";
 import { runOrganizationInvitationRequests } from "./org/invitation-requests-command";
 import {
+  runOrganizationSkillsAdd,
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
   runOrganizationSkillsShow,
@@ -1787,6 +1788,31 @@ registerSkillsTargetSelectionOptions({
       run: async () => {
         await runSkillsUninstall({
           ...opts,
+          view,
+        });
+      },
+    });
+  });
+
+skillsCmd
+  .command("add")
+  .description("Add one GitHub Skill to the active Team.")
+  .argument("<github-url>", "GitHub Skill directory or repository URL")
+  .option(
+    "--preview",
+    "Show the exact Skill and source commit without adding it"
+  )
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (url: string, opts: { json?: boolean; preview?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "add"],
+      view,
+      run: async () => {
+        await runOrganizationSkillsAdd({
+          json: opts.json === true,
+          previewOnly: opts.preview === true,
+          url,
           view,
         });
       },

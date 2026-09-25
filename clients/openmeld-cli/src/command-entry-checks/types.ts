@@ -100,6 +100,7 @@ export type CommandEntryName =
   | "skills.install"
   | "skills.uninstall"
   | "skills.list"
+  | "skills.add"
   | "skills.show"
   | "skills.load"
   | "skills.check"
