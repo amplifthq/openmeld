@@ -1584,10 +1584,9 @@ from a privacy-bounded tool lifecycle part only when the part carries an
 admitted semantic work meaning. The row is a transient projection and must not
 expose or derive copy from a technical tool name, orchestration wrapper, tool
 input, output, raw error content, command, path, or private Agent text. A
-meaningless wrapper such as Code Mode is hidden; admitted inner work may still
-appear after the inner tool succeeds. An inner error stays in the execution
-outcome and must not become a Work summary row. Unknown work has no generic
-fallback.
+meaningless wrapper such as Code Mode is hidden; admitted inner work appears
+when it starts and updates the same row when it completes or fails. Failure
+does not reveal the raw error. Unknown work has no generic fallback.
 
 The Work summary replaces the existing progress row while visible instead of
 adding a second status row, defaults closed while work is active, groups

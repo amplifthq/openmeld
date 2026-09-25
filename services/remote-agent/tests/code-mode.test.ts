@@ -62,6 +62,58 @@ async function runCodeModeTool(
 }
 
 describe("Remote Agent Code Mode", () => {
+  it("publishes admitted inner work before the tool finishes", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const started = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<{ spaces: [] }>();
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const runtime = createRuntime({
+      execute: async (tools) => ({
+        result: await tools.openmeld_list_spaces?.execute?.({}, TOOL_OPTIONS),
+      }),
+      executorOptions: [],
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      coreWorker: { submitRemoteAgentStreamPart },
+      definitions: [
+        {
+          description: "List Spaces.",
+          execute: async () => {
+            started.resolve();
+            return await finish.promise;
+          },
+          input: strictObject({}),
+          name: "openmeld_list_spaces",
+        },
+      ],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+      submissionId: SUBMISSION_ID,
+    });
+
+    const running = runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    await started.promise;
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledOnce();
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        part: expect.objectContaining({ state: "input-available" }),
+      })
+    );
+    finish.resolve({ spaces: [] });
+    await running;
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+  });
+
   it("cancels inner work through the SDK wrapper and prevents queued work from starting", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const controller = new AbortController();
@@ -479,8 +531,18 @@ describe("Remote Agent Code Mode", () => {
     expect(tool.name).toBe("codemode");
     expect(tool.description).toContain("declare const codemode");
     expect(executeLookup).toHaveBeenCalledWith({});
-    expect(submitRemoteAgentStreamPart).toHaveBeenCalledOnce();
-    expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+    expect(submitRemoteAgentStreamPart).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        part: expect.objectContaining({
+          state: "input-available",
+          toolCallId: "codemode-inner-call",
+        }),
+      })
+    );
+    expect(submitRemoteAgentStreamPart).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         part: {
           type: "tool",
@@ -800,10 +862,15 @@ describe("Remote Agent Code Mode", () => {
     ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
   });
 
-  it("keeps inner tool failures out of Work summary", async () => {
+  it("shows an admitted inner tool failure without publishing private error text", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
-    const submitRemoteAgentStreamPart = vi.fn();
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
     const definition = {
       description: "Read Space context.",
       execute: () => {
@@ -838,7 +905,22 @@ describe("Remote Agent Code Mode", () => {
     await expect(
       runCodeModeTool(tool, { input: { code: "async () => null" } })
     ).rejects.toThrow("private internal failure");
-    expect(submitRemoteAgentStreamPart).not.toHaveBeenCalled();
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+    expect(submitRemoteAgentStreamPart).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        part: expect.objectContaining({ state: "input-available" }),
+      })
+    );
+    expect(submitRemoteAgentStreamPart).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        part: expect.objectContaining({ state: "output-error" }),
+      })
+    );
+    expect(
+      JSON.stringify(submitRemoteAgentStreamPart.mock.calls)
+    ).not.toContain("private internal failure");
   });
 
   it("does not let optional Work summary publishing change tool truth", async () => {

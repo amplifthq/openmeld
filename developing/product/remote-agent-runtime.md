@@ -1762,9 +1762,10 @@ final-outcome authority.
   id, and AI SDK-aligned lifecycle state remain transport evidence; they are
   not presentation copy. Tool parts never carry tool arguments, results, raw
   errors, commands, or paths. Outer Code Mode lifecycle and errors are hidden;
-  only an admitted inner tool that actually succeeded is forwarded, immediately
-  after that success. Inner failures do not create Work summary rows, and
-  optional Work summary publishing cannot alter the inner tool result. Safe
+  an admitted inner tool with safe work meaning emits a start part before its
+  execution and a matching completion or failure part. The failure part contains
+  no raw error text, and optional Work summary publishing cannot alter the
+  inner tool result. Safe
   subjects are allowlisted per tool and limited to a repository owner/name,
   website hostname, or bounded human-authored product object name or title.
   Slack conversations do not stream into OpenMeld Web.
