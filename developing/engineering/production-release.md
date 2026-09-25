@@ -293,6 +293,12 @@ conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
 independent live-production acceptance check.
 
+For a verified Database release, status can classify later Database schema and
+migration changes independently when unrelated historical Worker contracts no
+longer compose into one plan. The database stage still checks the live pending
+migration list and committed schema before applying anything. Other components
+remain unknown when their historical compatibility plan cannot be established.
+
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
 Workers, and Web may legitimately be at different release sources such as R,
@@ -394,6 +400,14 @@ the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
 - `services/remote-agent/.flue/cloudflare.ts`
 - `services/remote-agent/flue-adapter/cloudflare-entrypoint.ts`
 - `services/remote-agent/flue-adapter/execution-reconciliation.ts`
+
+The Cloudflare export and Flue execution-reconciliation files alone do not
+reverse a simultaneous strict worker-response rollout: the Core reader goes
+first when its response schema and Remote Agent producer change together and
+the request entrypoint and explicit request-owner trio do not. This covers the
+reviewed Flue 2.1 recovery change without treating its internal state handling
+as a new Core request. An actual request-entrypoint change still takes the
+receiver-first path; ambiguous request-only changes still require split stages.
 
 It selects the same profile when a diff expands a strict Remote Agent request
 shape—either with a new request version or an additive field—and changes its

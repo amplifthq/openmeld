@@ -442,3 +442,27 @@ test("attaches exact Remote receiver content witnesses and preserves reviewed co
     ]
   );
 });
+
+test("keeps a response-only Flue rollout reader-first despite internal recovery changes", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+    "services/core/src/remote-agent/application/native-delivery-service.ts",
+    "services/remote-agent/.flue/agents/center-agent.ts",
+    "services/remote-agent/.flue/cloudflare.ts",
+    "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+  ];
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    changedPaths,
+    scope: "core,remote-agent",
+    sourceSha: "a".repeat(40),
+  });
+  assert.equal(plan.deployOrderProfile, "core-worker-response-reader-first");
+  assert.deepEqual(plan.deployScopeOrder, ["core", "remote-agent"]);
+  assert.deepEqual(plan.compatibilityDependencies, [
+    ["core", "remote-agent"],
+    ["gateway", "remote-agent"],
+    ["web", "remote-agent"],
+  ]);
+  assert.deepEqual(plan.compatibilityReceiverWitnesses, []);
+});
