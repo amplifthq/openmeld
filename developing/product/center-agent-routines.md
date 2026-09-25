@@ -580,7 +580,12 @@ overdue range or quarantine -> skipped
 - `completed` means one final result was published to the frozen destination.
 - `failed` means execution or delivery reached an explicit terminal failure;
   the frozen destination must receive the failure unless publication remains visibly
-  pending or outcome-unknown under its fence.
+  pending or outcome-unknown under its fence. A published failure includes its
+  exact Run ID. For Center Agent Runs in an OpenMeld Space, the failure also
+  links to that Run in Web history when the Organization Web route is available.
+  An empty Agent reply remains a failed Run after the provider's bounded
+  empty-stream retry; the message tells the member to request the work again
+  if needed, without automatically replaying the Routine or its tools.
 - `skipped` means no model turn was started. It may record one claimed
   occurrence or summarize a bounded overdue range. It stays visible in
   management history and does not publish a destination message.

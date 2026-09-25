@@ -510,15 +510,47 @@ export function createExecutionHostRuntime(input: {
           "The requested Host catalog is no longer available."
         );
       }
+      const applyRouteFacts = () => {
+        activeCatalogRevision = request.catalogRevision;
+        Object.assign(
+          routeCatalogState,
+          createMutableRouteCatalogState(catalog)
+        );
+        leasesByProfileId.clear();
+        for (const lease of request.leases) {
+          leasesByProfileId.set(lease.profileId, lease.leaseEpoch);
+        }
+      };
+      const syncPermissionModes = async () => {
+        const outcomes = await syncActiveTaskPermissionModes({
+          catalogState: routeCatalogState,
+          inflightTaskControlRegistry,
+          localAdapterContainer,
+        });
+        for (const outcome of outcomes) {
+          emitRunLine({
+            presenter: input.presenter,
+            code: "daemon.run.active_permission_mode_sync",
+            text: `active permission update ${outcome.status} for ${outcome.taskId}`,
+            payload: outcome,
+          });
+        }
+      };
+      const sameConnection =
+        request.connectionGeneration === generation &&
+        currentSocketRef.socket !== null;
+      if (sameConnection) {
+        // An ordinary route-catalog refresh changes the applied route facts,
+        // not the cloud connection. Keep its sink and result replay intact.
+        applyRouteFacts();
+        await syncPermissionModes();
+        assertConnection(request.connectionGeneration);
+        return snapshot();
+      }
       connectionAbort?.abort();
       connectionAbort = new AbortController();
       generation = request.connectionGeneration;
-      activeCatalogRevision = request.catalogRevision;
-      Object.assign(routeCatalogState, createMutableRouteCatalogState(catalog));
-      leasesByProfileId.clear();
-      for (const lease of request.leases) {
-        leasesByProfileId.set(lease.profileId, lease.leaseEpoch);
-      }
+      applyRouteFacts();
       const sink: DaemonFrameSink = {
         send: (raw) => {
           if (
@@ -548,19 +580,7 @@ export function createExecutionHostRuntime(input: {
       currentSocketRef.socket = sink;
       currentSocketRef.connectionGeneration = generation;
       executionAdmission.resend();
-      const outcomes = await syncActiveTaskPermissionModes({
-        catalogState: routeCatalogState,
-        inflightTaskControlRegistry,
-        localAdapterContainer,
-      });
-      for (const outcome of outcomes) {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.active_permission_mode_sync",
-          text: `active permission update ${outcome.status} for ${outcome.taskId}`,
-          payload: outcome,
-        });
-      }
+      await syncPermissionModes();
       assertConnection(request.connectionGeneration);
       replayInteractions();
       startResultReplay();

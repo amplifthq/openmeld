@@ -12,6 +12,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
+import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -718,9 +719,11 @@ function SpaceConversationPanelContent(
 		},
 		[readingHeader, registerConversationScrollElement]
 	);
+	const supportsHistoryRail = useMediaQuery("(min-width: 640px)");
 	const showHistoryRail =
+		supportsHistoryRail &&
 		(input.historyNavigation?.directory?.total ?? 0) >
-		SPACE_INITIAL_HISTORY_MAX_MESSAGES;
+			SPACE_INITIAL_HISTORY_MAX_MESSAGES;
 	const setupGuidance = resolveSpaceSetupGuidanceSlots({
 		hasConversationEntries: entries.length > 0,
 		renderSetupGuidance: input.renderSetupGuidance,
@@ -822,7 +825,7 @@ function SpaceConversationPanelContent(
 							scrollElement={conversationScrollElement}
 						/>
 						<MessageScroller className="relative min-h-0 flex-1">
-							{input.historyNavigation && (
+							{input.historyNavigation && showHistoryRail && (
 								<SpaceHistoryRail
 									controller={input.historyNavigation}
 									items={mainTimelineItems}
@@ -2867,6 +2870,13 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 											<Bubble
 												align={messageAlign}
 												className={messageBubbleVisibilityClassName}
+												data-video-message={
+													item.files?.some((file) =>
+														file.mimeType.startsWith("video/")
+													)
+														? "true"
+														: undefined
+												}
 											>
 												<ConversationBubbleContent
 													agentInteractionItems={agentInteractionItems}
@@ -2973,6 +2983,8 @@ function ConversationBubbleContent(input: {
 				"group/message relative flex min-w-0 flex-col gap-2 transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
 				SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 				SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
+				input.item.files?.some((file) => file.mimeType.startsWith("video/")) &&
+					"w-full",
 				input.selfMessageContentLayoutClassName,
 				input.bubblePresentationClass
 			)}
@@ -3025,14 +3037,7 @@ function ConversationBubbleContent(input: {
 					/>
 				)
 			)}
-			{renderDurableAgentActivity({
-				item: input.item,
-				onOpenDetails: getOpenMessageDetailsHandler({
-					enabled: input.canUseMessageActions,
-					item: input.item,
-					onOpenMessageDetails: parent.onOpenMessageDetails,
-				}),
-			})}
+			{renderDurableAgentActivity(input.item)}
 			<ReplyStalenessMarker align={input.messageAlign} item={input.item} />
 			{renderAnchoredSpaceOutcomeRows({
 				notices: input.anchoredOutcomeNotices,
@@ -3334,20 +3339,11 @@ function getOpenMessageDetailsHandler(input: {
 	return () => input.onOpenMessageDetails(input.item);
 }
 
-function renderDurableAgentActivity(input: {
-	item: SpaceTimelineItem;
-	onOpenDetails?: () => void;
-}) {
-	if (!input.item.agentActivity) {
+function renderDurableAgentActivity(item: SpaceTimelineItem) {
+	if (!(item.agentActivity || item.agentPublicProgress)) {
 		return null;
 	}
-	return (
-		<SpaceAgentToolActivity
-			item={input.item}
-			onOpenDetails={input.onOpenDetails}
-			placement="message"
-		/>
-	);
+	return <SpaceAgentToolActivity item={item} placement="message" />;
 }
 
 function resolveConversationMessageFooterThreadAction(input: {

@@ -4,6 +4,7 @@ import type {
   AdapterContextIdMappingSpec,
   AdapterDispatchExecutionMode,
   AdapterDispatchRequest,
+  AdapterDispatchSpaceTools,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -113,6 +114,7 @@ export type RuntimeTaskRoute = {
 };
 
 export type RuntimeTaskInput = {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   adapter?: RuntimeAdapter;
   // Explicit continuation decision, including null for a fresh conversation.
   // Replacements are retained by the caller's native observation/result path.
@@ -210,6 +212,7 @@ const mapAdapterErrorType = (
 };
 
 const buildDispatchRequest = (input: {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
@@ -220,6 +223,9 @@ const buildDispatchRequest = (input: {
   task: RuntimeTask;
   streamingMode?: AdapterStreamingMode;
 }): AdapterDispatchRequest => ({
+  ...(input.spaceActionTools
+    ? { spaceActionTools: input.spaceActionTools }
+    : {}),
   agentId: input.task.agentId,
   executionContext: input.task.executionContext,
   ...(input.agentControllerPermissionMode
@@ -397,6 +403,7 @@ const resolveMissingRuntimeAdapterDispatchResult =
   });
 
 const dispatchRuntimeTask = async (input: {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   adapter?: RuntimeAdapter;
   deduped: boolean;
   route?: RuntimeTaskRoute;
@@ -431,6 +438,7 @@ const dispatchRuntimeTask = async (input: {
       env: input.route.env,
       mentioned: input.task.mentioned,
       request: buildDispatchRequest({
+        spaceActionTools: input.spaceActionTools,
         agentControllerPermissionMode:
           input.route.agentControllerPermissionMode,
         conversationPolicy: input.route.conversationPolicy,
@@ -459,6 +467,7 @@ const dispatchRuntimeTask = async (input: {
     adapter: input.adapter,
     mentioned: input.task.mentioned,
     request: buildDispatchRequest({
+      spaceActionTools: input.spaceActionTools,
       onInteractionRequest: input.onInteractionRequest,
       onPreview: input.onPreview,
       onRuntimeEvent: input.onRuntimeEvent,
@@ -1011,6 +1020,7 @@ export const runRuntimeTask = async (
   });
 
   const dispatchResult = await dispatchRuntimeTask({
+    spaceActionTools: input.spaceActionTools,
     adapter: input.adapter,
     deduped,
     onInteractionRequest: input.onInteractionRequest,

@@ -1,3 +1,4 @@
+import { buildPosixSetupDownloadCommand } from "@openmeld/start";
 import { env } from "#/env";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
@@ -241,9 +242,7 @@ function resolveSetupBootstrapCommand(
 		return `powershell -NoProfile -OutputFormat Text -Command { ${commandBody} }`;
 	}
 
-	return `curl -fsSL ${formatShellWord(setupUrl)} | sh -s -- ${args
-		.map(formatShellWord)
-		.join(" ")}`;
+	return buildPosixSetupDownloadCommand(setupUrl, args);
 }
 
 function resolveSetupBootstrapLane(

@@ -3473,7 +3473,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("keeps a recently Available Agent visually stable during a brief connection check", () => {
+	it("shows a new Checking verdict instead of an older Available badge", () => {
 		const availableReadiness =
 			createWakeAvailabilityReadiness("available_for_wake");
 		const { rerenderAgentProfilesCard } = renderAgentProfilesCard({
@@ -3497,11 +3497,12 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			},
 			createPrimaryBindingResponse("codex:approveForMe").binding
 		);
-
-		expect(screen.queryByText("Checking")).toBeNull();
+		expect(
+			screen.getByTestId("agent-profile-execution-readiness").textContent
+		).toContain("Checking ·");
 		expect(
 			document.querySelector('[data-availability-phase="available"]')
-		).toBeTruthy();
+		).toBeNull();
 	});
 
 	it("hides owner labels by default for personal Agents", async () => {

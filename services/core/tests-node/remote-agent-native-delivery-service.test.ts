@@ -8519,6 +8519,7 @@ describe("Remote Agent native delivery callback service", () => {
   it.each([
     "remote_agent.turn_not_completed",
     "remote_agent.empty_assistant_response",
+    "remote_agent.turn.output_limit_exceeded",
   ])("retries failed publication and records the %s outcome", async (failureCode) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -8572,7 +8573,10 @@ describe("Remote Agent native delivery callback service", () => {
         status: "accepted",
         publishedSignalId: "signal_failure_retry",
       });
-      if (failureCode === "remote_agent.empty_assistant_response") {
+      if (
+        failureCode === "remote_agent.empty_assistant_response" ||
+        failureCode === "remote_agent.turn.output_limit_exceeded"
+      ) {
         expect(recoveredEnv.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
         expect(
           recoveredEnv.__spaceStub.rpcPostSystemNoticeSignal
@@ -8583,6 +8587,9 @@ describe("Remote Agent native delivery callback service", () => {
               noticeType: "terminal_failure",
               reasonCode: failureCode,
               failureStage: "execution",
+              ...(failureCode === "remote_agent.turn.output_limit_exceeded"
+                ? { text: expect.stringContaining("response limit") }
+                : {}),
             }),
           })
         );

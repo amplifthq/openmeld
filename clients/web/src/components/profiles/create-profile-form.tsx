@@ -828,7 +828,7 @@ export function AgentProfileModelSelectionFields(
 			"center-agent"
 		]?.models.find((model) => model.id === input.modelId);
 		return (
-			<div className="grid min-w-0 gap-3">
+			<div className="grid min-w-0 gap-5">
 				<HostedModelSelect
 					choices={personalRemoteModelChoices(input.modelCatalog)}
 					disabled={input.disabled || !input.modelCatalog}
@@ -858,7 +858,7 @@ export function AgentProfileModelSelectionFields(
 	}
 
 	return (
-		<div className="grid min-w-0 gap-3">
+		<div className="grid min-w-0 gap-5">
 			<div className="grid min-w-0 gap-2">
 				<Label htmlFor={modelSelectId}>Model</Label>
 				<Select
@@ -1185,7 +1185,13 @@ function ModelRetirementNotice(input: {
 		return null;
 	}
 	return (
-		<p className="text-muted-foreground text-xs leading-5">
+		<p
+			className={
+				notice.status === "withdrawn"
+					? "text-destructive text-xs leading-5"
+					: "text-amber-700 text-xs leading-5 dark:text-amber-300"
+			}
+		>
 			{formatModelRetirementNotice(notice)}{" "}
 			<a
 				className="underline"

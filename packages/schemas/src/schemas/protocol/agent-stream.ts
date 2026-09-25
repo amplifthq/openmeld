@@ -372,9 +372,19 @@ const spaceAgentStreamThinkingDeltaFrameSchema = z.strictObject({
   updatedAtMs: timestampSchema,
 });
 
+const spaceAgentStreamProgressDeltaFrameSchema = z.strictObject({
+  type: z.literal("space.agent_stream_delta"),
+  ...agentStreamIdentityShape,
+  kind: z.literal("progress"),
+  progressSnapshot: z.string().max(AGENT_STREAM_SNAPSHOT_MAX_CHARS),
+  state: z.literal("streaming"),
+  updatedAtMs: timestampSchema,
+});
+
 export const spaceAgentStreamDeltaFrameSchema = z.union([
   spaceAgentStreamTextDeltaFrameSchema,
   spaceAgentStreamThinkingDeltaFrameSchema,
+  spaceAgentStreamProgressDeltaFrameSchema,
 ]);
 
 export const agentStreamToolPartSchema = z.strictObject({

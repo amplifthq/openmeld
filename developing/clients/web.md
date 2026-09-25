@@ -419,6 +419,19 @@ reporter. Reporting does not decide recovery, mutate application state, or
 retry a failed diagnostic request. See `docs/web-application-errors.md` for
 the privacy, coverage, and operator query contract.
 
+The Space composer isolates a rich-editor failure from the conversation shell.
+Its plain-text fallback keeps the draft and send action available, while edits
+there clear authored mention semantics. A failed editor must not replace the
+whole Desktop or Web workspace with the root error page.
+If a different React failure occurs in the Space or Direct Message conversation
+panel, its boundary keeps the app shell, header, and conversation sidebar
+usable, reports the error, and offers a local retry. It does not treat a caught
+error as a successful conversation load or erase the underlying failure.
+The shared Markdown editor likewise isolates Plate failures for Organization
+Documents, Organization Skills, and Space Files. Its fallback shows the owning
+Markdown draft as editable source, retains read-only mode and content-limit
+feedback, and leaves saving under the existing owner.
+
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 Vite's content-hashed `/assets/` responses use a one-year immutable browser
@@ -2681,8 +2694,11 @@ physical computer; it must never silently move a draft to another computer.
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
 request contract. The global page first asks whether the Agent runs locally or
-remotely and whether to start a Direct Message or add it to an existing joined
-Space. Local selection loads the existing local creation generator; Remote
+remotely. It opens a new Direct Message after setup without a destination
+choice. Creation from the Space Members panel or Add People or Agents dialog
+stays in that Space: the new Agent becomes selected in the picker, and the
+member can add the selection to the Space. Local selection loads the existing
+local creation generator; Remote
 selection reads the hosted model catalog without loading Computer setup or
 local Agent readiness. **Choose a Local Agent** always presents Codex, Claude
 Code, Grok Build, OpenCode, Antigravity, and Cursor in that order. The complete catalog is
@@ -3289,6 +3305,10 @@ reply projections, and transient activity rows retain their display identities
 but cannot become history anchors. Prefer the first visible recorded signal;
 when transient content fills the viewport, retain a nearby recorded signal and
 its offset instead. Existing stored positions are not migrated or invalidated.
+Below 640px, the history rail is not mounted or allocated layout space, while
+history loading and reading-position restoration remain available. The
+conversation notification bell also leaves the phone header; its saved
+per-conversation choice remains in Space settings.
 That account-and-Space-
 scoped semantic anchor is restored in the layout effect as soon as history
 mounts, before painting the default start position, loading earlier pages if
@@ -3779,7 +3799,7 @@ original bytes. Composer, thumbnail, and focused viewer subscribe to a shared
 object-URL handle; releasing the composer does not revoke a displayed image.
 Warm cache reads return the same handle during render, without a loading effect
 or effect-created URL. A local File is transferred without conversion. Idle
-originals have a five-minute GC lifetime and a 32-image/128-MiB retention budget;
+originals have a five-minute GC lifetime and a 32-media/128-MiB retention budget;
 mounted consumers are not evicted by that idle budget. The resource registry
 contains handles, not a second copy of bytes. It is scoped to the QueryClient.
 
@@ -3823,6 +3843,44 @@ acknowledgement ordering, decode retry, and privacy. Browser/native visual smoke
 is a separate acceptance gate, including the previously reported PNG grey
 preview; header metadata and jsdom tests alone do not establish that incident's
 root cause or verify GPU rendering.
+
+## Space Video Presentation
+
+Conversation, Thread replies, Files details, and the local composer share
+`SpaceVideoPreview`. Video remains a canonical Space File revision. Idle cards
+use the browser's native lazy video loading to show the first frame near the
+viewport. Once a visible frame is ready, they prepare the shared player so a
+Play click can start the same mounted media element in the user gesture. The
+player module loads once and no per-row observer is created. This introduces
+no poster-generation or transcoding service. The shared Media Chrome controls
+overlay the picture without an opaque control bar.
+
+Player preparation or explicit Play/Expand loads the player through `optional-media-modules`, the
+same content-addressed native-import boundary as image decoration. A missing
+player chunk exposes retry without triggering critical-route reload recovery.
+Critical application imports keep their existing behavior. The player is absent
+from server bundles and the initial Space dependency path.
+
+Remote playback uses the existing same-origin file-content route pinned to the
+message revision. The proxy owns cookies and the non-secret Organization
+selector; passwords and long-lived tokens never enter the URL. Core authorizes
+the revision before requesting a bounded R2 range. Private/no-store semantics
+remain unchanged. Remote movie bodies never enter TanStack or Dexie; the browser
+owns the active buffer. Historical Files previews wait for the requested revision
+descriptor and do not download whole movies through the text/image query.
+
+The existing resource owner is now named `space-file-media-resource`. It retains
+original local video Files and object URLs through staging and publication,
+without conversion, duplication, or a second cache. Image ownership, budgets and
+persistence exclusions remain unchanged. Active remote players also subscribe to
+this owner's account, Space, and file revocation events, without a cached body.
+
+Inline-to-dialog transfer records time, rate, volume, mute and playback intent,
+releases the old decoder, then restores the new one. Close releases playback;
+hidden documents and hidden React Activities pause without automatic resume.
+Only one video plays per document. Autoplay refusal leaves usable paused controls;
+unsupported formats retain retry and original download. Browser/Desktop visual,
+seeking, focus, and Space-switch timing smoke is separate from component tests.
 
 ## Space And Thread Presentation
 
@@ -4246,7 +4304,7 @@ above the composer with a **Files** item so later composer actions can be added
 without changing the primary control. The file picker accepts arbitrary files;
 paste and drag and drop use the same path.
 
-A composer accepts up to ten files, each up to the shared 10 MiB limit.
+A composer accepts up to ten files, each up to the shared 1 GiB Space File limit.
 Selection immediately stages each file as a temporary Composer Upload and keeps
 a removable local row with image thumbnail when available, file name, progress,
 failure, and request id. A staged upload is not listed in Files. The file tray
@@ -4346,15 +4404,22 @@ severity. Web must never deep-link to a retired authorization surface.
 
 Thread placement is conversation placement. It is not execution truth.
 
-For a hosted Center Agent Space reply, Web may overlay live model thinking and
-accumulated stream text while the turn is active. Neither projection is a Space
-message or final outcome. Thinking appears inside the Agent bubble as a
-collapsed `Thinking…` disclosure with the latest text visible in its summary;
-opening it shows the bounded live content. Web never writes thinking to its
-persisted browser read cache or a durable message, and removes it as soon as a
-terminal frame or durable outcome arrives. Reconnect restores the privacy-safe
-active stream presence and any accumulated text; thinking is not replayed from
-bootstrap.
+For hosted Center Agent and Remote Agent Space replies, Web may overlay
+explicit public progress updates and accumulated stream text while the turn is
+active. Neither live projection is a Space message or final outcome. Public
+updates appear inside the Agent bubble in the Work summary disclosure, sharing
+its bounded scroll viewport with tool steps when present. Local Agent reasoning,
+when the owner permits it and the controller supplies it, uses this same
+disclosure and Markdown renderer instead of a second collapsible panel. The
+reasoning remains transient and retains its separate privacy policy; Web never
+turns it into hosted public progress or durable reply history. Web does not write
+an active stream to its browser read cache. On successful publication, the final
+Signal may retain up to 8,192 characters of explicit public updates as
+`agentPublicProgress`; failed and stopped streams retain none. The published
+reply's collapsed Work summary lets the reader reopen those updates from
+history. Reconnect restores the privacy-safe active stream presence and any
+accumulated text; a bounded live progress tail can be replayed from the Space
+instance, but is absent from bootstrap.
 
 For hosted Center Agents and workstation Local Agents, Web may also show one
 compact live **Work summary** from the sequenced Space stream. A row describes
@@ -4369,17 +4434,17 @@ Connected App discovery names the App, and Connected App execution names both
 the App and its normalized catalog action. If either safe meaning is missing,
 the call is invisible instead of falling back to `connected app action`.
 
-The live Work summary shares the existing progress row instead of adding a
-second row and preserves the same Stop control and Message details action
-without shifting the conversation layout. While the authoritative stream is
+The live work disclosure shares the existing progress row instead of adding a
+second row and keeps Stop immediately after the expandable work summary.
+While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never
 replace or hide the active execution state. The live progress row belongs inside
 the Agent answer bubble after any accumulated answer text and before the
 message footer, so the state remains visually attached to the Agent and message
-actions never precede it. The summary defaults collapsed; the user can expand
-it into a bounded scroll viewport no taller than 12 rem or 30% of the dynamic
-viewport.
+actions never precede it. The summary opens while the stream is live,
+collapses after the final reply, and remains under the reader's control. Its
+scroll viewport is no taller than 12 rem or 30% of the dynamic viewport.
 Web first reconciles lifecycle parts by tool-call identity so starting and
 completed evidence for one call remains one step. It then groups only
 consecutive calls with the same semantic work, safe subject, and lifecycle
@@ -4403,9 +4468,11 @@ the timeline. Direct messages keep the compact avatar-and-bubble layout without
 a separate header time. Each direct message shows its 24-hour, hour-and-minute
 time inside the floating toolbar. Message details remains available for an
 individual message. Message actions form one floating
-toolbar beside the bubble, or just above it when neither side has room. It
-prefers the opposite side of a right-aligned
-self message and the right side of a left-aligned message. Phone widths show
+toolbar beside the bubble, or slightly over its upper edge when neither side
+has room. As a long message scrolls past the top of the message viewport, the
+toolbar follows that message's lower visible edge so its actions remain in view.
+It prefers the opposite side of a right-aligned self message and the right side
+of a left-aligned message. Phone widths show
 reaction and More actions beside a narrower bubble, keeping the full set of
 actions available from More. The toolbar does not reserve a footer row or change
 the bubble's height. When a message has a failure, the visible
@@ -4494,9 +4561,9 @@ pre-execution Wake phases such as queueing or connecting keep their exact phase
 copy and must not claim that the Agent is working. When
 the latest admitted semantic tool step settles, the live Work summary keeps its
 concrete completed or failed meaning instead of inventing a generic
-response-preparation phase. Because the Work summary header owns expansion, an
-adjacent Message details action remains available as a distinct control during
-live tool activity instead of overloading or removing either action.
+response-preparation phase. The message toolbar owns Message details. The Work
+summary does not repeat that action. After completion, the durable message
+toolbar still owns it.
 The Space bootstrap snapshot seeds active stream projections in the same room
 entry read as recent durable signals; Web must not issue a separate
 conversation-state request. Web requests
@@ -4507,10 +4574,10 @@ arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
 newer sequence. Private thinking and the compact live Work summary are not
 replayed on reconnect. A successfully published Agent reply may carry a durable
-privacy-bounded work projection. Web renders the reply body first and then one
-collapsed Work summary so historical steps cannot displace the answer.
-Reopening it shows the latest five grouped steps and offers
-`View all work details` when the retained projection is longer or truncated.
+privacy-bounded work projection and public progress. Web renders the reply body
+first and then one collapsed Work summary so historical steps cannot displace
+the answer. Reopening it shows all retained grouped steps and public updates
+inside the same bounded scroll viewport.
 Message details uses the same semantic copy in its unified **Activity** timeline
 and may show the retained timestamped work projection for 14 days. It never
 falls back to a technical tool journal. Web omits work events for older replies
@@ -4693,6 +4760,12 @@ uses `To wake an agent, type @, then pick the agent.` as its placeholder;
 Human-only DMs use `Message {name}…`, Agent DMs use `Message {name}…`, Center
 Agent DMs use `Tell Center Agent what you need…`, and Threads use
 `Reply in thread…`.
+
+For Claude Code, leaving the Task menu on automatic selection starts an
+independent Space-only context without requiring a repository or container.
+Selecting a new project task explicitly enables an isolated worktree. The menu
+explains that this choice requires a committed Git repository and a running
+Docker or Podman engine on the Agent's computer before the Wake starts.
 
 Draft editing and opening the `+` and `@` tools do not require permission to
 send. The `+` menu explains why file selection is unavailable when uploads are
@@ -5094,6 +5167,20 @@ follow-ups establishes completion. Failed, stopped, publication-unknown and
 published outcomes retain their distinct meanings; Core still owns execution
 and viewer-authorized Stop policy.
 
+If Web presents a Wake restored from its local progress cache, an unverified
+active-summary cache, or a main-conversation stream seeded from an unverified
+bootstrap, without a matching current Core active-Wake read, it sends one
+bounded browser diagnostic through the existing application-error intake. The
+structured `web.openmeld.wake_progress_presentation_unconfirmed` log identifies
+the Web build, Space, Wake correlation pointers, source/reply Thread pointers,
+progress update time, phase, cache source, and which queries have fetched since
+mount. It never includes message text, target
+labels, prompts, or arbitrary browser state. This is an observation of what
+Web showed, not proof that the Wake is stale; agents use the dispatch trace to
+determine the actual outcome. Delivery is best effort. Normal newly submitted,
+freshly streamed, and currently confirmed Wake progress does not produce this
+diagnostic.
+
 Web explicitly requests the bounded controller-conversation occupancy wait
 reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
 for <Agent name>` and explains `Another app is using this conversation.` The
@@ -5283,6 +5370,9 @@ only `sourceSignalId` or `clientMessageId + targetProfileId`, never
 state. HTTP 403 with `space.wake_stop.forbidden` means the current account is
 neither the requester nor the Agent owner. A raw HTTP 404 is a route/deployment/proxy
 problem, not normal Wake Stop unsupported behavior.
+For `retry_later`, Web says that OpenMeld could not confirm Stop and offers a
+retry. The response alone does not prove a local Service connection failure:
+native Hosted Agent cancellation can return the same status.
 
 Web must not show `cancellation_requested` as stopped. It may show a low-noise
 stopping state while waiting for Core to project a stopped progress phase or a

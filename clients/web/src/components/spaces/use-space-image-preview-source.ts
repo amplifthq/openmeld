@@ -1,6 +1,6 @@
 import { QueryClientContext } from "@tanstack/react-query";
 import { useContext, useSyncExternalStore } from "react";
-import { spaceFileImageResources } from "#/query/spaces/space-file-image-resource";
+import { spaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 
 const noSource = () => null;
 const noSubscription = () => () => {
@@ -11,7 +11,7 @@ const noSubscription = () => () => {
 export function useSpaceImagePreviewSource(source: string | null) {
 	const client = useContext(QueryClientContext);
 	const resource =
-		client && source ? spaceFileImageResources(client).find(source) : undefined;
+		client && source ? spaceFileMediaResources(client).find(source) : undefined;
 	const url = useSyncExternalStore(
 		resource?.subscribe ?? noSubscription,
 		resource?.getSnapshot ?? noSource,

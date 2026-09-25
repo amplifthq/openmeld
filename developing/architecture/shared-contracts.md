@@ -2899,7 +2899,22 @@ metadata and grants no access. Clients refresh the shared file-list contract.
 Older clients safely ignore the topic and continue to observe current state on
 their next read.
 
-Space Files accept individual files up to 250 MiB. The single-request
+The file-content GET/HEAD surface supports single byte ranges for media.
+`spaceFileStreamOptionsSchema` and `spaceFileStreamMetadataSchema` own the optional
+fourth argument and metadata for Core's streaming RPC. Authorization precedes
+range resolution and size disclosure. Satisfiable ranges read only the R2 slice
+and return 206 with exact Content-Range and length; unsupported, multiple, or
+unsatisfiable ranges return 416. HEAD opens only storage metadata. A strong
+revision ETag owns If-Range; a mismatched or weak validator selects the full
+representation. Private cache policy and storage scoping do not change.
+
+Legacy RPC callers that do not opt in retain their old response shape. Deploy
+Core's optional receiver before Gateway's caller, then Web/Desktop media UI;
+roll back callers before receivers. Gateway fails closed if an old Core omits
+stream metadata rather than mislabeling a full response as partial. MIME
+inference adds MP4, M4V, MOV and WebM extensions, not a universal codec guarantee.
+
+Space Files accept individual files up to 1 GiB. The single-request
 compatibility path remains capped at 10 MiB; larger files use the shared
 resumable multipart contract rather than buffering larger requests in Gateway:
 Core-authorized upload
@@ -2915,7 +2930,7 @@ The resumable contract uses one server-owned lifecycle for creates and new
 revisions:
 
 1. `start` carries the exact target, requested name and folder when creating,
-   MIME type, expected byte size, per-part SHA-256 digests, base revision, and client mutation id. The
+   MIME type, expected byte size, up to 128 per-part SHA-256 digests, base revision, and client mutation id. The
    owning Space reauthorizes the actor, freezes that metadata, and returns an
    client's opaque upload-session id plus the R2-compatible part policy.
 2. The owning Space creates or resumes the R2 multipart upload under a private
@@ -2957,19 +2972,22 @@ contract verification in one receiver-first rollout. Downloads stream through
 Core and Gateway; CLI downloads stream to disk. The existing buffered internal
 read RPC remains capped at 10 MiB and rejects larger reads explicitly.
 
-The 250 MiB policy widens existing strict file descriptors. An older client
-can still upload small files but can reject a response containing a larger file.
-Release updated readers before enabling large-file producers: local components
-and Remote Agent readers, then Core and Gateway receivers, then Web and CLI
-authoring. Already-open Web clients must refresh. Setup, Service lifecycle,
-Wake routing, and execution authority are unchanged. Rollback disables new
-producers first and keeps readers capable of reading existing large files.
-The CLI and Service contracts and runtime execution epoch advance because old
-dispatch validators reject file references above 10 MiB. Both local components
-are required updates before receiving new dispatches; Skills are unchanged.
-Publish their compatible channel before deploying Core's new epoch. This avoids
-accepting a Wake that the old Service cannot decode. Existing in-flight work
-retains its normal coordinator finalization path.
+The 1 GiB policy widens existing strict file descriptors. An older client can
+still upload small files but can reject a response containing a file above its
+previous 250 MiB ceiling. Release updated readers before enabling larger-file
+producers: local components and Remote Agent readers, then Core and Gateway
+receivers, then Web and CLI authoring. Already-open Web clients must refresh.
+Deploy the Remote Agent video tool and Workers AI binding before Core begins
+including the video-inspection hint in hosted submissions; its file RPC calls
+use already-existing Core methods during that brief mixed-version interval.
+Setup, Service lifecycle, Wake routing, and execution authority are unchanged.
+Rollback disables new producers first and keeps readers capable of reading
+existing large files. The CLI and Service contracts and runtime execution epoch
+advance because old dispatch validators reject file references above 250 MiB.
+Both local components are required updates before receiving new dispatches;
+Skills are unchanged. Publish their compatible channel before deploying Core's
+new epoch. This avoids accepting a Wake that the old Service cannot decode.
+Existing in-flight work retains its normal coordinator finalization path.
 
 The canonical Space File rollout is receiver-first across strict boundaries:
 
@@ -3304,9 +3322,9 @@ Shared schema surfaces define the hosted Center Agent and workstation Local
 Agent Space-stream paths:
 
 - `packages/schemas/src/schemas/runtime/remote-agent-worker.ts` owns the
-  worker-to-Core sequenced text/thinking snapshot and tool-part callbacks plus
+  worker-to-Core sequenced text/public-progress snapshot and tool-part callbacks plus
   their shared response. Core accepts the legacy text-only callback while the
-  current producer emits the typed callback. Thinking is transient and must not
+  current producer emits the typed callback. Public progress is transient and must not
   enter callback-context storage or the final completion callback. This schema
   also owns the durable execution query and targeted
   cancellation request/response unions for one native-delivery submission.
@@ -3349,13 +3367,13 @@ Agent Space-stream paths:
   or a stuck execution from silence. Old Service/Gateway combinations do not
   negotiate the header and therefore continue without live reasoning.
 - `packages/schemas/src/schemas/protocol/agent-stream.ts` owns Space live text,
-  thinking, tool-part, and terminal frames plus the active stream presence,
+  thinking, public-progress, tool-part, and terminal frames plus the active stream presence,
   active text snapshot, and durable privacy-bounded Agent reply work
   projection. Text frames preserve the legacy wire shape. The active presence
   contains only stream identity, sequence, gap, and timing evidence; it carries
-  no reply text or private thinking. Thinking frames are active-stream-only
+  no reply text or private thinking. Thinking and public-progress frames are active-stream-only
   refresh data: Space may advance the shared sequence cursor and expose its
-  privacy-safe presence, but must not store thinking in SQL, bootstrap,
+  privacy-safe presence, but must not store either transient tail in SQL, bootstrap,
   conversation snapshots, Message details, or final Signals. The optional
   versioned `work`
   object is the only user-presentation meaning: it contains an admitted
@@ -3411,6 +3429,11 @@ response field for callers that did not opt in. A successful
 final reply carries the complete optional durable projection in
 `signal.text.data.meta.agentWorkSummary` and may separately expose its
 timestamped bounded summary through Message details for 14 days. During a
+successful hosted turn, the same final Signal may carry up to 8,192 characters
+of explicit public updates in `meta.agentPublicProgress`. This additive field
+contains neither provider reasoning nor tool input or output. Space stores its
+draft only until a terminal outcome and omits it for failed or stopped turns.
+During a
 mixed-version rollout, Core may also emit `meta.agentActivity` containing only
 steps accepted by the previously deployed strict schema. A cached older Web
 client ignores the additive `agentWorkSummary` field and can therefore keep the
@@ -7101,15 +7124,24 @@ A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
 
-An omitted access preference selects `space_context`; local project access is
-explicit or inherited from an authorized fork source. `workspace: isolated`
+An omitted access preference selects `space_context`, including an ordinary
+Claude Code Wake in parallel mode that creates a new implicit context. A retained
+context keeps its existing access. An explicit independent project task selects
+`workspace: isolated`. `workspace: isolated`
 with local access now means a committed project worktree with private Git data.
 The local preparation journal binds the shared assignment to its source and
 starting commit. Its paths remain local; it neither replaces the Core context
 association nor introduces a second Project connection. Source policy is checked
 before materialization, and native project access is probed before execution.
-Native platform temporary-directory access remains in effect; this contract
-does not promise complete temporary-directory isolation.
+Codex retains native platform temporary-directory access; that contract does
+not promise complete temporary-directory isolation. Claude Code project access
+requires a running Docker or Podman Linux-container engine on macOS, Linux, or
+Windows. The Service verifies one task-only mount before execution. Its
+dispatch-scoped `project_shell` MCP tool checks the current attempt's workspace
+lease on each call, then runs Bash with no container network, host credentials,
+or host socket. Claude's host file tools use restricted working-directory
+access; host Bash is unavailable. Container commands must stop before the
+Service releases or reconciles the task workspace.
 
 Core sets `contextRequest.required` only for an explicit client selection. An
 ordinary thread Wake carries its discussion scope with `required: false`; the
@@ -7117,8 +7149,11 @@ Context authority creates implicit thread contexts only for supported harnesses.
 Other harnesses retain their existing serial Binding path and do not select
 retained Context history from a previously configured harness. Explicit
 new/resume/fork/auto selections never fall back to that path. This changes Core's
-request-selection policy without changing the wire shape or Service capability
-version, and leaves existing Binding, lifecycle, and readiness checks in effect.
+request-selection policy while retaining existing Binding, lifecycle, and
+readiness checks. Claude project contexts additionally require Service adapter
+`executionContextVersion: 3`; older Services receive a visible update-required
+outcome. Version 2 remains sufficient for the legacy association and Codex
+contexts. The shared assignment wire shape remains v1.
 
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch
@@ -7151,7 +7186,9 @@ The separate Late reply presentation remains outside this implementation.
 Contract impact: HTTP signal/thread sends gain optional selection fields;
 accepted snapshots and RuntimeTransport gain version-1 context assignments;
 current task results gain context identity/completion fields; the local ledger
-and fork journal migrate to v2. Dispatch Space Action authority is unchanged.
+and fork journal migrate to v2. Dispatch Space Action authority is unchanged;
+the per-Wake tool catalog adds `project_shell` only for a verified Claude
+project context, without granting a second final action path.
 Setup, Service installation, CLI self-rescue, and managed Skill contracts are
 unchanged. Legacy unscoped execution keeps its existing payload and epoch.
 
@@ -7177,9 +7214,9 @@ association. An older Service receives a visible update-required outcome when
 it cannot read the selected task contract, never a delivery that silently reuses
 the Binding conversation. Assignment/history version remains 1; the capability
 increment identifies the new Service-side migration guard. Older Core strictly
-rejects unknown capability declarations, so deploy Core/Gateway support
-before distributing this Service and Web/CLI feature. This ordered rollout is
-required; publishing the local component first is unsupported. Local-component
+rejects unknown capability declarations, so deploy Core/Gateway support for
+version 3 before distributing this Service and Web/CLI feature. This ordered
+rollout is required; publishing the local component first is unsupported. Local-component
 release metadata is deferred in the feature PR and must be produced by the
 guarded release workflow before production rollout.
 

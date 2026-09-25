@@ -107,7 +107,12 @@ commit and use GitHub instead.
 
 ## Read Remote Release Status
 
-Before choosing a GitHub release scope, compare an immutable remote ref with
+Use this when choosing scopes, inspecting a backlog, or reconciling uncertain
+evidence. For a known scope, go directly to its guarded preflight instead of
+running this separate history scan first; the preflight performs the same
+read and checks the selected scope's dependencies.
+
+Compare an immutable remote ref with
 the latest successful component jobs recorded by GitHub Actions:
 
 ```sh
@@ -288,6 +293,12 @@ conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
 independent live-production acceptance check.
 
+For a verified Database release, status can classify later Database schema and
+migration changes independently when unrelated historical Worker contracts no
+longer compose into one plan. The database stage still checks the live pending
+migration list and committed schema before applying anything. Other components
+remain unknown when their historical compatibility plan cannot be established.
+
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
 Workers, and Web may legitimately be at different release sources such as R,
@@ -428,6 +439,17 @@ valid new rejection as a protocol error. The schema path alone remains
 non-directional, so request-only changes do not accidentally select this
 profile. This response-reader requirement takes precedence when the same diff
 also contains Center Agent Task or Context Manifest paths.
+
+The hosted public-progress bridge is a narrow reviewed exception: if the
+versioned worker schema differs only by its output-limit reason constant and
+the additive progress callback kind, and the target Remote Agent contains the
+old-Core rejection fallback, the planner does not invent a strict worker
+*response* change from that shared file path. It keeps the real Remote Agent
+request receiver-first dependency. Any other schema edit, missing historical
+content, or missing fallback retains the conservative response dependency.
+For this bridge, deploy Remote Agent before Core; an older Core can reject a
+public progress update while the agent still streams text and publishes its
+final reply. The new Core reader then enables the progress update.
 
 The planner selects the `center-agent-cli-receiver-first` profile when the diff
 contains a Center Agent Task or Context Manifest contract path. Within the
@@ -1000,6 +1022,9 @@ implementation. Its database steps and guards are unchanged.
 The Web job additionally downloads the parent's immutable same-run artifact ID,
 verifies the receipt, actual build inputs and snapshot bytes, and restores the
 admitted Web output before its existing preflight, deploy and health gates.
+For a parent handoff, the child uses the same renderer heap budget that the
+parent used to build the snapshot; otherwise build-input identity must reject
+the artifact even when its downloaded bytes are intact.
 Other components do not download Web bytes. Desktop publication and CLI
 publication remain separate paths with their existing checks.
 
@@ -1409,6 +1434,16 @@ For GitHub, use `.github/workflows/cli-release.yml`:
 2. the workflow runs the `release_ready` gate before publication;
 3. use `Scoped Production Release` separately when the release card also
    requires database or cloud fleet changes.
+
+Windows Native AOT helper bytes can differ across builds of identical source.
+When a committed Service hash was stamped with a helper from an earlier trusted
+`main` CLI workflow run, set `windows_artifact_run_id` to that run instead of
+rebuilding the helper. The macOS publisher checks the producer workflow,
+branch, repository, and successful helper job, then verifies the downloaded
+helper's source fingerprint and bytes. This reuse path skips the Windows build
+job entirely. Use the run whose helper bytes were used for the stamp, not merely
+a run with the same source. A fresh Windows build can prepare a new candidate;
+stamp from its downloaded artifact and pin that run for publication.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.

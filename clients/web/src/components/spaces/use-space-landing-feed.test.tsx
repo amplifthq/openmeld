@@ -910,6 +910,47 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("does not repeatedly update when equivalent history gets a new wrapper", () => {
+		const envelopes = [createTextSignal({ id: "sig-1", ts: 10 })];
+		const queryClient = new QueryClient();
+		const statusRefetch = vi.fn(async () => undefined);
+		const membersRefetch = vi.fn(async () => undefined);
+		const initialAgentStreams: readonly SpaceAgentStreamSnapshot[] = [];
+		const readinessScope = {
+			organizationId: "org-1",
+			storageScope: "account-1",
+		};
+		let renders = 0;
+
+		const view = renderHook(
+			() => {
+				if (++renders > 10) {
+					throw new Error("Equivalent history caused repeated renders");
+				}
+				return useSpaceLandingFeed({
+					spaceId: "space-123",
+					openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+					participationEnabled: false,
+					statusReady: true,
+					statusRefetch,
+					membersRefetch,
+					initialAgentStreams,
+					readinessScope,
+					history: createReadyFeedHistory(envelopes),
+				});
+			},
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+
+		expect(view.result.current.timelineEnvelopes).toEqual(envelopes);
+	});
+
 	it("reconciles cached history on mount before the live socket opens", async () => {
 		readSpaceUpdatesMock.mockResolvedValue({
 			signals: [createTextSignal({ id: "sig-2", ts: 20 })],

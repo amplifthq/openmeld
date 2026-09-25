@@ -529,6 +529,13 @@ export const projectRuntimeTransportDeliveryRouteEvidence = (input: {
     session: sessionStatus,
     socket: session?.socket ? "present" : "missing",
     acceptingDispatches,
+    ...(session?.admissionEvidence &&
+    session.admissionEvidence.connectionGeneration ===
+      session.connectionGeneration &&
+    session.admissionEvidence.acceptingDispatches ===
+      (session.acceptingDispatches !== false)
+      ? { admissionEvidence: session.admissionEvidence }
+      : {}),
     profileRoute,
   };
 };

@@ -3186,6 +3186,7 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("abandons catch-up when the reader navigates history during preparation", async () => {
+		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
 		vi.stubGlobal("CSS", {
 			...globalThis.CSS,
 			escape: (value: string) => value,
@@ -3295,6 +3296,7 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("lets an anchored public history view navigate to the real latest URL", () => {
+		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
 		const latest = vi.fn();
 		const signal = {
 			...createThreadPreviewSignal(),
@@ -4159,7 +4161,7 @@ describe("SpaceConversationPanel", () => {
 		const activityTrigger = screen.getByRole("button", {
 			name: "Agent is working. Work summary: Reviewing source files…",
 		});
-		expect(activityTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
 			'[data-slot="space-message-progress-row"]'
 		);
@@ -4169,7 +4171,9 @@ describe("SpaceConversationPanel", () => {
 		expect(progressRow).not.toBeNull();
 		expect(bubbleContent?.contains(progressRow)).toBe(true);
 		fireEvent.click(
-			screen.getByRole("button", { name: "Open message details" })
+			within(
+				bubbleContent?.closest("[data-message-row-id]") as HTMLElement
+			).getByRole("button", { name: "Message details" })
 		);
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })

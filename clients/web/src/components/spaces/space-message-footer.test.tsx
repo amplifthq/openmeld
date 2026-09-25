@@ -9,6 +9,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	resolveToolbarPosition,
 	SpaceMessageFooter,
 	type SpaceMessageFooterAddressingTarget,
 } from "./space-message-footer";
@@ -48,6 +49,89 @@ const WAKE_TARGET: SpaceMessageFooterAddressingTarget = {
 	profileKind: "agent",
 	profileName: "Review Codex",
 };
+
+function rect(left: number, top: number, width: number, height: number) {
+	return {
+		bottom: top + height,
+		height,
+		left,
+		right: left + width,
+		top,
+		width,
+	} as DOMRect;
+}
+
+describe("floating message actions position", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("follows a long message's lower visible edge after its top scrolls away", () => {
+		const viewport = rect(0, 0, 600, 600);
+		const toolbar = rect(0, 0, 180, 28);
+		const bubble = rect(100, -300, 300, 1200);
+		const container = rect(0, -300, 600, 1200);
+		const position = resolveToolbarPosition({
+			bubble,
+			container,
+			preferredSide: "after",
+			toolbar,
+			viewport,
+		});
+
+		expect(position.placement).toBe("after");
+		expect(position.left).toBe(406);
+		expect(position.top + container.top).toBe(564);
+
+		const fullWidthPosition = resolveToolbarPosition({
+			bubble: rect(0, -300, 600, 1200),
+			container,
+			preferredSide: "before",
+			toolbar,
+			viewport,
+		});
+		expect(fullWidthPosition.placement).toBe("overlay");
+		expect(fullWidthPosition.top + container.top).toBe(564);
+	});
+
+	it("repositions the active toolbar when its message viewport scrolls", () => {
+		let rowTop = 100;
+		const view = render(
+			<div data-slot="message-scroller-viewport">
+				<div data-message-row-id="long-message">
+					<div data-slot="bubble-content">Long message</div>
+					<SpaceMessageFooter addressingTargets={[]} onCopy={vi.fn()} />
+				</div>
+			</div>
+		);
+		const viewport = view.container.querySelector<HTMLElement>(
+			'[data-slot="message-scroller-viewport"]'
+		);
+		const row = view.container.querySelector<HTMLElement>(
+			'[data-message-row-id="long-message"]'
+		);
+		const bubble = row?.querySelector<HTMLElement>(
+			'[data-slot="bubble-content"]'
+		);
+		const toolbar = row?.querySelector<HTMLElement>(
+			'[data-slot="message-footer"]'
+		);
+		expect(viewport && row && bubble && toolbar).toBeTruthy();
+		if (!(viewport && row && bubble && toolbar)) {
+			return;
+		}
+		viewport.getBoundingClientRect = () => rect(0, 0, 600, 600);
+		row.getBoundingClientRect = () => rect(0, rowTop, 600, 1200);
+		bubble.getBoundingClientRect = () => rect(100, rowTop, 300, 1200);
+		toolbar.getBoundingClientRect = () => rect(0, 0, 180, 28);
+
+		fireEvent.pointerEnter(row);
+		expect(toolbar.style.insetBlockStart).toBe("0px");
+		rowTop = -300;
+		fireEvent.scroll(viewport);
+		expect(toolbar.style.insetBlockStart).toBe("864px");
+	});
+});
 
 describe("SpaceMessageFooter", () => {
 	afterEach(() => {

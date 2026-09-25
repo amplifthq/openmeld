@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import { buildCodexExecArgs } from "../dist/transport/codex-cli-transport.js";
 import {
   buildCodexFileAccessBoundaryGlobalArgs,
@@ -9,7 +8,6 @@ import {
 import { buildCodexSpaceActionMcpGlobalArgs } from "../dist/transport/codex-space-action-mcp-config.js";
 
 const DANGEROUS_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox";
-const DISPATCH_TOOL_NAMES = OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES;
 
 const countDangerousBypassFlags = (args) =>
   args.filter((arg) => arg === DANGEROUS_BYPASS_FLAG).length;
@@ -293,7 +291,7 @@ describe("Codex CLI transport args", () => {
     );
   });
 
-  it("adds the approval-free Space Action MCP server to CLI execution", () => {
+  it("adds the Space Action MCP server without overriding native approval policy", () => {
     const args = buildCodexExecArgs({
       env: {
         OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
@@ -313,7 +311,7 @@ describe("Codex CLI transport args", () => {
       args.includes(
         'mcp_servers.openmeld_internal_dispatch_space_action.default_tools_approval_mode="approve"'
       ),
-      true
+      false
     );
   });
 
@@ -454,7 +452,7 @@ describe("Codex CLI transport args", () => {
 });
 
 describe("Codex Space Action MCP config", () => {
-  it("adds one required, approval-free dispatch tool server", () => {
+  it("adds one required dispatch server without overwriting enabled, denied or approval settings", () => {
     assert.deepEqual(
       buildCodexSpaceActionMcpGlobalArgs({
         OPENMELD_SPACE_ACTION_CONTEXT_PATH:
@@ -472,15 +470,7 @@ describe("Codex Space Action MCP config", () => {
         "-c",
         'mcp_servers.openmeld_internal_dispatch_space_action.env_vars=["OPENMELD_SPACE_ACTION_CONTEXT_PATH","OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH","OPENMELD_USER_FACING_CLI_COMMAND","OPENMELD_HOME"]',
         "-c",
-        "mcp_servers.openmeld_internal_dispatch_space_action.enabled=true",
-        "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.required=true",
-        "-c",
-        `mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=${JSON.stringify(DISPATCH_TOOL_NAMES)}`,
-        "-c",
-        "mcp_servers.openmeld_internal_dispatch_space_action.disabled_tools=[]",
-        "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.default_tools_approval_mode="approve"',
       ]
     );
   });

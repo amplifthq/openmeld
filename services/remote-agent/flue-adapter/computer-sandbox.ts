@@ -8,7 +8,10 @@ import {
 } from "@flue/runtime";
 import {
   maxLength,
+  maxValue,
   minLength,
+  minValue,
+  number,
   parse,
   pipe,
   strictObject,
@@ -20,6 +23,11 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import { callCoreRpc } from "../agent-core/core-rpc";
+import {
+  type RemoteAgentImagePreparer,
+  understandRemoteAgentImages,
+} from "../agent-core/image-understanding";
+import type { RemoteAgentModelEnv } from "../agent-core/model";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
@@ -36,6 +44,7 @@ import { createComputerCommandTool } from "./computer-command";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { getComputerSpaceFileTools } from "./computer-space-files";
+import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
 import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
@@ -76,11 +85,14 @@ export function isRemoteAgentComputerEnabled(env: {
 export async function createRemoteAgentComputerCapability(input: {
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
-  env: ComputerObservabilityEnv & {
-    AGENT_COMPUTER?: unknown;
-    BROWSER?: unknown;
-  };
+  env: ComputerObservabilityEnv &
+    RemoteAgentModelEnv & {
+      AGENT_COMPUTER?: unknown;
+      AI?: Ai;
+      BROWSER?: unknown;
+    };
   includeOrganizationDocuments: boolean;
+  prepareImage?: RemoteAgentImagePreparer;
   storage?: RemoteAgentStorage;
 }): Promise<{
   definitions: RemoteAgentToolDefinition[];
@@ -165,7 +177,25 @@ export async function createRemoteAgentComputerCapability(input: {
         return await browser.executeBrowser({ spaceId, code });
       },
     });
+    const previewInput = strictObject({
+      port: pipe(number(), minValue(1024), maxValue(65_535)),
+      path: pipe(string(), minLength(1), maxLength(2048)),
+      expectedText: pipe(string(), minLength(1), maxLength(500)),
+    });
+    browserDefinitions.push({
+      name: "computer_preview",
+      description:
+        "Open a development server already running in this Computer's Linux container with a private one-shot browser. Provide its port, page path, and text expected after JavaScript renders. Returns the rendered text, assertion result, page status, console errors, and failed network requests. Start the server with computer_command first; no public preview URL is created.",
+      input: previewInput,
+      execute: async (rawInput) => {
+        const preview = parse(previewInput, rawInput);
+        return await browser.inspectPreview(preview);
+      },
+    });
   }
+  const prepareImage = input.prepareImage;
+  const videoModel = input.context.modelRoute?.imageUnderstandingModel;
+  const transcriptionAi = input.env.AI;
   return {
     definitions: [
       ...getRemoteAgentSandboxToolDefinitions({
@@ -185,6 +215,38 @@ export async function createRemoteAgentComputerCapability(input: {
               workspaceAccess,
               workingDirectory,
             }),
+            ...(prepareImage && videoModel && transcriptionAi
+              ? [
+                  getComputerVideoInspectionTool({
+                    computerExec: (command, options) =>
+                      api.exec(command, options),
+                    understandFrames: async (frames) =>
+                      await understandRemoteAgentImages({
+                        env: input.env,
+                        images: frames,
+                        model: videoModel,
+                        organizationId: input.context.organizationId,
+                        prepareImage,
+                      }),
+                    transcribeAudio: async (bytes) => {
+                      const result = await transcriptionAi.run(
+                        "@cf/openai/whisper-large-v3-turbo",
+                        { audio: Buffer.from(bytes).toString("base64") }
+                      );
+                      if (typeof result.text !== "string") {
+                        throw new Error(
+                          "Audio transcription returned no text."
+                        );
+                      }
+                      return result.text.slice(0, 12_000);
+                    },
+                    storage: input.storage,
+                    submissionId: input.context.submissionId,
+                    workspaceAccess,
+                    workingDirectory,
+                  }),
+                ]
+              : []),
             createComputerCommandTool({
               context: input.context,
               storage: input.storage,

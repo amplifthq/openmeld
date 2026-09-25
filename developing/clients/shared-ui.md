@@ -34,6 +34,14 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`VideoPlayer` composes Media Chrome's controls with shared design tokens and solid
+surfaces. It owns no file fetching, credentials, cache, or Space identity. Global
+media hotkeys are disabled so the chat composer retains its keys.
+`MorphingDialogFrame` supplies a non-button shared-layout target for separate
+Play and Expand controls. Base UI retains focus and dismissal ownership, including
+caller-supplied close labels. An optional backdrop class disables video blur
+without changing existing image previews.
+
 `SettingsDialogContent` is the shared presentational shell for Space settings
 and App settings: Fluid dialog behavior, a navigation slot, and independently
 scrolling content. The default keeps the Space dialog dimensions; the spacious
@@ -45,6 +53,9 @@ including dropdowns, selects, and action menus. Do not reconstruct menus from
 generic Popover and Button components; reuse Fluid interaction behavior and the
 shared radius tokens. Sidebar section actions reveal on their own section's
 hover or keyboard focus, with open-menu and touch-device visibility preserved.
+Space Agent work and reasoning share `fluid/thinking-steps` as their disclosure;
+client code supplies the private reasoning, public progress, and admitted work
+content without a second shared disclosure component.
 
 ## Import Rule
 

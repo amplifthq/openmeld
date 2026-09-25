@@ -265,6 +265,7 @@ export const REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES = {
   TURN_COMPLETED: "remote_agent.turn.completed",
   TURN_CONTEXT_WINDOW_EXCEEDED: "remote_agent.turn.context_window_exceeded",
   TURN_EMPTY_ASSISTANT_RESPONSE: "remote_agent.empty_assistant_response",
+  TURN_OUTPUT_LIMIT_EXCEEDED: "remote_agent.turn.output_limit_exceeded",
   TURN_FAILED: "remote_agent.turn.failed",
   TURN_NOT_COMPLETED: "remote_agent.turn_not_completed",
   TURN_TIMEOUT: "remote_agent.turn.timeout",
@@ -889,6 +890,11 @@ export const remoteAgentStreamDeltaCallbackBodySchema = z.union([
     ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,
     kind: z.literal("thinking"),
     source: z.literal("flue.thinking_delta"),
+  }),
+  z.strictObject({
+    ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,
+    kind: z.literal("progress"),
+    source: z.literal("hosted.public_progress"),
   }),
 ]);
 

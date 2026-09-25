@@ -24,6 +24,8 @@ export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
   "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
   "Center Agent couldn't generate a reply. Your message is saved.";
+export const CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY =
+  "Center Agent reached the model's response limit before it could reply. Completed actions were not undone. Check the results, then send a shorter follow-up asking it to continue.";
 export const CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY =
   "Center Agent couldn't start this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY =
@@ -105,6 +107,8 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
   switch (input.failureCode) {
     case "remote_agent.empty_assistant_response":
       return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+    case "remote_agent.turn.output_limit_exceeded":
+      return CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY;
     case "remote_agent.execution_cancelled":
       return CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY;
     case "remote_agent.turn.context_window_exceeded":
@@ -526,7 +530,7 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
   ];
 
 const buildMalformedSpaceReplyCopy = (targetName: string): string =>
-  `${targetName} answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.`;
+  `OpenMeld could not confirm a Space response from ${targetName}, even after automatic recovery.`;
 
 const buildEmptyAgentReplyCopy = (targetName: string): string =>
   `${targetName} finished without returning any text, so OpenMeld had nothing to post. Wake ${formatObjectTargetName(targetName)} again. If this keeps happening, open diagnostics.`;
@@ -1168,11 +1172,12 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
-      availabilityBadgeLabel: "Unavailable",
-      availabilitySummary: "This computer isn't accepting new tasks.",
-      availabilityTooltip: "Not accepting new tasks",
+      availabilityBadgeLabel: "Checking",
+      availabilitySummary:
+        "This computer is connected but isn't accepting new tasks yet.",
+      availabilityTooltip: "Checking task availability",
       body: (targetName) =>
-        `${formatPossessiveTargetName(targetName)} computer isn't accepting new tasks. Open Computer details to check its status.`,
+        `${formatPossessiveTargetName(targetName)} computer is connected but isn't accepting new tasks right now. Open Computer details to check its status.`,
       kind: "local_service",
       patterns: ["=local_service.not_accepting_wakes"],
       primaryActionId: "check_status",
@@ -1317,6 +1322,46 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       patterns: ["controller.launch.choice_required", "launch choice"],
       primaryActionId: "connect_local_agent",
       recoveryTarget: "prepare_setup",
+    },
+    {
+      body: "Claude project tasks need Docker or Podman running on the Agent's computer. Start a Linux container engine, then try again. For a reply without project files, choose a Space-only task.",
+      kind: "local_agent_prepare",
+      patterns: ["=claude_project.container_runtime_unavailable"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "Docker or Podman could not prepare the image for this Claude project task. Check the container engine and its image download, then try again.",
+      kind: "local_agent_prepare",
+      patterns: ["=claude_project.image_unavailable"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "OpenMeld couldn't verify this Claude project task's file isolation. Check Docker or Podman and this Agent's settings before starting another project task. Open Diagnostics for the failed check.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "=claude_project.isolation_unverified",
+        "=claude_project.inside_access_unverified",
+        "=claude_project.outside_access_unverified",
+        "=claude_project.inside_write_unverified",
+      ],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "OpenMeld couldn't confirm this Claude Agent's permission rules. Check that its Claude settings files can be read and contain valid JSON, then wake the Agent again.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "=claude_delivery_policy.unavailable",
+        "=claude_delivery_policy.invalid",
+      ],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
     },
     {
       body: "This independent project task needs a connected Git repository with at least one commit. Choose that repository's root as the Agent's working folder, then start a new task.",

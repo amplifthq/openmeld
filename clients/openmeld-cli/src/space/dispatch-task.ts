@@ -30,14 +30,18 @@ type WithoutTaskOperationId<T> = T extends unknown
   ? Omit<T, "operationId">
   : never;
 
-export async function listDispatchSpaceTasks(phase?: SpaceTaskPhase) {
+export async function listDispatchSpaceTasks(
+  phase?: SpaceTaskPhase,
+  env: NodeJS.ProcessEnv = process.env
+) {
   return await withDispatchTaskContext(
     async ({ actionContext, api, requestContext }) =>
       await api.listTasks({
         spaceId: actionContext.spaceId,
         requestContext,
         ...(phase ? { phase } : {}),
-      })
+      }),
+    env
   );
 }
 
@@ -45,7 +49,8 @@ export async function createDispatchSpaceTask(
   body: Omit<
     CreateSpaceTaskBody,
     "assigneeProfileId" | "operationId" | "sourceSignalId" | "threadId"
-  > & { assigneeProfileId?: string | null }
+  > & { assigneeProfileId?: string | null },
+  env: NodeJS.ProcessEnv = process.env
 ) {
   return await withDispatchTaskContext(
     async ({ actionContext, api, requestContext }) =>
@@ -61,14 +66,18 @@ export async function createDispatchSpaceTask(
               ? actionContext.targetProfileId
               : body.assigneeProfileId,
         }),
-      })
+      }),
+    env
   );
 }
 
-export async function mutateDispatchSpaceTask(input: {
-  taskId: string;
-  body: WithoutTaskOperationId<MutateSpaceTaskBody>;
-}) {
+export async function mutateDispatchSpaceTask(
+  input: {
+    taskId: string;
+    body: WithoutTaskOperationId<MutateSpaceTaskBody>;
+  },
+  env: NodeJS.ProcessEnv = process.env
+) {
   const taskId = spaceTaskIdSchema.parse(input.taskId);
   const body = mutateSpaceTaskBodySchema.parse({
     ...input.body,
@@ -81,22 +90,21 @@ export async function mutateDispatchSpaceTask(input: {
         requestContext,
         taskId,
         body,
-      })
+      }),
+    env
   );
 }
 
 async function withDispatchTaskContext<T>(
-  operation: (context: DispatchTaskOperationContext) => Promise<T>
+  operation: (context: DispatchTaskOperationContext) => Promise<T>,
+  env: NodeJS.ProcessEnv
 ): Promise<T> {
-  if (
-    process.env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] !==
-    DISPATCH_OWNED_RUNTIME_MODE
-  ) {
+  if (env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] !== DISPATCH_OWNED_RUNTIME_MODE) {
     throw new Error(
       "Space Task tools require an active OpenMeld dispatch runtime."
     );
   }
-  const actionContext = readDispatchSpaceActionContextFromEnv();
+  const actionContext = readDispatchSpaceActionContextFromEnv(env);
   const profile = await requireOpenMeldProfile({
     openMeldProfileId: actionContext.targetProfileId,
     persistSelection: false,
@@ -115,7 +123,7 @@ async function withDispatchTaskContext<T>(
       openMeldProfile: profile,
     }),
   });
-  const current = readDispatchSpaceActionContextFromEnv();
+  const current = readDispatchSpaceActionContextFromEnv(env);
   if (
     current.contextId !== actionContext.contextId ||
     current.nonce !== actionContext.nonce ||

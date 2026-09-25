@@ -291,6 +291,15 @@ public `handleDeepLink` API. SDK scheme registration, unrestricted IPC handlers,
 and the global CSP hook are disabled. Credentials never cross the
 renderer bridge. Storage is scoped to the configured Web origin.
 
+Space video reuses this native cloud transport. The request allowlist forwards
+Range and If-Range; responses retain range/length, ETag and disposition while
+stripping cookies and credentials. For successful file-content GET/HEAD only,
+the SDK response hook keeps the undrained original and supplies an empty response
+with identical headers to the SDK parser. The Electron integration still owns
+cookie renewal. This avoids cloning or waiting for the entire movie before
+forwarding headers; other requests retain existing parsing. It does not extend
+the renderer-abort guarantee above.
+
 Desktop sign-out revokes the Desktop session; it does not run CLI logout.
 The pilot exposes the independently read CLI account ID for comparison with its
 cloud session. This comparison is display evidence, not the mutation fence.

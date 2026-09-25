@@ -89,6 +89,17 @@ describe("resolveWakeFailureDisplay", () => {
 });
 
 describe("resolveHistoricalWakeFailureBody", () => {
+	it("does not infer a private answer or a missing tool call from failed delivery repair", () => {
+		expect(
+			resolveHistoricalWakeFailureBody({
+				failureReasonCode: "openmeld.space_action.repair_failed",
+				targetLabel: "@runner",
+			})
+		).toBe(
+			"OpenMeld could not confirm a Space response from Runner, even after automatic recovery."
+		);
+	});
+
 	it("keeps a cross-workspace failure factual instead of calling it a system problem", () => {
 		expect(
 			resolveHistoricalWakeFailureBody({

@@ -1638,30 +1638,6 @@ describe("shared db tooling", () => {
     DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
   );
 
-  it("keeps the shared db gate action on the single production release command", () => {
-    const source = fs.readFileSync(
-      path.resolve(
-        getRepoRootDirectoryPath(),
-        ".github/actions/shared-db-gate/action.yml"
-      ),
-      "utf8"
-    );
-
-    expect(source).toContain(
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: this asserts the literal GitHub Actions expression text in the composite action.
-      "DB_RELEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}"
-    );
-    expect(source).toContain(
-      'run: pnpm --dir "$DB_RELEASE_WORKING_DIRECTORY" run db:release:prod'
-    );
-    expect(source).not.toContain("run: pnpm db:check");
-    expect(source).not.toContain("run: pnpm db:generate");
-    expect(source).not.toContain("run: pnpm db:migrate:prod");
-    expect(source).not.toContain("run: pnpm db:verify:prod");
-    expect(source).not.toContain("run: pnpm db:optimize:prod");
-    expect(source).toContain("OPENMELD_DB_EXECUTION_MODE: prod");
-  });
-
   it("keeps @openmeld/db/tooling free of auth-only db command exports", () => {
     const source = fs.readFileSync(
       path.resolve(getRepoRootDirectoryPath(), "packages/db/src/tooling.ts"),

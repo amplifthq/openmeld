@@ -17,12 +17,16 @@ type WakeStatus = NonNullable<
 	SpaceMemberAgentSnapshot["agentWakeAvailability"]
 >["status"];
 
-function agentsWith(status: WakeStatus): SpaceMemberAgentSnapshot[] {
+function agentsWith(status: WakeStatus | null): SpaceMemberAgentSnapshot[] {
+	const agent = createSpaceMemberAgentSnapshot({
+		agentWakeAvailability: { status: status ?? "available_for_wake" },
+		profileId: PROFILE_ID,
+	});
 	return [
-		createSpaceMemberAgentSnapshot({
-			agentWakeAvailability: { status },
-			profileId: PROFILE_ID,
-		}),
+		{
+			...agent,
+			agentWakeAvailability: status ? agent.agentWakeAvailability : undefined,
+		},
 	];
 }
 
@@ -45,7 +49,7 @@ const isOverridden = (result: Step): boolean =>
 	result.overrideByProfileId.has(PROFILE_ID);
 
 describe("reconcileWakeDisplayDebounce (asymmetric display debounce)", () => {
-	it("keeps Available across a sub-window available -> checking -> available flicker", () => {
+	it("keeps Available only while a refresh has no new verdict", () => {
 		// t=0 Available: shows itself, no override needed.
 		let result = step({
 			agents: agentsWith("available_for_wake"),
@@ -54,17 +58,17 @@ describe("reconcileWakeDisplayDebounce (asymmetric display debounce)", () => {
 		});
 		expect(isOverridden(result)).toBe(false);
 
-		// t=1000 Checking: within window -> smoothed to Available.
+		// t=1000: the previous verdict remains visible while loading.
 		result = step({
-			agents: agentsWith("checking_connection"),
+			agents: agentsWith(null),
 			nowMs: 1000,
 			previous: result.nextState,
 		});
 		expect(isOverridden(result)).toBe(true);
 
-		// t=5000 still Checking, still inside the window -> still Available.
+		// t=5000: still no new verdict.
 		result = step({
-			agents: agentsWith("checking_connection"),
+			agents: agentsWith(null),
 			nowMs: 5000,
 			previous: result.nextState,
 		});
@@ -79,15 +83,15 @@ describe("reconcileWakeDisplayDebounce (asymmetric display debounce)", () => {
 		expect(isOverridden(result)).toBe(false);
 	});
 
-	it("surfaces Checking once the debounce window elapses", () => {
+	it("surfaces missing readiness once the debounce window elapses", () => {
 		let result = step({
 			agents: agentsWith("available_for_wake"),
 			nowMs: 0,
 			previous: new Map(),
 		});
-		// Degrade starts at t=1000.
+		// The read becomes unavailable at t=1000.
 		result = step({
-			agents: agentsWith("checking_connection"),
+			agents: agentsWith(null),
 			nowMs: 1000,
 			previous: result.nextState,
 		});
@@ -95,11 +99,26 @@ describe("reconcileWakeDisplayDebounce (asymmetric display debounce)", () => {
 
 		// t=21_000: elapsed since degrade start (1000) is exactly DEBOUNCE_MS -> off.
 		result = step({
-			agents: agentsWith("checking_connection"),
+			agents: agentsWith(null),
 			nowMs: 21_000,
 			previous: result.nextState,
 		});
 		expect(isOverridden(result)).toBe(false);
+	});
+
+	it("surfaces an explicit Checking verdict immediately after Available", () => {
+		let result = step({
+			agents: agentsWith("available_for_wake"),
+			nowMs: 0,
+			previous: new Map(),
+		});
+		result = step({
+			agents: agentsWith("checking_connection"),
+			nowMs: 1000,
+			previous: result.nextState,
+		});
+		expect(isOverridden(result)).toBe(false);
+		expect(result.nextWakeAtMs).toBeNull();
 	});
 
 	it("surfaces a terminal Offline immediately, even mid-window", () => {
@@ -109,7 +128,7 @@ describe("reconcileWakeDisplayDebounce (asymmetric display debounce)", () => {
 			previous: new Map(),
 		});
 		result = step({
-			agents: agentsWith("checking_connection"),
+			agents: agentsWith(null),
 			nowMs: 1000,
 			previous: result.nextState,
 		});
@@ -131,7 +150,7 @@ describe("reconcileWakeDisplayDebounce (asymmetric display debounce)", () => {
 			previous: new Map(),
 		});
 		result = step({
-			agents: agentsWith("checking_connection"),
+			agents: agentsWith(null),
 			nowMs: 1000,
 			previous: result.nextState,
 		});
@@ -162,11 +181,11 @@ describe("reconcileWakeDisplayDebounce (asymmetric display debounce)", () => {
 			previous: new Map(),
 		});
 		result = step({
-			agents: agentsWith("checking_connection"),
+			agents: agentsWith(null),
 			nowMs: 1000,
 			previous: result.nextState,
 		});
-		// Timer must fire at degradeStart + debounce so the row flips to Checking
+		// Timer must fire at degradeStart + debounce so the row flips to unknown
 		// even if the backend stops pushing fresh snapshots.
 		expect(result.nextWakeAtMs).toBe(1000 + DEBOUNCE_MS);
 	});

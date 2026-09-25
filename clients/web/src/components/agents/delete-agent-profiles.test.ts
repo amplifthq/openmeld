@@ -33,32 +33,49 @@ describe("batch Agent deletion", () => {
 			{ ...profile(4), ownerUserId: "teammate" },
 			{ ...profile(5), managedRole: "center_agent" as const },
 		];
+		const pendingResponses = Array.from({ length: 3 }, () => {
+			let resolve!: (response: Response) => void;
+			return {
+				promise: new Promise<Response>((done) => {
+					resolve = done;
+				}),
+				resolve: (response: Response) => resolve(response),
+			};
+		});
 		const fetchMock = vi
 			.fn()
-			.mockResolvedValueOnce(Response.json({ ok: true, profile: profiles[0] }))
-			.mockResolvedValueOnce(
-				Response.json(
-					{ ok: false, code: "FORBIDDEN", message: "Permission changed." },
-					{ status: 403 }
-				)
-			)
-			.mockResolvedValueOnce(
-				Response.json(
-					{ ok: false, code: "NOT_FOUND", message: "Profile not found." },
-					{ status: 404 }
-				)
-			);
+			.mockImplementationOnce(() => pendingResponses[0]?.promise)
+			.mockImplementationOnce(() => pendingResponses[1]?.promise)
+			.mockImplementationOnce(() => pendingResponses[2]?.promise);
 		vi.stubGlobal("fetch", fetchMock);
 		const queryClient = new QueryClient();
 		const key = startQueryKeys.profilesForStorageScope("account");
 		queryClient.setQueryData(key, profiles);
-		const failures = await deleteAgentProfiles({
+		const deletion = deleteAgentProfiles({
 			profiles,
 			currentUserId: "owner",
 			organizationId: "org",
 			queryClient,
 			storageScope: "account",
 		});
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+		expect(queryClient.getQueryData(key)).toEqual(profiles.slice(3));
+		pendingResponses[0]?.resolve(
+			Response.json({ ok: true, profile: profiles[0] })
+		);
+		pendingResponses[1]?.resolve(
+			Response.json(
+				{ ok: false, code: "FORBIDDEN", message: "Permission changed." },
+				{ status: 403 }
+			)
+		);
+		pendingResponses[2]?.resolve(
+			Response.json(
+				{ ok: false, code: "NOT_FOUND", message: "Profile not found." },
+				{ status: 404 }
+			)
+		);
+		const failures = await deletion;
 		expect(fetchMock).toHaveBeenCalledTimes(3);
 		expect(failures.map((value) => value.profileId)).toEqual([
 			profiles[1]?.openMeldProfileId,

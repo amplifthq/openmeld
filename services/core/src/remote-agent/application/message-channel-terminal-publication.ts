@@ -5,7 +5,10 @@ import type {
   MessageChannelProviderAdapter,
   MessageChannelPublicationResult,
 } from "./message-channel-adapters";
-import { splitMessageChannelCardSegment } from "./message-channel-card-segmentation";
+import {
+  projectMessageChannelCardRevision,
+  revisePreviousMessageChannelCards,
+} from "./message-channel-card-revision";
 import type { MessageChannelPublicationTarget } from "./message-channel-publication-target";
 import { projectMessageChannelTerminalContent } from "./message-channel-terminal-content";
 
@@ -139,10 +142,11 @@ async function finalizeCard(input: {
       status: "outcome_unknown",
     };
   }
-  const segment = splitMessageChannelCardSegment({
-    sourceOffset: input.delivery.providerProgressSourceOffset,
-    text: input.text,
-  });
+  const revision = projectMessageChannelCardRevision(
+    input.delivery,
+    input.text
+  );
+  const segment = revision.active;
   if (segment.tail) {
     return {
       reasonCode: "message_channel.final_card_rollover_required",
@@ -150,6 +154,23 @@ async function finalizeCard(input: {
     };
   }
   let outcome: "completed" | "failed" | "stopped" = "completed";
+  const previous = await revisePreviousMessageChannelCards({
+    delivery: input.delivery,
+    revision,
+    target: input.target,
+    sequence,
+    providerPublicationIdempotencyKey:
+      input.target.providerPublicationIdempotencyKey,
+    // A superseded stream request can still be in flight. Fence every old
+    // card with the final sequence, even when its last confirmed hash matches.
+    force: input.delivery.providerProgressState === "update_claimed",
+  });
+  if (previous.result.status === "outcome_unknown") {
+    return { ...previous.result, providerProgressSequence: sequence };
+  }
+  if (previous.result.status === "failed") {
+    return previous.result;
+  }
   if (input.failureCode) {
     outcome =
       input.failureCode ===

@@ -2,31 +2,12 @@ name: Windows internal preview
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - .gitattributes
-      - .github/workflows/windows-internal-preview.yml
-      - scripts/release/windows-internal-preview.mjs
-      - scripts/release/publish-windows-internal-preview.mjs
-      - scripts/desktop/windows-artifact.mjs
-      - scripts/desktop/package-mode.mjs
-      - scripts/desktop/installed-package.mjs
-      - scripts/desktop/installed-platform.ts
-      - clients/desktop/electron-builder.installed.config.mjs
-      - clients/desktop/src/main/installed-environment.ts
-      - clients/desktop/src/main/cli/managed-binary.ts
-      - clients/web/src/lib/setup-bootstrap-windows-binary.ts
-      - clients/web/src/lib/setup-bootstrap-script.ts
-      - clients/web/src/lib/desktop-release.ts
-      - clients/web/src/lib/cli-binary-release.ts
-      - clients/web/src/routes/cli/**
-      - clients/web/src/routes/desktop/download.ts
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-internal-preview-${{ github.event.pull_request.number || github.ref }}
+  group: windows-internal-preview-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

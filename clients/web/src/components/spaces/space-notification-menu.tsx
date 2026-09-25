@@ -75,6 +75,7 @@ function ConversationNotificationMenu(input: {
 				render={
 					<Button
 						aria-label={`Conversation notifications: ${summary}`}
+						className="hidden sm:inline-flex"
 						size="icon-sm"
 						title={summary}
 						variant="ghost"

@@ -1,4 +1,5 @@
 import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -12,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
-import type { CachedSpaceFileContent } from "#/query/spaces/space-file-image-resource";
+import type { CachedSpaceFileContent } from "#/query/spaces/space-file-media-resource";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 
@@ -177,7 +178,7 @@ it("hands each original image to its canonical revision before consuming duplica
 				spaceFileQueryKeys.content("space-1", fileId, 1)
 			);
 			expect(cached?.bytes).toBe(sources.get(local.localId));
-			expect(cached?.imagePreview?.getSnapshot()).toBe(local.previewUrl);
+			expect(cached?.mediaPreview?.getSnapshot()).toBe(local.previewUrl);
 			expect(result.previewUrlsByFileId.get(fileId)).toBe(local.previewUrl);
 		}
 	});
@@ -782,7 +783,9 @@ describe("composer attachment submission", () => {
 	it("rejects oversized files before upload while keeping other attachments", async () => {
 		const hook = setup();
 		const oversized = new File(["too large"], "large.pdf");
-		Object.defineProperty(oversized, "size", { value: 251 * 1024 * 1024 });
+		Object.defineProperty(oversized, "size", {
+			value: SPACE_FILE_MAX_SIZE_BYTES + 1,
+		});
 		await act(async () =>
 			hook.result.current.addFiles([
 				oversized,
@@ -795,7 +798,7 @@ describe("composer attachment submission", () => {
 		);
 		expect(hook.result.current.files[0]).toMatchObject({
 			status: "failed",
-			errorMessage: expect.stringContaining("250 MiB upload limit"),
+			errorMessage: expect.stringContaining("1024 MiB upload limit"),
 		});
 		expect(hook.result.current.files[0]?.errorMessage).toContain(
 			"paste a link"

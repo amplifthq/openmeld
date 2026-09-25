@@ -1,6 +1,7 @@
 import {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
+  CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
   type CenterAgentModelRoute,
   centerAgentModelRouteSchema,
@@ -153,6 +154,8 @@ import type {
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
   SpaceFileDescriptor,
+  SpaceFileUploadCommand,
+  SpaceFileUploadResponse,
   SpaceMessageAttachment,
   SpaceMessageFileReference,
   StartCenterAgentMemberResearchResponse,
@@ -259,7 +262,18 @@ export type RemoteAgentReadableStorage = {
   ): Promise<Map<string, T>>;
 };
 
+export type RemoteAgentConditionalWrite<T = unknown> = {
+  key: string;
+  expectedValue: T;
+  nextValue: T;
+};
+
 export type RemoteAgentWritableStorage = {
+  /** Update both existing records atomically, or neither when either is stale. */
+  compareAndSetPair<A, B>(
+    first: RemoteAgentConditionalWrite<A>,
+    second: RemoteAgentConditionalWrite<B>
+  ): Promise<boolean>;
   compareAndSet<T>(
     key: string,
     expectedValue: T,
@@ -598,6 +612,31 @@ export type RemoteAgentCoreWorkerBinding = {
     spaceId: string;
     content: ResolveSpaceFileContentInput;
   }): Promise<ResolveSpaceFileContentResponse & { bytes: ArrayBuffer }>;
+  streamSpaceFileContent?(
+    input: {
+      context: OpenMeldRequestContext;
+      spaceId: string;
+      content: ResolveSpaceFileContentInput;
+    },
+    spaceFilesOriginVersion?: string
+  ): Promise<
+    ResolveSpaceFileContentResponse & { bytes: ReadableStream<Uint8Array> }
+  >;
+  resolveSpaceFileContent?(input: {
+    context: OpenMeldRequestContext;
+    spaceId: string;
+    content: ResolveSpaceFileContentInput;
+  }): Promise<ResolveSpaceFileContentResponse>;
+  spaceFileUpload?(
+    input: {
+      context: OpenMeldRequestContext;
+      spaceId: string;
+      uploadId: string;
+      command: SpaceFileUploadCommand;
+      body?: ReadableStream<Uint8Array>;
+    },
+    spaceFilesOriginVersion?: string
+  ): Promise<SpaceFileUploadResponse>;
   deleteSpaceAttachmentRecord?(input: {
     attachmentId: string;
   }): Promise<{ deleted: boolean }>;
@@ -1831,6 +1870,8 @@ function resolveRemoteAgentFailureMessage(code: string): string {
       return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
     case "remote_agent.empty_assistant_response":
       return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+    case "remote_agent.turn.output_limit_exceeded":
+      return CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:

@@ -713,6 +713,7 @@ describe("space timeline helpers", () => {
 				createTextSignal({
 					id: "signal-final-1",
 					meta: {
+						agentPublicProgress: "Checking the organization directory.\n\n",
 						agentActivity: {
 							v: 1,
 							steps: [
@@ -766,6 +767,9 @@ describe("space timeline helpers", () => {
 				},
 			],
 		});
+		expect(items[0]?.agentPublicProgress).toBe(
+			"Checking the organization directory.\n\n"
+		);
 	});
 
 	it.each([
@@ -1759,6 +1763,7 @@ function createTextSignal(input: {
 	ts: number;
 	text: string;
 	meta?: {
+		agentPublicProgress?: string;
 		agentActivity?: SpaceAgentActivity;
 		agentWorkSummary?: SpaceAgentActivity;
 		centerAgentInteractionSource?: {

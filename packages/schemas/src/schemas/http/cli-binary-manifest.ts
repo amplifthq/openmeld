@@ -1,5 +1,5 @@
 import * as z from "zod/v4";
-import { windowsPublisherNameSchema } from "../../windows-artifact.ts";
+import { windowsPublisherNameSchema } from "#windows-artifact";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 
@@ -7,6 +7,16 @@ const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 export function resolveCliBinaryPlatform(os: string, arch: string): string {
   return `${os === "win32" ? "windows" : os}-${arch}`;
 }
+// The macOS CLI publisher identity is a trusted client expectation, not a
+// value that a downloaded manifest may choose for itself.
+export const OPENMELD_MACOS_CLI_SIGNING_IDENTITY = {
+  codeIdentifier: "sh.openmeld.cli",
+  teamIdentifier: "38FFHDPA3B",
+} as const;
+
+// Require Apple's Developer ID Application chain, not just matching fields
+// printed by codesign --display or a requirement chosen by the artifact.
+export const OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT = `anchor apple generic and identifier "${OPENMELD_MACOS_CLI_SIGNING_IDENTITY.codeIdentifier}" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${OPENMELD_MACOS_CLI_SIGNING_IDENTITY.teamIdentifier}"`;
 
 function isBase64(value: string): boolean {
   if (value.length === 0 || value.length % 4 !== 0) {

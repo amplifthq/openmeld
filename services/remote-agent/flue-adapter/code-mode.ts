@@ -238,7 +238,6 @@ function buildCodeModeToolSet(input: {
   streamPublisher: RemoteAgentStreamPublisher;
   submissionId: string;
 }): ToolSet {
-  let fallbackToolCallSequence = 0;
   return Object.fromEntries(
     input.definitions.map((definition) => [
       definition.name,
@@ -250,31 +249,54 @@ function buildCodeModeToolSet(input: {
           options?: ToolExecutionOptions
         ) => {
           input.onToolCall();
-          fallbackToolCallSequence += 1;
           const toolCallId =
             options?.toolCallId ??
-            `codemode:${definition.name}:${String(fallbackToolCallSequence)}`;
-          const result = await executeRemoteAgentToolDefinition({
-            definition,
-            // Code Mode 0.5.1 invokes tools without execution options.
-            // Bind cancellation to this invocation, not to SDK forwarding.
-            signal: input.signal ?? options?.abortSignal,
-            source: "code_mode",
-            storage: input.storage,
-            submissionId: input.submissionId,
-            toolInput,
-          });
-          await publishCodeModeInnerWorkBestEffort({
-            coreWorker: input.coreWorker,
-            observedAtMs: Date.now(),
-            storage: input.storage,
-            streamPublisher: input.streamPublisher,
-            submissionId: input.submissionId,
-            toolCallId,
-            toolInput,
-            toolName: definition.name,
-            toolResult: result,
-          });
+            `codemode:${definition.name}:${crypto.randomUUID()}`;
+          const signal = input.signal ?? options?.abortSignal;
+          let started = false;
+          let startPublication = Promise.resolve();
+          const publishWork = async (
+            state: "input-available" | "output-available" | "output-error",
+            toolResult?: unknown
+          ) => {
+            await publishCodeModeInnerWorkBestEffort({
+              coreWorker: input.coreWorker,
+              observedAtMs: Date.now(),
+              storage: input.storage,
+              streamPublisher: input.streamPublisher,
+              submissionId: input.submissionId,
+              state,
+              toolCallId,
+              toolInput,
+              toolName: definition.name,
+              toolResult,
+            });
+          };
+          let result: unknown;
+          try {
+            result = await executeRemoteAgentToolDefinition({
+              definition,
+              // Code Mode 0.5.1 invokes tools without execution options.
+              // Bind cancellation to this invocation, not to SDK forwarding.
+              signal,
+              source: "code_mode",
+              storage: input.storage,
+              submissionId: input.submissionId,
+              toolInput,
+              onStarted: () => {
+                started = true;
+                startPublication = publishWork("input-available");
+              },
+            });
+          } catch (error) {
+            if (started && !signal?.aborted) {
+              await startPublication;
+              await publishWork("output-error");
+            }
+            throw error;
+          }
+          await startPublication;
+          await publishWork("output-available", result);
           return (
             toBoundedRemoteAgentToolResult({
               toolName: definition.name,
@@ -304,10 +326,11 @@ async function publishCodeModeInnerWorkBestEffort(input: {
   storage: RemoteAgentStorage;
   streamPublisher: RemoteAgentStreamPublisher;
   submissionId: string;
+  state: "input-available" | "output-available" | "output-error";
   toolCallId: string;
   toolInput: unknown;
   toolName: string;
-  toolResult: unknown;
+  toolResult?: unknown;
 }): Promise<void> {
   const work = resolveRemoteAgentToolWorkActivity(
     input.toolName,
@@ -331,7 +354,7 @@ async function publishCodeModeInnerWorkBestEffort(input: {
       observedAtMs: input.observedAtMs,
       part: {
         type: "tool",
-        state: "output-available",
+        state: input.state,
         toolCallId: input.toolCallId,
         toolName: input.toolName,
         work,

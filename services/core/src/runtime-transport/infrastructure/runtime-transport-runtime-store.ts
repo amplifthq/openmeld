@@ -2,6 +2,7 @@ import type {
   DaemonExecutionCompatibility,
   DaemonServiceLane,
   LocalWakeRouteReport,
+  RuntimeTransportAdmissionEvidence,
   RuntimeTransportCapabilities,
   RuntimeTransportRejectedProfileRegistration,
   RuntimeTransportStopCause,
@@ -62,6 +63,7 @@ type ServiceRuntimeRecordV1 = {
   lastHeartbeatMs: number;
   deliveryDisconnectedAtMs: number | null;
   acceptingDispatches?: boolean;
+  admissionEvidence?: RuntimeTransportAdmissionEvidence;
   stopCause?: RuntimeTransportStopCause;
   capabilities: RuntimeTransportCapabilities;
   executionCompatibility: DaemonExecutionCompatibility;
@@ -92,6 +94,9 @@ const buildServiceRuntimeRecord = (
         acceptingDispatches: false,
         stopCause: session.stopCause ?? "unknown",
       }
+    : {}),
+  ...(session.admissionEvidence
+    ? { admissionEvidence: session.admissionEvidence }
     : {}),
   capabilities: session.capabilities,
   executionCompatibility: session.executionCompatibility,
@@ -280,6 +285,7 @@ const restoreSessionFromRecord = (
     lastHeartbeatMs: record.lastHeartbeatMs,
     deliveryDisconnectedAtMs: record.deliveryDisconnectedAtMs ?? restoredAtMs,
     acceptingDispatches: record.acceptingDispatches !== false,
+    admissionEvidence: record.admissionEvidence,
     stopCause:
       record.acceptingDispatches === false
         ? (record.stopCause ?? "unknown")

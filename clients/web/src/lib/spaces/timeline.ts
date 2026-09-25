@@ -112,9 +112,12 @@ export type SpaceTimelineItem = {
 		toolParts?: readonly AgentStreamToolPart[];
 		thinking?: string;
 		thinkingActive?: boolean;
+		progress?: string;
+		progressActive?: boolean;
 		reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
 	};
 	agentActivity?: SpaceAgentActivity;
+	agentPublicProgress?: string;
 };
 
 export type SpaceTimelineAttachment = SpaceMessageAttachment & {
@@ -305,6 +308,12 @@ export function buildSpaceTimelineItems(input: {
 								thinkingActive: stream.thinkingActive,
 							}
 						: {}),
+					...(stream.status === "streaming" && stream.progress
+						? {
+								progress: stream.progress,
+								progressActive: stream.progressActive,
+							}
+						: {}),
 				},
 				isAgentFinalReply: true,
 				text: stream.text,
@@ -427,6 +436,11 @@ function buildSpaceTimelineItem(input: {
 		agentControllerConversationId:
 			agentReplyDetails.agentControllerConversationId,
 		agentActivity: readAgentActivity(input.signal),
+		agentPublicProgress:
+			input.signal.type === "signal.text" &&
+			isAgentFinalReplySignal(input.signal)
+				? input.signal.data.meta?.agentPublicProgress
+				: undefined,
 		agentWorkspace: agentReplyDetails.agentWorkspace,
 		clientMessageId: readClientMessageId(input.signal),
 		centerAgentInteractionSource:

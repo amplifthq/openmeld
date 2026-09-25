@@ -409,13 +409,15 @@ OpenClaw is excluded.
 The existing working title, elapsed time, and Stop control remain available.
 A bounded Thinking + Reasoning viewport below them opens for live output and
 lets the reader pause following by scrolling up. It collapses when the stream
-transitions to text or tool work, and opens when reasoning resumes. Center Agent
-and Remote Agent streams use the same component and interaction. Disabled streaming is explicitly
+transitions to text or tool work, and opens when reasoning resumes. Hosted Center
+and Remote Agents show explicit public updates inside the live Work summary's
+expandable, bounded viewport, alongside tool steps when present. Provider
+thinking stays private. Disabled local streaming is explicitly
 attributed to the Agent owner; an unsupported connection is distinguished from
 waiting for a provider that has not emitted reasoning. Absence of reasoning is
 never evidence that a running Agent is stuck.
 
-Reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
+Local Agent reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
 search input, notification, export, transcript, execution journal, or diagnostic
 body. OpenMeld retains no reasoning text in storage or browser persistence.
 The live tail is cleared on disconnect, navigation, privacy disable, and terminal
@@ -451,6 +453,21 @@ only while active; reduced-motion and unavailable graphics have a static
 placeholder. Errors expose a retry action rather than perpetual loading.
 Current access checks still apply, and access revocation removes cached private
 pixels even from an already open preview.
+
+### Video previews
+
+Human and Agent video files share one renderer in conversations and Files.
+Users can play in place or expand through Morphing Dialog, continuing from the
+current position. Closing or leaving the active surface stops sound. New messages
+never start playback automatically. Message references retain exact revisions.
+
+Idle videos show a first frame through native lazy media loading near the
+viewport, without downloading every video in a conversation. Local selections
+can be previewed before sending and retain
+their original through publication. Codec support depends on the client;
+unsupported media retains retry and download. This adds no transcoding,
+external-provider embedding, or video attachment namespace. Existing file-size
+limits and access policy still apply.
 
 ### Selected work handoffs
 
@@ -1311,7 +1328,9 @@ again removes only that person's reaction. Multiple people share an emoji count;
 each person can use more than one emoji, once per emoji per message.
 
 Reactions remain beneath their source message, before its thread preview, while
-message actions float beside the bubble's upper edge. On self-authored messages the
+main-conversation message actions float beside the bubble's upper visible edge,
+following the lower visible edge when a long message scrolls past the top of
+the viewport. On self-authored messages the
 reactions start at the bubble’s left edge and stay within its width. Overflow
 reactions appear in a +N pill that
 opens on hover or click. Emoji groups retain their first-added order while any
@@ -1567,13 +1586,12 @@ from a privacy-bounded tool lifecycle part only when the part carries an
 admitted semantic work meaning. The row is a transient projection and must not
 expose or derive copy from a technical tool name, orchestration wrapper, tool
 input, output, raw error content, command, path, or private Agent text. A
-meaningless wrapper such as Code Mode is hidden; admitted inner work may still
-appear after the inner tool succeeds. An inner error stays in the execution
-outcome and must not become a Work summary row. Unknown work has no generic
-fallback.
+meaningless wrapper such as Code Mode is hidden; admitted inner work appears
+when it starts and updates the same row when it completes or fails. Failure
+does not reveal the raw error. Unknown work has no generic fallback.
 
 The Work summary replaces the existing progress row while visible instead of
-adding a second status row, defaults closed while work is active, groups
+adding a second status row, opens while work is active, groups
 consecutive identical work, and stays inside a bounded scroll viewport. A user
 who scrolls up controls their reading position until they explicitly jump to
 the latest step. A single failed admitted step is named explicitly in the final
@@ -1582,7 +1600,9 @@ instead of vague `had a problem` copy. When an Agent successfully publishes a fi
 durable Signal may retain an ordered work projection containing only admitted
 semantic work, lifecycle states, technical compatibility names, and truncation
 evidence. The final answer renders first; its Work summary follows and defaults
-closed. Separately, Message details may retain the same bounded semantic work
+closed. The final Signal may also retain bounded explicit hosted public updates
+for readers to reopen in that summary. Provider reasoning remains private.
+Separately, Message details may retain the same bounded semantic work
 and lifecycle states with timestamps for 14 days in the unified **Activity**
 timeline.
 Neither projection is a transcript, raw tool journal, or the separate Agent
@@ -1668,19 +1688,20 @@ show a quiet `written before N newer messages` marker. The count is timeline
 context, not a failure, execution state, or claim that the reply is wrong.
 Agents and clients must not author or infer this metadata themselves.
 
-Agent actions in a Space must preserve the difference between an answer and a
-work-state update.
+Agent-authored final communication has two choices: `reply` (`post_message`)
+and `stay_silent`. Answers, known limitations, errors, and requests for help
+belong in a reply. Intentional silence is not evidence of successful work.
 
-Use `post_message` for answers, discussion, final replies, and anything the user
-should read as message content.
+Durable collaboration commitments, progress, results, and review belong in
+Tasks. The Board reads their summary; it is not a separate status writer. Do
+not create a Task merely to acknowledge a message.
 
-Use `post_status` only for short explicit work-state updates.
-
-A status is not an answer. Do not put final replies, discussion, or long content
-in `post_status`.
-
-Never use `ready` as a status. Readiness is a product readiness claim, not a
-Space work-state update.
+The Agent-authored final `status` tool is retired. Historical `post_status`
+records, system execution state, failure notices, and frozen in-flight
+publication permissions remain supported. New authoring accepts reply,
+silence, or both. Old mixed action lists may be narrowed; status-only permission
+must never silently become reply permission. An authorized owner must choose a
+current final outcome before such a legacy policy can be replaced.
 
 The Space-facing outcome should use clear product language. Internal execution
 terms belong in diagnostics, not in the primary Space timeline.
@@ -1693,17 +1714,23 @@ Space.
 `collaboration` is the default product mode. OpenMeld treats the Space as an
 external collaboration layer, not as a transcript mirror. An Agent can work
 normally in its private local context, then publish only the public outcome the
-Space needs: a reply, status, handoff Wake, Reference, or an intentional
-silent outcome. This mode preserves the product's core value: concise
+Space needs: a reply (optionally addressing a handoff Wake or Reference), or
+an intentional silent outcome. This mode preserves the product's core value: concise
 coordination without copying private Agent context into the shared room.
 
-If a Local Agent completes its work but forgets to record that public outcome,
-OpenMeld quietly reminds the same private Agent conversation once. The reminder
-asks only for the missing Space Action; it does not rerun the work, replace the
-Agent's answer, copy the private answer into the Space, or ask the member to
-approve a shell command. The Wake still produces exactly one recorded reply,
-status, silent outcome, or explicit failure through the normal publication
-path.
+A positive input rejection states which arguments need correction and that
+this call recorded nothing. An existing exact action returns its original
+receipt. An uncertain outcome must be reconciled before another submission.
+Neither a local receipt nor private assistant output proves Space publication.
+
+Missing-action correction is one bounded delivery-only invocation, not a
+rerun of the user's task. It receives the exact tool interface and relevant
+error/context without requiring a Skill lookup or shell. Preserve the user's
+selected mode; do not force PLAN to express this restriction. Native tool
+restrictions must prevent business execution, and explicit denials, Stop, and
+expired authority still apply. The correction must not infer a public reply
+from private output. Failure copy states that delivery could not be confirmed,
+without guessing whether the Agent had an answer or called the correct tool.
 
 `raw_context_sharing` is an explicit transparent-context-sharing mode. It
 allows a successful raw Agent reply to become a Space message when no explicit

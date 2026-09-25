@@ -13,6 +13,7 @@ import type {
   RemoteAgentWorkLoopCheckpoint,
 } from "@openmeld/schemas/types";
 import {
+  buildRemoteAgentCallbackContextKey,
   type RemoteAgentStorage,
   readRemoteAgentCallbackContext,
 } from "./callback-context";
@@ -22,6 +23,7 @@ import {
   parseRemoteAgentTerminalFailureFact,
   type RemoteAgentTerminalFailureFact,
 } from "./terminal-failure";
+import type { RemoteAgentTurnUsage } from "./usage";
 
 const EXECUTION_STATE_PREFIX = "openmeld:remote-agent:execution-state:";
 
@@ -46,7 +48,14 @@ type RemoteAgentStoredExecutionRead =
       status: "identity_mismatch";
     };
 
-export type RemoteAgentTerminalExecutionOutcome =
+export type RemoteAgentCompletionMetadata = {
+  modelId: string | null;
+  usage: RemoteAgentTurnUsage | null;
+};
+
+export type RemoteAgentTerminalExecutionOutcome = {
+  completionMetadata?: RemoteAgentCompletionMetadata;
+} & (
   | {
       status: "checkpoint";
       execution: RemoteAgentWorkerExecutionState;
@@ -63,9 +72,11 @@ export type RemoteAgentTerminalExecutionOutcome =
       execution: RemoteAgentWorkerExecutionState;
       failure: RemoteAgentTerminalFailureFact;
       status: "aborted" | "failed";
-    };
+    }
+);
 
 type CompleteRemoteAgentExecutionStateInput = {
+  completionMetadata?: RemoteAgentCompletionMetadata;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   storage: RemoteAgentStorage;
@@ -407,6 +418,7 @@ export async function completeRemoteAgentExecutionState(
         expected: result.stored,
         identity: input.identity,
         next: {
+          completionMetadata: input.completionMetadata,
           workLoopCheckpoint: settledCheckpoint(input, settledStatus),
           completedText:
             settledStatus === "completed" ? requestedCompletedText : null,
@@ -544,8 +556,10 @@ export async function resolveRemoteAgentTerminalExecutionOutcome(input: {
       );
     }
     execution = stored.execution;
+    const completionMetadata = await readTerminalCompletionMetadata(input);
     if (execution.status === "failed" || execution.status === "aborted") {
       return {
+        ...completionMetadata,
         completedText: null,
         execution,
         failure:
@@ -564,6 +578,7 @@ export async function resolveRemoteAgentTerminalExecutionOutcome(input: {
     }
     if (stored.stored.workLoopCheckpoint) {
       return {
+        ...completionMetadata,
         status: "checkpoint",
         execution,
         completedText: null,
@@ -575,7 +590,12 @@ export async function resolveRemoteAgentTerminalExecutionOutcome(input: {
     }
     const completedText = stored.completedText;
     if (completedText) {
-      return { completedText, execution, status: "completed" };
+      return {
+        ...completionMetadata,
+        completedText,
+        execution,
+        status: "completed",
+      };
     }
     execution = await repairRemoteAgentCompletedExecutionWithoutAnswer({
       identity: input.identity,
@@ -702,7 +722,10 @@ export async function assertRemoteAgentExecutionCanContinue(input: {
 }
 
 function executionIdentityMatches(
-  state: RemoteAgentWorkerExecutionState,
+  state: Pick<
+    RemoteAgentWorkerExecutionState,
+    "v" | "organizationId" | "spaceId" | "submissionId" | "idempotencyKey"
+  >,
   identity: RemoteAgentWorkerExecutionQuery
 ): boolean {
   return (
@@ -714,10 +737,38 @@ function executionIdentityMatches(
   );
 }
 
-function compareAndSetRemoteAgentExecutionState(input: {
+async function readTerminalCompletionMetadata(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  storage: RemoteAgentStorage;
+}): Promise<{ completionMetadata?: RemoteAgentCompletionMetadata }> {
+  const context = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.identity.submissionId
+  );
+  if (
+    !context ||
+    (context.modelId === undefined && context.lastUsage === undefined)
+  ) {
+    return {};
+  }
+  if (!executionIdentityMatches(context, input.identity)) {
+    throw new Error(
+      "Remote Agent completion metadata has different execution authority."
+    );
+  }
+  return {
+    completionMetadata: {
+      modelId: context.modelId ?? null,
+      usage: context.lastUsage ?? null,
+    },
+  };
+}
+
+async function compareAndSetRemoteAgentExecutionState(input: {
   expected: RemoteAgentStoredExecutionState;
   identity: RemoteAgentWorkerExecutionQuery;
   next: {
+    completionMetadata?: RemoteAgentCompletionMetadata;
     workLoopCheckpoint?: RemoteAgentWorkLoopCheckpoint;
     completedText: string | null;
     execution: RemoteAgentWorkerExecutionState;
@@ -725,24 +776,53 @@ function compareAndSetRemoteAgentExecutionState(input: {
   };
   storage: RemoteAgentStorage;
 }): Promise<boolean> {
-  return input.storage.compareAndSet(
-    buildRemoteAgentExecutionStateKey(input.identity.submissionId),
-    input.expected,
+  const nextValue = {
+    ...input.next.execution,
+    ...(!isTerminalStatus(input.next.execution.status) &&
+    input.expected.requestedFailure
+      ? { requestedFailure: input.expected.requestedFailure }
+      : {}),
+    ...(input.next.workLoopCheckpoint
+      ? { workLoopCheckpoint: input.next.workLoopCheckpoint }
+      : {}),
+    ...(input.next.completedText
+      ? { completedText: input.next.completedText }
+      : {}),
+    ...(input.next.terminalFailure
+      ? { terminalFailure: input.next.terminalFailure }
+      : {}),
+  };
+  const key = buildRemoteAgentExecutionStateKey(input.identity.submissionId);
+  if (input.next.completionMetadata === undefined) {
+    return await input.storage.compareAndSet(key, input.expected, nextValue);
+  }
+  const context = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.identity.submissionId
+  );
+  if (
+    !context ||
+    context.submissionId !== input.identity.submissionId ||
+    context.organizationId !== input.identity.organizationId ||
+    context.spaceId !== input.identity.spaceId ||
+    context.idempotencyKey !== input.identity.idempotencyKey
+  ) {
+    throw new Error(
+      "Remote Agent terminal metadata requires its exact callback context."
+    );
+  }
+  const { lastUsage: _previousUsage, ...previousContext } = context;
+  const metadata = input.next.completionMetadata;
+  return await input.storage.compareAndSetPair(
+    { key, expectedValue: input.expected, nextValue },
     {
-      ...input.next.execution,
-      ...(!isTerminalStatus(input.next.execution.status) &&
-      input.expected.requestedFailure
-        ? { requestedFailure: input.expected.requestedFailure }
-        : {}),
-      ...(input.next.workLoopCheckpoint
-        ? { workLoopCheckpoint: input.next.workLoopCheckpoint }
-        : {}),
-      ...(input.next.completedText
-        ? { completedText: input.next.completedText }
-        : {}),
-      ...(input.next.terminalFailure
-        ? { terminalFailure: input.next.terminalFailure }
-        : {}),
+      key: buildRemoteAgentCallbackContextKey(input.identity.submissionId),
+      expectedValue: context,
+      nextValue: {
+        ...previousContext,
+        modelId: metadata.modelId,
+        ...(metadata.usage === null ? {} : { lastUsage: metadata.usage }),
+      },
     }
   );
 }

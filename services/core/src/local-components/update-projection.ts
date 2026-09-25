@@ -40,13 +40,14 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-// 0.3.218 carries Antigravity permission intent into native CLI invocation.
-// Earlier Services cannot accept the new permission values for Wake work.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.218";
+// 0.3.224 accepts the expanded 1 GiB Space File reference contract. Earlier
+// Services can reject files admitted by the new cloud release during Wake work.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.224";
 // Keep the last published floor active while its replacement is not yet on the
-// stable channel. Once 0.3.218 is published, the newer floor remains active
-// even if a later release returns to an advisory policy.
-const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.217";
+// stable channel. These historical floors also preserve recovery when a Core
+// projection uses an earlier published manifest.
+const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.218";
+const LEGACY_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.217";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
@@ -227,16 +228,17 @@ function resolveMinimumRecoveryTargetVersion(input: {
   installedVersion: string | null;
   publishedVersion: string;
 }): string | null {
-  const candidateFloorPublicationComparison = compareSemver(
-    input.publishedVersion,
-    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
-  );
-  const candidateFloorIsPublished =
-    candidateFloorPublicationComparison !== null &&
-    candidateFloorPublicationComparison >= 0;
-  const activeMinimumVersion = candidateFloorIsPublished
-    ? MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
-    : PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION;
+  const activeMinimumVersion = [
+    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    LEGACY_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+  ].find((floor) => {
+    const comparison = compareSemver(input.publishedVersion, floor);
+    return comparison !== null && comparison >= 0;
+  });
+  if (!activeMinimumVersion) {
+    return null;
+  }
   const installedVersionComparison = input.installedVersion
     ? compareSemver(input.installedVersion, activeMinimumVersion)
     : null;

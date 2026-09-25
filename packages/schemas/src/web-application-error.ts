@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { gatewayErrorCodeSchema } from "./schemas/http/gateway-error";
+import { wakeProgressPhaseSchema } from "./schemas/http/space-wake-progress";
 
 export const WEB_APPLICATION_ERROR_PATH =
   "/v1/observability/application-errors";
@@ -17,6 +18,7 @@ export const webApplicationErrorSourceSchema = z.enum([
   "query",
   "server_request",
   "server_function",
+  "wake_progress_presentation",
 ]);
 
 export const webApplicationErrorQueryCategorySchema = z.enum([
@@ -68,6 +70,7 @@ export const webApplicationErrorSummarySchema = z.object({
     "hydration_failed",
     "http_5xx",
     "unexpected",
+    "unconfirmed_wake_progress_displayed",
   ]),
   // Only build asset locations, never raw messages, URLs, or stack text.
   frames: z
@@ -81,6 +84,12 @@ export const webApplicationErrorSummarySchema = z.object({
     )
     .max(12),
 });
+
+const wakeDiagnosticPointerSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_.:-]+$/);
 
 export const webApplicationErrorReportSchema = z.object({
   version: z.literal(1),
@@ -100,6 +109,28 @@ export const webApplicationErrorReportSchema = z.object({
     .regex(/^[A-Za-z0-9_/$().{}-]+$/)
     .nullable(),
   query: webApplicationErrorQueryDiagnosticSchema.optional(),
+  wakeProgress: z
+    .strictObject({
+      spaceId: wakeDiagnosticPointerSchema,
+      clientMessageId: wakeDiagnosticPointerSchema.nullable(),
+      dispatchId: wakeDiagnosticPointerSchema.nullable(),
+      sourceSignalId: wakeDiagnosticPointerSchema.nullable(),
+      streamId: wakeDiagnosticPointerSchema.nullable(),
+      sourceThreadId: wakeDiagnosticPointerSchema.nullable(),
+      replyThreadRootSignalId: wakeDiagnosticPointerSchema.nullable(),
+      targetProfileId: wakeDiagnosticPointerSchema,
+      phase: wakeProgressPhaseSchema,
+      updatedAtMs: z.number().int().nonnegative(),
+      fromRestoredPresentation: z.boolean(),
+      fromCachedSpaceSummary: z.boolean(),
+      fromCachedOwnSummary: z.boolean(),
+      fromBootstrapStream: z.boolean(),
+      fromHistoricalSignal: z.boolean().optional(),
+      spaceSummaryFetchedAfterMount: z.boolean(),
+      ownSummaryFetchedAfterMount: z.boolean(),
+      bootstrapFetchedAfterMount: z.boolean(),
+    })
+    .optional(),
   error: webApplicationErrorSummarySchema,
 });
 

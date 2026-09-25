@@ -16,7 +16,7 @@ export const DEFAULT_SPACE_CONTRACT_FIELDS: PutSpaceContractBody = {
     mode: "mention_only",
   },
   publicationMode: "collaboration",
-  allowedActions: [...SPACE_CONTRACT_ALLOWED_ACTION_ORDER],
+  allowedActions: ["post_message", "stay_silent"],
   resultArchivePolicy: {
     mode: "space_reply_only",
   },

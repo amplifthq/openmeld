@@ -31,6 +31,7 @@ import type {
   LocalComponentsStatus,
   OpenMeldDaemonSetProfileWorkspacePayload,
   OpenMeldDaemonSyncRouteCatalogPayload,
+  RuntimeTransportAdmissionEvidence,
   RuntimeTransportLease,
   RuntimeTransportRegisterSessionResponse,
   RuntimeTransportStopCause,
@@ -484,6 +485,8 @@ export async function runDaemonSocketSession(input: {
   // admission bit doubles as that startup fence without adding a second source
   // of session readiness.
   let acceptingDispatches = false;
+  let shutdownAdmissionEvidence: RuntimeTransportAdmissionEvidence | null =
+    null;
   let shutdownStopCause: RuntimeTransportStopCause | null = null;
   let controlledShutdownCompleted = false;
   let routeCatalogSyncInFlight = false;
@@ -549,6 +552,12 @@ export async function runDaemonSocketSession(input: {
     socket: input.socket,
     onAdmissionChanged: () => {
       acceptingDispatches = !shutdownStopCause && hostLink.canAccept();
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.admission_changed",
+        text: `Local dispatch admission is ${acceptingDispatches ? "open" : "closed"}.`,
+        payload: shutdownAdmissionEvidence ?? hostLink.admissionEvidence(),
+      });
       if (heartbeatInFlight || lastHeartbeatSentAtMs !== null) {
         scheduleHeartbeat({
           delayMs: 0,
@@ -838,6 +847,13 @@ export async function runDaemonSocketSession(input: {
             acceptingDispatches,
             stopCause: shutdownStopCause,
           }),
+          ...(admissionEvidenceSupported &&
+          (shutdownAdmissionEvidence ?? hostLink.admissionEvidence())
+            ? {
+                admissionEvidence:
+                  shutdownAdmissionEvidence ?? hostLink.admissionEvidence(),
+              }
+            : {}),
           serviceVersion,
           leases,
           runtimeContract: {
@@ -1111,6 +1127,7 @@ export async function runDaemonSocketSession(input: {
   const serviceVersion = OPENMELD_VERSION;
   let computerCareSupported = false;
   let executionAdmissionSupported = false;
+  let admissionEvidenceSupported = false;
 
   const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
     input.localComponentsObservation.read(() => {
@@ -1172,6 +1189,7 @@ export async function runDaemonSocketSession(input: {
     computerCareSupported = response.computerCare === true;
     executionAdmissionSupported =
       response.executionAdmissionConfirmation === true;
+    admissionEvidenceSupported = response.admissionEvidence === true;
     return response;
   };
 
@@ -2034,6 +2052,15 @@ export async function runDaemonSocketSession(input: {
   ): Promise<boolean> {
     acceptingDispatches = false;
     shutdownStopCause = stopCause;
+    const priorAdmissionEvidence = hostLink.admissionEvidence();
+    shutdownAdmissionEvidence = {
+      acceptingDispatches: false,
+      connectionGeneration: activeConnectionGeneration,
+      revision: (priorAdmissionEvidence?.revision ?? 0) + 1,
+      changedAtMs: Date.now(),
+      reasonCode: "controlled_stop",
+      detailCode: stopCause,
+    };
     await input.executionHost.call("beginDrain", {});
     clearHeartbeatTimer();
     emitRunLine({

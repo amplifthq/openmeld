@@ -15,6 +15,17 @@ const NODE_SOURCE_PATH = /^scripts\/.*\.mjs$/u;
 const VITEST_SCRIPT = /^vitest run(?: --(?:config|environment) [\w./-]+)*$/u;
 const WHITESPACE = /\s+/u;
 const NODE_EXTENSION = /\.mjs$/u;
+const VITEST_TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const VITEST_TEST_SUFFIXES = [
+  ".test.ts",
+  ".test.tsx",
+  ".test.js",
+  ".test.jsx",
+  ".spec.ts",
+  ".spec.tsx",
+  ".spec.js",
+  ".spec.jsx",
+];
 const SCRIPT_ALIAS = /^pnpm run ([\w:-]+)$/u;
 
 // Resolve plain unit-test aliases, never reinterpret shell pipelines or Worker
@@ -130,16 +141,18 @@ function planFocusedChecks(paths, options) {
       )
   );
   for (const workspace of selectedWorkspaces) {
-    if (workspace.name) {
-      // Plain package runners can import their own dist; Vitest runs source.
-      const filter = VITEST_SCRIPT.test(workspace.test)
-        ? `${workspace.name}^...`
-        : `${workspace.name}...`;
-      buildFilters.push(`--filter=${filter}`);
+    const focusedCommands = focusedWorkspaceCommands(
+      paths,
+      workspace,
+      existingFiles
+    );
+    if (focusedCommands.length === 0) {
+      continue;
     }
-  }
-  for (const workspace of selectedWorkspaces) {
-    workspaceCommands.push(focusedWorkspaceCommand(paths, workspace));
+    if (workspace.name) {
+      buildFilters.push(`--filter=${workspace.name}^...`);
+    }
+    workspaceCommands.push(...focusedCommands);
   }
   if (buildFilters.length > 0) {
     commands.push([
@@ -157,29 +170,73 @@ function planFocusedChecks(paths, options) {
   return [...commands, ...workspaceCommands];
 }
 
-function focusedWorkspaceCommand(paths, workspace) {
+function focusedWorkspaceCommands(paths, workspace, existingFiles) {
   const sources = paths
     .filter(
       (file) =>
-        file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
+        file.startsWith(`${workspace.directory}/`) &&
+        SOURCE_PATH.test(file) &&
+        existingFiles.has(file)
     )
     .map((file) => file.slice(workspace.directory.length + 1));
   if (!VITEST_SCRIPT.test(workspace.test)) {
-    return ["--dir", workspace.directory, "run", "test"];
+    return [];
   }
-  return [
-    "--dir",
-    workspace.directory,
-    "exec",
-    "vitest",
-    "related",
-    "--run",
-    ...workspace.test.split(WHITESPACE).slice(2),
-    "--passWithNoTests",
-    "--maxWorkers=2",
-    "--no-file-parallelism",
-    ...sources,
-  ];
+  const tests = new Set();
+  for (const source of sources) {
+    if (VITEST_TEST_FILE.test(source)) {
+      tests.add(source);
+      continue;
+    }
+    const stem = source.replace(SOURCE_PATH, "");
+    for (const suffix of VITEST_TEST_SUFFIXES) {
+      const adjacent = `${stem}${suffix}`;
+      if (existingFiles.has(`${workspace.directory}/${adjacent}`)) {
+        tests.add(adjacent);
+      }
+    }
+  }
+  if (tests.size === 0) {
+    return [];
+  }
+  const testGroups =
+    workspace.directory === "services/core"
+      ? [
+          [
+            "vitest.boundary.config.ts",
+            [...tests].filter((file) => file.startsWith("tests-node/")),
+          ],
+          [
+            "vitest.split-gate.config.ts",
+            [...tests].filter((file) => file.startsWith("tests-split-gate/")),
+          ],
+          [
+            "vitest.config.ts",
+            [...tests].filter(
+              (file) =>
+                !(
+                  file.startsWith("tests-node/") ||
+                  file.startsWith("tests-split-gate/")
+                )
+            ),
+          ],
+        ]
+      : [[null, [...tests]]];
+  return testGroups
+    .filter(([, files]) => files.length > 0)
+    .map(([config, files]) => [
+      "--dir",
+      workspace.directory,
+      "exec",
+      "vitest",
+      "run",
+      ...(config
+        ? ["--config", config]
+        : workspace.test.split(WHITESPACE).slice(2)),
+      "--maxWorkers=2",
+      "--no-file-parallelism",
+      ...files,
+    ]);
 }
 
 export function runPrChecks(commands, run = spawnSync) {

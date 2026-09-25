@@ -8,14 +8,14 @@ import {
   spaceNoteSchema,
   spacePublicationModeSchema,
 } from "@openmeld/schemas";
-import type { PutSpaceContractBody } from "@openmeld/schemas/types";
+import type { SpaceContractFields } from "@openmeld/schemas/types";
 import {
   canonicalizeAllowedActions,
   DEFAULT_SPACE_CONTRACT_FIELDS,
 } from "@openmeld/space-mesh";
 
 export type NormalizedPersistedSpaceContractFields = {
-  fields: PutSpaceContractBody;
+  fields: SpaceContractFields;
   needsRewrite: boolean;
 };
 
@@ -95,7 +95,7 @@ export function normalizePersistedSpaceContractFields(
 
 function resolveLegacyPublicationMode(
   defaultReplyBehavior: LegacyDefaultReplyBehavior | undefined
-): PutSpaceContractBody["publicationMode"] {
+): SpaceContractFields["publicationMode"] {
   if (defaultReplyBehavior === "mirror_raw") {
     return "raw_context_sharing";
   }
@@ -105,9 +105,11 @@ function resolveLegacyPublicationMode(
 function resolveLegacyAllowedActions(input: {
   defaultReplyBehavior: LegacyDefaultReplyBehavior | undefined;
   agentCanPostMessages: boolean | undefined;
-}): PutSpaceContractBody["allowedActions"] {
+}): SpaceContractFields["allowedActions"] {
   if (input.agentCanPostMessages === true) {
-    return DEFAULT_SPACE_CONTRACT_FIELDS.allowedActions;
+    // Historical reply-policy records could still publish a status. New
+    // authoring defaults must not erase that existing permission on read.
+    return ["post_message", "post_status", "stay_silent"];
   }
   if (input.defaultReplyBehavior === "system_status") {
     return ["post_status", "stay_silent"];
@@ -127,9 +129,7 @@ function areSameActionOrder(
 
 function parseLegacySpaceContractFields(
   value: unknown
-):
-  | (Partial<PutSpaceContractBody> & { replyPolicy?: LegacyReplyPolicy })
-  | null {
+): (Partial<SpaceContractFields> & { replyPolicy?: LegacyReplyPolicy }) | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -155,7 +155,7 @@ function hasOnlyLegacyAllowedKeys(value: Record<string, unknown>): boolean {
 
 function parseLegacyCoreFields(
   value: Record<string, unknown>
-): Partial<PutSpaceContractBody> {
+): Partial<SpaceContractFields> {
   return {
     ...withParsedOptionalField(
       "dispatchPolicy",
@@ -198,7 +198,7 @@ function parseLegacyCoreFields(
 
 function hasInvalidLegacyFieldValues(
   value: Record<string, unknown>,
-  parsedFields: Partial<PutSpaceContractBody>,
+  parsedFields: Partial<SpaceContractFields>,
   replyPolicy: LegacyReplyPolicy | undefined
 ): boolean {
   return (
@@ -216,13 +216,13 @@ function hasInvalidLegacyFieldValues(
 
 function hasMissingParsedField(
   rawValue: Record<string, unknown>,
-  parsedFields: Partial<PutSpaceContractBody>,
-  field: keyof PutSpaceContractBody
+  parsedFields: Partial<SpaceContractFields>,
+  field: keyof SpaceContractFields
 ): boolean {
   return rawValue[field] !== undefined && parsedFields[field] === undefined;
 }
 
-function withParsedOptionalField<T, K extends keyof PutSpaceContractBody>(
+function withParsedOptionalField<T, K extends keyof SpaceContractFields>(
   key: K,
   value: unknown,
   schema: {

@@ -4358,10 +4358,15 @@ function AgentProfileModelConfigurationCard(input: {
 		model,
 		props.modelCompatibilityContext
 	);
+	let retirementTone: "danger" | "warning" | undefined;
+	if (retirement) {
+		retirementTone = retirement.status === "withdrawn" ? "danger" : "warning";
+	}
 	return (
 		<AgentConfigurationCard
 			actionLabel={retirement ? "Change model" : undefined}
 			attention={Boolean(retirement)}
+			attentionTone={retirementTone}
 			description={
 				retirement ? formatModelRetirementNotice(retirement) : undefined
 			}

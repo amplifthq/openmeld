@@ -552,6 +552,11 @@ function renderDispatchPrompt(input: {
   if (input.workingLanguagePrompt) {
     sections.push(input.workingLanguagePrompt);
   }
+  if (promptInput.executionContextAccess === "space_context") {
+    sections.push(
+      "Task access: Space context only. This task has no authorized project repository or project code checkout; its local working folder is scratch space, not the Agent Profile's configured working folder. Do not claim to have reviewed code or a PR diff you cannot read. If the request needs repository access, report that limitation through the required Space Action and ask for an authorized code-access Wake or the relevant diff."
+    );
+  }
   if (promptInput.shouldInjectBootstrap && isEntryBriefEnabled(promptInput)) {
     sections.push(renderEntryBriefSection(promptInput));
   }
@@ -753,6 +758,17 @@ function renderMandatoryCompletionSection(
     return null;
   }
 
+  if (
+    !publicationRequirement.allowedActions.some(
+      (action) => action === "post_message" || action === "stay_silent"
+    )
+  ) {
+    return [
+      "Mandatory completion:",
+      ...publicationRequirement.actionGuidanceLines,
+    ].join("\n");
+  }
+
   return [
     "Mandatory completion:",
     "- Plain text is not a Space reply.",
@@ -777,11 +793,6 @@ function buildMandatoryCompletionActionLine(
   if (publicationRequirement.allowedActions.includes("post_message")) {
     return `- Normal completion: call dispatch-scoped Space Action \`reply\` with the exact public message. Only if unavailable: \`${buildSpaceActionCommand(
       'reply "your public message"'
-    )}\` and wait for it to finish.`;
-  }
-  if (publicationRequirement.allowedActions.includes("post_status")) {
-    return `- Normal completion: call dispatch-scoped Space Action \`status\` with a final-safe status and short update. Only if unavailable: \`${buildSpaceActionCommand(
-      'status done "short completion update"'
     )}\` and wait for it to finish.`;
   }
   if (publicationRequirement.allowedActions.includes("stay_silent")) {

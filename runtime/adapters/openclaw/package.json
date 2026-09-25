@@ -21,6 +21,7 @@
     "@openmeld/adapter-core": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.3.0"
+    "@types/node": "^24.3.0",
+    "zod": "catalog:"
   }
 }

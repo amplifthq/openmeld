@@ -859,8 +859,8 @@ Canonical command families:
 - repository gates: `verify:pre-push:checks`, `verify:release-ready`,
   `verify:pr`, and `verify:pr:full`.
 
-Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.43.0;
-`@flue/vite@2.0.3` requires Vite 8. Web and Desktop retain their independently
+Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.54.6;
+`@flue/vite@2.1.0` requires Vite 8. Web and Desktop retain their independently
 validated Vite 7 builds. Root Sherif configuration allows only those exact
 Remote Agent build dependency versions to differ; it does not disable the
 dependency rule or exempt a package. Reassess these version-specific entries
@@ -883,7 +883,10 @@ engineers and every coding agent. Read it before pushing a candidate or merging.
 - The owner validates changed behavior and downstream risks before marking ready.
 
 Use `pnpm run verify:pr -- --feedback --plan` to inspect focused selection;
-remove `--plan` to execute it. `verify:pr` remains the explicit affected-workspace
+remove `--plan` when the selected checks fit the change, or run the necessary
+owner checks directly. The feedback mode runs changed or adjacent Vitest tests,
+not every test importing a changed component, and leaves non-Vitest package
+test selection to the Agent. `verify:pr` remains the explicit affected-workspace
 code/type-check and unit-test command, including downstream consumers.
 `test:integration:affected` validates affected integration boundaries;
 `verify:pr:full` requests whole-repository confidence. Do not use broad commands
