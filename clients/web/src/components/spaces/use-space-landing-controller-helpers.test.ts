@@ -300,7 +300,39 @@ describe("unconfirmed Wake presentation diagnostics", () => {
 			fromRestoredPresentation: true,
 			fromCachedSpaceSummary: true,
 			fromCachedOwnSummary: true,
+			fromHistoricalSignal: false,
 		});
+	});
+
+	it("identifies a displayed progress item reconstructed from a previous page's signal", () => {
+		const historicalSignal: SignalEnvelope = {
+			v: 1,
+			id: "activity-old",
+			ts: 100,
+			spaceId: "space-123",
+			type: "signal.text",
+			profile: { kind: "agent", profileId: AGENT_PROFILE_ID },
+			data: {
+				text: "Working",
+				meta: {
+					transient: true,
+					purpose: AGENT_REPLYING_PURPOSE,
+					dispatchId: "dispatch-old",
+					targetProfileId: AGENT_PROFILE_ID,
+				},
+			},
+		};
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				confirmedItems: [],
+				presentedItems: [item],
+				restoredItems: [],
+				historicalSignals: [historicalSignal],
+				presentationCreatedAtMs: 200,
+				spaceSummaryFetchedAfterMount: true,
+				ownSummaryFetchedAfterMount: true,
+			})
+		).toMatchObject({ item, fromHistoricalSignal: true });
 	});
 
 	it("does not report current Core confirmation or a new local Wake", () => {

@@ -11,7 +11,10 @@ import {
   REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
   REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES,
 } from "../agent-core/tools";
-import { expandRemoteAgentCapabilityDependencies } from "../flue-adapter/capability-catalog";
+import {
+  expandRemoteAgentCapabilityDependencies,
+  rankRemoteAgentCapabilities,
+} from "../flue-adapter/capability-catalog";
 import {
   REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME,
   REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
@@ -122,6 +125,11 @@ describe("remote agent Flue capability inventory", () => {
     expect(tools.map((tool) => tool.name)).toContain("web_fetch");
     expect(tools.map((tool) => tool.name)).toContain("browser_read_page");
     expect(tools.map((tool) => tool.name)).toContain("browser_screenshot");
+    expect(
+      rankRemoteAgentCapabilities(tools, "web search fetch page")
+        .slice(0, 5)
+        .map(({ capability }) => capability.name)
+    ).toContain("browser_read_page");
     const recoveryTools = await getCapabilityCatalogForTest({
       coreWorker: {},
       storage: await createCapabilityInventoryStorage(turnEnvelope),

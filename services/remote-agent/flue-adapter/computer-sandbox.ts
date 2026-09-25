@@ -8,7 +8,10 @@ import {
 } from "@flue/runtime";
 import {
   maxLength,
+  maxValue,
   minLength,
+  minValue,
+  number,
   parse,
   pipe,
   strictObject,
@@ -172,6 +175,21 @@ export async function createRemoteAgentComputerCapability(input: {
       execute: async (rawInput) => {
         const { code } = parse(browserInput, rawInput);
         return await browser.executeBrowser({ spaceId, code });
+      },
+    });
+    const previewInput = strictObject({
+      port: pipe(number(), minValue(1024), maxValue(65_535)),
+      path: pipe(string(), minLength(1), maxLength(2048)),
+      expectedText: pipe(string(), minLength(1), maxLength(500)),
+    });
+    browserDefinitions.push({
+      name: "computer_preview",
+      description:
+        "Open a development server already running in this Computer's Linux container with a private one-shot browser. Provide its port, page path, and text expected after JavaScript renders. Returns the rendered text, assertion result, page status, console errors, and failed network requests. Start the server with computer_command first; no public preview URL is created.",
+      input: previewInput,
+      execute: async (rawInput) => {
+        const preview = parse(previewInput, rawInput);
+        return await browser.inspectPreview(preview);
       },
     });
   }

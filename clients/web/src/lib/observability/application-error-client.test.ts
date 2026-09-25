@@ -88,6 +88,7 @@ describe("browser application error reporting", () => {
 			fromCachedSpaceSummary: true,
 			fromCachedOwnSummary: false,
 			fromBootstrapStream: false,
+			fromHistoricalSignal: true,
 			spaceSummaryFetchedAfterMount: false,
 			ownSummaryFetchedAfterMount: false,
 			bootstrapFetchedAfterMount: false,

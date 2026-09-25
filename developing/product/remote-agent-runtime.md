@@ -95,6 +95,16 @@ reaches shell children and pipelines belonging to that command. Each command
 gets its own process group on the shared Computer. No parallel PID registry is
 introduced. Terminal cleanup still attempts every owned command when output
 inspection fails; an output transport error must not strand an active process.
+If the retained record for one exact command is absent from both inspection and
+Stop, cleanup records that loss and requests an explicit failed outcome for the
+same native delivery. The recovery reconciler may then publish that failure
+without repeatedly stopping a process that no longer exists. A failed
+inspection alone does not prove termination; a Stop request without an exit
+receipt keeps cleanup pending. Neither case replays the command.
+If the member already requested Stop, the durable cancellation request is
+acknowledged once exact-command absence is confirmed; reconciliation publishes
+the stopped outcome without treating the missing command as a local Service
+connection failure.
 
 Computer availability and conversation continuity are separate requirements.
 A Computer replacement may interrupt a native command; preserving that Linux
@@ -288,6 +298,16 @@ SDK when the call completes, and bounded to 30 seconds per call. Multi-step
 navigation and interaction must occur in one call; persistent browser login,
 Live View, and human takeover are outside this increment. Existing browser
 Quick Actions remain available. The browser facet does not own Agent scheduling.
+
+`computer_preview` checks a development server already running in the same
+Agent Computer container. The Agent supplies an unprivileged port, a relative
+page path, and expected rendered text. Browser Run routes only the exact
+virtual preview hostname through a same-invocation Worker Entrypoint to that
+Computer's container port; no public preview URL or generic proxy is created.
+The browser session closes after the call. The result contains a bounded page
+text sample, assertion outcome, document status, JavaScript and console errors,
+and failed network requests. This is a developer
+smoke check, not proof of authenticated production behavior or backend state.
 
 Completion must not write personal conversation content into Center Agent
 memory. Organization administration, personal Channels, and Center memory
@@ -942,6 +962,12 @@ this admission limit never interrupts an active inference. The delivered attempt
 includes token and cost usage from the discarded attempt. A second empty response
 follows the ordinary visible terminal-failure path. Recovery never restarts the
 workflow, repeats tools, or changes an explicitly selected model.
+
+When the final assistant turn ends at its output limit without reply text, the
+worker records output exhaustion as a distinct terminal failure and Core shows
+an actionable failure notice. It does not retry that length-limited inference
+or replay earlier tool actions. A member may review completed work and send a
+shorter follow-up in the same conversation.
 
 Manual reply recovery uses the existing fenced Execution Recovery operation.
 Its worker request carries `replyRecovery` with the original dispatch, operation,
@@ -1947,8 +1973,9 @@ surface adopts official features where they are free**:
     through `env.LOADER`, instant, no container, no public network, text
     tooling only) and container (computerd in a Cloudflare Container,
     FUSE-mounting this same workspace at `/computer` with `MOUNT_POINT`
-    pinned for same-path fidelity; full Linux userland with python3, git,
-    curl, jq; changes sync back over capnweb). The model selects the backend
+    pinned for same-path fidelity; full Linux userland with Node.js 24,
+    Corepack-managed pnpm, Python, git, curl, jq, and native build tools;
+    changes sync back over capnweb). The model selects the backend
     per bash call and is prompted to prefer worker-shell. Computer SDK and
     computerd use version 0.2.1 together. Container network access is explicitly
     direct; worker-shell remains network-disabled. A replaced runtime reports

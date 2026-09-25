@@ -105,6 +105,7 @@ export function reportUnconfirmedWakeProgressPresentation(
 			wakeProgress.fromCachedSpaceSummary,
 			wakeProgress.fromCachedOwnSummary,
 			wakeProgress.fromBootstrapStream,
+			wakeProgress.fromHistoricalSignal,
 			wakeProgress.spaceSummaryFetchedAfterMount,
 			wakeProgress.ownSummaryFetchedAfterMount,
 			wakeProgress.bootstrapFetchedAfterMount,

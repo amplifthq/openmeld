@@ -6502,6 +6502,9 @@ function buildRoutineFailureText(input: {
   if (input.failureCode === "remote_agent.empty_assistant_response") {
     return `Routine “${input.routineName}” did not publish a result. The Agent produced no reply. If you still need the result, ask the Agent to do this work again.\n${runReference}`;
   }
+  if (input.failureCode === "remote_agent.turn.output_limit_exceeded") {
+    return `Routine “${input.routineName}” did not publish a result. The Agent reached the model's response limit before it could reply. Completed actions were not undone. Check the results before asking the Agent to continue.\n${runReference}`;
+  }
   const reason = resolveRoutineFailureReasonForDisplay({
     failureCode: input.failureCode,
     failureDetail: input.failureReason,
@@ -11425,7 +11428,10 @@ async function publishRemoteAgentCallbackFailureText(input: {
     profile,
     submissionId: input.body.submissionId,
   });
-  if (input.body.failureCode === "remote_agent.empty_assistant_response") {
+  if (
+    input.body.failureCode === "remote_agent.empty_assistant_response" ||
+    input.body.failureCode === "remote_agent.turn.output_limit_exceeded"
+  ) {
     const author = input.delivery.executionRecoverySubmitRequest?.author;
     return await emitSpaceSystemNoticeSignal({
       env: input.env,

@@ -2830,7 +2830,11 @@ export {
   wakeDeviceWaitSchema,
   wakeDeviceWaitTargetSchema,
 } from "./protocol/wake-device-wait";
-export { agentComputerBrowserRequestSchema } from "./runtime/agent-computer-browser";
+export {
+  agentComputerBrowserRequestSchema,
+  agentComputerPreviewRequestSchema,
+  agentComputerPreviewRoutePropsSchema,
+} from "./runtime/agent-computer-browser";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,

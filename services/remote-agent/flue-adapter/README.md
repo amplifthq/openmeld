@@ -156,6 +156,13 @@ from the repository root. `--baseline` reproduces the unwrapped shell behavior
 in a disposable, network-disabled container. The check also proves a concurrent
 peer survives cancellation and compound commands preserve quoting and exit codes.
 
+The container image includes Node.js 24 and Corepack-managed pnpm, so hosted
+turns can install dependencies, build, and run JavaScript projects in the same
+durable Computer workspace. The worker-shell backend remains network-disabled
+and does not provide Node.js. A development server listening inside this
+container is not automatically reachable from Browser Run; a separately
+authorized private preview route is required for browser smoke of that server.
+
 Local runtime recovery is not proof of an uninterrupted deployment. For changes
 to these boundaries, verify the staging deployment handoff, pending external tools
 and delegation, session context continuity, and shared Computer behavior.

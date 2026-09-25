@@ -961,6 +961,8 @@ describe("computer observability", () => {
           "cloudflare_computer",
           "exec",
           "succeeded",
+          "space_123",
+          "submission_computer",
           expect.any(String),
         ],
       })

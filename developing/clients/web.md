@@ -5370,6 +5370,9 @@ only `sourceSignalId` or `clientMessageId + targetProfileId`, never
 state. HTTP 403 with `space.wake_stop.forbidden` means the current account is
 neither the requester nor the Agent owner. A raw HTTP 404 is a route/deployment/proxy
 problem, not normal Wake Stop unsupported behavior.
+For `retry_later`, Web says that OpenMeld could not confirm Stop and offers a
+retry. The response alone does not prove a local Service connection failure:
+native Hosted Agent cancellation can return the same status.
 
 Web must not show `cancellation_requested` as stopped. It may show a low-noise
 stopping state while waiting for Core to project a stopped progress phase or a

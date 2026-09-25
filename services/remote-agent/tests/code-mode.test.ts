@@ -578,6 +578,8 @@ describe("Remote Agent Code Mode", () => {
           "cloudflare_codemode",
           "execute",
           "succeeded",
+          request.spaceId,
+          SUBMISSION_ID,
           expect.any(String),
         ],
         doubles: [
@@ -588,7 +590,7 @@ describe("Remote Agent Code Mode", () => {
           0,
           0,
         ],
-        indexes: [request.organizationId, request.spaceId, SUBMISSION_ID],
+        indexes: [request.organizationId],
       })
     );
   });

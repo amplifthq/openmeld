@@ -2900,9 +2900,11 @@ Hosted external tool usage is a separate Analytics Engine projection named
 `remote_agent.tool_usage.v1`. It records the organization, Space, submission,
 tool name, provider, operation, outcome, wall duration, bounded input/output
 byte counts, provider request count, and Browser Run milliseconds when
-available. Research records OpenRouter server-tool request counts, Browser Run
-records `X-Browser-Ms-Used`, and Cloudflare Sandbox records each filesystem or
-shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
+available. The Organization is its single Analytics Engine sampling index;
+Space and submission are blob dimensions, since Analytics Engine accepts only
+one index per data point. Research records OpenRouter server-tool request
+counts, Browser Run records `X-Browser-Ms-Used`, and Cloudflare Sandbox records
+each filesystem or shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
 execution with bounded generated-code input and result byte counts plus the
 number of inner tool calls. Each inner call keeps its existing capability-owned
 usage record. Generated code, tool arguments, commands, tool results, logs, page
@@ -3564,8 +3566,9 @@ retention, source-map handling, and manual queries are documented in
 
 Web also uses that intake for the bounded
 `web.openmeld.wake_progress_presentation_unconfirmed` event when a Space shows
-restored Wake progress, an unverified active-summary item, or a seeded main
-reply stream without a matching current active-Wake read. The additive shared
+restored Wake progress, an unverified active-summary item, a historical
+transient signal, or a seeded main reply stream without a matching current
+active-Wake read. The additive shared
 report schema permits only correlation IDs, source/reply Thread pointers,
 phase, update time, presentation source, and query-freshness flags, alongside
 the existing build and page-session identity. No message body, stream text,
