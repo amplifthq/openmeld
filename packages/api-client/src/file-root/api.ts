@@ -269,32 +269,70 @@ export function createFileRootApi(client: OpenMeldApiClientFoundation) {
       });
       return response.file;
     },
+    streamContent: async (input: {
+      location: FileRootLocation;
+      fileId: string;
+      revision?: number;
+    }): Promise<{
+      bytes: ReadableStream<Uint8Array>;
+      mimeType: string;
+      revision: number;
+      sizeBytes: number;
+    }> => await streamRootContent(client, input),
     async download(input: {
       location: FileRootLocation;
       fileId: string;
       revision?: number;
     }): Promise<{ bytes: ArrayBuffer; mimeType: string; revision: number }> {
-      const query = input.revision ? `?revision=${input.revision}` : "";
-      const response = await client.requestResponse({
-        url: `${contentPath(input.location, input.fileId)}${query}`,
-        operation: "files.content.download",
-      });
-      if (!response.ok) {
-        await readApiClientTextResponse({ response });
-        throw new Error("File download failed.");
-      }
-      const revision = Number(response.headers.get("x-openmeld-file-revision"));
-      if (!(Number.isInteger(revision) && revision > 0)) {
-        throw new Error("Invalid file revision response.");
-      }
+      const content = await streamRootContent(client, input);
       return {
-        bytes: await response.arrayBuffer(),
-        mimeType: spaceFileMimeTypeSchema.parse(
-          response.headers.get("content-type") ?? "application/octet-stream"
-        ),
-        revision,
+        bytes: await new Response(content.bytes).arrayBuffer(),
+        mimeType: content.mimeType,
+        revision: content.revision,
       };
     },
+  };
+}
+
+async function streamRootContent(
+  client: OpenMeldApiClientFoundation,
+  input: { location: FileRootLocation; fileId: string; revision?: number }
+): Promise<{
+  bytes: ReadableStream<Uint8Array>;
+  mimeType: string;
+  revision: number;
+  sizeBytes: number;
+}> {
+  const query = input.revision ? `?revision=${input.revision}` : "";
+  const response = await client.requestResponse({
+    url: `${contentPath(input.location, input.fileId)}${query}`,
+    operation: "files.content.download",
+  });
+  if (!response.ok) {
+    await readApiClientTextResponse({ response });
+    throw new Error("File download failed.");
+  }
+  const revision = Number(response.headers.get("x-openmeld-file-revision"));
+  if (!(Number.isInteger(revision) && revision > 0)) {
+    throw new Error("Invalid file revision response.");
+  }
+  const declaredSize = response.headers.get("content-length");
+  const sizeBytes = Number(declaredSize);
+  if (
+    declaredSize === null ||
+    !Number.isSafeInteger(sizeBytes) ||
+    sizeBytes < 0 ||
+    !response.body
+  ) {
+    throw new Error("Invalid file content response.");
+  }
+  return {
+    bytes: response.body,
+    mimeType: spaceFileMimeTypeSchema.parse(
+      response.headers.get("content-type") ?? "application/octet-stream"
+    ),
+    revision,
+    sizeBytes,
   };
 }
 

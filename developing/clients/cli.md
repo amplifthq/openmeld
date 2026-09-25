@@ -119,9 +119,9 @@ Codex, Claude, Cursor, or `.agents/skills` directory.
 `openmeld files` is the terminal entry for Team files and the signed-in
 member's private files in the active Organization. `--location team|my` is
 required so a person or Local Agent chooses the audience explicitly. The
-initial commands list files, read an exact text revision, inspect history,
-upload local content, and write a new revision against the version previously
-read. `--view agent` and `--json` expose the same server-authorized results
+initial commands list files, read an exact text revision, download a binary
+revision, inspect history, upload local content, and write a new revision
+against the version previously read. `--view agent` and `--json` expose the same server-authorized results
 without a second local file authority. Existing `openmeld space files`
 commands remain the Space location entry; adding a location to the CLI never
 changes Space membership or file access rules.

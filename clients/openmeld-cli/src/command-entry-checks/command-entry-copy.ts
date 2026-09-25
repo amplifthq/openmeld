@@ -312,6 +312,11 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "updating a file",
     profileAction: null,
   },
+  "files.download": {
+    ...DEFAULT_COPY,
+    signInAction: "downloading a file",
+    profileAction: null,
+  },
   "skills.ensure": {
     ...DEFAULT_COPY,
     signInAction: null,

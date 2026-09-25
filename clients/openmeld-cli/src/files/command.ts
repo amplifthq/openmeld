@@ -19,6 +19,7 @@ import type { Presenter } from "../runtime/presenter";
 import { createPresenter } from "../runtime/presenter";
 import { createCliApiClientFoundation } from "../space/api-client-foundation";
 import { outJsonLine } from "../ui/io";
+import { saveFileDownload } from "./download";
 
 type Location = "team" | "my";
 type FileRootApi = ReturnType<typeof createFileRootApi>;
@@ -320,6 +321,53 @@ export function registerFilesCommands(
               presenter.line({
                 code: "files.updated",
                 text: `Saved ${file.path} as revision ${file.latestRevision.revision}.`,
+              })
+            );
+          },
+        });
+      });
+    });
+
+  files
+    .command("download")
+    .description(
+      "Save a file revision to a local path, including binary files."
+    )
+    .argument("<file-id>", "File ID")
+    .requiredOption("--location <team|my>", "Team files or My files")
+    .requiredOption("--output <path>", "Local destination path")
+    .option("--revision <number>", "Exact revision")
+    .option("--force", "Replace an existing local file", false)
+    .option("--json", "Print canonical JSON", false)
+    .action(async (fileId: string, opts, command: Command) => {
+      await runChecked(["files", "download"], async () => {
+        await withFiles({
+          command,
+          json: opts.json === true,
+          location: opts.location,
+          run: async ({ api, location: target, output, presenter }) => {
+            const content = await api.streamContent({
+              location: target,
+              fileId,
+              revision: revision(opts.revision),
+            });
+            const destination = String(opts.output);
+            const received = await saveFileDownload({
+              bytes: content.bytes,
+              destination,
+              force: opts.force === true,
+              sizeBytes: content.sizeBytes,
+            });
+            const result = {
+              output: destination,
+              revision: content.revision,
+              mimeType: content.mimeType,
+              sizeBytes: received,
+            };
+            output("files.download", result, () =>
+              presenter.line({
+                code: "files.downloaded",
+                text: `Downloaded revision ${content.revision} to ${destination}.`,
               })
             );
           },

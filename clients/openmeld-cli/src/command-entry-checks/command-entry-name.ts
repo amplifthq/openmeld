@@ -59,6 +59,7 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "files history": "files.history",
   "files upload": "files.upload",
   "files write": "files.write",
+  "files download": "files.download",
   "plugins list": "plugins.list",
   "plugins actions": "plugins.actions",
   "plugins call": "plugins.call",

@@ -92,6 +92,7 @@ export type CommandEntryName =
   | "files.history"
   | "files.upload"
   | "files.write"
+  | "files.download"
   | "plugins.list"
   | "plugins.actions"
   | "plugins.call"
