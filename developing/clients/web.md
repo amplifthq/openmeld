@@ -108,8 +108,9 @@ Discover, in that order (Discover is absent in personal workspaces).
 
 The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal
-workspaces) and Agent creation route. People search and existing connection,
-activity, and group filters remain available beside the search field.
+workspaces) and Agent creation route. Its adjacent Filter people menu retains
+connection, activity, and group filters. The compact search field uses the
+same size as Spaces and says "Search people..." without a close action.
 Direct messages uses `?view=messages`; the old `/chats` index redirects there.
 Individual chat, profile, thread, and session links retain their existing routes.
 The contextual heading has no aggregate attention dot; the rail and individual
