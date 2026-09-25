@@ -287,6 +287,31 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "reading Organization Skills",
     profileAction: null,
   },
+  "files.list": {
+    ...DEFAULT_COPY,
+    signInAction: "listing files",
+    profileAction: null,
+  },
+  "files.read": {
+    ...DEFAULT_COPY,
+    signInAction: "reading a file",
+    profileAction: null,
+  },
+  "files.history": {
+    ...DEFAULT_COPY,
+    signInAction: "reading file history",
+    profileAction: null,
+  },
+  "files.upload": {
+    ...DEFAULT_COPY,
+    signInAction: "uploading a file",
+    profileAction: null,
+  },
+  "files.write": {
+    ...DEFAULT_COPY,
+    signInAction: "updating a file",
+    profileAction: null,
+  },
   "skills.ensure": {
     ...DEFAULT_COPY,
     signInAction: null,

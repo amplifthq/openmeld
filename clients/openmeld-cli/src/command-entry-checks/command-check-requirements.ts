@@ -268,6 +268,31 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
+  "files.list": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "files.read": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "files.history": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "files.upload": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "files.write": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
   "skills.show": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

@@ -148,6 +148,7 @@ import { runWhoami } from "./commands/whoami";
 import { runMacOsNativeKeychainHelperIfRequested } from "./config/macos-native-keychain";
 import { resolveOpenMeldEnvironmentTarget } from "./config/openmeld-environment-target";
 import { ensureSystemLayout } from "./config/system-layout";
+import { registerFilesCommands } from "./files/command";
 import { parseNonNegativeIntegerOption } from "./lib/number-options";
 import {
   resolveManagedCliDelegation,
@@ -1683,6 +1684,14 @@ computerCmd
       });
     }
   );
+
+registerFilesCommands(program, (routeTokens, run) =>
+  runCommandWithEntryChecks({
+    routeTokens,
+    view: getGlobalViewOption(),
+    run,
+  })
+);
 
 const skillsCmd = program
   .command("skills")
