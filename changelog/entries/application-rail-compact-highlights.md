@@ -15,4 +15,7 @@ Team now places its people filters beside the Add menu and uses the same compact
 search field style. Its directory filters use clear icons for groups and
 computer states.
 The Spaces and Team sidebars now put the collapse button beside their titles,
-and show the expand button in the content header when collapsed.
+and show the expand button in the content header when collapsed. The button also
+remains available when a collapsed sidebar is revealed from the edge. The Spaces
+directory shows a single refresh warning when its saved conversation list cannot
+be updated.

@@ -123,12 +123,15 @@ Spaces, direct messages, and Center Agent conversations share the Spaces
 list in the middle column. Team places its member list in that column instead;
 Settings retains its own settings navigation. A page without contextual
 navigation does not create an empty middle column or load the Spaces list.
-The work-area header toggles the middle list without hiding the application
-rail or remounting the conversation. The existing Fluid sidebar engine owns
-resizing and keyboard shortcuts. Dragging the middle column can collapse it,
+The contextual title holds the collapse control while the middle list is open;
+when collapsed, list-page work-area headers show the expand control beside that
+list's edge. Spaces uses this control in place of its decorative title icon,
+and Team uses the same placement. Toggling does not hide the application rail or
+remount the conversation. The existing Fluid sidebar engine owns resizing and
+keyboard shortcuts. Dragging the middle column can collapse it,
 and a 32px hover-intent strip along the content edge reveals a floating preview.
-The preview's top Expand sidebar action or the work-area header button restores
-the full column. The existing outer-sidebar cookie
+The preview keeps the same title toggle, which restores the full column even on
+detail pages without a work-area header. The existing outer-sidebar cookie
 now stores middle-column geometry, with a 308px default; legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in

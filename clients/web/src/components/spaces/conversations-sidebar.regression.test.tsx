@@ -834,7 +834,7 @@ describe("ConversationsSidebar", () => {
 			);
 		const queryClient = createSidebarQueryClient();
 
-		renderSidebar(
+		const view = renderSidebar(
 			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />,
 			queryClient
 		);
@@ -855,6 +855,21 @@ describe("ConversationsSidebar", () => {
 				"Couldn't refresh conversations. Showing saved conversations."
 			)
 		).toBeTruthy();
+		view.rerender(
+			<ConversationsSidebar
+				currentProfileId="human-1"
+				currentSpaceId=""
+				hideAccountSpacesFailure
+			/>
+		);
+		expect(
+			screen.queryByText(
+				"Couldn't refresh conversations. Showing saved conversations."
+			)
+		).toBeNull();
+		view.rerender(
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [

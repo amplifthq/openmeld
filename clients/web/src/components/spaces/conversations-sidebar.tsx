@@ -44,6 +44,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { AppModuleSidebarToggle } from "#/components/app/app-module-sidebar";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -117,7 +118,8 @@ function SpaceSidebarEmptyState({
 }
 
 function getConversationFailures(
-	dm: ReturnType<typeof useConversations>["directMessages"]
+	dm: ReturnType<typeof useConversations>["directMessages"],
+	hideAccountSpacesFailure: boolean
 ) {
 	return [
 		{
@@ -131,7 +133,7 @@ function getConversationFailures(
 		},
 		{
 			label: "conversations",
-			isError: dm.spaces.isError,
+			isError: dm.spaces.isError && !hideAccountSpacesFailure,
 			isFetching: dm.spaces.isFetching,
 			message: dm.spaces.data
 				? "Couldn't refresh conversations. Showing saved conversations."
@@ -160,7 +162,11 @@ function getConversationFailures(
 }
 
 export function ConversationsSidebar(
-	input: { currentProfileId?: string; currentSpaceId?: string } = {}
+	input: {
+		currentProfileId?: string;
+		currentSpaceId?: string;
+		hideAccountSpacesFailure?: boolean;
+	} = {}
 ) {
 	const model = useConversations(input);
 	const { dismiss } = useAppNavigationPresentation();
@@ -289,7 +295,10 @@ export function ConversationsSidebar(
 		dm.sessions.isPending ||
 		dm.directory.isPending ||
 		waitingForActivity;
-	const failures = getConversationFailures(dm);
+	const failures = getConversationFailures(
+		dm,
+		input.hideAccountSpacesFailure === true
+	);
 	const failed = failures.length > 0;
 	const showSpaceEmptyState = isSpaceEmptyStateVisible(
 		view,
@@ -380,7 +389,8 @@ export function ConversationsSidebar(
 					className="relative flex min-w-0 items-center gap-1"
 					ref={headerRef}
 				>
-					<div className="shrink-0" ref={titleRef}>
+					<div className="flex shrink-0 items-center gap-1" ref={titleRef}>
+						<AppModuleSidebarToggle placement="sidebar" />
 						<SpacesDirectoryLink
 							onNavigate={onNavigate}
 							orgSlug={dm.org.slug}
@@ -828,14 +838,10 @@ function SpacesDirectoryLink({
 	return (
 		<Link
 			aria-label="Spaces"
-			className="flex min-w-20 flex-1 items-center gap-2 rounded-sm font-medium text-sm focus-visible:outline-2"
+			className="flex min-w-20 flex-1 items-center rounded-sm font-medium text-sm focus-visible:outline-2"
 			onClick={onNavigate}
 			to={buildOrganizationSpacesPath(orgSlug)}
 		>
-			<ChatCircleTextIcon
-				aria-hidden="true"
-				className="size-4 shrink-0 text-muted-foreground"
-			/>
 			<span className="truncate">Spaces</span>
 		</Link>
 	);
