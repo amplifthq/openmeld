@@ -15,6 +15,8 @@ import { desktopPilotBuildPrerequisites } from "./scripts/desktop-pilot-build";
 import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts";
 import { optionalMediaModules } from "./scripts/optional-media-modules";
 
+const nodeModulesPathPattern = /\/node_modules\//;
+const extendComponentsPathPattern = /\/src\/components\/extend\//;
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
 
 const config = defineConfig(({ command, mode }) => {
@@ -92,6 +94,29 @@ const config = defineConfig(({ command, mode }) => {
 			},
 		},
 		plugins: [
+			{
+				name: "openmeld-client-only-extend-viewers",
+				enforce: "pre",
+				resolveId(source) {
+					if (
+						this.environment.name === "ssr" &&
+						[
+							"#/components/extend/file-system",
+							"#/components/extend/pdf-viewer",
+							"#/components/extend/docx-viewer",
+							"#/components/extend/pptx-viewer",
+							"#/components/extend/xlsx-viewer",
+						].includes(source)
+					) {
+						return "\0openmeld-client-only-extend-viewer";
+					}
+				},
+				load(id) {
+					if (id === "\0openmeld-client-only-extend-viewer") {
+						return "export const FileSystem = () => null; export const PDFViewer = () => null; export const DocxViewerPreview = () => null; export const PptxViewerPreview = () => null; export const XlsxViewerPreview = () => null;";
+					}
+				},
+			},
 			optionalMediaModules(),
 			desktopPilotBuildPrerequisites(
 				desktopRendererBuild,
@@ -142,6 +167,7 @@ const config = defineConfig(({ command, mode }) => {
 				},
 			}),
 			viteReact({
+				exclude: [nodeModulesPathPattern, extendComponentsPathPattern],
 				babel: {
 					plugins: ["babel-plugin-react-compiler"],
 				},

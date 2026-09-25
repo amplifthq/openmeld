@@ -15,6 +15,17 @@ import { createPortal } from "react-dom"
 import { cn } from "@openmeld/ui/lib/utils"
 import { Button } from "@openmeld/ui/components/button"
 import {
+  FluidDropdownMenuContent,
+  FluidDropdownMenuItem,
+  FluidDropdownMenuSubContent,
+} from "@openmeld/ui/fluid/dropdown-menu"
+import {
+  Select as FluidSelect,
+  SelectContent as FluidSelectContent,
+  SelectItem as FluidSelectItem,
+  SelectTrigger as FluidSelectTrigger,
+} from "@openmeld/ui/fluid/select"
+import {
   Command,
   CommandEmpty,
   CommandGroup,
@@ -35,7 +46,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSub,
-  DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu"
@@ -49,13 +59,6 @@ import {
   ScrollArea as InlineScrollArea,
   ScrollBar,
 } from "#/components/extend/ui/scroll-area"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "#/components/extend/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "#/components/extend/ui/tabs"
 import { FileThumbnail } from "#/components/extend/file-thumbnail"
 import { CaretDownIcon, CaretUpIcon, CalendarIcon, FileZipIcon, ImagesIcon, SquaresFourIcon, ColumnsIcon, CaretLeftIcon, ArrowRightIcon, XIcon, MagnifyingGlassIcon, ArrowsDownUpIcon, CheckIcon, FunnelIcon, CircleNotchIcon } from "@phosphor-icons/react"
@@ -105,21 +108,6 @@ const LazyPDFViewer = React.lazy(() =>
     default: mod.PDFViewer,
   }))
 )
-const LazyDocxViewerPreview = React.lazy(() =>
-  import("#/components/extend/docx-viewer").then((mod) => ({
-    default: mod.DocxViewerPreview,
-  }))
-)
-const LazyPptxViewerPreview = React.lazy(() =>
-  import("#/components/extend/pptx-viewer").then((mod) => ({
-    default: mod.PptxViewerPreview,
-  }))
-)
-const LazyXlsxViewerPreview = React.lazy(() =>
-  import("#/components/extend/xlsx-viewer").then((mod) => ({
-    default: mod.XlsxViewerPreview,
-  }))
-)
 export type FileSystemView = "icons" | "list" | "columns" | "gallery"
 export type FileSystemFolderItem = {
   kind: "folder"
@@ -134,6 +122,8 @@ export type FileSystemFolderItem = {
 }
 export type FileSystemFileItem = {
   kind: "file"
+  /** Short source label supplied by the owning product, if needed. */
+  badge?: string
   /** Display/canonical path, e.g. `"invoices/2026/jan.pdf"`. */
   path: string
   /** Original object key (S3/R2). Defaults to `path`. */
@@ -176,6 +166,8 @@ export type FileSystemProps = {
   /** Flat manifest. Folders are optional; missing prefixes are inferred from file paths. */
   items: FileSystemItem[]
   className?: string
+  /** Fill an existing Files panel without adding a second framed surface. */
+  embedded?: boolean
   /** Label for the root folder. */
   title?: string
   defaultView?: FileSystemView
@@ -186,10 +178,12 @@ export type FileSystemProps = {
   onSelectionChange?: (item: FileSystemItem | null) => void
   /**
    * Called on file open (double-click), replacing the built-in behavior. By
-   * default PDF, DOCX, PPTX, XLSX, and image files open in a viewer dialog and
+   * default PDF and image files open in a viewer dialog and
    * other files open their resolved URL in a new tab.
    */
   onFileOpen?: (file: FileSystemFileItem, url: string | null) => void
+  /** Let an owning file service navigate a folder it has listed separately. */
+  onFolderOpen?: (folder: FileSystemFolderItem) => void
   /** Resolve a URL (e.g. presigned) for a file without one. */
   getFileUrl?: (file: FileSystemFileItem) => string | Promise<string>
   /** Lazily fetch children for folders with `hasChildren` and no loaded entries. */
@@ -411,34 +405,21 @@ function fileTypeFilterGroup(mime: string): FileTypeFilterGroup {
   }
   return "Archives & binary"
 }
-export type FileSystemViewerKind = "docx" | "image" | "pdf" | "pptx" | "xlsx"
+export type FileSystemViewerKind = "image" | "pdf"
 function viewerKindForFile(
   file: FileSystemFileItem
 ): FileSystemViewerKind | null {
   if (file.contentType?.startsWith("image/")) return "image"
   if (file.contentType === "application/pdf") return "pdf"
-  if (
-    file.contentType ===
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-  ) {
-    return "pptx"
-  }
   const name = (file.name ?? file.path).toLowerCase()
   if (name.endsWith(".pdf")) return "pdf"
-  if (name.endsWith(".docx")) return "docx"
-  if (name.endsWith(".pptx")) return "pptx"
-  if (name.endsWith(".xlsx")) return "xlsx"
   if (/\.(avif|gif|jpe?g|png|svg|webp)$/.test(name)) return "image"
   return null
 }
-// PDF and Word pages want height; presentations and spreadsheets want width;
-// images get a roomy but contained frame.
+// PDF pages use the full height; images get a roomy but contained frame.
 const VIEWER_DIALOG_CLASSNAMES: Record<FileSystemViewerKind, string> = {
-  docx: "h-[88vh] w-[min(96vw,68rem)] max-w-none",
   image: "max-h-[88vh] w-fit max-w-[min(96vw,64rem)]",
   pdf: "h-[88vh] w-[min(96vw,68rem)] max-w-none",
-  pptx: "h-[88vh] w-[min(96vw,84rem)] max-w-none",
-  xlsx: "h-[85vh] w-[min(96vw,100rem)] max-w-none",
 }
 function FileSystemViewerLoading() {
   return (
@@ -1226,6 +1207,7 @@ const VIEW_OPTIONS: Array<{
 export function FileSystem({
   items,
   className,
+  embedded = false,
   title = "Files",
   defaultView = "icons",
   view: viewProp,
@@ -1233,6 +1215,7 @@ export function FileSystem({
   defaultPath = "",
   onSelectionChange,
   onFileOpen,
+  onFolderOpen,
   getFileUrl,
   loadChildren,
   loadPreviewImageUrl,
@@ -1774,12 +1757,13 @@ export function FileSystem({
   const openEntry = React.useCallback(
     (entry: FileSystemEntry) => {
       if (entry.kind === "folder") {
-        navigateTo(entry.path)
+        if (onFolderOpen) onFolderOpen(entry)
+        else navigateTo(entry.path)
       } else {
         openFile(entry)
       }
     },
-    [navigateTo, openFile]
+    [navigateTo, onFolderOpen, openFile]
   )
   // Selecting a lazy folder (columns view, keyboard nav) prefetches children.
   const selectAndPrefetchEntry = React.useCallback(
@@ -1867,13 +1851,16 @@ export function FileSystem({
         }
       }}
       className={cn(
-        "flex h-[480px] min-h-0 flex-col overflow-hidden rounded-xl border bg-background text-foreground outline-none",
+        "flex h-[480px] min-h-0 flex-col overflow-hidden bg-background text-foreground outline-none",
+        !embedded && "rounded-xl border",
         className
       )}
     >
       <FileSystemIconSpriteSheet />
-      <div className="relative grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b bg-muted/40 px-2">
+      <div className={cn("relative grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-2", !embedded && "border-b bg-muted/40")}>
         <div className="flex min-w-0 items-center gap-0.5">
+          {!embedded ? (
+            <>
           <button
             type="button"
             aria-label="Back"
@@ -1894,41 +1881,32 @@ export function FileSystem({
           >
             <ArrowRightIcon className="size-4.5" />
           </button>
-          {headerLayout !== "minimal" ? (
+            </>
+          ) : null}
+          {headerLayout !== "minimal" && (!embedded || currentPath) ? (
             <span className="ml-1.5 truncate text-sm font-semibold">
               {currentFolderName}
             </span>
           ) : null}
         </div>
         {headerLayout !== "full" || isBelowIpadWidth ? (
-          <Select
+          <FluidSelect
             value={view}
             onValueChange={(value) => setView(value as FileSystemView)}
           >
-            <SelectTrigger
-              size="sm"
+            <FluidSelectTrigger
               aria-label="View"
-              // Icon-only like the sort select: sheds the base min-width to
-              // hug icon + chevron at the filter button's 28px height.
-              className="h-7 min-h-7 w-auto min-w-0 [&_svg]:size-4"
-            >
-              <SelectValue>
-                {activeViewOption ? (
-                  <activeViewOption.icon className="size-4" />
-                ) : null}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {VIEW_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  <span className="flex items-center gap-2">
-                    <option.icon className="size-4" />
-                    {option.label}
-                  </span>
-                </SelectItem>
+              displayValue={activeViewOption ? <activeViewOption.icon className="size-4" /> : null}
+              className="h-7 min-w-0 px-2 max-lg:h-8"
+            />
+            <FluidSelectContent>
+              {VIEW_OPTIONS.map((option, index) => (
+                <FluidSelectItem key={option.value} value={option.value} index={index} icon={option.icon}>
+                  {option.label}
+                </FluidSelectItem>
               ))}
-            </SelectContent>
-          </Select>
+            </FluidSelectContent>
+          </FluidSelect>
         ) : (
           <Tabs
             value={view}
@@ -2055,7 +2033,7 @@ export function FileSystem({
           <FileSystemGalleryView {...viewProps} />
         )}
       </div>
-      <div
+      {!embedded ? <div
         aria-live="polite"
         className="flex h-7 shrink-0 items-center justify-center gap-1 border-t bg-muted/40 px-3 text-xs text-muted-foreground"
       >
@@ -2070,7 +2048,7 @@ export function FileSystem({
               : "items"}
         </span>
         {selectedEntry ? <span>· “{selectedEntry.name}” selected</span> : null}
-      </div>
+      </div> : null}
       <Dialog
         open={openedFile !== null}
         onOpenChange={(open) => {
@@ -2261,31 +2239,29 @@ function FileSystemSortSelect({
 }) {
   const activeOption = SORT_OPTIONS.find((option) => option.key === sort.key)
   return (
-    <Select
+    <FluidSelect
       value={sort.key}
       onValueChange={(value) => onKeyChange(value as FileSystemSortKey)}
     >
-      <SelectTrigger
-        size="sm"
+      <FluidSelectTrigger
         aria-label="Sort by"
         title="Sort by"
-        className="h-7 min-h-7 w-auto min-w-0 shrink-0 [&_svg]:size-4"
-      >
-        <SelectValue>
+        className="h-7 min-w-0 shrink-0 px-2 max-lg:h-8"
+        displayValue={
           <span className="flex items-center gap-1.5">
             <ArrowsDownUpIcon className="size-4" />
             {layout === "full" && showLabel ? activeOption?.triggerLabel : null}
           </span>
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent align="end" alignItemWithTrigger={false}>
-        {SORT_OPTIONS.map((option) => (
-          <SelectItem key={option.key} value={option.key}>
+        }
+      />
+      <FluidSelectContent align="end">
+        {SORT_OPTIONS.map((option, index) => (
+          <FluidSelectItem key={option.key} value={option.key} index={index}>
             {option.label}
-          </SelectItem>
+          </FluidSelectItem>
         ))}
-      </SelectContent>
-    </Select>
+      </FluidSelectContent>
+    </FluidSelect>
   )
 }
 // Searchable file-type list (cmdk) rendered inside a menu popup, so the
@@ -2400,19 +2376,19 @@ function FileSystemFilterMenu({
           </Button>
         }
       ></DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-44">
+      <FluidDropdownMenuContent align="end" className="min-w-44">
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <FileZipIcon className="size-4 text-muted-foreground" />
             File type
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-60">
+          <FluidDropdownMenuSubContent className="w-60">
             <FileSystemFileTypeCommand
               checkedMimes={fileTypeFilter?.value ?? []}
               onToggle={onToggleFileType}
               options={fileTypeOptions}
             />
-          </DropdownMenuSubContent>
+          </FluidDropdownMenuSubContent>
         </DropdownMenuSub>
         {(["dateModified", "dateCreated"] as const).map((type) => (
           <DropdownMenuSub key={type}>
@@ -2420,27 +2396,28 @@ function FileSystemFilterMenu({
               <CalendarIcon className="size-4 text-muted-foreground" />
               {FILTER_TYPE_LABELS[type]}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
+            <FluidDropdownMenuSubContent>
               <InlineScrollArea2
                 orientation="vertical"
                 className="h-auto max-h-72"
               >
-                {DATE_FILTER_PRESETS.map((preset) => (
-                  <DropdownMenuItem
+                {DATE_FILTER_PRESETS.map((preset, index) => (
+                  <FluidDropdownMenuItem
                     key={preset}
+                    index={index}
                     onClick={() => onSelectDatePreset(type, preset)}
                   >
                     {preset}
-                  </DropdownMenuItem>
+                  </FluidDropdownMenuItem>
                 ))}
-                <DropdownMenuItem onClick={() => onOpenCustomRange(type)}>
+                <FluidDropdownMenuItem index={DATE_FILTER_PRESETS.length} onClick={() => onOpenCustomRange(type)}>
                   Custom date range…
-                </DropdownMenuItem>
+                </FluidDropdownMenuItem>
               </InlineScrollArea2>
-            </DropdownMenuSubContent>
+            </FluidDropdownMenuSubContent>
           </DropdownMenuSub>
         ))}
-      </DropdownMenuContent>
+      </FluidDropdownMenuContent>
     </DropdownMenu>
   )
 }
@@ -3296,7 +3273,7 @@ function FileSystemIconsView({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") onOpen(entry)
                 }}
-                className="group flex h-[6.375rem] flex-col items-center gap-1.5 outline-none"
+                className="group flex min-h-[6.375rem] flex-col items-center gap-1.5 outline-none"
               >
                 <span
                   className={cn(
@@ -3332,6 +3309,9 @@ function FileSystemIconsView({
                 >
                   <span className="line-clamp-2">{entry.name}</span>
                 </span>
+                {entry.kind === "file" && entry.badge ? (
+                  <span className="text-[10px] text-muted-foreground">{entry.badge}</span>
+                ) : null}
               </button>
             )
           })}
@@ -3394,6 +3374,11 @@ function FileSystemListView({
   // keeps handling it without remounts per keystroke.
   const relativePaths = React.useMemo(() => {
     const paths: string[] = []
+    for (const path of index.folders.keys()) {
+      if (path === currentPath) continue
+      if (currentPath && !path.startsWith(currentPath)) continue
+      paths.push(path.slice(currentPath.length))
+    }
     for (const [path, file] of index.files) {
       if (currentPath === "" || path.startsWith(currentPath)) {
         const relativePath = path.slice(currentPath.length)
@@ -4380,7 +4365,6 @@ function FileSystemGalleryStage({
     urlCache
   )
   const isDialog = variant === "dialog"
-  const [isDark, setIsDark] = React.useState(false)
   const viewerFrameClassName = cn(
     "size-full",
     !isDialog && "overflow-hidden rounded-lg border"
@@ -4409,68 +4393,6 @@ function FileSystemGalleryStage({
               isDialog && "min-h-0 overflow-hidden rounded-2xl"
             )}
             fileName={file.name}
-            showToolbar={isDialog}
-            showUpload={false}
-            toolbarActions={toolbarActions}
-          />
-        </React.Suspense>
-      </div>
-    )
-  }
-  if (viewerKind === "docx" && url) {
-    return (
-      <div className={viewerFrameClassName}>
-        <React.Suspense fallback={<FileSystemViewerLoading />}>
-          <LazyDocxViewerPreview
-            src={url}
-            fileName={file.name}
-            isDark={isDark}
-            className={cn(
-              "h-full min-h-0",
-              isDialog && "overflow-hidden rounded-2xl"
-            )}
-            onIsDarkChange={setIsDark}
-            showToolbar={isDialog}
-            showUpload={false}
-            toolbarActions={toolbarActions}
-          />
-        </React.Suspense>
-      </div>
-    )
-  }
-  if (viewerKind === "pptx" && url) {
-    return (
-      <div className={viewerFrameClassName}>
-        <React.Suspense fallback={<FileSystemViewerLoading />}>
-          <LazyPptxViewerPreview
-            src={url}
-            fileName={file.name}
-            defaultThumbnailSidebarOpen={false}
-            className={cn(
-              "h-full min-h-0",
-              isDialog && "overflow-hidden rounded-2xl"
-            )}
-            showToolbar={isDialog}
-            showUpload={false}
-            toolbarActions={toolbarActions}
-          />
-        </React.Suspense>
-      </div>
-    )
-  }
-  if (viewerKind === "xlsx" && url) {
-    return (
-      <div className={viewerFrameClassName}>
-        <React.Suspense fallback={<FileSystemViewerLoading />}>
-          <LazyXlsxViewerPreview
-            src={url}
-            fileName={file.name}
-            isDark={isDark}
-            className={cn(
-              "h-full min-h-0",
-              isDialog && "overflow-hidden rounded-2xl"
-            )}
-            onIsDarkChange={setIsDark}
             showToolbar={isDialog}
             showUpload={false}
             toolbarActions={toolbarActions}

@@ -42,11 +42,14 @@ import {
 } from "@phosphor-icons/react";
 import {
 	type DragEvent,
+	lazy,
 	type RefObject,
+	Suspense,
 	useEffect,
 	useRef,
 	useState,
 } from "react";
+import type { FileSystemItem } from "#/components/extend/file-system";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	formatFileSize,
@@ -56,6 +59,12 @@ import {
 import { SpaceFilesSkeleton } from "./space-panel-skeletons";
 import { useSpaceFilePinAction } from "./space-pins";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
+
+const FileSystem = lazy(() =>
+	import("#/components/extend/file-system").then((module) => ({
+		default: module.FileSystem,
+	}))
+);
 
 export function SpaceFileBrowser(input: {
 	actionError: string | null;
@@ -319,6 +328,10 @@ function SpaceFileBrowserContent(input: {
 	spaceId: string;
 	view: "active" | "trash";
 }) {
+	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [mounted, setMounted] = useState(false);
+	useEffect(() => setMounted(true), []);
+	const selectedEntry = input.entries.find((entry) => entry.id === selectedId);
 	if (input.isPending) {
 		return <SpaceFilesSkeleton />;
 	}
@@ -375,6 +388,94 @@ function SpaceFileBrowserContent(input: {
 				<p className="mt-1 max-w-md text-muted-foreground text-sm">
 					{description}
 				</p>
+			</div>
+		);
+	}
+	if (input.view === "active") {
+		const items: FileSystemItem[] = input.entries.map((entry) =>
+			entry.kind === "folder"
+				? {
+						kind: "folder",
+						path: `${entry.name}/`,
+						name: entry.name,
+						createdAt: entry.createdAt,
+						updatedAt: entry.updatedAt,
+					}
+				: {
+						kind: "file",
+						path: entry.name,
+						name: entry.name,
+						badge:
+							input.showChatUploads && entry.origin === "chat_upload"
+								? "Chat upload"
+								: undefined,
+						contentType: entry.latestRevision.mimeType,
+						size: entry.latestRevision.sizeBytes,
+						createdAt: entry.createdAt,
+						updatedAt: entry.updatedAt,
+					}
+		);
+		const entriesByPath = new Map(
+			items.map((item, index) => [item.path, input.entries[index]])
+		);
+		return (
+			<div className="flex flex-col gap-3">
+				{selectedEntry && input.canWrite ? (
+					<div className="flex items-center justify-end gap-2 text-muted-foreground text-sm">
+						<span className="max-w-56 truncate">{selectedEntry.name}</span>
+						{input.showChatUploads &&
+						selectedEntry.kind === "file" &&
+						selectedEntry.origin === "chat_upload" ? (
+							<Badge variant="outline">Chat upload</Badge>
+						) : null}
+						<EntryActions
+							entry={selectedEntry}
+							onMove={() => input.onMove(selectedEntry)}
+							onRename={() => input.onRename(selectedEntry)}
+							onTrash={() => input.onTrash(selectedEntry)}
+						/>
+					</div>
+				) : null}
+				{mounted ? (
+					<Suspense fallback={<SpaceFilesSkeleton />}>
+						<FileSystem
+							className="h-[min(65vh,48rem)] min-h-96"
+							embedded
+							items={items}
+							onFileOpen={(file) => {
+								const entry = entriesByPath.get(file.path);
+								if (entry) {
+									input.onOpen(entry);
+								}
+							}}
+							onFolderOpen={(folder) => {
+								const entry = entriesByPath.get(folder.path);
+								if (entry) {
+									input.onOpen(entry);
+								}
+							}}
+							onSelectionChange={(item) => {
+								setSelectedId(
+									item ? (entriesByPath.get(item.path)?.id ?? null) : null
+								);
+							}}
+							renderFilePreview={(file) => {
+								const entry = entriesByPath.get(file.path);
+								return entry?.kind === "file" &&
+									entry.latestRevision.mimeType.startsWith("image/") ? (
+									<SpaceFileImageThumbnail
+										api={input.api}
+										entry={entry}
+										spaceId={input.spaceId}
+									/>
+								) : null;
+							}}
+							title="Files"
+						/>
+					</Suspense>
+				) : (
+					<SpaceFilesSkeleton />
+				)}
 			</div>
 		);
 	}

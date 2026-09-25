@@ -179,7 +179,7 @@ describe("SpaceFilesPanel", () => {
 	it("opens Markdown files in the shared WYSIWYG editor", async () => {
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.doubleClick(await screen.findByText("launch-notes.md"));
 
 		const editor = await screen.findByLabelText("File contents");
 		expect(editor.getAttribute("contenteditable")).toBe("true");
@@ -461,9 +461,13 @@ describe("SpaceFilesPanel", () => {
 		expect(await screen.findByText("screenshot.png")).toBeTruthy();
 		expect(screen.getByText("legacy.txt")).toBeTruthy();
 		expect(screen.getAllByText("Chat upload")).toHaveLength(1);
-		const chatUploadRow = screen.getByText("screenshot.png").closest("li");
+		const chatUploadRow = screen
+			.getByText("screenshot.png")
+			.closest('[role="option"]');
 		expect(chatUploadRow?.textContent).toContain("Chat upload");
-		const unclassifiedRow = screen.getByText("legacy.txt").closest("li");
+		const unclassifiedRow = screen
+			.getByText("legacy.txt")
+			.closest('[role="option"]');
 		expect(unclassifiedRow?.textContent).not.toContain("Chat upload");
 	});
 
@@ -608,7 +612,7 @@ describe("SpaceFilesPanel", () => {
 		});
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.doubleClick(await screen.findByText("launch-notes.md"));
 		fireEvent.click(await screen.findByRole("button", { name: "History" }));
 		expect(
 			await screen.findByRole("heading", { name: "Version history" })
@@ -707,7 +711,7 @@ describe("SpaceFilesPanel", () => {
 		);
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.doubleClick(await screen.findByText("launch-notes.md"));
 		const editor = await screen.findByLabelText("File contents");
 		fireEvent.change(editor, { target: { value: "My unsaved revision" } });
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -731,7 +735,7 @@ describe("SpaceFilesPanel", () => {
 		});
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.doubleClick(await screen.findByText("launch-notes.md"));
 		fireEvent.change(await screen.findByLabelText("File contents"), {
 			target: { value: "Keep this draft" },
 		});
@@ -770,6 +774,7 @@ describe("SpaceFilesPanel", () => {
 		});
 		renderPanel();
 
+		fireEvent.click(await screen.findByText("launch-notes.md"));
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Actions for launch-notes.md" })
 		);

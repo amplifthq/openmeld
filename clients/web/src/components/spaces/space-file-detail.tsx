@@ -95,27 +95,6 @@ const PDFViewer = import.meta.env.SSR
 				default: module.PDFViewer,
 			}))
 		);
-const DocxViewer = import.meta.env.SSR
-	? lazy(async () => ({ default: () => null }))
-	: lazy(() =>
-			import("#/components/extend/docx-viewer").then((module) => ({
-				default: module.DocxViewerPreview,
-			}))
-		);
-const PptxViewer = import.meta.env.SSR
-	? lazy(async () => ({ default: () => null }))
-	: lazy(() =>
-			import("#/components/extend/pptx-viewer").then((module) => ({
-				default: module.PptxViewerPreview,
-			}))
-		);
-const XlsxViewer = import.meta.env.SSR
-	? lazy(async () => ({ default: () => null }))
-	: lazy(() =>
-			import("#/components/extend/xlsx-viewer").then((module) => ({
-				default: module.XlsxViewerPreview,
-			}))
-		);
 const noPreviewUrl = () => null;
 const noPreviewSubscription = () => () => {
 	// There is no browser resource to observe before the authorized read succeeds.
@@ -949,7 +928,6 @@ function SpaceFileDocumentViewer(input: {
 	mimeType: string;
 	url: string;
 }): ReactNode {
-	const [isDark, setIsDark] = useState(false);
 	const common = {
 		className: "min-h-0 flex-1",
 		fileName: input.fileName,
@@ -960,16 +938,6 @@ function SpaceFileDocumentViewer(input: {
 	switch (input.mimeType) {
 		case "application/pdf":
 			return <PDFViewer {...common} />;
-		case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-			return (
-				<DocxViewer {...common} isDark={isDark} onIsDarkChange={setIsDark} />
-			);
-		case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-			return <PptxViewer {...common} />;
-		case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-			return (
-				<XlsxViewer {...common} isDark={isDark} onIsDarkChange={setIsDark} />
-			);
 		default:
 			return null;
 	}

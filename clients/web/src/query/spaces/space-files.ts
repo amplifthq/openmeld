@@ -37,12 +37,7 @@ export const spaceFileQueryKeys = {
 		[...spaceFileQueryKeys.space(spaceId), "revisions", fileId] as const,
 };
 
-const browserPreviewMimeTypes = new Set([
-	"application/pdf",
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-]);
+const browserPreviewMimeTypes = new Set(["application/pdf"]);
 
 export function supportsSpaceFileDocumentPreview(mimeType: string): boolean {
 	return browserPreviewMimeTypes.has(mimeType);
