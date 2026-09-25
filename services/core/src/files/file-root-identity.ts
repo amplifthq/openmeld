@@ -17,3 +17,19 @@ export function organizationFileRootName(
       : ["files", "member", root.organizationId, root.memberUserId]
   );
 }
+
+export function buildOrganizationFileObjectKey(input: {
+  root: OrganizationFileRoot;
+  fileId: string;
+  revisionId: string;
+}): string {
+  const root = fileRootSchema.parse(input.root);
+  if (root.kind === "space") {
+    throw new Error("Space revisions use the Space object key.");
+  }
+  const location =
+    root.kind === "team"
+      ? "team"
+      : `member/${encodeURIComponent(root.memberUserId)}`;
+  return `org/${encodeURIComponent(root.organizationId)}/file-roots/${location}/files/${encodeURIComponent(input.fileId)}/revisions/${encodeURIComponent(input.revisionId)}`;
+}

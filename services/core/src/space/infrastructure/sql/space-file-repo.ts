@@ -84,10 +84,15 @@ export class SpaceFileRepositoryError extends Error {
 export class SpaceFileRepository {
   private readonly sql: SqlStorage;
   private readonly storage: SpaceFileStorage;
+  private readonly enqueueSpaceUpdate: boolean;
 
-  constructor(storage: SpaceFileStorage) {
+  constructor(
+    storage: SpaceFileStorage,
+    options?: { enqueueSpaceUpdate?: boolean }
+  ) {
     this.storage = storage;
     this.sql = storage.sql;
+    this.enqueueSpaceUpdate = options?.enqueueSpaceUpdate ?? true;
   }
 
   list(input: {
@@ -657,7 +662,9 @@ export class SpaceFileRepository {
           : null
       );
       const file = this.getFile(input.write.fileId);
-      new SpaceFileUpdateRepository(this.sql).enqueue(file, input.nowMs);
+      if (this.enqueueSpaceUpdate) {
+        new SpaceFileUpdateRepository(this.sql).enqueue(file, input.nowMs);
+      }
       this.recordMutation({
         action: "commit_write",
         clientMutationId: input.write.clientMutationId,

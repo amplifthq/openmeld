@@ -23,9 +23,10 @@ import type { OrganizationFileRoot as OrganizationFileRootObject } from "../file
 import type { HonoBindings } from "../lib/bindings";
 import { mapRpcHttpError } from "./rpc-http-error";
 
-type FileRootTarget = {
+export type FileRootTarget = {
   context: OpenMeldRequestContext;
   root: OrganizationFileRoot;
+  rootId: string;
   stub: DurableObjectStub<OrganizationFileRootObject>;
 };
 
@@ -219,7 +220,9 @@ async function restoreEntry(c: Context<HonoBindings>): Promise<Response> {
   }
 }
 
-function resolveTarget(c: Context<HonoBindings>): FileRootTarget | Response {
+export function resolveTarget(
+  c: Context<HonoBindings>
+): FileRootTarget | Response {
   const location = c.req.param("location");
   const context = c.var.openMeldRequestContext;
   const organizationId = context.activeOrganizationId;
@@ -264,15 +267,15 @@ function resolveTarget(c: Context<HonoBindings>): FileRootTarget | Response {
     );
   }
   const id = namespace.idFromName(organizationFileRootName(root));
-  return { context, root, stub: namespace.get(id) };
+  return { context, root, rootId: id.toString(), stub: namespace.get(id) };
 }
 
-function toFileRootEntry(root: FileRoot, entry: SpaceFileEntry) {
+export function toFileRootEntry(root: FileRoot, entry: SpaceFileEntry) {
   const { spaceId: _internalRootId, ...details } = entry;
   return { ...details, root };
 }
 
-function rootRequest(target: FileRootTarget) {
+export function rootRequest(target: FileRootTarget) {
   return { context: target.context, root: target.root };
 }
 

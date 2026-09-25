@@ -1,13 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  commitSpaceFileWriteInputSchema,
   createSpaceFolderBodySchema,
   listSpaceFilesQuerySchema,
   restoreSpaceFileEntryBodySchema,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceFileAuditEventSchema,
   trashSpaceFileEntryBodySchema,
   updateSpaceFileEntryBodySchema,
 } from "@openmeld/schemas";
 import type {
+  CommitSpaceFileWriteInput,
   ListSpaceFilesResponse,
   OpenMeldRequestContext,
   SpaceFileActor,
@@ -28,6 +31,7 @@ import {
 } from "../space/infrastructure/sql/space-file-repo";
 import { prepareOrganizationFileRootAccess } from "./file-root-access";
 import {
+  buildOrganizationFileObjectKey,
   type OrganizationFileRoot as FileRoot,
   organizationFileRootName,
 } from "./file-root-identity";
@@ -77,6 +81,155 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
     return this.repositoryOperation(() =>
       this.repository.listRevisions(input.fileId)
     );
+  }
+
+  async resolveRevision(
+    input: RootRequest & { fileId: string; revision?: number }
+  ) {
+    await this.authorize(input);
+    return this.repositoryOperation(() =>
+      this.repository.resolveRevision({
+        fileId: input.fileId,
+        revision: input.revision,
+      })
+    );
+  }
+
+  async prepareWrite(
+    input: RootRequest & { write: CommitSpaceFileWriteInput }
+  ): Promise<SpaceFileDescriptor | null> {
+    await this.authorize(input);
+    const write = this.requireRootWrite(input.write);
+    return this.repositoryOperation(() => this.repository.prepareWrite(write));
+  }
+
+  async commitWrite(
+    input: RootRequest & { write: CommitSpaceFileWriteInput }
+  ): Promise<SpaceFileDescriptor> {
+    const actor = await this.authorize(input);
+    const write = this.requireRootWrite(input.write);
+    const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+    if (!bucket) {
+      throw createCoreRpcHttpError({
+        code: "file_root.storage_unavailable",
+        reason: "Files are temporarily unavailable.",
+        status: 503,
+      });
+    }
+    const key = buildOrganizationFileObjectKey({
+      root: input.root,
+      fileId: write.fileId,
+      revisionId: write.revisionId,
+    });
+    const object = await bucket.head(key);
+    if (!object || object.size !== write.sizeBytes) {
+      throw createCoreRpcHttpError({
+        code: "file_root.storage_failed",
+        reason: "This file revision is unavailable or incomplete.",
+        status: 503,
+      });
+    }
+    // Membership may change while R2 responds; the repository owns the final CAS.
+    await this.authorize(input);
+    const nowMs = Date.now();
+    const auditEvent = this.audit({
+      actor,
+      context: input.context,
+      entryId: write.fileId,
+      operation: "content_write",
+      operationId: write.clientMutationId,
+      organizationId: input.root.organizationId,
+      nowMs,
+      revisionId: write.revisionId,
+    });
+    return this.mutate(auditEvent, () =>
+      this.repository.commitWrite({ actor, auditEvent, nowMs, write })
+    );
+  }
+
+  async writeContent(
+    input: RootRequest & {
+      bytes: ArrayBuffer;
+      write: CommitSpaceFileWriteInput;
+    }
+  ): Promise<SpaceFileDescriptor> {
+    const write = this.requireRootWrite(input.write);
+    if (
+      !(input.bytes instanceof ArrayBuffer) ||
+      input.bytes.byteLength !== write.sizeBytes ||
+      input.bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES
+    ) {
+      throw createCoreRpcHttpError({
+        code: "file_root.invalid_content",
+        reason: "The file content does not match its declared size.",
+        status: 400,
+      });
+    }
+    const committed = await this.prepareWrite(input);
+    if (committed) {
+      return committed;
+    }
+    const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+    if (!bucket) {
+      throw createCoreRpcHttpError({
+        code: "file_root.storage_unavailable",
+        reason: "Files are temporarily unavailable.",
+        status: 503,
+      });
+    }
+    const key = buildOrganizationFileObjectKey({
+      root: input.root,
+      fileId: write.fileId,
+      revisionId: write.revisionId,
+    });
+    try {
+      await bucket.put(key, input.bytes, {
+        httpMetadata: { contentType: write.mimeType },
+        customMetadata: {
+          fileId: write.fileId,
+          revisionId: write.revisionId,
+        },
+      });
+    } catch {
+      await this.recordContentAudit({
+        ...input,
+        entryId: write.fileId,
+        revisionId: write.revisionId,
+        operation: "content_write",
+        operationId: write.clientMutationId,
+        errorCode: "file_root.storage_failed",
+      });
+      throw createCoreRpcHttpError({
+        code: "file_root.storage_failed",
+        reason: "This file could not be stored right now.",
+        status: 503,
+      });
+    }
+    return await this.commitWrite(input);
+  }
+
+  async recordContentAudit(
+    input: RootRequest & {
+      entryId: string;
+      revisionId: string;
+      operation: "content_read" | "content_write";
+      operationId: string;
+      errorCode?: string;
+    }
+  ): Promise<void> {
+    const actor = await this.authorize(input);
+    const event = this.audit({
+      actor,
+      context: input.context,
+      entryId: input.entryId,
+      operation: input.operation,
+      operationId: input.operationId,
+      organizationId: input.root.organizationId,
+      nowMs: Date.now(),
+      revisionId: input.revisionId,
+      errorCode: input.errorCode,
+    });
+    new SpaceFileAuditRepository(this.ctx.storage.sql).record(event);
   }
 
   async createFolder(
@@ -223,6 +376,8 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
     operationId: string;
     organizationId: string;
     nowMs: number;
+    revisionId?: string | null;
+    errorCode?: string;
   }): SpaceFileAuditEvent {
     const requestId = input.context.actorContext.requestId;
     return spaceFileAuditEventSchema.parse({
@@ -237,19 +392,38 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
       organizationId: input.organizationId,
       spaceId: this.ctx.id.toString(),
       entryId: input.entryId,
-      revisionId: null,
+      revisionId: input.revisionId ?? null,
       operation: input.operation,
       actorKind: "authenticated",
       actorProfileId: input.actor.profileId,
       representedHumanProfileId: null,
-      result: "succeeded",
-      errorCode: null,
+      result: input.errorCode ? "failed" : "succeeded",
+      errorCode: input.errorCode ?? null,
       occurredAtMs: input.nowMs,
     });
   }
 
   private get repository(): SpaceFileRepository {
-    return new SpaceFileRepository(this.ctx.storage);
+    return new SpaceFileRepository(this.ctx.storage, {
+      enqueueSpaceUpdate: false,
+    });
+  }
+
+  private requireRootWrite(
+    rawWrite: CommitSpaceFileWriteInput
+  ): CommitSpaceFileWriteInput {
+    const write = commitSpaceFileWriteInputSchema.parse(rawWrite);
+    if (
+      write.spaceId !== this.ctx.id.toString() ||
+      write.origin === "chat_upload"
+    ) {
+      throw createCoreRpcHttpError({
+        code: "file_root.invalid_write",
+        reason: "This write does not belong to the selected Files location.",
+        status: 400,
+      });
+    }
+    return write;
   }
 
   private repositoryOperation<T>(operation: () => T): T {

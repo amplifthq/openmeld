@@ -6,6 +6,7 @@ import {
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { organizationFileRootName } from "../src/files/file-root-identity";
+import type { OrganizationFileRoot } from "../src/files/organization-file-root";
 
 const FORBIDDEN_RPC_ERROR = /HTTP 403/u;
 
@@ -119,7 +120,10 @@ describe("Team and member Files roots", () => {
       personal,
       async (instance) => {
         try {
-          await instance.list({ root: privateRoot, context: contexts[1] });
+          await (instance as OrganizationFileRoot).list({
+            root: privateRoot,
+            context: contexts[1],
+          });
           return null;
         } catch (error) {
           return error instanceof Error ? error.message : String(error);
@@ -134,7 +138,10 @@ describe("Team and member Files roots", () => {
       .run();
     const revokedDenial = await runInDurableObject(team, async (instance) => {
       try {
-        await instance.list({ root: teamRoot, context: contexts[1] });
+        await (instance as OrganizationFileRoot).list({
+          root: teamRoot,
+          context: contexts[1],
+        });
         return null;
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
@@ -186,5 +193,81 @@ describe("Team and member Files roots", () => {
       },
     ]);
     expect(payload).not.toHaveProperty("spaceId");
+  });
+
+  it("writes immutable Team revisions, supports ranges, and checks access on reads", async () => {
+    const { organizationId, users, contexts } = await fixture();
+    const requestHeaders = () => {
+      const headers = new Headers();
+      applyOpenMeldRequestContextHeaders(
+        headers,
+        {
+          requestContext: {
+            ...contexts[0],
+            actorContext: {
+              ...contexts[0].actorContext,
+              requestId: crypto.randomUUID(),
+            },
+          },
+        },
+        OPENMELD_EXPECTED_FORWARDED_BY
+      );
+      headers.set("content-type", "text/plain");
+      return headers;
+    };
+    const create = await SELF.fetch(
+      `http://localhost/v1/organizations/current/files/team?name=plan.txt&clientMutationId=${crypto.randomUUID()}`,
+      { method: "POST", headers: requestHeaders(), body: "first plan" }
+    );
+    expect(create.status).toBe(201);
+    const initial = (await create.json()) as {
+      file: { id: string; latestRevision: { revision: number }; root: unknown };
+    };
+    expect(initial.file.latestRevision.revision).toBe(1);
+    expect(initial.file.root).toEqual({ kind: "team", organizationId });
+    const contentUrl = `http://localhost/v1/organizations/current/files/team/${initial.file.id}/content`;
+    const update = await SELF.fetch(
+      `${contentUrl}?baseRevision=1&clientMutationId=${crypto.randomUUID()}`,
+      { method: "PUT", headers: requestHeaders(), body: "second plan" }
+    );
+    expect(update.status).toBe(200);
+    const updated = (await update.json()) as {
+      file: { latestRevision: { revision: number } };
+    };
+    expect(updated.file.latestRevision.revision).toBe(2);
+    const stale = await SELF.fetch(
+      `${contentUrl}?baseRevision=1&clientMutationId=${crypto.randomUUID()}`,
+      { method: "PUT", headers: requestHeaders(), body: "stale plan" }
+    );
+    expect(stale.status).toBe(409);
+    const first = await SELF.fetch(`${contentUrl}?revision=1`, {
+      headers: requestHeaders(),
+    });
+    expect(first.status).toBe(200);
+    expect(await first.text()).toBe("first plan");
+    const rangedHeaders = requestHeaders();
+    rangedHeaders.set("range", "bytes=0-5");
+    const ranged = await SELF.fetch(contentUrl, { headers: rangedHeaders });
+    expect(ranged.status).toBe(206);
+    expect(ranged.headers.get("content-range")).toBe("bytes 0-5/11");
+    expect(await ranged.text()).toBe("second");
+    const head = await SELF.fetch(contentUrl, {
+      method: "HEAD",
+      headers: requestHeaders(),
+    });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-length")).toBe("11");
+    const privatePath = `http://localhost/v1/organizations/current/files/my/${initial.file.id}/content`;
+    const wrongRoot = await SELF.fetch(privatePath, {
+      headers: requestHeaders(),
+    });
+    expect(wrongRoot.status).toBe(404);
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(organizationId, users[0]?.id)
+      .run();
+    const revoked = await SELF.fetch(contentUrl, { headers: requestHeaders() });
+    expect(revoked.status).toBe(403);
   });
 });
