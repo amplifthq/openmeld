@@ -774,9 +774,9 @@ describe("SpaceFilesPanel", () => {
 		});
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Actions for launch-notes.md" })
+		fireEvent.contextMenu(
+			(await screen.findByText("launch-notes.md")).closest('[role="option"]') ??
+				screen.getByText("launch-notes.md")
 		);
 		fireEvent.click(screen.getByRole("menuitem", { name: "Move to folder…" }));
 		const destination = await screen.findByLabelText("Destination folder");

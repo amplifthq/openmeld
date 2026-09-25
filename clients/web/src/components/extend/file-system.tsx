@@ -168,6 +168,9 @@ export type FileSystemProps = {
   className?: string
   /** Fill an existing Files panel without adding a second framed surface. */
   embedded?: boolean
+  /** Actions supplied by the owning Files location, before shared view controls. */
+  toolbarStart?: React.ReactNode
+  isLoading?: boolean
   /** Label for the root folder. */
   title?: string
   defaultView?: FileSystemView
@@ -1208,6 +1211,8 @@ export function FileSystem({
   items,
   className,
   embedded = false,
+  toolbarStart,
+  isLoading = false,
   title = "Files",
   defaultView = "icons",
   view: viewProp,
@@ -1807,6 +1812,7 @@ export function FileSystem({
     loadPreviewImageUrl,
     loadingFolders,
     onOpen: openEntry,
+    onContextMenuEntry: selectAndPrefetchEntry,
     onSelect: selectAndPrefetchEntry,
     onSortColumnClick: toggleSortColumn,
     pageUrlCache,
@@ -1857,7 +1863,7 @@ export function FileSystem({
       )}
     >
       <FileSystemIconSpriteSheet />
-      <div className={cn("relative grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-2", !embedded && "border-b bg-muted/40")}>
+      <div className={cn("relative flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 px-2", !embedded && "border-b bg-muted/40")}>
         <div className="flex min-w-0 items-center gap-0.5">
           {!embedded ? (
             <>
@@ -1888,7 +1894,9 @@ export function FileSystem({
               {currentFolderName}
             </span>
           ) : null}
+          {toolbarStart}
         </div>
+        <div className="ml-auto flex min-w-0 items-center gap-1">
         {headerLayout !== "full" || isBelowIpadWidth ? (
           <FluidSelect
             value={view}
@@ -1951,6 +1959,7 @@ export function FileSystem({
             value={searchInput}
           />
         </div>
+        </div>
       </div>
       {hasActiveFilters ? (
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground">
@@ -2010,7 +2019,7 @@ export function FileSystem({
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1">
-        {isLoadingCurrentFolder && currentEntries.length === 0 ? (
+        {isLoading || (isLoadingCurrentFolder && currentEntries.length === 0) ? (
           <FileSystemEmptyState label="Loading…" isLoading />
         ) : currentEntries.length === 0 &&
           (view !== "columns" || isSearching || hasActiveFilters) ? (
@@ -2893,6 +2902,7 @@ type FileSystemViewProps = {
   ) => Promise<string | null>
   loadingFolders: Set<string>
   onOpen: (entry: FileSystemEntry) => void
+  onContextMenuEntry: (entry: FileSystemEntry) => void
   onSelect: (entry: FileSystemEntry | null) => void
   onSortColumnClick: (key: FileSystemSortKey) => void
   /** Pooled paths currently attached to the DOM (reveal instantly). */
@@ -3108,15 +3118,16 @@ function moveGridSelection({
 // Icon grid geometry (px at the default 16px root font size). Tiles have a
 // fixed height — a 4rem glyph box plus a reserved two-line label — so rows
 // share one stride and the grid can window cleanly.
-const ICON_GRID_PADDING = 12 // p-3
-const ICON_MIN_TILE_WIDTH = 104 // 6.5rem
+const ICON_GRID_PADDING = 8 // p-2
+const ICON_MIN_TILE_WIDTH = 96 // 6rem
 const ICON_TILE_GAP_X = 4 // gap-x-1
-const ICON_TILE_HEIGHT = 102 // h-16 glyph box + gap-1.5 + two text-xs lines
+const ICON_TILE_HEIGHT = 94 // h-14 glyph box + gap-1.5 + two text-xs lines
 const ICON_ROW_GAP = 12 // gap-y-3
 const ICON_ROW_STRIDE = ICON_TILE_HEIGHT + ICON_ROW_GAP
 function FileSystemIconsView({
   entries,
   onOpen,
+  onContextMenuEntry,
   onSelect,
   renderFilePreview,
   selectedPath,
@@ -3188,7 +3199,7 @@ function FileSystemIconsView({
     <InlineScrollArea2
       orientation="vertical"
       viewportRef={viewportRef}
-      viewportClassName="p-3"
+      viewportClassName="p-2"
       viewportProps={{
         onClick: (event) => {
           if (event.target === event.currentTarget) onSelect(null)
@@ -3218,7 +3229,7 @@ function FileSystemIconsView({
           // a grid instead of flashing a single stacked column until the
           // first client measure.
           style={{
-            gridTemplateColumns: "repeat(auto-fill, minmax(6.5rem, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(6rem, 1fr))",
             top: start * ICON_ROW_STRIDE,
           }}
           onKeyDown={(event) => {
@@ -3269,20 +3280,21 @@ function FileSystemIconsView({
                   }
                 }}
                 onClick={() => onSelect(entry)}
+                onContextMenu={() => onContextMenuEntry(entry)}
                 onDoubleClick={() => onOpen(entry)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") onOpen(entry)
                 }}
-                className="group flex min-h-[6.375rem] flex-col items-center gap-1.5 outline-none"
+                className="group flex min-h-[5.875rem] flex-col items-center gap-1.5 outline-none"
               >
                 <span
                   className={cn(
-                    "flex h-16 w-20 shrink-0 items-center justify-center rounded-lg p-1 transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring",
+                    "flex h-14 w-18 shrink-0 items-center justify-center rounded-lg p-0.5 transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring",
                     isSelected && "bg-accent"
                   )}
                 >
                   {entry.kind === "folder" ? (
-                    <FileSystemFolderGlyph className="h-13 w-auto drop-shadow-sm" />
+                    <FileSystemFolderGlyph className="h-12 w-auto drop-shadow-sm" />
                   ) : (
                     <FileVisual
                       file={entry}
@@ -3362,6 +3374,7 @@ function FileSystemListView({
   fileFilter,
   index,
   onOpen,
+  onContextMenuEntry,
   onSelect,
   onSortColumnClick,
   searchQuery,
@@ -3442,6 +3455,7 @@ function FileSystemListView({
             : null
         }
         onOpen={onOpen}
+        onContextMenuEntry={onContextMenuEntry}
         onSelect={onSelect}
         relativePaths={relativePaths}
         searchQuery={searchQuery}
@@ -3461,6 +3475,7 @@ function FileSystemPierreTree({
   index,
   initialSelectedPath,
   onOpen,
+  onContextMenuEntry,
   onSelect,
   relativePaths,
   searchQuery,
@@ -3472,6 +3487,7 @@ function FileSystemPierreTree({
   index: FileSystemIndex
   initialSelectedPath: string | null
   onOpen: (entry: FileSystemEntry) => void
+  onContextMenuEntry: (entry: FileSystemEntry) => void
   onSelect: (entry: FileSystemEntry | null) => void
   relativePaths: string[]
   searchQuery: string
@@ -3860,6 +3876,10 @@ function FileSystemPierreTree({
         const entry = entryFromEvent(event)
         if (entry) onOpen(entry)
       }}
+      onContextMenu={(event) => {
+        const entry = entryFromEvent(event)
+        if (entry) onContextMenuEntry(entry)
+      }}
       // Enter mirrors the other views: navigate into the focused folder or
       // open the focused file. Printable keys run the shared type-ahead
       // over the visible rows.
@@ -3911,6 +3931,7 @@ function FileSystemColumnsView(props: FileSystemViewProps) {
     loadPreviewImageUrl,
     loadingFolders,
     onOpen,
+    onContextMenuEntry,
     onSelect,
     pageUrlCache,
     renderFilePreview,
@@ -4054,6 +4075,7 @@ function FileSystemColumnsView(props: FileSystemViewProps) {
             index={index}
             isLoading={loadingFolders.has(columnPath)}
             onOpen={onOpen}
+            onContextMenuEntry={onContextMenuEntry}
             onSelect={onSelect}
             rowRefs={rowRefs}
             // Scalar per-column props so the memoized column only
@@ -4126,6 +4148,7 @@ const FileSystemColumn = React.memo(function FileSystemColumn({
   index,
   isLoading,
   onOpen,
+  onContextMenuEntry,
   onSelect,
   rowRefs,
   selectedChildPath,
@@ -4136,6 +4159,7 @@ const FileSystemColumn = React.memo(function FileSystemColumn({
   index: FileSystemIndex
   isLoading: boolean
   onOpen: (entry: FileSystemEntry) => void
+  onContextMenuEntry: (entry: FileSystemEntry) => void
   onSelect: (entry: FileSystemEntry | null) => void
   rowRefs: React.RefObject<Map<string, HTMLButtonElement>>
   selectedChildPath: string | null
@@ -4221,12 +4245,13 @@ const FileSystemColumn = React.memo(function FileSystemColumn({
                     }
                   }}
                   onClick={() => onSelect(entry)}
+                  onContextMenu={() => onContextMenuEntry(entry)}
                   onDoubleClick={() => onOpen(entry)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") onOpen(entry)
                   }}
                   className={cn(
-                    "flex h-7 shrink-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex h-7 shrink-0 items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     isSelected
                       ? "bg-primary text-primary-foreground"
                       : isOnTrail
@@ -4419,6 +4444,7 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
     entries,
     index,
     onOpen,
+    onContextMenuEntry,
     onSelect,
     poolStagePath,
     registerStageHost,
@@ -4551,6 +4577,7 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
                     }
                   }}
                   onClick={() => onSelect(entry)}
+                  onContextMenu={() => onContextMenuEntry(entry)}
                   onDoubleClick={() => onOpen(entry)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") onOpen(entry)
