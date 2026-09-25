@@ -12,4 +12,7 @@ avatars fill matching shape-aware squares. The Spaces sidebar now keeps creation
 and view controls compact, with view and filters grouped in one menu and a
 shorter search field.
 Team now places its people filters beside the Add menu and uses the same compact
-search field style.
+search field style. Its directory filters use clear icons for groups and
+computer states.
+The Spaces and Team sidebars now put the collapse button beside their titles,
+and show the expand button in the content header when collapsed.
