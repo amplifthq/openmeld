@@ -12,14 +12,20 @@ import {
 import {
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
+	FolderOpenIcon,
 	FolderPlusIcon,
+	PencilSimpleIcon,
 	TrashIcon,
 	UploadSimpleIcon,
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { FileSystemItem } from "#/components/extend/file-system";
-import { FolderNameDialog } from "#/components/spaces/space-file-dialogs";
+import {
+	FolderNameDialog,
+	MoveEntryDialog,
+	RenameEntryDialog,
+} from "#/components/spaces/space-file-dialogs";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 
@@ -50,6 +56,10 @@ function TeamFilesBrowser(input: {
 	const [parentId, setParentId] = useState<string | null>(null);
 	const [view, setView] = useState<"active" | "trash">("active");
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+	const [renamingEntry, setRenamingEntry] = useState<FileRootEntry | null>(
+		null
+	);
+	const [movingEntry, setMovingEntry] = useState<FileRootEntry | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -335,30 +345,48 @@ function TeamFilesBrowser(input: {
 					{selectedEntry || view === "active" ? (
 						<ContextMenuContent className="min-w-40 p-1">
 							{selectedEntry ? (
-								<ContextMenuItem
-									onClick={() =>
-										runAction(() =>
-											view === "trash"
-												? api.restore({
-														location,
-														entryId: selectedEntry.id,
-														clientMutationId: crypto.randomUUID(),
-													})
-												: api.trash({
-														location,
-														entryId: selectedEntry.id,
-														clientMutationId: crypto.randomUUID(),
-													})
-										).catch(console.error)
-									}
-								>
-									{view === "trash" ? (
-										<ArrowCounterClockwiseIcon aria-hidden="true" />
-									) : (
-										<TrashIcon aria-hidden="true" />
-									)}
-									{view === "trash" ? "Restore" : "Move to Trash"}
-								</ContextMenuItem>
+								<>
+									{view === "active" ? (
+										<ContextMenuItem
+											onClick={() => setMovingEntry(selectedEntry)}
+										>
+											<FolderOpenIcon aria-hidden="true" />
+											Move to folder…
+										</ContextMenuItem>
+									) : null}
+									{view === "active" ? (
+										<ContextMenuItem
+											onClick={() => setRenamingEntry(selectedEntry)}
+										>
+											<PencilSimpleIcon aria-hidden="true" />
+											Rename
+										</ContextMenuItem>
+									) : null}
+									<ContextMenuItem
+										onClick={() =>
+											runAction(() =>
+												view === "trash"
+													? api.restore({
+															location,
+															entryId: selectedEntry.id,
+															clientMutationId: crypto.randomUUID(),
+														})
+													: api.trash({
+															location,
+															entryId: selectedEntry.id,
+															clientMutationId: crypto.randomUUID(),
+														})
+											).catch(console.error)
+										}
+									>
+										{view === "trash" ? (
+											<ArrowCounterClockwiseIcon aria-hidden="true" />
+										) : (
+											<TrashIcon aria-hidden="true" />
+										)}
+										{view === "trash" ? "Restore" : "Move to Trash"}
+									</ContextMenuItem>
+								</>
 							) : (
 								<>
 									<ContextMenuItem onClick={() => setFolderDialogOpen(true)}>
@@ -393,7 +421,93 @@ function TeamFilesBrowser(input: {
 				open={folderDialogOpen}
 				pending={busy}
 			/>
+			<RenameEntryDialog
+				entry={renamingEntry}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRenamingEntry(null);
+					}
+				}}
+				onSubmit={async (entry, name) => {
+					const updated = await runAction(() =>
+						api.updateEntry({
+							location,
+							entryId: entry.id,
+							name,
+							clientMutationId: crypto.randomUUID(),
+						})
+					);
+					if (updated) {
+						setRenamingEntry(null);
+					}
+				}}
+				pending={busy}
+			/>
+			<MoveEntryDialog
+				entry={movingEntry}
+				loadDestinations={(excludedFolderId) =>
+					loadFileRootMoveDestinations({ api, excludedFolderId, location })
+				}
+				onOpenChange={(open) => {
+					if (!open) {
+						setMovingEntry(null);
+					}
+				}}
+				onSubmit={async (entry, destinationId) => {
+					const updated = await runAction(() =>
+						api.updateEntry({
+							location,
+							entryId: entry.id,
+							parentId: destinationId,
+							clientMutationId: crypto.randomUUID(),
+						})
+					);
+					if (updated) {
+						setMovingEntry(null);
+					}
+				}}
+				pending={busy}
+				queryKey={[
+					"file-root",
+					currentOrganization.id,
+					location,
+					"move-destinations",
+				]}
+				rootLabel={location === "my" ? "My files" : "Team files"}
+			/>
 		</section>
+	);
+}
+
+async function loadFileRootMoveDestinations(input: {
+	api: ReturnType<typeof createFileRootApi>;
+	excludedFolderId?: string;
+	location: FileRootLocation;
+}): Promise<readonly { id: string; path: string }[]> {
+	const destinations: { id: string; path: string }[] = [];
+	const pending: Array<string | null> = [null];
+	const visited = new Set<string>();
+	while (pending.length > 0) {
+		const parentId = pending.shift() ?? null;
+		const page = await input.api.list({ location: input.location, parentId });
+		for (const entry of page.entries) {
+			if (
+				entry.kind !== "folder" ||
+				entry.id === input.excludedFolderId ||
+				visited.has(entry.id)
+			) {
+				continue;
+			}
+			visited.add(entry.id);
+			destinations.push({ id: entry.id, path: entry.path });
+			pending.push(entry.id);
+			if (destinations.length > 500) {
+				throw new Error("This location has too many folders to show here.");
+			}
+		}
+	}
+	return destinations.sort((left, right) =>
+		left.path.localeCompare(right.path)
 	);
 }
 

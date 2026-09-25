@@ -66,8 +66,14 @@ export function SpaceFileEntryDialogs(input: {
 				pending={input.pendingAction === "rename-entry"}
 			/>
 			<MoveEntryDialog
-				api={input.api}
 				entry={input.dialog.kind === "move" ? input.dialog.entry : null}
+				loadDestinations={(excludedFolderId) =>
+					loadMoveDestinations({
+						api: input.api,
+						excludedFolderId,
+						spaceId: input.spaceId,
+					})
+				}
 				onOpenChange={(open) => {
 					if (!open) {
 						input.onClose();
@@ -75,7 +81,7 @@ export function SpaceFileEntryDialogs(input: {
 				}}
 				onSubmit={input.onMove}
 				pending={input.pendingAction === "move-entry"}
-				spaceId={input.spaceId}
+				queryKey={["space-files", input.spaceId, "move-destinations"]}
 			/>
 			<TrashEntryDialog
 				entry={input.dialog.kind === "trash" ? input.dialog.entry : null}
@@ -224,10 +230,12 @@ export function NewMarkdownFileDialog(input: {
 	);
 }
 
-export function RenameEntryDialog(input: {
-	entry: SpaceFileEntry | null;
+export function RenameEntryDialog<
+	Entry extends { kind: "file" | "folder"; name: string },
+>(input: {
+	entry: Entry | null;
 	onOpenChange: (open: boolean) => void;
-	onSubmit: (entry: SpaceFileEntry, name: string) => Promise<void>;
+	onSubmit: (entry: Entry, name: string) => Promise<void>;
 	pending: boolean;
 }) {
 	const [name, setName] = useState("");
@@ -281,16 +289,23 @@ export function RenameEntryDialog(input: {
 const ROOT_DESTINATION_VALUE = "__openmeld_space_files_root__";
 const MAX_MOVE_DESTINATION_FOLDERS = 500;
 
-export function MoveEntryDialog(input: {
-	api: SpaceApi;
-	entry: SpaceFileEntry | null;
+export function MoveEntryDialog<
+	Entry extends {
+		id: string;
+		kind: "file" | "folder";
+		name: string;
+		parentId: string | null;
+	},
+>(input: {
+	entry: Entry | null;
+	loadDestinations: (
+		excludedFolderId?: string
+	) => Promise<readonly { id: string; path: string }[]>;
 	onOpenChange: (open: boolean) => void;
-	onSubmit: (
-		entry: SpaceFileEntry,
-		destinationId: string | null
-	) => Promise<void>;
+	onSubmit: (entry: Entry, destinationId: string | null) => Promise<void>;
 	pending: boolean;
-	spaceId: string;
+	queryKey: readonly string[];
+	rootLabel?: string;
 }) {
 	const [destinationValue, setDestinationValue] = useState(
 		ROOT_DESTINATION_VALUE
@@ -300,19 +315,11 @@ export function MoveEntryDialog(input: {
 	}, [input.entry]);
 	const destinationsQuery = useQuery({
 		enabled: input.entry !== null,
-		queryKey: [
-			"space-files",
-			input.spaceId,
-			"move-destinations",
-			input.entry?.id,
-		],
+		queryKey: [...input.queryKey, input.entry?.id],
 		queryFn: async () =>
-			await loadMoveDestinations({
-				api: input.api,
-				excludedFolderId:
-					input.entry?.kind === "folder" ? input.entry.id : undefined,
-				spaceId: input.spaceId,
-			}),
+			await input.loadDestinations(
+				input.entry?.kind === "folder" ? input.entry.id : undefined
+			),
 		gcTime: baseQueryOptions.gcTime,
 		retry: baseQueryOptions.retry,
 		staleTime: 3000,
@@ -356,7 +363,9 @@ export function MoveEntryDialog(input: {
 							}
 							value={destinationValue}
 						>
-							<option value={ROOT_DESTINATION_VALUE}>Files (root)</option>
+							<option value={ROOT_DESTINATION_VALUE}>
+								{input.rootLabel ?? "Files"} (root)
+							</option>
 							{destinations.map((folder) => (
 								<option key={folder.id} value={folder.id}>
 									{folder.path}

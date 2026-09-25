@@ -78,6 +78,28 @@ export function createFileRootApi(client: OpenMeldApiClientFoundation) {
       });
       return response.folder;
     },
+    async updateEntry(input: {
+      location: FileRootLocation;
+      entryId: string;
+      name?: string;
+      parentId?: string | null;
+      clientMutationId: string;
+    }): Promise<FileRootEntry> {
+      const response = await client.requestJson({
+        url: `${rootPath(input.location)}/${encodeURIComponent(input.entryId)}`,
+        operation: "files.entry.update",
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...(input.name === undefined ? {} : { name: input.name }),
+          ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
+          clientMutationId: input.clientMutationId,
+        }),
+        schema: fileRootEntryResponseSchema,
+        invalidMessage: "Invalid file update response.",
+      });
+      return response.entry;
+    },
     async trash(input: {
       location: FileRootLocation;
       entryId: string;
