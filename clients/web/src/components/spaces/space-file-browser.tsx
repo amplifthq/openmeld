@@ -229,6 +229,7 @@ export function SpaceFileBrowser(input: {
 			onRename={input.onRename}
 			onRestore={input.onRestore}
 			onRetry={input.onRetry}
+			onShowRegularFiles={input.onToggleShowChatUploads}
 			onTrash={input.onTrash}
 			onUpload={() => input.fileInputRef.current?.click()}
 			showChatUploads={input.showChatUploads}
@@ -356,6 +357,7 @@ function SpaceFileBrowserContent(input: {
 	onNewMarkdownFile: () => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
+	onShowRegularFiles: () => void;
 	onRestore: (entry: SpaceFileEntry) => void;
 	onTrash: (entry: SpaceFileEntry) => void;
 	onUpload: () => void;
@@ -446,6 +448,11 @@ function SpaceFileBrowserContent(input: {
 										<SpaceFilesLoadError
 											error={input.error}
 											onRetry={input.onRetry}
+											onShowRegularFiles={
+												input.showChatUploads
+													? input.onShowRegularFiles
+													: undefined
+											}
 										/>
 									) : undefined
 								}
@@ -643,7 +650,11 @@ function resolveFilesSubtitle(input: {
 	return "Files in this Space. Files sent in chat are hidden by default.";
 }
 
-function SpaceFilesLoadError(input: { error: unknown; onRetry: () => void }) {
+function SpaceFilesLoadError(input: {
+	error: unknown;
+	onRetry: () => void;
+	onShowRegularFiles?: () => void;
+}) {
 	return (
 		<div
 			className="flex min-h-64 flex-col items-center justify-center rounded-md border border-destructive/40 bg-destructive/5 px-6 text-center"
@@ -657,16 +668,22 @@ function SpaceFilesLoadError(input: { error: unknown; onRetry: () => void }) {
 			<p className="mt-1 max-w-md text-muted-foreground text-sm">
 				{resolveSpaceFileErrorMessage(input.error)}
 			</p>
-			<Button
-				className="mt-4"
-				onClick={input.onRetry}
-				size="sm"
-				type="button"
-				variant="outline"
-			>
-				<ArrowClockwiseIcon aria-hidden="true" />
-				Try again
-			</Button>
+			<div className="mt-4 flex flex-wrap justify-center gap-2">
+				{input.onShowRegularFiles ? (
+					<Button onClick={input.onShowRegularFiles} size="sm" type="button">
+						Show regular files
+					</Button>
+				) : null}
+				<Button
+					onClick={input.onRetry}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					<ArrowClockwiseIcon aria-hidden="true" />
+					Try again
+				</Button>
+			</div>
 		</div>
 	);
 }

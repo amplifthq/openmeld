@@ -453,7 +453,7 @@ describe("SpaceFilesPanel", () => {
 		await screen.findByText("launch-notes.md");
 		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
 		expect(await screen.findByText("Files couldn’t be loaded")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Hide chat files" }));
+		fireEvent.click(screen.getByRole("button", { name: "Show regular files" }));
 		expect(await screen.findByText("launch-notes.md")).toBeTruthy();
 	});
 
