@@ -369,6 +369,28 @@ describe("BrowserQueryPersistenceController", () => {
 			spaceStorage,
 			spaceQueryKeys.memberDirectoryDisplay("space-a", "profile-a")
 		);
+		const navigation = {
+			entries: [
+				{
+					signalId: "signal-a",
+					endSignalId: "signal-a",
+					startAt: 1,
+					endAt: 1,
+					count: 1,
+					author: "Alex",
+					preview: "First message",
+				},
+			],
+			total: 31,
+		};
+		sourceQueryClient.setQueryData(
+			spaceQueryKeys.historyNavigation("space-a", "profile-a"),
+			navigation
+		);
+		await waitForStoredQuery(
+			spaceStorage,
+			spaceQueryKeys.historyNavigation("space-a", "profile-a")
+		);
 
 		await sourceController.activateSpaceConversation({
 			organizationId: "organization-a",
@@ -452,7 +474,17 @@ describe("BrowserQueryPersistenceController", () => {
 		).toEqual(directory);
 		expect(
 			restoredQueryClient.getQueryData(
+				spaceQueryKeys.historyNavigation("space-a", "profile-a")
+			)
+		).toEqual(navigation);
+		expect(
+			restoredQueryClient.getQueryData(
 				spaceQueryKeys.members("space-a", "profile-a")
+			)
+		).toBeUndefined();
+		expect(
+			restoredQueryClient.getQueryData(
+				spaceQueryKeys.historyNavigation("space-a", "profile-b")
 			)
 		).toBeUndefined();
 		expect(
@@ -492,7 +524,7 @@ describe("BrowserQueryPersistenceController", () => {
 		).toEqual(profileBHistory);
 	});
 
-	it("uses a complete in-memory Space view without reopening its saved snapshot", async () => {
+	it("reads the saved Space view when its history directory is missing from memory", async () => {
 		const store = createTestStore();
 		const queryClient = createQueryClient();
 		const controller = createBrowserQueryPersistenceController({
@@ -515,6 +547,17 @@ describe("BrowserQueryPersistenceController", () => {
 			{ status: { spaceId: "space-a" } }
 		);
 		const createStorage = vi.spyOn(store, "createStorage");
+		await controller.restoreSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		expect(createStorage).toHaveBeenCalled();
+		createStorage.mockClear();
+		queryClient.setQueryData(
+			spaceQueryKeys.historyNavigation("space-a", "profile-a"),
+			{ entries: [], total: 0 }
+		);
 		await controller.restoreSpaceConversation({
 			...scope,
 			spaceId: "space-a",

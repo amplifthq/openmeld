@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readSpaceConversationPosition } from "#/lib/space-conversation-position";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
+import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import {
 	SPACE_HISTORY_SIGNAL_KINDS,
 	writeSpaceHistoryEnvelopesToCache,
 } from "#/query/spaces/history";
+import { spaceQueryKeys } from "#/query/spaces/status";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
 export function useSpaceHistoryNavigation(input: {
@@ -93,12 +95,12 @@ export function useSpaceHistoryNavigation(input: {
 		[input.profileId, input.anonymous]
 	);
 	const directory = useQuery({
-		queryKey: ["spaces", input.spaceId, input.profileId, "history-navigation"],
+		queryKey: spaceQueryKeys.historyNavigation(input.spaceId, input.profileId),
 		queryFn: ({ signal }) =>
 			api().getHistoryNavigation({ spaceId: input.spaceId, signal }),
 		enabled: input.enabled && !input.accessRejected,
 		staleTime: 30_000,
-		gcTime: 60_000,
+		gcTime: PERSISTED_DISPLAY_QUERY_GC_TIME_MS,
 	});
 	// Live edits and recalls also replace messages in an already-open old window.
 	// Keep its boundaries: a new live message must not pull the reader to latest.

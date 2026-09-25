@@ -3347,7 +3347,7 @@ client read-cache API. Dexie is the IndexedDB storage engine underneath the
 official TanStack Query persistence protocol; routes and components must not
 read Dexie directly or create a second browser data model.
 
-The persistence allowlist contains exactly seven successful query families:
+The persistence allowlist contains these successful query families:
 
 - `startQueryKeys.profilesForStorageScope(accountId)` for the confirmed account;
 - `startQueryKeys.currentComputerToolbarDisplaySnapshot(accountId)` for a
@@ -3356,6 +3356,8 @@ The persistence allowlist contains exactly seven successful query families:
   inventory, readiness payload, diagnostics, paths, accounts, and actions;
 - `organizationQueryKeys.spaces(organizationId)` for one confirmed account and
   Organization pair;
+- `accountSidebarQueryKey(accountId, organizationId)` for the same confirmed
+  account and Organization pair;
 - `organizationAppConnectionQueryKeys.statusSummary(organizationId)` for a
   privacy-safe App catalog hint containing only the Organization id and the
   service ids that had an active Core-returned connection;
@@ -3368,7 +3370,12 @@ The persistence allowlist contains exactly seven successful query families:
   recorded signals; and
 - `spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)` for a versioned,
   validated Space identity and presentation snapshot with current actions and
-  latest-message preview removed.
+  latest-message preview removed;
+- `spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId)` for
+  bounded member names and avatars used to render saved messages; and
+- `spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId)` for the
+  validated, bounded history slider directory. It is display-only, scoped to
+  the same confirmed Space and Human Profile, and revalidated by its query.
 
 No prefix, default-on, or exclusion-based persistence rule is allowed. Adding a
 query requires an explicit allowlist change, privacy and authority review, and a

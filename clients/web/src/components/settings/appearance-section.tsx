@@ -27,6 +27,7 @@ import {
 	type SpaceConversationLayout,
 	writeSpaceConversationLayoutPreference,
 } from "#/lib/spaces/conversation-layout-preference";
+import { useHistorySliderPreference } from "#/lib/spaces/history-slider-preference";
 import {
 	readSpaceSelfMessageAlignmentPreference,
 	type SpaceSelfMessageAlignment,
@@ -126,6 +127,7 @@ const getServerHydrationSnapshot = () => false;
 
 export function AppearanceSection() {
 	const toolbar = useToolbarPreference();
+	const historySlider = useHistorySliderPreference();
 	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
@@ -302,6 +304,19 @@ export function AppearanceSection() {
 					label="Your messages"
 					layout="stacked"
 					showDivider={false}
+				/>
+				<SettingsRow
+					control={
+						<Switch
+							aria-label="Show history slider"
+							checked={historySlider.enabled}
+							id="history-slider"
+							onCheckedChange={historySlider.setEnabled}
+						/>
+					}
+					description="Browse older messages in a Space. Saved in this browser."
+					label="History slider"
+					showDivider
 				/>
 				<SettingsRow
 					className="hidden lg:flex"
