@@ -3037,14 +3037,7 @@ function ConversationBubbleContent(input: {
 					/>
 				)
 			)}
-			{renderDurableAgentActivity({
-				item: input.item,
-				onOpenDetails: getOpenMessageDetailsHandler({
-					enabled: input.canUseMessageActions,
-					item: input.item,
-					onOpenMessageDetails: parent.onOpenMessageDetails,
-				}),
-			})}
+			{renderDurableAgentActivity(input.item)}
 			<ReplyStalenessMarker align={input.messageAlign} item={input.item} />
 			{renderAnchoredSpaceOutcomeRows({
 				notices: input.anchoredOutcomeNotices,
@@ -3346,20 +3339,11 @@ function getOpenMessageDetailsHandler(input: {
 	return () => input.onOpenMessageDetails(input.item);
 }
 
-function renderDurableAgentActivity(input: {
-	item: SpaceTimelineItem;
-	onOpenDetails?: () => void;
-}) {
-	if (!input.item.agentActivity) {
+function renderDurableAgentActivity(item: SpaceTimelineItem) {
+	if (!(item.agentActivity || item.agentPublicProgress)) {
 		return null;
 	}
-	return (
-		<SpaceAgentToolActivity
-			item={input.item}
-			onOpenDetails={input.onOpenDetails}
-			placement="message"
-		/>
-	);
+	return <SpaceAgentToolActivity item={item} placement="message" />;
 }
 
 function resolveConversationMessageFooterThreadAction(input: {

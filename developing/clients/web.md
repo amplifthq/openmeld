@@ -4406,13 +4406,16 @@ Thread placement is conversation placement. It is not execution truth.
 
 For hosted Center Agent and Remote Agent Space replies, Web may overlay
 explicit public progress updates and accumulated stream text while the turn is
-active. Neither projection is a Space message or final outcome. Public updates
-appear inside the Agent bubble in the live Work summary disclosure, sharing its
-bounded scroll viewport with tool steps when present. Web never writes the transient progress tail to
-its persisted browser read cache or a durable message, and removes it as soon as a terminal
-frame or durable outcome arrives. Reconnect restores the privacy-safe active
-stream presence and any accumulated text; a bounded progress tail can be replayed
-from the live Space instance, but is absent from bootstrap.
+active. Neither live projection is a Space message or final outcome. Public
+updates appear inside the Agent bubble in the Work summary disclosure, sharing
+its bounded scroll viewport with tool steps when present. Web does not write
+an active stream to its browser read cache. On successful publication, the final
+Signal may retain up to 8,192 characters of explicit public updates as
+`agentPublicProgress`; failed and stopped streams retain none. The published
+reply's collapsed Work summary lets the reader reopen those updates from
+history. Reconnect restores the privacy-safe active stream presence and any
+accumulated text; a bounded live progress tail can be replayed from the Space
+instance, but is absent from bootstrap.
 
 For hosted Center Agents and workstation Local Agents, Web may also show one
 compact live **Work summary** from the sequenced Space stream. A row describes
@@ -4428,16 +4431,16 @@ the App and its normalized catalog action. If either safe meaning is missing,
 the call is invisible instead of falling back to `connected app action`.
 
 The live Work summary shares the existing progress row instead of adding a
-second row and preserves the same Stop control and Message details action
-without shifting the conversation layout. While the authoritative stream is
+second row and keeps Stop immediately after the expandable work summary.
+While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never
 replace or hide the active execution state. The live progress row belongs inside
 the Agent answer bubble after any accumulated answer text and before the
 message footer, so the state remains visually attached to the Agent and message
-actions never precede it. The summary defaults collapsed; the user can expand
-it into a bounded scroll viewport no taller than 12 rem or 30% of the dynamic
-viewport.
+actions never precede it. The summary opens while the stream is live,
+collapses after the final reply, and remains under the reader's control. Its
+scroll viewport is no taller than 12 rem or 30% of the dynamic viewport.
 Web first reconciles lifecycle parts by tool-call identity so starting and
 completed evidence for one call remains one step. It then groups only
 consecutive calls with the same semantic work, safe subject, and lifecycle
@@ -4554,9 +4557,9 @@ pre-execution Wake phases such as queueing or connecting keep their exact phase
 copy and must not claim that the Agent is working. When
 the latest admitted semantic tool step settles, the live Work summary keeps its
 concrete completed or failed meaning instead of inventing a generic
-response-preparation phase. Because the Work summary header owns expansion, an
-adjacent Message details action remains available as a distinct control during
-live tool activity instead of overloading or removing either action.
+response-preparation phase. The message toolbar owns Message details. The Work
+summary does not repeat that action. After completion, the durable message
+toolbar still owns it.
 The Space bootstrap snapshot seeds active stream projections in the same room
 entry read as recent durable signals; Web must not issue a separate
 conversation-state request. Web requests
@@ -4567,10 +4570,10 @@ arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
 newer sequence. Private thinking and the compact live Work summary are not
 replayed on reconnect. A successfully published Agent reply may carry a durable
-privacy-bounded work projection. Web renders the reply body first and then one
-collapsed Work summary so historical steps cannot displace the answer.
-Reopening it shows the latest five grouped steps and offers
-`View all work details` when the retained projection is longer or truncated.
+privacy-bounded work projection and public progress. Web renders the reply body
+first and then one collapsed Work summary so historical steps cannot displace
+the answer. Reopening it shows all retained grouped steps and public updates
+inside the same bounded scroll viewport.
 Message details uses the same semantic copy in its unified **Activity** timeline
 and may show the retained timestamped work projection for 14 days. It never
 falls back to a technical tool journal. Web omits work events for older replies

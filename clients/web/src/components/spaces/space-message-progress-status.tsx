@@ -59,7 +59,6 @@ export function SpaceMessageProgressStatus(input: {
 					align={input.align}
 					control={input.control}
 					item={input.item}
-					onOpenMessageDetails={input.onOpenMessageDetails}
 				/>
 				<SpaceAgentReasoning item={input.item} />
 			</div>,

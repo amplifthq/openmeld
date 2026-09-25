@@ -117,6 +117,7 @@ export type SpaceTimelineItem = {
 		reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
 	};
 	agentActivity?: SpaceAgentActivity;
+	agentPublicProgress?: string;
 };
 
 export type SpaceTimelineAttachment = SpaceMessageAttachment & {
@@ -435,6 +436,11 @@ function buildSpaceTimelineItem(input: {
 		agentControllerConversationId:
 			agentReplyDetails.agentControllerConversationId,
 		agentActivity: readAgentActivity(input.signal),
+		agentPublicProgress:
+			input.signal.type === "signal.text" &&
+			isAgentFinalReplySignal(input.signal)
+				? input.signal.data.meta?.agentPublicProgress
+				: undefined,
 		agentWorkspace: agentReplyDetails.agentWorkspace,
 		clientMessageId: readClientMessageId(input.signal),
 		centerAgentInteractionSource:

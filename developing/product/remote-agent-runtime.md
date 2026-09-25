@@ -1780,10 +1780,12 @@ final-outcome authority.
   and readable only through Message details. The retained projection includes
   only admitted semantic work; wrapper and legacy parts without it are not
   exposed.
-  Public progress is held only as an active, bounded in-memory tail for live
-  replay; it is absent from Space SQL, final Signals, Message details, and
-  browser persistence. Failed or stopped streams discard the draft; no arguments, results, raw
-  errors, commands, paths, model reasoning, or private Agent text are retained.
+  Public progress is kept as a bounded active tail for live replay and as a
+  short-lived Space draft until the terminal outcome. A successfully published
+  final Signal may retain its last 8,192 characters of explicit public updates
+  for the reply's Work summary. Failed or stopped streams discard the draft;
+  no arguments, results, raw errors, commands, paths, model reasoning, or
+  private Agent text are retained.
 - The persisted Space message or Space system notice remains the visible
   outcome. Finalization closes the projection, a successful terminal points to
   the published Space signal, and late deltas are rejected. Web must replace the

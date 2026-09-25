@@ -1597,14 +1597,9 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										/>
 									)
 								)}
-								{input.item.agentActivity ? (
+								{input.item.agentActivity || input.item.agentPublicProgress ? (
 									<SpaceAgentToolActivity
 										item={input.item}
-										onOpenDetails={
-											messageDetailsItem
-												? () => input.onOpenMessageDetails(messageDetailsItem)
-												: undefined
-										}
 										placement="message"
 									/>
 								) : null}

@@ -33,7 +33,7 @@ export function createHostedPublicProgressTool(input: {
   return {
     name: HOSTED_PUBLIC_PROGRESS_TOOL_NAME,
     description:
-      "Share one brief, concrete progress update with everyone who can view this OpenMeld Space conversation. Use it when you start meaningful work, confirm a finding, change approach, or begin verification. Say what you are doing or what you verified; do not include private reasoning, protected information, raw tool inputs, credentials, file paths, or speculative success. Do not call on a timer or repeat an unchanged update. The update is transient and is not the final reply.",
+      "Share one brief, concrete progress update with everyone who can view this OpenMeld Space conversation. Updates remain visible with a successfully published reply. Use it when you start meaningful work, confirm a finding, change approach, or begin verification. Say what you are doing or what you verified; do not include private reasoning, protected information, raw tool inputs, credentials, file paths, or speculative success. Do not call on a timer or repeat an unchanged update. This is not the final reply.",
     input: publicProgressInputSchema,
     execute: async (payload) => {
       const context = await resolveRemoteAgentStreamContext({

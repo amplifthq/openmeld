@@ -3426,6 +3426,11 @@ response field for callers that did not opt in. A successful
 final reply carries the complete optional durable projection in
 `signal.text.data.meta.agentWorkSummary` and may separately expose its
 timestamped bounded summary through Message details for 14 days. During a
+successful hosted turn, the same final Signal may carry up to 8,192 characters
+of explicit public updates in `meta.agentPublicProgress`. This additive field
+contains neither provider reasoning nor tool input or output. Space stores its
+draft only until a terminal outcome and omits it for failed or stopped turns.
+During a
 mixed-version rollout, Core may also emit `meta.agentActivity` containing only
 steps accepted by the previously deployed strict schema. A cached older Web
 client ignores the additive `agentWorkSummary` field and can therefore keep the

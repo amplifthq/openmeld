@@ -1,4 +1,3 @@
-import { Button } from "@openmeld/ui/components/button";
 import {
 	ThinkingStep,
 	ThinkingSteps,
@@ -6,7 +5,7 @@ import {
 	ThinkingStepsHeader,
 } from "@openmeld/ui/fluid/thinking-steps";
 import { cn } from "@openmeld/ui/lib/utils";
-import { InfoIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { useReducedMotion } from "motion/react";
 import {
 	type ReactNode,
@@ -28,99 +27,95 @@ import {
 	resolveVisibleSpaceAgentWorkSteps,
 	type SpaceAgentWorkStep,
 } from "./space-agent-tool-activity-state";
-import { MessageActionTooltip } from "./space-message-actions";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
-
-const COLLAPSED_COMPLETED_STEP_LIMIT = 5;
 
 export function SpaceAgentToolActivity(input: {
 	align?: "start" | "end";
 	control?: ReactNode;
-	item: Pick<SpaceTimelineItem, "agentActivity" | "agentStreamState">;
-	onOpenDetails?: () => void;
-	onOpenMessageDetails?: () => void;
+	item: Pick<
+		SpaceTimelineItem,
+		"agentActivity" | "agentStreamState" | "agentPublicProgress"
+	>;
 	placement?: "message" | "progress";
 }) {
 	const steps = resolveVisibleSpaceAgentWorkSteps(input.item);
 	const latestStep = steps.at(-1);
 	const isLive = input.item.agentStreamState?.status === "streaming";
-	const progress = isLive ? input.item.agentStreamState?.progress : undefined;
-	const [open, setOpen] = useState(Boolean(progress));
-	const hadProgress = useRef(Boolean(progress));
+	const progress = isLive
+		? input.item.agentStreamState?.progress
+		: input.item.agentPublicProgress;
+	const [open, setOpen] = useState(isLive);
+	const wasLive = useRef(isLive);
 	useEffect(() => {
-		if (progress && !hadProgress.current) {
-			setOpen(true);
+		if (wasLive.current !== isLive) {
+			setOpen(isLive);
 		}
-		hadProgress.current = Boolean(progress);
-	}, [progress]);
+		wasLive.current = isLive;
+	}, [isLive]);
 	if (!(latestStep || progress)) {
 		return null;
 	}
 
-	const summary = latestStep
-		? resolveWorkSummary(steps, isLive)
-		: "Live updates";
+	let summary = isLive ? "Live updates" : "Progress updates";
+	if (latestStep) {
+		summary = resolveWorkSummary(steps, isLive);
+	}
 	const accessibleSummary = isLive
 		? `${SPACE_AGENT_WORKING_STATUS_TEXT}. ${latestStep ? `Work summary: ${summary}` : summary}`
 		: `Work summary: ${summary}`;
 	const activity = (
-		<div className="flex w-full max-w-xl items-start gap-1 text-left">
+		<div className="flex w-fit max-w-xl items-start text-left">
 			<ThinkingSteps
 				aria-busy={isLive}
-				className="min-w-0 flex-1"
+				className="min-w-0 flex-[0_1_auto]"
 				onOpenChange={setOpen}
 				open={open}
 			>
-				<ThinkingStepsHeader
-					active={isLive}
-					aria-busy={isLive}
-					aria-label={accessibleSummary}
-					className="w-fit px-0 hover:bg-transparent"
-					data-testid="space-agent-tool-activity"
-					summary={<span className="min-w-0 truncate">{summary}</span>}
-				>
-					{isLive ? (
-						<span className="flex min-w-0 items-center gap-1.5">
-							<SpaceAgentOrb
-								state={
-									latestStep
-										? resolveSpaceAgentWorkOrbState(latestStep)
-										: DEFAULT_SPACE_AGENT_ORB_STATE
-								}
-							/>
-							<span className="whitespace-nowrap">
-								{SPACE_AGENT_WORKING_STATUS_TEXT}
+				<div className="flex w-fit max-w-full items-center gap-2">
+					<ThinkingStepsHeader
+						active={isLive}
+						aria-busy={isLive}
+						aria-label={accessibleSummary}
+						className="w-fit px-0 hover:bg-transparent"
+						data-testid="space-agent-tool-activity"
+						summary={<span className="min-w-0 truncate">{summary}</span>}
+					>
+						{isLive ? (
+							<span className="flex min-w-0 items-center gap-1.5">
+								<SpaceAgentOrb
+									state={
+										latestStep
+											? resolveSpaceAgentWorkOrbState(latestStep)
+											: DEFAULT_SPACE_AGENT_ORB_STATE
+									}
+								/>
+								<span className="whitespace-nowrap">
+									{SPACE_AGENT_WORKING_STATUS_TEXT}
+								</span>
 							</span>
-						</span>
-					) : (
-						"Work summary"
-					)}
-				</ThinkingStepsHeader>
+						) : (
+							"Work summary"
+						)}
+					</ThinkingStepsHeader>
+					{input.control ? (
+						<div
+							className="flex min-h-7 shrink-0 items-center"
+							data-slot="space-message-progress-control"
+							data-testid="space-message-progress-control-slot"
+						>
+							{input.control}
+						</div>
+					) : null}
+				</div>
 				<ThinkingStepsContent className="pb-1">
 					<AgentWorkActivityViewport
-						hasMoreDetails={input.item.agentActivity?.truncated === true}
 						isLive={isLive}
-						onOpenDetails={input.onOpenDetails}
 						progress={progress}
 						progressActive={input.item.agentStreamState?.progressActive}
 						steps={steps}
 					/>
 				</ThinkingStepsContent>
 			</ThinkingSteps>
-			{input.onOpenMessageDetails ? (
-				<MessageActionTooltip label="Message details">
-					<Button
-						aria-label="Open message details"
-						className="size-7 shrink-0 text-muted-foreground"
-						onClick={input.onOpenMessageDetails}
-						size="icon-sm"
-						type="button"
-						variant="ghost"
-					>
-						<InfoIcon aria-hidden="true" />
-					</Button>
-				</MessageActionTooltip>
-			) : null}
 		</div>
 	);
 
@@ -130,7 +125,7 @@ export function SpaceAgentToolActivity(input: {
 	return (
 		<SpaceMessageProgressRow
 			align={input.align}
-			control={input.control}
+			compact
 			slot="space-message-progress-row"
 			verticalAlign="start"
 		>
@@ -140,9 +135,7 @@ export function SpaceAgentToolActivity(input: {
 }
 
 function AgentWorkActivityViewport(input: {
-	hasMoreDetails: boolean;
 	isLive: boolean;
-	onOpenDetails?: () => void;
 	progress?: string;
 	progressActive?: boolean;
 	steps: readonly SpaceAgentWorkStep[];
@@ -154,9 +147,7 @@ function AgentWorkActivityViewport(input: {
 		totalStepCount(input.steps)
 	);
 	const [lastSeenProgress, setLastSeenProgress] = useState(input.progress);
-	const shownSteps = input.isLive
-		? input.steps
-		: input.steps.slice(-COLLAPSED_COMPLETED_STEP_LIMIT);
+	const shownSteps = input.steps;
 	const totalCount = totalStepCount(input.steps);
 	const progressLength = input.progress?.length ?? 0;
 	const unseenStepCount =
@@ -165,10 +156,6 @@ function AgentWorkActivityViewport(input: {
 			: 0;
 	const hasUnseenProgress =
 		input.isLive && !isFollowing && input.progress !== lastSeenProgress;
-	const shouldOfferDetails =
-		!input.isLive &&
-		Boolean(input.onOpenDetails) &&
-		(input.hasMoreDetails || totalCount > COLLAPSED_COMPLETED_STEP_LIMIT);
 
 	useLayoutEffect(() => {
 		if (
@@ -211,9 +198,7 @@ function AgentWorkActivityViewport(input: {
 				aria-label={input.progress ? "Work steps and updates" : "Work steps"}
 				className={cn(
 					"overscroll-contain pr-1",
-					input.isLive
-						? "max-h-[min(12rem,30dvh)] overflow-y-auto"
-						: "overflow-hidden"
+					"max-h-[min(12rem,30dvh)] overflow-y-auto"
 				)}
 				onScroll={handleScroll}
 				ref={viewportRef}
@@ -263,15 +248,6 @@ function AgentWorkActivityViewport(input: {
 					{unseenStepCount > 0
 						? formatNewStepLabel(unseenStepCount)
 						: "New update · Jump to latest"}
-				</button>
-			) : null}
-			{shouldOfferDetails ? (
-				<button
-					className="mt-1 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					onClick={input.onOpenDetails}
-					type="button"
-				>
-					View all work details
 				</button>
 			) : null}
 		</div>

@@ -1,10 +1,4 @@
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	within,
-} from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
@@ -73,14 +67,12 @@ describe("SpaceMessageProgressStatus", () => {
 	});
 
 	it("keeps the explicit working state beside live tool activity", () => {
-		const onOpenMessageDetails = vi.fn();
 		const view = render(
 			<SpaceMessageProgressStatus
 				align="end"
 				control={<button type="button">Stop</button>}
 				entries={[createWakeProgressEntry()]}
 				item={createStreamingToolActivityItem()}
-				onOpenMessageDetails={onOpenMessageDetails}
 			/>
 		);
 
@@ -94,15 +86,36 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(
 			within(row as HTMLElement).getByRole("button", { name: "Stop" })
 		).toBeTruthy();
+		const controlSlot = screen.getByTestId(
+			"space-message-progress-control-slot"
+		);
+		expect(activity.nextElementSibling).toBe(controlSlot);
+		expect(controlSlot.className).not.toContain("w-20");
 
 		const activityTrigger = screen.getByRole("button", {
 			name: "Agent is working. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger).toBe(activity);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Open message details" })
+		expect(
+			screen.queryByRole("button", { name: "Open message details" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Message details" })
+		).toBeNull();
+	});
+
+	it("does not duplicate Message details in a workstation Wake's work summary", () => {
+		const item = createStreamingToolActivityItem();
+		item.activeWakeProgress = createStartingItem().activeWakeProgress;
+		render(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={item}
+			/>
 		);
-		expect(onOpenMessageDetails).toHaveBeenCalledOnce();
+		expect(
+			screen.queryByRole("button", { name: "Message details" })
+		).toBeNull();
 	});
 
 	it("shows required input ahead of stale live tool activity", () => {
