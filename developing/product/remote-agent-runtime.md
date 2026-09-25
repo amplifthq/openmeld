@@ -283,7 +283,8 @@ page path, and expected rendered text. Browser Run routes only the exact
 virtual preview hostname through a same-invocation Worker Entrypoint to that
 Computer's container port; no public preview URL or generic proxy is created.
 The browser session closes after the call. The result contains a bounded page
-text sample, assertion outcome, and JavaScript exceptions. This is a developer
+text sample, assertion outcome, document status, JavaScript and console errors,
+and failed network requests. This is a developer
 smoke check, not proof of authenticated production behavior or backend state.
 
 Completion must not write personal conversation content into Center Agent

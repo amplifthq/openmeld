@@ -112,6 +112,9 @@ export async function inspectComputerPreview(input: {
   matched: boolean;
   pageText: string;
   browserErrors: string[];
+  consoleErrors: string[];
+  networkErrors: string[];
+  pageStatus: number | null;
   url: string;
 }> {
   validateComputerPreviewPort(input.port);
@@ -152,6 +155,7 @@ export async function inspectComputerPreview(input: {
         throw new Error("Browser Run did not attach to the preview page.");
       }
       await cdp.send("Runtime.enable", {}, sessionId);
+      await cdp.send("Network.enable", {}, sessionId);
       const navigation = await cdp.send("Page.navigate", { url }, sessionId);
       if (typeof navigation.errorText === "string") {
         throw new Error(`Preview navigation failed: ${navigation.errorText}`);
@@ -184,10 +188,65 @@ export async function inspectComputerPreview(input: {
           )
         )
         .slice(0, 10);
+      const consoleErrors = cdp.events
+        .filter(
+          (event) =>
+            event.method === "Runtime.consoleAPICalled" &&
+            event.params?.type === "error"
+        )
+        .map((event) =>
+          (
+            (event.params?.args as {
+              value?: unknown;
+              description?: string;
+            }[]) ?? []
+          )
+            .map((arg) => String(arg.value ?? arg.description ?? ""))
+            .join(" ")
+        )
+        .slice(0, 10);
+      const responses = cdp.events.filter(
+        (event) => event.method === "Network.responseReceived"
+      );
+      const networkErrors = responses
+        .map(
+          (event) =>
+            event.params?.response as
+              | { status?: number; url?: string }
+              | undefined
+        )
+        .filter(
+          (response): response is { status: number; url: string } =>
+            typeof response?.status === "number" &&
+            response.status >= 400 &&
+            typeof response.url === "string"
+        )
+        .map((response) => `${response.status} ${response.url}`)
+        .concat(
+          cdp.events
+            .filter((event) => event.method === "Network.loadingFailed")
+            .map((event) =>
+              String(event.params?.errorText ?? "Network request failed")
+            )
+        )
+        .slice(0, 10);
+      const documentResponse = responses
+        .filter((event) => event.params?.type === "Document")
+        .at(-1);
+      const pageStatus = (
+        documentResponse?.params?.response as { status?: number } | undefined
+      )?.status;
       return {
-        matched: pageText.includes(input.expectedText),
+        matched:
+          typeof pageStatus === "number" &&
+          pageStatus >= 200 &&
+          pageStatus < 400 &&
+          pageText.includes(input.expectedText),
         pageText: pageText.slice(0, 4000),
         browserErrors,
+        consoleErrors,
+        networkErrors,
+        pageStatus: typeof pageStatus === "number" ? pageStatus : null,
         url,
       };
     } finally {
