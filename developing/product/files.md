@@ -1,6 +1,6 @@
 # Files
 
-> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser, Team/member metadata and content routes, resumable Team/member uploads, a basic Team Files page, Local Agent CLI access to Team/member files, exact-revision copy between Team, My, and Space locations through the browser, and Hosted Agent Team file list/read/text-save tools are implemented. New Skill releases store resources as separate immutable R2 objects, while legacy inline releases remain readable. The public bundle limits and full runtime materialization still apply; Hosted Agent private-file access and Documents cutover remain acceptance requirements.
+> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser and Office viewers, Team/member metadata and content routes, resumable Team/member uploads, a basic Team Files page, Local Agent CLI access and exact-revision copy between Team, My, and Space locations, and Hosted Agent Team file list/read/text-save tools are implemented. New Skill releases store resources as separate immutable R2 objects, while legacy inline releases remain readable. Hosted Agents fetch individual Skill resources on demand; the public bundle limits still apply. Hosted Agent private-file access and Documents cutover remain acceptance requirements.
 
 ## Agent Context
 
