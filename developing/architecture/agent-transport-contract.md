@@ -2079,6 +2079,38 @@ existing fresh cancel/interrupt report requirement. The existing Stop mutation
 continues to validate the accepted result and elect the final Space claim;
 eligibility cannot cancel work, publish a notice, or advance recovery.
 
+### Hosted Stop admission fence and compatibility
+
+Core-to-Space uses the private `rpcReadWakeStopIntent` observation and
+`rpcAuthorizeNativeWakeAdmission` mutation. Both use shared strict
+`SpaceWakeStopIntentQuery` / `SpaceWakeStopIntentResponse` contracts scoped by
+Space, dispatch, and target Profile. The mutation synchronously records possible
+native exposure in the existing Space outbox before permitting the Worker call;
+Stop and this admission cannot pass each other without a durable fence. It does
+not grant tool authority or claim that execution started or stopped.
+
+The additive nullable SQLite column `native_admission_started_at_ms` is zero only
+for newly staged pending rows, positive after admission authorization, and NULL
+for historical rows with unknown exposure. Only a zero row with no submission
+may be terminalized as withdrawn before execution. Positive/NULL rows use the
+existing native execution reconciliation; not-found and transport failures keep
+Stop pending. There is no new execution owner, D1 migration, or cancellation
+table. Stop reuses the existing cancelled outbox, native ledger, watchdog/probe,
+and final Space message claim. A stopped notice is durable and idempotent.
+
+Contract Impact Audit: the new RPC callers and Space receivers are in Core and
+must ship together. Deploy the cancellation-aware Remote Agent before Core, then
+Gateway/Web; older Web request/response shapes remain valid. There are no new
+Worker wire fields, Local Service commands, CLI/Skills setup contracts, or local
+minimum versions. Readiness changes must not reinterpret unknown targets as
+workstation targets. The shared source changes still require normal release
+planning for any packaged local artifacts they affect. Keep the additive SQLite
+column on rollback. Do not restore an older native admission caller that ignores
+the Space fence while cancelled admissions/continuations remain unresolved;
+first settle those exact Wakes using the supported owners or retain the fence in
+the rollback candidate. No release, migration, or live execution is performed
+by the implementation PR.
+
 Wake execution invariants:
 
 - `dispatchId` is the logical Wake identity.
@@ -2100,15 +2132,13 @@ Wake execution invariants:
 - If Stop happens before execution is linked, RuntimeCoordinator must record
   `stopped_before_execution`, publish a `wake_stopped` system notice, and keep
   late dispatch, late local result, and late reply facts diagnostic-only.
-- A Space Wake routed to Remote Agent native delivery must honor that same
-  pre-agent stopped head before worker submission. Core checks before
-  admission, checks again after the worker ACK to close the admission race,
-  requests worker cancellation when the ACK lost that race, and settles a late
-  callback as stopped without publishing it. The admitted submission id is
-  carried across the ACK-persistence race so a worker accepted immediately
-  before the local Stop fence cannot escape cancellation. Terminal projection
-  failure keeps the dispatch Queue message retryable; a stopped ledger replay
-  must finish that projection before it acknowledges the message.
+- A Hosted Space Wake uses the existing Space outbox cancellation fence, not
+  a workstation pre-agent head. Core checks before native admission, checks
+  again after the Worker ACK to close the race, and forwards cancellation using
+  the exact admitted identity even before ACK persistence. Checkpoint rearming
+  cannot erase the logical Wake's Stop. A terminal callback after Stop is
+  settled as stopped without publishing its answer. Terminal projection and
+  stopped-notice failures remain retryable; replay never creates another run.
 - The Space Durable Object is the atomic final-outcome fence for this native
   path. Once its dispatch outbox is cancelled, it rejects a matching Remote
   Agent final reply with `space.final_outcome_stopped`; the callback consumer

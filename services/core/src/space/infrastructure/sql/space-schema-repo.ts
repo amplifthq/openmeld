@@ -215,6 +215,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
       status TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
       queued_at_ms INTEGER NULL,
+      native_admission_started_at_ms INTEGER NULL,
       poison_failure_count INTEGER NOT NULL DEFAULT 0,
       poisoned_at_ms INTEGER NULL,
       poison_reason_code TEXT NULL
@@ -772,6 +773,13 @@ function backfillSpaceFileEntriesOrigin(sql: SqlStorage): void {
 
 function ensureOpenMeldDaemonOutboxPoisonColumns(sql: SqlStorage): void {
   const columnNames = listTableColumnNames(sql, "openMeldDaemon_outbox");
+  if (!columnNames.has("native_admission_started_at_ms")) {
+    // Historical/in-flight rows remain unknown, never "not yet admitted".
+    sql.exec(`
+      ALTER TABLE openMeldDaemon_outbox
+      ADD COLUMN native_admission_started_at_ms INTEGER NULL
+    `);
+  }
   if (!columnNames.has(OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN)) {
     sql.exec(`
       ALTER TABLE openMeldDaemon_outbox

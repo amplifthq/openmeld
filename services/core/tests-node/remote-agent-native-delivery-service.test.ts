@@ -119,6 +119,101 @@ import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application
 import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/remote-agent-tool-caller";
 
 describe("Remote Agent native delivery callback service", () => {
+  it.each([
+    ["before_checkpoint", false],
+    ["after_rearm", false],
+    ["before_checkpoint", true],
+    ["after_rearm", true],
+  ] as const)("honors Stop at work-loop %s with notice retry %s", async (stopAt, failNotice) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn();
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        deliveryId: "delivery-stop-gap",
+        dispatchId: "dispatch-stop-gap",
+        modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        onBehalfOfUserId: "user_1",
+        idempotencyKey: "stop-gap-1",
+        spaceId: SPACE_ID,
+        submissionId: "stop-gap-submission-1",
+        triggerMessageId: "signal-stop-gap",
+      });
+      env.__spaceStub.rpcReadWakeStopIntent.mockImplementation(async () => {
+        const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+          db: harness.db,
+          deliveryId: "delivery-stop-gap",
+        });
+        return {
+          status:
+            stopAt === "before_checkpoint" ||
+            delivery?.idempotencyKey !== "stop-gap-1"
+              ? "requested"
+              : "not_requested",
+        };
+      });
+      const checkpoint = {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        dispatchId: "dispatch-stop-gap",
+        idempotencyKey: "stop-gap-1",
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        submissionId: "stop-gap-submission-1",
+        triggerMessageId: "signal-stop-gap",
+        status: "continuation_required" as const,
+        checkpoint: {
+          reason: "tool_call_budget_exhausted" as const,
+          toolCallLimit: 64,
+          v: 1 as const,
+        },
+      };
+      if (failNotice) {
+        env.__spaceStub.rpcPostSystemNoticeSignal.mockRejectedValueOnce(
+          new Error("Stop notice publication temporarily unavailable")
+        );
+        await expect(
+          completeRemoteAgentNativeDelivery(env, checkpoint)
+        ).rejects.toThrow("Stop notice publication temporarily unavailable");
+      }
+      await expect(
+        completeRemoteAgentNativeDelivery(env, checkpoint)
+      ).resolves.toMatchObject({ status: "accepted" });
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+      expect(
+        await readRemoteAgentNativeDeliveryByDeliveryId({
+          db: harness.db,
+          deliveryId: "delivery-stop-gap",
+        })
+      ).toMatchObject({
+        status: "failed",
+        failureCode: "runtime_coordinator.pre_agent_stop_requested",
+      });
+      await completeRemoteAgentNativeDelivery(env, checkpoint);
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledTimes(
+        failNotice ? 2 : 1
+      );
+      expect(
+        await readRemoteAgentNativeDeliveryByDeliveryId({
+          db: harness.db,
+          deliveryId: "delivery-stop-gap",
+        })
+      ).toMatchObject({
+        status: "failed",
+        publishedSignalId: "signal_reply_1",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("admits a personal Agent without Center designation and without Center memory", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -2707,35 +2802,9 @@ describe("Remote Agent native delivery callback service", () => {
         runtimeCoordinatorClient,
         "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
       )
-      .mockImplementation((input) => {
-        const identity = input.request.targetWakeLifecycleIdentity;
-        return Promise.resolve({
-          lifecycle: {
-            createdAtMs: 1000,
-            duplicateDispatchCount: 0,
-            executionLinkedAtMs: null,
-            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
-            noExecutionDecision: null,
-            ownerUserId: "user_1",
-            primaryDispatchId: "dispatch_1",
-            publicationIntent: {
-              intentId: `rcpi:stopped:${identity.targetWakeLifecycleId}`,
-              kind: "stopped_notice",
-              readyAtMs: 1001,
-              reasonCode: "runtime_coordinator.pre_agent_stop_requested",
-              status: "ready_for_phase_6",
-            },
-            runtimeCoordinatorExecutionId: null,
-            status: "stopped_before_execution",
-            targetWakeLifecycleIdentity: identity,
-            targetWakeLifecycleId: identity.targetWakeLifecycleId,
-            updatedAtMs: 1001,
-            waitingBoundary: null,
-          },
-          ok: true,
-          readStatus: "found",
-        });
-      });
+      .mockRejectedValue(
+        new Error("Hosted Stop must not use a Local runtime head")
+      );
     const env = buildEnv(harness.db, {
       authWorker: { resolveProfileById },
       remoteAgentWorker: {
@@ -2743,6 +2812,9 @@ describe("Remote Agent native delivery callback service", () => {
         submitConversationTurn: workerSubmit,
       },
     });
+    env.__spaceStub.rpcReadWakeStopIntent.mockImplementation(async () => ({
+      status: workerSubmit.mock.calls.length ? "requested" : "not_requested",
+    }));
 
     try {
       await expect(
@@ -2757,7 +2829,7 @@ describe("Remote Agent native delivery callback service", () => {
         })
       ).resolves.toEqual({
         shouldAck: true,
-        status: "stopped",
+        status: "submitted",
       });
 
       expect(cancelExecution).toHaveBeenCalledWith({
@@ -2776,9 +2848,26 @@ describe("Remote Agent native delivery callback service", () => {
           submissionId: "sub_stopped_during_submit",
         })
       ).resolves.toMatchObject({
-        failureCode: "runtime_coordinator.pre_agent_stop_requested",
-        status: "failed",
+        failureCode: null,
+        status: "accepted",
       });
+      expect(env.__spaceStub.rpcCloseAgentStream).not.toHaveBeenCalled();
+      expect(traceSpy).not.toHaveBeenCalled();
+      await expect(
+        completeRemoteAgentNativeDelivery(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          bindingId: "binding_1",
+          dispatchId: "dispatch_1",
+          idempotencyKey: "idem_1",
+          organizationId: "org_1",
+          spaceId: SPACE_ID,
+          submissionId: "sub_stopped_during_submit",
+          triggerMessageId: "signal_1",
+          status: "failed",
+          failureCode: "remote_agent.execution_cancelled",
+          failureMessage: "Stopped.",
+        })
+      ).resolves.toMatchObject({ status: "accepted" });
       expect(env.__spaceStub.rpcCloseAgentStream).toHaveBeenCalledWith({
         spaceId: SPACE_ID,
         streamId: "stream:sub_stopped_during_submit",
@@ -5908,37 +5997,14 @@ describe("Remote Agent native delivery callback service", () => {
         runtimeCoordinatorClient,
         "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
       )
-      .mockImplementation((input) => {
-        const identity = input.request.targetWakeLifecycleIdentity;
-        return Promise.resolve({
-          lifecycle: {
-            createdAtMs: 1000,
-            duplicateDispatchCount: 0,
-            executionLinkedAtMs: null,
-            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
-            noExecutionDecision: null,
-            ownerUserId: "user_1",
-            primaryDispatchId: "dispatch_1",
-            publicationIntent: {
-              intentId: `rcpi:stopped:${identity.targetWakeLifecycleId}`,
-              kind: "stopped_notice",
-              readyAtMs: 1001,
-              reasonCode: "runtime_coordinator.pre_agent_stop_requested",
-              status: "ready_for_phase_6",
-            },
-            runtimeCoordinatorExecutionId: null,
-            status: "stopped_before_execution",
-            targetWakeLifecycleIdentity: identity,
-            targetWakeLifecycleId: identity.targetWakeLifecycleId,
-            updatedAtMs: 1001,
-            waitingBoundary: null,
-          },
-          ok: true,
-          readStatus: "found",
-        });
-      });
+      .mockRejectedValue(
+        new Error("Hosted Stop must not use a Local runtime head")
+      );
     const env = buildEnv(harness.db, {
-      postSignalId: "late_reply_must_not_publish",
+      postSignalId: "stopped-notice",
+    });
+    env.__spaceStub.rpcReadWakeStopIntent.mockResolvedValue({
+      status: "requested",
     });
 
     try {
@@ -5961,6 +6027,14 @@ describe("Remote Agent native delivery callback service", () => {
       });
 
       expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noticeType: "wake_stopped",
+            text: "This request was stopped.",
+          }),
+        })
+      );
       expect(env.__spaceStub.rpcCloseAgentStream).toHaveBeenCalledWith({
         spaceId: SPACE_ID,
         streamId: "stream:sub_stopped",
@@ -5977,7 +6051,7 @@ describe("Remote Agent native delivery callback service", () => {
         })
       ).resolves.toMatchObject({
         failureCode: "runtime_coordinator.pre_agent_stop_requested",
-        publishedSignalId: null,
+        publishedSignalId: "stopped-notice",
         status: "failed",
       });
     } finally {
@@ -6060,6 +6134,15 @@ describe("Remote Agent native delivery callback service", () => {
     const env = buildEnv(harness.db, {
       postSignalError: stoppedPublicationError,
     });
+    // Stop wins between the initial read and reply publication, not before
+    // this callback starts. The refused answer must not become a success replay.
+    env.__spaceStub.rpcReadFinalReplyClaimSignalId.mockImplementation(
+      async () => ({
+        signalId: env.__spaceStub.rpcPostSignal.mock.calls.length
+          ? "existing-stopped-notice"
+          : null,
+      })
+    );
 
     try {
       await expect(
@@ -9716,6 +9799,8 @@ type BuildEnvOptions = {
 };
 
 type TestSpaceStub = {
+  rpcAuthorizeNativeWakeAdmission: ReturnType<typeof vi.fn>;
+  rpcReadWakeStopIntent: ReturnType<typeof vi.fn>;
   rpcResolveNativeReplyPlacement: ReturnType<typeof vi.fn>;
   rpcPostExecutionRecoveryNoticeSignal: ReturnType<typeof vi.fn>;
   rpcCloseAgentStream: ReturnType<typeof vi.fn>;
@@ -9774,6 +9859,12 @@ function buildEnv(
     };
   };
   const spaceStub: TestSpaceStub = {
+    rpcAuthorizeNativeWakeAdmission: vi.fn(
+      async (query) => await spaceStub.rpcReadWakeStopIntent(query)
+    ),
+    rpcReadWakeStopIntent: vi.fn(async () => ({
+      status: "not_requested" as const,
+    })),
     rpcResolveNativeReplyPlacement: vi.fn(
       async (input: ResolveNativeReplyPlacementInput) => ({
         dispatchId: input.dispatchId,

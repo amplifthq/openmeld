@@ -39,6 +39,12 @@ import {
   resolveRemoteAgentRuntimeConversationId,
 } from "./remote-agent-conversation-continuity";
 
+import {
+  forwardSpaceStopAfterRemoteAgentAdmission,
+  isRemoteAgentRequestStopRequested,
+  RemoteAgentWakeStoppedBeforeAdmissionError,
+} from "./space-wake-stop-intent";
+
 export type RemoteAgentWorkerAdmission =
   | {
       ack: RemoteAgentWorkerSubmitMessagesResult;
@@ -241,14 +247,13 @@ export async function submitRemoteAgentWorkerAdmission(input: {
   try {
     // Once admitted, downstream failures do not roll back the daily count.
     // Retries reuse the ledger marker above and therefore are never recounted.
-    response = await submitRemoteAgentWorkerTurn(input.worker, request);
+    response = await submitRemoteAgentWorkerTurn(
+      input.worker,
+      request,
+      input.env
+    );
   } catch (error) {
-    return {
-      error,
-      status: isRpcReceiverMethodNotImplementedError(error)
-        ? "receiver_unavailable"
-        : "outcome_unknown",
-    };
+    return resolveWorkerSubmitFailure(error);
   }
 
   const parsed = remoteAgentWorkerSubmitTurnResponseSchema.safeParse(response);
@@ -385,14 +390,13 @@ async function rolloverRemoteAgentConversation(input: {
 
   let response: RemoteAgentWorkerSubmitTurnResponse;
   try {
-    response = await submitRemoteAgentWorkerTurn(input.worker, request);
+    response = await submitRemoteAgentWorkerTurn(
+      input.worker,
+      request,
+      input.env
+    );
   } catch (error) {
-    return {
-      error,
-      status: isRpcReceiverMethodNotImplementedError(error)
-        ? "receiver_unavailable"
-        : "outcome_unknown",
-    };
+    return resolveWorkerSubmitFailure(error);
   }
   const parsed = remoteAgentWorkerSubmitTurnResponseSchema.safeParse(response);
   if (!parsed.success) {
@@ -438,6 +442,7 @@ async function finishAcknowledgedAdmission(input: {
       );
     }
   }
+  await forwardSpaceStopAfterRemoteAgentAdmission(input);
   const pauseFenceFailure = await requestCancellationWhenPausedAfterAdmission({
     ...input,
     centerAgentDb: identityDb(input.env),
@@ -509,10 +514,34 @@ async function requestCancellationWhenPausedAfterAdmission(input: {
   }
 }
 
-function submitRemoteAgentWorkerTurn(
+function resolveWorkerSubmitFailure(
+  error: unknown
+): Exclude<RemoteAgentWorkerAdmission, { status: "acknowledged" }> {
+  if (error instanceof RemoteAgentWakeStoppedBeforeAdmissionError) {
+    return {
+      status: "rejected",
+      response: {
+        message: error.message,
+        reasonCode: "remote_agent.execution_cancelled",
+      },
+    };
+  }
+  return {
+    error,
+    status: isRpcReceiverMethodNotImplementedError(error)
+      ? "receiver_unavailable"
+      : "outcome_unknown",
+  };
+}
+
+async function submitRemoteAgentWorkerTurn(
   worker: NonNullable<CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]>,
-  request: RemoteAgentWorkerSubmitTurnRequest
+  request: RemoteAgentWorkerSubmitTurnRequest,
+  env: CoreBindings
 ): Promise<RemoteAgentWorkerSubmitTurnResponse> {
+  if (await isRemoteAgentRequestStopRequested(env, request, true)) {
+    throw new RemoteAgentWakeStoppedBeforeAdmissionError();
+  }
   // RPC proxies expose arbitrary method properties; direct invocation is the
   // only reliable capability check after the binding itself is present.
   return (worker as RequiredRemoteAgentWorkerSubmitter).submitConversationTurn(
