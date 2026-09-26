@@ -1150,6 +1150,107 @@ describe("Organization Skills", () => {
     ).toBe(true);
   });
 
+  it("inspects a selected Skill when GitHub truncates the repository tree", async () => {
+    const commitSha = "a".repeat(40);
+    const rootSha = "b".repeat(40);
+    const skillsSha = "c".repeat(40);
+    const selectedSha = "d".repeat(40);
+    const referencesSha = "e".repeat(40);
+    const unrelatedSha = "f".repeat(40);
+    const markdown = [
+      "---",
+      "name: selected-skill",
+      "description: Use the selected Skill.",
+      "---",
+      "Read the guide.",
+    ].join("\n");
+    const guide = "# Selected guide";
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.endsWith(`/${commitSha}/skills/selected/SKILL.md`)) {
+        return Promise.resolve(new Response(markdown));
+      }
+      if (url.endsWith(`/${commitSha}/skills/selected/references/guide.md`)) {
+        return Promise.resolve(new Response(guide));
+      }
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({ sha: rootSha, tree: [], truncated: true })
+        );
+      }
+      const trees: Record<string, unknown[]> = {
+        [rootSha]: [
+          { path: "skills", sha: skillsSha, type: "tree" },
+          { path: "unrelated", sha: unrelatedSha, type: "tree" },
+        ],
+        [skillsSha]: [
+          { path: "selected", sha: selectedSha, type: "tree" },
+          { path: "other", sha: unrelatedSha, type: "tree" },
+        ],
+        [selectedSha]: [
+          { path: "SKILL.md", size: markdown.length, type: "blob" },
+          { path: "references", sha: referencesSha, type: "tree" },
+        ],
+        [referencesSha]: [
+          { path: "guide.md", size: guide.length, type: "blob" },
+        ],
+      };
+      const sha = url.split("/git/trees/")[1];
+      if (sha && trees[sha]) {
+        return Promise.resolve(
+          Response.json({ tree: trees[sha], truncated: false })
+        );
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+
+    const preview = await previewOrganizationSkillRepositoryFromGitHub({
+      fetch: fetchMock,
+      url: "https://github.com/acme/skills/tree/main/skills/selected",
+    });
+    expect(preview.skills).toMatchObject([
+      {
+        path: "skills/selected",
+        fileCount: 2,
+        totalBytes: markdown.length + guide.length,
+      },
+    ]);
+    const imported = await importOrganizationSkillBundleFromGitHub({
+      fetch: fetchMock,
+      expectedCommitSha: commitSha,
+      url: "https://github.com/acme/skills/tree/main/skills/selected",
+    });
+    expect(imported.bundle.files).toMatchObject([
+      { path: "references/guide.md", content: guide },
+    ]);
+    expect(
+      fetchMock.mock.calls.some(([request]) =>
+        String(request).includes(`/git/trees/${unrelatedSha}`)
+      )
+    ).toBe(false);
+
+    const incompleteFetch = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({ sha: rootSha, tree: [], truncated: true })
+        );
+      }
+      if (url.endsWith(`/git/trees/${rootSha}`)) {
+        return Promise.resolve(Response.json({ tree: [], truncated: true }));
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+    await expect(
+      previewOrganizationSkillRepositoryFromGitHub({
+        fetch: incompleteFetch,
+        url: "https://github.com/acme/skills/tree/main/skills/selected",
+      })
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.github_tree_too_large" },
+    });
+  });
+
   it("keeps root Skill resources while excluding nested Skill packages", async () => {
     const commitSha = "f".repeat(40);
     const markdown = [
@@ -1221,6 +1322,11 @@ describe("Organization Skills", () => {
       },
       { fileCount: 2, path: "nested" },
     ]);
+    const rootFilePreview = await previewOrganizationSkillRepositoryFromGitHub({
+      fetch: fetchMock,
+      url: `https://github.com/acme/skills/blob/${commitSha}/SKILL.md`,
+    });
+    expect(rootFilePreview.skills).toMatchObject([{ path: "", fileCount: 3 }]);
     const imported = await importOrganizationSkillBundleFromGitHub({
       fetch: fetchMock,
       url: preview.skills[0]?.url ?? "",

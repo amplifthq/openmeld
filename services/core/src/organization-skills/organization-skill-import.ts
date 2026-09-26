@@ -18,10 +18,13 @@ const GIT_SUFFIX_PATTERN = /\.git$/;
 const GITHUB_COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 const GITHUB_PUBLIC_FALLBACK_STATUSES = new Set([401, 403, 404]);
 const LEADING_LINE_BREAK_PATTERN = /^\r?\n/;
+const GITHUB_TREE_FALLBACK_MAX_REQUESTS = 256;
+const GITHUB_TREE_FALLBACK_MAX_ITEMS = 100_000;
 
 type GitHubTreeItem = {
   mode?: string;
   path?: string;
+  sha?: string;
   size?: number;
   type?: string;
 };
@@ -226,6 +229,7 @@ export async function previewOrganizationSkillRepositoryFromGitHub(input: {
   const skillPaths = allSkillPaths.filter(
     (path) =>
       location.path === null ||
+      (location.path === "" && path === "") ||
       location.path === (path ? `${path}/SKILL.md` : "SKILL.md") ||
       (path !== "" &&
         (path === location.path || path.startsWith(`${location.path}/`)))
@@ -396,7 +400,10 @@ function parseGitHubLocation(input: string): GitHubLocation {
   const ref = kind ? (segments[3] ?? null) : url.searchParams.get("ref");
   const sourcePath = kind ? segments.slice(4).join("/") : null;
   let path = sourcePath || null;
-  if (kind === "blob" && sourcePath?.endsWith("/SKILL.md")) {
+  if (
+    kind === "blob" &&
+    (sourcePath === "SKILL.md" || sourcePath?.endsWith("/SKILL.md"))
+  ) {
     path = parentPath(sourcePath);
   }
   return {
@@ -464,13 +471,25 @@ async function readGitTree(
     githubToken
   );
   const value = (await response.json()) as {
+    sha?: unknown;
     tree?: unknown;
     truncated?: unknown;
   };
   if (value.truncated === true) {
-    throw skillImportError(
-      "organization_skill.github_tree_too_large",
-      "This repository is too large to inspect safely."
+    if (
+      typeof value.sha !== "string" ||
+      !GITHUB_COMMIT_SHA_PATTERN.test(value.sha)
+    ) {
+      throw skillImportError(
+        "organization_skill.github_response_invalid",
+        "GitHub did not return a tree identity for this repository."
+      );
+    }
+    return await readGitTreeBySubtree(
+      fetchImpl,
+      location,
+      value.sha,
+      githubToken
     );
   }
   if (!Array.isArray(value.tree)) {
@@ -482,15 +501,139 @@ async function readGitTree(
   return value.tree as GitHubTreeItem[];
 }
 
+async function readGitTreeBySubtree(
+  fetchImpl: typeof fetch,
+  location: GitHubLocation,
+  rootTreeSha: string,
+  githubToken: string | undefined
+): Promise<GitHubTreeItem[]> {
+  const selectedDirectory = location.path ?? "";
+  const pending = [{ path: "", sha: rootTreeSha }];
+  const files: GitHubTreeItem[] = [];
+  let requests = 0;
+  let seenItems = 0;
+  while (pending.length > 0) {
+    if (++requests > GITHUB_TREE_FALLBACK_MAX_REQUESTS) {
+      throw skillImportError(
+        "organization_skill.github_tree_too_large",
+        "This repository has too many directories to inspect. Select a narrower Skill directory."
+      );
+    }
+    const directory = pending.shift();
+    if (!directory) {
+      break;
+    }
+    const items = await readCompleteGitTreeDirectory(
+      fetchImpl,
+      location,
+      directory.sha,
+      githubToken
+    );
+    seenItems += items.length;
+    if (seenItems > GITHUB_TREE_FALLBACK_MAX_ITEMS) {
+      throw skillImportError(
+        "organization_skill.github_tree_too_large",
+        "This repository has too many files to inspect. Select a narrower Skill directory."
+      );
+    }
+    for (const item of items) {
+      const entry = classifyGitTreeItem(
+        item,
+        directory.path,
+        selectedDirectory
+      );
+      if (entry?.kind === "directory") {
+        pending.push({ path: entry.path, sha: entry.sha });
+      } else if (entry?.kind === "file") {
+        files.push(entry.file);
+      }
+    }
+  }
+  return files;
+}
+
+async function readCompleteGitTreeDirectory(
+  fetchImpl: typeof fetch,
+  location: GitHubLocation,
+  sha: string,
+  githubToken: string | undefined
+): Promise<GitHubTreeItem[]> {
+  const response = await githubApiFetch(
+    fetchImpl,
+    `/repos/${encodeURIComponent(location.owner)}/${encodeURIComponent(location.repo)}/git/trees/${sha}`,
+    githubToken
+  );
+  const value = (await response.json()) as {
+    tree?: unknown;
+    truncated?: unknown;
+  };
+  if (value.truncated === true || !Array.isArray(value.tree)) {
+    throw skillImportError(
+      "organization_skill.github_tree_too_large",
+      "GitHub did not return a complete directory. Select a narrower Skill directory."
+    );
+  }
+  return value.tree as GitHubTreeItem[];
+}
+
+function classifyGitTreeItem(
+  item: GitHubTreeItem,
+  parent: string,
+  selectedDirectory: string
+):
+  | { kind: "directory"; path: string; sha: string }
+  | { kind: "file"; file: GitHubTreeItem }
+  | null {
+  const name = requireTreePath(item);
+  if (!name || name === "." || name === ".." || name.includes("/")) {
+    throw skillImportError(
+      "organization_skill.github_response_invalid",
+      "GitHub returned an invalid repository path."
+    );
+  }
+  const path = parent ? `${parent}/${name}` : name;
+  if (item.type === "blob") {
+    if (selectedDirectory && !path.startsWith(`${selectedDirectory}/`)) {
+      return null;
+    }
+    return { kind: "file", file: { ...item, path } };
+  }
+  if (item.type !== "tree") {
+    return null;
+  }
+  if (
+    selectedDirectory &&
+    path !== selectedDirectory &&
+    !path.startsWith(`${selectedDirectory}/`) &&
+    !selectedDirectory.startsWith(`${path}/`)
+  ) {
+    return null;
+  }
+  if (
+    typeof item.sha !== "string" ||
+    !GITHUB_COMMIT_SHA_PATTERN.test(item.sha)
+  ) {
+    throw skillImportError(
+      "organization_skill.github_response_invalid",
+      "GitHub did not return a tree identity for this directory."
+    );
+  }
+  return { kind: "directory", path, sha: item.sha };
+}
+
 function selectSkillMarkdownPath(
   tree: GitHubTreeItem[],
   requestedPath: string | null
 ): string {
   if (requestedPath !== null) {
-    const candidate =
-      requestedPath === "SKILL.md" || requestedPath.endsWith("/SKILL.md")
-        ? requestedPath
-        : `${requestedPath}/SKILL.md`;
+    let candidate = requestedPath || "SKILL.md";
+    if (
+      requestedPath &&
+      requestedPath !== "SKILL.md" &&
+      !requestedPath.endsWith("/SKILL.md")
+    ) {
+      candidate = `${requestedPath}/SKILL.md`;
+    }
     if (tree.some((item) => item.type === "blob" && item.path === candidate)) {
       return candidate;
     }

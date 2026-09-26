@@ -212,7 +212,9 @@ actual limit where available, and script-execution warnings. Supporting
 resource bytes are stored separately and do not consume the enabled runtime
 catalog budget. Repository discovery has its own bounded response size; the
 number of discoverable Skills does not depend on how many can be enabled at
-once. This is a
+once. When GitHub truncates a recursive tree, Core reads complete subtrees
+within a bounded request budget, including the selected directory in a larger
+repository. This is a
 preflight, not a complete bundle validation or a batch installation: the agent
 must still preview and install each selected directory at the reviewed commit,
 and report every success or failure. No partial batch is presented as complete.
