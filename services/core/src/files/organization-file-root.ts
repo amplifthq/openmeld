@@ -13,6 +13,7 @@ import {
   updateSpaceFileEntryBodySchema,
 } from "@openmeld/schemas";
 import type {
+  FileRoot as AnyFileRoot,
   CommitSpaceFileWriteInput,
   ListSpaceFilesResponse,
   OpenMeldRequestContext,
@@ -117,7 +118,7 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
   async reserveCopy(
     input: RootRequest & {
       clientMutationId: string;
-      sourceRoot: FileRoot;
+      sourceRoot: AnyFileRoot;
       sourceFileId: string;
       sourceRevisionId: string;
       name: string;
@@ -126,7 +127,15 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
   ): Promise<void> {
     await this.authorize(input);
     const requestJson = JSON.stringify({
-      sourceRoot: organizationFileRootName(input.sourceRoot),
+      sourceRoot:
+        input.sourceRoot.kind === "space"
+          ? JSON.stringify([
+              "files",
+              "space",
+              input.sourceRoot.organizationId,
+              input.sourceRoot.spaceId,
+            ])
+          : organizationFileRootName(input.sourceRoot),
       sourceFileId: input.sourceFileId,
       sourceRevisionId: input.sourceRevisionId,
       name: input.name,

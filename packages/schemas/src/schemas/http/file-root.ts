@@ -45,14 +45,28 @@ export const fileRootFileResponseSchema = z.strictObject({
 });
 
 /** Copy one immutable revision into a new Team or member-owned file. */
-export const copyFileRootRevisionBodySchema = z.strictObject({
-  sourceLocation: z.enum(["team", "my"]),
+const copyRevisionFields = {
   sourceFileId: spaceFileEntryIdSchema,
   sourceRevision: spaceFileRevisionNumberSchema,
   name: spaceFileNameSchema,
   parentId: spaceFileEntryIdSchema.nullable(),
   clientMutationId: spaceFileClientMutationIdSchema,
-});
+};
+
+export const copyFileRootRevisionBodySchema = z.discriminatedUnion(
+  "sourceLocation",
+  [
+    z.strictObject({
+      ...copyRevisionFields,
+      sourceLocation: z.enum(["team", "my"]),
+    }),
+    z.strictObject({
+      ...copyRevisionFields,
+      sourceLocation: z.literal("space"),
+      sourceSpaceId: z.string().regex(/^[a-f0-9]{64}$/u),
+    }),
+  ]
+);
 
 export const copyFileRootRevisionResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,

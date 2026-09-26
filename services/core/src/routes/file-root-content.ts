@@ -16,10 +16,18 @@ import {
   spaceFileUploadCommandSchema,
   updateSpaceFileContentQuerySchema,
 } from "@openmeld/schemas";
+import type {
+  CopyFileRootRevisionBody,
+  FileRoot,
+  SpaceFileRevision,
+} from "@openmeld/schemas/types";
+import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import type { Context, Hono } from "hono";
 import { buildOrganizationFileObjectKey } from "../files/file-root-identity";
 import type { HonoBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import { rpcStreamSpaceFileContent } from "../rpc/methods";
+import { resolveSpaceStub } from "../rpc/space-ref";
 import { hashSpaceFileStream } from "../space/application/space-file-stream";
 import {
   resolveFileRootTarget,
@@ -53,37 +61,23 @@ async function copyRevision(c: Context<HonoBindings>): Promise<Response> {
   if (!body.success) {
     return invalid(c);
   }
-  const source = resolveFileRootTarget(c, body.data.sourceLocation);
-  if (source instanceof Response) {
-    return source;
-  }
   try {
-    const resolved = await source.stub.resolveRevision({
-      ...rootRequest(source),
-      fileId: body.data.sourceFileId,
-      revision: body.data.sourceRevision,
-    });
     const bucket = c.env.OPENMELD_SPACE_ATTACHMENTS;
     if (!bucket) {
       throw storageUnavailable();
     }
-    const sourceKey = buildOrganizationFileObjectKey({
-      root: source.root,
-      fileId: body.data.sourceFileId,
-      revisionId: resolved.revision.id,
-    });
-    const sourceObject = await bucket.get(sourceKey);
-    if (!sourceObject || sourceObject.size !== resolved.revision.sizeBytes) {
-      throw storageUnavailable();
+    const source = await openCopySource(c, body.data, bucket);
+    if (source instanceof Response) {
+      return source;
     }
-    const digest = await hashSpaceFileStream(sourceObject.body);
+    const digest = await hashSpaceFileStream(source.bytes);
     const [fileId, revisionId] = await Promise.all([
       buildSpaceFileEntryIdForMutation(body.data.clientMutationId),
       buildSpaceFileRevisionIdFromDigest({
         baseRevision: null,
         contentDigest: digest,
         clientMutationId: body.data.clientMutationId,
-        mimeType: resolved.revision.mimeType,
+        mimeType: source.revision.mimeType,
         name: body.data.name,
         parentId: body.data.parentId,
       }),
@@ -96,58 +90,39 @@ async function copyRevision(c: Context<HonoBindings>): Promise<Response> {
       parentId: body.data.parentId,
       baseRevision: null,
       clientMutationId: body.data.clientMutationId,
-      mimeType: resolved.revision.mimeType,
-      sizeBytes: resolved.revision.sizeBytes,
+      mimeType: source.revision.mimeType,
+      sizeBytes: source.revision.sizeBytes,
     });
     await destination.stub.reserveCopy({
       ...rootRequest(destination),
       clientMutationId: body.data.clientMutationId,
       sourceRoot: source.root,
       sourceFileId: body.data.sourceFileId,
-      sourceRevisionId: resolved.revision.id,
+      sourceRevisionId: source.revision.id,
       name: body.data.name,
       parentId: body.data.parentId,
     });
-    await source.stub.recordContentAudit({
-      ...rootRequest(source),
-      entryId: body.data.sourceFileId,
-      revisionId: resolved.revision.id,
-      operation: "content_read",
-      operationId: body.data.clientMutationId,
-    });
+    await source.recordAudit();
     let file = await destination.stub.prepareWrite({
       ...rootRequest(destination),
       write,
     });
     if (!file) {
-      const bytes = await bucket.get(sourceKey);
-      if (!bytes || bytes.size !== resolved.revision.sizeBytes) {
-        throw storageUnavailable();
-      }
-      // A copy keeps its source revision identity and destination audience explicit.
-      await source.stub.resolveRevision({
-        ...rootRequest(source),
-        fileId: body.data.sourceFileId,
-        revision: body.data.sourceRevision,
-      });
+      const bytes = await source.reopen();
       const destinationKey = buildOrganizationFileObjectKey({
         root: destination.root,
         fileId,
         revisionId,
       });
-      await bucket.put(destinationKey, bytes.body, {
-        httpMetadata: { contentType: resolved.revision.mimeType },
+      await bucket.put(destinationKey, bytes, {
+        httpMetadata: { contentType: source.revision.mimeType },
         customMetadata: {
-          sourceRoot: body.data.sourceLocation,
+          sourceRoot: JSON.stringify(source.root),
           sourceFileId: body.data.sourceFileId,
-          sourceRevisionId: resolved.revision.id,
+          sourceRevisionId: source.revision.id,
         },
       });
-      await source.stub.resolveRevision({
-        ...rootRequest(source),
-        fileId: body.data.sourceFileId,
-        revision: body.data.sourceRevision,
-      });
+      await source.recheckAccess();
       file = await destination.stub.commitWrite({
         ...rootRequest(destination),
         write,
@@ -160,7 +135,7 @@ async function copyRevision(c: Context<HonoBindings>): Promise<Response> {
           root: source.root,
           fileId: body.data.sourceFileId,
           revision: body.data.sourceRevision,
-          revisionId: resolved.revision.id,
+          revisionId: source.revision.id,
         },
       }),
       201
@@ -168,6 +143,138 @@ async function copyRevision(c: Context<HonoBindings>): Promise<Response> {
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
+}
+
+async function openCopySource(
+  c: Context<HonoBindings>,
+  body: CopyFileRootRevisionBody,
+  bucket: R2Bucket
+): Promise<
+  | Response
+  | {
+      root: FileRoot;
+      revision: SpaceFileRevision;
+      bytes: ReadableStream<Uint8Array>;
+      reopen: () => Promise<ReadableStream<Uint8Array>>;
+      recheckAccess: () => Promise<void>;
+      recordAudit: () => Promise<void>;
+    }
+> {
+  if (body.sourceLocation === "space") {
+    const spaceId = body.sourceSpaceId;
+    const stub = resolveSpaceStub(c.env.OPENMELD_SPACES, spaceId);
+    if (!stub) {
+      return c.json(
+        { error: { code: "space.not_found", message: "Space not found." } },
+        404
+      );
+    }
+    const spaceAccess = createAuthenticatedSpaceAccessContext({
+      spaceId,
+      requestContext: c.var.openMeldRequestContext,
+      password: c.var.spacePassword,
+    });
+    const read = () =>
+      rpcStreamSpaceFileContent(c.env, {
+        spaceId,
+        spaceAccess,
+        content: {
+          spaceId,
+          fileId: body.sourceFileId,
+          revision: body.sourceRevision,
+        },
+      });
+    const first = await read();
+    const organizationId = c.var.openMeldRequestContext.activeOrganizationId;
+    if (!organizationId || first.organizationId !== organizationId) {
+      await first.bytes.cancel();
+      throw createCoreRpcHttpError({
+        code: "space.not_found",
+        reason: "Space not found.",
+        status: 404,
+      });
+    }
+    const reopen = async () => {
+      const current = await read();
+      if (
+        current.organizationId !== organizationId ||
+        current.revision.id !== first.revision.id
+      ) {
+        await current.bytes.cancel();
+        throw storageUnavailable();
+      }
+      return current.bytes;
+    };
+    return {
+      root: { kind: "space", organizationId, spaceId },
+      revision: first.revision,
+      bytes: first.bytes,
+      reopen,
+      recheckAccess: async () => {
+        const current = await stub.rpcResolveSpaceFileContent({
+          spaceAccess,
+          content: {
+            spaceId,
+            fileId: body.sourceFileId,
+            revision: body.sourceRevision,
+          },
+        });
+        if (
+          current.organizationId !== organizationId ||
+          current.revision.id !== first.revision.id
+        ) {
+          throw storageUnavailable();
+        }
+      },
+      recordAudit: async () => undefined,
+    };
+  }
+  const target = resolveFileRootTarget(c, body.sourceLocation);
+  if (target instanceof Response) {
+    return target;
+  }
+  const resolved = await target.stub.resolveRevision({
+    ...rootRequest(target),
+    fileId: body.sourceFileId,
+    revision: body.sourceRevision,
+  });
+  const key = buildOrganizationFileObjectKey({
+    root: target.root,
+    fileId: body.sourceFileId,
+    revisionId: resolved.revision.id,
+  });
+  const getBytes = async () => {
+    const object = await bucket.get(key);
+    if (!object || object.size !== resolved.revision.sizeBytes) {
+      throw storageUnavailable();
+    }
+    return object.body;
+  };
+  const recheckAccess = async () => {
+    await target.stub.resolveRevision({
+      ...rootRequest(target),
+      fileId: body.sourceFileId,
+      revision: body.sourceRevision,
+    });
+  };
+  return {
+    root: target.root,
+    revision: resolved.revision,
+    bytes: await getBytes(),
+    reopen: async () => {
+      await recheckAccess();
+      return getBytes();
+    },
+    recheckAccess,
+    recordAudit: () =>
+      target.stub.recordContentAudit({
+        ...rootRequest(target),
+        entryId: body.sourceFileId,
+        revisionId: resolved.revision.id,
+        operation: "content_read",
+        operationId: body.clientMutationId,
+      }),
+  };
 }
 
 async function multipartUpload(c: Context<HonoBindings>): Promise<Response> {

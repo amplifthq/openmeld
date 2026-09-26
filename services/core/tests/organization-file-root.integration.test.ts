@@ -4,6 +4,8 @@ import {
   OPENMELD_EXPECTED_FORWARDED_BY,
 } from "@openmeld/gateway-contract";
 import {
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileRevisionIdFromDigest,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   SPACE_FILE_UPLOAD_PART_BYTES,
   spaceFileUploadIdForMutation,
@@ -12,6 +14,9 @@ import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { organizationFileRootName } from "../src/files/file-root-identity";
 import type { OrganizationFileRoot } from "../src/files/organization-file-root";
+import type { CoreBindings } from "../src/lib/bindings";
+import { rpcWriteSpaceFileContent } from "../src/rpc/methods";
+import { hashSpaceFileStream } from "../src/space/application/space-file-stream";
 
 const FORBIDDEN_RPC_ERROR = /HTTP 403/u;
 
@@ -87,6 +92,102 @@ async function fixture() {
 }
 
 describe("Team and member Files roots", () => {
+  it("copies an authorized Space revision into Team Files without granting other members access to its source", async () => {
+    const { organizationId, contexts } = await fixture();
+    const headersFor = (context: OpenMeldRequestContext) => {
+      const headers = new Headers({ "content-type": "application/json" });
+      applyOpenMeldRequestContextHeaders(
+        headers,
+        { requestContext: context },
+        OPENMELD_EXPECTED_FORWARDED_BY
+      );
+      return headers;
+    };
+    const created = await SELF.fetch("http://localhost/v1/spaces", {
+      method: "POST",
+      headers: headersFor(contexts[0]),
+      body: JSON.stringify({
+        name: "Source Space",
+        visibility: "private",
+        accessMode: "public",
+      }),
+    });
+    expect(created.status).toBe(200);
+    const { spaceId } = (await created.json()) as { spaceId: string };
+    const bytes = new TextEncoder().encode("Space source revision");
+    const clientMutationId = crypto.randomUUID();
+    const fileId = await buildSpaceFileEntryIdForMutation(clientMutationId);
+    const digest = await hashSpaceFileStream(new Blob([bytes]).stream());
+    const revisionId = await buildSpaceFileRevisionIdFromDigest({
+      baseRevision: null,
+      contentDigest: digest,
+      clientMutationId,
+      mimeType: "text/plain",
+      name: "space-notes.txt",
+      parentId: null,
+    });
+    await rpcWriteSpaceFileContent(env as CoreBindings, {
+      context: contexts[0],
+      spaceId,
+      bytes: bytes.buffer as ArrayBuffer,
+      write: {
+        spaceId,
+        fileId,
+        revisionId,
+        name: "space-notes.txt",
+        parentId: null,
+        baseRevision: null,
+        clientMutationId,
+        mimeType: "text/plain",
+        sizeBytes: bytes.byteLength,
+      },
+    });
+    const copyBody = {
+      sourceLocation: "space",
+      sourceSpaceId: spaceId,
+      sourceFileId: fileId,
+      sourceRevision: 1,
+      name: "copied-space-notes.txt",
+      parentId: null,
+      clientMutationId: crypto.randomUUID(),
+    };
+    const copy = (context: OpenMeldRequestContext) =>
+      SELF.fetch(
+        "http://localhost/v1/organizations/current/files/team/copies",
+        {
+          method: "POST",
+          headers: headersFor(context),
+          body: JSON.stringify(copyBody),
+        }
+      );
+    const otherOrganization = await fixture();
+    expect([403, 404]).toContain(
+      (await copy(otherOrganization.contexts[0])).status
+    );
+    const first = await copy(contexts[0]);
+    expect(first.status).toBe(201);
+    const result = (await first.json()) as {
+      file: { id: string; root: unknown };
+      source: { root: unknown; revisionId: string };
+    };
+    expect(result.source).toMatchObject({
+      root: { kind: "space", organizationId, spaceId },
+      revisionId,
+    });
+    expect(result.file.root).toEqual({ kind: "team", organizationId });
+    const retry = await copy(contexts[0]);
+    expect(retry.status).toBe(201);
+    expect(((await retry.json()) as typeof result).file.id).toBe(
+      result.file.id
+    );
+    const sharedRead = await SELF.fetch(
+      `http://localhost/v1/organizations/current/files/team/${result.file.id}/content`,
+      { headers: headersFor(contexts[1]) }
+    );
+    expect(sharedRead.status).toBe(200);
+    expect(await sharedRead.text()).toBe("Space source revision");
+  });
+
   it("copies an exact private revision to Team Files without changing its source or retry target", async () => {
     const { organizationId, contexts } = await fixture();
     const headersFor = (context: OpenMeldRequestContext) => {

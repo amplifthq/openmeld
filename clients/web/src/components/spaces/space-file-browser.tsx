@@ -4,6 +4,7 @@ import type { SpaceApi } from "@openmeld/api-client";
 import { isSpaceFileTextEditable } from "@openmeld/schemas";
 import type {
 	SpaceFileBreadcrumb,
+	SpaceFileDescriptor,
 	SpaceFileEntry,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
@@ -31,6 +32,7 @@ import {
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
 	ChatCircleIcon,
+	CopyIcon,
 	DotsThreeIcon,
 	FileIcon,
 	FileTextIcon,
@@ -85,6 +87,7 @@ export function SpaceFileBrowser(input: {
 	loaded: boolean;
 	onDismissError: () => void;
 	onMove: (entry: SpaceFileEntry) => void;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	onNewFolder: () => void;
 	onHandOff?: () => void;
 	onNewMarkdownFile: () => void;
@@ -222,6 +225,7 @@ export function SpaceFileBrowser(input: {
 			entries={input.entries}
 			error={input.error}
 			isPending={input.isPending}
+			onCopy={input.onCopy}
 			onMove={input.onMove}
 			onNewFolder={input.onNewFolder}
 			onNewMarkdownFile={input.onNewMarkdownFile}
@@ -353,6 +357,7 @@ function SpaceFileBrowserContent(input: {
 	isPending: boolean;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onMove: (entry: SpaceFileEntry) => void;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	onNewFolder: () => void;
 	onNewMarkdownFile: () => void;
 	onRename: (entry: SpaceFileEntry) => void;
@@ -507,6 +512,7 @@ function SpaceFileBrowserContent(input: {
 							<SpaceFileContextActions
 								canWrite={input.canWrite}
 								entry={selectedEntry}
+								onCopy={input.onCopy}
 								onMove={() => input.onMove(selectedEntry)}
 								onOpen={() => input.onOpen(selectedEntry)}
 								onRename={() => input.onRename(selectedEntry)}
@@ -749,6 +755,7 @@ function isFileDrag(event: DragEvent<HTMLElement>): boolean {
 function SpaceFileContextActions(input: {
 	canWrite: boolean;
 	entry: SpaceFileEntry;
+	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	onMove: () => void;
 	onOpen: () => void;
 	onRename: () => void;
@@ -757,9 +764,23 @@ function SpaceFileContextActions(input: {
 	const pin = useSpaceFilePinAction(
 		input.entry.kind === "file" ? input.entry.id : undefined
 	);
+	const file = input.entry.kind === "file" ? input.entry : null;
 	return (
 		<>
 			<ContextMenuItem onClick={input.onOpen}>Open</ContextMenuItem>
+			{file && input.onCopy ? (
+				<>
+					<ContextMenuSeparator />
+					<ContextMenuItem onClick={() => input.onCopy?.(file, "team")}>
+						<CopyIcon aria-hidden="true" />
+						Copy to Team files…
+					</ContextMenuItem>
+					<ContextMenuItem onClick={() => input.onCopy?.(file, "my")}>
+						<CopyIcon aria-hidden="true" />
+						Copy to My files…
+					</ContextMenuItem>
+				</>
+			) : null}
 			{input.canWrite ? (
 				<>
 					{pin ? (
