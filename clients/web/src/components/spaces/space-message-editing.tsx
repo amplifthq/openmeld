@@ -28,7 +28,6 @@ import {
 	projectMessageMutations,
 } from "#/lib/spaces/message-mutation-presentation";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
-import { writeSpaceHistoryEnvelopesToCache } from "#/query/spaces/history";
 import type { SpaceMentionPickerItem } from "./use-space-mention-authoring";
 
 type Message = SpaceMessageMutationResponse["message"];
@@ -84,7 +83,6 @@ export function SpaceMessageEditingScope(input: {
 	readOnly?: boolean;
 	hasDraft: boolean;
 	draftKey: string;
-	threadRootSignalId?: string;
 	onRestore: (
 		message: Message,
 		canReplaceDraft: () => boolean
@@ -137,14 +135,8 @@ export function SpaceMessageEditingScope(input: {
 		}
 	}
 	async function refresh(message: Message) {
-		if (!input.threadRootSignalId || message.id === input.threadRootSignalId) {
-			writeSpaceHistoryEnvelopesToCache({
-				envelopes: [message],
-				queryClient: client,
-				spaceId: message.spaceId,
-				openMeldProfileId: input.selfProfileId,
-			});
-		}
+		// The accepted edit remains in the optimistic projection while the
+		// owning history and thread queries refresh from the server.
 		await client.invalidateQueries({
 			predicate: (query) => query.queryKey.includes(message.spaceId),
 		});
