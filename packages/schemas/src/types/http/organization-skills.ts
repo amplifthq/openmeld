@@ -93,6 +93,12 @@ export type OrganizationSkillGitHubRepositoryPreview = z.infer<
 export type PreviewOrganizationSkillFromGitHubResponse = z.infer<
   Schemas["previewOrganizationSkillFromGitHubResponseSchema"]
 >;
+export type PreviewOrganizationSkillRepositoryBody = z.infer<
+  Schemas["previewOrganizationSkillRepositoryBodySchema"]
+>;
+export type PreviewOrganizationSkillRepositoryResponse = z.infer<
+  Schemas["previewOrganizationSkillRepositoryResponseSchema"]
+>;
 export type CenterAgentReadOrganizationSkillsRpcInput = z.infer<
   Schemas["centerAgentReadOrganizationSkillsRpcInputSchema"]
 >;
@@ -152,6 +158,9 @@ export type PreviewOrganizationSkillFromFilesRpcInput = z.infer<
 >;
 export type PreviewOrganizationSkillFromGitHubRpcInput = z.infer<
   Schemas["previewOrganizationSkillFromGitHubRpcInputSchema"]
+>;
+export type PreviewOrganizationSkillRepositoryRpcInput = z.infer<
+  Schemas["previewOrganizationSkillRepositoryRpcInputSchema"]
 >;
 export type ReadOrganizationSkillRuntimeSnapshotRpcInput = z.infer<
   Schemas["readOrganizationSkillRuntimeSnapshotRpcInputSchema"]

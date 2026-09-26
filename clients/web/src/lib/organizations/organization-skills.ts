@@ -16,6 +16,8 @@ import type {
 	ListOrganizationSkillsResponse,
 	PreviewOrganizationSkillFromGitHubBody,
 	PreviewOrganizationSkillFromGitHubResponse,
+	PreviewOrganizationSkillRepositoryBody,
+	PreviewOrganizationSkillRepositoryResponse,
 	SetOrganizationSkillEnabledBody,
 	SetOrganizationSkillEnabledResponse,
 	SetOrganizationSkillMaintainersBody,
@@ -96,6 +98,16 @@ export async function previewCurrentOrganizationSkillFromGitHub(
 ): Promise<PreviewOrganizationSkillFromGitHubResponse> {
 	const response = await runMutation(input.expectedOrganizationId, (api) =>
 		api.previewFromGitHub(input)
+	);
+	assertOrganizationId(response.organizationId, input.expectedOrganizationId);
+	return response;
+}
+
+export async function previewCurrentOrganizationSkillRepository(
+	input: OrganizationSkillRequestInput & PreviewOrganizationSkillRepositoryBody
+): Promise<PreviewOrganizationSkillRepositoryResponse> {
+	const response = await runMutation(input.expectedOrganizationId, (api) =>
+		api.previewRepositoryFromGitHub(input)
 	);
 	assertOrganizationId(response.organizationId, input.expectedOrganizationId);
 	return response;

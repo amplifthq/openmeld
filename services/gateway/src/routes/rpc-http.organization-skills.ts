@@ -15,6 +15,8 @@ import {
   previewOrganizationSkillFromFilesResponseSchema,
   previewOrganizationSkillFromGitHubBodySchema,
   previewOrganizationSkillFromGitHubResponseSchema,
+  previewOrganizationSkillRepositoryBodySchema,
+  previewOrganizationSkillRepositoryResponseSchema,
   setOrganizationSkillEnabledBodySchema,
   setOrganizationSkillEnabledResponseSchema,
   setOrganizationSkillMaintainersBodySchema,
@@ -40,6 +42,7 @@ const SKILL_MAINTAINERS_ROUTE = `${SKILL_ROUTE}/maintainers`;
 const SKILL_GITHUB_IMPORT_ROUTE = `${SKILLS_ROUTE}/import-github`;
 const SKILL_FILES_IMPORT_ROUTE = `${SKILLS_ROUTE}/import-files`;
 const SKILL_GITHUB_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-github`;
+const SKILL_REPOSITORY_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-github-repository`;
 const SKILL_FILES_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-files`;
 
 export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
@@ -175,6 +178,29 @@ export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
       method: "POST",
       responseSchema: previewOrganizationSkillFromGitHubResponseSchema,
       route: SKILL_GITHUB_PREVIEW_ROUTE,
+    });
+  });
+
+  app.post(SKILL_REPOSITORY_PREVIEW_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      SKILL_REPOSITORY_PREVIEW_ROUTE,
+      "POST",
+      previewOrganizationSkillRepositoryBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.previewOrganizationSkillRepository({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: previewOrganizationSkillRepositoryResponseSchema,
+      route: SKILL_REPOSITORY_PREVIEW_ROUTE,
     });
   });
 

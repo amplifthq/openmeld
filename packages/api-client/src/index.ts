@@ -256,6 +256,7 @@ export {
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
+  buildOrganizationSkillRepositoryPreviewPath,
   buildOrganizationSkillsPath,
 } from "./organization-skills/routes";
 export type {

@@ -7,6 +7,7 @@ import {
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
+  buildOrganizationSkillRepositoryPreviewPath,
   buildOrganizationSkillsPath,
   createOpenMeldApiClient,
   createOrganizationSkillsApi,
@@ -58,6 +59,47 @@ const {
 } = SKILL;
 
 describe("api-client Organization Skills API", () => {
+  it("previews a repository catalog through the shared Organization Skill API", async () => {
+    const preview = {
+      catalogLimitBytes: 1024,
+      commitSha: "b".repeat(40),
+      repository: "https://github.com/openmeld/example",
+      skills: [
+        {
+          blocker: null,
+          fileCount: 1,
+          path: "support-risk-review",
+          totalBytes: 42,
+          url: `https://github.com/openmeld/example/tree/${"b".repeat(40)}/support-risk-review`,
+          warnings: [],
+        },
+      ],
+      totalDeclaredBytes: 42,
+      warnings: [],
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(async () =>
+      jsonResponse({ organizationId: ORGANIZATION_ID, preview })
+    );
+    const api = createOrganizationSkillsApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect(
+      await api.previewRepositoryFromGitHub({
+        expectedOrganizationId: ORGANIZATION_ID,
+        url: "https://github.com/openmeld/example",
+      })
+    ).toEqual({ organizationId: ORGANIZATION_ID, preview });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "organization_skill.preview_github_repository",
+        url: `https://gateway.openmeld.invalid${buildOrganizationSkillRepositoryPreviewPath()}`,
+        init: expect.objectContaining({ method: "POST" }),
+      })
+    );
+  });
   it("builds encoded Organization Skill routes", () => {
     expect(buildOrganizationSkillsPath()).toBe(
       "/v1/organizations/current/skills"
@@ -76,6 +118,9 @@ describe("api-client Organization Skills API", () => {
     );
     expect(buildOrganizationSkillGitHubPreviewPath()).toBe(
       "/v1/organizations/current/skills/preview-github"
+    );
+    expect(buildOrganizationSkillRepositoryPreviewPath()).toBe(
+      "/v1/organizations/current/skills/preview-github-repository"
     );
     expect(buildOrganizationSkillEnabledPath(SKILL_ID)).toBe(
       "/v1/organizations/current/skills/skill%2Fwith%20spaces/enabled"

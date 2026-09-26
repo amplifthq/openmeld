@@ -14,6 +14,8 @@ import {
   previewOrganizationSkillFromFilesResponseSchema,
   previewOrganizationSkillFromGitHubBodySchema,
   previewOrganizationSkillFromGitHubResponseSchema,
+  previewOrganizationSkillRepositoryBodySchema,
+  previewOrganizationSkillRepositoryResponseSchema,
   setOrganizationSkillEnabledBodySchema,
   setOrganizationSkillEnabledResponseSchema,
   setOrganizationSkillMaintainersBodySchema,
@@ -30,6 +32,7 @@ import {
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
+  buildOrganizationSkillRepositoryPreviewPath,
   buildOrganizationSkillsPath,
 } from "./routes";
 import type {
@@ -161,6 +164,26 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       operation: "organization_skill.preview_github",
       schema: previewOrganizationSkillFromGitHubResponseSchema,
       url: buildOrganizationSkillGitHubPreviewPath(),
+    });
+  },
+  previewRepositoryFromGitHub: async (input) => {
+    const body = requireValidInput(
+      previewOrganizationSkillRepositoryBodySchema,
+      {
+        expectedOrganizationId: input.expectedOrganizationId,
+        url: input.url,
+      },
+      "Organization Skill repository preview request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Organization Skill repository preview response",
+      method: "POST",
+      operation: "organization_skill.preview_github_repository",
+      schema: previewOrganizationSkillRepositoryResponseSchema,
+      url: buildOrganizationSkillRepositoryPreviewPath(),
     });
   },
   update: async (input) => {

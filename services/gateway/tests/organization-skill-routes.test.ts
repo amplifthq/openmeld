@@ -51,6 +51,23 @@ const GITHUB_PREVIEW = {
   },
   warnings: [],
 };
+const REPOSITORY_PREVIEW = {
+  catalogLimitBytes: 1024,
+  commitSha: "b".repeat(40),
+  repository: "https://github.com/acme/skills",
+  skills: [
+    {
+      blocker: null,
+      fileCount: 1,
+      path: "release-review",
+      totalBytes: 106,
+      url: `https://github.com/acme/skills/tree/${"b".repeat(40)}/release-review`,
+      warnings: [],
+    },
+  ],
+  totalDeclaredBytes: 106,
+  warnings: [],
+};
 
 const TEST_EXECUTION_CONTEXT = {
   exports: {},
@@ -127,6 +144,18 @@ describe("Organization Skill routes", () => {
       ),
       app.fetch(
         jsonRequest(
+          "http://local/v1/organizations/current/skills/preview-github-repository",
+          "POST",
+          {
+            expectedOrganizationId: "org-1",
+            url: "https://github.com/acme/skills",
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      ),
+      app.fetch(
+        jsonRequest(
           "http://local/v1/organizations/current/skills/preview-files",
           "POST",
           {
@@ -185,7 +214,7 @@ describe("Organization Skill routes", () => {
     ]);
 
     expect(responses.map((response) => response.status)).toEqual([
-      200, 200, 201, 201, 201, 200, 200, 200, 200, 200, 200,
+      200, 200, 201, 201, 201, 200, 200, 200, 200, 200, 200, 200,
     ]);
     expect(coreRpc.listOrganizationSkills).toHaveBeenCalledWith({
       context: expect.objectContaining({ activeOrganizationId: "org-1" }),
@@ -215,6 +244,12 @@ describe("Organization Skill routes", () => {
       expect.objectContaining({
         expectedOrganizationId: "org-1",
         url: "https://github.com/acme/skills/tree/main/release-review",
+      })
+    );
+    expect(coreRpc.previewOrganizationSkillRepository).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        url: "https://github.com/acme/skills",
       })
     );
     expect(coreRpc.previewOrganizationSkillFromFiles).toHaveBeenCalledWith(
@@ -310,6 +345,10 @@ function makeEnv() {
     previewOrganizationSkillFromGitHub: vi.fn(async () => ({
       organizationId: "org-1",
       preview: GITHUB_PREVIEW,
+    })),
+    previewOrganizationSkillRepository: vi.fn(async () => ({
+      organizationId: "org-1",
+      preview: REPOSITORY_PREVIEW,
     })),
     previewOrganizationSkillFromFiles: vi.fn(async () => ({
       organizationId: "org-1",

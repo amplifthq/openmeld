@@ -29,6 +29,8 @@ import {
 import { OrganizationSkillsListPage } from "./organization-skills-list-page";
 
 const ORGANIZATION_COPY_PATTERN = /Organization/;
+const REVIEW_SKILL_PATTERN = /release-review/;
+const HUGE_SKILL_PATTERN = /huge-skill/;
 
 const {
 	currentOrganizationMock,
@@ -36,6 +38,7 @@ const {
 	importCurrentOrganizationSkillFromGitHubMock,
 	listCurrentOrganizationSkillsMock,
 	previewCurrentOrganizationSkillFromGitHubMock,
+	previewCurrentOrganizationSkillRepositoryMock,
 } = vi.hoisted(() => ({
 	currentOrganizationMock: {
 		id: "org-acme",
@@ -47,6 +50,7 @@ const {
 	importCurrentOrganizationSkillFromGitHubMock: vi.fn(),
 	listCurrentOrganizationSkillsMock: vi.fn(),
 	previewCurrentOrganizationSkillFromGitHubMock: vi.fn(),
+	previewCurrentOrganizationSkillRepositoryMock: vi.fn(),
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
@@ -76,6 +80,8 @@ vi.mock("#/lib/organizations/organization-skills", async (importOriginal) => {
 		listCurrentOrganizationSkills: listCurrentOrganizationSkillsMock,
 		previewCurrentOrganizationSkillFromGitHub:
 			previewCurrentOrganizationSkillFromGitHubMock,
+		previewCurrentOrganizationSkillRepository:
+			previewCurrentOrganizationSkillRepositoryMock,
 	};
 });
 
@@ -95,6 +101,7 @@ beforeEach(() => {
 	listCurrentOrganizationSkillsMock.mockReset();
 	createCurrentOrganizationSkillMock.mockReset();
 	previewCurrentOrganizationSkillFromGitHubMock.mockReset();
+	previewCurrentOrganizationSkillRepositoryMock.mockReset();
 	importCurrentOrganizationSkillFromGitHubMock.mockReset();
 });
 
@@ -555,6 +562,75 @@ describe("Skill add flow protection", () => {
 				organizationSkillQueryKeys.detail("org-acme", "new-method")
 			)
 		).toEqual({ skill: saved });
+	});
+
+	it("lets a manager choose a Skill from a multi-Skill repository without installing blocked entries", async () => {
+		const commitSha = "a".repeat(40);
+		const selectedUrl = `https://github.com/acme/skills/tree/${commitSha}/release-review`;
+		previewCurrentOrganizationSkillFromGitHubMock
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Select a Skill"), {
+					upstreamCode: "organization_skill.github_selection_required",
+				})
+			)
+			.mockResolvedValueOnce({
+				organizationId: "org-acme",
+				preview: previewFixture("release-review", "a"),
+			});
+		previewCurrentOrganizationSkillRepositoryMock.mockResolvedValue({
+			organizationId: "org-acme",
+			preview: {
+				catalogLimitBytes: 1024,
+				commitSha,
+				repository: "https://github.com/acme/skills",
+				totalDeclaredBytes: 30,
+				warnings: [],
+				skills: [
+					{
+						blocker: null,
+						fileCount: 1,
+						path: "release-review",
+						totalBytes: 10,
+						url: selectedUrl,
+						warnings: [],
+					},
+					{
+						blocker: { code: "too_large", message: "This Skill is too large." },
+						fileCount: 2,
+						path: "huge-skill",
+						totalBytes: 20,
+						url: `https://github.com/acme/skills/tree/${commitSha}/huge-skill`,
+						warnings: [],
+					},
+				],
+			},
+		});
+		const { router } = renderPage();
+		await openAddAction("Install from GitHub");
+		fireEvent.change(screen.getByLabelText("GitHub URL"), {
+			target: { value: "https://github.com/acme/skills" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Review skill" }));
+		await waitFor(() =>
+			expect(
+				previewCurrentOrganizationSkillRepositoryMock
+			).toHaveBeenCalledTimes(1)
+		);
+		const selected = await screen.findByRole("button", {
+			name: REVIEW_SKILL_PATTERN,
+		});
+		expect(
+			screen.getByRole("button", { name: HUGE_SKILL_PATTERN })
+		).toHaveProperty("disabled", true);
+		fireEvent.click(selected);
+		await screen.findByRole("button", { name: "Install skill" });
+		expect(
+			previewCurrentOrganizationSkillFromGitHubMock
+		).toHaveBeenLastCalledWith({
+			expectedOrganizationId: "org-acme",
+			url: selectedUrl,
+		});
+		expect(router.state.location.pathname).toBe("/o/acme/skills");
 	});
 
 	it("keeps only the preview for the latest URL and preserves a failed installation for retry", async () => {

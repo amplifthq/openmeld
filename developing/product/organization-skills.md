@@ -205,8 +205,9 @@ Skill, client response, or model-visible context. Import:
 An ambiguous repository containing multiple Skills requires an exact user
 selection. OpenMeld does not guess the intended directory.
 
-For a multi-Skill repository, Center Agent can request a bounded, metadata-only
-repository preview. It lists each Skill directory at one resolved commit, its
+For a multi-Skill repository, Center Agent, Web, and an authenticated Local Agent
+client can request the same bounded, metadata-only repository preview. It lists
+each Skill directory at one resolved commit, its
 declared file count and bytes, policy blockers with the offending path and
 actual limit where available, and script-execution warnings. Supporting
 resource bytes are stored separately and do not consume the enabled runtime
@@ -215,7 +216,7 @@ number of discoverable Skills does not depend on how many can be enabled at
 once. When GitHub truncates a recursive tree, Core reads complete subtrees
 within a bounded request budget, including the selected directory in a larger
 repository. This is a
-preflight, not a complete bundle validation or a batch installation: the agent
+preflight, not a complete bundle validation or a batch installation: the caller
 must still preview and install each selected directory at the reviewed commit,
 and report every success or failure. No partial batch is presented as complete.
 New Center Agent installations use an explicit reported import action so the
@@ -395,7 +396,9 @@ use the shared discard confirmation. It intentionally offers no Save-and-leave
 that would silently create or install a resource. Pending writes cannot be
 accidentally dismissed or submitted twice; errors keep the entered content.
 
-GitHub installation has two steps: a URL, then a compact source review showing
+GitHub installation accepts a URL. If it resolves to multiple Skills, Web shows
+the candidates and disables entries with declared file or size blockers. The
+user selects one candidate before its complete source review. The review shows
 name, purpose, repository/path, exact short commit and file count. Real warnings
 remain visible before **Install skill**. License, full commit and file manifest
 are available under Technical details. Back retains the URL. A preview is bound

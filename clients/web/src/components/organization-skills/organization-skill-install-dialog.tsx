@@ -1,6 +1,8 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	OrganizationSkill,
 	OrganizationSkillGitHubPreview,
+	OrganizationSkillGitHubRepositoryPreview,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { DialogClose, DialogFooter } from "@openmeld/ui/components/dialog";
@@ -11,12 +13,21 @@ import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import {
 	importCurrentOrganizationSkillFromGitHub,
 	previewCurrentOrganizationSkillFromGitHub,
+	previewCurrentOrganizationSkillRepository,
 	resolveOrganizationSkillErrorMessage,
 } from "#/lib/organizations/organization-skills";
 import { OrganizationSkillFlowDialog } from "./organization-skill-flow-dialog";
 import { GitHubSkillPreview } from "./organization-skill-import-preview";
 
-type BoundPreview = { url: string; preview: OrganizationSkillGitHubPreview };
+type BoundPreview = {
+	rootUrl: string;
+	url: string;
+	preview: OrganizationSkillGitHubPreview;
+};
+type BoundCatalog = {
+	rootUrl: string;
+	preview: OrganizationSkillGitHubRepositoryPreview;
+};
 
 export function InstallSkillDialog(input: {
 	organizationId: string;
@@ -26,6 +37,7 @@ export function InstallSkillDialog(input: {
 }) {
 	const [url, setUrl] = useState("");
 	const [review, setReview] = useState<BoundPreview | null>(null);
+	const [catalog, setCatalog] = useState<BoundCatalog | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [reviewing, setReviewing] = useState(false);
 	const request = useRef(0);
@@ -47,8 +59,29 @@ export function InstallSkillDialog(input: {
 		request.current += 1;
 		setUrl(value);
 		setReview(null);
+		setCatalog(null);
 		setReviewing(false);
 		setError(null);
+	};
+	const isCurrent = (ticket: number) =>
+		mounted.current && request.current === ticket;
+	const loadRepositoryCatalog = async (
+		requestedUrl: string,
+		ticket: number
+	) => {
+		try {
+			const response = await previewCurrentOrganizationSkillRepository({
+				expectedOrganizationId: input.organizationId,
+				url: requestedUrl,
+			});
+			if (isCurrent(ticket)) {
+				setCatalog({ rootUrl: requestedUrl, preview: response.preview });
+			}
+		} catch (failure) {
+			if (isCurrent(ticket)) {
+				setError(resolveOrganizationSkillErrorMessage(failure));
+			}
+		}
 	};
 	const preview = async () => {
 		if (
@@ -67,21 +100,56 @@ export function InstallSkillDialog(input: {
 				expectedOrganizationId: input.organizationId,
 				url: requestedUrl,
 			});
-			if (mounted.current && request.current === ticket) {
-				setReview({ url: requestedUrl, preview: response.preview });
+			if (isCurrent(ticket)) {
+				setReview({
+					rootUrl: requestedUrl,
+					url: requestedUrl,
+					preview: response.preview,
+				});
 			}
 		} catch (failure) {
-			if (mounted.current && request.current === ticket) {
+			const structured = toStructuredApiClientFailure(failure);
+			if (
+				(structured.upstreamCode ?? structured.code) ===
+				"organization_skill.github_selection_required"
+			) {
+				await loadRepositoryCatalog(requestedUrl, ticket);
+			} else if (isCurrent(ticket)) {
 				setError(resolveOrganizationSkillErrorMessage(failure));
 			}
 		} finally {
-			if (mounted.current && request.current === ticket) {
+			if (isCurrent(ticket)) {
+				setReviewing(false);
+			}
+		}
+	};
+	const previewSkill = async (
+		skillUrl: string,
+		rootUrl: string,
+		ticket = ++request.current
+	) => {
+		setError(null);
+		setReviewing(true);
+		try {
+			const response = await previewCurrentOrganizationSkillFromGitHub({
+				expectedOrganizationId: input.organizationId,
+				url: skillUrl,
+			});
+			if (isCurrent(ticket)) {
+				setReview({ rootUrl, url: skillUrl, preview: response.preview });
+			}
+		} catch (failure) {
+			if (isCurrent(ticket)) {
+				setError(resolveOrganizationSkillErrorMessage(failure));
+			}
+		} finally {
+			if (isCurrent(ticket)) {
 				setReviewing(false);
 			}
 		}
 	};
 	const submit = async () => {
-		if (!review || review.url !== url.trim() || submitting.current) {
+		if (!review || review.rootUrl !== url.trim() || submitting.current) {
 			return;
 		}
 		submitting.current = true;
@@ -101,14 +169,18 @@ export function InstallSkillDialog(input: {
 			submitting.current = false;
 		}
 	};
+	let description =
+		"Paste a public GitHub repository, skill folder, or SKILL.md URL.";
+	if (catalog) {
+		description = "Choose a skill to review before installing it.";
+	}
+	if (review) {
+		description = "Review the source and warnings before adding this skill.";
+	}
 	return (
 		<OrganizationSkillFlowDialog
 			committing={install.isPending}
-			description={
-				review
-					? "Review the source and warnings before adding this skill."
-					: "Paste a public GitHub repository, skill folder, or SKILL.md URL."
-			}
+			description={description}
 			dirty={Boolean(url.trim())}
 			discardDescription="This skill hasn't been installed. Discarding will clear the URL and preview."
 			discardTitle="Discard this import?"
@@ -121,7 +193,7 @@ export function InstallSkillDialog(input: {
 					>
 						Cancel
 					</DialogClose>
-					{review ? (
+					{review && (
 						<>
 							<Button
 								disabled={install.isPending}
@@ -138,7 +210,21 @@ export function InstallSkillDialog(input: {
 								{install.isPending ? "Installing…" : "Install skill"}
 							</Button>
 						</>
-					) : (
+					)}
+					{!review && catalog && (
+						<Button
+							disabled={reviewing}
+							onClick={() => {
+								setCatalog(null);
+								setError(null);
+								request.current += 1;
+							}}
+							variant="outline"
+						>
+							Back
+						</Button>
+					)}
+					{!(review || catalog) && (
 						<Button
 							disabled={
 								reviewing || !url.trim().startsWith("https://github.com/")
@@ -155,9 +241,35 @@ export function InstallSkillDialog(input: {
 			title="Install from GitHub"
 		>
 			<div className="grid min-w-0 gap-4">
-				{review ? (
-					<GitHubSkillPreview preview={review.preview} />
-				) : (
+				{review && <GitHubSkillPreview preview={review.preview} />}
+				{!review && catalog && (
+					<div className="grid max-h-96 gap-2 overflow-y-auto">
+						<p className="text-muted-foreground text-sm">
+							{catalog.preview.skills.length} skills found at commit{" "}
+							{catalog.preview.commitSha.slice(0, 12)}.
+						</p>
+						{catalog.preview.skills.map((skill) => (
+							<Button
+								className="h-auto justify-start text-left"
+								disabled={reviewing || Boolean(skill.blocker)}
+								key={skill.url}
+								onClick={() => previewSkill(skill.url, catalog.rootUrl)}
+								variant="outline"
+							>
+								<span className="grid min-w-0 gap-1 py-1">
+									<span className="truncate">
+										{skill.path || "Repository root"}
+									</span>
+									<span className="text-muted-foreground text-xs">
+										{skill.blocker?.message ??
+											`${skill.fileCount} ${skill.fileCount === 1 ? "file" : "files"} · ${skill.totalBytes.toLocaleString()} bytes`}
+									</span>
+								</span>
+							</Button>
+						))}
+					</div>
+				)}
+				{!(review || catalog) && (
 					<div className="grid gap-2">
 						<Label htmlFor="skill-github-url">GitHub URL</Label>
 						<Input
@@ -170,7 +282,8 @@ export function InstallSkillDialog(input: {
 							value={url}
 						/>
 						<p className="text-muted-foreground text-xs">
-							For a repository with several skills, use the exact skill folder.
+							Choose a repository to browse its skills, or link to one skill
+							folder.
 						</p>
 					</div>
 				)}

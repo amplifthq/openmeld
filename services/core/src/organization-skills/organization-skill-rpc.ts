@@ -17,6 +17,8 @@ import {
   previewOrganizationSkillFromFilesRpcInputSchema,
   previewOrganizationSkillFromGitHubResponseSchema,
   previewOrganizationSkillFromGitHubRpcInputSchema,
+  previewOrganizationSkillRepositoryResponseSchema,
+  previewOrganizationSkillRepositoryRpcInputSchema,
   readOrganizationSkillRuntimeCatalogRpcInputSchema,
   readOrganizationSkillRuntimeResourceResponseSchema,
   readOrganizationSkillRuntimeResourceRpcInputSchema,
@@ -51,6 +53,8 @@ import type {
   PreviewOrganizationSkillFromFilesRpcInput,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
+  PreviewOrganizationSkillRepositoryResponse,
+  PreviewOrganizationSkillRepositoryRpcInput,
   ReadOrganizationSkillRuntimeCatalogRpcInput,
   ReadOrganizationSkillRuntimeResourceResponse,
   ReadOrganizationSkillRuntimeResourceRpcInput,
@@ -204,6 +208,25 @@ export async function rpcPreviewOrganizationSkillFromGitHub(
   return parseResponse(previewOrganizationSkillFromGitHubResponseSchema, {
     organizationId: actor.organizationId,
     preview: await service.previewFromGitHub(actor, request.url),
+  });
+}
+
+export async function rpcPreviewOrganizationSkillRepository(
+  env: CoreBindings,
+  input: PreviewOrganizationSkillRepositoryRpcInput
+): Promise<PreviewOrganizationSkillRepositoryResponse> {
+  const request = parseRequest(
+    previewOrganizationSkillRepositoryRpcInputSchema,
+    input
+  );
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  requireExpectedOrganization(
+    actor.organizationId,
+    request.expectedOrganizationId
+  );
+  return parseResponse(previewOrganizationSkillRepositoryResponseSchema, {
+    organizationId: actor.organizationId,
+    preview: await service.previewRepositoryFromGitHub(actor, request.url),
   });
 }
 

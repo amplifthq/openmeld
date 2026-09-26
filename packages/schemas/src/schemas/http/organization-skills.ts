@@ -312,6 +312,8 @@ export const previewOrganizationSkillFromGitHubBodySchema = z.strictObject({
   expectedOrganizationId: identifierSchema,
   url: sourceUrlSchema,
 });
+export const previewOrganizationSkillRepositoryBodySchema =
+  previewOrganizationSkillFromGitHubBodySchema;
 export const organizationSkillGitHubPreviewSchema = z.strictObject({
   files: z.array(
     organizationSkillFileSchema.pick({
@@ -355,6 +357,10 @@ export const organizationSkillGitHubRepositoryPreviewSchema = z.strictObject({
 export const previewOrganizationSkillFromGitHubResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   preview: organizationSkillGitHubPreviewSchema,
+});
+export const previewOrganizationSkillRepositoryResponseSchema = z.strictObject({
+  organizationId: identifierSchema,
+  preview: organizationSkillGitHubRepositoryPreviewSchema,
 });
 export const previewOrganizationSkillFromFilesResponseSchema = z.strictObject({
   organizationId: identifierSchema,
@@ -541,6 +547,10 @@ export const previewOrganizationSkillFromFilesRpcInputSchema =
   });
 export const previewOrganizationSkillFromGitHubRpcInputSchema =
   previewOrganizationSkillFromGitHubBodySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const previewOrganizationSkillRepositoryRpcInputSchema =
+  previewOrganizationSkillRepositoryBodySchema.extend({
     context: openMeldRequestContextSchema,
   });
 export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =

@@ -14,6 +14,8 @@ import type {
   PreviewOrganizationSkillFromFilesResponse,
   PreviewOrganizationSkillFromGitHubBody,
   PreviewOrganizationSkillFromGitHubResponse,
+  PreviewOrganizationSkillRepositoryBody,
+  PreviewOrganizationSkillRepositoryResponse,
   SetOrganizationSkillEnabledBody,
   SetOrganizationSkillEnabledResponse,
   SetOrganizationSkillMaintainersBody,
@@ -57,6 +59,10 @@ export type OrganizationSkillsApi = {
     input: OrganizationSkillRequestInput &
       PreviewOrganizationSkillFromGitHubBody
   ) => Promise<PreviewOrganizationSkillFromGitHubResponse>;
+  previewRepositoryFromGitHub: (
+    input: OrganizationSkillRequestInput &
+      PreviewOrganizationSkillRepositoryBody
+  ) => Promise<PreviewOrganizationSkillRepositoryResponse>;
   update: (
     input: OrganizationSkillRequestInput &
       OrganizationSkillMutationTarget &

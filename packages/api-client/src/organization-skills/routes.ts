@@ -24,6 +24,10 @@ export function buildOrganizationSkillGitHubPreviewPath(): string {
   return `${SKILLS_PATH}/preview-github`;
 }
 
+export function buildOrganizationSkillRepositoryPreviewPath(): string {
+  return `${SKILLS_PATH}/preview-github-repository`;
+}
+
 export function buildOrganizationSkillEnabledPath(skillId: string): string {
   return `${buildOrganizationSkillPath(skillId)}/enabled`;
 }
