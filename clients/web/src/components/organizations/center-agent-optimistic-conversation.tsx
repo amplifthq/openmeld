@@ -288,7 +288,12 @@ function PendingMessageSurface({
 			<SpaceMessageSurface
 				attachments={
 					message.files?.length ? (
-						<SpaceAttachmentStrip align="end" label="Message attachments">
+						<SpaceAttachmentStrip
+							align="end"
+							className={message.text.trim() ? undefined : "ml-0"}
+							label="Message attachments"
+							matchTextWidth={Boolean(message.text.trim())}
+						>
 							{message.files.map((file) => (
 								<PendingAttachment
 									file={file}

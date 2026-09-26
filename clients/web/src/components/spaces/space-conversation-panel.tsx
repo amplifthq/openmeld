@@ -3432,7 +3432,6 @@ function renderConversationMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={addressingTargets}
 			align={input.messageAlign}
-			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={
 				messageDetailsItem
 					? {
@@ -3448,12 +3447,15 @@ function renderConversationMessageFooter(input: {
 			failureSummary={failureSummary}
 			isDirectMessage={input.isDirectMessage}
 			item={input.item}
-			onCopy={() =>
-				copySpaceTimelineItemWithFeedback({
-					item: input.item,
-					openMeldProfileId: input.selfProfileId,
-					organizationSlug: input.orgSlug,
-				})
+			onCopy={
+				input.item.text.trim() && !isSpaceMessageCopyPending(input.item)
+					? () =>
+							copySpaceTimelineItemWithFeedback({
+								item: input.item,
+								openMeldProfileId: input.selfProfileId,
+								organizationSlug: input.orgSlug,
+							})
+					: undefined
 			}
 			reply={
 				canUseCollaborationActions || awaitingDelivery

@@ -352,7 +352,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				orgSlug={input.orgSlug}
 				readOnly={input.readOnly}
 				selfProfileId={input.selfProfileId}
-				threadRootSignalId={input.activeThread?.rootSignalId}
 			>
 				<SpaceDeviceWaitOutcomeScope
 					onComposeAgain={
@@ -1695,7 +1694,6 @@ function ThreadTimelineMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={input.addressingTargets}
 			align={input.align}
-			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
 			deviceWaitOutcome={{
 				notices: input.anchoredOutcomeNotices,
@@ -1705,12 +1703,15 @@ function ThreadTimelineMessageFooter(input: {
 			isDirectMessage={input.isDirectMessage}
 			item={input.item}
 			layout="inline"
-			onCopy={() =>
-				copySpaceTimelineItemWithFeedback({
-					item: input.item,
-					openMeldProfileId: input.openMeldProfileId,
-					organizationSlug: input.organizationSlug,
-				})
+			onCopy={
+				input.item.text.trim() && !isSpaceMessageCopyPending(input.item)
+					? () =>
+							copySpaceTimelineItemWithFeedback({
+								item: input.item,
+								openMeldProfileId: input.openMeldProfileId,
+								organizationSlug: input.organizationSlug,
+							})
+					: undefined
 			}
 		/>
 	);

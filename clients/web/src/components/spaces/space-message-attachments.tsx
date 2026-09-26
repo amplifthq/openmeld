@@ -20,7 +20,10 @@ import { SpaceVideoPreview } from "./space-video-preview";
 import { useImageFrameActivity } from "./use-image-frame-activity";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
-type MessageAttachments = Pick<SpaceTimelineItem, "attachments" | "files">;
+type MessageAttachments = Pick<
+	SpaceTimelineItem,
+	"attachments" | "files" | "text"
+>;
 type AttachmentContext = {
 	spaceId: string;
 	organizationSlug?: string;
@@ -49,7 +52,12 @@ export function SpaceMessageAttachments(
 		return null;
 	}
 	return (
-		<SpaceAttachmentStrip align={input.align} label="Message attachments">
+		<SpaceAttachmentStrip
+			align={input.align}
+			className={input.item.text?.trim() ? undefined : "ml-0"}
+			label="Message attachments"
+			matchTextWidth={Boolean(input.item.text?.trim())}
+		>
 			<SpaceMessageAttachmentItems {...input} />
 		</SpaceAttachmentStrip>
 	);
