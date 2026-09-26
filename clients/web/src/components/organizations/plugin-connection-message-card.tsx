@@ -182,10 +182,18 @@ function PluginConnectionSetup(input: {
 }) {
 	const { canManage } = input;
 	const isPersonalWorkspace = input.organization.isPersonal === true;
-	// This local choice pins only the setup view; connection changes must not switch identities.
+	// Pin the user's choice across connection refreshes and Continue retries.
+	// Creating/managing shared access differs from using an existing connection;
+	// Core still authorizes the exact account when the user chooses Continue.
 	const [scope, setChosenScope] = useState<"member" | "shared" | null>(() => {
 		if (input.target.scope !== "choose") {
 			return input.target.scope;
+		}
+		if (isPersonalWorkspace) {
+			return "member";
+		}
+		if (input.hasMemberConnection && input.hasSharedConnection) {
+			return null;
 		}
 		if (input.hasMemberConnection) {
 			return "member";
@@ -203,7 +211,9 @@ function PluginConnectionSetup(input: {
 		return (
 			<div className="space-y-3 py-4">
 				<p className="text-sm">
-					Connect just for yourself, or for {input.organization.name}?
+					{input.hasMemberConnection && input.hasSharedConnection
+						? `Use your personal account, or ${input.organization.name}’s connection?`
+						: `Connect just for yourself, or for ${input.organization.name}?`}
 				</p>
 				<div className="flex flex-wrap gap-2">
 					<Button
@@ -214,7 +224,7 @@ function PluginConnectionSetup(input: {
 						Just for me
 					</Button>
 					<Button
-						disabled={!canManage}
+						disabled={!(canManage || input.hasSharedConnection)}
 						onClick={() => setChosenScope("shared")}
 						size="sm"
 						variant="outline"

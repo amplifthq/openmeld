@@ -41,11 +41,16 @@ Organization installation remain distinct, as do OAuth and secure credential
 forms for other supported providers.
 
 The dialog reads the signed-in viewer and current connection options only when
-opened. An explicit personal or shared scope wins. Unspecified setup uses an
-existing applicable connection view; with no connection, ordinary members get
-personal setup and eligible owners/admins can choose personal or Organization
-setup. Choosing a view does not connect an account or choose a later execution
-identity. The server rechecks every mutation. The Agent access editor is loaded
+opened. An explicit personal/shared scope or server-frozen choice wins.
+Unspecified setup reuses a single existing connection, but when both identities
+exist it asks which to use instead of silently preferring personal. Members may
+choose an existing shared connection without receiving its management rights;
+Core still checks its actual Agent access. With no connection, ordinary members
+get personal setup and eligible owners/admins can choose. Personal Workspaces
+omit this team choice. A choice does not connect or run anything; explicit
+Continue submits that scope and Core freezes the exact authorized account.
+Connection refreshes and transport retries must not silently change it. The
+server rechecks every mutation. The Agent access editor is loaded
 only when expanded and never saves permissions automatically.
 
 Closing the dialog keeps the conversation in place and unmounts the existing

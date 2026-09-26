@@ -21,6 +21,7 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import type { PluginConnectionContinuationContext } from "./plugin-connection-continuation";
 import { PluginConnectionMessageCard } from "./plugin-connection-message-card";
 
 const CONNECT_BUTTON_NAME = /^Connect/;
@@ -38,6 +39,7 @@ const api = vi.hoisted(() => ({
 	credential: vi.fn(),
 	access: vi.fn(),
 	updateAccess: vi.fn(),
+	request: vi.fn(),
 }));
 
 vi.mock(
@@ -65,6 +67,11 @@ vi.mock(
 		readCurrentOrganizationProfileDirectory: api.directory,
 	})
 );
+vi.mock("#/lib/openmeld-api/client", () => ({
+	createOrganizationScopedWebOpenMeldApiFoundation: () => ({
+		requestJson: api.request,
+	}),
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
@@ -130,6 +137,7 @@ function renderCard(
 		scope?: "member" | "shared" | "choose";
 		orgSlug?: string;
 		personal?: boolean;
+		continuation?: PluginConnectionContinuationContext;
 	} = {}
 ) {
 	const organization = {
@@ -166,6 +174,7 @@ function renderCard(
 			>
 				<PluginConnectionMessageCard
 					action={action}
+					continuation={options.continuation}
 					organizationSlug={options.orgSlug ?? "acme"}
 				/>
 			</AppOrganizationProvider>
@@ -214,6 +223,62 @@ describe("Plugin connection in a conversation", () => {
 	afterEach(() => {
 		cleanup();
 		vi.restoreAllMocks();
+	});
+
+	it.each([
+		{ role: "owner", channel: false },
+		{ role: "admin", channel: true },
+		{ role: "member", channel: false },
+		{ role: "member", channel: true },
+	])("submits the chosen shared account with both connections for $role (channel=$channel)", async ({
+		role,
+		channel,
+	}) => {
+		api.directory.mockResolvedValue(directory(role));
+		api.list.mockResolvedValue({
+			organizationId: "org-acme",
+			currentUserId: "user-alex",
+			connections: [
+				connection("github", "member"),
+				connection("github", "shared"),
+			],
+		});
+		api.request.mockRejectedValueOnce(
+			new Error("Submission could not be confirmed. Retry the same request.")
+		);
+		api.request.mockResolvedValueOnce({ status: "requested" });
+		renderCard({
+			continuation: channel
+				? { channelRequestId: "request-1" }
+				: { spaceId: "space-1", sourceSignalId: "reply-1" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Connect or review GitHub" })
+		);
+		const choose = await screen.findByRole("button", {
+			name: "For the organization",
+		});
+		expect((choose as HTMLButtonElement).disabled).toBe(false);
+		expect(api.request).not.toHaveBeenCalled();
+		fireEvent.click(choose);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Continue original task" })
+		);
+		await screen.findByRole("alert");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Continue original task" })
+		);
+		await waitFor(() => expect(api.request).toHaveBeenCalledTimes(2));
+		const first = api.request.mock.calls[0]?.[0];
+		expect(JSON.parse(first.body)).toEqual(
+			channel
+				? { requestId: "request-1", scope: "shared" }
+				: { sourceSignalId: "reply-1", service: "github", scope: "shared" }
+		);
+		expect(api.request.mock.calls[1]?.[0].body).toBe(first.body);
+		expect(api.githubMember).not.toHaveBeenCalled();
+		expect(api.githubShared).not.toHaveBeenCalled();
+		expect(api.updateAccess).not.toHaveBeenCalled();
 	});
 
 	it("loads only when opened and gives an ordinary member the existing personal GitHub authorization", async () => {

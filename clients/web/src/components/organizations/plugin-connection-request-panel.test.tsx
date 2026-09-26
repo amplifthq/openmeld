@@ -90,11 +90,14 @@ describe("private channel request page reuses setup without becoming an authorit
 		expect(await screen.findByRole("alert")).toBeTruthy();
 		expect(mocks.panel).not.toHaveBeenCalled();
 	});
-	it("honors a previously pinned personal choice rather than rechoosing when both connections exist", async () => {
+	it.each([
+		"member",
+		"shared",
+	])("honors a previously pinned %s choice rather than rechoosing when both connections exist", async (selection) => {
 		mocks.request.mockResolvedValue({
 			...preview,
 			scope: "choose",
-			selection: "member",
+			selection,
 		});
 		render(
 			<TestQueryClientProvider>
@@ -104,7 +107,7 @@ describe("private channel request page reuses setup without becoming an authorit
 		await waitFor(() => expect(mocks.panel).toHaveBeenCalled());
 		expect(mocks.panel).toHaveBeenLastCalledWith(
 			expect.objectContaining({
-				target: expect.objectContaining({ scope: "member" }),
+				target: expect.objectContaining({ scope: selection }),
 			})
 		);
 	});
