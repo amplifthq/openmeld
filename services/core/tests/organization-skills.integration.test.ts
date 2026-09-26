@@ -142,6 +142,44 @@ describe("Organization Skills", () => {
     ).toMatchObject({ content, size: content.length });
   });
 
+  it("reads a stored UTF-8 resource without dropping its BOM", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const created = await service.create(fixture.owner, {
+      description: "Read a schema file.",
+      instructions: "Use the schema.",
+      name: "bom-resource",
+    });
+    const content = "\uFEFF<schema/>";
+    const file = {
+      content,
+      encoding: "utf8" as const,
+      mediaType: "application/xml",
+      path: "references/schema.xml",
+      size: new TextEncoder().encode(content).byteLength,
+    };
+    const updated = await service.update(fixture.owner, created.id, {
+      bundle: { ...created.bundle, files: [file] },
+      expectedActiveReleaseId: created.activeRelease.id,
+      expectedVersion: created.version,
+    });
+    expect(await service.get(fixture.owner, created.id)).toMatchObject({
+      bundle: { files: [file] },
+    });
+    expect(
+      await service.readRuntimeResource(
+        fixture.owner.organizationId,
+        {
+          digest: updated.activeRelease.digest,
+          name: updated.name,
+          releaseId: updated.activeRelease.id,
+          skillId: updated.id,
+        },
+        file.path
+      )
+    ).toMatchObject(file);
+  });
+
   it("keeps release resources separate and fails closed when one is missing", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -988,6 +1026,22 @@ describe("Organization Skills", () => {
     expect(await service.list(fixture.owner)).toHaveLength(1);
   });
 
+  it("accepts a portable Skill description longer than the old catalog limit", async () => {
+    const fixture = await seedFixture();
+    const description = "A".repeat(1068);
+    const markdown = `---\nname: detailed-skill\ndescription: ${description}\n---\nUse the reference.`;
+    const installed = await createService().importFromFiles(fixture.owner, [
+      {
+        content: markdown,
+        encoding: "utf8",
+        mediaType: "text/markdown",
+        path: "SKILL.md",
+        size: new TextEncoder().encode(markdown).byteLength,
+      },
+    ]);
+    expect(installed.bundle.portable.description).toBe(description);
+  });
+
   it("retries public GitHub reads without a repository-scoped token", async () => {
     const commitSha = "e".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request, init) => {
@@ -1109,6 +1163,54 @@ describe("Organization Skills", () => {
       },
       message: expect.stringContaining("more content than declared"),
     });
+  });
+
+  it("keeps the UTF-8 BOM and byte size of an imported Skill resource", async () => {
+    const commitSha = "b".repeat(40);
+    const resourceContent = "\uFEFF<schema/>";
+    const resourceBytes = new TextEncoder().encode(resourceContent);
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({
+            tree: [
+              {
+                mode: "100644",
+                path: "release/SKILL.md",
+                size: new TextEncoder().encode(GITHUB_SKILL_MARKDOWN)
+                  .byteLength,
+                type: "blob",
+              },
+              {
+                mode: "100644",
+                path: "release/references/schema.xml",
+                size: resourceBytes.byteLength,
+                type: "blob",
+              },
+            ],
+            truncated: false,
+          })
+        );
+      }
+      if (url.endsWith(`/${commitSha}/release/references/schema.xml`)) {
+        return Promise.resolve(new Response(resourceBytes));
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+
+    const imported = await importOrganizationSkillBundleFromGitHub({
+      fetch: fetchMock,
+      url: "https://github.com/acme/skills",
+    });
+    expect(imported.bundle.files).toEqual([
+      expect.objectContaining({
+        content: resourceContent,
+        encoding: "utf8",
+        path: "references/schema.xml",
+        size: resourceBytes.byteLength,
+      }),
+    ]);
   });
 
   it("previews every Skill directory and its blockers without downloading bundles", async () => {

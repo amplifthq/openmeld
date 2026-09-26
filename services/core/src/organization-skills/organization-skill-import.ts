@@ -844,14 +844,14 @@ function decodeRequiredUtf8(bytes: Uint8Array, path: string): string {
       `${path} must be UTF-8 text.`
     );
   }
-  return decoded;
+  return decoded.startsWith("\uFEFF") ? decoded.slice(1) : decoded;
 }
 
 function decodeOptionalUtf8(bytes: Uint8Array): string | null {
   try {
     return new TextDecoder("utf-8", {
       fatal: true,
-      ignoreBOM: false,
+      ignoreBOM: true,
     }).decode(bytes);
   } catch {
     return null;

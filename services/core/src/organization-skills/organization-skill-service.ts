@@ -1485,7 +1485,7 @@ async function readReleaseBundle(
             file.encoding === "utf8"
               ? new TextDecoder("utf-8", {
                   fatal: true,
-                  ignoreBOM: false,
+                  ignoreBOM: true,
                 }).decode(bytes)
               : encodeBase64(bytes),
           encoding: file.encoding,
@@ -1582,7 +1582,7 @@ async function readReleaseResource(
   try {
     content =
       file.encoding === "utf8"
-        ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+        ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
             bytes
           )
         : encodeBase64(bytes);

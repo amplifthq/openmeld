@@ -69,6 +69,7 @@ const defaultDependencies: OrganizationSkillsCommandDependencies = {
   resolveHumanProfile: resolveOpenMeldProfile,
 };
 const GITHUB_COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
+const ORGANIZATION_SKILL_IMPORT_TIMEOUT_MS = 60_000;
 
 export async function runOrganizationSkillsList(
   input: OrganizationSkillsCommandInput = {},
@@ -179,6 +180,7 @@ export async function runOrganizationSkillsAdd(
         expectedOrganizationId: context.organization.id,
         operationId: input.operationId ?? crypto.randomUUID(),
         requestContext: context.requestContext,
+        timeoutMs: ORGANIZATION_SKILL_IMPORT_TIMEOUT_MS,
         url: input.source,
       });
       requireOrganizationIdentity(context, installed.skill.organizationId);
@@ -376,6 +378,7 @@ async function installRepositorySkill(
       expectedOrganizationId: context.organization.id,
       operationId,
       requestContext: context.requestContext,
+      timeoutMs: ORGANIZATION_SKILL_IMPORT_TIMEOUT_MS,
       url: item.url,
     });
     requireOrganizationIdentity(context, installed.skill.organizationId);

@@ -165,6 +165,7 @@ describe("Organization Skills CLI", () => {
           operationId: createHash("sha256")
             .update(`${payload.operationId}\nreview`)
             .digest("hex"),
+          timeoutMs: 60_000,
           url: installUrl,
         })
       );
@@ -277,6 +278,7 @@ describe("Organization Skills CLI", () => {
           expectedCommitSha: commitSha,
           expectedOrganizationId: organization.id,
           operationId: "install-release-review",
+          timeoutMs: 60_000,
         })
       );
       expect(plainStdout).toContain('"type":"skills.add"');
