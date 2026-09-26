@@ -1098,6 +1098,19 @@ Reference includes an Agent Profile as message context without assigning work.
 Web labels this relation `Mention only`. The Composer relation menu explains it
 as `Mention only — Won’t wake the agent`; compact tokens use `Mention only`.
 The serialized relation remains `reference`, with no change to execution semantics.
+An explicitly referenced Agent must not be added back by implicit Direct Message,
+Thread continuation, or listen-all dispatch. Reference-only messages do not check
+execution readiness or create work, and reconnecting a Computer must not replay
+them. Current member and message-write authorization still applies.
+
+The Footer's `Mention only instead` recovery is for a confirmed Local Agent that
+cannot currently Wake, not a Hosted Agent or a transient checking/preparing
+state. In a Local Agent Direct Message without an authored mention, choosing it
+inserts a visible Reference token while preserving the draft; it is not an
+invisible mode or a no-op. Existing tokens use the same relation mutation.
+Normal explicit references to Hosted Agents remain supported in collaboration.
+Connection recovery belongs to the current blocked Wake target, never a stale
+failed-send target after the draft changes.
 Human Mention directs a person's attention to the message without creating
 Agent work or requiring a reply.
 

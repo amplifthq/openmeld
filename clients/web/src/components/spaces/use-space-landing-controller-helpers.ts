@@ -113,6 +113,7 @@ export function buildLocalWakeProgressItems(input: {
 
 export function resolveComposerWakeProgressTargetProfileIds(input: {
 	explicitActivationTargets: readonly string[];
+	explicitReferenceTargets?: readonly string[];
 	membersSnapshot: SpaceMembersSnapshot | null;
 	senderProfileId: string;
 	status: GetSpaceStatusResponse | null;
@@ -147,7 +148,10 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 		input.membersSnapshot?.agents.filter(
 			(member) => member.status === "active"
 		) ?? [];
-	return activeAgents.length === 1 ? [activeAgents[0].profileId] : [];
+	const agent = activeAgents.length === 1 ? activeAgents[0] : undefined;
+	return agent && !input.explicitReferenceTargets?.includes(agent.profileId)
+		? [agent.profileId]
+		: [];
 }
 
 export function readPublishedWakeTargetProfileIds(

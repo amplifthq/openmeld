@@ -5688,6 +5688,34 @@ export async function markRemoteAgentFailedCallbackPublicationOutcomeUnknown(inp
   });
 }
 
+/** Project Space's confirmed stopped final outcome onto an unacknowledged
+ * native delivery. A cancellation request or missing Worker is insufficient. */
+export async function projectUnadmittedNativeDeliveryStopped(input: {
+  db: D1Database;
+  idempotencyKey: string;
+  nowMs: number;
+  publishedSignalId: string;
+}): Promise<RemoteAgentNativeDeliveryRecord | null> {
+  await input.db
+    .prepare(`UPDATE openMeldRemoteAgent_native_delivery_ledger
+    SET status = 'failed', failure_code = 'runtime_coordinator.pre_agent_stop_requested',
+        failure_detail = NULL, published_signal_id = ?,
+        completed_at_ms = COALESCE(completed_at_ms, ?), updated_at_ms = ?
+    WHERE idempotency_key = ? AND status = 'submitted'
+      AND submission_id IS NULL AND final_publication_state IS NULL`)
+    .bind(
+      input.publishedSignalId,
+      input.nowMs,
+      input.nowMs,
+      input.idempotencyKey
+    )
+    .run();
+  return await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+}
+
 export async function markRemoteAgentNativeDeliveryFailurePublished(input: {
   db: D1Database;
   nowMs: number;

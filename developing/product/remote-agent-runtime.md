@@ -3094,8 +3094,43 @@ but not trigger.
    completion, and cancellation transitions use atomic compare-and-set; once
    cancellation is recorded, later progress cannot overwrite it and completion
    settles as aborted. Every tool call rechecks that state before side effects.
-   Space Stop targets exactly one submission; it must not abort unrelated
-   queued work in the same conversation.
+   Space Stop targets one logical Wake, including its automatic work-loop
+   submissions; it must not abort unrelated queued work in the conversation.
+   Space records Stop in its existing dispatch outbox before contacting the
+   Worker. Native admission checks that fence before submission and again after
+   acknowledgement; late acknowledgements forward cancellation to the exact
+   admitted identity. A work-loop checkpoint and its next admission obey the
+   same fence. Hosted Stop never asks the user's Local Service or a workstation
+   head to decide cancellation.
+   A newly staged Wake that has never been exposed to native admission can be
+   withdrawn and receive one durable stopped notice immediately. An exposed or
+   historical Wake instead remains cancellation-requested until the native
+   owner confirms completion/cancellation. Missing Worker state is not proof of
+   termination. The existing admission watchdog and accepted-delivery probe
+   retry cancellation without resubmitting stopped work. A confirmed terminal
+   Stop publishes a `wake_stopped` notice in the existing final-outcome slot;
+   notice publication failure is repaired on redelivery without replaying work.
+   Space's durable alarm owns every pending Hosted Stop, including legacy-NULL
+   records with no native delivery yet. It retries bounded, fairly rotated
+   batches and follows late native evidence without resubmitting work; a
+   permanently unknown identity is not fabricated into a stopped execution.
+   Unadmitted withdrawals need only their missing final notice repaired.
+   Once the Stop fence is saved, Worker/probe/publication errors leave an honest
+   cancellation-requested acknowledgement and automatic recovery, not a false
+   request rejection. A Worker already finished but not yet published can still
+   have its answer suppressed by that winning fence; an already-persisted final
+   answer is never replaced. Ordinary handoff-payload cleanup does not
+   disable replies, continuation, or Stop: a retired payload is resolved against
+   its exact native delivery, while a cancelled control record is retained.
+   A Stop that suppresses submission never becomes a DLQ failure. It remains
+   pending when prior execution exposure is unknown, or projects the stopped
+   outcome once its withdrawal is confirmed.
+   Stop is checked before daily admission accounting and again at the actual
+   submission boundary. Already-stopped requests spend no admission; a concurrent
+   Stop after admission does not refund an admission already granted.
+   The Worker arms reconciliation after persisting cancellation intent and
+   before external abort/Computer cleanup, so a cleanup exception cannot skip
+   the retry schedule. Request acknowledgement is not terminal evidence.
    Interactive Space delivery persists its Space outbox record first. Core may
    then attempt direct native admission only when the current Binding preflight
    still resolves the target as `hosted_center_agent`. Any ineligible,

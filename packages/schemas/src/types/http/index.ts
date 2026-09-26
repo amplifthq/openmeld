@@ -1229,6 +1229,8 @@ export type {
   PostSpaceWakeStopBody,
   PostSpaceWakeStopInput,
   PostSpaceWakeStopResponse,
+  SpaceWakeStopIntentQuery,
+  SpaceWakeStopIntentResponse,
   SpaceWakeStopSelector,
 } from "./space-wake-stop";
 export type {
