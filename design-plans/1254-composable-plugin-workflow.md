@@ -1,6 +1,6 @@
 # #1254 — Composable Plugin setup and execution
 
-Status: Draft implementation and acceptance plan, 2026-09-26.
+Status: Draft implementation resumed, 2026-09-26. Private Git and full acceptance remain incomplete.
 Discussion: https://github.com/amplifthq/openmeld/pull/1254
 
 ## Agent context
@@ -80,8 +80,30 @@ page remains in place, not that the Agent bypasses provider consent.
   target. Personal Hosted Agent navigation exposes only Plugin setup, not the
   Center Agent's other navigation/identity-link capabilities.
 
-This first slice is not yet the whole user outcome. Opening a form is not a
-successful authorization, and successful authorization does not resume a task.
+### Resumed implementation checkpoint
+
+- Old-reader publication now uses ordinary Markdown links. The typed setup
+  target remains private to the Hosted context; current clients enhance the
+  verified link instead of requiring old message readers to accept a new union.
+- The original human can explicitly continue a delivered Hosted Space request
+  through the existing idempotent Message/Wake operation, preserving the original
+  Thread and Agent. Core rechecks identity, membership and Plugin access,
+  includes bounded operation receipts and blocks pending/unknown outcomes.
+- Computer identities are audience-scoped, with current Core authorization
+  before workspace access and before releasing read/browser output. Legacy
+  shared content is not automatically migrated to new audiences.
+- Large results have immutable, expiring, atomically bounded snapshots and a
+  shared read/search tool, including Code Mode inner calls. Source connection
+  metadata is host-owned and reauthorized, not accepted from provider JSON.
+- Generic App selection failures now offer the same setup entry, without
+  claiming that every unavailable selection means a disconnected account.
+- Two recovered local commits implement the designated-Center Wake requester
+  check and independent per-file audit identity. They do not complete all of
+  #1293 or supersede its remaining work.
+
+This is not yet the whole requested outcome. Private Git is not implemented.
+Real provider authorization, installed Desktop, process/cancellation/export
+isolation and full end-to-end continuation acceptance remain outstanding.
 
 ## Remaining work in this same implementation PR
 
@@ -98,7 +120,7 @@ successful authorization, and successful authorization does not resume a task.
 - Integrate other eligible Agent carriers through their existing output and
   identity contracts. Do not claim Local Agent or external-channel coverage
   merely because a Hosted tool exists.
-- Add an explicit return-to-work action through the existing Message/Wake owner.
+- Accept the implemented explicit return-to-work action through the existing Message/Wake owner.
   Bind it to the current authorized member, exact conversation/thread, original
   task and intended Agent. Reconcile the existing operation receipts before
   resuming; never replay completed writes or manufacture a successful task from
@@ -112,21 +134,20 @@ field. Older `normalizeMessageEnvelope` readers throw on an unknown target.
 Therefore this branch must not enable a producer against those readers merely
 because the URL has a fallback or the CLI version constant is unchanged.
 
-Before Ready, implement and test a safe publication/projection boundary for old
-readers (or an explicit supported-reader negotiation and upgrade contract).
-Preserve ordinary text and mention/thread semantics; never downgrade a shared
-identity into a personal connection. Update Core/Gateway/Space and Web readers
-before the producer, and separately settle packaged Desktop and other persisted
-Signal readers. Rollback must account for already-persisted new actions. This
-is a release blocker, not a claim of backward compatibility.
+The implementation now avoids the incompatible wire variant: the Hosted callback
+contains ordinary reply text plus a canonical link. Web enhances only a validated
+same-origin/current-Organization final link, and old readers continue to parse
+ordinary text. Contract and message regression tests cover this seam. Complete
+installed mixed-version Desktop and rollback acceptance before Ready; never
+publish a raw new navigation variant simply because it has a fallback URL.
 
 ### C. Audience-isolated Hosted execution (#1321)
 
-Define the admitted audience independently of the Center Agent Profile. Prefer
-reusing the existing per-conversation Computer identity and access mechanisms
-where their semantics fit. Check files, processes, cached results and authorized
-exports, not only working-directory names. A shell directory convention is not
-an access boundary.
+The implemented audience includes Organization, Agent, Binding, conversation,
+Space and admitted principal and selects a separate durable Computer. Core
+rechecks the current delivery and original authority owners. Finish real
+container/process, cached-result, cancellation and authorized-export acceptance;
+unit tests of identity derivation do not prove every external runtime boundary.
 
 Do not copy the legacy shared Computer's files indiscriminately into new
 scopes. Record retention/removal and intentional transfer behavior, and test
@@ -142,13 +163,12 @@ reuse existing result/read or file infrastructure with exact scope, lifetime
 and immutable identity. Do not automatically publish private logs to Team
 Files or invent another operation ledger.
 
-A model and Code Mode script must be able to request relevant middle content
-through a supported bounded read/search path. Code Mode currently receives an
-already-bounded inner result, so filtering the script's input cannot recover
-content that was discarded earlier. Test a unique error in the middle of a
-large log, Unicode/escaped bytes, expiry, denied readers, repeated page reads,
-and a successful write whose large response must not trigger another write.
-Provider-side truncation remains distinct from OpenMeld presentation truncation.
+A model and Code Mode script now receive a bounded result with a continuation
+when the full received JSON was retained. The read/search path is execution-
+scoped and source-reauthorized. Tests cover a unique middle error, Unicode,
+expiry, denied readers, concurrent quota and successful writes that execute
+only once. Complete live provider acceptance. Provider-side truncation remains
+distinct from OpenMeld presentation truncation; JSON above 8 MiB is not retained.
 
 ### E. Controlled private-repository access
 
@@ -173,7 +193,7 @@ coding workflow or silently unfreeze a general hosted-workstation platform.
 | #1247 Space ownership | Merged; keep its represented-member and retry semantics. |
 | #1266 creation, executable GitHub catalog, truthful bounded output | Merged; do not reopen that accepted scope. Full large-result continuation was deliberately not promised. |
 | #1315 toolchain and private preview | Merged; no new Computer/toolchain platform is needed for this slice. |
-| #1293 delegation/file audit/failure attribution | Existing Draft implementation; coordinate its acceptance rather than copying its fixes into a conflicting parallel owner. |
+| #1293 delegation/file audit/failure attribution | This branch corrects the designated Center requester check and uses independent file-read audit IDs in their existing owners. The broader #1293 work retains its owner; do not absorb its unrelated image-policy work. |
 | #1318 Files/Skills | Existing Draft implementation; consume its accepted file interfaces. Its latest reported Team read/save smoke is not missing, but binary/on-demand/private-scope work remains partial. |
 | #1304, #1311, #1312, #1316, #1317 | Existing delivery, progress and reliability work; preserve specific boundaries rather than replacing their owners. |
 | #1303 | Closed unmerged research, not a completed implementation. |
@@ -205,6 +225,9 @@ files failed during collection because workspace packages such as
 `@openmeld/agent-runtime` had no built entry; no Remote Agent tests ran. These
 are outstanding gates, not passing tests. Record subsequent exact results in
 the PR rather than turning this checkpoint into final-head certification.
-No authenticated browser/provider smoke, production change, merge or release
-is established by these tests. Keep the PR Draft until its accepted scope and
-compatibility gates are actually complete.
+The resumed implementation passes 399 focused Remote Agent tests, 114 focused
+Web tests, and 28 Core boundary tests. Web and Remote Agent typechecks now pass.
+These results supersede the initial missing-workspace-output blockers for those
+checks; they are not authenticated provider, installed Desktop, or production
+evidence. Private Git implementation and end-to-end acceptance are still open.
+Keep the PR Draft until its accepted scope and compatibility gates are complete.

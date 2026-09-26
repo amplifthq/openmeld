@@ -10,7 +10,7 @@ import { createAgentComputerWorkspaceAccess } from "../flue-adapter/agent-comput
 import { buildAgentComputerName } from "../flue-adapter/computer-identity";
 import {
   AgentComputerSandboxApi,
-  createRemoteAgentComputerCapability,
+  createRemoteAgentComputerCapability as createComputerCapability,
   instrumentRemoteAgentComputerSandboxApi,
   isRemoteAgentComputerEnabled,
 } from "../flue-adapter/computer-sandbox";
@@ -25,6 +25,7 @@ import {
 } from "../flue-adapter/organization-document-computer-snapshot";
 import { ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES } from "../flue-adapter/organization-document-computer-tools";
 import { getRemoteAgentSandboxToolDefinitions } from "../flue-adapter/sandbox-tools";
+import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 
 const cloudflareComputerMock = vi.hoisted(() => ({
@@ -194,6 +195,20 @@ function organizationDocumentsSnapshot(): CenterAgentOrganizationDocumentsComput
     organizationId: "org_123",
     revision: "a".repeat(64),
   };
+}
+
+function createRemoteAgentComputerCapability(
+  input: Parameters<typeof createComputerCapability>[0]
+) {
+  return createComputerCapability({
+    ...input,
+    coreWorker: {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(
+        input.context
+      ),
+      ...input.coreWorker,
+    },
+  });
 }
 
 function createComputerContext() {
@@ -385,9 +400,13 @@ describe("Agent computer layout", () => {
 });
 
 describe("Organization Documents computer scope", () => {
-  it("keeps parallel session checkouts independent on one Computer", async () => {
+  it("keeps parallel conversation checkouts independent", async () => {
     const { allowedInput, fixture } =
       createOrganizationDocumentsComputerFixture();
+    const envelope = allowedInput.context.turnEnvelope;
+    if (!envelope) {
+      throw new Error("Expected an admitted turn envelope");
+    }
     const [first, second] = await Promise.all([
       createRemoteAgentComputerCapability({
         ...allowedInput,
@@ -395,6 +414,13 @@ describe("Organization Documents computer scope", () => {
           ...allowedInput.context,
           conversationId: "space-one",
           spaceId: "space-one",
+          turnEnvelope: {
+            ...envelope,
+            space: {
+              ...envelope.space,
+              id: "space-one",
+            },
+          },
         },
       }),
       createRemoteAgentComputerCapability({
@@ -403,6 +429,13 @@ describe("Organization Documents computer scope", () => {
           ...allowedInput.context,
           conversationId: "space-two",
           spaceId: "space-two",
+          turnEnvelope: {
+            ...envelope,
+            space: {
+              ...envelope.space,
+              id: "space-two",
+            },
+          },
         },
       }),
     ]);

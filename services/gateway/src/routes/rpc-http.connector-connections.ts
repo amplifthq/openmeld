@@ -16,6 +16,8 @@ import {
   pluginAccessUpdateBodySchema,
   pluginActionRequestSchema,
   pluginActionResponseSchema,
+  pluginConnectionContinuationBodySchema,
+  pluginConnectionContinuationResponseSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorCredentialConnectBody,
@@ -31,6 +33,7 @@ import {
 import {
   buildCoreRpcContext,
   executeRpcRoute,
+  readSpacePasswordHeader,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import type { RpcHttpMethod } from "./rpc-http.types";
@@ -74,6 +77,38 @@ type OpenConnectorBindings = {
 export function registerConnectorConnectionRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const continuationRoute = "/v1/spaces/:spaceId/plugin-connection/continue";
+  app.post(continuationRoute, async (c) => {
+    const spaceId = c.req.param("spaceId");
+    const parsed = pluginConnectionContinuationBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: continuationRoute,
+        method: "POST",
+        spaceId,
+        message: "Choose a valid connection continuation.",
+      });
+    }
+    const password = readSpacePasswordHeader(c.req.raw.headers);
+    return executeRpcRoute({
+      c,
+      route: continuationRoute,
+      method: "POST",
+      spaceId,
+      retryMode: "none",
+      responseSchema: pluginConnectionContinuationResponseSchema,
+      execute: () =>
+        c.var.coreRpc.continuePluginConnection({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+          spaceId,
+          ...(password === undefined ? {} : { password }),
+        }),
+    });
+  });
   const actionRoute = "/v1/organizations/current/plugins/actions";
   app.post(actionRoute, async (c) => {
     const organization = parseConnectorOrganizationRequest(

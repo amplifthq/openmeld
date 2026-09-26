@@ -67,6 +67,7 @@ import {
 } from "./space-message-reference";
 import { SpaceVideoPreview } from "./space-video-preview";
 import { useImageFrameActivity } from "./use-image-frame-activity";
+import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
 
@@ -127,12 +128,19 @@ type SpaceMessageBodyProps = {
 
 function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
+	const pluginReply = usePluginConnectionReply({
+		final:
+			input.item.isAgentFinalReply === true &&
+			input.item.agentStreamState?.status !== "streaming",
+		organizationSlug: input.orgSlug,
+		text: input.item.text,
+	});
 	const shouldReduceMotion = useReducedMotionConfig();
 	const isStreaming = input.item.agentStreamState?.status === "streaming";
 	const displayedText = useSpaceStreamDisplayText({
 		enabled: isStreaming && shouldReduceMotion !== true,
 		streamId: input.item.agentStreamState?.streamId ?? null,
-		text: input.item.text,
+		text: pluginReply?.text ?? input.item.text,
 	});
 	const textProjection = useMemo(
 		() => splitServerTruncationMarker(displayedText),
@@ -158,6 +166,7 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	return {
 		isExpanded,
 		isStreaming,
+		pluginAction: pluginReply?.action,
 		renderedText,
 		setIsExpanded,
 		shouldCollapse,
@@ -392,10 +401,14 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		input.item.isAgentFinalReply === true;
 	const navigationAction =
 		input.item.isAgentFinalReply === true
-			? input.item.navigationAction
+			? (input.item.navigationAction ?? text.pluginAction)
 			: undefined;
 	const navigationActionContent = renderSpaceMessageNavigationAction({
 		action: navigationAction,
+		continuation:
+			input.item.id && input.item.spaceId
+				? { sourceSignalId: input.item.id, spaceId: input.item.spaceId }
+				: undefined,
 		organizationSlug: input.orgSlug,
 		computerSetupContext: input.computerSetupContext,
 		computerSetupSourceSignalId: input.computerSetupSourceSignalId,
@@ -656,6 +669,7 @@ function renderSpaceMessageTextContent(input: {
 
 function renderSpaceMessageNavigationAction(input: {
 	action: NavigationAction | null | undefined;
+	continuation?: { sourceSignalId: string; spaceId: string };
 	organizationSlug: string | undefined;
 	computerSetupContext: CenterAgentComputerSetupContext | undefined;
 	computerSetupSourceSignalId: string | undefined;
@@ -674,6 +688,7 @@ function renderSpaceMessageNavigationAction(input: {
 			>
 				<PluginConnectionMessageCard
 					action={{ ...input.action, target: input.action.target }}
+					continuation={input.continuation}
 					organizationSlug={input.organizationSlug}
 				/>
 			</Suspense>

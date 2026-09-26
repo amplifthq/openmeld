@@ -58,6 +58,7 @@ import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
 } from "./execution-state";
+import { tagRemoteAgentResultSources } from "./result-access";
 import {
   appendOpenMeldTaskReferenceToIssueBody,
   applyGitHubIssueSpaceTaskBinding,
@@ -1967,11 +1968,21 @@ async function executeGitHubAction(input: {
     selection: selection.selection,
     service: "github",
   });
-  return {
-    attribution,
-    data,
-    status: "completed",
-  };
+  return tagRemoteAgentResultSources(
+    {
+      attribution,
+      data,
+      status: "completed",
+    },
+    [
+      {
+        kind: "plugin_connection",
+        service: "github",
+        connectionName: selection.connection.connectionName,
+        connectionUpdatedAtMs: selection.connection.updatedAtMs,
+      },
+    ]
+  );
 }
 
 async function resolveGitHubCatalogActionPolicy(input: {
@@ -2219,23 +2230,32 @@ async function executeIdempotentGitHubAction(input: {
     replayed: claim.replayed,
     status: "completed" as const,
   };
+  const source = {
+    kind: "plugin_connection" as const,
+    service: "github" as const,
+    connectionName,
+    connectionUpdatedAtMs: actionContext?.selection.connection.updatedAtMs,
+  };
   if (input.skipSpaceTaskBinding) {
-    return result;
+    return tagRemoteAgentResultSources(result, [source]);
   }
-  return await withGitHubIssueSpaceTaskBinding({
-    actionId: input.actionId,
-    actionInput: input.actionInput,
-    connectorExecution: input.connectorExecution,
-    coreWorker: input.coreWorker,
-    githubActor: input.githubActor,
-    operationId: input.operationId,
-    result,
-    storage: input.storage,
-    submissionId: input.submissionId,
-    toolContext: input.toolContext,
-    writeConfirmationToken: input.writeConfirmationToken,
-    writeDisclosure: input.writeDisclosure,
-  });
+  return tagRemoteAgentResultSources(
+    await withGitHubIssueSpaceTaskBinding({
+      actionId: input.actionId,
+      actionInput: input.actionInput,
+      connectorExecution: input.connectorExecution,
+      coreWorker: input.coreWorker,
+      githubActor: input.githubActor,
+      operationId: input.operationId,
+      result,
+      storage: input.storage,
+      submissionId: input.submissionId,
+      toolContext: input.toolContext,
+      writeConfirmationToken: input.writeConfirmationToken,
+      writeDisclosure: input.writeDisclosure,
+    }),
+    [source]
+  );
 }
 
 async function withGitHubIssueSpaceTaskBinding(input: {

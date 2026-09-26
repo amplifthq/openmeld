@@ -1,4 +1,8 @@
 import type { SpaceApi } from "@openmeld/api-client";
+import {
+	appendPluginConnectionReplyLink,
+	buildOpenMeldNavigationAction,
+} from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -12,6 +16,7 @@ import {
 import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import { spaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
@@ -879,6 +884,79 @@ describe("SpaceMessageBody", () => {
 		expect(
 			screen.getByRole("link", { name: "Open Space Launch Planning" })
 		).toBeTruthy();
+	});
+
+	it("enhances a compatible Plugin reply without changing the stored message or loading connection state", async () => {
+		const organization = { id: "org-acme", name: "Acme", slug: "acme" };
+		const text = appendPluginConnectionReplyLink({
+			action: buildOpenMeldNavigationAction({
+				organizationWebUrl: `${window.location.origin}/o/acme`,
+				target: {
+					kind: "plugin_connection",
+					service: "linear",
+					scope: "member",
+				},
+			}),
+			text: "Connect Linear to continue.",
+		});
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		render(
+			<QueryClientProvider client={client}>
+				<AppOrganizationProvider
+					scope={{
+						access: "authorized",
+						account: { name: "Alex" },
+						activeOrganization: organization,
+						currentOrganization: organization,
+						currentUserId: "user-alex",
+						organizations: [organization],
+						storageScope: "org-acme",
+					}}
+				>
+					<SpaceMessageBody
+						item={{ isAgentFinalReply: true, actorProfileKind: "agent", text }}
+						orgSlug="acme"
+					/>
+				</AppOrganizationProvider>
+			</QueryClientProvider>
+		);
+		expect(
+			await screen.findByRole("button", { name: "Connect or review Linear" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Open Plugin connection" })
+		).toBeNull();
+		expect(screen.getByText("Connect Linear to continue.")).toBeTruthy();
+		expect(client.getQueryCache().getAll()).toHaveLength(0);
+		expect(text).toContain("#openmeld-plugin-connection)");
+	});
+
+	it("does not enhance another organization's Plugin link", () => {
+		const text = appendPluginConnectionReplyLink({
+			action: buildOpenMeldNavigationAction({
+				organizationWebUrl: `${window.location.origin}/o/other`,
+				target: {
+					kind: "plugin_connection",
+					service: "github",
+					scope: "shared",
+				},
+			}),
+			text: "Review access.",
+		});
+		render(
+			<SpaceMessageBody
+				item={{ isAgentFinalReply: true, actorProfileKind: "agent", text }}
+				orgSlug="acme"
+			/>
+		);
+		expect(
+			screen.getByRole("link", { name: "Open Plugin connection" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Connect or review GitHub" })
+		).toBeNull();
 	});
 
 	it("renders a trusted Navigation Action as a button link", () => {

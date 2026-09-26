@@ -247,7 +247,7 @@ export async function reconcileConnectorConnections(input: {
         SET status = 'active', updated_at_ms = ?, disconnected_at_ms = NULL
         WHERE organization_id = ?
           AND service = ?
-          AND status != 'disconnected'
+          AND status = 'pending'
           AND connection_name IN (${availablePlaceholders})
       `
     )

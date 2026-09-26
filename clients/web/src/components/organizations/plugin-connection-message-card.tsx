@@ -24,6 +24,10 @@ import { organizationMemberRoleQueryOptions } from "#/query/organizations/organi
 import { organizationPluginServiceConnectionsQueryOptions } from "#/query/organizations/plugin-connections";
 import { PluginAgentAccess } from "./plugin-agent-access";
 import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
+import {
+	PluginConnectionContinuation,
+	type PluginConnectionContinuationContext,
+} from "./plugin-connection-continuation";
 import { PluginConnectionSurface } from "./plugin-connection-surface";
 
 type PluginConnectionTarget = Extract<
@@ -35,6 +39,7 @@ type PluginConnectionTarget = Extract<
 export function PluginConnectionMessageCard(input: {
 	action: NavigationAction & { target: PluginConnectionTarget };
 	organizationSlug?: string;
+	continuation?: PluginConnectionContinuationContext;
 }) {
 	const organization = useOptionalAppOrganization();
 	const [open, setOpen] = useState(false);
@@ -69,6 +74,7 @@ export function PluginConnectionMessageCard(input: {
 				<ScrollArea className="max-h-[65dvh] min-h-0">
 					{open ? (
 						<PluginConnectionDialogBody
+							continuation={input.continuation}
 							currentUserId={organization.currentUserId}
 							key={`${organization.currentOrganization.id}:${organization.currentUserId}:${plugin.service}:${input.action.target.scope}`}
 							organization={organization.currentOrganization}
@@ -83,6 +89,7 @@ export function PluginConnectionMessageCard(input: {
 }
 
 function PluginConnectionDialogBody(input: {
+	continuation?: PluginConnectionContinuationContext;
 	currentUserId: string;
 	organization: OrganizationSummary;
 	plugin: Extract<PluginDefinition, { availability: "available" }>;
@@ -154,6 +161,7 @@ function PluginConnectionDialogBody(input: {
 	return (
 		<PluginConnectionSetup
 			canManage={canManage}
+			continuation={input.continuation}
 			hasMemberConnection={Boolean(member)}
 			hasSharedConnection={Boolean(shared)}
 			organization={input.organization}
@@ -164,6 +172,7 @@ function PluginConnectionDialogBody(input: {
 }
 
 function PluginConnectionSetup(input: {
+	continuation?: PluginConnectionContinuationContext;
 	canManage: boolean;
 	hasMemberConnection: boolean;
 	hasSharedConnection: boolean;
@@ -256,6 +265,20 @@ function PluginConnectionSetup(input: {
 					/>
 				) : null}
 			</details>
+			{input.continuation ? (
+				<PluginConnectionContinuation
+					{...input.continuation}
+					connected={
+						scope === "member"
+							? input.hasMemberConnection
+							: input.hasSharedConnection
+					}
+					key={`${input.continuation.sourceSignalId}:${scope}`}
+					organizationId={input.organization.id}
+					scope={scope}
+					service={input.plugin.service}
+				/>
+			) : null}
 		</>
 	);
 }

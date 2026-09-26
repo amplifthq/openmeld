@@ -25,11 +25,14 @@
 
 ## Conversational Plugin setup
 
-A typed `plugin_connection` navigation action opens the current Organization's
-existing Plugin connection surface in a Fluid dialog without replacing the
-conversation route. The message stores only the supported service and setup
-scope. Provider authorization, credentials, current status and Agent access
-remain in their existing owners, not in the message.
+A Plugin setup intent opens the current Organization's existing connection
+surface in a Fluid dialog without replacing the conversation route. Hosted
+publication appends a normal Markdown link; the new `plugin_connection` union
+member is not published into the callback or stored message envelope. Older
+readers retain a usable link. Current Web/packaged Desktop readers enhance only
+an exact final-reply suffix on the trusted app origin and current Organization,
+without rewriting stored text. Provider authorization, credentials, current
+status and Agent access remain in their existing owners.
 
 Plugins, Onboarding and conversation setup share `PluginConnectionSurface`.
 It selects the existing GitHub adapter or generic App adapter; it does not
@@ -47,14 +50,22 @@ only when expanded and never saves permissions automatically.
 
 Closing the dialog keeps the conversation in place and unmounts the existing
 authorization view. A disconnected, expired or provider-denied connection is
-not evidence that a task completed. Automatic return-to-work is not implemented
-by this dialog. External providers still require their own consent/approval.
+not evidence that a task completed. External providers still require their own
+consent/approval. An explicit **Continue original task** button calls the
+Core-owned continuation endpoint with only the original reply, service and
+selected scope. Core verifies the original human, delivered reply, current
+membership and Plugin access; it submits one idempotent Message/Wake in the
+original conversation and Thread. It includes bounded existing operation
+receipts and refuses pending/unknown outcomes. Provider callbacks never trigger
+work. The UI reports "requested", not "completed". Existing execution and
+operation owners still determine the actual result.
 
-The initial implementation is Draft. The strict navigation target union needs
-an explicit old-reader publication/upgrade contract before its producer is
-released; a fallback URL alone cannot protect an older message parser. See
-`design-plans/1254-composable-plugin-workflow.md` at the repository root for
-remaining acceptance, reader compatibility and the broader execution work.
+The implementation remains Draft pending real browser/packaged Desktop
+acceptance and the broader execution work in the repository-root
+`design-plans/1254-composable-plugin-workflow.md`. A shared message does not
+authorize its viewer to continue another person's task. External Message
+Channels and Local Agent continuation require their own supported carrier;
+their coverage is not implied by this Hosted Space endpoint.
 
 ## Selected Space work
 

@@ -148,6 +148,7 @@ async function prepareCenterAgentRender() {
     createSandbox: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
+      executionContext.computerIsolationVersion === 1 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             context: executionContext,

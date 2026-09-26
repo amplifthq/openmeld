@@ -45,10 +45,52 @@ linking. Their normal per-call execution authorization remains in force.
 Ordinary Center navigation and existing legacy GitHub actions remain readable.
 
 Connection setup does not grant Agent access, prove repository permission, or
-resume a task. Before releasing the new producer, complete the strict-union
-reader compatibility and current/old Signal-reader checks recorded in the
-repository-root `design-plans/1254-composable-plugin-workflow.md`. This draft
-slice is not a production-availability claim or a new workflow owner.
+resume a task. A separate explicit human continuation reuses existing Message,
+Wake, native-delivery and operation owners after current authorization. It does
+not replay a provider callback or let an administrator impersonate the original
+requester. Publication retains the setup target privately and appends an
+ordinary canonical Markdown link instead of sending a new strict-union variant
+to old Signal readers. The current Web reader enhances that link only for the
+trusted origin and current Organization.
+
+### Admitted Computer audience
+
+New Computer identities include Organization, Agent, Binding, conversation,
+Space and the admitted member/Agent/Routine principal. Different audiences use
+different durable Computers, not merely different working directories. Core
+derives the scope from the accepted native delivery and rechecks enabled
+Binding, requester membership, current Space participation and source Plugin
+permissions. Workspace reads and browser operations authorize before and after
+the operation; a revoked read must not release its output. No raw provider
+credentials are introduced by this boundary.
+
+Previously admitted contexts without the isolation version cannot acquire the
+new Computer tools. Their old name remains available only for existing cleanup;
+legacy shared files are not copied into every new audience. Real container,
+process termination and cross-audience export acceptance remain required.
+
+### Retained large tool results
+
+The 128 KiB presentation boundary remains. A received JSON result up to 8 MiB
+may retain immutable chunks in the existing execution storage for one hour,
+with at most 16 snapshots per execution reserved atomically. The result returns
+a bounded summary and an actual continuation reference. The common
+`openmeld_read_tool_result` capability reads at most 12,000 UTF-16 code units or
+20 literal search hits with context. Direct tools and Code Mode share this path;
+reading a result never reruns the original operation.
+
+References require the same execution/audience plus current source connection
+access and version before and after reading. Sources are host-owned metadata,
+not provider JSON. An unverifiable source, oversized result, failed storage
+write or expiry yields no continuation; a completed write remains completed.
+Provider-side truncation is not repaired by retaining its returned data. Cleanup
+uses the existing submission sweep; private logs never become Team Files just
+to support paging. Normal connection-status reconciliation does not advance an
+unchanged active connection's version; an actual pending/reconnect transition
+does.
+
+These are implementation contracts, not production-availability claims. See
+`design-plans/1254-composable-plugin-workflow.md` for outstanding acceptance.
 
 ## North Star
 

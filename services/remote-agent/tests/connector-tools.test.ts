@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
+  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
   getRemoteAgentConnectorToolDefinitions,
@@ -38,6 +39,65 @@ const CONNECTOR_OPERATION_ATTRIBUTION = {
   },
 } as const;
 describe("Remote Agent generic App tools", () => {
+  it("offers the shared connection entry for a missing non-GitHub selection without claiming a disconnected account", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        organization: {
+          ...base.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/acme",
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const fetchMock = vi.fn<typeof fetch>();
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: { fetch: fetchMock },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () => ({
+          connection: null,
+          selection: null,
+        })),
+      },
+      storage,
+      submissionId: ACK.submissionId,
+    });
+    await expect(
+      executeTool(tools, "openmeld_list_app_actions", { service: "linear" })
+    ).rejects.toThrow("does not prove the account is disconnected");
+    expect(
+      await readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).toMatchObject({
+      pluginConnectionTarget: {
+        kind: "plugin_connection",
+        service: "linear",
+        scope: "choose",
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit authorization failure instead of treating it as missing setup", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi
+          .fn()
+          .mockRejectedValue(new Error("plugin.action_forbidden")),
+      },
+      storage,
+      submissionId: ACK.submissionId,
+    });
+    await expect(
+      executeTool(tools, "openmeld_list_app_actions", { service: "linear" })
+    ).rejects.toThrow("plugin.action_forbidden");
+    expect(
+      (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
+        ?.pluginConnectionTarget
+    ).toBeUndefined();
+  });
+
   it("registers discovery and execution as one shared tool surface", () => {
     const tools = getRemoteAgentConnectorToolDefinitions({
       coreWorker: {},

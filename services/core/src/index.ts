@@ -423,6 +423,7 @@ import {
   rpcListPluginAccess,
   rpcUpdatePluginAccess,
 } from "./connectors/plugin-access-rpc";
+import { continuePluginConnection } from "./connectors/plugin-connection-continuation";
 import {
   inspectCoreDbState,
   inspectCoreDispatchStorageReadiness,
@@ -533,6 +534,7 @@ import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platf
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
+import { authorizeRemoteAgentExecutionAccess } from "./remote-agent/application/remote-agent-execution-access";
 import { processRemoteAgentSlackEvent } from "./remote-agent/application/slack-signal-service";
 import {
   handleCenterAgentSlackTeammateInvitations,
@@ -2893,6 +2895,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcPluginAction(this.env, input);
   }
 
+  continuePluginConnection(input: unknown) {
+    return continuePluginConnection(this.env, input);
+  }
+
   updatePluginAccess(input: PluginAccessUpdateRpcInput) {
     return rpcUpdatePluginAccess(this.env, input);
   }
@@ -2931,6 +2937,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: CenterAgentResolveConnectorConnectionInput
   ): Promise<CenterAgentConnectorConnectionSelection> {
     return rpcCenterAgentResolveConnectorConnection(this.env, input);
+  }
+
+  authorizeRemoteAgentExecutionAccess(input: unknown) {
+    return authorizeRemoteAgentExecutionAccess(this.env, input);
   }
 
   getCenterAgentDesignation(

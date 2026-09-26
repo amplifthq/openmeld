@@ -1960,7 +1960,7 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
     ).resolves.toMatchObject({
-      navigationTarget: {
+      pluginConnectionTarget: {
         kind: "plugin_connection",
         service: "github",
         scope: "member",
@@ -2024,7 +2024,7 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
     ).resolves.toMatchObject({
-      navigationTarget: {
+      pluginConnectionTarget: {
         kind: "plugin_connection",
         service: "github",
         scope: "shared",

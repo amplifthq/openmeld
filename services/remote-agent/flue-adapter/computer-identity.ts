@@ -1,12 +1,18 @@
+import {
+  remoteAgentExecutionScopeKey,
+  resolveRemoteAgentExecutionScope,
+} from "@openmeld/schemas";
 import type { RemoteAgentCallbackContext } from "../agent-core/callback-context";
 
 /** Resolve execution and cleanup against the same admitted isolation scope. */
 export function resolveRemoteAgentComputerName(
-  context: Pick<
-    RemoteAgentCallbackContext,
-    "agentProfileId" | "spaceId" | "conversationIdentity"
-  >
+  context: RemoteAgentCallbackContext
 ): string {
+  if (context.computerIsolationVersion === 1) {
+    return `agent-computer:audience-v1:${remoteAgentExecutionScopeKey(resolveRemoteAgentExecutionScope(context))}`;
+  }
+  // Address old commands only for drain/cleanup. New capabilities reject this
+  // admission rather than copying the old shared filesystem into a new audience.
   return buildAgentComputerName(
     context.agentProfileId,
     context.conversationIdentity?.kind === "personal_agent"
@@ -16,9 +22,8 @@ export function resolveRemoteAgentComputerName(
 }
 
 /**
- * Center retains its existing profile-owned Computer. Personal Agents have a
- * durable Computer per conversation: unrestricted shell access must not expose
- * files from their owner's DM to another Space.
+ * Legacy names remain solely for already-admitted command cleanup. Current
+ * Computer capabilities always use resolveRemoteAgentComputerName's audience key.
  */
 const AGENT_COMPUTER_NAME_PREFIX = "agent-computer:";
 

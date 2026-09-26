@@ -41,6 +41,7 @@ import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "./callback-context";
+import { recordRemoteAgentNavigationTarget } from "./callback-context";
 import {
   type CenterAgentAppConnectorService,
   getConnectedAppDisplayName,
@@ -51,6 +52,7 @@ import {
   resolveRemoteAgentRoutineDestructiveActionBlock,
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
+import { tagRemoteAgentResultSources } from "./result-access";
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
@@ -173,6 +175,8 @@ export function getRemoteAgentConnectorToolDefinitions(
           toolContext.turnEnvelope
         );
         const connection = await requireAvailableConnectorConnection({
+          storage: input.storage,
+          submissionId: input.submissionId,
           connectionPreference: requester.connectionPreference,
           coreWorker: input.coreWorker,
           requesterUserId: requester.requesterUserId,
@@ -289,6 +293,8 @@ async function executeAppAction(input: {
     if (requiresHighRiskConnectorActionPolicy(executionAction)) {
       const requester = resolveConnectorTurnRequester(toolContext.turnEnvelope);
       confirmedSelection = await requireAvailableConnectorConnection({
+        storage: input.dependencies.storage,
+        submissionId: input.dependencies.submissionId,
         connectionPreference: requester.connectionPreference,
         coreWorker: input.dependencies.coreWorker,
         requesterUserId: requester.requesterUserId,
@@ -367,15 +373,25 @@ async function executeAppAction(input: {
       service: input.request.service,
     };
   })();
-  return {
-    actionId: input.request.actionId,
-    attribution,
-    data: run.data,
-    operationId: input.request.operationId,
-    outputSchema: run.outputSchema,
-    providerExecutionId: run.providerExecutionId,
-    replayed: operation.coreOperationReplayed,
-  };
+  return tagRemoteAgentResultSources(
+    {
+      actionId: input.request.actionId,
+      attribution,
+      data: run.data,
+      operationId: input.request.operationId,
+      outputSchema: run.outputSchema,
+      providerExecutionId: run.providerExecutionId,
+      replayed: operation.coreOperationReplayed,
+    },
+    [
+      {
+        kind: "plugin_connection",
+        service: input.request.service,
+        connectionName: operation.connectionName,
+        connectionUpdatedAtMs: operation.selection?.connection.updatedAtMs,
+      },
+    ]
+  );
 }
 
 export async function requireMemberResearchReadOnlyConnectorAction(input: {
@@ -455,6 +471,8 @@ async function prepareConnectorActionOperation(input: {
         input.toolContext.turnEnvelope
       );
       selection = await requireAvailableConnectorConnection({
+        storage: input.dependencies.storage,
+        submissionId: input.dependencies.submissionId,
         connectionPreference: requester.connectionPreference,
         coreWorker: input.dependencies.coreWorker,
         requesterUserId: requester.requesterUserId,
@@ -681,12 +699,24 @@ async function resolveConnectorConnection(input: {
 }
 
 async function requireAvailableConnectorConnection(
-  input: Parameters<typeof resolveConnectorConnection>[0]
+  input: Parameters<typeof resolveConnectorConnection>[0] &
+    Pick<ConnectorToolDependencies, "storage" | "submissionId">
 ) {
   const selection = await resolveConnectorConnection(input);
   if (!(selection.connection && selection.selection)) {
+    if (input.toolContext.turnEnvelope?.organization.webUrl) {
+      await recordRemoteAgentNavigationTarget({
+        storage: input.storage,
+        submissionId: input.submissionId,
+        target: {
+          kind: "plugin_connection",
+          service: input.service,
+          scope: input.connectionPreference === "shared" ? "shared" : "choose",
+        },
+      });
+    }
     throw new Error(
-      `${getConnectedAppDisplayName(input.service as CenterAgentAppConnectorService)} is not available for this request. Open Plugins and review the account and Agent access.`
+      `${getConnectedAppDisplayName(input.service as CenterAgentAppConnectorService)} is not available for this request. Review the account and Agent access using the Plugin connection action, or open Plugins. An unavailable selection does not prove the account is disconnected; reconnecting cannot override denied Agent or provider permissions.`
     );
   }
   return {

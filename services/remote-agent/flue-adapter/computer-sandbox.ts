@@ -23,6 +23,7 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import { callCoreRpc } from "../agent-core/core-rpc";
+import { requireRemoteAgentExecutionAccess } from "../agent-core/execution-access";
 import {
   type RemoteAgentImagePreparer,
   understandRemoteAgentImages,
@@ -102,6 +103,13 @@ export async function createRemoteAgentComputerCapability(input: {
   >;
   sandbox: SandboxFactory;
 }> {
+  if (input.context.computerIsolationVersion !== 1) {
+    throw new Error(
+      "remote_agent.computer_scope_upgrade_required: Start a new request to use an isolated Computer. Existing commands retain their original cleanup address."
+    );
+  }
+  const authorize = () => requireRemoteAgentExecutionAccess(input);
+  await authorize();
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   const computerId = namespace.idFromName(
     resolveRemoteAgentComputerName(input.context)
@@ -109,6 +117,7 @@ export async function createRemoteAgentComputerCapability(input: {
   const workspaceAccess = createAgentComputerWorkspaceAccess({
     computerId,
     namespace,
+    authorize,
   });
   const organizationDocumentsSnapshot = input.includeOrganizationDocuments
     ? await callCoreRpc(
@@ -174,7 +183,10 @@ export async function createRemoteAgentComputerCapability(input: {
       input: browserInput,
       execute: async (rawInput) => {
         const { code } = parse(browserInput, rawInput);
-        return await browser.executeBrowser({ spaceId, code });
+        await authorize();
+        const result = await browser.executeBrowser({ spaceId, code });
+        await authorize();
+        return result;
       },
     });
     const previewInput = strictObject({
@@ -189,7 +201,10 @@ export async function createRemoteAgentComputerCapability(input: {
       input: previewInput,
       execute: async (rawInput) => {
         const preview = parse(previewInput, rawInput);
-        return await browser.inspectPreview(preview);
+        await authorize();
+        const result = await browser.inspectPreview(preview);
+        await authorize();
+        return result;
       },
     });
   }
