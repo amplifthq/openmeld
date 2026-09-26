@@ -181,6 +181,65 @@ describe("retained tool results", () => {
     );
   });
 
+  it.each([
+    0,
+    180_000,
+    REMOTE_AGENT_RETAINED_RESULT_MAX_BYTES + 1,
+  ])("withholds private fields and excerpts after denial at size %i", async (size) => {
+    const f = await fixture();
+    f.authorize.mockRejectedValue(new Error("plugin.action_forbidden"));
+    const value = tagRemoteAgentResultSources(
+      {
+        privateField: "PRIVATE_SENTINEL",
+        log: `PRIVATE_SENTINEL${"x".repeat(size)}`,
+      },
+      [
+        {
+          kind: "plugin_connection",
+          service: "github",
+          connectionName: "source",
+          connectionUpdatedAtMs: 1,
+        },
+      ]
+    );
+    const result = await prepareRemoteAgentToolResult({
+      ...f,
+      toolName: "write",
+      value,
+    });
+    expect(f.authorize).toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_SENTINEL");
+    expect(result).toMatchObject({
+      toolExecution: "returned",
+      presentation: { kind: "withheld", continuation: null },
+    });
+    expect(result).not.toHaveProperty("resultMetadata");
+  });
+
+  it.each([
+    false,
+    true,
+  ])("withholds results revoked during retention (storage failure: %s)", async (failStorage) => {
+    const f = await fixture();
+    const put = f.storage.putExpiring.bind(f.storage);
+    vi.spyOn(f.storage, "putExpiring").mockImplementation(
+      async (key, value, expiry) => {
+        f.authorize.mockRejectedValue(new Error("revoked during persistence"));
+        if (failStorage) {
+          throw new Error("storage failed");
+        }
+        return await put(key, value, expiry);
+      }
+    );
+    const result = await prepareRemoteAgentToolResult({
+      ...f,
+      toolName: "read",
+      value: { ...largeValue(), privateField: "PRIVATE_SENTINEL" },
+    });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_SENTINEL");
+    expect(result).toMatchObject({ presentation: { kind: "withheld" } });
+  });
+
   it("blocks retained reads when current execution authorization is revoked", async () => {
     const f = await fixture();
     const { resultId } = continuation(
@@ -269,7 +328,7 @@ describe("retained tool results", () => {
       resultMetadata: { status: "completed", operationId: "saved" },
       presentation: { continuation: null },
     });
-    expect(f.authorize).not.toHaveBeenCalled();
+    expect(f.authorize).toHaveBeenCalledTimes(2);
   });
 
   it("enforces the snapshot budget under concurrent writes without losing already retained results", async () => {

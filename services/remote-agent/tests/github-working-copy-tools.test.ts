@@ -256,6 +256,10 @@ async function fixture(
     context,
     storage,
     coreWorker,
+    dataSources: {
+      readDataSources: () => Promise.resolve([]),
+      recordDataSource: () => Promise.resolve(),
+    },
     workingDirectory: "/workspace",
     connectorExecution: {
       baseUrl: "https://connectors.example",

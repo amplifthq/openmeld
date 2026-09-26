@@ -46,8 +46,6 @@ export const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 
 const CODE_MODE_TIMEOUT_MS = 60_000;
 const CODE_MODE_INPUT_MAX_CHARS = 24_000;
-const CODE_MODE_LOG_MAX_COUNT = 10;
-const CODE_MODE_LOG_MAX_CHARS = 1000;
 const UNDEFINED_CAPABILITY = /\b([A-Za-z_$][\w$]*) is not defined\b/u;
 
 function withCodeModeCallableHint(
@@ -213,9 +211,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
               toolName: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
               value: rawOutput.result,
             })) ?? null,
-          ...(rawOutput.logs
-            ? { logs: boundCodeModeLogs(rawOutput.logs) }
-            : {}),
+          ...(rawOutput.logs ? { logs: rawOutput.logs } : {}),
         };
         const boundedOutput = await prepareRemoteAgentToolResult({
           coreWorker: input.coreWorker,
@@ -411,12 +407,6 @@ async function loadCloudflareCodeModeRuntime(): Promise<RemoteAgentCodeModeRunti
       }),
     createExecutor: (options) => new DynamicWorkerExecutor(options),
   };
-}
-
-function boundCodeModeLogs(logs: string[]): string[] {
-  return logs
-    .slice(0, CODE_MODE_LOG_MAX_COUNT)
-    .map((log) => log.slice(0, CODE_MODE_LOG_MAX_CHARS));
 }
 
 function jsonByteLength(value: unknown): number {

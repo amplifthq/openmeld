@@ -26,7 +26,10 @@ import { buildRemoteAgentToolContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import { GitHubWorkingCopyProvider } from "../connectors/github-working-copy-provider";
 import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
-import { recordComputerDataSource } from "./computer-data-sources";
+import {
+  type ComputerDataSourceAccess,
+  recordComputerDataSource,
+} from "./computer-data-sources";
 import {
   GitWorkingCopyComputer,
   type GitWorkingCopyComputerApi,
@@ -40,6 +43,7 @@ type Dependencies = {
   storage: RemoteAgentStorage;
   connectorExecution: ConnectorExecutionConfig;
   computer: GitWorkingCopyComputerApi;
+  dataSources: ComputerDataSourceAccess;
   workingDirectory: string;
 };
 type Checkout = GitWorkingCopyLocation & {

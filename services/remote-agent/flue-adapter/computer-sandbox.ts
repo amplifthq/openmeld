@@ -29,6 +29,11 @@ import {
   understandRemoteAgentImages,
 } from "../agent-core/image-understanding";
 import type { RemoteAgentModelEnv } from "../agent-core/model";
+import {
+  mergeRemoteAgentResultSources,
+  readRemoteAgentResultSources,
+  tagRemoteAgentResultSources,
+} from "../agent-core/result-access";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
@@ -107,26 +112,26 @@ export async function createRemoteAgentComputerCapability(input: {
   >;
   sandbox: SandboxFactory;
 }> {
-  if (input.context.computerIsolationVersion !== 1) {
+  if (input.context.computerIsolationVersion !== 2) {
     throw new Error(
       "remote_agent.computer_scope_upgrade_required: Start a new request to use an isolated Computer. Existing commands retain their original cleanup address."
     );
   }
-  const authorize = async () =>
-    await requireRemoteAgentExecutionAccess({
-      ...input,
-      sources: input.storage
-        ? await readComputerDataSources({
-            context: input.context,
-            storage: input.storage,
-          })
-        : [],
-    });
-  await authorize();
+  await requireRemoteAgentExecutionAccess(input);
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   const computerId = namespace.idFromName(
     resolveRemoteAgentComputerName(input.context)
   );
+  const dataSources = namespace.get(
+    computerId
+  ) as DurableObjectStub<AgentComputer>;
+  const readSources = () => readComputerDataSources({ dataSources });
+  const authorize = async () =>
+    await requireRemoteAgentExecutionAccess({
+      ...input,
+      sources: await readSources(),
+    });
+  await authorize();
   const workspaceAccess = createAgentComputerWorkspaceAccess({
     computerId,
     namespace,
@@ -242,6 +247,7 @@ export async function createRemoteAgentComputerCapability(input: {
             connectorExecution: input.connectorExecution,
             storage: input.storage,
             computer: nativeApi,
+            dataSources,
             workingDirectory,
           })
         : []),
@@ -294,7 +300,24 @@ export async function createRemoteAgentComputerCapability(input: {
             }),
           ]
         : []),
-    ],
+    ].map((definition) => ({
+      ...definition,
+      execute: async (value, options) => {
+        const before = await readSources();
+        const result = await definition.execute(value, options);
+        const sources = mergeRemoteAgentResultSources(
+          before,
+          await readSources(),
+          readRemoteAgentResultSources(result)
+        );
+        await requireRemoteAgentExecutionAccess({ ...input, sources });
+        const tagged =
+          sources.length && (result === null || typeof result !== "object")
+            ? { result }
+            : result;
+        return tagRemoteAgentResultSources(tagged, sources);
+      },
+    })),
     fileHandoff: createReacquiringAgentComputerFileHandoff({
       workspaceAccess,
       workingDirectory,

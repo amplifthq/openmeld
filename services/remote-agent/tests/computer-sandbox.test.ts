@@ -241,7 +241,7 @@ function createOrganizationDocumentsComputerFixture() {
     coreWorker,
     env: {
       AGENT_COMPUTER: {
-        get: vi.fn(() => ({})),
+        get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
         idFromName: vi.fn(() => ({})),
       },
     },
@@ -296,7 +296,7 @@ describe("Agent computer Workspace RPC lifecycle", () => {
       .mockResolvedValueOnce(continuationWorkspace.workspace);
     const durableComputerId = { name: "agent-computer:agt_test" };
     const namespace = {
-      get: vi.fn(() => ({})),
+      get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
       idFromName: vi.fn(() => durableComputerId),
     };
     const access = createAgentComputerWorkspaceAccess({
@@ -341,7 +341,7 @@ describe("Agent computer Workspace RPC lifecycle", () => {
     const workspaceAccess = createAgentComputerWorkspaceAccess({
       computerId: durableComputerId as unknown as DurableObjectId,
       namespace: {
-        get: vi.fn(() => ({})),
+        get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
         idFromName: vi.fn(() => durableComputerId),
       } as unknown as Parameters<
         typeof createAgentComputerWorkspaceAccess
@@ -510,7 +510,7 @@ describe("Organization Documents computer scope", () => {
       .mockResolvedValueOnce(replacementWorkspace.workspace);
     const durableComputerId = { name: "agent-computer:agt_test" };
     const namespace = {
-      get: vi.fn(() => ({})),
+      get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
       idFromName: vi.fn(() => durableComputerId),
     };
     const centerAgentOrganizationDocumentsComputerSnapshot = vi.fn(() =>
@@ -527,7 +527,7 @@ describe("Organization Documents computer scope", () => {
     });
 
     expect(namespace.idFromName).toHaveBeenCalledOnce();
-    expect(namespace.get).toHaveBeenCalledTimes(2);
+    expect(namespace.get).toHaveBeenCalledTimes(3);
     expect(namespace.get).toHaveBeenNthCalledWith(1, durableComputerId);
     expect(namespace.get).toHaveBeenNthCalledWith(2, durableComputerId);
     expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(2);
@@ -558,7 +558,7 @@ describe("Organization Documents computer scope", () => {
       .mockResolvedValueOnce(materializationWorkspace.workspace)
       .mockResolvedValueOnce(toolWorkspace.workspace);
     const namespace = {
-      get: vi.fn(() => ({})),
+      get: vi.fn(() => ({ readDataSources: () => Promise.resolve([]) })),
       idFromName: vi.fn(() => ({})),
     };
     const capability = await createRemoteAgentComputerCapability({

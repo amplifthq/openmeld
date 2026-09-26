@@ -1,3 +1,4 @@
+import type { JsonValue } from "@flue/runtime";
 import {
   REMOTE_AGENT_RETAINED_RESULT_MAX_BYTES,
   REMOTE_AGENT_RETAINED_RESULT_MAX_PER_EXECUTION,
@@ -85,6 +86,15 @@ export async function prepareRemoteAgentToolResult(
     readRemoteAgentResultSources(input.value),
     input.sources ?? []
   );
+  const needsRetention =
+    json !== undefined && !isRemoteAgentToolResultWithinLimit(json);
+  const scope =
+    sources.length || needsRetention
+      ? await authorizeResultPresentation(input, sources)
+      : undefined;
+  if (scope === null) {
+    return withheldResult(input.toolName);
+  }
   if (json === undefined || isRemoteAgentToolResultWithinLimit(json)) {
     return tagRemoteAgentResultSources(json, sources);
   }
@@ -92,35 +102,20 @@ export async function prepareRemoteAgentToolResult(
     toolName: input.toolName,
     value: json,
   });
-  if (!bounded || typeof bounded !== "object" || Array.isArray(bounded)) {
+  if (!(isJsonObject(bounded) && isJsonObject(bounded.presentation))) {
     return bounded;
   }
   const presentation = bounded.presentation;
-  if (
-    !presentation ||
-    typeof presentation !== "object" ||
-    Array.isArray(presentation)
-  ) {
-    return bounded;
+  if (!scope) {
+    return withheldResult(input.toolName);
   }
+  let prepared: ReturnType<typeof toBoundedRemoteAgentToolResult>;
   try {
     const text = JSON.stringify(json);
     const bytes = new TextEncoder().encode(text).byteLength;
     if (bytes > REMOTE_AGENT_RETAINED_RESULT_MAX_BYTES) {
       throw new Error("retention_limit");
     }
-    const context = await readRemoteAgentCallbackContext(
-      input.storage,
-      input.submissionId
-    );
-    if (!(context && input.coreWorker)) {
-      throw new Error("execution_context_unavailable");
-    }
-    const scope = await requireRemoteAgentExecutionAccess({
-      context,
-      coreWorker: input.coreWorker,
-      sources,
-    });
     const scopeKey = remoteAgentExecutionScopeKey(scope);
     const resultId = await digest(
       JSON.stringify([
@@ -138,11 +133,6 @@ export async function prepareRemoteAgentToolResult(
       ? previous.data.expiresAtMs
       : Date.now() + REMOTE_AGENT_RETAINED_RESULT_TTL_MS;
     if (!previous.success || expiresAtMs <= Date.now()) {
-      if (
-        sources.some((source) => source.connectionUpdatedAtMs === undefined)
-      ) {
-        throw new Error("result_source_version_unavailable");
-      }
       expiresAtMs = Date.now() + REMOTE_AGENT_RETAINED_RESULT_TTL_MS;
       const storageId = crypto.randomUUID();
       const reservation = { resultId, storageId, expiresAtMs };
@@ -202,7 +192,7 @@ export async function prepareRemoteAgentToolResult(
         throw error;
       }
     }
-    return tagRemoteAgentResultSources(
+    prepared = tagRemoteAgentResultSources(
       {
         ...bounded,
         presentation: {
@@ -222,19 +212,70 @@ export async function prepareRemoteAgentToolResult(
     );
   } catch {
     // No provider body, token, or exception text enters logs or this recovery copy.
-    return tagRemoteAgentResultSources(
+    prepared = tagRemoteAgentResultSources(
       {
         ...bounded,
         presentation: {
           ...presentation,
           continuation: null,
           message:
-            "The tool returned; its receipt and excerpts are shown. The full display could not be retained within the current authorization, storage or size limit. Use provider pagination or a narrower read. Do not repeat a completed write.",
+            "The tool returned; its authorized receipt and excerpts are shown. The full display could not be retained within the storage or size limit. Use provider pagination or a narrower read. Do not repeat a completed write.",
         },
       },
       sources
     );
   }
+  // Authorization denial is never handled by the display-store fallback.
+  return (await authorizeResultPresentation(input, sources))
+    ? tagRemoteAgentResultSources(prepared, sources)
+    : withheldResult(input.toolName);
+}
+
+function isJsonObject(
+  value: JsonValue | undefined
+): value is Record<string, JsonValue> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+async function authorizeResultPresentation(
+  input: ResultDependencies,
+  sources: RemoteAgentResultSource[]
+) {
+  try {
+    const context = await readRemoteAgentCallbackContext(
+      input.storage,
+      input.submissionId
+    );
+    if (
+      !(context && input.coreWorker) ||
+      sources.some((source) => source.connectionUpdatedAtMs === undefined)
+    ) {
+      return null;
+    }
+    return await requireRemoteAgentExecutionAccess({
+      context,
+      coreWorker: input.coreWorker,
+      sources,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function withheldResult(toolName: string) {
+  // Even small provider fields/IDs may contain private data. Only the existing
+  // trusted operation ledger can independently establish safe outcome facts.
+  return {
+    toolName,
+    toolExecution: "returned",
+    presentation: {
+      kind: "withheld",
+      reasonCode: "remote_agent.tool_result_access_denied",
+      continuation: null,
+      message:
+        "The tool returned, but current access to its content could not be verified. No result content is released. Effects may already have committed: reconcile the original operation through its authorized ledger; do not repeat a write to recover output.",
+    },
+  };
 }
 
 export function createRemoteAgentReadToolResultDefinition(

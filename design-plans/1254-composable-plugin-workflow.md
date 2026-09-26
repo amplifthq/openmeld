@@ -1,6 +1,6 @@
 # #1254 — Composable Plugin setup and execution
 
-Status: Draft implementation with private Git, 2026-09-26. Independent authenticated smoke, mixed-version Desktop and final review remain required.
+Status: Draft review corrections in progress, 2026-09-26. F1/F2/F4/F6 have source/projection corrections and focused regression tests; F3/F5/F7/F8 and independent acceptance remain open.
 Discussion: https://github.com/amplifthq/openmeld/pull/1254
 
 ## Agent context

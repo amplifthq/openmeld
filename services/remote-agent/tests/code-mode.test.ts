@@ -65,6 +65,80 @@ async function runCodeModeTool(
 }
 
 describe("Remote Agent Code Mode", () => {
+  it.each([
+    "bash",
+    "console",
+  ])("retains the middle of actual %s output before display shortening", async (carrier) => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing admitted context");
+    }
+    const coreWorker = {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+    };
+    const text = `${"start\\n".repeat(30_000)}UNIQUE_RAW_LOG_MIDDLE${"end\\n".repeat(30_000)}`;
+    const exec = vi.fn(async () => ({ stdout: text, stderr: "", exitCode: 0 }));
+    const definitions = getRemoteAgentSandboxToolDefinitions({
+      env: { exec } as unknown as SessionEnv,
+    });
+    const reader = createRemoteAgentReadToolResultDefinition({
+      storage,
+      coreWorker,
+      submissionId: SUBMISSION_ID,
+    });
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        if (carrier === "console") {
+          return { result: null, logs: [text] };
+        }
+        const shown = await tools.bash?.execute?.(
+          { command: "build-once" },
+          TOOL_OPTIONS
+        );
+        const id = (
+          shown as { presentation: { continuation: { resultId: string } } }
+        ).presentation.continuation.resultId;
+        return {
+          result: await reader.execute({
+            resultId: id,
+            query: "UNIQUE_RAW_LOG_MIDDLE",
+          }),
+        };
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      storage,
+      coreWorker,
+      submissionId: SUBMISSION_ID,
+      definitions,
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+    });
+    const shown = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(isRemoteAgentToolResultWithinLimit(shown)).toBe(true);
+    if (carrier === "console") {
+      const id = (
+        shown as { presentation: { continuation: { resultId: string } } }
+      ).presentation.continuation.resultId;
+      expect(
+        JSON.stringify(
+          await reader.execute({ resultId: id, query: "UNIQUE_RAW_LOG_MIDDLE" })
+        )
+      ).toContain("UNIQUE_RAW_LOG_MIDDLE");
+    } else {
+      expect(JSON.stringify(shown)).toContain("UNIQUE_RAW_LOG_MIDDLE");
+      expect(exec).toHaveBeenCalledOnce();
+    }
+  });
+
   it("reads the middle of a large inner result without running the original write again", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const context = await readRemoteAgentCallbackContext(
@@ -786,6 +860,19 @@ describe("Remote Agent Code Mode", () => {
 
   it("returns a bounded partial inner result without repeating a completed operation", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing admitted context");
+    }
+    const coreWorker = {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+    };
+    vi.spyOn(storage, "putExpiring").mockRejectedValue(
+      new Error("retention store unavailable")
+    );
     const execute = vi.fn(async () => ({
       content: "A".repeat(200_000),
       operationId: "write-1",
@@ -810,6 +897,7 @@ describe("Remote Agent Code Mode", () => {
       executorOptions: [],
     });
     const tool = await createRemoteAgentCodeModeFlueTool({
+      coreWorker,
       definitions: [definition],
       env: {},
       loader: {} as WorkerLoader,

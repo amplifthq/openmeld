@@ -14,7 +14,10 @@ link instead of receiving an unsupported message action.
 Hosted Computers separate admitted conversation audiences. Large received
 tool results can be read or searched through bounded, expiring references under
 current access checks, including results inside Code Mode. Reading more output
-does not rerun the original tool or repeat a completed write.
+does not rerun the original tool or repeat a completed write. Private source
+checks survive runtime conversation rollover and apply to retained output too.
+Revoked results are withheld rather than returned as excerpts; long shell and
+Code Mode logs preserve their received middle content before display shortening.
 
 Hosted Agents can prepare a private GitHub snapshot working copy, edit and test
 with the existing Computer, and publish its exact tree to a dedicated task

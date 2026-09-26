@@ -64,9 +64,14 @@ permissions. Workspace reads and browser operations authorize before and after
 the operation; a revoked read must not release its output. No raw provider
 credentials are introduced by this boundary.
 
-Previously admitted contexts without the isolation version cannot acquire the
-new Computer tools. Their old name remains available only for existing cleanup;
-legacy shared files are not copied into every new audience. Real container,
+New admissions use the audience-v2 Computer address. Its host-only SQL metadata
+owns the imported source set for the lifetime of that Computer, independently
+of runtime Agent generations. A missing row after initialization fails closed.
+The source set is registered before imported bytes are exposed, and final
+Computer tool results carry that provenance through direct and Code Mode paths.
+Previously admitted v1 or unversioned contexts cannot acquire the new Computer
+tools. Their old name remains available only for existing cleanup; neither
+legacy shared nor unproven v1 files are copied into a new audience. Real container,
 process termination and cross-audience export acceptance remain required.
 
 ### Retained large tool results
@@ -81,8 +86,13 @@ reading a result never reruns the original operation.
 
 References require the same execution/audience plus current source connection
 access and version before and after reading. Sources are host-owned metadata,
-not provider JSON. An unverifiable source, oversized result, failed storage
-write or expiry yields no continuation; a completed write remains completed.
+not provider JSON. Authorization is checked before releasing source-tagged results of any size,
+including results too large to retain, and again after storage work. Denied or
+unverifiable access withholds all provider fields and excerpts, not just the
+continuation. An authorized storage/size failure may still show bounded output;
+a completed write remains completed in its existing operation ledger. Bash
+stdout/stderr and Code Mode console logs reach this owner before display-only
+truncation. Expiry yields no continuation.
 Provider-side truncation is not repaired by retaining its returned data. Cleanup
 uses the existing submission sweep; private logs never become Team Files just
 to support paging. Normal connection-status reconciliation does not advance an

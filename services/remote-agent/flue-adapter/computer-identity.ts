@@ -8,6 +8,9 @@ import type { RemoteAgentCallbackContext } from "../agent-core/callback-context"
 export function resolveRemoteAgentComputerName(
   context: RemoteAgentCallbackContext
 ): string {
+  if (context.computerIsolationVersion === 2) {
+    return `agent-computer:audience-v2:${remoteAgentExecutionScopeKey(resolveRemoteAgentExecutionScope(context))}`;
+  }
   if (context.computerIsolationVersion === 1) {
     return `agent-computer:audience-v1:${remoteAgentExecutionScopeKey(resolveRemoteAgentExecutionScope(context))}`;
   }
