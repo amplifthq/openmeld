@@ -2,19 +2,43 @@ import type {
   OpenMeldRequestContext,
   SpaceFileActor,
 } from "@openmeld/schemas/types";
+import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
 import { type CoreBindings, identityDb } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import type { OrganizationFileRoot } from "./file-root-identity";
 
-/** Recheck the represented person's current membership before every root operation. */
+/** Recheck a member's current membership or the designated Center identity. */
 export async function prepareOrganizationFileRootAccess(input: {
   context: OpenMeldRequestContext;
   env: CoreBindings;
   root: OrganizationFileRoot;
-}): Promise<{ actor: SpaceFileActor; userId: string }> {
+}): Promise<{ actor: SpaceFileActor }> {
   const { context, env, root } = input;
+  const { actorContext } = context;
+  if (
+    root.kind === "team" &&
+    actorContext.profileKind === "agent" &&
+    !actorContext.ownerUserId
+  ) {
+    const center = await requireCurrentDesignatedCenterAgentCaller({
+      context,
+      env,
+    });
+    requireExpectedOrganizationContext({
+      actualOrganizationId: center.activeOrganization.organizationId,
+      expectedOrganizationId: root.organizationId,
+      errorCode: "file_root.organization_context_changed",
+    });
+    return {
+      actor: {
+        profileId: center.actorProfileId,
+        profileKind: "agent",
+        displayName: center.actorProfile.profileName,
+      },
+    };
+  }
   const membership = await resolveActiveOrganizationMembership({
     context,
     env,
@@ -38,7 +62,6 @@ export async function prepareOrganizationFileRootAccess(input: {
       status: 403,
     });
   }
-  const { actorContext } = context;
   if (actorContext.profileKind === "system") {
     throw createCoreRpcHttpError({
       code: "file_root.profile_required",
@@ -92,6 +115,5 @@ export async function prepareOrganizationFileRootAccess(input: {
         (actorContext.profileKind === "human" ? "Member" : "Agent"),
       ownerUserId: membership.userId,
     },
-    userId: membership.userId,
   };
 }

@@ -22,3 +22,12 @@ export type FileRootFolderDescriptor = z.infer<
 export type ListFileRootResponse = z.infer<
   Schemas["listFileRootResponseSchema"]
 >;
+export type RemoteAgentListTeamFilesRpcInput = z.infer<
+  Schemas["remoteAgentListTeamFilesRpcInputSchema"]
+>;
+export type RemoteAgentReadTeamFileRpcInput = z.infer<
+  Schemas["remoteAgentReadTeamFileRpcInputSchema"]
+>;
+export type RemoteAgentReadTeamFileResponse = z.infer<
+  Schemas["remoteAgentReadTeamFileResponseSchema"]
+>;

@@ -236,6 +236,7 @@ import type {
   ListCenterAgentRoutinesResponse,
   ListFeedbackIssuesForOrganizationRequest,
   ListFeedbackIssuesForOrganizationResponse,
+  ListFileRootResponse,
   ListInboxFeedRpcInput,
   ListInboxItemsResponse,
   ListInboxItemsRpcInput,
@@ -305,6 +306,9 @@ import type {
   RefreshCurrentLocalAgentCatalogResponse,
   RemoteAgentCoreCallbackEvent,
   RemoteAgentCoreCallbackResponse,
+  RemoteAgentListTeamFilesRpcInput,
+  RemoteAgentReadTeamFileResponse,
+  RemoteAgentReadTeamFileRpcInput,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
@@ -433,6 +437,10 @@ import {
   rpcUpdateFeedbackIssueStatusForOrganization,
 } from "./feedback/transport/rpc/feedback-management-rpc";
 import { rpcSubmitFeedbackIssue } from "./feedback/transport/rpc/feedback-rpc";
+import {
+  rpcRemoteAgentListTeamFiles,
+  rpcRemoteAgentReadTeamFile,
+} from "./files/remote-agent-team-files";
 import {
   rpcDismissInboxItem,
   rpcGetCenterAgentInboxSummary,
@@ -3521,6 +3529,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
         input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
       )
     );
+  }
+
+  remoteAgentListTeamFiles(
+    input: RemoteAgentListTeamFilesRpcInput
+  ): Promise<ListFileRootResponse> {
+    return rpcRemoteAgentListTeamFiles(this.env, input);
+  }
+
+  remoteAgentReadTeamFile(
+    input: RemoteAgentReadTeamFileRpcInput
+  ): Promise<RemoteAgentReadTeamFileResponse> {
+    return rpcRemoteAgentReadTeamFile(this.env, input);
   }
 
   centerAgentReadSpaceFile(

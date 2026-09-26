@@ -24,6 +24,8 @@ const PERSONAL_PRODUCT_TOOLS = new Set([
   "openmeld_read_org_documents",
   "openmeld_list_projects",
   "openmeld_list_space_files",
+  "openmeld_list_team_files",
+  "openmeld_read_team_file",
   "openmeld_read_space_file",
   "openmeld_save_space_file",
   "openmeld_manage_space_files",

@@ -1,4 +1,5 @@
 import * as z from "../../lazy-zod";
+import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { spaceFileUploadResponseSchema } from "./space-file-upload";
 import {
   spaceFileBreadcrumbSchema,
@@ -42,6 +43,26 @@ export const fileRootFileDescriptorSchema = spaceFileDescriptorSchema
 
 export const fileRootFileResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,
+});
+
+export const remoteAgentListTeamFilesRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  parentId: spaceFileEntryIdSchema.nullable().optional(),
+  view: z.enum(["active", "trash"]).optional(),
+});
+
+export const remoteAgentReadTeamFileRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  fileId: spaceFileEntryIdSchema,
+  revision: spaceFileRevisionNumberSchema.optional(),
+  includeHistory: z.boolean().optional(),
+});
+
+export const remoteAgentReadTeamFileResponseSchema = z.strictObject({
+  content: z.string(),
+  file: fileRootFileDescriptorSchema,
+  revision: spaceFileRevisionSchema,
+  revisions: z.array(spaceFileRevisionSchema).optional(),
 });
 
 /** Copy one immutable revision into a new Team or member-owned file. */

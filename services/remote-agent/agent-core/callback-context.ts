@@ -127,6 +127,7 @@ import type {
   CreateCenterAgentRoutineResponse,
   DeleteCenterAgentRoutineResponse,
   ListCenterAgentRoutinesResponse,
+  ListFileRootResponse,
   ModelCatalog,
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
@@ -142,6 +143,9 @@ import type {
   RemoteAgentCoreCallbackBody,
   RemoteAgentCoreCallbackEvent,
   RemoteAgentCoreCallbackResponse,
+  RemoteAgentListTeamFilesRpcInput,
+  RemoteAgentReadTeamFileResponse,
+  RemoteAgentReadTeamFileRpcInput,
   RemoteAgentRuntimeEvidenceOutcomeReasonCode,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
@@ -533,6 +537,12 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentListSpaceFiles?(
     input: CenterAgentListSpaceFilesRpcInput
   ): Promise<CenterAgentListSpaceFilesResponse>;
+  remoteAgentListTeamFiles?(
+    input: RemoteAgentListTeamFilesRpcInput
+  ): Promise<ListFileRootResponse>;
+  remoteAgentReadTeamFile?(
+    input: RemoteAgentReadTeamFileRpcInput
+  ): Promise<RemoteAgentReadTeamFileResponse>;
   centerAgentReadSpaceFile?(
     input: CenterAgentReadSpaceFileRpcInput
   ): Promise<CenterAgentReadSpaceFileResponse>;

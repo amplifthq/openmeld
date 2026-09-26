@@ -139,6 +139,7 @@ import {
   listCenterAgentRoutinesResponseSchema,
   listFeedbackIssuesForOrganizationRequestSchema,
   listFeedbackIssuesForOrganizationResponseSchema,
+  listFileRootResponseSchema,
   listSpaceTasksResponseSchema,
   MAX_TEXT_LENGTH,
   modelCatalogSchema,
@@ -171,6 +172,7 @@ import {
   pauseCenterAgentRoutineResponseSchema,
   peopleComputerTargetSchema,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
+  remoteAgentReadTeamFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
@@ -558,6 +560,15 @@ const listSpaceFilesToolInputSchema = strictObject({
   spaceId: nonEmptyStringSchema,
   view: optional(picklist(["active", "trash"] as const)),
   origin: optional(picklist(["artifact", "all"] as const)),
+});
+const listTeamFilesToolInputSchema = strictObject({
+  parentId: optional(nullable(spaceFileIdToolInputSchema)),
+  view: optional(picklist(["active", "trash"] as const)),
+});
+const readTeamFileToolInputSchema = strictObject({
+  fileId: spaceFileIdToolInputSchema,
+  includeHistory: optional(boolean()),
+  revision: optional(pipe(number(), integer(), minValue(1))),
 });
 const readSpaceFileToolInputSchema = strictObject({
   fileId: spaceFileIdToolInputSchema,
@@ -1403,6 +1414,8 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
   "openmeld_manage_space_tasks",
+  "openmeld_list_team_files",
+  "openmeld_read_team_file",
   "openmeld_list_space_files",
   "openmeld_read_space_file",
   "openmeld_save_space_file",
@@ -1503,6 +1516,8 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
   "openmeld_list_space_files",
+  "openmeld_list_team_files",
+  "openmeld_read_team_file",
   "openmeld_read_space_file",
   "openmeld_read_dispatch_history",
   "openmeld_list_routines",
@@ -3647,6 +3662,48 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           storage: input.storage,
           submissionId: input.submissionId,
         }),
+    }),
+    toolDefinition({
+      name: "openmeld_list_team_files",
+      description:
+        "List folders and files shared with this Team. Omit parentId for the root folder. Pass view=trash to see recoverable items. Use a returned file ID with openmeld_read_team_file. Access follows the represented member's Team permissions.",
+      input: listTeamFilesToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(listTeamFilesToolInputSchema, payload);
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_list_team_files",
+        });
+        const response = await callCoreRpc(
+          input.coreWorker,
+          "remoteAgentListTeamFiles",
+          { ...request, context },
+          (binding, rpcInput) => binding.remoteAgentListTeamFiles?.(rpcInput)
+        );
+        return listFileRootResponseSchema.parse(response);
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_team_file",
+      description:
+        "Read a UTF-8 text file from Team Files, optionally at an exact revision. Use openmeld_list_team_files to find its ID. Set includeHistory=true to see all revisions. Other file types and text over 1 MiB can be opened in Files.",
+      input: readTeamFileToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(readTeamFileToolInputSchema, payload);
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_team_file",
+        });
+        const response = await callCoreRpc(
+          input.coreWorker,
+          "remoteAgentReadTeamFile",
+          { ...request, context },
+          (binding, rpcInput) => binding.remoteAgentReadTeamFile?.(rpcInput)
+        );
+        return remoteAgentReadTeamFileResponseSchema.parse(response);
+      },
     }),
     toolDefinition({
       name: "openmeld_list_space_files",

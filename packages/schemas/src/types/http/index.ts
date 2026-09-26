@@ -547,6 +547,9 @@ export type {
   FileRootFileDescriptor,
   FileRootFolderDescriptor,
   ListFileRootResponse,
+  RemoteAgentListTeamFilesRpcInput,
+  RemoteAgentReadTeamFileResponse,
+  RemoteAgentReadTeamFileRpcInput,
 } from "./file-root";
 export type { GatewayErrorCode, GatewayErrorEnvelope } from "./gateway-error";
 export type * from "./inbox";

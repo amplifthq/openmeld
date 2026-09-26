@@ -1557,6 +1557,9 @@ export {
   fileRootUploadResponseSchema,
   listFileRootResponseSchema,
   listFileRootRevisionsResponseSchema,
+  remoteAgentListTeamFilesRpcInputSchema,
+  remoteAgentReadTeamFileResponseSchema,
+  remoteAgentReadTeamFileRpcInputSchema,
 } from "./http/file-root";
 export {
   gatewayErrorCodeSchema,

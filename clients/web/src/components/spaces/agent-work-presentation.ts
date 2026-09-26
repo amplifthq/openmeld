@@ -609,6 +609,11 @@ const AGENT_WORK_COPY = {
 		"Updated Space files",
 		"Couldn't update Space files"
 	),
+	"team.files.read": workCopy(
+		"Reading Team files…",
+		"Read Team files",
+		"Couldn't read Team files"
+	),
 	"space.members.add": workCopy(
 		"Adding members to the Space…",
 		"Added members to the Space",
