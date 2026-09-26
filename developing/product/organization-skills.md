@@ -475,13 +475,16 @@ For every admitted Center Agent turn, personal Remote Agent turn, or Routine Run
 
 1. the immutable execution context establishes Organization and represented
    member identity;
-2. Core returns the exact enabled Organization Skill release snapshot;
-3. the snapshot contains stable Skill ids, release ids, portable metadata,
-   canonical manifest, digest, and Core-authorized bundle read data;
-4. Remote Agent reads exact immutable release bytes and verifies the digest;
-5. the Flue adapter constructs definition-provided Skills through Flue's public
-   API;
-6. Flue owns catalog disclosure, `activate_skill`, and lazy resource reads.
+2. Core returns the exact enabled Organization Skill release catalog, with
+   stable Skill ids, release ids, portable metadata, instructions, resource
+   paths, and digest, without materializing resource bytes;
+3. Core verifies the stored release manifest against its D1 digest before
+   returning that catalog;
+4. the Flue adapter mounts the verified instructions through Flue's public API;
+5. Flue owns catalog disclosure and `activate_skill`; when the model needs a
+   supporting resource, `openmeld_read_skill_resource` asks Core for that
+   exact release and path. Core checks current access and resource integrity
+   before returning bytes.
 
 Personal runtime reads and activation records validate the active native delivery,
 current membership, and Binding through the shared Remote tool caller. They do

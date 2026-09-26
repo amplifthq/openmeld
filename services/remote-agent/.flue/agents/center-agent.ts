@@ -90,7 +90,7 @@ import {
 } from "../../flue-adapter/execution-reconciliation";
 import { registerRemoteAgentCloudflareProvider } from "../../flue-adapter/model";
 import { resolveCurrentOrganizationDocumentPromptContext } from "../../flue-adapter/organization-document-prompt-context";
-import { materializeOrganizationSkillFlueSkills } from "../../flue-adapter/organization-skills";
+import { materializeOrganizationSkillFlueSkillsFromCatalog } from "../../flue-adapter/organization-skills";
 import {
   resolveRemoteAgentCompactionReserveTokens,
   resolveRemoteAgentProviderContextCapacity,
@@ -187,6 +187,7 @@ async function prepareCenterAgentRender() {
             memberProfileReportFiles:
               sandboxCapability.memberProfileReportFiles,
             modelRoute: executionContext.modelRoute,
+            organizationSkillContext: executionContext,
             prepareImage: prepareImageForContext,
             sandboxDefinitions: sandboxCapability.definitions,
             storage,
@@ -210,12 +211,12 @@ async function prepareCenterAgentRender() {
       !executionContext.replyRecovery &&
       runtimeContextPlan.materializeOrganizationSkills &&
       organizationSkillSelections.length > 0
-        ? await materializeOrganizationSkillFlueSkills({
+        ? materializeOrganizationSkillFlueSkillsFromCatalog({
             expectedOrganizationId: executionContext.organizationId,
             selections: organizationSkillSelections,
-            snapshot: await callCoreRpc(
+            catalog: await callCoreRpc(
               coreWorker,
-              "readOrganizationSkillRuntimeSnapshot",
+              "readOrganizationSkillRuntimeCatalog",
               {
                 context: buildRemoteAgentCoreContext(
                   executionContext,
@@ -231,7 +232,7 @@ async function prepareCenterAgentRender() {
                   : {}),
               },
               (binding, rpcInput) =>
-                binding.readOrganizationSkillRuntimeSnapshot?.(rpcInput)
+                binding.readOrganizationSkillRuntimeCatalog?.(rpcInput)
             ),
           })
         : [],

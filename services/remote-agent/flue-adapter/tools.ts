@@ -6,6 +6,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { GenericSchema } from "valibot";
 import type {
+  RemoteAgentCallbackContext,
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
@@ -30,6 +31,7 @@ import {
   createRemoteAgentCodeModeFlueTool,
   type RemoteAgentCodeModeRuntime,
 } from "./code-mode";
+import { createOrganizationSkillResourceTool } from "./organization-skills";
 import { createHostedPublicProgressTool } from "./public-progress";
 import {
   executeRemoteAgentToolDefinition,
@@ -52,6 +54,7 @@ export async function getRemoteAgentFlueTools(input: {
   fetch?: typeof globalThis.fetch;
   memberProfileReportFiles?: RemoteAgentMemberProfileReportComputerFiles;
   modelRoute?: CenterAgentModelRoute;
+  organizationSkillContext?: RemoteAgentCallbackContext;
   prepareImage?: RemoteAgentImagePreparer;
   sandboxDefinitions?: RemoteAgentToolDefinition[];
   storage: RemoteAgentStorage;
@@ -69,6 +72,14 @@ export async function getRemoteAgentFlueTools(input: {
     !input.turnEnvelope.sender.verified;
   const availableDefinitions = [
     createHostedPublicProgressTool(input),
+    ...(input.organizationSkillContext?.organizationSkillReleases?.length
+      ? [
+          createOrganizationSkillResourceTool({
+            context: input.organizationSkillContext,
+            coreWorker: input.coreWorker,
+          }),
+        ]
+      : []),
     ...(input.personalAgent
       ? [
           ...getPersonalRemoteAgentTools(input),
