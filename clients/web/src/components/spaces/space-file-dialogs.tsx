@@ -23,6 +23,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { Textarea } from "@openmeld/ui/components/textarea";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
@@ -33,6 +34,11 @@ import {
 } from "./space-file-utils";
 
 const ROOT_FOLDER_ID: null = null;
+const NEW_TEXT_FILE_DETAILS = {
+	markdown: { defaultName: "untitled.md", title: "New Markdown file" },
+	text: { defaultName: "untitled.txt", title: "New text file" },
+	csv: { defaultName: "untitled.csv", title: "New CSV file" },
+} as const;
 
 export type SpaceFileEntryDialogState =
 	| { kind: "closed" }
@@ -151,22 +157,23 @@ export function FolderNameDialog(input: {
 	);
 }
 
-export function NewMarkdownFileDialog(input: {
+export function NewTextFileDialog(input: {
+	kind: "markdown" | "text" | "csv";
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (input: { content: string; name: string }) => Promise<void>;
 	open: boolean;
 	pending: boolean;
 }) {
-	const [name, setName] = useState("untitled.md");
+	const [name, setName] = useState("");
 	const [content, setContent] = useState("");
 	const contentOverLimit =
 		utf8ByteLength(content) > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES;
 	useEffect(() => {
 		if (input.open) {
-			setName("untitled.md");
+			setName(NEW_TEXT_FILE_DETAILS[input.kind].defaultName);
 			setContent("");
 		}
-	}, [input.open]);
+	}, [input.kind, input.open]);
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
 			<DialogContent className="sm:max-w-2xl">
@@ -181,7 +188,7 @@ export function NewMarkdownFileDialog(input: {
 					}}
 				>
 					<DialogHeader>
-						<DialogTitle>New Markdown file</DialogTitle>
+						<DialogTitle>{NEW_TEXT_FILE_DETAILS[input.kind].title}</DialogTitle>
 					</DialogHeader>
 					<div className="grid gap-4 py-5">
 						<div className="grid gap-2">
@@ -196,14 +203,27 @@ export function NewMarkdownFileDialog(input: {
 						</div>
 						<div className="grid gap-2">
 							<Label>Contents</Label>
-							<MarkdownEditor
-								ariaLabel="File contents"
-								disabled={input.pending}
-								maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
-								onChange={setContent}
-								placeholder="Start writing, or press '/' for commands…"
-								value={content}
-							/>
+							{input.kind === "markdown" ? (
+								<MarkdownEditor
+									ariaLabel="File contents"
+									disabled={input.pending}
+									maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
+									onChange={setContent}
+									placeholder="Start writing, or press '/' for commands…"
+									value={content}
+								/>
+							) : (
+								<Textarea
+									aria-label="File contents"
+									disabled={input.pending}
+									onChange={(event) => setContent(event.currentTarget.value)}
+									placeholder={
+										input.kind === "csv" ? "Column,Value" : "Start writing…"
+									}
+									rows={10}
+									value={content}
+								/>
+							)}
 						</div>
 					</div>
 					<DialogFooter>

@@ -21,7 +21,7 @@ import { SpaceFileBrowser } from "./space-file-browser";
 import { SpaceFileDetail } from "./space-file-detail";
 import {
 	FolderNameDialog,
-	NewMarkdownFileDialog,
+	NewTextFileDialog,
 	SpaceFileEntryDialogs,
 } from "./space-file-dialogs";
 import { SpaceFileMaintenanceDialog } from "./space-file-maintenance-dialog";
@@ -32,6 +32,12 @@ import {
 	type SpaceFilesPanelProps,
 	useSpaceFilesPanelController,
 } from "./use-space-files-panel-controller";
+
+const NEW_TEXT_FILE_MIME_TYPES = {
+	markdown: "text/markdown",
+	text: "text/plain",
+	csv: "text/csv",
+} as const;
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This panel coordinates Space Files browsing, editing, handoff, and cross-location copy dialogs.
 export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
@@ -54,7 +60,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		fileInputRef,
 		filesQuery,
 		folderDialogOpen,
-		markdownFileDialogOpen,
+		newTextFileKind,
 		moveEntry,
 		parentId,
 		pendingAction,
@@ -70,7 +76,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		setActionError,
 		setEntryDialog,
 		setFolderDialogOpen,
-		setMarkdownFileDialogOpen,
+		setNewTextFileKind,
 		setParentId,
 		showChatUploads,
 		toggleShowChatUploads,
@@ -177,7 +183,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				onHandOff={organization ? () => setHandoffOpen(true) : undefined}
 				onMove={(entry) => setEntryDialog({ entry, kind: "move" })}
 				onNewFolder={() => setFolderDialogOpen(true)}
-				onNewMarkdownFile={() => setMarkdownFileDialogOpen(true)}
+				onNewTextFile={setNewTextFileKind}
 				onOpen={(entry) => {
 					if (view === "trash") {
 						return;
@@ -240,34 +246,41 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				open={folderDialogOpen}
 				pending={pendingAction === "create-folder"}
 			/>
-			<NewMarkdownFileDialog
-				onOpenChange={setMarkdownFileDialogOpen}
-				onSubmit={async ({ content, name }) => {
-					let createdFile: SpaceFileDescriptor | null = null;
-					const succeeded = await runAction(
-						"create-markdown-file",
-						async () =>
-							await api.uploadFile({
-								spaceId: input.spaceId,
-								name,
-								parentId,
-								clientMutationId: crypto.randomUUID(),
-								mimeType: "text/markdown",
-								origin: "artifact",
-								bytes: new TextEncoder().encode(content),
-							}),
-						(file) => {
-							createdFile = file;
+			{newTextFileKind ? (
+				<NewTextFileDialog
+					kind={newTextFileKind}
+					onOpenChange={(open) => {
+						if (!open) {
+							setNewTextFileKind(null);
 						}
-					);
-					if (succeeded) {
-						setMarkdownFileDialogOpen(false);
-						selectFile(createdFile);
-					}
-				}}
-				open={markdownFileDialogOpen}
-				pending={pendingAction === "create-markdown-file"}
-			/>
+					}}
+					onSubmit={async ({ content, name }) => {
+						let createdFile: SpaceFileDescriptor | null = null;
+						const succeeded = await runAction(
+							"create-text-file",
+							async () =>
+								await api.uploadFile({
+									spaceId: input.spaceId,
+									name,
+									parentId,
+									clientMutationId: crypto.randomUUID(),
+									mimeType: NEW_TEXT_FILE_MIME_TYPES[newTextFileKind],
+									origin: "artifact",
+									bytes: new TextEncoder().encode(content),
+								}),
+							(file) => {
+								createdFile = file;
+							}
+						);
+						if (succeeded) {
+							setNewTextFileKind(null);
+							selectFile(createdFile);
+						}
+					}}
+					open={true}
+					pending={pendingAction === "create-text-file"}
+				/>
+			) : null}
 			<SpaceFileEntryDialogs
 				api={api}
 				dialog={entryDialog}

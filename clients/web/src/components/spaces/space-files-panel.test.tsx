@@ -352,6 +352,33 @@ describe("SpaceFilesPanel", () => {
 		expect(screen.getByRole("toolbar")).toBeTruthy();
 	});
 
+	it("creates a CSV file with text content through the Space Files upload path", async () => {
+		spaceApiMocks.uploadFile.mockResolvedValue({
+			...FILE,
+			name: "untitled.csv",
+			latestRevision: { ...FILE.latestRevision, mimeType: "text/csv" },
+		});
+		renderPanel();
+
+		fireEvent.click(await screen.findByRole("button", { name: "New" }));
+		fireEvent.click(await screen.findByText("CSV file"));
+		fireEvent.change(screen.getByLabelText("File contents"), {
+			target: { value: "Name,Count\nAlpha,2" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Create file" }));
+
+		await waitFor(() =>
+			expect(spaceApiMocks.uploadFile).toHaveBeenCalledOnce()
+		);
+		expect(spaceApiMocks.uploadFile).toHaveBeenCalledWith(
+			expect.objectContaining({
+				name: "untitled.csv",
+				mimeType: "text/csv",
+				bytes: new TextEncoder().encode("Name,Count\nAlpha,2"),
+			})
+		);
+	});
+
 	it("infers Markdown uploads through the shared file contract", async () => {
 		spaceApiMocks.uploadFile.mockResolvedValue(FILE);
 		const view = renderPanel();

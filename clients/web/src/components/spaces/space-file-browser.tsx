@@ -90,7 +90,7 @@ export function SpaceFileBrowser(input: {
 	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	onNewFolder: () => void;
 	onHandOff?: () => void;
-	onNewMarkdownFile: () => void;
+	onNewTextFile: (kind: "markdown" | "text" | "csv") => void;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onOpenBreadcrumb: (folderId: string | null, name: string) => void;
 	onRename: (entry: SpaceFileEntry) => void;
@@ -180,18 +180,32 @@ export function SpaceFileBrowser(input: {
 							<FluidDropdownMenuContent align="start">
 								<FluidDropdownMenuItem
 									index={0}
-									onClick={input.onNewMarkdownFile}
+									onClick={() => input.onNewTextFile("markdown")}
 								>
 									<FileTextIcon aria-hidden="true" />
 									Markdown file
 								</FluidDropdownMenuItem>
-								<FluidDropdownMenuItem index={1} onClick={input.onNewFolder}>
+								<FluidDropdownMenuItem
+									index={1}
+									onClick={() => input.onNewTextFile("text")}
+								>
+									<FileTextIcon aria-hidden="true" />
+									Text file
+								</FluidDropdownMenuItem>
+								<FluidDropdownMenuItem
+									index={2}
+									onClick={() => input.onNewTextFile("csv")}
+								>
+									<FileTextIcon aria-hidden="true" />
+									CSV file
+								</FluidDropdownMenuItem>
+								<FluidDropdownMenuItem index={3} onClick={input.onNewFolder}>
 									<FolderPlusIcon aria-hidden="true" />
 									Folder
 								</FluidDropdownMenuItem>
 								<DropdownMenuSeparator />
 								<FluidDropdownMenuItem
-									index={2}
+									index={4}
 									onClick={() => input.fileInputRef.current?.click()}
 								>
 									<UploadSimpleIcon aria-hidden="true" />
@@ -228,7 +242,7 @@ export function SpaceFileBrowser(input: {
 			onCopy={input.onCopy}
 			onMove={input.onMove}
 			onNewFolder={input.onNewFolder}
-			onNewMarkdownFile={input.onNewMarkdownFile}
+			onNewTextFile={input.onNewTextFile}
 			onOpen={input.onOpen}
 			onRename={input.onRename}
 			onRestore={input.onRestore}
@@ -359,7 +373,7 @@ function SpaceFileBrowserContent(input: {
 	onMove: (entry: SpaceFileEntry) => void;
 	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
 	onNewFolder: () => void;
-	onNewMarkdownFile: () => void;
+	onNewTextFile: (kind: "markdown" | "text" | "csv") => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
 	onShowRegularFiles: () => void;
@@ -524,9 +538,19 @@ function SpaceFileBrowserContent(input: {
 									<FolderPlusIcon aria-hidden="true" />
 									New folder
 								</ContextMenuItem>
-								<ContextMenuItem onClick={input.onNewMarkdownFile}>
+								<ContextMenuItem
+									onClick={() => input.onNewTextFile("markdown")}
+								>
 									<FileTextIcon aria-hidden="true" />
 									New Markdown file
+								</ContextMenuItem>
+								<ContextMenuItem onClick={() => input.onNewTextFile("text")}>
+									<FileTextIcon aria-hidden="true" />
+									New text file
+								</ContextMenuItem>
+								<ContextMenuItem onClick={() => input.onNewTextFile("csv")}>
+									<FileTextIcon aria-hidden="true" />
+									New CSV file
 								</ContextMenuItem>
 								<ContextMenuSeparator />
 								<ContextMenuItem onClick={input.onUpload}>
