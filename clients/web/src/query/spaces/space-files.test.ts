@@ -53,14 +53,28 @@ describe("spaceFileContentQueryOptions", () => {
 		);
 	});
 
-	it("revokes a PDF preview URL when access to its file is removed", async () => {
+	it.each([
+		["PDF", "application/pdf"],
+		[
+			"Word",
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		],
+		[
+			"PowerPoint",
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		],
+		[
+			"Excel",
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		],
+	])("revokes a %s preview URL when access to its file is removed", async (_, mimeType) => {
 		const client = new QueryClient();
 		clients.push(client);
 		const options = spaceFileContentQueryOptions({
 			api: {
 				downloadFileContent: vi.fn().mockResolvedValue({
 					bytes: new ArrayBuffer(4),
-					mimeType: "application/pdf",
+					mimeType,
 					revision: 2,
 				}),
 			} as Pick<SpaceApi, "downloadFileContent">,

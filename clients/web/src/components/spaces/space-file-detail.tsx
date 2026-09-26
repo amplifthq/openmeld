@@ -55,6 +55,7 @@ import {
 import { toast } from "sonner";
 import { Drawer } from "vaul";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
+import { OfficeFileViewer } from "#/components/extend/office-file-viewer";
 import { UnsavedChangesDialog } from "#/components/forms/unsaved-changes-guard";
 import { markFileRevisionSeen } from "#/lib/spaces/file-update-seen";
 import { baseQueryOptions } from "#/query/query-config";
@@ -1020,6 +1021,36 @@ function SpaceFileDocumentViewer(input: {
 	switch (input.mimeType) {
 		case "application/pdf":
 			return <PDFViewer {...common} />;
+		case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+			return (
+				<OfficeFileViewer
+					className={common.className}
+					fileName={input.fileName}
+					kind="docx"
+					showToolbar
+					url={input.url}
+				/>
+			);
+		case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+			return (
+				<OfficeFileViewer
+					className={common.className}
+					fileName={input.fileName}
+					kind="pptx"
+					showToolbar
+					url={input.url}
+				/>
+			);
+		case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+			return (
+				<OfficeFileViewer
+					className={common.className}
+					fileName={input.fileName}
+					kind="xlsx"
+					showToolbar
+					url={input.url}
+				/>
+			);
 		default:
 			return null;
 	}

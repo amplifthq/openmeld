@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useTheme } from "next-themes"
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area"
 import {
   createFileTreeIconResolver,
@@ -62,6 +61,7 @@ import {
 } from "#/components/extend/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger } from "#/components/extend/ui/tabs"
 import { FileThumbnail } from "#/components/extend/file-thumbnail"
+import { OfficeFileViewer } from "#/components/extend/office-file-viewer"
 import { CaretDownIcon, CaretUpIcon, CalendarIcon, FileZipIcon, ImagesIcon, SquaresFourIcon, ColumnsIcon, CaretLeftIcon, ArrowRightIcon, XIcon, MagnifyingGlassIcon, ArrowsDownUpIcon, CheckIcon, FunnelIcon, CircleNotchIcon } from "@phosphor-icons/react"
 
 function ArrowDown01Glyph(props: InlineRegistryIconProps) {
@@ -112,21 +112,6 @@ const LazyPDFViewer = React.lazy(() =>
 const LazyCsvFilePreview = React.lazy(() =>
   import("#/components/extend/csv-file-preview").then((mod) => ({
     default: mod.CsvFilePreview,
-  }))
-)
-const LazyDocxViewer = React.lazy(() =>
-  import("#/components/extend/docx-viewer").then((mod) => ({
-    default: mod.DocxViewerPreview,
-  }))
-)
-const LazyPptxViewer = React.lazy(() =>
-  import("#/components/extend/pptx-viewer").then((mod) => ({
-    default: mod.PptxViewerPreview,
-  }))
-)
-const LazyXlsxViewer = React.lazy(() =>
-  import("#/components/extend/xlsx-viewer").then((mod) => ({
-    default: mod.XlsxViewerPreview,
   }))
 )
 export type FileSystemView = "icons" | "list" | "columns" | "gallery"
@@ -4524,27 +4509,16 @@ function FileSystemOfficeViewer({
   toolbarActions?: React.ReactNode
   url: string
 }) {
-  const { resolvedTheme } = useTheme()
-  const [isDark, setIsDark] = React.useState(resolvedTheme === "dark")
-  React.useEffect(() => setIsDark(resolvedTheme === "dark"), [resolvedTheme])
-  const common = {
-    className,
-    fileName,
-    showDownload: false,
-    showToolbar,
-    showUpload: false,
-    src: url,
-    toolbarActions,
-  }
   return (
     <React.Suspense fallback={<FileSystemViewerLoading />}>
-      {kind === "docx" ? (
-        <LazyDocxViewer {...common} isDark={isDark} onIsDarkChange={setIsDark} />
-      ) : kind === "xlsx" ? (
-        <LazyXlsxViewer {...common} isDark={isDark} onIsDarkChange={setIsDark} />
-      ) : (
-        <LazyPptxViewer {...common} />
-      )}
+      <OfficeFileViewer
+        className={className}
+        fileName={fileName}
+        kind={kind}
+        showToolbar={showToolbar}
+        toolbarActions={toolbarActions}
+        url={url}
+      />
     </React.Suspense>
   )
 }

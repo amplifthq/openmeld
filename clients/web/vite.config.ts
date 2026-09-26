@@ -84,6 +84,22 @@ const config = defineConfig(({ command, mode }) => {
 		// release build budget; server errors retain native Worker invocation logs.
 		// Extend's document viewers split their worker bundles into ESM chunks.
 		worker: { format: "es" },
+		// Pre-bundling moves these entrypoints away from their sibling worker files.
+		// Keep the package URLs intact so Vite can serve and bundle each worker.
+		optimizeDeps: {
+			exclude: [
+				"@extend-ai/react-docx",
+				"@extend-ai/react-pptx",
+				"@extend-ai/react-xlsx",
+			],
+			// Keep the viewers' CommonJS dependencies pre-bundled separately.
+			include: [
+				"@extend-ai/react-docx > utif",
+				"@extend-ai/react-docx > react-dom/server",
+				"@extend-ai/react-pptx > react-dom/server",
+				"@extend-ai/react-pptx > regl",
+			],
+		},
 		environments: {
 			client: {
 				build: {
