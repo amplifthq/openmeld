@@ -2113,15 +2113,38 @@ conveyor deletion cannot remove a cancelled record, including when an old
 recovery candidate races the Stop write. The original task is never regenerated
 from that record; the native ledger still supplies exact execution identity.
 
-For a provably unexposed cancelled Wake, the existing Space alarm is armed before
-intent is written. It scans a bounded set of such records lacking a final claim
-and retries stopped-notice publication, including after object reconstruction;
-there is no Worker callback to rely on in this case. Cancelling before this
-particular submit does not prove an earlier ambiguous submit never ran. Core
-therefore preserves pending native reconciliation unless Space supplies the
-confirmed stopped final-outcome claim. That claim projects the existing native
-`failed` + cancellation-code encoding and the dispatch/task `cancelled`/`stopped`
-outcomes without a DLQ entry or a second failure notice.
+For every cancelled Hosted Wake, the existing Space alarm is armed before
+intent is written. It scans eight records lacking a final claim per pass; a
+durable dispatch cursor prevents unresolved older records from starving later
+work. The cursor is scheduling metadata, not execution truth. A provably
+unexposed Wake needs only stopped-notice repair. An exposed or legacy-NULL Wake
+instead re-reads exact native evidence and retries cancellation when that
+evidence arrives. No recovery pass resubmits model work. Missing identity remains
+explicitly unconfirmed with diagnostics and another bounded pass; elapsed time
+or a negative lookup is never promoted to proof of termination.
+
+After Space saves the Stop fence, response status acknowledges the durable
+request even if Worker delivery, probe scheduling or notice publication fails.
+Those failures do not return a contradictory request rejection or prevent the
+direct cancellation attempt. The existing Space alarm and native probes retain
+recovery. A pending acknowledgement is not a completed Stop. Terminal settlement
+requires the exact Worker execution identity to be aborted, completed or failed,
+or a terminal callback/atomic unexposed withdrawal, and a persisted final Space
+outcome. A Worker `not_stoppable` because computation finished does not undo a
+Stop that beat publication; that terminal evidence permits suppressing the
+unpublished answer and publishing the stopped outcome. An already-persisted
+answer still wins. `already_cancelled` with nonterminal execution state or a
+mismatched identity is not terminal proof. Keyed stopped claims also close Wake
+progress when the notice is outside the recent-message window.
+
+Cancelling before this particular submit does not prove an earlier ambiguous
+submit never ran. The confirmed Space stopped claim projects the existing native
+`failed` + cancellation-code encoding and dispatch/task `cancelled`/`stopped`
+outcomes without a DLQ entry or a second failure notice. A read-only Stop
+preflight precedes daily admission accounting; the authorization fence remains
+immediately before Worker submission. A Stop already present at preflight spends
+no admission. Concurrent cancellation after daily admission does not undo the
+existing once-admitted accounting rule.
 
 Contract Impact Audit: the new RPC callers and Space receivers are in Core and
 must ship together. Deploy the cancellation-aware Remote Agent before Core, then

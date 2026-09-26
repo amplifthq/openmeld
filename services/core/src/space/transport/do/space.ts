@@ -182,7 +182,6 @@ import type {
   PostSpaceWakeStopBody,
   PostSpaceWakeStopResponse,
   PrepareSpaceFileWriteResponse,
-  RemoteAgentWorkerCancellationResponse,
   RemoveSpaceMembersResponse,
   ResolvedSpaceMemberProfile,
   ResolveSpaceComposerUploadScopeResponse,
@@ -360,6 +359,7 @@ import {
   reconcileRemoteAgentRetainedResultPublication,
   settleRemoteAgentNativeDeliveryStopped,
   submitRemoteAgentExecutionRecoveryTurn,
+  withRemoteAgentExecutionReconciliationTimeout,
 } from "../../../remote-agent/application/native-delivery-service";
 import { readRemoteAgentRuntimeDiagnosticsForDispatch } from "../../../remote-agent/application/remote-agent-runtime-diagnostics-service";
 import { resolvePendingRemoteAgentCancellationTarget } from "../../../remote-agent/application/space-wake-stop-intent";
@@ -599,8 +599,9 @@ import {
 } from "../../application/space-updates-service";
 import {
   authorizeSpaceNativeWakeAdmission,
+  isMatchingNativeStopTerminal,
   isSpaceNativeWakeUnexposed,
-  listUnadmittedNativeStopPublicationRepairs,
+  listPendingNativeWakeStops,
   readNativeSpaceWakeStopIntent,
   retainRetiredNativeWakeStopFence,
 } from "../../application/space-wake-stop-intent";
@@ -2672,19 +2673,8 @@ export class Space extends DurableObject<CoreBindings> {
     await this.runIsolatedAlarmStep("dispatch_outbox_queue", () =>
       this.flushPendingDispatchOutbox()
     );
-    await this.runIsolatedAlarmStep(
-      "unadmitted_native_stop_publication",
-      async () => {
-        for (const record of listUnadmittedNativeStopPublicationRepairs(
-          this.ctx.storage.sql,
-          32
-        )) {
-          await this.runIsolatedAlarmStep(
-            `native_stop_notice:${record.dispatchId}`,
-            () => this.publishUnadmittedHostedWakeStop(record)
-          );
-        }
-      }
+    await this.runIsolatedAlarmStep("pending_native_wake_stops", () =>
+      this.reconcilePendingHostedWakeStops()
     );
     await this.runIsolatedAlarmStep("execution_input_outbox", () =>
       this.flushPendingExecutionInputs()
@@ -6649,10 +6639,12 @@ export class Space extends DurableObject<CoreBindings> {
       this.ctx.storage.sql,
       { minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS }
     );
-    const nextStopPublicationAlarmAtMs =
-      listUnadmittedNativeStopPublicationRepairs(this.ctx.storage.sql, 1).length
-        ? Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
-        : null;
+    const nextStopPublicationAlarmAtMs = listPendingNativeWakeStops(
+      this.ctx.storage.sql,
+      1
+    ).length
+      ? Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
+      : null;
     const nextDirtyProjectionAlarmAtMs = isSpaceMemberProjectionDirty(
       this.ctx.storage.sql
     )
@@ -12996,6 +12988,81 @@ export class Space extends DurableObject<CoreBindings> {
     markDispatchOutboxCancelled(this.ctx.storage.sql, {
       dispatchId: input.lookupMatch.dispatchId,
     });
+    try {
+      return await this.resumePersistedHostedWakeStop({
+        db,
+        delivery,
+        outbox,
+        reason: input.body.reason,
+      });
+    } catch (error) {
+      this.logPendingHostedWakeStop(outbox.dispatchId, error);
+      return buildRequestedHostedWakeStop(
+        outbox.targetProfileId,
+        "remote_agent.cancellation_reconciliation_pending"
+      );
+    } finally {
+      // The initial alarm was armed before the fence. A failed reschedule must
+      // not turn a durable acknowledgement into a false request rejection.
+      await this.syncSpaceBackgroundAlarm().catch((error) =>
+        this.logPendingHostedWakeStop(input.lookupMatch.dispatchId, error)
+      );
+    }
+  }
+
+  private logPendingHostedWakeStop(dispatchId: string, error: unknown): void {
+    console.warn("[space.remote_agent.stop_reconciliation_pending]", {
+      dispatchId,
+      spaceId: this.spaceId,
+      error: formatUnknownErrorMessage(error),
+    });
+  }
+
+  private async reconcilePendingHostedWakeStops(): Promise<void> {
+    const cursorKey = "native-wake-stop-reconciliation-cursor";
+    const cursor = await this.ctx.storage.get<string>(cursorKey);
+    let records = listPendingNativeWakeStops(this.ctx.storage.sql, 8, cursor);
+    if (records.length === 0 && cursor) {
+      records = listPendingNativeWakeStops(this.ctx.storage.sql, 8);
+    }
+    for (const outbox of records) {
+      // Scan fairness survives eviction. This is not an execution-state write.
+      await this.ctx.storage.put(cursorKey, outbox.dispatchId);
+      await this.runIsolatedAlarmStep(
+        `native_stop:${outbox.dispatchId}`,
+        async () => {
+          const db = localStateDb(this.bindings);
+          if (!db) {
+            throw new Error("remote_agent.cancellation_state_unavailable");
+          }
+          const delivery = await readRemoteAgentNativeDeliveryByExecution({
+            db,
+            dispatchId: outbox.dispatchId,
+            profileId: outbox.targetProfileId,
+            spaceId: this.spaceId,
+          });
+          await this.resumePersistedHostedWakeStop({ db, delivery, outbox });
+        }
+      );
+    }
+  }
+
+  private async resumePersistedHostedWakeStop(input: {
+    db: D1Database;
+    delivery: Awaited<
+      ReturnType<typeof readRemoteAgentNativeDeliveryByExecution>
+    >;
+    outbox: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
+    reason?: string;
+  }): Promise<PostSpaceWakeStopResponse> {
+    const { db, delivery, outbox } = input;
+    const final = this.readHostedWakeStopFinalOutcome({
+      delivery: null,
+      lookupMatch: outbox,
+    });
+    if (final) {
+      return final;
+    }
     if (
       !delivery?.submissionId &&
       isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
@@ -13004,11 +13071,7 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: outbox.targetProfileId,
       })
     ) {
-      try {
-        await this.publishUnadmittedHostedWakeStop(outbox);
-      } finally {
-        await this.syncSpaceBackgroundAlarm();
-      }
+      await this.publishUnadmittedHostedWakeStop(outbox);
       return buildSpaceWakeStopNativeDeliveryResponse({
         cancellationStatus: "cancelled",
         reasonCode: "remote_agent.execution_cancelled",
@@ -13016,22 +13079,46 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: outbox.targetProfileId,
       });
     }
+    if (
+      delivery?.status === "failed" &&
+      delivery.failureCode === "runtime_coordinator.pre_agent_stop_requested" &&
+      delivery.submissionId
+    ) {
+      await settleRemoteAgentNativeDeliveryStopped({
+        db,
+        delivery,
+        env: this.bindings,
+        idempotencyKey: delivery.idempotencyKey,
+        nowMs: Date.now(),
+        submissionId: delivery.submissionId,
+      });
+      return (
+        this.readHostedWakeStopFinalOutcome({
+          delivery: null,
+          lookupMatch: outbox,
+        }) ?? buildRequestedHostedWakeStop(outbox.targetProfileId)
+      );
+    }
     const target =
       (await readActiveRemoteAgentNativeDeliveryCancellationTarget({
         db,
-        dispatchId: input.lookupMatch.dispatchId,
-        profileId: input.lookupMatch.targetProfileId,
+        dispatchId: outbox.dispatchId,
+        profileId: outbox.targetProfileId,
         spaceId: this.spaceId,
       })) ?? resolvePendingRemoteAgentCancellationTarget(delivery);
     // The whole Wake remains cancelled while a continuation replaces submission
     // identity. Admission and reconciliation read this same durable Space intent.
     if (!target) {
-      return buildSpaceWakeStopNativeDeliveryResponse({
-        cancellationStatus: "requested",
-        reasonCode: "remote_agent.cancellation_requested",
-        status: "cancellation_requested",
-        targetProfileId: input.lookupMatch.targetProfileId,
-      });
+      // NULL exposure or a missing ledger is not evidence of never running.
+      // The retained fence and Space alarm keep this exact Wake under recovery.
+      this.logPendingHostedWakeStop(
+        outbox.dispatchId,
+        "native_execution_evidence_unavailable"
+      );
+      return buildRequestedHostedWakeStop(
+        outbox.targetProfileId,
+        "remote_agent.cancellation_execution_unconfirmed"
+      );
     }
     if (delivery) {
       await ensureRemoteAgentAcceptedDeliveryProbe({
@@ -13039,16 +13126,27 @@ export class Space extends DurableObject<CoreBindings> {
         delivery,
         env: this.bindings,
         nowMs: Date.now(),
-      });
+      }).catch((error) =>
+        this.logPendingHostedWakeStop(outbox.dispatchId, error)
+      );
     }
-    return await this.deliverRemoteAgentWakeStop({ ...input, db, target });
+    return await this.deliverRemoteAgentWakeStop({
+      dispatchId: outbox.dispatchId,
+      targetProfileId: outbox.targetProfileId,
+      reason: input.reason,
+      db,
+      target,
+    });
   }
 
   private readHostedWakeStopFinalOutcome(input: {
     delivery: Awaited<
       ReturnType<typeof readRemoteAgentNativeDeliveryByExecution>
     >;
-    lookupMatch: SpaceDispatchLookupMatch;
+    lookupMatch: Pick<
+      SpaceDispatchLookupMatch,
+      "dispatchId" | "targetProfileId"
+    >;
   }): PostSpaceWakeStopResponse | null {
     const finalSignalId = readFinalReplyClaimSignalId(this.ctx.storage.sql, {
       dispatchId: input.lookupMatch.dispatchId,
@@ -13071,7 +13169,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (
       finalSignalId ||
       input.delivery?.status === "completed" ||
-      input.delivery?.status === "failed"
+      (input.delivery?.status === "failed" &&
+        input.delivery.failureCode !==
+          "runtime_coordinator.pre_agent_stop_requested")
     ) {
       return buildSpaceWakeStopFailureResponse({
         reasonCode: "remote_agent.execution_already_settled",
@@ -13113,8 +13213,9 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private async deliverRemoteAgentWakeStop(input: {
-    body: PostSpaceWakeStopBody;
-    lookupMatch: SpaceDispatchLookupMatch;
+    dispatchId: string;
+    targetProfileId: string;
+    reason?: string;
     db: D1Database;
     target: NonNullable<
       Awaited<
@@ -13125,30 +13226,22 @@ export class Space extends DurableObject<CoreBindings> {
     const { db, target } = input;
     const remoteAgentWorker = this.bindings.OPENMELD_REMOTE_AGENT_WORKER;
     if (!remoteAgentWorker) {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "remote_agent.cancellation_receiver_unavailable",
-        runtimeCoordinatorExecutionId: null,
-        status: "retry_later",
-        targetProfileId: input.lookupMatch.targetProfileId,
-      });
+      return buildRequestedHostedWakeStop(
+        input.targetProfileId,
+        "remote_agent.cancellation_receiver_unavailable"
+      );
     }
     try {
       const response = remoteAgentWorkerCancellationResponseSchema.parse(
-        await remoteAgentWorker.cancelExecution?.({
-          ...target,
-          ...(input.body.reason ? { reason: input.body.reason } : {}),
-          v: 1,
-        })
+        await withRemoteAgentExecutionReconciliationTimeout(
+          remoteAgentWorker.cancelExecution?.({
+            ...target,
+            ...(input.reason ? { reason: input.reason } : {}),
+            v: 1,
+          })
+        )
       );
-      if (response.status === "cancellation_requested") {
-        return buildSpaceWakeStopNativeDeliveryResponse({
-          cancellationStatus: "requested",
-          reasonCode: "remote_agent.cancellation_requested",
-          status: "cancellation_requested",
-          targetProfileId: input.lookupMatch.targetProfileId,
-        });
-      }
-      if (response.status === "already_cancelled") {
+      if (isMatchingNativeStopTerminal(response, target)) {
         const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
           db,
           idempotencyKey: target.idempotencyKey,
@@ -13163,41 +13256,38 @@ export class Space extends DurableObject<CoreBindings> {
               submissionId: target.submissionId,
             })
           : null;
-        if (!settled) {
-          return buildSpaceWakeStopFailureResponse({
-            reasonCode: "remote_agent.cancellation_state_convergence_failed",
-            runtimeCoordinatorExecutionId: null,
-            status: "retry_later",
-            targetProfileId: input.lookupMatch.targetProfileId,
+        const final = this.readHostedWakeStopFinalOutcome({
+          delivery: null,
+          lookupMatch: input,
+        });
+        if (settled && final?.status === "already_cancelled") {
+          return buildSpaceWakeStopNativeDeliveryResponse({
+            cancellationStatus: "cancelled",
+            reasonCode: "remote_agent.execution_cancelled",
+            status: "cancelled",
+            targetProfileId: input.targetProfileId,
           });
         }
-        return buildSpaceWakeStopNativeDeliveryResponse({
-          cancellationStatus: "cancelled",
-          reasonCode: "remote_agent.already_cancelled",
-          status: "already_cancelled",
-          targetProfileId: input.lookupMatch.targetProfileId,
-        });
+        return (
+          final ??
+          buildRequestedHostedWakeStop(
+            input.targetProfileId,
+            "remote_agent.cancellation_state_convergence_failed"
+          )
+        );
       }
-      const failure = resolveRemoteAgentNativeDeliveryStopFailure(response);
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: failure.reasonCode,
-        runtimeCoordinatorExecutionId: null,
-        status: failure.status,
-        targetProfileId: input.lookupMatch.targetProfileId,
-      });
+      return buildRequestedHostedWakeStop(
+        input.targetProfileId,
+        response.status === "cancellation_requested"
+          ? "remote_agent.cancellation_requested"
+          : "remote_agent.cancellation_execution_unconfirmed"
+      );
     } catch (error) {
-      console.error("[space.remote_agent.native_delivery_stop_failed]", {
-        dispatchId: input.lookupMatch.dispatchId,
-        error: formatUnknownErrorMessage(error),
-        spaceId: this.spaceId,
-        targetProfileId: input.lookupMatch.targetProfileId,
-      });
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "remote_agent.cancellation_delivery_failed",
-        runtimeCoordinatorExecutionId: null,
-        status: "retry_later",
-        targetProfileId: input.lookupMatch.targetProfileId,
-      });
+      this.logPendingHostedWakeStop(input.dispatchId, error);
+      return buildRequestedHostedWakeStop(
+        input.targetProfileId,
+        "remote_agent.cancellation_reconciliation_pending"
+      );
     }
   }
 
@@ -20902,6 +20992,13 @@ export class Space extends DurableObject<CoreBindings> {
     targetLabel: string;
     terminalFailureNotices: readonly WakeProgressTerminalFailureNotice[];
   }): Promise<WakeProgressItem> {
+    const stopped = this.readClaimedWakeStoppedProgress({
+      ...input,
+      ...input.lookupMatch,
+    });
+    if (stopped) {
+      return stopped;
+    }
     const traceResponse = await this.readSpaceDispatchTrace(
       input.lookupMatch.dispatchId,
       {
@@ -21201,6 +21298,39 @@ export class Space extends DurableObject<CoreBindings> {
     return preAgentWakeStopEligible();
   }
 
+  private readClaimedWakeStoppedProgress(input: {
+    clientMessageId: string | null;
+    dispatchId: string;
+    targetProfileId: string;
+    targetLabel: string;
+    sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null;
+  }): WakeProgressItem | null {
+    const signalId = readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+      dispatchId: input.dispatchId,
+      profileId: input.targetProfileId,
+    });
+    const signal = signalId ? this.readSignalById(signalId) : null;
+    if (!signal || classifyFinalReplyClaimOutcome(signal) !== "stopped") {
+      return null;
+    }
+    return createWakeProgressItem({
+      clientMessageId: input.clientMessageId,
+      dispatchId: input.dispatchId,
+      targetProfileId: input.targetProfileId,
+      targetLabel: input.targetLabel,
+      sourceSignalId: input.sourceSignal?.id ?? null,
+      failureReasonCode: null,
+      phase: "stopped",
+      terminal: true,
+      message: buildWakeProgressMessage({
+        phase: "stopped",
+        targetLabel: input.targetLabel,
+      }),
+      updatedAtMs: signal.ts,
+      wakeStopEligibility: null,
+    });
+  }
+
   private async buildWakeProgressItemFromOutboxEvidence(input: {
     clientMessageId: string | null;
     includeWakeStopEligibility?: boolean;
@@ -21210,6 +21340,15 @@ export class Space extends DurableObject<CoreBindings> {
     targetLabel: string;
     terminalFailureNotices: readonly WakeProgressTerminalFailureNotice[];
   }): Promise<WakeProgressItem> {
+    // A keyed final claim outlives the bounded recent-notice window.
+    const stopped = this.readClaimedWakeStoppedProgress({
+      ...input,
+      dispatchId: input.outboxRecord.dispatchId,
+      targetProfileId: input.outboxRecord.targetProfileId,
+    });
+    if (stopped) {
+      return stopped;
+    }
     const terminalFailureNotice = findWakeProgressTerminalFailureNotice({
       dispatchId: input.outboxRecord.dispatchId,
       notices: input.terminalFailureNotices,
@@ -22706,25 +22845,16 @@ function buildSpaceWakeStopNativeDeliveryResponse(input: {
   });
 }
 
-function resolveRemoteAgentNativeDeliveryStopFailure(
-  response: RemoteAgentWorkerCancellationResponse
-): {
-  reasonCode: string;
-  status: "not_stoppable" | "retry_later";
-} {
-  if (response.status === "not_stoppable") {
-    return {
-      reasonCode: "remote_agent.execution_terminal",
-      status: "not_stoppable",
-    };
-  }
-  if (response.status === "identity_mismatch") {
-    return { reasonCode: response.reasonCode, status: "retry_later" };
-  }
-  return {
-    reasonCode: "remote_agent.execution_state_unavailable",
-    status: "retry_later",
-  };
+function buildRequestedHostedWakeStop(
+  targetProfileId: string,
+  reasonCode = "remote_agent.cancellation_requested"
+): PostSpaceWakeStopResponse {
+  return buildSpaceWakeStopNativeDeliveryResponse({
+    cancellationStatus: "requested",
+    reasonCode,
+    status: "cancellation_requested",
+    targetProfileId,
+  });
 }
 
 function buildSpaceWakeStopFailureResponse(input: {

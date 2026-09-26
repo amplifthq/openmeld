@@ -4,6 +4,8 @@ import {
   isHostedAgentControllerRef,
 } from "@openmeld/schemas";
 import type {
+  RemoteAgentWorkerCancellationRequest,
+  RemoteAgentWorkerCancellationResponse,
   SpaceWakeStopIntentQuery,
   SpaceWakeStopIntentResponse,
 } from "@openmeld/schemas/types";
@@ -136,21 +138,24 @@ export function retainRetiredNativeWakeStopFence(
   return readDispatchOutboxRecordByDispatchId(sql, delivery.dispatchId);
 }
 
-/** Cancelled, provably unexposed Wakes have no Worker callback to repair their
- * final notice. The existing Space alarm owns this bounded publication work. */
-export function listUnadmittedNativeStopPublicationRepairs(
+/** Every saved native Stop lacking a final claim has a recovery owner, even
+ * when admission evidence is NULL or has not arrived yet. The cursor is only
+ * scan scheduling; it never decides execution or cancellation truth. */
+export function listPendingNativeWakeStops(
   sql: SqlStorage,
-  limit: number
+  limit: number,
+  afterDispatchId = ""
 ) {
   return sql
     .exec<{ dispatch_id: string }>(
       `
     SELECT dispatch_id FROM openMeldDaemon_outbox AS outbox
-    WHERE status = 'cancelled' AND native_admission_started_at_ms = 0
+    WHERE status = 'cancelled' AND dispatch_id > ?
       AND json_extract(payload_json, '$.controllerSnapshot.agentControllerRef') IN (?, ?)
       AND NOT EXISTS (SELECT 1 FROM space_final_reply_claims AS claim
         WHERE claim.dispatch_id = outbox.dispatch_id AND claim.profile_id = outbox.target_profile_id)
-    ORDER BY created_at_ms, dispatch_id LIMIT ?`,
+    ORDER BY dispatch_id LIMIT ?`,
+      afterDispatchId,
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
       HOSTED_REMOTE_AGENT_CONTROLLER_REF,
       limit
@@ -163,6 +168,30 @@ export function listUnadmittedNativeStopPublicationRepairs(
         ? [record]
         : [];
     });
+}
+
+export function isMatchingNativeStopTerminal(
+  response: RemoteAgentWorkerCancellationResponse,
+  target: Omit<RemoteAgentWorkerCancellationRequest, "v" | "reason">
+): boolean {
+  if (
+    response.status !== "already_cancelled" &&
+    response.status !== "not_stoppable"
+  ) {
+    return false;
+  }
+  const execution = response.execution;
+  const terminal =
+    response.status === "already_cancelled"
+      ? execution.status === "aborted"
+      : execution.status === "completed" || execution.status === "failed";
+  return (
+    terminal &&
+    execution.organizationId === target.organizationId &&
+    execution.spaceId === target.spaceId &&
+    execution.submissionId === target.submissionId &&
+    execution.idempotencyKey === target.idempotencyKey
+  );
 }
 
 /** Projection of Space's existing durable Stop intent, not execution settlement. */

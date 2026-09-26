@@ -9762,7 +9762,7 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
   });
 }
 
-async function withRemoteAgentExecutionReconciliationTimeout<T>(
+export async function withRemoteAgentExecutionReconciliationTimeout<T>(
   promise: Promise<T> | undefined
 ): Promise<T | undefined> {
   if (!promise) {
