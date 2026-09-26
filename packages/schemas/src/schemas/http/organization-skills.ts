@@ -4,7 +4,7 @@ import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 
 export const ORGANIZATION_SKILL_NAME_MAX_CHARS = 64;
-export const ORGANIZATION_SKILL_DESCRIPTION_MAX_CHARS = 8192;
+export const ORGANIZATION_SKILL_DESCRIPTION_MAX_CHARS = 1024;
 export const ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS = 100_000;
 export const ORGANIZATION_SKILL_FILE_MAX_BYTES = 256_000;
 const ORGANIZATION_SKILL_FILE_MAX_ENCODED_CHARS =

@@ -89,7 +89,8 @@ skill-name/
 supports the portable core fields:
 
 - required `name`;
-- required `description`;
+- required `description` of at most 1,024 characters, as defined by the portable
+  [Agent Skills specification](https://agentskills.io/specification);
 - optional `license`;
 - optional `compatibility`;
 - optional string-to-string `metadata`;

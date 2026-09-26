@@ -1,5 +1,6 @@
 import {
   ORGANIZATION_SKILL_BUNDLE_MAX_BYTES,
+  ORGANIZATION_SKILL_DESCRIPTION_MAX_CHARS,
   ORGANIZATION_SKILL_FILE_LIMIT,
   ORGANIZATION_SKILL_FILE_MAX_BYTES,
   ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT,
@@ -796,6 +797,13 @@ function parseSkillMarkdown(
     );
   }
   const source = frontmatter as Record<string, unknown>;
+  const description = String(source.description ?? "");
+  if (description.length > ORGANIZATION_SKILL_DESCRIPTION_MAX_CHARS) {
+    throw skillImportError(
+      "organization_skill.frontmatter_invalid",
+      `SKILL.md description exceeds the Agent Skills ${ORGANIZATION_SKILL_DESCRIPTION_MAX_CHARS}-character limit.`
+    );
+  }
   const metadata =
     source.metadata && typeof source.metadata === "object"
       ? Object.fromEntries(
@@ -809,7 +817,7 @@ function parseSkillMarkdown(
     portable: {
       allowedTools: optionalString(source["allowed-tools"]),
       compatibility: optionalString(source.compatibility),
-      description: String(source.description ?? ""),
+      description,
       license: optionalString(source.license),
       metadata,
       name: String(source.name ?? ""),

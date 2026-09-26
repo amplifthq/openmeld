@@ -273,6 +273,9 @@ describe("Organization Skills CLI", () => {
           { ...dependencies, resolveApi }
         );
       });
+      expect(previewFromGitHub).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: 60_000 })
+      );
       expect(importFromGitHub).toHaveBeenCalledWith(
         expect.objectContaining({
           expectedCommitSha: commitSha,

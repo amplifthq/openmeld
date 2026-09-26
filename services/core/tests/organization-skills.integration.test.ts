@@ -1026,20 +1026,40 @@ describe("Organization Skills", () => {
     expect(await service.list(fixture.owner)).toHaveLength(1);
   });
 
-  it("accepts a portable Skill description longer than the old catalog limit", async () => {
+  it("enforces the portable Agent Skills description limit", async () => {
     const fixture = await seedFixture();
-    const description = "A".repeat(1068);
-    const markdown = `---\nname: detailed-skill\ndescription: ${description}\n---\nUse the reference.`;
-    const installed = await createService().importFromFiles(fixture.owner, [
-      {
-        content: markdown,
-        encoding: "utf8",
-        mediaType: "text/markdown",
-        path: "SKILL.md",
-        size: new TextEncoder().encode(markdown).byteLength,
+    const service = createService();
+    const filesWithDescription = (description: string) => {
+      const markdown = `---\nname: detailed-skill\ndescription: ${description}\n---\nUse the reference.`;
+      return [
+        {
+          content: markdown,
+          encoding: "utf8" as const,
+          mediaType: "text/markdown",
+          path: "SKILL.md",
+          size: new TextEncoder().encode(markdown).byteLength,
+        },
+      ];
+    };
+    const validDescription = "A".repeat(1024);
+    await expect(
+      service.previewFromFiles(
+        fixture.owner,
+        filesWithDescription(validDescription)
+      )
+    ).resolves.toMatchObject({ portable: { description: validDescription } });
+    await expect(
+      service.previewFromFiles(
+        fixture.owner,
+        filesWithDescription("A".repeat(1068))
+      )
+    ).rejects.toMatchObject({
+      cause: {
+        code: "organization_skill.frontmatter_invalid",
+        status: 400,
       },
-    ]);
-    expect(installed.bundle.portable.description).toBe(description);
+      message: expect.stringContaining("Agent Skills 1024-character limit"),
+    });
   });
 
   it("retries public GitHub reads without a repository-scoped token", async () => {
