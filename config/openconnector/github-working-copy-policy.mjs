@@ -20,12 +20,12 @@ function keys(value, allowed) {
     Object.keys(value).every((key) => allowed.includes(key))
   );
 }
-function safeCommitPath(path) {
-  if (!path.startsWith("/commits/")) {
+function safeRefPath(path, prefix) {
+  if (!path.startsWith(prefix)) {
     return false;
   }
   try {
-    const encoded = path.slice("/commits/".length);
+    const encoded = path.slice(prefix.length);
     const ref = decodeURIComponent(encoded);
     return (
       encodeURIComponent(ref) === encoded &&
@@ -66,9 +66,10 @@ export function isAllowedGitWorkingCopyRequest(value) {
     }
     return (
       path === "" ||
-      safeCommitPath(path) ||
+      safeRefPath(path, "/commits/") ||
       OBJECT_PATH.test(path) ||
-      (path.startsWith("/git/ref/") && TASK_PATH.test(path))
+      // Read the exact default branch, never a matching-ref prefix or tag.
+      safeRefPath(path, "/git/ref/heads/")
     );
   }
   if (value.query !== undefined) {

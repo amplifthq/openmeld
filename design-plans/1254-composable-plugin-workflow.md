@@ -1,6 +1,6 @@
 # #1254 — Composable Plugin setup and execution
 
-Status: Draft review corrections in progress, 2026-09-26. F1/F2/F3/F4/F5/F6 have source/projection and continuation corrections; focused validation is recorded in the PR. F7/F8 and independent acceptance remain open.
+Status: Draft review corrections implemented, 2026-09-26. F1–F8 have scoped corrections and regression coverage; final check results belong to the PR. Independent authenticated product/installed-client acceptance remains open.
 Discussion: https://github.com/amplifthq/openmeld/pull/1254
 
 ## Agent context
@@ -196,11 +196,13 @@ never force-push or expand repository access implicitly. The Agent may still
 choose an API edit or an eligible Local Agent instead. Do not impose a fixed
 coding workflow or silently unfreeze a general hosted-workstation platform.
 
-The implemented working copy is a verified snapshot with synthetic local base
-history. It does not promise full clone/history, LFS downloads or submodule
-checkout. Confirm that this is sufficient for the actual repository's build
-scripts; unsupported requirements must be reported rather than hidden behind
-a green tiny-repository fixture. Read the concrete size/batch bounds in the
+The working copy now contains an independently authenticated default-branch
+baseline, with its exact tree at `origin/<default>` and an explicitly synthetic
+comparison graph. Native Git tests run the actual OpenMeld CLI Skill build
+precondition against the repository's signed delivery files; missing baseline
+and removed trusted-history counterexamples still fail. This is not a full Web
+build or live provider smoke. Full clone/history, LFS and submodule requirements
+remain unsupported and must not be hidden behind a green tiny fixture. Read the concrete size/batch bounds in the
 runtime owner. The token's GitHub proxy grant and the reviewed connector overlay
 must be present in the isolated test lane before live private-Git smoke.
 

@@ -190,6 +190,11 @@ async function fixture(
       data = { sha: SOURCE_COMMIT, commit: { tree: { sha: EMPTY_TREE } } };
     } else if (endpoint.startsWith("/git/trees/")) {
       data = { sha: EMPTY_TREE, truncated: false, tree: [] };
+    } else if (endpoint === "/git/ref/heads/main") {
+      data = {
+        ref: "refs/heads/main",
+        object: { type: "commit", sha: SOURCE_COMMIT },
+      };
     } else if (endpoint.startsWith("/git/ref/")) {
       state.branch = decodeURIComponent(
         endpoint.slice("/git/ref/heads/".length)
@@ -279,6 +284,90 @@ async function fixture(
 
 afterEach(() => vi.restoreAllMocks());
 describe("bounded Git publication and receipts", () => {
+  it("resolves the trusted baseline from the authenticated repository default, independently of the requested ref", async () => {
+    const f = await fixture();
+    const original = f.fetchMock.getMockImplementation();
+    if (!original) {
+      throw new Error("Missing provider fixture");
+    }
+    const candidate = "d".repeat(40);
+    f.fetchMock.mockClear();
+    f.fetchMock.mockImplementation(async (url, init) => {
+      const input = JSON.parse(String(init?.body));
+      if (input.endpoint === "/repos/acme/private/commits/main") {
+        throw new Error(
+          "Default branch must not use an ambiguous branch/tag name"
+        );
+      }
+      if (input.endpoint === "/repos/acme/private/commits/feature") {
+        return Response.json({
+          success: true,
+          message: "OK",
+          data: {
+            status: 200,
+            headers: {},
+            data: { sha: candidate, commit: { tree: { sha: EMPTY_TREE } } },
+          },
+        });
+      }
+      return await original(url, init);
+    });
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "independent-baseline",
+      ref: "feature",
+    });
+    expect(result).toMatchObject({
+      sourceCommit: candidate,
+      baseline: {
+        sourceCommit: SOURCE_COMMIT,
+        branch: "main",
+        ref: "refs/remotes/origin/main",
+      },
+    });
+    expect(
+      f.fetchMock.mock.calls.some(
+        ([, init]) =>
+          JSON.parse(String(init?.body)).endpoint ===
+          "/repos/acme/private/git/ref/heads/main"
+      )
+    ).toBe(true);
+    expect(
+      f.fetchMock.mock.calls.some(
+        ([, init]) =>
+          JSON.parse(String(init?.body)).endpoint ===
+          `/repos/acme/private/commits/${SOURCE_COMMIT}`
+      )
+    ).toBe(true);
+  });
+
+  it("rejects 201 new blobs before claiming a write, without leaving a pending receipt", async () => {
+    const f = await fixture();
+    vi.mocked(GitWorkingCopyComputer.prototype.snapshot).mockResolvedValue({
+      localCommit: LOCAL_COMMIT,
+      tree: TREE,
+      entries: Array.from({ length: 201 }, (_, index) => ({
+        path: `file-${index}`,
+        type: "blob" as const,
+        mode: "100644" as const,
+        sha: (index + 1).toString(16).padStart(40, "0"),
+      })),
+    });
+    f.fetchMock.mockClear();
+    for (let retry = 0; retry < 2; retry += 1) {
+      await expect(publishCheckout(f.deps, publish)).rejects.toThrow(
+        "change_too_large"
+      );
+      expect(f.operations.has(publish.operationId)).toBe(false);
+    }
+    expect(f.state.writes).toBe(0);
+    expect(
+      f.fetchMock.mock.calls.every(
+        ([, init]) => JSON.parse(String(init?.body)).method === "GET"
+      )
+    ).toBe(true);
+  });
+
   it("publishes the immutable tree to the fixed task branch and reuses its receipt on retry", async () => {
     const f = await fixture();
     const result = await publishCheckout(f.deps, publish);

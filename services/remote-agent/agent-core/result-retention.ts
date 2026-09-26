@@ -13,7 +13,7 @@ export async function cleanupExpiredRemoteAgentToolResults(input: {
     nowMs: input.nowMs ?? Date.now(),
   });
   const git = await input.storage.deleteExpired({
-    prefix: "github-working-copy:v1:",
+    prefix: "github-working-copy:",
     limit: 64,
     nowMs: input.nowMs ?? Date.now(),
   });

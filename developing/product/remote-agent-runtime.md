@@ -130,12 +130,22 @@ write permission and retains Routine/member-research restrictions.
 Checkout imports immutable Git objects in bounded batches through the existing
 connection service. It verifies binary blob hashes, modes, symlinks and the
 complete native tree before exposing a directory. A retry does not reset edits.
-This is an exact **snapshot working copy**, not a full history clone: its local
-base commit is synthetic and explicitly identifies the original remote commit.
-Git history, LFS payloads and submodule repositories are not downloaded. The
-current bounds are 30,000 tree entries, 8 MiB per blob, 256 MiB total content and
-32 downloaded blobs per call; a preparing result requires another identical
-call, not an invented ready state. Truncated provider trees fail closed.
+This is an exact **snapshot working copy**, not a full history clone. The host
+independently resolves and pins the authenticated repository's default branch,
+imports and verifies its complete tree, and exposes it at `origin/<default>`.
+The synthetic candidate has that synthetic baseline as its comparison parent;
+this supports content-diff and trusted-file checks without pretending to have
+upstream ancestry. Both real remote commit/tree identities are retained. The
+model-selected candidate is never substituted for the default-branch baseline.
+OpenMeld's existing CLI Skill signature/history check remains unchanged; missing
+or replaced baseline refs and removed trusted releases must fail, not bypass it.
+
+Git history, LFS payloads and submodule repositories are not downloaded. Each
+manifest is limited to 30,000 entries and 8 MiB, each blob to 8 MiB, the combined
+source/baseline unique content to 256 MiB, and downloads to 32 blobs per call.
+A preparing result requires another identical call, not an invented ready
+state. Truncated provider trees fail closed. Version-2 checkout identities use
+fresh directories instead of adopting a previous baseline-free working copy.
 
 The Agent commits and tests with the ordinary Computer tools. Publication reads
 an exact immutable local commit, verifies the created GitHub tree, and updates
@@ -144,7 +154,11 @@ expected previous remote commit and rejects a changed destination. The remote
 commit may differ from the synthetic local history; the exact tree is the
 content proof. Publication never attests tests it did not run. At most 200 new
 blobs may be published per operation; larger changes need a different supported
-environment rather than silently partial publication.
+environment rather than silently partial publication. The read-only upload plan
+and known blob-count rejection run before an operation is marked attempted, so
+a 201-blob proposal cannot leave a pending write without any provider effect.
+Later transport failures keep their actual uncertainty; they are not all
+collapsed into a known-safe failure.
 
 Core's existing operation ledger owns the outcome. A small expiring transport
 record remembers the candidate commit and whether its reference update was

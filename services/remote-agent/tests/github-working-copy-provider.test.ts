@@ -138,6 +138,13 @@ describe("fixed GitHub working-copy proxy adapter", () => {
     expect(await f.provider.branch(BRANCH)).toBeNull();
     const denied = fixture({}, 403);
     await expect(denied.provider.branch(BRANCH)).rejects.toThrow("HTTP 403");
+    const mismatched = fixture({
+      ref: "refs/tags/main",
+      object: { type: "commit", sha: SHA },
+    });
+    await expect(mismatched.provider.branch("main")).rejects.toThrow(
+      "unexpected_ref"
+    );
   });
   it("refuses a created tree different from the immutable local snapshot before updating a branch", async () => {
     const f = fixture({ sha: "b".repeat(40) });

@@ -13,6 +13,10 @@ export type GitWorkingCopyLocation = {
   manifestDigest: string;
   sourceCommit: string;
   sourceTree: string;
+  baselineBranch: string;
+  baselineCommit: string;
+  baselineTree: string;
+  baselineManifestDigest: string;
 };
 export type GitWorkingCopyComputerApi = {
   writeFile(path: string, content: string | Uint8Array): Promise<void>;
@@ -44,11 +48,16 @@ export class GitWorkingCopyComputer {
 
   async writeManifest(
     location: GitWorkingCopyLocation,
-    entries: RemoteAgentGitTreeEntry[]
+    entries: RemoteAgentGitTreeEntry[],
+    baselineEntries: RemoteAgentGitTreeEntry[]
   ) {
     await this.api.writeFile(
       `${location.transportDirectory}/manifest.json`,
       JSON.stringify(entries)
+    );
+    await this.api.writeFile(
+      `${location.transportDirectory}/baseline.json`,
+      JSON.stringify(baselineEntries)
     );
   }
   async writeBlob(
@@ -87,6 +96,10 @@ export class GitWorkingCopyComputer {
       manifestDigest: location.manifestDigest,
       sourceCommit: location.sourceCommit,
       sourceTree: location.sourceTree,
+      baselineBranch: location.baselineBranch,
+      baselineCommit: location.baselineCommit,
+      baselineTree: location.baselineTree,
+      baselineManifestDigest: location.baselineManifestDigest,
       action,
       sha,
       output,
@@ -144,9 +157,10 @@ def git(root, *args, data=None):
     if result.returncode: raise RuntimeError(result.stderr.decode('utf8', 'replace')[-1000:])
     return result.stdout
 
-def manifest():
-    data = (transfer / 'manifest.json').read_bytes()
-    if len(data) > 8 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != request['manifestDigest']: raise RuntimeError('Working-copy manifest changed')
+def manifest(baseline=False):
+    data = (transfer / ('baseline.json' if baseline else 'manifest.json')).read_bytes()
+    expected = request['baselineManifestDigest'] if baseline else request['manifestDigest']
+    if len(data) > 8 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != expected: raise RuntimeError('Working-copy manifest changed')
     entries = json.loads(data)
     if len(entries) > 30000: raise RuntimeError('Too many tree entries')
     for entry in entries:
@@ -189,25 +203,35 @@ def make_tree(root, entries):
 
 def prepare():
     entries = manifest()
+    baseline_entries = manifest(True)
+    baseline_ref = 'refs/remotes/origin/' + request['baselineBranch']
     if target.exists() or target.is_symlink():
         if target.is_symlink() or git(target, 'rev-parse', 'refs/openmeld/source^{tree}').decode().strip() != request['sourceTree']: raise RuntimeError('Destination exists and is not this working copy')
-        return {'ready': True, 'localCommit': git(target, 'rev-parse', 'HEAD').decode().strip(), 'tree': request['sourceTree'], 'remaining': 0, 'missing': []}
+        if git(target, 'rev-parse', baseline_ref + '^{tree}').decode().strip() != request['baselineTree']: raise RuntimeError('Trusted baseline changed')
+        baseline_local = git(target, 'rev-parse', baseline_ref).decode().strip()
+        return {'ready': True, 'localCommit': git(target, 'rev-parse', 'HEAD').decode().strip(), 'baselineLocalCommit': baseline_local, 'tree': request['sourceTree'], 'remaining': 0, 'missing': []}
     root = transfer / 'repository'
     if not root.exists():
         root.mkdir()
         git(root, 'init', '--template=', '--initial-branch=work')
-    shas = list(dict.fromkeys(e['sha'] for e in entries if e['type'] == 'blob'))
+    git(root, 'check-ref-format', baseline_ref)
+    shas = list(dict.fromkeys(e['sha'] for e in entries + baseline_entries if e['type'] == 'blob'))
     missing = import_cached(root, shas)
     if missing: return {'ready': False, 'remaining': len(missing), 'missing': missing[:32]}
     tree = make_tree(root, entries)
     if tree != request['sourceTree']: raise RuntimeError('Complete source tree does not match GitHub')
-    commit = git(root, 'commit-tree', tree, '-m', 'Snapshot working copy of GitHub commit ' + request['sourceCommit'] + '; remote history is not downloaded.').decode().strip()
+    baseline_tree = make_tree(root, baseline_entries)
+    if baseline_tree != request['baselineTree']: raise RuntimeError('Authenticated baseline tree does not match GitHub')
+    baseline_local = git(root, 'commit-tree', baseline_tree, '-m', 'Verified default-branch snapshot ' + request['baselineCommit'] + '; synthetic comparison baseline, not remote history.').decode().strip()
+    git(root, 'update-ref', baseline_ref, baseline_local)
+    git(root, 'update-ref', 'refs/openmeld/baseline', baseline_local)
+    commit = git(root, 'commit-tree', tree, '-p', baseline_local, '-m', 'Snapshot working copy of GitHub commit ' + request['sourceCommit'] + '; synthetic comparison parent, remote history is not downloaded.').decode().strip()
     git(root, 'update-ref', 'refs/heads/work', commit)
     git(root, 'update-ref', 'refs/openmeld/source', commit)
     git(root, 'reset', '--hard', commit)
     target.parent.mkdir(parents=True, exist_ok=True)
     os.rename(root, target)
-    return {'ready': True, 'localCommit': commit, 'tree': tree, 'remaining': 0, 'missing': []}
+    return {'ready': True, 'localCommit': commit, 'baselineLocalCommit': baseline_local, 'tree': tree, 'remaining': 0, 'missing': []}
 
 def snapshot():
     commit = request['sha']

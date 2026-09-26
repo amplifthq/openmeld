@@ -82,6 +82,7 @@ export const remoteAgentGitNativeResultSchema = z.object({
     .max(REMOTE_AGENT_GIT_BATCH_SIZE)
     .optional(),
   localCommit: remoteAgentGitShaSchema.optional(),
+  baselineLocalCommit: remoteAgentGitShaSchema.optional(),
   tree: remoteAgentGitShaSchema.optional(),
   entries: z
     .array(remoteAgentGitTreeEntrySchema)
@@ -98,6 +99,10 @@ export const remoteAgentGitNativeRequestSchema = z.strictObject({
   manifestDigest: z.string().regex(/^[a-f0-9]{64}$/u),
   sourceCommit: remoteAgentGitShaSchema,
   sourceTree: remoteAgentGitShaSchema,
+  baselineBranch: z.string().min(1).max(200),
+  baselineCommit: remoteAgentGitShaSchema,
+  baselineTree: remoteAgentGitShaSchema,
+  baselineManifestDigest: z.string().regex(/^[a-f0-9]{64}$/u),
   action: z.enum(["prepare", "snapshot", "blob"]),
   sha: remoteAgentGitShaSchema.optional(),
   output: z.string().min(1).max(4096),

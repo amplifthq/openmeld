@@ -1,4 +1,5 @@
 import {
+  REMOTE_AGENT_GIT_MAX_TOTAL_BYTES,
   REMOTE_AGENT_GIT_MAX_TREE_BYTES,
   REMOTE_AGENT_GIT_TTL_MS,
   type RemoteAgentGitCheckoutInput,
@@ -36,7 +37,7 @@ import {
   type GitWorkingCopyLocation,
 } from "./github-working-copy-computer";
 
-export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v1:";
+export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
 type Dependencies = {
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
@@ -65,7 +66,7 @@ export function getGitHubWorkingCopyTools(
     {
       name: "github_checkout_repository",
       description:
-        "Prepare a private GitHub repository snapshot in this isolated Computer using the explicitly selected Plugin account. Use one stable key and the same owner/repo/ref/githubActor for retries. A preparing result means the next bounded batch is needed: call again with the unchanged input. Ready supplies the exact source commit/tree, directory and fixed task branch. Git history, LFS payloads and submodule repositories are not downloaded. Use the existing computer_command tools for editing, git commits and tests. Provider credentials never enter the Computer. No remote branch is created by checkout.",
+        "Prepare a private GitHub repository snapshot in this isolated Computer using the explicitly selected Plugin account. Use one stable key and the same owner/repo/ref/githubActor for retries. A preparing result means the next bounded batch is needed: call again with the unchanged input. Ready supplies the exact source commit/tree, directory, fixed task branch and an independently authenticated default-branch baseline at origin/<default-branch>. Local commits have a synthetic comparison graph, not downloaded upstream history. LFS payloads and submodule repositories are not downloaded. Use the existing computer_command tools for editing, git commits and tests. Provider credentials never enter the Computer. No remote branch is created by checkout.",
       input: strictObject({
         key: string(),
         owner: string(),
@@ -104,7 +105,7 @@ export function getGitHubWorkingCopyTools(
 async function locate(input: Dependencies, key: string) {
   const scope = await requireRemoteAgentExecutionAccess(input);
   const scopeKey = remoteAgentExecutionScopeKey(scope);
-  const id = await digestCanonicalJson([scopeKey, key]);
+  const id = await digestCanonicalJson([2, scopeKey, key]);
   const storageKey = `${REMOTE_AGENT_GIT_STORAGE_PREFIX}${id}`;
   const stored = await input.storage.get<Checkout>(storageKey);
   if (
@@ -181,22 +182,43 @@ async function createCheckout(
     sourceCommit: "",
     sourceTree: "",
     manifestDigest: "",
+    baselineBranch: "",
+    baselineCommit: "",
+    baselineTree: "",
+    baselineManifestDigest: "",
     repositoryId: 0,
   };
   const remote = provider(input, preliminary, signal);
   const repository = await remote.repository();
   const commit = await remote.commit(intent.ref);
-  const entries = await remote.tree(commit.tree.sha);
-  const text = JSON.stringify(entries);
-  if (Buffer.byteLength(text) > REMOTE_AGENT_GIT_MAX_TREE_BYTES) {
-    throw new Error("github.checkout.manifest_too_large");
+  // Resolve the default branch independently of model-selected ref/HEAD.
+  // It is not safe to make a candidate its own trusted verification baseline.
+  const baselineRef = await remote.branch(repository.default_branch);
+  if (!baselineRef) {
+    throw new Error(
+      "github.checkout.baseline_unavailable: The exact repository default branch is unavailable."
+    );
   }
+  const baseline = await remote.commit(baselineRef);
+  if (baseline.sha !== baselineRef) {
+    throw new Error("github.checkout.baseline_changed");
+  }
+  const entries = await remote.tree(commit.tree.sha);
+  const baselineEntries =
+    baseline.tree.sha === commit.tree.sha
+      ? entries
+      : await remote.tree(baseline.tree.sha);
+  validateCheckoutBudget(entries, baselineEntries);
   const record: Checkout = {
     ...preliminary,
     repositoryId: repository.id,
     sourceCommit: commit.sha,
     sourceTree: commit.tree.sha,
-    manifestDigest: await textDigest(text),
+    manifestDigest: await textDigest(JSON.stringify(entries)),
+    baselineBranch: repository.default_branch,
+    baselineCommit: baseline.sha,
+    baselineTree: baseline.tree.sha,
+    baselineManifestDigest: await textDigest(JSON.stringify(baselineEntries)),
   };
   await input.storage.putIfAbsentExpiring(
     identity.storageKey,
@@ -225,6 +247,17 @@ export async function checkoutRepository(
   }
   const remote = provider(input, record, signal);
   const entries = await remote.tree(record.sourceTree);
+  const baselineEntries =
+    record.baselineTree === record.sourceTree
+      ? entries
+      : await remote.tree(record.baselineTree);
+  validateCheckoutBudget(entries, baselineEntries);
+  if (
+    (await textDigest(JSON.stringify(baselineEntries))) !==
+    record.baselineManifestDigest
+  ) {
+    throw new Error("github.checkout.baseline_changed");
+  }
   if ((await textDigest(JSON.stringify(entries))) !== record.manifestDigest) {
     throw new Error("github.checkout.manifest_changed");
   }
@@ -238,10 +271,12 @@ export async function checkoutRepository(
       connectionUpdatedAtMs: record.connectionUpdatedAtMs,
     },
   });
-  await computer.writeManifest(record, entries);
+  await computer.writeManifest(record, entries, baselineEntries);
   let progress = await computer.prepare(record);
   const allowed = new Set(
-    entries.filter((entry) => entry.type === "blob").map((entry) => entry.sha)
+    [...entries, ...baselineEntries]
+      .filter((entry) => entry.type === "blob")
+      .map((entry) => entry.sha)
   );
   for (const sha of progress.missing ?? []) {
     if (!allowed.has(sha)) {
@@ -263,7 +298,15 @@ export async function checkoutRepository(
     ...(progress.ready
       ? { directory: record.directory, localCommit: progress.localCommit }
       : {}),
-    history: "snapshot_only",
+    history: "snapshot_with_verified_baseline",
+    baseline: {
+      branch: record.baselineBranch,
+      sourceCommit: record.baselineCommit,
+      tree: record.baselineTree,
+      ref: `refs/remotes/origin/${record.baselineBranch}`,
+      localCommit: progress.baselineLocalCommit,
+      history: "synthetic_comparison_only",
+    },
     credentialsInComputer: false,
     nextAction: progress.ready
       ? "Edit, commit, and test in this directory with the existing Computer tools."
@@ -353,6 +396,11 @@ export async function publishCheckout(
       "github.publish.branch_changed: No force-push is permitted. Reconcile the newer branch before publishing."
     );
   }
+  // Pure planning precedes the durable dispatch claim. A known local limit
+  // rejection has no provider effect and must not strand a pending operation.
+  const needed = publication
+    ? []
+    : await planUploadObjects(remote, snapshot.entries, request);
   await recordConnectorActionOperation({
     ...operation,
     outcome: "attempted",
@@ -365,7 +413,7 @@ export async function publishCheckout(
       record,
       snapshot.entries,
       snapshot.tree,
-      request
+      needed
     );
     const created = await remote.createCommit({
       tree: snapshot.tree,
@@ -493,12 +541,9 @@ async function reconcilePublication(input: {
   );
 }
 
-async function uploadObjects(
+async function planUploadObjects(
   remote: GitHubWorkingCopyProvider,
-  computer: GitWorkingCopyComputer,
-  record: Checkout,
   entries: RemoteAgentGitTreeEntry[],
-  tree: string,
   request: RemoteAgentGitPublishInput
 ) {
   const base = await remote.commit(request.expectedRemoteHead);
@@ -520,6 +565,17 @@ async function uploadObjects(
       "github.publish.change_too_large: Publish at most 200 changed blobs in one operation."
     );
   }
+  return needed;
+}
+
+async function uploadObjects(
+  remote: GitHubWorkingCopyProvider,
+  computer: GitWorkingCopyComputer,
+  record: Checkout,
+  entries: RemoteAgentGitTreeEntry[],
+  tree: string,
+  needed: string[]
+) {
   for (const sha of needed) {
     await remote.createBlob(await computer.blob(record, sha), sha);
   }
@@ -547,6 +603,38 @@ function publicationReceipt(
     nextAction:
       "Use this branch with github_create_pull_request and draft=true, or update the existing Draft PR. Report tests against the exact local commit/tree separately.",
   };
+}
+
+function validateCheckoutBudget(
+  entries: RemoteAgentGitTreeEntry[],
+  baseline: RemoteAgentGitTreeEntry[]
+) {
+  for (const manifest of [entries, baseline]) {
+    if (
+      Buffer.byteLength(JSON.stringify(manifest)) >
+      REMOTE_AGENT_GIT_MAX_TREE_BYTES
+    ) {
+      throw new Error("github.checkout.manifest_too_large");
+    }
+  }
+  const sizes = new Map<string, number>();
+  for (const entry of [...entries, ...baseline]) {
+    if (entry.type !== "blob") {
+      continue;
+    }
+    if (entry.size === undefined) {
+      throw new Error("github.checkout.blob_size_missing");
+    }
+    sizes.set(entry.sha, entry.size);
+  }
+  if (
+    [...sizes.values()].reduce((sum, size) => sum + size, 0) >
+    REMOTE_AGENT_GIT_MAX_TOTAL_BYTES
+  ) {
+    throw new Error(
+      "github.checkout.repository_too_large: Source and verified baseline together exceed the 256 MiB content budget."
+    );
+  }
 }
 
 async function textDigest(text: string) {
