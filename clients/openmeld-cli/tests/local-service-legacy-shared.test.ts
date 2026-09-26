@@ -6,6 +6,7 @@ import {
   OPENMELD_HOME_ENV_KEY,
   resolveOpenMeldRootDir,
 } from "../src/config/paths";
+import { daemonServiceExecutableWrapperPath } from "../src/local-service/lifecycle/daemon-service-bundle";
 import {
   requiresLegacySharedDaemonServiceMigration,
   resolveLegacySharedDaemonPathInput,
@@ -96,6 +97,7 @@ describe("local service legacy shared", () => {
         enabled: true,
       }),
     };
+    const expectedWrapper = daemonServiceExecutableWrapperPath(pathInput);
 
     expect(
       requiresLegacySharedDaemonServiceMigration({
@@ -108,8 +110,7 @@ describe("local service legacy shared", () => {
           enabled: true,
           definitionPath:
             "/Users/felix/Library/LaunchAgents/com.openmeld.openmeld-background-service.plist",
-          commandSummary:
-            "com.openmeld.openmeld-background-service /Users/felix/.openmeld/runtime/daemon/service-manager/openmeld-service service run --mode foreground",
+          commandSummary: `com.openmeld.openmeld-background-service ${expectedWrapper} service run --mode foreground`,
         },
         ownedProcesses: [],
       })
