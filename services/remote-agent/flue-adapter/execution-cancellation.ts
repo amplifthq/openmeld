@@ -8,6 +8,7 @@ import { ConfirmedMissingComputerCommandsError } from "./computer-command";
 
 export async function cancelFlueRemoteAgentExecution(input: {
   abortSubmission: () => Promise<{ aborted: boolean }>;
+  scheduleReconciliation: () => Promise<void>;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   reason?: string;
@@ -22,6 +23,9 @@ export async function cancelFlueRemoteAgentExecution(input: {
     reason: input.reason,
     storage: input.storage,
   });
+  // Arm recovery after durable intent, before external abort/cleanup can throw
+  // or stall. A Stop response never certifies that cleanup has completed.
+  await input.scheduleReconciliation();
   if (
     !(
       requested.status === "cancellation_requested" &&
@@ -42,8 +46,8 @@ export async function cancelFlueRemoteAgentExecution(input: {
       throw error;
     }
     // Cancellation intent is durable. The exact command records are absent
-    // from both read and Stop, so no process remains to signal. The caller
-    // schedules reconciliation, which publishes the terminal aborted outcome.
+    // from both read and Stop, so no process remains to signal. The already
+    // scheduled reconciliation publishes the terminal aborted outcome.
     return {
       abortedFlueSubmission: null,
       response: requested,

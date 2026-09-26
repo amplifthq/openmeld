@@ -221,6 +221,7 @@ describe("retained Computer commands", () => {
     if (cancel) {
       await expect(
         cancelFlueRemoteAgentExecution({
+          scheduleReconciliation: vi.fn(async () => undefined),
           identity,
           storage: f.storage,
           nowMs: TEST_NOW_MS + 1,
@@ -471,6 +472,7 @@ describe("retained Computer commands", () => {
 
     await expect(
       cancelFlueRemoteAgentExecution({
+        scheduleReconciliation: vi.fn(async () => undefined),
         abortSubmission,
         identity,
         nowMs: TEST_NOW_MS + 1,
