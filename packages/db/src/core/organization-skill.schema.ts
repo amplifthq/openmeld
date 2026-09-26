@@ -202,3 +202,29 @@ export const centerAgentOrganizationSkillOperations = sqliteTable(
     ),
   ]
 );
+
+export const organizationSkillImportOperations = sqliteTable(
+  "organization_skill_import_operations",
+  {
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    operationId: text("operation_id").notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    requestSignature: text("request_signature").notNull(),
+    responseJson: text("response_json"),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.organizationId, table.operationId],
+      name: "organization_skill_import_operations_pk",
+    }),
+    check(
+      "organization_skill_import_operations_completion_check",
+      sql`("completed_at" is null and "response_json" is null) or ("completed_at" is not null and "response_json" is not null)`
+    ),
+  ]
+);

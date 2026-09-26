@@ -23,14 +23,14 @@ import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center
 import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
-  beginCenterAgentOrganizationSkillOperation,
+  beginOrganizationSkillOperation,
   buildCenterAgentOrganizationSkillOperationKey,
-  buildCenterAgentOrganizationSkillRequestSignature,
-  type CenterAgentOrganizationSkillOperationRecord,
-  deletePendingCenterAgentOrganizationSkillOperation,
-  prepareCompleteCenterAgentOrganizationSkillOperationStatement,
-  readCenterAgentOrganizationSkillOperation,
-} from "./center-agent-organization-skill-operation-repository";
+  buildOrganizationSkillRequestSignature,
+  deletePendingOrganizationSkillOperation,
+  type OrganizationSkillOperationRecord,
+  prepareCompleteOrganizationSkillOperationStatement,
+  readOrganizationSkillOperation,
+} from "./organization-skill-operation-repository";
 import {
   createOrganizationSkillService,
   describeOrganizationSkillBundleLimitations,
@@ -175,15 +175,15 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     organizationId: prepared.actor.organizationId,
     representedUserId: prepared.representedHuman.userId,
   });
-  const requestSignature =
-    await buildCenterAgentOrganizationSkillRequestSignature({
-      action: request.action,
-      actorProfileId: prepared.actorProfileId,
-      payload: installPayload(request),
-      representedUserId: prepared.representedHuman.userId,
-    });
-  const begin = await beginCenterAgentOrganizationSkillOperation({
+  const requestSignature = await buildOrganizationSkillRequestSignature({
+    action: request.action,
+    actorProfileId: prepared.actorProfileId,
+    payload: installPayload(request),
+    representedUserId: prepared.representedHuman.userId,
+  });
+  const begin = await beginOrganizationSkillOperation({
     db: prepared.db,
+    kind: "center_agent",
     nowMs: Date.now(),
     operationKey,
     organizationId: prepared.actor.organizationId,
@@ -232,8 +232,9 @@ export async function rpcCenterAgentInstallOrganizationSkill(
       .get(prepared.actor, skillId)
       .catch(() => null);
     if (recovered?.activeRelease.id !== releaseId) {
-      await deletePendingCenterAgentOrganizationSkillOperation({
+      await deletePendingOrganizationSkillOperation({
         db: prepared.db,
+        kind: "center_agent",
         operation: begin.operation,
       });
       throw error;
@@ -353,7 +354,7 @@ function openMeldIdentityRequiredError(): Error {
 }
 
 async function completeOperation(input: {
-  operation: CenterAgentOrganizationSkillOperationRecord;
+  operation: OrganizationSkillOperationRecord;
   prepared: PreparedCenterAgentOrganizationSkillRequest;
   response: CenterAgentInstallOrganizationSkillResponse;
   skillId: string;
@@ -378,8 +379,9 @@ async function completeOperation(input: {
       resource: { id: input.skillId, type: "organization_skill" },
       sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
     }),
-    prepareCompleteCenterAgentOrganizationSkillOperationStatement({
+    prepareCompleteOrganizationSkillOperationStatement({
       db: input.prepared.db,
+      kind: "center_agent",
       nowMs,
       operation: input.operation,
       responseJson: JSON.stringify(input.response),
@@ -388,8 +390,9 @@ async function completeOperation(input: {
   if (Number(results[1]?.meta.changes ?? 0) === 1) {
     return input.response;
   }
-  const current = await readCenterAgentOrganizationSkillOperation({
+  const current = await readOrganizationSkillOperation({
     db: input.prepared.db,
+    kind: "center_agent",
     operationKey: input.operation.operationKey,
     organizationId: input.operation.organizationId,
   });
@@ -494,7 +497,7 @@ function parseInstallResponse(
 }
 
 function parseCompletedResponse(
-  operation: CenterAgentOrganizationSkillOperationRecord
+  operation: OrganizationSkillOperationRecord
 ): CenterAgentInstallOrganizationSkillResponse {
   if (!operation.responseJson) {
     throw new Error(

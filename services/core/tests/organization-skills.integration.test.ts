@@ -17,6 +17,7 @@ import {
   importOrganizationSkillBundleFromGitHub,
   previewOrganizationSkillRepositoryFromGitHub,
 } from "../src/organization-skills/organization-skill-import";
+import { rpcImportOrganizationSkillFromGitHub } from "../src/organization-skills/organization-skill-rpc";
 import {
   createOrganizationSkillService,
   type OrganizationSkillActor,
@@ -1375,6 +1376,73 @@ describe("Organization Skills", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.manage_forbidden", status: 403 },
     });
+  });
+
+  it("replays a human GitHub install without creating another release", async () => {
+    const fixture = await seedFixture();
+    const profile = await env.OPENMELD_DB.prepare(
+      "SELECT profile_id FROM openmeld_profiles WHERE owner_user_id = ? AND profile_kind = 'human' LIMIT 1"
+    )
+      .bind(fixture.owner.userId)
+      .first<{ profile_id: string }>();
+    if (!profile) {
+      throw new Error("Human test profile is missing.");
+    }
+    const commitSha = "c".repeat(40);
+    const fetchMock = vi.fn<typeof fetch>((request) =>
+      Promise.resolve(readGitHubFixtureResponse(String(request), commitSha))
+    );
+    const request = {
+      context: {
+        activeOrganizationId: fixture.organizationId,
+        actorContext: {
+          callerPrincipalId: fixture.owner.userId,
+          openMeldProfileId: profile.profile_id,
+          profileKind: "human" as const,
+          requestId: `skill-request-${crypto.randomUUID()}`,
+        },
+      },
+      expectedCommitSha: commitSha,
+      expectedOrganizationId: fixture.organizationId,
+      operationId: "human-install-release-review",
+      url: "https://github.com/acme/skills/tree/main/release",
+    };
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const installed = await rpcImportOrganizationSkillFromGitHub(
+        coreEnv(),
+        request
+      );
+      const fetchedAfterInstall = fetchMock.mock.calls.length;
+      await expect(
+        rpcImportOrganizationSkillFromGitHub(coreEnv(), request)
+      ).resolves.toEqual(installed);
+      expect(fetchMock).toHaveBeenCalledTimes(fetchedAfterInstall);
+      const count = await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM organization_skills WHERE organization_id = ?"
+      )
+        .bind(fixture.organizationId)
+        .first<{ count: number }>();
+      expect(count?.count).toBe(1);
+      await env.OPENMELD_DB.prepare(
+        "UPDATE organization_skill_import_operations SET completed_at = NULL, response_json = NULL, created_at = 0 WHERE organization_id = ?"
+      )
+        .bind(fixture.organizationId)
+        .run();
+      await expect(
+        rpcImportOrganizationSkillFromGitHub(coreEnv(), request)
+      ).resolves.toEqual(installed);
+      await expect(
+        rpcImportOrganizationSkillFromGitHub(coreEnv(), {
+          ...request,
+          url: "https://github.com/acme/other/tree/main/release",
+        })
+      ).rejects.toMatchObject({
+        cause: { code: "organization_skill.operation_conflict", status: 409 },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("lets the represented owner install once through Center Agent while members can only read", async () => {

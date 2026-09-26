@@ -147,6 +147,7 @@ describe("Organization Skills CLI", () => {
             source:
               "https://github.com/example/skills/tree/main/release-review",
             json: true,
+            operationId: "install-release-review",
           },
           { ...dependencies, resolveApi }
         );
@@ -155,6 +156,7 @@ describe("Organization Skills CLI", () => {
         expect.objectContaining({
           expectedCommitSha: commitSha,
           expectedOrganizationId: organization.id,
+          operationId: "install-release-review",
         })
       );
       expect(plainStdout).toContain('"type":"skills.add"');

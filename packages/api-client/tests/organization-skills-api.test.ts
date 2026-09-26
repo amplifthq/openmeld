@@ -229,6 +229,7 @@ describe("api-client Organization Skills API", () => {
     await api.importFromGitHub({
       expectedCommitSha: "b".repeat(40),
       expectedOrganizationId: ORGANIZATION_ID,
+      operationId: "install-review-skill",
       url: "https://github.com/openmeld/example/tree/main/support-risk-review",
     });
     await api.importFromFiles({
@@ -321,6 +322,7 @@ describe("api-client Organization Skills API", () => {
         body: JSON.stringify({
           expectedCommitSha: "b".repeat(40),
           expectedOrganizationId: ORGANIZATION_ID,
+          operationId: "install-review-skill",
           url: "https://github.com/openmeld/example/tree/main/support-risk-review",
         }),
         method: "POST",

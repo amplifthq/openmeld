@@ -282,14 +282,24 @@ export const deleteOrganizationSkillResponseSchema = z.strictObject({
   skillId: identifierSchema,
 });
 
-export const importOrganizationSkillFromGitHubBodySchema = z.strictObject({
-  expectedCommitSha: z
-    .string()
-    .regex(/^[a-f0-9]{40}$/)
-    .optional(),
-  expectedOrganizationId: identifierSchema,
-  url: sourceUrlSchema,
-});
+export const importOrganizationSkillFromGitHubBodySchema = z
+  .strictObject({
+    expectedCommitSha: z
+      .string()
+      .regex(/^[a-f0-9]{40}$/)
+      .optional(),
+    expectedOrganizationId: identifierSchema,
+    operationId: operationIdSchema.optional(),
+    url: sourceUrlSchema,
+  })
+  .refine(
+    (value) =>
+      value.operationId === undefined || value.expectedCommitSha !== undefined,
+    {
+      message: "A pinned commit is required for a retryable Skill import.",
+      path: ["expectedCommitSha"],
+    }
+  );
 export const importOrganizationSkillFromGitHubResponseSchema = z.strictObject({
   skill: organizationSkillSchema,
 });

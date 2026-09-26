@@ -74,6 +74,14 @@ import { resolveActiveOrganizationMembership } from "../organizations/organizati
 import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
+  beginOrganizationSkillOperation,
+  buildHumanOrganizationSkillImportOperationKey,
+  buildOrganizationSkillRequestSignature,
+  deletePendingOrganizationSkillOperation,
+  prepareCompleteOrganizationSkillOperationStatement,
+  readOrganizationSkillOperation,
+} from "./organization-skill-operation-repository";
+import {
   createOrganizationSkillService,
   type OrganizationSkillActor,
   readEnabledOrganizationSkillReleaseSelection,
@@ -146,12 +154,166 @@ export async function rpcImportOrganizationSkillFromGitHub(
     actor.organizationId,
     request.expectedOrganizationId
   );
+  if (request.operationId !== undefined) {
+    return await importGitHubSkillWithOperation({ actor, env, request });
+  }
   return parseResponse(importOrganizationSkillFromGitHubResponseSchema, {
     skill: await service.importFromGitHub(
       actor,
       request.url,
       request.expectedCommitSha
     ),
+  });
+}
+
+async function importGitHubSkillWithOperation(input: {
+  actor: OrganizationSkillActor;
+  env: CoreBindings;
+  request: ImportOrganizationSkillFromGitHubRpcInput;
+}): Promise<ImportOrganizationSkillFromGitHubResponse> {
+  const { actor, env, request } = input;
+  if (actor.role !== "owner" && actor.role !== "admin") {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.manage_forbidden",
+      reason: "Only Organization owners and admins can manage Skills.",
+      status: 403,
+    });
+  }
+  if (
+    request.operationId === undefined ||
+    request.expectedCommitSha === undefined
+  ) {
+    throw new Error(
+      "A retryable GitHub Skill import needs an operation ID and pinned commit."
+    );
+  }
+  const { bucket, db } = requireStores(env);
+  const operationKey = await buildHumanOrganizationSkillImportOperationKey({
+    actorProfileId: request.context.actorContext.openMeldProfileId,
+    operationId: request.operationId,
+    organizationId: actor.organizationId,
+    userId: actor.userId,
+  });
+  const requestSignature = await buildOrganizationSkillRequestSignature({
+    actorProfileId: request.context.actorContext.openMeldProfileId,
+    expectedCommitSha: request.expectedCommitSha,
+    url: request.url,
+    userId: actor.userId,
+  });
+  const begin = await beginOrganizationSkillOperation({
+    db,
+    kind: "human_import",
+    nowMs: Date.now(),
+    operationKey,
+    organizationId: actor.organizationId,
+    requestSignature,
+  });
+  if (begin.outcome === "completed_replay") {
+    return await readCompletedGitHubImport({
+      actor,
+      env,
+      responseJson: begin.operation.responseJson,
+    });
+  }
+  if (begin.outcome === "pending_in_progress") {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.operation_in_progress",
+      reason:
+        "This Skill installation is still in progress. Retry the same operation ID.",
+      status: 409,
+    });
+  }
+  const idDigest = await buildOrganizationSkillRequestSignature(operationKey);
+  const skillId = `org_skill_${idDigest.slice(0, 32)}`;
+  const releaseId = `org_skill_release_${idDigest.slice(32)}`;
+  const ids = [skillId, releaseId];
+  const service = createOrganizationSkillService({
+    bucket,
+    db,
+    fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
+    githubToken: env.GITHUB_OPENMELD_API_TOKEN,
+    newId: () => {
+      const id = ids.shift();
+      if (!id) {
+        throw new Error("Skill import exhausted its deterministic IDs.");
+      }
+      return id;
+    },
+  });
+  let skill: Awaited<ReturnType<typeof service.importFromGitHub>>;
+  try {
+    skill = await service.importFromGitHub(
+      actor,
+      request.url,
+      request.expectedCommitSha
+    );
+  } catch (error) {
+    const recovered = await service.get(actor, skillId).catch(() => null);
+    if (recovered?.activeRelease.id !== releaseId) {
+      await deletePendingOrganizationSkillOperation({
+        db,
+        kind: "human_import",
+        operation: begin.operation,
+      });
+      throw error;
+    }
+    skill = recovered;
+  }
+  const response = parseResponse(
+    importOrganizationSkillFromGitHubResponseSchema,
+    { skill }
+  );
+  const completed = await prepareCompleteOrganizationSkillOperationStatement({
+    db,
+    kind: "human_import",
+    nowMs: Date.now(),
+    operation: begin.operation,
+    responseJson: JSON.stringify({ skillId, releaseId }),
+  }).run();
+  if (Number(completed.meta.changes ?? 0) === 1) {
+    return response;
+  }
+  const current = await readOrganizationSkillOperation({
+    db,
+    kind: "human_import",
+    operationKey,
+    organizationId: actor.organizationId,
+  });
+  if (current?.completedAt !== null && current?.responseJson) {
+    return await readCompletedGitHubImport({
+      actor,
+      env,
+      responseJson: current.responseJson,
+    });
+  }
+  throw createCoreRpcHttpError({
+    code: "organization_skill.operation_in_progress",
+    reason:
+      "This Skill installation is still in progress. Retry the same operation ID.",
+    status: 409,
+  });
+}
+
+async function readCompletedGitHubImport(input: {
+  actor: OrganizationSkillActor;
+  env: CoreBindings;
+  responseJson: string | null;
+}): Promise<ImportOrganizationSkillFromGitHubResponse> {
+  const result = JSON.parse(input.responseJson ?? "null") as {
+    releaseId?: string;
+    skillId?: string;
+  } | null;
+  if (!(result?.skillId && result.releaseId)) {
+    throw new Error("Completed Skill import is missing its identity.");
+  }
+  const { bucket, db } = requireStores(input.env);
+  const service = createOrganizationSkillService({ bucket, db });
+  const skill = await service.get(input.actor, result.skillId);
+  if (!skill.releases.some((release) => release.id === result.releaseId)) {
+    throw new Error("Completed Skill import is missing its release.");
+  }
+  return parseResponse(importOrganizationSkillFromGitHubResponseSchema, {
+    skill,
   });
 }
 

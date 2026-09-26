@@ -91,6 +91,9 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
           ? {}
           : { expectedCommitSha: input.expectedCommitSha }),
         expectedOrganizationId: input.expectedOrganizationId,
+        ...(input.operationId === undefined
+          ? {}
+          : { operationId: input.operationId }),
         url: input.url,
       },
       "Organization Skill GitHub import request is invalid."

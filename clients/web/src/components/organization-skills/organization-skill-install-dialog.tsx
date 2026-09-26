@@ -20,6 +20,7 @@ import { OrganizationSkillFlowDialog } from "./organization-skill-flow-dialog";
 import { GitHubSkillPreview } from "./organization-skill-import-preview";
 
 type BoundPreview = {
+	operationId: string;
 	rootUrl: string;
 	url: string;
 	preview: OrganizationSkillGitHubPreview;
@@ -102,6 +103,7 @@ export function InstallSkillDialog(input: {
 			});
 			if (isCurrent(ticket)) {
 				setReview({
+					operationId: crypto.randomUUID(),
 					rootUrl: requestedUrl,
 					url: requestedUrl,
 					preview: response.preview,
@@ -136,7 +138,12 @@ export function InstallSkillDialog(input: {
 				url: skillUrl,
 			});
 			if (isCurrent(ticket)) {
-				setReview({ rootUrl, url: skillUrl, preview: response.preview });
+				setReview({
+					operationId: crypto.randomUUID(),
+					rootUrl,
+					url: skillUrl,
+					preview: response.preview,
+				});
 			}
 		} catch (failure) {
 			if (isCurrent(ticket)) {
@@ -158,6 +165,7 @@ export function InstallSkillDialog(input: {
 			const response = await install.mutateAsync({
 				expectedOrganizationId: input.organizationId,
 				expectedCommitSha: review.preview.source.commitSha,
+				operationId: review.operationId,
 				url: review.url,
 			});
 			input.onInstalled(response.skill);

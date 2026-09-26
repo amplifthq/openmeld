@@ -101,6 +101,7 @@ export async function runOrganizationSkillsAdd(
   input: OrganizationSkillsCommandInput & {
     source: string;
     previewOnly?: boolean;
+    operationId?: string;
   },
   dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
 ): Promise<void> {
@@ -172,6 +173,7 @@ export async function runOrganizationSkillsAdd(
       const installed = await context.api.importFromGitHub({
         expectedCommitSha: preview.preview.source.commitSha,
         expectedOrganizationId: context.organization.id,
+        operationId: input.operationId ?? crypto.randomUUID(),
         requestContext: context.requestContext,
         url: input.source,
       });

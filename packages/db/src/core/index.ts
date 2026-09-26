@@ -159,6 +159,7 @@ export {
 export {
   centerAgentOrganizationSkillOperations,
   organizationSkillActivations,
+  organizationSkillImportOperations,
   organizationSkillMaintainers,
   organizationSkillReleases,
   organizationSkills,

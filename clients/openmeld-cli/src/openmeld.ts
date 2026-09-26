@@ -1807,9 +1807,16 @@ skillsCmd
     "--preview",
     "Show the exact Skill and source commit without adding it"
   )
+  .option(
+    "--operation-id <id>",
+    "Reuse this ID to safely retry a GitHub install"
+  )
   .option("--json", "Print one machine-readable JSON envelope.", false)
   .action(
-    async (source: string, opts: { json?: boolean; preview?: boolean }) => {
+    async (
+      source: string,
+      opts: { json?: boolean; operationId?: string; preview?: boolean }
+    ) => {
       const view = getGlobalViewOption();
       await runCommandWithEntryChecks({
         routeTokens: ["skills", "add"],
@@ -1818,6 +1825,7 @@ skillsCmd
           await runOrganizationSkillsAdd({
             json: skillsJsonRequested(opts),
             previewOnly: opts.preview === true,
+            operationId: opts.operationId,
             source,
             view,
           });

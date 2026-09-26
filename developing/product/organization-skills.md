@@ -139,6 +139,15 @@ Release**:
 - it records source provenance and the verified actor;
 - it is never overwritten in place.
 
+GitHub installs from Web and CLI preview and pin the source commit before
+writing. An install attempt has a caller-scoped operation ID. Repeating that ID
+with the same URL and commit returns the Skill already created by the first
+attempt, including when the release committed before the operation receipt.
+Reusing the ID for a different source or commit is a conflict. The CLI accepts
+an explicit `--operation-id` so a local agent can safely retry after an
+uncertain network result. The operation receipt stores release identity rather
+than another copy of the Skill bundle in D1.
+
 The Skill record holds the active release pointer and enabled state.
 
 Phase 1 has no separate Draft or Publish mode. Browser-local edits are

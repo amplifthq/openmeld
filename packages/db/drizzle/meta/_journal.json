@@ -1282,6 +1282,13 @@
       "when": 1790065762927,
       "tag": "0182_grey_captain_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "6",
+      "when": 1790404851685,
+      "tag": "0183_purple_pyro",
+      "breakpoints": true
     }
   ]
 }
