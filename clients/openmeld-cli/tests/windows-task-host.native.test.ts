@@ -2,7 +2,7 @@ import { execFile, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { windowsUserTaskActionSchema } from "@openmeld/schemas";
@@ -14,6 +14,7 @@ import {
 import { buildDaemonSystemServiceCommandSpec } from "../src/local-service/lifecycle/daemon-service-command-spec";
 import { resolveDaemonServiceIdentity } from "../src/local-service/lifecycle/daemon-service-identity";
 import { resolveDaemonServiceManager } from "../src/local-service/lifecycle/daemon-service-manager";
+import { windowsDirectTaskArguments } from "../src/local-service/lifecycle/windows-task-command";
 import {
   WINDOWS_TASK_HOST_INSTALL_SCRIPT,
   WINDOWS_TASK_HOST_SUFFIX,
@@ -185,6 +186,69 @@ exit 23
         } finally {
           // Cleanup still works if a future regression breaks manager.status().
           await runWindowsUserTask({ ...request, operation: "uninstall" });
+        }
+      });
+    }, 60_000);
+
+    it("recognizes a released default-home binary task without OPENMELD_HOME for guarded repair", async () => {
+      await withTempHome(async () => {
+        // The action path is registration metadata: no file is created in the
+        // user's home and this unique, disabled task is never started.
+        const runtimeRoot = join(homedir(), ".openmeld", "runtime", "daemon");
+        const executable = join(
+          runtimeRoot,
+          "bundles",
+          "fixture",
+          "openmeld.exe"
+        );
+        const request = {
+          name: `OpenMeld-Test-${randomUUID()}`,
+          legacyScript: join(runtimeRoot, "fixture-runner.bat"),
+        };
+        const action = windowsDirectTaskArguments({
+          executable,
+          args: ["service", "run", "--mode", "foreground"],
+          env: { OPENMELD_ENV_PRESET: "prod" },
+          logPath: join(runtimeRoot, "logs", "fixture.log"),
+        });
+        const env = {
+          ...process.env,
+          OPENMELD_TEST_NAME: request.name,
+          OPENMELD_TEST_EXECUTABLE: executable,
+          OPENMELD_TEST_ACTION: action,
+        };
+        const taskLookup = String.raw`
+$ErrorActionPreference='Stop'
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$scheduler=New-Object -ComObject 'Schedule.Service'; $scheduler.Connect()
+$folder=$scheduler.GetFolder('\'); $name=$env:OPENMELD_TEST_NAME+'-'+$sid
+`;
+        let registered = false;
+        try {
+          await powershell(
+            `${taskLookup}
+$d=$scheduler.NewTask(0); $d.Principal.UserId=$sid; $d.Principal.LogonType=3; $d.Principal.RunLevel=0
+$d.Settings.Enabled=$false
+$a=$d.Actions.Create(0); $a.Path=$env:OPENMELD_TEST_EXECUTABLE; $a.Arguments=$env:OPENMELD_TEST_ACTION
+$null=$folder.RegisterTaskDefinition($name,$d,6,$sid,$null,3,$null)
+`,
+            env
+          );
+          registered = true;
+          const observed = await runWindowsUserTask({
+            ...request,
+            operation: "status",
+          });
+          expect(observed).toMatchObject({
+            installed: true,
+            running: false,
+            enabled: false,
+            actionArguments: action,
+          });
+        } finally {
+          if (registered) {
+            await powershell(`${taskLookup}\n$folder.DeleteTask($name,0)`, env);
+          }
         }
       });
     }, 60_000);

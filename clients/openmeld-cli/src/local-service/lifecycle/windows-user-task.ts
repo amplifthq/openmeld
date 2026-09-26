@@ -48,7 +48,13 @@ function Read-OwnedDirectAction($path, $arguments) {
   $c = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Matches[1])))
   $bundles = [IO.Path]::GetFullPath((Join-Path $runtimeRoot 'bundles')) + '\'
   $fullPath = [IO.Path]::GetFullPath($path)
-  if ($c.executable -ne $path -or !$fullPath.StartsWith($bundles, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($path) -ne 'openmeld.exe' -or !$c.env.OPENMELD_HOME -or [IO.Path]::GetFullPath((Join-Path $c.env.OPENMELD_HOME 'runtime\daemon')) -ne [IO.Path]::GetFullPath($runtimeRoot)) {
+  $taskHome = $c.env.OPENMELD_HOME
+  # Released Windows preview tasks omitted this env var in the default prod
+  # lane. Admit only that exact current-user default root for guarded repair.
+  if (!$taskHome -and $c.env.OPENMELD_ENV_PRESET -eq 'prod') {
+    $taskHome = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.openmeld'
+  }
+  if ($c.executable -ne $path -or !$fullPath.StartsWith($bundles, [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetFileName($path) -ne 'openmeld.exe' -or !$taskHome -or [IO.Path]::GetFullPath((Join-Path $taskHome 'runtime\daemon')) -ne [IO.Path]::GetFullPath($runtimeRoot)) {
     throw 'The Windows task does not belong to this OpenMeld installation.'
   }
   return $c
