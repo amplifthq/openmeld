@@ -9,10 +9,12 @@ export function SpaceMessageSurface({
 	bubbleClassName,
 	children,
 	className,
+	edited,
 	...props
 }: ComponentProps<typeof BubbleContent> & {
 	attachments?: ReactNode;
 	bubbleClassName?: string;
+	edited?: boolean;
 	"data-highlighted"?: string;
 }) {
 	return (
@@ -35,6 +37,14 @@ export function SpaceMessageSurface({
 			>
 				{children}
 			</div>
+			{edited && (
+				<span
+					className="text-muted-foreground text-xs group-data-[align=end]/bubble:self-end"
+					data-slot="space-message-edited"
+				>
+					(edited)
+				</span>
+			)}
 		</BubbleContent>
 	);
 }

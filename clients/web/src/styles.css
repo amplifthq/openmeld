@@ -330,7 +330,7 @@ html:root [data-slot="message"] [data-slot="bubble"]:has([data-slot="space-attac
 /* The same Appearance preference aligns text and attachments, not only their
    outer message. A short caption must not stay on the opposite side. */
 html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"] [data-slot="space-message-text-surface"] {
+  [data-space-self-message="true"] :is([data-slot="space-message-text-surface"], [data-slot="space-message-edited"]) {
   align-self: flex-start;
 }
 

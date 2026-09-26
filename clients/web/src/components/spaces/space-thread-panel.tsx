@@ -1575,6 +1575,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								)}
 								className="group/thread-message relative"
 								data-signal-id={input.item.id}
+								edited={Boolean(input.item.editedAt) && !input.item.recalledAt}
 								ref={(element) => {
 									input.registerMessageElement(input.item.id, element);
 								}}

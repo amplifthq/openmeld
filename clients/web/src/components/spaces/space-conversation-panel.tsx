@@ -3000,6 +3000,7 @@ function ConversationBubbleContent(input: {
 			data-highlighted={input.isHighlighted ? "true" : undefined}
 			data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 			data-signal-id={input.item.id}
+			edited={Boolean(input.item.editedAt) && !input.item.recalledAt}
 			ref={(element) => {
 				parent.registerMessageElement(input.item.id, element);
 			}}

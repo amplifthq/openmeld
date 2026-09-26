@@ -2416,6 +2416,7 @@ describe("SpaceConversationPanel", () => {
 			onOpenSpaceFile,
 			timelineItems: [
 				createTimelineItem({
+					editedAt: Date.UTC(2026, 8, 26),
 					files: [
 						{
 							fileId: "file-1",
@@ -2437,6 +2438,9 @@ describe("SpaceConversationPanel", () => {
 			fileButton?.closest("[data-slot='space-message-text-surface']")
 		).toBeNull();
 		const message = fileButton?.closest("[data-slot='bubble-content']");
+		expect(
+			message?.querySelector("[data-slot='space-message-edited']")?.textContent
+		).toBe("(edited)");
 		expect(
 			message?.querySelectorAll("[data-slot='space-attachment-strip']")
 		).toHaveLength(1);

@@ -110,7 +110,12 @@ export function SpaceMessageAttachmentItems(
 						file
 					)}
 				>
-					<SpaceMessageFilePreview {...input} api={api} file={file} />
+					<SpaceMessageFilePreview
+						{...input}
+						api={api}
+						editable={Boolean(input.onRemoveFile)}
+						file={file}
+					/>
 					{input.onRemoveFile && (
 						<SpaceAttachmentRemoveButton
 							disabled={input.disabled === true}
@@ -127,6 +132,7 @@ export function SpaceMessageAttachmentItems(
 function SpaceMessageFilePreview(
 	input: AttachmentContext & {
 		api: Pick<SpaceApi, "downloadFileContent">;
+		editable: boolean;
 		file: NonNullable<SpaceTimelineItem["files"]>[number];
 	}
 ) {
@@ -164,6 +170,7 @@ function SpaceMessageFilePreview(
 	}
 	return (
 		<SpaceAttachmentFileCard
+			className={input.editable ? "pr-8" : undefined}
 			fileName={file.name}
 			mimeType={file.mimeType}
 			onOpen={onOpen}

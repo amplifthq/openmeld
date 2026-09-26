@@ -461,7 +461,9 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			body={addressedBody}
 			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
-			edited={Boolean(input.item.editedAt)}
+			edited={
+				Boolean(input.item.editedAt) && input.includeAttachments !== false
+			}
 			files={files}
 			isExpanded={text.isExpanded}
 			linkPreviews={
