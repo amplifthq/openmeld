@@ -62,6 +62,14 @@ Neither a model argument nor a personal-first automatic selector can replace it;
 existing operation replays retain the original operation identity. Generic App
 tools also accept an explicit requester/shared preference for normal requests.
 
+Plugin binding, Computer/result access and personal Hosted tools accept both
+`accepted` and `retry_observed` native-delivery phases. A replay ACK can confirm
+work already running after an earlier ACK was lost; it is not an identity change.
+The shared phase predicate grants no permission: exact submission, Organization,
+Profile, Binding, membership and source account/version checks remain mandatory.
+Submitted or terminal work is not authorized by this predicate; the separate
+read-only pre-ACK Skill preparation contract is unchanged.
+
 Space verifies the original human request and the Agent reply at the actual
 message-insertion transaction, using accepted outbox content, current revision,
 a canonical fingerprint and each message's own Thread placement. Main requests

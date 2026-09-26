@@ -86,7 +86,11 @@ describe("current execution access is an owner projection, not a cached grant", 
     owners.connection.mockResolvedValue({ updatedAtMs: 42 });
   });
 
-  it("derives the scope from the admitted request and rechecks current binding, membership and Space participation", async () => {
+  it.each([
+    "accepted",
+    "retry_observed",
+  ])("derives the scope for %s and rechecks current binding, membership and Space participation", async (status) => {
+    owners.delivery.mockResolvedValue({ ...record, status });
     expect(
       await authorizeRemoteAgentExecutionAccess({} as CoreBindings, input)
     ).toEqual({
@@ -107,6 +111,8 @@ describe("current execution access is an owner projection, not a cached grant", 
 
   it.each([
     { status: "completed" },
+    { status: "submitted" },
+    { status: "callback_rejected" },
     { status: "failed" },
     { submissionId: "other" },
     { organizationId: "other" },
@@ -195,7 +201,11 @@ describe("current execution access is an owner projection, not a cached grant", 
     );
   });
 
-  it("does not let an active connection bypass current Agent access or a replacement account", async () => {
+  it.each([
+    "accepted",
+    "retry_observed",
+  ])("does not let %s bypass current Agent access or a replacement account", async (status) => {
+    owners.delivery.mockResolvedValue({ ...record, status });
     const withSource = {
       ...input,
       sources: [

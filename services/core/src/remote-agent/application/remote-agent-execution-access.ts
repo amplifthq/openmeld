@@ -9,6 +9,7 @@ import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
 import { resolveOrganizationMembershipById } from "../../organizations/organization-context";
 import { rpcGetSpaceMemberDirectory } from "../../rpc/methods";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { isActiveRemoteAgentRequesterProfile } from "./personal-remote-agent-space-tools";
 import { requireRemoteAgentToolCaller } from "./remote-agent-tool-caller";
 
@@ -126,8 +127,11 @@ async function requireActiveExecution(
   const request =
     delivery?.executionRecoverySubmitRequest ?? delivery?.workerSubmitRequest;
   if (
-    !(delivery && request) ||
-    delivery.status !== "accepted" ||
+    !(
+      delivery &&
+      request &&
+      isNativeDeliveryExecutingStatus(delivery.status)
+    ) ||
     delivery.submissionId !== submissionId ||
     delivery.organizationId !== context.activeOrganizationId ||
     delivery.profileId !== context.actorContext.openMeldProfileId ||

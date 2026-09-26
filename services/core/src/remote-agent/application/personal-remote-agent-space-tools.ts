@@ -30,6 +30,7 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 
@@ -64,7 +65,7 @@ export async function requirePersonalRemoteAgentExecution(
   if (
     !delivery ||
     (!preparingSkills &&
-      (delivery.status !== "accepted" ||
+      (!isNativeDeliveryExecutingStatus(delivery.status) ||
         delivery.submissionId !== submissionId))
   ) {
     throw new Error("remote_agent.execution_not_active");

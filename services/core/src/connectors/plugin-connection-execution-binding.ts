@@ -4,6 +4,7 @@ import type {
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
 import { type CoreBindings, wakeEvidenceDb } from "../lib/bindings";
+import { isNativeDeliveryExecutingStatus } from "../remote-agent/application/native-delivery-execution-status";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByDeliveryId,
@@ -44,7 +45,7 @@ export async function readPluginConnectionExecutionBinding(
   if (
     delivery.organizationId !== context.activeOrganizationId ||
     delivery.profileId !== context.actorContext.openMeldProfileId ||
-    delivery.status !== "accepted"
+    !isNativeDeliveryExecutingStatus(delivery.status)
   ) {
     throw unavailable();
   }
