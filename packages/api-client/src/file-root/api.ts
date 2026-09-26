@@ -1,10 +1,12 @@
 import {
   copyFileRootRevisionBodySchema,
   copyFileRootRevisionResponseSchema,
+  copyFileRootToSpaceBodySchema,
   fileRootEntryResponseSchema,
   fileRootFileResponseSchema,
   fileRootFolderResponseSchema,
   fileRootUploadResponseSchema,
+  getSpaceFileResponseSchema,
   listFileRootResponseSchema,
   listFileRootRevisionsResponseSchema,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
@@ -15,10 +17,12 @@ import {
 import type {
   CopyFileRootRevisionBody,
   CopyFileRootRevisionResponse,
+  CopyFileRootToSpaceBody,
   FileRootEntry,
   FileRootFileDescriptor,
   FileRootFolderDescriptor,
   ListFileRootResponse,
+  SpaceFileDescriptor,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 import { readApiClientTextResponse } from "../errors";
@@ -36,6 +40,21 @@ function contentPath(location: FileRootLocation, fileId: string): string {
 
 export function createFileRootApi(client: OpenMeldApiClientFoundation) {
   return {
+    async copyToSpace(input: {
+      spaceId: string;
+      body: CopyFileRootToSpaceBody;
+    }): Promise<SpaceFileDescriptor> {
+      const response = await client.requestJson({
+        url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/files/copies`,
+        operation: "files.copy_to_space",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(copyFileRootToSpaceBodySchema.parse(input.body)),
+        schema: getSpaceFileResponseSchema,
+        invalidMessage: "Invalid Space file copy response.",
+      });
+      return response.file;
+    },
     async copyRevision(input: {
       location: FileRootLocation;
       body: CopyFileRootRevisionBody;

@@ -5,11 +5,13 @@ import {
   commitSpaceFileWriteInputSchema,
   copyFileRootRevisionBodySchema,
   copyFileRootRevisionResponseSchema,
+  copyFileRootToSpaceBodySchema,
   createSpaceFileUploadQuerySchema,
   fileRootFileDescriptorSchema,
   fileRootUploadResponseSchema,
   resolveSpaceFileStreamMetadata,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  spaceFileDescriptorSchema,
   spaceFileMimeTypeSchema,
   spaceFileRevisionNumberSchema,
   spaceFileStreamOptionsSchema,
@@ -40,14 +42,113 @@ import { mapRpcHttpError } from "./rpc-http-error";
 const ROOT_ROUTE = "/v1/organizations/current/files/:location";
 const CONTENT_ROUTE = `${ROOT_ROUTE}/:entryId/content`;
 const MULTIPART_ROUTE = `${ROOT_ROUTE}/file-uploads/:uploadId`;
+const COPY_TO_SPACE_ROUTE = "/v1/spaces/:spaceId/files/copies";
 
 export function registerFileRootContentRoutes(app: Hono<HonoBindings>): void {
   app.post(ROOT_ROUTE, (c) => upload(c));
   app.post(`${ROOT_ROUTE}/copies`, (c) => copyRevision(c));
+  app.post(COPY_TO_SPACE_ROUTE, (c) => copyToSpace(c));
   app.post(MULTIPART_ROUTE, (c) => multipartUpload(c));
   app.put(CONTENT_ROUTE, (c) => update(c));
   app.get(CONTENT_ROUTE, (c) => read(c));
   app.on("HEAD", CONTENT_ROUTE, (c) => read(c));
+}
+
+async function copyToSpace(c: Context<HonoBindings>): Promise<Response> {
+  const body = copyFileRootToSpaceBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return invalid(c);
+  }
+  const spaceId = c.req.param("spaceId");
+  const stub = resolveSpaceStub(c.env.OPENMELD_SPACES, spaceId);
+  if (!stub) {
+    return c.json(
+      { error: { code: "space.not_found", message: "Space not found." } },
+      404
+    );
+  }
+  const spaceAccess = createAuthenticatedSpaceAccessContext({
+    spaceId,
+    requestContext: c.var.openMeldRequestContext,
+    password: c.var.spacePassword,
+  });
+  try {
+    const bucket = c.env.OPENMELD_SPACE_ATTACHMENTS;
+    if (!bucket) {
+      throw storageUnavailable();
+    }
+    const source = await openCopySource(c, body.data, bucket);
+    if (source instanceof Response) {
+      return source;
+    }
+    const digest = await hashSpaceFileStream(source.bytes);
+    const [fileId, revisionId] = await Promise.all([
+      buildSpaceFileEntryIdForMutation(body.data.clientMutationId),
+      buildSpaceFileRevisionIdFromDigest({
+        baseRevision: null,
+        contentDigest: digest,
+        clientMutationId: body.data.clientMutationId,
+        mimeType: source.revision.mimeType,
+        name: body.data.name,
+        parentId: body.data.parentId,
+      }),
+    ]);
+    const write = commitSpaceFileWriteInputSchema.parse({
+      spaceId,
+      fileId,
+      revisionId,
+      name: body.data.name,
+      parentId: body.data.parentId,
+      baseRevision: null,
+      clientMutationId: body.data.clientMutationId,
+      mimeType: source.revision.mimeType,
+      sizeBytes: source.revision.sizeBytes,
+    });
+    const prepared = await stub.rpcPrepareSpaceFileWrite({
+      spaceAccess,
+      write,
+    });
+    if (prepared.organizationId !== source.root.organizationId) {
+      throw createCoreRpcHttpError({
+        code: "space.not_found",
+        reason: "Space not found.",
+        status: 404,
+      });
+    }
+    await stub.rpcReserveSpaceFileCopy({
+      spaceAccess,
+      spaceId,
+      clientMutationId: body.data.clientMutationId,
+      sourceRoot: source.root,
+      sourceFileId: body.data.sourceFileId,
+      sourceRevisionId: source.revision.id,
+      name: body.data.name,
+      parentId: body.data.parentId,
+    });
+    await source.recordAudit();
+    if (prepared.committedFile) {
+      return c.json(
+        { file: spaceFileDescriptorSchema.parse(prepared.committedFile) },
+        201
+      );
+    }
+    const bytes = await source.reopen();
+    await bucket.put(prepared.objectKey, bytes, {
+      httpMetadata: { contentType: source.revision.mimeType },
+      customMetadata: {
+        sourceRoot: JSON.stringify(source.root),
+        sourceFileId: body.data.sourceFileId,
+        sourceRevisionId: source.revision.id,
+      },
+    });
+    await source.recheckAccess();
+    const file = await stub.rpcCommitSpaceFileWrite({ spaceAccess, write });
+    return c.json({ file: spaceFileDescriptorSchema.parse(file) }, 201);
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
 }
 
 async function copyRevision(c: Context<HonoBindings>): Promise<Response> {

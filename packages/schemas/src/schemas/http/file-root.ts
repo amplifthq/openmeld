@@ -68,6 +68,11 @@ export const copyFileRootRevisionBodySchema = z.discriminatedUnion(
   ]
 );
 
+export const copyFileRootToSpaceBodySchema = z.strictObject({
+  ...copyRevisionFields,
+  sourceLocation: z.enum(["team", "my"]),
+});
+
 export const copyFileRootRevisionResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,
   source: z.strictObject({

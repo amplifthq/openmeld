@@ -9,6 +9,9 @@ export type CopyFileRootRevisionBody = z.infer<
 export type CopyFileRootRevisionResponse = z.infer<
   Schemas["copyFileRootRevisionResponseSchema"]
 >;
+export type CopyFileRootToSpaceBody = z.infer<
+  Schemas["copyFileRootToSpaceBodySchema"]
+>;
 export type FileRootEntry = z.infer<Schemas["fileRootEntrySchema"]>;
 export type FileRootFileDescriptor = z.infer<
   Schemas["fileRootFileDescriptorSchema"]

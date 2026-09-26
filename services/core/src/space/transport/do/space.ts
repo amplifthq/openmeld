@@ -151,6 +151,7 @@ import type {
   ExecuteExecutionRecoveryResponse,
   ExecutionRecoveryIdentity,
   ExecutionRecoveryProjection,
+  FileRoot,
   GetActiveSpaceWakeProgressResponse,
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
@@ -333,6 +334,7 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
 import { inspectExecutionRecovery } from "../../../execution-recovery/application/execution-recovery-service";
+import { reserveFileCopyRequest } from "../../../files/file-copy-request";
 import { FileUploadSessions } from "../../../files/file-upload-sessions";
 import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbox-agent-owner-access";
 import {
@@ -3373,6 +3375,33 @@ export class Space extends DurableObject<CoreBindings> {
       }),
       ...(committedFile ? { committedFile } : {}),
     };
+  }
+
+  async rpcReserveSpaceFileCopy(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+    clientMutationId: string;
+    sourceRoot: FileRoot;
+    sourceFileId: string;
+    sourceRevisionId: string;
+    name: string;
+    parentId: string | null;
+  }): Promise<void> {
+    this.applySpaceRef(input.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    reserveFileCopyRequest({
+      sql: this.ctx.storage.sql,
+      clientMutationId: spaceFileClientMutationIdSchema.parse(
+        input.clientMutationId
+      ),
+      requestJson: JSON.stringify({
+        sourceRoot: input.sourceRoot,
+        sourceFileId: input.sourceFileId,
+        sourceRevisionId: input.sourceRevisionId,
+        name: input.name,
+        parentId: input.parentId,
+      }),
+    });
   }
 
   async rpcResolveCommittedSpaceFileWrite(input: {

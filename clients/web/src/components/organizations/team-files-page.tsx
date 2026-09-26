@@ -20,6 +20,12 @@ import {
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
+import {
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
 	CopyIcon,
@@ -31,6 +37,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { FileSystemItem } from "#/components/extend/file-system";
 import {
 	FolderNameDialog,
@@ -39,6 +46,8 @@ import {
 } from "#/components/spaces/space-file-dialogs";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
+import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 
 const FileSystem = lazy(() =>
 	import("#/components/extend/file-system").then((module) => ({
@@ -76,6 +85,11 @@ function TeamFilesBrowser(input: {
 		clientMutationId: string;
 	} | null>(null);
 	const [copyError, setCopyError] = useState<string | null>(null);
+	const [copyToSpaceEntry, setCopyToSpaceEntry] = useState<{
+		entry: Extract<FileRootEntry, { kind: "file" }>;
+		location: FileRootLocation;
+		clientMutationId: string;
+	} | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [uploadProgress, setUploadProgress] = useState<{
 		name: string;
@@ -397,6 +411,20 @@ function TeamFilesBrowser(input: {
 											Move to folder…
 										</ContextMenuItem>
 									) : null}
+									{view === "active" && selectedEntry.kind === "file" ? (
+										<ContextMenuItem
+											onClick={() =>
+												setCopyToSpaceEntry({
+													entry: selectedEntry,
+													location,
+													clientMutationId: crypto.randomUUID(),
+												})
+											}
+										>
+											<CopyIcon aria-hidden="true" />
+											Copy to Space…
+										</ContextMenuItem>
+									) : null}
 									{view === "active" &&
 									selectedEntry.kind === "file" &&
 									!currentOrganization.isPersonal ? (
@@ -606,7 +634,143 @@ function TeamFilesBrowser(input: {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+			{copyToSpaceEntry ? (
+				<CopyToSpaceDialog
+					api={api}
+					choice={copyToSpaceEntry}
+					key={copyToSpaceEntry.clientMutationId}
+					onClose={() => setCopyToSpaceEntry(null)}
+					organizationId={currentOrganization.id}
+				/>
+			) : null}
 		</section>
+	);
+}
+
+function CopyToSpaceDialog(input: {
+	api: ReturnType<typeof createFileRootApi>;
+	choice: {
+		entry: Extract<FileRootEntry, { kind: "file" }>;
+		location: FileRootLocation;
+		clientMutationId: string;
+	};
+	onClose: () => void;
+	organizationId: string;
+}) {
+	const [spaceId, setSpaceId] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const { selectedHumanProfile } = useSelectedHumanProfile({
+		selectDefaultWhenMissing: true,
+	});
+	const spacesQuery = useQuery(
+		accountSpaceItemsQueryOptions({
+			enabled: !!selectedHumanProfile,
+			profileId: selectedHumanProfile?.openMeldProfileId ?? "",
+		})
+	);
+	const spaces = [
+		...(spacesQuery.data?.pinnedItems ?? []),
+		...(spacesQuery.data?.spaceItems ?? []),
+	].filter(
+		(space) =>
+			space.organizationId === input.organizationId &&
+			!space.directMessageProfileIds
+	);
+	const selectedSpace = spaces.find((space) => space.spaceId === spaceId);
+	return (
+		<AlertDialog onOpenChange={(open) => !open && input.onClose()} open>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						Copy {input.choice.entry.name} to a Space?
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						People and agents in the Space can open the copy. The original stays
+						in {input.choice.location === "my" ? "My files" : "Team files"}. The
+						copy keeps this version and won’t follow later changes.
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				{spacesQuery.isPending ? (
+					<p className="text-muted-foreground text-sm">Loading your Spaces…</p>
+				) : null}
+				{spacesQuery.isError ? (
+					<p className="text-destructive text-sm" role="alert">
+						Couldn’t load your Spaces. Try again.
+					</p>
+				) : null}
+				{spacesQuery.isSuccess && spaces.length === 0 ? (
+					<p className="text-muted-foreground text-sm">
+						You haven’t joined any Spaces in this Team.
+					</p>
+				) : null}
+				{spaces.length > 0 ? (
+					<Select onValueChange={setSpaceId} value={spaceId}>
+						<SelectTrigger
+							aria-label="Destination Space"
+							displayValue={selectedSpace?.spaceName}
+							placeholder="Choose a Space"
+						/>
+						<SelectContent>
+							{spaces.map((space, index) => (
+								<SelectItem
+									index={index}
+									key={space.spaceId}
+									value={space.spaceId}
+								>
+									{space.spaceName}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				) : null}
+				{error ? (
+					<p className="text-destructive text-sm" role="alert">
+						{error}
+					</p>
+				) : null}
+				<AlertDialogFooter>
+					<AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+					<AlertDialogAction
+						disabled={busy || !selectedSpace}
+						onClick={async (event) => {
+							event.preventDefault();
+							if (!selectedSpace) {
+								return;
+							}
+							setBusy(true);
+							setError(null);
+							try {
+								await input.api.copyToSpace({
+									spaceId: selectedSpace.spaceId,
+									body: {
+										sourceLocation: input.choice.location,
+										sourceFileId: input.choice.entry.id,
+										sourceRevision: input.choice.entry.latestRevision.revision,
+										name: input.choice.entry.name,
+										parentId: null,
+										clientMutationId: input.choice.clientMutationId,
+									},
+								});
+								input.onClose();
+								toast.success(`Copied to ${selectedSpace.spaceName}.`);
+							} catch (cause) {
+								setError(
+									cause instanceof Error
+										? cause.message
+										: "Files couldn’t copy that file."
+								);
+							} finally {
+								setBusy(false);
+							}
+						}}
+						type="button"
+					>
+						Copy file
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
 

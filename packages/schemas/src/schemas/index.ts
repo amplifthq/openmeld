@@ -1546,6 +1546,7 @@ export {
 export {
   copyFileRootRevisionBodySchema,
   copyFileRootRevisionResponseSchema,
+  copyFileRootToSpaceBodySchema,
   fileRootEntryResponseSchema,
   fileRootEntrySchema,
   fileRootFileDescriptorSchema,

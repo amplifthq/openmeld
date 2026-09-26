@@ -15,7 +15,10 @@ import { describe, expect, it } from "vitest";
 import { organizationFileRootName } from "../src/files/file-root-identity";
 import type { OrganizationFileRoot } from "../src/files/organization-file-root";
 import type { CoreBindings } from "../src/lib/bindings";
-import { rpcWriteSpaceFileContent } from "../src/rpc/methods";
+import {
+  rpcReadSpaceFileContent,
+  rpcWriteSpaceFileContent,
+} from "../src/rpc/methods";
 import { hashSpaceFileStream } from "../src/space/application/space-file-stream";
 
 const FORBIDDEN_RPC_ERROR = /HTTP 403/u;
@@ -92,6 +95,86 @@ async function fixture() {
 }
 
 describe("Team and member Files roots", () => {
+  it("copies a private exact revision into one Space with source-bound retries", async () => {
+    const { contexts } = await fixture();
+    const headersFor = (context: OpenMeldRequestContext) => {
+      const headers = new Headers({ "content-type": "application/json" });
+      applyOpenMeldRequestContextHeaders(
+        headers,
+        { requestContext: context },
+        OPENMELD_EXPECTED_FORWARDED_BY
+      );
+      return headers;
+    };
+    const space = await SELF.fetch("http://localhost/v1/spaces", {
+      method: "POST",
+      headers: headersFor(contexts[0]),
+      body: JSON.stringify({
+        name: "Destination Space",
+        visibility: "private",
+        accessMode: "public",
+      }),
+    });
+    expect(space.status).toBe(200);
+    const { spaceId } = (await space.json()) as { spaceId: string };
+    const sourceWrite = await SELF.fetch(
+      `http://localhost/v1/organizations/current/files/my?name=private-source.txt&clientMutationId=${crypto.randomUUID()}`,
+      {
+        method: "POST",
+        headers: new Headers({
+          ...Object.fromEntries(headersFor(contexts[0])),
+          "content-type": "text/plain",
+        }),
+        body: "Private source version one",
+      }
+    );
+    expect(sourceWrite.status).toBe(201);
+    const { file: sourceFile } = (await sourceWrite.json()) as {
+      file: { id: string };
+    };
+    const body = {
+      sourceLocation: "my",
+      sourceFileId: sourceFile.id,
+      sourceRevision: 1,
+      name: "space-copy.txt",
+      parentId: null,
+      clientMutationId: crypto.randomUUID(),
+    };
+    const copy = (context: OpenMeldRequestContext, request = body) =>
+      SELF.fetch(`http://localhost/v1/spaces/${spaceId}/files/copies`, {
+        method: "POST",
+        headers: headersFor(context),
+        body: JSON.stringify(request),
+      });
+    const otherOrganization = await fixture();
+    expect([403, 404]).toContain(
+      (await copy(otherOrganization.contexts[0])).status
+    );
+    expect([403, 404]).toContain((await copy(contexts[1])).status);
+    const first = await copy(contexts[0]);
+    expect(first.status).toBe(201);
+    const result = (await first.json()) as {
+      file: { id: string; name: string };
+    };
+    expect(result.file.name).toBe("space-copy.txt");
+    const replay = await copy(contexts[0]);
+    expect(replay.status).toBe(201);
+    expect(((await replay.json()) as typeof result).file.id).toBe(
+      result.file.id
+    );
+    expect(
+      (await copy(contexts[0], { ...body, name: "different-copy.txt" })).status
+    ).toBe(409);
+    const read = await rpcReadSpaceFileContent(env as CoreBindings, {
+      context: contexts[0],
+      spaceId,
+      content: { spaceId, fileId: result.file.id },
+    });
+    expect(new TextDecoder().decode(read.bytes)).toBe(
+      "Private source version one"
+    );
+  });
+
   it("copies an authorized Space revision into Team Files without granting other members access to its source", async () => {
     const { organizationId, contexts } = await fixture();
     const headersFor = (context: OpenMeldRequestContext) => {

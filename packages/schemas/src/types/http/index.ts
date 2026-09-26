@@ -541,6 +541,7 @@ export type {
 export type {
   CopyFileRootRevisionBody,
   CopyFileRootRevisionResponse,
+  CopyFileRootToSpaceBody,
   FileRoot,
   FileRootEntry,
   FileRootFileDescriptor,

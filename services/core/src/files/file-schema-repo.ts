@@ -47,6 +47,7 @@ export function ensureFileRepositorySchema(sql: SqlStorage): void {
       created_at_ms INTEGER NOT NULL
     )
   `);
+  ensureFileCopyRequestSchema(sql);
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_file_audit_events (
       event_id TEXT PRIMARY KEY,
@@ -96,4 +97,13 @@ export function ensureFileRepositorySchema(sql: SqlStorage): void {
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_file_audit_operation_id ON space_file_audit_events (operation, operation_id)"
   );
+}
+
+export function ensureFileCopyRequestSchema(sql: SqlStorage): void {
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS file_root_copy_requests (
+      client_mutation_id TEXT PRIMARY KEY,
+      request_json TEXT NOT NULL
+    )
+  `);
 }

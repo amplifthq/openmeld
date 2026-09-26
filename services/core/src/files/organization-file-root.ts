@@ -37,6 +37,7 @@ import {
   SpaceFileRepository,
   SpaceFileRepositoryError,
 } from "../space/infrastructure/sql/space-file-repo";
+import { reserveFileCopyRequest } from "./file-copy-request";
 import { prepareOrganizationFileRootAccess } from "./file-root-access";
 import {
   buildOrganizationFileObjectKey,
@@ -55,9 +56,6 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
     ensureFileRepositorySchema(this.ctx.storage.sql);
     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS file_root_identity (
       id INTEGER PRIMARY KEY CHECK (id = 1), root_json TEXT NOT NULL
-    )`);
-    this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS file_root_copy_requests (
-      client_mutation_id TEXT PRIMARY KEY, request_json TEXT NOT NULL
     )`);
   }
 
@@ -141,27 +139,11 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
       name: input.name,
       parentId: input.parentId,
     });
-    const existing = this.ctx.storage.sql
-      .exec<{ request_json: string }>(
-        "SELECT request_json FROM file_root_copy_requests WHERE client_mutation_id = ?",
-        input.clientMutationId
-      )
-      .toArray()[0];
-    if (existing) {
-      if (existing.request_json !== requestJson) {
-        throw createCoreRpcHttpError({
-          code: "file_root.copy_conflict",
-          reason: "This request ID was already used for another file copy.",
-          status: 409,
-        });
-      }
-      return;
-    }
-    this.ctx.storage.sql.exec(
-      "INSERT INTO file_root_copy_requests (client_mutation_id, request_json) VALUES (?, ?)",
-      input.clientMutationId,
-      requestJson
-    );
+    reserveFileCopyRequest({
+      sql: this.ctx.storage.sql,
+      clientMutationId: input.clientMutationId,
+      requestJson,
+    });
   }
 
   async commitWrite(

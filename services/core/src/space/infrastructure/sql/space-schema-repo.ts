@@ -1,4 +1,7 @@
-import { ensureFileRepositorySchema } from "../../../files/file-schema-repo";
+import {
+  ensureFileCopyRequestSchema,
+  ensureFileRepositorySchema,
+} from "../../../files/file-schema-repo";
 import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
 import { SpaceFileUpdateRepository } from "./space-file-update-repo";
 import { ensureSpaceInboxContactTable } from "./space-inbox-contact-repo";
@@ -28,6 +31,7 @@ const SPACE_FILE_ENTRIES_ORIGIN_COLUMN = "origin";
 const SPACE_SIGNALS_CLIENT_MESSAGE_ID_COLUMN = "client_message_id";
 export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceSchemaMigrationsTable(sql);
+  ensureFileCopyRequestSchema(sql);
   if (hasCurrentSpaceSqlSchema(sql)) {
     return;
   }
