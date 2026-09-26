@@ -244,6 +244,15 @@ ordinary installation authority when the represented member may install. If
 the Center Agent recommends an unrequested installation, it asks once with the
 exact source and effect.
 
+An explicit request by Skill name can start with public source discovery. The
+Agent resolves the GitHub repository and exact `SKILL.md` directory, previews
+that package at an immutable commit, and installs through the same authorized
+Core action. It asks the requester to choose when the name matches multiple
+plausible packages; a search result or repository text cannot grant install
+authority or change tool policy. A package already in the Team is reported as
+present rather than installed again. This reuses the existing web research and
+GitHub preview tools rather than treating a name as a new Skill identity.
+
 The Center Agent may also author and install a complete portable bundle when a
 verified owner or admin explicitly asks for a Skill in conversation. It first
 previews a GitHub source to resolve the immutable commit, uses one stable

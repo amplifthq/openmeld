@@ -2935,7 +2935,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_organization_skills",
       description:
-        "List the current Organization's Skills, read one complete Skill by id, or preview a GitHub Skill. Use preview_github_repository for a compact per-Skill inventory of a multi-Skill repository, including exact commit, file-size blockers, and script warnings; then preview_github for the chosen directory before installing it. Every Organization member may list and read. GitHub previews require a verified OpenMeld identity and manager authority. This tool never installs or changes a Skill.",
+        "List the current Organization's Skills, read one complete Skill by id, or preview a GitHub Skill. A name-only installation request needs public source discovery before this tool can preview an exact GitHub URL. Use preview_github_repository for a compact per-Skill inventory of a multi-Skill repository, including exact commit, file-size blockers, and script warnings; then preview_github for the chosen directory before installing it. Every Organization member may list and read. GitHub previews require a verified OpenMeld identity and manager authority. This tool never installs or changes a Skill.",
       input: readOrganizationSkillsToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
