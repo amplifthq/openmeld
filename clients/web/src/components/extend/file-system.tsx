@@ -109,6 +109,11 @@ const LazyPDFViewer = React.lazy(() =>
     default: mod.PDFViewer,
   }))
 )
+const LazyCsvFilePreview = React.lazy(() =>
+  import("#/components/extend/csv-file-preview").then((mod) => ({
+    default: mod.CsvFilePreview,
+  }))
+)
 const LazyDocxViewer = React.lazy(() =>
   import("#/components/extend/docx-viewer").then((mod) => ({
     default: mod.DocxViewerPreview,
@@ -428,7 +433,7 @@ function fileTypeFilterGroup(mime: string): FileTypeFilterGroup {
   }
   return "Archives & binary"
 }
-export type FileSystemViewerKind = "image" | "pdf" | "docx" | "pptx" | "xlsx"
+export type FileSystemViewerKind = "image" | "pdf" | "docx" | "pptx" | "xlsx" | "csv"
 function viewerKindForFile(
   file: FileSystemFileItem
 ): FileSystemViewerKind | null {
@@ -437,11 +442,13 @@ function viewerKindForFile(
   if (file.contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx"
   if (file.contentType === "application/vnd.openxmlformats-officedocument.presentationml.presentation") return "pptx"
   if (file.contentType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "xlsx"
+  if (file.contentType === "text/csv" || file.contentType === "text/tab-separated-values") return "csv"
   const name = (file.name ?? file.path).toLowerCase()
   if (name.endsWith(".pdf")) return "pdf"
   if (name.endsWith(".docx")) return "docx"
   if (name.endsWith(".pptx")) return "pptx"
   if (name.endsWith(".xlsx")) return "xlsx"
+  if (name.endsWith(".csv") || name.endsWith(".tsv")) return "csv"
   if (/\.(avif|gif|jpe?g|png|svg|webp)$/.test(name)) return "image"
   return null
 }
@@ -452,6 +459,7 @@ const VIEWER_DIALOG_CLASSNAMES: Record<FileSystemViewerKind, string> = {
   docx: "h-[88vh] w-[min(96vw,68rem)] max-w-none",
   pptx: "h-[88vh] w-[min(96vw,72rem)] max-w-none",
   xlsx: "h-[88vh] w-[min(96vw,72rem)] max-w-none",
+  csv: "h-[88vh] w-[min(96vw,72rem)] max-w-none",
 }
 function FileSystemViewerLoading() {
   return (
@@ -2113,7 +2121,7 @@ export function FileSystem({
               "overflow-hidden p-0",
               VIEWER_DIALOG_CLASSNAMES[openedFile.kind]
             )}
-            showCloseButton={openedFile.kind === "image"}
+            showCloseButton={openedFile.kind === "image" || openedFile.kind === "csv"}
           >
             <DialogTitle className="sr-only">{openedFileName}</DialogTitle>
             {openedFile.kind === "image" ? (
@@ -4467,6 +4475,13 @@ function FileSystemGalleryStage({
           />
         </React.Suspense>
       </div>
+    )
+  }
+  if (viewerKind === "csv" && url) {
+    return (
+      <React.Suspense fallback={<FileSystemViewerLoading />}>
+        <LazyCsvFilePreview className={viewerFrameClassName} url={url} />
+      </React.Suspense>
     )
   }
   if ((viewerKind === "docx" || viewerKind === "pptx" || viewerKind === "xlsx") && url) {
