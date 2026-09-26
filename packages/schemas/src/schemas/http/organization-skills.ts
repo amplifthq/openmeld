@@ -454,6 +454,23 @@ export const organizationSkillRuntimeSnapshotResponseSchema = z.strictObject({
     .array(organizationSkillRuntimeReleaseSchema)
     .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
 });
+export const organizationSkillRuntimeCatalogResponseSchema = z.strictObject({
+  organizationId: identifierSchema,
+  releases: z
+    .array(
+      z.strictObject({
+        digest: digestSchema,
+        releaseId: identifierSchema,
+        skillId: identifierSchema,
+        instructions: instructionsSchema,
+        portable: organizationSkillPortableMetadataSchema,
+        files: z
+          .array(organizationSkillFileSchema.omit({ content: true }))
+          .max(ORGANIZATION_SKILL_FILE_LIMIT),
+      })
+    )
+    .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
+});
 
 export const listOrganizationSkillsRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
@@ -503,6 +520,8 @@ export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =
       .array(organizationSkillRuntimeReleaseSelectionSchema)
       .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
   });
+export const readOrganizationSkillRuntimeCatalogRpcInputSchema =
+  readOrganizationSkillRuntimeSnapshotRpcInputSchema;
 
 export const readOrganizationSkillRuntimeResourceRpcInputSchema =
   z.strictObject({

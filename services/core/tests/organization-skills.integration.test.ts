@@ -91,6 +91,19 @@ describe("Organization Skills", () => {
       `${row.object_key}/files/${encodeURIComponent("assets/template.bin")}`
     );
     expect(
+      await service.readRuntimeCatalog(fixture.owner.organizationId, [selected])
+    ).toMatchObject({
+      releases: [
+        {
+          files: [
+            { path: "references/checklist.md" },
+            { path: "assets/template.bin" },
+          ],
+          instructions: updated.bundle.instructions,
+        },
+      ],
+    });
+    expect(
       await service.readRuntimeResource(
         fixture.owner.organizationId,
         selected,
@@ -120,6 +133,14 @@ describe("Organization Skills", () => {
         selected,
         "references/checklist.md"
       )
+    ).rejects.toMatchObject({
+      cause: {
+        code: "organization_skill.release_digest_mismatch",
+        status: 503,
+      },
+    });
+    await expect(
+      service.readRuntimeCatalog(fixture.owner.organizationId, [selected])
     ).rejects.toMatchObject({
       cause: {
         code: "organization_skill.release_digest_mismatch",

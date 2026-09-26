@@ -9,9 +9,11 @@ import {
   importOrganizationSkillFromGitHubRpcInputSchema,
   listOrganizationSkillsResponseSchema,
   listOrganizationSkillsRpcInputSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
   organizationSkillRuntimeSnapshotResponseSchema,
   previewOrganizationSkillFromGitHubResponseSchema,
   previewOrganizationSkillFromGitHubRpcInputSchema,
+  readOrganizationSkillRuntimeCatalogRpcInputSchema,
   readOrganizationSkillRuntimeResourceResponseSchema,
   readOrganizationSkillRuntimeResourceRpcInputSchema,
   readOrganizationSkillRuntimeSnapshotRpcInputSchema,
@@ -36,9 +38,12 @@ import type {
   ListOrganizationSkillsResponse,
   ListOrganizationSkillsRpcInput,
   OpenMeldRequestContext,
+  OrganizationSkillRuntimeCatalogResponse,
+  OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
+  ReadOrganizationSkillRuntimeCatalogRpcInput,
   ReadOrganizationSkillRuntimeResourceResponse,
   ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
@@ -253,6 +258,49 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
     readOrganizationSkillRuntimeSnapshotRpcInputSchema,
     input
   );
+  const authorization = await authorizeRuntimeSelection(env, request);
+  const { db, bucket } = requireStores(env);
+  return parseResponse(
+    organizationSkillRuntimeSnapshotResponseSchema,
+    await createOrganizationSkillService({ bucket, db }).readRuntimeSnapshot(
+      authorization.activeOrganization.organizationId,
+      request.releases
+    )
+  );
+}
+
+export async function rpcReadOrganizationSkillRuntimeCatalog(
+  env: CoreBindings,
+  input: ReadOrganizationSkillRuntimeCatalogRpcInput
+): Promise<OrganizationSkillRuntimeCatalogResponse> {
+  const request = parseRequest(
+    readOrganizationSkillRuntimeCatalogRpcInputSchema,
+    input
+  );
+  const authorization = await authorizeRuntimeSelection(env, request);
+  const { db, bucket } = requireStores(env);
+  await readEnabledOrganizationSkillReleaseSelection({
+    db,
+    organizationId: authorization.activeOrganization.organizationId,
+    selectedReleases: request.releases,
+  });
+  return parseResponse(
+    organizationSkillRuntimeCatalogResponseSchema,
+    await createOrganizationSkillService({ bucket, db }).readRuntimeCatalog(
+      authorization.activeOrganization.organizationId,
+      request.releases
+    )
+  );
+}
+
+async function authorizeRuntimeSelection(
+  env: CoreBindings,
+  request: {
+    context: OpenMeldRequestContext;
+    preparationIdempotencyKey?: string;
+    releases: OrganizationSkillRuntimeReleaseSelection[];
+  }
+) {
   const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
@@ -277,14 +325,7 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
       throw new Error("organization_skill.prepared_release_mismatch");
     }
   }
-  const { db, bucket } = requireStores(env);
-  return parseResponse(
-    organizationSkillRuntimeSnapshotResponseSchema,
-    await createOrganizationSkillService({ bucket, db }).readRuntimeSnapshot(
-      authorization.activeOrganization.organizationId,
-      request.releases
-    )
-  );
+  return authorization;
 }
 
 export async function rpcReadOrganizationSkillRuntimeResource(

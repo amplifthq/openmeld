@@ -114,6 +114,7 @@ const THREAD_CONTEXT: NonNullable<
 
 import { requireCurrentDesignatedCenterAgentCaller } from "../src/center-agent/current-designated-center-agent";
 import {
+  rpcReadOrganizationSkillRuntimeCatalog,
   rpcReadOrganizationSkillRuntimeResource,
   rpcReadOrganizationSkillRuntimeSnapshot,
 } from "../src/organization-skills/organization-skill-rpc";
@@ -196,6 +197,20 @@ describe("Remote Agent native delivery callback service", () => {
       expect(prepared.delivery.status).toBe("submitted");
       await expect(
         rpcReadOrganizationSkillRuntimeSnapshot(env, {
+          context: prepared.context,
+          preparationIdempotencyKey: request.idempotencyKey,
+          releases: [
+            {
+              skillId: "skill_other",
+              releaseId: "release_other",
+              name: "other-skill",
+              digest: "a".repeat(64),
+            },
+          ],
+        })
+      ).rejects.toThrow("prepared_release_mismatch");
+      await expect(
+        rpcReadOrganizationSkillRuntimeCatalog(env, {
           context: prepared.context,
           preparationIdempotencyKey: request.idempotencyKey,
           releases: [

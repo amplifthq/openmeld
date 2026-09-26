@@ -3,6 +3,7 @@ import {
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillBundleSchema,
   organizationSkillPortableMetadataSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
   organizationSkillRuntimeReleaseSelectionSchema,
   organizationSkillRuntimeSnapshotResponseSchema,
   organizationSkillSchema,
@@ -16,6 +17,7 @@ import type {
   OrganizationSkillFile,
   OrganizationSkillGitHubPreview,
   OrganizationSkillGitHubRepositoryPreview,
+  OrganizationSkillRuntimeCatalogResponse,
   OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
   OrganizationSkillSource,
@@ -494,6 +496,46 @@ export function createOrganizationSkillService(
         })
       );
       return organizationSkillRuntimeSnapshotResponseSchema.parse({
+        organizationId,
+        releases,
+      });
+    },
+
+    async readRuntimeCatalog(
+      organizationId: string,
+      selectedReleases: OrganizationSkillRuntimeReleaseSelection[]
+    ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+      const releases = await Promise.all(
+        selectedReleases.map(async (selected) => {
+          const release = await dependencies.db
+            .prepare(
+              "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
+            )
+            .bind(organizationId, selected.skillId, selected.releaseId)
+            .first<ReleaseRow>();
+          if (!(release && release.digest === selected.digest)) {
+            throw createCoreRpcHttpError({
+              code: "organization_skill.release_missing",
+              reason: "The selected Skill release is unavailable.",
+              status: 503,
+            });
+          }
+          const catalog = await readReleaseCatalog(
+            dependencies.bucket,
+            release
+          );
+          if (catalog.portable.name !== selected.name) {
+            throw invalidReleaseError();
+          }
+          return {
+            ...catalog,
+            digest: release.digest,
+            releaseId: release.id,
+            skillId: release.skill_id,
+          };
+        })
+      );
+      return organizationSkillRuntimeCatalogResponseSchema.parse({
         organizationId,
         releases,
       });
@@ -1507,6 +1549,56 @@ async function readReleaseResource(
     mediaType: file.mediaType,
     path: file.path,
     size: file.size,
+  };
+}
+
+async function readReleaseCatalog(
+  bucket: R2Bucket,
+  release: ReleaseRow
+): Promise<{
+  files: Omit<OrganizationSkillFile, "content">[];
+  instructions: string;
+  portable: OrganizationSkillBundle["portable"];
+}> {
+  const object = await bucket.get(release.object_key);
+  if (!object) {
+    throw missingReleaseObjectError();
+  }
+  const serialized = await object.text();
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch {
+    throw invalidReleaseError();
+  }
+  if (!isFileBackedRelease(value)) {
+    const bundle = await readReleaseBundle(bucket, release);
+    return {
+      files: bundle.files.map(({ content: _content, ...file }) => file),
+      instructions: bundle.instructions,
+      portable: bundle.portable,
+    };
+  }
+  if (
+    (await sha256(serialized)) !==
+    readContentManifestDigest(release.manifest_json)
+  ) {
+    throw releaseDigestMismatchError();
+  }
+  const manifest = storedSkillReleaseSchema.safeParse(value);
+  if (!manifest.success) {
+    throw invalidReleaseError();
+  }
+  const portable = organizationSkillPortableMetadataSchema.safeParse(
+    manifest.data.portable
+  );
+  if (!portable.success) {
+    throw invalidReleaseError();
+  }
+  return {
+    files: manifest.data.files.map(({ digest: _digest, ...file }) => file),
+    instructions: manifest.data.instructions,
+    portable: portable.data,
   };
 }
 

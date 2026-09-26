@@ -279,6 +279,7 @@ import type {
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationMemberWebActivityResponse,
   OrganizationProfileDirectoryResponse,
+  OrganizationSkillRuntimeCatalogResponse,
   OrganizationSkillRuntimeSnapshotResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
@@ -296,6 +297,7 @@ import type {
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
   ReadFeedbackReportingPolicyRequest,
+  ReadOrganizationSkillRuntimeCatalogRpcInput,
   ReadOrganizationSkillRuntimeResourceResponse,
   ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
@@ -501,6 +503,7 @@ import {
   rpcImportOrganizationSkillFromGitHub,
   rpcListOrganizationSkills,
   rpcPreviewOrganizationSkillFromGitHub,
+  rpcReadOrganizationSkillRuntimeCatalog,
   rpcReadOrganizationSkillRuntimeResource,
   rpcReadOrganizationSkillRuntimeSnapshot,
   rpcRecordOrganizationSkillActivation,
@@ -1701,6 +1704,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
     return rpcReadOrganizationSkillRuntimeSnapshot(this.env, input);
+  }
+
+  readOrganizationSkillRuntimeCatalog(
+    input: ReadOrganizationSkillRuntimeCatalogRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+    return rpcReadOrganizationSkillRuntimeCatalog(this.env, input);
   }
 
   readOrganizationSkillRuntimeResource(
@@ -4276,6 +4285,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
     return super.readOrganizationSkillRuntimeSnapshot(input);
+  }
+
+  readOrganizationSkillRuntimeCatalog(
+    input: ReadOrganizationSkillRuntimeCatalogRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+    return super.readOrganizationSkillRuntimeCatalog(input);
   }
 
   readOrganizationSkillRuntimeResource(

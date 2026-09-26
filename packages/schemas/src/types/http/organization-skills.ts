@@ -99,6 +99,12 @@ export type OrganizationSkillRuntimeReleaseSelection = z.infer<
 export type OrganizationSkillRuntimeSnapshotResponse = z.infer<
   Schemas["organizationSkillRuntimeSnapshotResponseSchema"]
 >;
+export type OrganizationSkillRuntimeCatalogResponse = z.infer<
+  Schemas["organizationSkillRuntimeCatalogResponseSchema"]
+>;
+export type ReadOrganizationSkillRuntimeCatalogRpcInput = z.infer<
+  Schemas["readOrganizationSkillRuntimeCatalogRpcInputSchema"]
+>;
 export type ListOrganizationSkillsRpcInput = z.infer<
   Schemas["listOrganizationSkillsRpcInputSchema"]
 >;

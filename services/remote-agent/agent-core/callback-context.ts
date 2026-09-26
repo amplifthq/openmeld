@@ -132,9 +132,11 @@ import type {
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
+  OrganizationSkillRuntimeCatalogResponse,
   OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
   PauseCenterAgentRoutineResponse,
+  ReadOrganizationSkillRuntimeCatalogRpcInput,
   ReadOrganizationSkillRuntimeResourceResponse,
   ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
@@ -663,6 +665,9 @@ export type RemoteAgentCoreWorkerBinding = {
   readOrganizationSkillRuntimeSnapshot?(
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse>;
+  readOrganizationSkillRuntimeCatalog?(
+    input: ReadOrganizationSkillRuntimeCatalogRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse>;
   readOrganizationSkillRuntimeResource?(
     input: ReadOrganizationSkillRuntimeResourceRpcInput
   ): Promise<ReadOrganizationSkillRuntimeResourceResponse>;
