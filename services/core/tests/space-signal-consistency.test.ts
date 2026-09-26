@@ -719,6 +719,9 @@ const publishOutboxPoisonTerminalFailureNotice = (
 ).publishOutboxPoisonTerminalFailureNotice;
 
 const createOutboxRedriveMethodTarget = () => ({
+  readHostedNativeDeliveryHandoffState: vi.fn(
+    async () => "not_applicable" as const
+  ),
   runPendingDispatchOutboxFlush: (
     Space.prototype as unknown as {
       runPendingDispatchOutboxFlush(): Promise<void>;
