@@ -6,7 +6,7 @@ areas: ["cli", "setup", "windows"]
 audiences: ["users"]
 ---
 
-Windows computer setup can start its background Service when installed in the
-normal user directory. New tasks record that directory explicitly; tasks
-created by the earlier Windows preview remain eligible for guarded repair
-without deleting the computer's local state.
+Windows computer setup can register its background Service and maintenance
+task when installed in the normal user directory. Their launch definitions now
+carry that directory explicitly, so ownership validation does not reject the
+new task before registration.
