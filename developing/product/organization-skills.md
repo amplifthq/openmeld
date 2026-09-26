@@ -208,8 +208,9 @@ selection. OpenMeld does not guess the intended directory.
 For a multi-Skill repository, Center Agent can request a bounded, metadata-only
 repository preview. It lists each Skill directory at one resolved commit, its
 declared file count and bytes, policy blockers with the offending path and
-actual limit where available, and script-execution warnings. It also reports
-the declared aggregate size against the enabled catalog limit. This is a
+actual limit where available, and script-execution warnings. Supporting
+resource bytes are stored separately and do not consume the enabled runtime
+catalog budget. This is a
 preflight, not a complete bundle validation or a batch installation: the agent
 must still preview and install each selected directory at the reviewed commit,
 and report every success or failure. No partial batch is presented as complete.
@@ -511,10 +512,13 @@ grant an action. Effective actions remain the intersection of active tools,
 represented-member authority, Organization policy, App connection scope,
 runtime policy, and action-specific confirmation.
 
-At most 64 Skills and 16,000,000 canonical bundle bytes may be enabled at one
+At most 64 Skills and 16,000,000 catalog bytes may be enabled at one
 time. Install and Enable reject an action that would exceed either limit before
 the catalog becomes invalid. Runtime admission independently rechecks both
-limits and fails closed if storage has drifted.
+limits and fails closed if storage has drifted. The catalog budget counts
+instructions, portable metadata, and supporting resource declarations, not
+the resources themselves. Older inline releases retain their conservative
+stored runtime size until a new file-backed release is published.
 
 Activation telemetry records Organization id, Skill id, release id, digest,
 submission id, and Routine Run id when present. It never logs full instructions

@@ -230,11 +230,6 @@ export async function previewOrganizationSkillRepositoryFromGitHub(input: {
     totalDeclaredBytes,
     warnings: [
       "This file inventory is a preflight. Preview each Skill to validate its content before installing.",
-      ...(totalDeclaredBytes > ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES
-        ? [
-            `These Skills declare ${totalDeclaredBytes} bytes, above the ${ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES}-byte enabled catalog limit. They cannot all be enabled together under the current policy.`,
-          ]
-        : []),
     ],
     skills,
   };

@@ -23,6 +23,56 @@ import {
 } from "../src/organization-skills/organization-skill-service";
 
 describe("Organization Skills", () => {
+  it("budgets enabled Skills by catalog metadata rather than resource bytes", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const created = await service.create(fixture.owner, {
+      description: "Read a supporting reference on demand.",
+      instructions: "Read the reference only when needed.",
+      name: "catalog-resource-budget",
+    });
+    const content = "x".repeat(100_000);
+    const updated = await service.update(fixture.owner, created.id, {
+      bundle: {
+        ...created.bundle,
+        files: [
+          {
+            content,
+            encoding: "utf8",
+            mediaType: "text/plain",
+            path: "references/large.txt",
+            size: content.length,
+          },
+        ],
+      },
+      expectedActiveReleaseId: created.activeRelease.id,
+      expectedVersion: created.version,
+    });
+    const row = await env.OPENMELD_DB.prepare(
+      "SELECT manifest_json FROM organization_skill_releases WHERE id = ?"
+    )
+      .bind(updated.activeRelease.id)
+      .first<{ manifest_json: string }>();
+    const runtimeBytes = Number(
+      (JSON.parse(row?.manifest_json ?? "null") as { runtimeBytes?: number })
+        ?.runtimeBytes
+    );
+    expect(runtimeBytes).toBeGreaterThan(0);
+    expect(runtimeBytes).toBeLessThan(2000);
+    expect(
+      await service.readRuntimeResource(
+        fixture.owner.organizationId,
+        {
+          digest: updated.activeRelease.digest,
+          name: updated.name,
+          releaseId: updated.activeRelease.id,
+          skillId: updated.id,
+        },
+        "references/large.txt"
+      )
+    ).toMatchObject({ content, size: content.length });
+  });
+
   it("keeps release resources separate and fails closed when one is missing", async () => {
     const fixture = await seedFixture();
     const service = createService();

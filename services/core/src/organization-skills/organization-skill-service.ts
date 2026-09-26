@@ -875,7 +875,7 @@ export function createOrganizationSkillService(
         releaseId
       );
       const serialized = stringifyOrganizationSkillBundleCanonicalJson(bundle);
-      const runtimeBytes = new TextEncoder().encode(serialized).byteLength;
+      const runtimeBytes = readRuntimeCatalogBytes(bundle);
       const digest = await sha256(serialized);
       const currentRelease = await requireRelease(dependencies.db, existing);
       if (currentRelease.digest === digest) {
@@ -1081,7 +1081,7 @@ async function createSkill(input: {
   const serialized = stringifyOrganizationSkillBundleCanonicalJson(
     input.bundle
   );
-  const runtimeBytes = new TextEncoder().encode(serialized).byteLength;
+  const runtimeBytes = readRuntimeCatalogBytes(input.bundle);
   const digest = await sha256(serialized);
   await requireRuntimeCatalogCapacity({
     additionalRuntimeBytes: runtimeBytes,
@@ -2223,9 +2223,7 @@ function manifestJson(
   bundle: OrganizationSkillBundle,
   contentManifestDigest: string
 ): string {
-  const runtimeBytes = new TextEncoder().encode(
-    stringifyOrganizationSkillBundleCanonicalJson(bundle)
-  ).byteLength;
+  const runtimeBytes = readRuntimeCatalogBytes(bundle);
   return canonicalJson({
     contentManifestDigest,
     files: bundle.files.map(({ encoding, mediaType, path, size }) => ({
@@ -2236,6 +2234,21 @@ function manifestJson(
     })),
     runtimeBytes,
   });
+}
+
+function readRuntimeCatalogBytes(bundle: OrganizationSkillBundle): number {
+  return new TextEncoder().encode(
+    canonicalJson({
+      files: bundle.files.map(({ encoding, mediaType, path, size }) => ({
+        encoding,
+        mediaType,
+        path,
+        size,
+      })),
+      instructions: bundle.instructions,
+      portable: bundle.portable,
+    })
+  ).byteLength;
 }
 
 function canonicalJson(value: unknown): string {
