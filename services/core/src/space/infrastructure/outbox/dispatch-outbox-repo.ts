@@ -1081,8 +1081,10 @@ export const deleteDispatchOutboxRecord = (
     `
       DELETE FROM openMeldDaemon_outbox
       WHERE dispatch_id = ?
+        AND status <> ?
     `,
-    input.dispatchId
+    input.dispatchId,
+    OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED
   );
 };
 

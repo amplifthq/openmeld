@@ -2091,12 +2091,37 @@ not grant tool authority or claim that execution started or stopped.
 
 The additive nullable SQLite column `native_admission_started_at_ms` is zero only
 for newly staged pending rows, positive after admission authorization, and NULL
-for historical rows with unknown exposure. Only a zero row with no submission
+for historical rows with unknown exposure. Space schema v48 adds it to existing
+v47 Spaces as well as new Spaces; an existing v47 migration marker must not skip
+this upgrade. Only a zero row with no submission
 may be terminalized as withdrawn before execution. Positive/NULL rows use the
 existing native execution reconciliation; not-found and transport failures keep
 Stop pending. There is no new execution owner, D1 migration, or cancellation
 table. Stop reuses the existing cancelled outbox, native ledger, watchdog/probe,
 and final Space message claim. A stopped notice is durable and idempotent.
+
+The conveyor payload lifetime is not the Stop-intent lifetime. Normal Hosted
+handoff cleanup may retire the outbox payload after native ownership is durable.
+For that absent-payload case only, the internal read resolves the exact
+Space/dispatch/Profile native ledger identity and rechecks Space after the D1
+await. A known delivery without recorded cancellation returns `not_requested`;
+unknown, mismatched or malformed identities remain `not_found`, and a failed
+read remains retryable. This is not a generic not-found-is-ready fallback.
+Stop for an exact native delivery whose payload was retired recreates a
+cancelled, non-dispatchable control record before contacting the Worker. Normal
+conveyor deletion cannot remove a cancelled record, including when an old
+recovery candidate races the Stop write. The original task is never regenerated
+from that record; the native ledger still supplies exact execution identity.
+
+For a provably unexposed cancelled Wake, the existing Space alarm is armed before
+intent is written. It scans a bounded set of such records lacking a final claim
+and retries stopped-notice publication, including after object reconstruction;
+there is no Worker callback to rely on in this case. Cancelling before this
+particular submit does not prove an earlier ambiguous submit never ran. Core
+therefore preserves pending native reconciliation unless Space supplies the
+confirmed stopped final-outcome claim. That claim projects the existing native
+`failed` + cancellation-code encoding and the dispatch/task `cancelled`/`stopped`
+outcomes without a DLQ entry or a second failure notice.
 
 Contract Impact Audit: the new RPC callers and Space receivers are in Core and
 must ship together. Deploy the cancellation-aware Remote Agent before Core, then

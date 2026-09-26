@@ -155,6 +155,24 @@ it.each([
         spaceId: query.spaceId,
       })
     ).toMatchObject({ outcome: admission === "new" ? "stopped" : null });
+    const eligibility =
+      await internal.readWakeProgressPreAgentWakeStopEligibility({
+        clientMessageId: null,
+        lookupMatch: null,
+        trace: null,
+        outboxRecord: readDispatchOutboxRecordByDispatchId(
+          state.storage.sql,
+          record.dispatchId
+        ),
+      });
+    if (admission === "new") {
+      expect(eligibility).toBeNull();
+    } else {
+      expect(eligibility).toMatchObject({
+        status: "eligible",
+        reliability: "native_cancel",
+      });
+    }
     expect(await instance.rpcAuthorizeNativeWakeAdmission(query)).toEqual({
       status: "requested",
     });

@@ -195,6 +195,7 @@ import {
   markRemoteAgentSlackFinalPublicationOutcomeUnknown,
   markRemoteAgentSlackFinalPublicationPublished,
   persistRemoteAgentWorkerSubmitRequest,
+  projectUnadmittedNativeDeliveryStopped,
   REMOTE_AGENT_ROUTINE_TARGET_RECOVERY_BLOCKED_CODE,
   type RemoteAgentFinalPublicationPayload,
   type RemoteAgentNativeDeliveryRecord,
@@ -1128,6 +1129,26 @@ async function submitDurableRemoteAgentSpaceAdmission(
       error: toErrorMessage(admission.error),
       targetProfileId: input.message.targetProfileId,
     });
+    return { shouldAck: false, status: "submitted" };
+  }
+  if (
+    admission.status === "rejected" &&
+    admission.response.reasonCode === "remote_agent.execution_cancelled"
+  ) {
+    const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+      db: input.db,
+      idempotencyKey: input.message.idempotencyKey,
+    });
+    if (
+      delivery &&
+      (await settlePendingNativeStopFromSpaceOutcome({ ...input, delivery }))
+    ) {
+      return { shouldAck: true, status: "stopped" };
+    }
+    // This submit was suppressed, but an earlier ambiguous submit may already
+    // be running. Keep its watchdog; never turn Stop intent into DLQ/failure or
+    // terminal execution proof. Space's alarm repairs a missing withdrawal.
+    await admissionAttempt.watchdog;
     return { shouldAck: false, status: "submitted" };
   }
   if (admission.status === "rejected") {
@@ -10350,6 +10371,58 @@ async function finalizeRemoteAgentAdmissionTimeout(
   return { status: "expired" };
 }
 
+async function settlePendingNativeStopFromSpaceOutcome(input: {
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+}): Promise<boolean> {
+  if (input.delivery.status !== "submitted" || input.delivery.submissionId) {
+    return false;
+  }
+  const space = resolveSpaceStub(
+    input.env.OPENMELD_SPACES,
+    input.delivery.spaceId
+  ) as {
+    rpcReadFinalReplyClaimOutcome(input: {
+      spaceId: string;
+      dispatchId: string;
+      profileId: string;
+    }): Promise<{
+      outcome: string | null;
+      signalId: string | null;
+    }>;
+  } | null;
+  if (!space) {
+    return false;
+  }
+  const outcome = await space.rpcReadFinalReplyClaimOutcome({
+    spaceId: input.delivery.spaceId,
+    dispatchId: input.delivery.dispatchId,
+    profileId: input.delivery.profileId,
+  });
+  if (outcome.outcome !== "stopped" || !outcome.signalId?.trim()) {
+    return false;
+  }
+  const delivery = await projectUnadmittedNativeDeliveryStopped({
+    db: input.db,
+    idempotencyKey: input.delivery.idempotencyKey,
+    nowMs: input.nowMs,
+    publishedSignalId: outcome.signalId,
+  });
+  if (
+    !delivery ||
+    delivery.status !== "failed" ||
+    delivery.failureCode !==
+      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE ||
+    delivery.publishedSignalId !== outcome.signalId
+  ) {
+    return false;
+  }
+  await projectRemoteAgentNativeDeliveryTerminalEffects({ ...input, delivery });
+  return true;
+}
+
 async function reconcilePendingSpaceWakeStop(input: {
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
@@ -10360,6 +10433,12 @@ async function reconcilePendingSpaceWakeStop(input: {
   const target = resolvePendingRemoteAgentCancellationTarget(input.delivery);
   const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
   try {
+    if (await settlePendingNativeStopFromSpaceOutcome(input)) {
+      return {
+        status: "skipped",
+        reasonCode: "remote_agent.execution_cancelled",
+      };
+    }
     if (!(target && worker?.cancelExecution)) {
       throw new Error("remote_agent.cancellation_receiver_unavailable");
     }

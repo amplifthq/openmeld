@@ -600,7 +600,9 @@ import {
 import {
   authorizeSpaceNativeWakeAdmission,
   isSpaceNativeWakeUnexposed,
-  readSpaceWakeStopIntent,
+  listUnadmittedNativeStopPublicationRepairs,
+  readNativeSpaceWakeStopIntent,
+  retainRetiredNativeWakeStopFence,
 } from "../../application/space-wake-stop-intent";
 import {
   assertSameSpaceWorkHandoff,
@@ -2669,6 +2671,20 @@ export class Space extends DurableObject<CoreBindings> {
     );
     await this.runIsolatedAlarmStep("dispatch_outbox_queue", () =>
       this.flushPendingDispatchOutbox()
+    );
+    await this.runIsolatedAlarmStep(
+      "unadmitted_native_stop_publication",
+      async () => {
+        for (const record of listUnadmittedNativeStopPublicationRepairs(
+          this.ctx.storage.sql,
+          32
+        )) {
+          await this.runIsolatedAlarmStep(
+            `native_stop_notice:${record.dispatchId}`,
+            () => this.publishUnadmittedHostedWakeStop(record)
+          );
+        }
+      }
     );
     await this.runIsolatedAlarmStep("execution_input_outbox", () =>
       this.flushPendingExecutionInputs()
@@ -5144,11 +5160,11 @@ export class Space extends DurableObject<CoreBindings> {
     // Private Core control read; public clients use the authorized Stop API.
     const query = spaceWakeStopIntentQuerySchema.parse(input);
     this.applySpaceRef(query.spaceId);
-    return Promise.resolve(
-      spaceWakeStopIntentResponseSchema.parse(
-        readSpaceWakeStopIntent(this.ctx.storage.sql, query)
-      )
-    );
+    return readNativeSpaceWakeStopIntent({
+      db: localStateDb(this.bindings),
+      query,
+      sql: this.ctx.storage.sql,
+    });
   }
 
   rpcAuthorizeNativeWakeAdmission(
@@ -5164,6 +5180,14 @@ export class Space extends DurableObject<CoreBindings> {
           Date.now()
         )
       )
+    ).then((intent) =>
+      intent.status === "not_found"
+        ? readNativeSpaceWakeStopIntent({
+            db: localStateDb(this.bindings),
+            query,
+            sql: this.ctx.storage.sql,
+          })
+        : intent
     );
   }
 
@@ -6625,6 +6649,10 @@ export class Space extends DurableObject<CoreBindings> {
       this.ctx.storage.sql,
       { minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS }
     );
+    const nextStopPublicationAlarmAtMs =
+      listUnadmittedNativeStopPublicationRepairs(this.ctx.storage.sql, 1).length
+        ? Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
+        : null;
     const nextDirtyProjectionAlarmAtMs = isSpaceMemberProjectionDirty(
       this.ctx.storage.sql
     )
@@ -6638,7 +6666,13 @@ export class Space extends DurableObject<CoreBindings> {
         ),
         nextDirtyProjectionAlarmAtMs
       ),
-      minNullableTimestamp(nextDispatchAlarmAtMs, nextMemberLivenessAlarmAtMs)
+      minNullableTimestamp(
+        minNullableTimestamp(
+          nextDispatchAlarmAtMs,
+          nextStopPublicationAlarmAtMs
+        ),
+        nextMemberLivenessAlarmAtMs
+      )
     );
     const nextAgentStreamAlarmAtMs =
       await readNextAgentStreamProjectionAlarmAtMs(
@@ -12890,7 +12924,7 @@ export class Space extends DurableObject<CoreBindings> {
     body: PostSpaceWakeStopBody;
     lookupMatch: SpaceDispatchLookupMatch;
   }): Promise<PostSpaceWakeStopResponse | null> {
-    const outbox = readDispatchOutboxRecordByDispatchId(
+    let outbox = readDispatchOutboxRecordByDispatchId(
       this.ctx.storage.sql,
       input.lookupMatch.dispatchId
     );
@@ -12918,9 +12952,9 @@ export class Space extends DurableObject<CoreBindings> {
       return null;
     }
     if (
-      !outbox ||
-      outbox.spaceId !== this.spaceId ||
-      outbox.targetProfileId !== input.lookupMatch.targetProfileId
+      outbox &&
+      (outbox.spaceId !== this.spaceId ||
+        outbox.targetProfileId !== input.lookupMatch.targetProfileId)
     ) {
       return buildSpaceWakeStopFailureResponse({
         reasonCode: "remote_agent.cancellation_target_unavailable",
@@ -12929,37 +12963,35 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: input.lookupMatch.targetProfileId,
       });
     }
+    // Arm recovery before persisting intent; no network await may separate the
+    // final-outcome check from the following cancellation write.
+    await armSpaceInboxProjectionRecoveryAlarm({
+      spaceId: this.spaceId,
+      storage: this.ctx.storage,
+    });
     // Final publication and Stop compete at Space's existing claim boundary.
     // This synchronous check/write cannot race a Space publication in between.
-    const finalSignalId = readFinalReplyClaimSignalId(this.ctx.storage.sql, {
-      dispatchId: input.lookupMatch.dispatchId,
-      profileId: input.lookupMatch.targetProfileId,
+    const settled = this.readHostedWakeStopFinalOutcome({
+      delivery,
+      lookupMatch: input.lookupMatch,
     });
-    const finalSignal = finalSignalId
-      ? this.readSignalById(finalSignalId)
-      : null;
-    if (
-      finalSignal &&
-      classifyFinalReplyClaimOutcome(finalSignal) === "stopped"
-    ) {
-      return buildSpaceWakeStopNativeDeliveryResponse({
-        cancellationStatus: "cancelled",
-        reasonCode: "remote_agent.already_cancelled",
-        status: "already_cancelled",
-        targetProfileId: outbox.targetProfileId,
-      });
+    if (settled) {
+      return settled;
     }
+    outbox =
+      readDispatchOutboxRecordByDispatchId(
+        this.ctx.storage.sql,
+        input.lookupMatch.dispatchId
+      ) ??
+      (delivery
+        ? retainRetiredNativeWakeStopFence(this.ctx.storage.sql, delivery)
+        : null);
     if (
-      finalSignalId ||
-      (delivery &&
-        (delivery.status === "completed" || delivery.status === "failed"))
+      !outbox ||
+      outbox.spaceId !== this.spaceId ||
+      outbox.targetProfileId !== input.lookupMatch.targetProfileId
     ) {
-      return buildSpaceWakeStopFailureResponse({
-        reasonCode: "remote_agent.execution_already_settled",
-        runtimeCoordinatorExecutionId: null,
-        status: "not_stoppable",
-        targetProfileId: input.lookupMatch.targetProfileId,
-      });
+      throw new Error("remote_agent.cancellation_fence_unavailable");
     }
     markDispatchOutboxCancelled(this.ctx.storage.sql, {
       dispatchId: input.lookupMatch.dispatchId,
@@ -12972,7 +13004,11 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: outbox.targetProfileId,
       })
     ) {
-      await this.publishUnadmittedHostedWakeStop(outbox);
+      try {
+        await this.publishUnadmittedHostedWakeStop(outbox);
+      } finally {
+        await this.syncSpaceBackgroundAlarm();
+      }
       return buildSpaceWakeStopNativeDeliveryResponse({
         cancellationStatus: "cancelled",
         reasonCode: "remote_agent.execution_cancelled",
@@ -13006,6 +13042,45 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     return await this.deliverRemoteAgentWakeStop({ ...input, db, target });
+  }
+
+  private readHostedWakeStopFinalOutcome(input: {
+    delivery: Awaited<
+      ReturnType<typeof readRemoteAgentNativeDeliveryByExecution>
+    >;
+    lookupMatch: SpaceDispatchLookupMatch;
+  }): PostSpaceWakeStopResponse | null {
+    const finalSignalId = readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+      dispatchId: input.lookupMatch.dispatchId,
+      profileId: input.lookupMatch.targetProfileId,
+    });
+    const finalSignal = finalSignalId
+      ? this.readSignalById(finalSignalId)
+      : null;
+    if (
+      finalSignal &&
+      classifyFinalReplyClaimOutcome(finalSignal) === "stopped"
+    ) {
+      return buildSpaceWakeStopNativeDeliveryResponse({
+        cancellationStatus: "cancelled",
+        reasonCode: "remote_agent.already_cancelled",
+        status: "already_cancelled",
+        targetProfileId: input.lookupMatch.targetProfileId,
+      });
+    }
+    if (
+      finalSignalId ||
+      input.delivery?.status === "completed" ||
+      input.delivery?.status === "failed"
+    ) {
+      return buildSpaceWakeStopFailureResponse({
+        reasonCode: "remote_agent.execution_already_settled",
+        runtimeCoordinatorExecutionId: null,
+        status: "not_stoppable",
+        targetProfileId: input.lookupMatch.targetProfileId,
+      });
+    }
+    return null;
   }
 
   private async publishUnadmittedHostedWakeStop(
@@ -20978,10 +21053,21 @@ export class Space extends DurableObject<CoreBindings> {
     trace: SpaceDispatchTraceSnapshot | null;
   }): Promise<WakeProgressItem["wakeStopEligibility"]> {
     if (
+      input.outboxRecord &&
+      readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+        dispatchId: input.outboxRecord.dispatchId,
+        profileId: input.outboxRecord.targetProfileId,
+      })
+    ) {
+      return null;
+    }
+    if (
       isHostedAgentControllerRef(
         input.outboxRecord?.controllerSnapshot?.agentControllerRef
       )
     ) {
+      // A cancelled outbox is intent, not terminal execution evidence. Keep
+      // retryable native control until Space has a persisted final outcome.
       // Preparing a Hosted Wake never requires a workstation owner or Service.
       return {
         controlMode: "cancel",

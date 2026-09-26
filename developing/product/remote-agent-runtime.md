@@ -2905,6 +2905,13 @@ but not trigger.
    retry cancellation without resubmitting stopped work. A confirmed terminal
    Stop publishes a `wake_stopped` notice in the existing final-outcome slot;
    notice publication failure is repaired on redelivery without replaying work.
+   Unadmitted withdrawals have no Worker callback, so Space's durable alarm
+   retries their missing final notice. Ordinary handoff-payload cleanup does not
+   disable replies, continuation, or Stop: a retired payload is resolved against
+   its exact native delivery, while a cancelled control record is retained.
+   A Stop that suppresses submission never becomes a DLQ failure. It remains
+   pending when prior execution exposure is unknown, or projects the stopped
+   outcome once its withdrawal is confirmed.
    The Worker arms reconciliation after persisting cancellation intent and
    before external abort/Computer cleanup, so a cleanup exception cannot skip
    the retry schedule. Request acknowledgement is not terminal evidence.
