@@ -1,5 +1,7 @@
+import { resolveSpaceFileMimeType } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import {
@@ -9,12 +11,13 @@ import {
 	PromptInputTextarea,
 } from "#/components/ibelick/prompt-input";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
-import { Bubble, BubbleContent } from "#/components/spaces/primitives/bubble";
+import { Bubble } from "#/components/spaces/primitives/bubble";
 import {
 	Message,
 	MessageContent,
 	MessageHeader,
 } from "#/components/spaces/primitives/message";
+import { SpaceAttachmentStrip } from "#/components/spaces/space-attachment-strip";
 import {
 	SpaceComposerAddMenu,
 	SpaceComposerAttachmentRecovery,
@@ -27,13 +30,11 @@ import {
 	SpaceHeaderIdentityIcon,
 	SpaceWindowHeader,
 } from "#/components/spaces/space-header";
-import { SpaceImagePreview } from "#/components/spaces/space-image-preview";
-import {
-	resolveSpaceMessageBubblePresentationClass,
-	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
-} from "#/components/spaces/space-message-bubble-style";
+import { SpaceLocalAttachmentPreview } from "#/components/spaces/space-local-attachment-preview";
+import { resolveSpaceMessageBubblePresentationClass } from "#/components/spaces/space-message-bubble-style";
 import { SpaceMessageDeliveryStatus } from "#/components/spaces/space-message-delivery-status";
 import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-profile-avatar";
+import { SpaceMessageSurface } from "#/components/spaces/space-message-surface";
 import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent-pending-message";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
@@ -167,7 +168,10 @@ export function CenterAgentOptimisticConversation(input: {
 									className="py-1.5"
 									data-space-self-message="true"
 								>
-									<MessageContent className="gap-0" directMessage>
+									<MessageContent
+										className="w-full min-w-0 gap-0"
+										directMessage
+									>
 										<MessageHeader className="h-6 px-0">
 											{input.selfProfile ? (
 												<div className="flex items-center gap-1.5">
@@ -183,21 +187,7 @@ export function CenterAgentOptimisticConversation(input: {
 												<Skeleton className="size-6 animate-none rounded-full" />
 											)}
 										</MessageHeader>
-										<Bubble align="end">
-											<BubbleContent
-												className={`${resolveSpaceMessageBubblePresentationClass({ isSelf: true })} ${SPACE_MESSAGE_CONTENT_PADDING_CLASS} whitespace-pre-wrap`}
-											>
-												<div className="leading-[26px]">
-													{input.pendingMessage.text}
-												</div>
-												{input.pendingMessage.files?.map((file) => (
-													<PendingAttachment
-														file={file}
-														key={`${file.name}:${file.size}:${file.lastModified}`}
-													/>
-												))}
-											</BubbleContent>
-										</Bubble>
+										<PendingMessageSurface message={input.pendingMessage} />
 										{/* Keep the transcript's action-footer space before publication. */}
 										<div aria-hidden="true" className="mt-0.5 min-h-7" />
 									</MessageContent>
@@ -285,32 +275,65 @@ export function CenterAgentOptimisticConversation(input: {
 	);
 }
 
+function PendingMessageSurface({
+	message,
+}: {
+	message: PendingCenterAgentMessage;
+}) {
+	return (
+		<Bubble
+			align="end"
+			className={message.files?.length ? "w-full" : undefined}
+		>
+			<SpaceMessageSurface
+				attachments={
+					message.files?.length ? (
+						<SpaceAttachmentStrip align="end" label="Message attachments">
+							{message.files.map((file) => (
+								<PendingAttachment
+									file={file}
+									key={`${file.name}:${file.size}:${file.lastModified}`}
+								/>
+							))}
+						</SpaceAttachmentStrip>
+					) : null
+				}
+				bubbleClassName={cn(
+					resolveSpaceMessageBubblePresentationClass({ isSelf: true }),
+					"whitespace-pre-wrap"
+				)}
+			>
+				{message.text.trim() ? (
+					<div className="leading-[26px]">{message.text}</div>
+				) : null}
+			</SpaceMessageSurface>
+		</Bubble>
+	);
+}
+
 function PendingAttachment({ file }: { file: File }) {
 	const [preview, setPreview] = useState<string | null>(null);
-	const isImage = file.type.startsWith("image/");
+	const mimeType = resolveSpaceFileMimeType({
+		declaredMimeType: file.type,
+		fileName: file.name,
+	});
+	const isMedia =
+		mimeType.startsWith("image/") || mimeType.startsWith("video/");
 	useEffect(() => {
-		if (!isImage) {
+		if (!isMedia) {
 			return;
 		}
 		const url = URL.createObjectURL(file);
 		setPreview(url);
 		return () => URL.revokeObjectURL(url);
-	}, [file, isImage]);
-	return isImage ? (
-		<div className="size-16">
-			{preview ? (
-				<SpaceImagePreview
-					altText={file.name}
-					imageSource={preview}
-					isSingle={false}
-					thumbnailClassName="size-16 rounded-xl"
-				/>
-			) : (
-				<span className="sr-only">{file.name}</span>
-			)}
-		</div>
-	) : (
-		<div className="text-muted-foreground text-xs">{file.name}</div>
+	}, [file, isMedia]);
+	return (
+		<SpaceLocalAttachmentPreview
+			fileName={file.name}
+			mimeType={mimeType}
+			previewUrl={preview}
+			sizeBytes={file.size}
+		/>
 	);
 }
 

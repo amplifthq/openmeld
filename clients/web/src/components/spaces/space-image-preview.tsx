@@ -20,6 +20,7 @@ import {
 	useState,
 } from "react";
 import { loadSpaceImageEffect } from "./load-space-image-effect";
+import { SPACE_ATTACHMENT_FRAME_CLASS } from "./space-attachment-strip";
 import { resolveSpaceImageFrame } from "./space-image-frame";
 import { useSpaceImagePreviewSource } from "./use-space-image-preview-source";
 
@@ -76,6 +77,25 @@ function useImageReadiness(source: string | null) {
 	};
 }
 
+function resolvePreviewFrame(
+	attachment: boolean | undefined,
+	single: boolean,
+	geometry: ReturnType<typeof resolveSpaceImageFrame>
+) {
+	if (attachment) {
+		return {
+			className: SPACE_ATTACHMENT_FRAME_CLASS,
+			style: undefined,
+			fit: "object-cover",
+		};
+	}
+	return {
+		className: single ? undefined : "aspect-square w-full",
+		style: single ? geometry : undefined,
+		fit: "object-contain",
+	};
+}
+
 export function SpaceImagePreview(input: {
 	altText: string;
 	focusedAction?:
@@ -91,12 +111,19 @@ export function SpaceImagePreview(input: {
 	onError?: () => void;
 	onRetry?: () => void | Promise<void>;
 	thumbnailClassName?: string;
+	/** Compact attachment crop only; the focused viewer always shows the original. */
+	attachmentThumbnail?: boolean;
 	width?: number;
 }) {
 	const shouldReduceMotion = useReducedMotionConfig();
 	const source = useSpaceImagePreviewSource(input.imageSource);
 	const [geometry] = useState(() =>
 		resolveSpaceImageFrame(input.width, input.height)
+	);
+	const frame = resolvePreviewFrame(
+		input.attachmentThumbnail,
+		input.isSingle,
+		geometry
 	);
 	const beganCold = useRef(!input.imageSource || input.cold === true);
 	if (!input.imageSource) {
@@ -126,13 +153,13 @@ export function SpaceImagePreview(input: {
 	return (
 		<div
 			className={cn(
-				"relative min-w-0 overflow-hidden bg-muted",
-				!input.isSingle && "aspect-square w-full",
+				"relative min-w-0 overflow-hidden rounded-lg bg-muted",
+				frame.className,
 				input.thumbnailClassName
 			)}
 			data-image-frame=""
 			ref={input.frameRef}
-			style={input.isSingle ? geometry : undefined}
+			style={frame.style}
 		>
 			<MorphingDialog
 				transition={
@@ -149,7 +176,10 @@ export function SpaceImagePreview(input: {
 					{displaySource ? (
 						<MorphingDialogImage
 							alt={input.altText}
-							className="block size-full object-contain transition-opacity group-hover/image:opacity-90 motion-reduce:transition-none"
+							className={cn(
+								"block size-full transition-opacity group-hover/image:opacity-90 motion-reduce:transition-none",
+								frame.fit
+							)}
 							decoding="async"
 							height={input.height}
 							key={readiness.attempt}
@@ -207,7 +237,7 @@ export function SpaceImagePreview(input: {
 				</output>
 			) : null}
 			{failed ? (
-				<div className="absolute inset-0 flex size-full flex-col items-center justify-center gap-2 bg-muted p-2 text-center text-muted-foreground text-xs">
+				<div className="absolute inset-0 flex size-full flex-col items-center justify-center gap-0.5 bg-muted p-1 text-center text-muted-foreground text-xs leading-tight">
 					<span>Image unavailable</span>
 					<button
 						className="rounded px-2 py-1 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

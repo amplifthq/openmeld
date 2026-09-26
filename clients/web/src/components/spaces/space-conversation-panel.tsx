@@ -88,7 +88,7 @@ import {
 import { CenterAgentDirectMessageIntro } from "./center-agent-direct-message-intro";
 import { formatDirectMessageTime } from "./direct-message-preview";
 import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
-import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
+import { Bubble, BubbleGroup } from "./primitives/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { Message, MessageContent, MessageHeader } from "./primitives/message";
 import {
@@ -157,13 +157,15 @@ import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
+import {
+	hasSpaceMessageAttachments,
+	SpaceMessageAttachments,
+} from "./space-message-attachments";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageRowLayoutClassName,
-	SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
-	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
@@ -207,6 +209,7 @@ import {
 	resolveSpaceMessageStateTuningVisibility,
 	useSpaceMessageStateTuningPreviewItems,
 } from "./space-message-state-tuning-preview";
+import { SpaceMessageSurface } from "./space-message-surface";
 import { SpaceMessageTime } from "./space-message-time";
 import { SpaceMessageWork } from "./space-message-work";
 import {
@@ -2872,14 +2875,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 										>
 											<Bubble
 												align={messageAlign}
-												className={messageBubbleVisibilityClassName}
-												data-video-message={
-													item.files?.some((file) =>
-														file.mimeType.startsWith("video/")
-													)
-														? "true"
-														: undefined
-												}
+												className={cn(
+													messageBubbleVisibilityClassName,
+													hasSpaceMessageAttachments(item) && "w-full"
+												)}
 											>
 												<ConversationBubbleContent
 													agentInteractionItems={agentInteractionItems}
@@ -2981,16 +2980,23 @@ function ConversationBubbleContent(input: {
 }) {
 	const parent = input.parent;
 	return (
-		<BubbleContent
-			className={cn(
-				"group/message relative flex min-w-0 flex-col gap-2 transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
-				SPACE_MESSAGE_CONTENT_PADDING_CLASS,
-				SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
-				input.item.files?.some((file) => file.mimeType.startsWith("video/")) &&
-					"w-full",
+		<SpaceMessageSurface
+			attachments={
+				<SpaceMessageAttachments
+					align={input.messageAlign}
+					item={input.item}
+					onOpenSpaceFile={parent.onOpenSpaceFile}
+					openMeldProfileId={parent.selfProfileId}
+					organizationSlug={parent.orgSlug}
+					spaceId={input.item.spaceId}
+				/>
+			}
+			bubbleClassName={cn(
+				"transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
 				input.selfMessageContentLayoutClassName,
 				input.bubblePresentationClass
 			)}
+			className="group/message relative"
 			data-highlighted={input.isHighlighted ? "true" : undefined}
 			data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 			data-signal-id={input.item.id}
@@ -3020,6 +3026,7 @@ function ConversationBubbleContent(input: {
 				computerSetupContext={input.computerSetupContext}
 				computerSetupSourceSignalId={input.item.id}
 				containerClassName={input.selfMessageContentLayoutClassName}
+				includeAttachments={false}
 				item={input.item}
 				onOpenSpaceFile={parent.onOpenSpaceFile}
 				openMeldProfileId={parent.selfProfileId}
@@ -3088,7 +3095,7 @@ function ConversationBubbleContent(input: {
 					).length
 				}
 			/>
-		</BubbleContent>
+		</SpaceMessageSurface>
 	);
 }
 
