@@ -771,6 +771,8 @@ export type {
   PreviewOrganizationSkillFromGitHubBody,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
+  ReadOrganizationSkillRuntimeResourceResponse,
+  ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   RecordOrganizationSkillActivationResponse,
   RecordOrganizationSkillActivationRpcInput,

@@ -129,6 +129,12 @@ export type PreviewOrganizationSkillFromGitHubRpcInput = z.infer<
 export type ReadOrganizationSkillRuntimeSnapshotRpcInput = z.infer<
   Schemas["readOrganizationSkillRuntimeSnapshotRpcInputSchema"]
 >;
+export type ReadOrganizationSkillRuntimeResourceRpcInput = z.infer<
+  Schemas["readOrganizationSkillRuntimeResourceRpcInputSchema"]
+>;
+export type ReadOrganizationSkillRuntimeResourceResponse = z.infer<
+  Schemas["readOrganizationSkillRuntimeResourceResponseSchema"]
+>;
 export type RecordOrganizationSkillActivationRpcInput = z.infer<
   Schemas["recordOrganizationSkillActivationRpcInputSchema"]
 >;

@@ -36,6 +36,7 @@ export const ORGANIZATION_SKILL_ERROR_CODES = [
   "organization_skill.release_invalid",
   "organization_skill.release_missing",
   "organization_skill.release_object_missing",
+  "organization_skill.resource_missing",
   "organization_skill.runtime_catalog_too_large",
   "organization_skill.runtime_release_limit",
   "organization_skill.skill_markdown_invalid",
@@ -501,6 +502,18 @@ export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =
     releases: z
       .array(organizationSkillRuntimeReleaseSelectionSchema)
       .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
+  });
+
+export const readOrganizationSkillRuntimeResourceRpcInputSchema =
+  z.strictObject({
+    context: openMeldRequestContextSchema,
+    path: organizationSkillFileSchema.shape.path,
+    preparationIdempotencyKey: z.string().min(1).max(2048).optional(),
+    release: organizationSkillRuntimeReleaseSelectionSchema,
+  });
+export const readOrganizationSkillRuntimeResourceResponseSchema =
+  z.strictObject({
+    file: organizationSkillFileSchema,
   });
 
 export const recordOrganizationSkillActivationRpcInputSchema = z.strictObject({

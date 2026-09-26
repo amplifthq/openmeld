@@ -113,7 +113,10 @@ const THREAD_CONTEXT: NonNullable<
 };
 
 import { requireCurrentDesignatedCenterAgentCaller } from "../src/center-agent/current-designated-center-agent";
-import { rpcReadOrganizationSkillRuntimeSnapshot } from "../src/organization-skills/organization-skill-rpc";
+import {
+  rpcReadOrganizationSkillRuntimeResource,
+  rpcReadOrganizationSkillRuntimeSnapshot,
+} from "../src/organization-skills/organization-skill-rpc";
 import { requirePersonalRemoteAgentExecution } from "../src/remote-agent/application/personal-remote-agent-space-tools";
 import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application/remote-agent-member-request";
 import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/remote-agent-tool-caller";
@@ -203,6 +206,19 @@ describe("Remote Agent native delivery callback service", () => {
               digest: "a".repeat(64),
             },
           ],
+        })
+      ).rejects.toThrow("prepared_release_mismatch");
+      await expect(
+        rpcReadOrganizationSkillRuntimeResource(env, {
+          context: prepared.context,
+          path: "references/checklist.md",
+          preparationIdempotencyKey: request.idempotencyKey,
+          release: {
+            skillId: "skill_other",
+            releaseId: "release_other",
+            name: "other-skill",
+            digest: "a".repeat(64),
+          },
         })
       ).rejects.toThrow("prepared_release_mismatch");
       return {

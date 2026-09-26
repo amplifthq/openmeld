@@ -2,6 +2,7 @@ import {
   ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillBundleSchema,
+  organizationSkillPortableMetadataSchema,
   organizationSkillRuntimeReleaseSelectionSchema,
   organizationSkillRuntimeSnapshotResponseSchema,
   organizationSkillSchema,
@@ -516,7 +517,12 @@ export function createOrganizationSkillService(
           status: 503,
         });
       }
-      return readReleaseResource(dependencies.bucket, release, path);
+      return readReleaseResource(
+        dependencies.bucket,
+        release,
+        selected.name,
+        path
+      );
     },
 
     async remove(
@@ -1426,6 +1432,7 @@ async function readReleaseBundle(
 async function readReleaseResource(
   bucket: R2Bucket,
   release: ReleaseRow,
+  name: string,
   path: string
 ): Promise<OrganizationSkillFile> {
   const object = await bucket.get(release.object_key);
@@ -1441,6 +1448,9 @@ async function readReleaseResource(
   }
   if (!isFileBackedRelease(value)) {
     const bundle = await readReleaseBundle(bucket, release);
+    if (bundle.portable.name !== name) {
+      throw invalidReleaseError();
+    }
     const file = bundle.files.find((item) => item.path === path);
     if (!file) {
       throw missingSkillResourceError();
@@ -1455,6 +1465,12 @@ async function readReleaseResource(
   }
   const manifest = storedSkillReleaseSchema.safeParse(value);
   if (!manifest.success) {
+    throw invalidReleaseError();
+  }
+  const portable = organizationSkillPortableMetadataSchema.safeParse(
+    manifest.data.portable
+  );
+  if (!portable.success || portable.data.name !== name) {
     throw invalidReleaseError();
   }
   const file = manifest.data.files.find((item) => item.path === path);
@@ -2153,7 +2169,7 @@ async function sha256(value: string): Promise<string> {
 }
 
 async function sha256Bytes(value: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", value);
+  const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(value));
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");

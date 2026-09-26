@@ -135,6 +135,8 @@ import type {
   OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
   PauseCenterAgentRoutineResponse,
+  ReadOrganizationSkillRuntimeResourceResponse,
+  ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   RecordCenterAgentMemberResearchComputerFileResponse,
   RecordCenterAgentMemberResearchComputerFileRpcInput,
@@ -661,6 +663,9 @@ export type RemoteAgentCoreWorkerBinding = {
   readOrganizationSkillRuntimeSnapshot?(
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse>;
+  readOrganizationSkillRuntimeResource?(
+    input: ReadOrganizationSkillRuntimeResourceRpcInput
+  ): Promise<ReadOrganizationSkillRuntimeResourceResponse>;
   recordOrganizationSkillActivation?(
     input: RecordOrganizationSkillActivationRpcInput
   ): Promise<RecordOrganizationSkillActivationResponse>;

@@ -1890,6 +1890,8 @@ export {
   previewOrganizationSkillFromGitHubBodySchema,
   previewOrganizationSkillFromGitHubResponseSchema,
   previewOrganizationSkillFromGitHubRpcInputSchema,
+  readOrganizationSkillRuntimeResourceResponseSchema,
+  readOrganizationSkillRuntimeResourceRpcInputSchema,
   readOrganizationSkillRuntimeSnapshotRpcInputSchema,
   recordOrganizationSkillActivationResponseSchema,
   recordOrganizationSkillActivationRpcInputSchema,

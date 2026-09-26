@@ -12,6 +12,8 @@ import {
   organizationSkillRuntimeSnapshotResponseSchema,
   previewOrganizationSkillFromGitHubResponseSchema,
   previewOrganizationSkillFromGitHubRpcInputSchema,
+  readOrganizationSkillRuntimeResourceResponseSchema,
+  readOrganizationSkillRuntimeResourceRpcInputSchema,
   readOrganizationSkillRuntimeSnapshotRpcInputSchema,
   recordOrganizationSkillActivationResponseSchema,
   recordOrganizationSkillActivationRpcInputSchema,
@@ -37,6 +39,8 @@ import type {
   OrganizationSkillRuntimeSnapshotResponse,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
+  ReadOrganizationSkillRuntimeResourceResponse,
+  ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   RecordOrganizationSkillActivationResponse,
   RecordOrganizationSkillActivationRpcInput,
@@ -55,6 +59,7 @@ import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   createOrganizationSkillService,
   type OrganizationSkillActor,
+  readEnabledOrganizationSkillReleaseSelection,
 } from "./organization-skill-service";
 
 export async function rpcListOrganizationSkills(
@@ -280,6 +285,51 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
       request.releases
     )
   );
+}
+
+export async function rpcReadOrganizationSkillRuntimeResource(
+  env: CoreBindings,
+  input: ReadOrganizationSkillRuntimeResourceRpcInput
+): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
+  const request = parseRequest(
+    readOrganizationSkillRuntimeResourceRpcInputSchema,
+    input
+  );
+  const authorization = await requireRemoteAgentToolCaller({
+    context: request.context,
+    env,
+    skillPreparationKey: request.preparationIdempotencyKey,
+  });
+  if (
+    "personalExecution" in authorization &&
+    !(
+      authorization.personalExecution.request.organizationSkillReleases ?? []
+    ).some(
+      (frozen) =>
+        frozen.skillId === request.release.skillId &&
+        frozen.releaseId === request.release.releaseId &&
+        frozen.digest === request.release.digest &&
+        frozen.name === request.release.name
+    )
+  ) {
+    throw new Error("organization_skill.prepared_release_mismatch");
+  }
+  const { db, bucket } = requireStores(env);
+  await readEnabledOrganizationSkillReleaseSelection({
+    db,
+    organizationId: authorization.activeOrganization.organizationId,
+    selectedReleases: [request.release],
+  });
+  return parseResponse(readOrganizationSkillRuntimeResourceResponseSchema, {
+    file: await createOrganizationSkillService({
+      bucket,
+      db,
+    }).readRuntimeResource(
+      authorization.activeOrganization.organizationId,
+      request.release,
+      request.path
+    ),
+  });
 }
 
 export async function rpcRecordOrganizationSkillActivation(

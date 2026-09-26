@@ -296,6 +296,8 @@ import type {
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
   ReadFeedbackReportingPolicyRequest,
+  ReadOrganizationSkillRuntimeResourceResponse,
+  ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   ReconcileDeletedAgentProfileRequest,
   ReconcileDeletedAgentProfileResponse,
@@ -499,6 +501,7 @@ import {
   rpcImportOrganizationSkillFromGitHub,
   rpcListOrganizationSkills,
   rpcPreviewOrganizationSkillFromGitHub,
+  rpcReadOrganizationSkillRuntimeResource,
   rpcReadOrganizationSkillRuntimeSnapshot,
   rpcRecordOrganizationSkillActivation,
   rpcSetOrganizationSkillEnabled,
@@ -1698,6 +1701,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
     return rpcReadOrganizationSkillRuntimeSnapshot(this.env, input);
+  }
+
+  readOrganizationSkillRuntimeResource(
+    input: ReadOrganizationSkillRuntimeResourceRpcInput
+  ): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
+    return rpcReadOrganizationSkillRuntimeResource(this.env, input);
   }
 
   recordOrganizationSkillActivation(
@@ -4267,6 +4276,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
     return super.readOrganizationSkillRuntimeSnapshot(input);
+  }
+
+  readOrganizationSkillRuntimeResource(
+    input: ReadOrganizationSkillRuntimeResourceRpcInput
+  ): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
+    return super.readOrganizationSkillRuntimeResource(input);
   }
 
   recordOrganizationSkillActivation(
