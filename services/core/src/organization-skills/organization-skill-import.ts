@@ -2,8 +2,8 @@ import {
   ORGANIZATION_SKILL_BUNDLE_MAX_BYTES,
   ORGANIZATION_SKILL_FILE_LIMIT,
   ORGANIZATION_SKILL_FILE_MAX_BYTES,
+  ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT,
   ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
-  ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillBundleSchema,
 } from "@openmeld/schemas";
 import type {
@@ -236,10 +236,10 @@ export async function previewOrganizationSkillRepositoryFromGitHub(input: {
       "This repository does not contain a Skill in the selected path."
     );
   }
-  if (skillPaths.length > ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT) {
+  if (skillPaths.length > ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT) {
     throw skillImportError(
       "organization_skill.github_tree_too_large",
-      `This repository has ${skillPaths.length} Skills; the review limit is ${ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT}. Select a narrower directory.`
+      `This repository has ${skillPaths.length} Skills; the review limit is ${ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT}. Select a narrower directory.`
     );
   }
   const skills = skillPaths.map((path) => {

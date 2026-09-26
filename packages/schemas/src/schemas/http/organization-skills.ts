@@ -12,6 +12,7 @@ const ORGANIZATION_SKILL_FILE_MAX_ENCODED_CHARS =
 export const ORGANIZATION_SKILL_BUNDLE_MAX_BYTES = 2_000_000;
 export const ORGANIZATION_SKILL_FILE_LIMIT = 128;
 export const ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT = 64;
+export const ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT = 256;
 export const ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES = 16_000_000;
 export const ORGANIZATION_SKILL_OPERATION_ID_MAX_CHARS = 256;
 export const ORGANIZATION_SKILL_ERROR_CODES = [
@@ -349,7 +350,7 @@ export const organizationSkillGitHubRepositoryPreviewSchema = z.strictObject({
         warnings: z.array(z.string().trim().min(1).max(1024)),
       })
     )
-    .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
+    .max(ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT),
 });
 export const previewOrganizationSkillFromGitHubResponseSchema = z.strictObject({
   organizationId: identifierSchema,

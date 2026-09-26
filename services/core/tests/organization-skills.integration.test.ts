@@ -4,6 +4,7 @@ import {
   ORGANIZATION_SKILL_BUNDLE_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
+  organizationSkillGitHubRepositoryPreviewSchema,
   stringifyOrganizationSkillBundleCanonicalJson,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
@@ -1113,6 +1114,40 @@ describe("Organization Skills", () => {
         String(request).startsWith("https://raw.githubusercontent.com/")
       )
     ).toBe(false);
+  });
+
+  it("can review a repository with more Skills than the runtime can enable", async () => {
+    const commitSha = "a".repeat(40);
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({
+            tree: Array.from(
+              { length: ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT + 1 },
+              (_, index) => ({
+                path: `skills/skill-${index}/SKILL.md`,
+                size: 100,
+                type: "blob",
+              })
+            ),
+            truncated: false,
+          })
+        );
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+
+    const preview = await previewOrganizationSkillRepositoryFromGitHub({
+      fetch: fetchMock,
+      url: "https://github.com/acme/skills",
+    });
+    expect(preview.skills).toHaveLength(
+      ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT + 1
+    );
+    expect(
+      organizationSkillGitHubRepositoryPreviewSchema.safeParse(preview).success
+    ).toBe(true);
   });
 
   it("keeps root Skill resources while excluding nested Skill packages", async () => {

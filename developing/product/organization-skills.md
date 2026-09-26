@@ -210,7 +210,9 @@ repository preview. It lists each Skill directory at one resolved commit, its
 declared file count and bytes, policy blockers with the offending path and
 actual limit where available, and script-execution warnings. Supporting
 resource bytes are stored separately and do not consume the enabled runtime
-catalog budget. This is a
+catalog budget. Repository discovery has its own bounded response size; the
+number of discoverable Skills does not depend on how many can be enabled at
+once. This is a
 preflight, not a complete bundle validation or a batch installation: the agent
 must still preview and install each selected directory at the reviewed commit,
 and report every success or failure. No partial batch is presented as complete.
