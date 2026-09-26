@@ -195,6 +195,18 @@ export async function submitRemoteAgentWorkerAdmission(input: {
     }
   }
 
+  // A previously saved Stop must not spend an admission or be reported as a
+  // quota failure. Keep the authorization fence immediately before submission
+  // as well: this read-only preflight does not close the concurrent Stop race.
+  try {
+    if (await isRemoteAgentRequestStopRequested(input.env, input.request)) {
+      return resolveWorkerSubmitFailure(
+        new RemoteAgentWakeStoppedBeforeAdmissionError()
+      );
+    }
+  } catch (error) {
+    return resolveWorkerSubmitFailure(error);
+  }
   const dailyAdmission = await admitRemoteAgentDailyDelivery({
     db: input.db,
     idempotencyKey: input.request.idempotencyKey,

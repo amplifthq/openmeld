@@ -3268,6 +3268,11 @@ describe("Remote Agent native delivery callback service", () => {
       expect(workerSubmit).not.toHaveBeenCalled();
       expect(env.__spaceStub.rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
       expect(
+        harness.queryFirst({
+          sql: "SELECT COALESCE(SUM(admitted_count), 0) AS count FROM openMeldRemoteAgent_daily_admissions",
+        })
+      ).toEqual({ count: 0 });
+      expect(
         await readRemoteAgentNativeDeliveryByIdempotencyKey({
           db: harness.db,
           idempotencyKey: "idem_1",
