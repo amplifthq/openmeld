@@ -20,6 +20,12 @@ import {
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
 import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
+import {
 	DropdownMenu,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
@@ -37,7 +43,9 @@ import {
 import {
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
+	ClockCounterClockwiseIcon,
 	CopyIcon,
+	DownloadSimpleIcon,
 	FileTextIcon,
 	FolderOpenIcon,
 	FolderPlusIcon,
@@ -56,6 +64,11 @@ import {
 	NewTextFileDialog,
 	RenameEntryDialog,
 } from "#/components/spaces/space-file-dialogs";
+import {
+	downloadContent,
+	formatFileDateTime,
+	formatFileSize,
+} from "#/components/spaces/space-file-utils";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
@@ -106,6 +119,10 @@ function TeamFilesBrowser(input: {
 		null
 	);
 	const [movingEntry, setMovingEntry] = useState<FileRootEntry | null>(null);
+	const [historyEntry, setHistoryEntry] = useState<Extract<
+		FileRootEntry,
+		{ kind: "file" }
+	> | null>(null);
 	const [copyingEntry, setCopyingEntry] = useState<{
 		entry: Extract<FileRootEntry, { kind: "file" }>;
 		clientMutationId: string;
@@ -467,18 +484,26 @@ function TeamFilesBrowser(input: {
 										</ContextMenuItem>
 									) : null}
 									{view === "active" && selectedEntry.kind === "file" ? (
-										<ContextMenuItem
-											onClick={() =>
-												setCopyToSpaceEntry({
-													entry: selectedEntry,
-													location,
-													clientMutationId: crypto.randomUUID(),
-												})
-											}
-										>
-											<CopyIcon aria-hidden="true" />
-											Copy to Space…
-										</ContextMenuItem>
+										<>
+											<ContextMenuItem
+												onClick={() => setHistoryEntry(selectedEntry)}
+											>
+												<ClockCounterClockwiseIcon aria-hidden="true" />
+												Version history
+											</ContextMenuItem>
+											<ContextMenuItem
+												onClick={() =>
+													setCopyToSpaceEntry({
+														entry: selectedEntry,
+														location,
+														clientMutationId: crypto.randomUUID(),
+													})
+												}
+											>
+												<CopyIcon aria-hidden="true" />
+												Copy to Space…
+											</ContextMenuItem>
+										</>
 									) : null}
 									{view === "active" &&
 									selectedEntry.kind === "file" &&
@@ -601,6 +626,15 @@ function TeamFilesBrowser(input: {
 					}}
 					open={true}
 					pending={busy}
+				/>
+			) : null}
+			{historyEntry ? (
+				<FileRootVersionHistory
+					api={api}
+					entry={historyEntry}
+					key={`${location}:${historyEntry.id}`}
+					location={location}
+					onClose={() => setHistoryEntry(null)}
 				/>
 			) : null}
 			<RenameEntryDialog
@@ -737,6 +771,111 @@ function TeamFilesBrowser(input: {
 				/>
 			) : null}
 		</section>
+	);
+}
+
+function FileRootVersionHistory(input: {
+	api: ReturnType<typeof createFileRootApi>;
+	entry: Extract<FileRootEntry, { kind: "file" }>;
+	location: FileRootLocation;
+	onClose: () => void;
+}) {
+	const [downloadingRevision, setDownloadingRevision] = useState<number | null>(
+		null
+	);
+	const [downloadError, setDownloadError] = useState<string | null>(null);
+	const history = useQuery({
+		queryKey: ["file-root-revisions", input.location, input.entry.id],
+		queryFn: () =>
+			input.api.listRevisions({
+				location: input.location,
+				fileId: input.entry.id,
+			}),
+	});
+	return (
+		<Dialog onOpenChange={(open) => !open && input.onClose()} open>
+			<DialogContent className="sm:max-w-lg">
+				<DialogHeader>
+					<DialogTitle>Version history · {input.entry.name}</DialogTitle>
+				</DialogHeader>
+				{history.isPending ? (
+					<p className="text-muted-foreground text-sm">Loading versions…</p>
+				) : null}
+				{history.isError ? (
+					<div
+						className="flex items-center justify-between gap-3 text-sm"
+						role="alert"
+					>
+						<span>Versions couldn’t be loaded.</span>
+						<Button
+							onClick={() => history.refetch()}
+							size="sm"
+							variant="outline"
+						>
+							Try again
+						</Button>
+					</div>
+				) : null}
+				{history.data ? (
+					<ul className="max-h-80 divide-y overflow-y-auto">
+						{history.data.revisions.map((revision) => (
+							<li
+								className="flex items-center justify-between gap-3 py-3"
+								key={revision.id}
+							>
+								<div className="min-w-0 text-sm">
+									<p className="font-medium">
+										Version {revision.revision}
+										{revision.revision ===
+										history.data.file.latestRevision.revision
+											? " · Current"
+											: ""}
+									</p>
+									<p className="text-muted-foreground text-xs">
+										{formatFileDateTime(revision.createdAt)} ·{" "}
+										{formatFileSize(revision.sizeBytes)}
+									</p>
+								</div>
+								<Button
+									aria-label={`Download version ${revision.revision}`}
+									disabled={downloadingRevision !== null}
+									onClick={async () => {
+										setDownloadingRevision(revision.revision);
+										setDownloadError(null);
+										try {
+											const content = await input.api.download({
+												location: input.location,
+												fileId: input.entry.id,
+												revision: revision.revision,
+											});
+											downloadContent(input.entry.name, content);
+										} catch (error) {
+											setDownloadError(
+												error instanceof Error
+													? error.message
+													: "This version couldn’t be downloaded."
+											);
+										} finally {
+											setDownloadingRevision(null);
+										}
+									}}
+									size="sm"
+									variant="outline"
+								>
+									<DownloadSimpleIcon aria-hidden="true" />
+									Download
+								</Button>
+							</li>
+						))}
+					</ul>
+				) : null}
+				{downloadError ? (
+					<p className="text-destructive text-sm" role="alert">
+						{downloadError}
+					</p>
+				) : null}
+			</DialogContent>
+		</Dialog>
 	);
 }
 
