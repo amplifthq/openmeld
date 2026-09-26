@@ -69,6 +69,7 @@ type SlackApiResponse = {
     text?: string | null;
     ts?: string | null;
     user?: string | null;
+    edited?: { ts?: string | null } | null;
     username?: string | null;
     metadata?: {
       event_payload?: Record<string, unknown> | null;
@@ -193,6 +194,7 @@ export type SlackUserIdentity = {
   teamId: string | null;
 };
 export type SlackThreadMessage = {
+  editedTs?: string;
   richContent?: { text: string; incomplete: boolean };
   botId: string | null;
   displayName: string | null;
@@ -1806,6 +1808,7 @@ function toSlackThreadMessages(
         text: normalizeOptionalText(message.text),
         ts,
         userId: normalizeOptionalText(message.user),
+        ...(message.edited?.ts ? { editedTs: message.edited.ts } : {}),
       },
     ];
   });

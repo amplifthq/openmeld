@@ -5,6 +5,9 @@ export const Route = createFileRoute("/o/$orgSlug/plugins/$service")({
 });
 function PluginRoute() {
 	return (
-		<OrganizationPluginsPage selectedService={Route.useParams().service} />
+		<OrganizationPluginsPage
+			connectionRequestId={Route.useSearch().request}
+			selectedService={Route.useParams().service}
+		/>
 	);
 }

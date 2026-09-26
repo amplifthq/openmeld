@@ -5,7 +5,12 @@ import {
   pluginConnectionContinuationRpcInputSchema,
   readPluginConnectionReplyLink,
 } from "@openmeld/schemas";
+import type {
+  SignalEnvelope,
+  SpaceThreadContext,
+} from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
+import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import { listConnectorOperationReceiptsForContinuation } from "../center-agent/connector-action-operation-repository";
 import { type CoreBindings, identityDb, wakeEvidenceDb } from "../lib/bindings";
 import {
@@ -18,13 +23,18 @@ import {
   rpcGetSpaceMemberDirectory,
   rpcListSignals,
   rpcPostSignalOnceByClientMessageId,
+  rpcReadPluginConnectionLocalSource,
 } from "../rpc/methods";
 import {
   pluginContinuationMessageFingerprint,
   pluginContinuationTextDigest,
 } from "../space/application/plugin-connection-continuation-guard";
 import { selectActiveConnectorConnection } from "./connector-connection-repository";
-import { requireRemotePluginConnection } from "./plugin-access";
+import {
+  requirePluginPermission,
+  requireRemotePluginConnection,
+} from "./plugin-access";
+import { requirePluginProfile } from "./plugin-local-caller";
 
 /** Provider callbacks never call this. The authenticated human explicitly
  * requests one new continuation Message; existing Wake and operation owners
@@ -67,8 +77,12 @@ export async function continuePluginConnection(
     spaceId: input.spaceId,
     ...(input.password === undefined ? {} : { password: input.password }),
   };
-  const { reply, delivery, request, sender, completedAtMs } =
-    await readContinuationSource(env, evidence, input, member);
+  const { reply, task, sender, consumer } = await readContinuationSource(
+    env,
+    evidence,
+    input,
+    member
+  );
   await requireConnectionIntent(
     env,
     member.organizationId,
@@ -77,7 +91,7 @@ export async function continuePluginConnection(
   );
   const directory = await rpcGetSpaceMemberDirectory(env, access);
   const agent = directory.members.find(
-    (entry) => entry.profileId === delivery.profileId
+    (entry) => entry.profileId === task.profileId
   );
   if (
     !(
@@ -104,34 +118,29 @@ export async function continuePluginConnection(
       409
     );
   }
-  await requireRemotePluginConnection({
+  await authorizeContinuationConnection({
     db,
     organizationId: member.organizationId,
-    service: input.service,
-    connectionName: selected.connection.connectionName,
     requesterUserId: member.userId,
-    ...(request.v === 4 &&
-    request.conversationIdentity?.kind === "personal_agent"
-      ? { remoteOwnerUserId: request.agentProfileOwnerUserId ?? null }
-      : {}),
-    effect: "read",
+    connection: selected.connection,
+    consumer,
   });
   const receipts = await listConnectorOperationReceiptsForContinuation({
     db,
     organizationId: member.organizationId,
-    actorProfileId: delivery.profileId,
+    actorProfileId: task.profileId,
     representedUserId: member.userId,
     sourceSpaceId: input.spaceId,
-    fromMs: delivery.createdAtMs,
-    throughMs: completedAtMs,
+    fromMs: task.createdAtMs,
+    throughMs: task.completedAtMs,
   });
   requireSettledContinuationReceipts(receipts);
   // Deliberately independent of chosen scope and browser instance: changing a
   // setup selection, retrying a timed-out POST, or double-clicking cannot create
   // another continuation of the same published reply.
-  const clientMessageId = `plugin-continue:${await digestCanonicalJson([member.organizationId, delivery.deliveryId, reply.id, member.userId])}`;
+  const clientMessageId = `plugin-continue:${await digestCanonicalJson([member.organizationId, task.deliveryId, reply.id, member.userId])}`;
   const text = [
-    `Continue the remaining work from my request (${delivery.triggerMessageId}).`,
+    `Continue the remaining work from my request (${task.triggerMessageId}).`,
     `I have reviewed ${input.service} access using ${input.scope === "member" ? "my account" : "the organization connection"}. Recheck the permissions required by the task.`,
     "Use the existing conversation and previous results. Do not restart the task or repeat completed operations. Reuse the original operation ID for an exact retry; stop if its outcome is unknown.",
     ...(receipts.length
@@ -143,13 +152,13 @@ export async function continuePluginConnection(
   ].join("\n");
   const sourceGuard = await readOriginalRequestGuard(env, {
     ...access,
-    signalId: delivery.triggerMessageId,
+    signalId: task.triggerMessageId,
   });
   const pluginContinuation = pluginConnectionContinuationBindingSchema.parse({
     v: 1,
     organizationId: member.organizationId,
     spaceId: input.spaceId,
-    sourceDispatchId: delivery.dispatchId,
+    sourceDispatchId: task.dispatchId,
     source: sourceGuard,
     reply: {
       signalId: reply.id,
@@ -158,13 +167,13 @@ export async function continuePluginConnection(
     },
     requesterUserId: member.userId,
     requesterProfileId: sender.profileId,
-    targetProfileId: delivery.profileId,
+    targetProfileId: task.profileId,
     service: input.service,
     scope: input.scope,
     connectionName: selected.connection.connectionName,
     connectionUpdatedAtMs: selected.connection.updatedAtMs,
     continuationTextDigest: pluginContinuationTextDigest(text),
-    threadContext: delivery.threadContext ?? null,
+    threadContext: task.threadContext ?? null,
   });
   const signal = await rpcPostSignalOnceByClientMessageId(env, {
     ...access,
@@ -183,22 +192,20 @@ export async function continuePluginConnection(
     text,
     messageEnvelope: {
       text,
-      activationTargets: [delivery.profileId],
+      activationTargets: [task.profileId],
       referenceTargets: [],
-      replyToSignalId: delivery.triggerMessageId,
+      replyToSignalId: task.triggerMessageId,
     },
     meta: { clientMessageId },
-    ...(delivery.threadContext
-      ? { threadContext: delivery.threadContext }
-      : {}),
+    ...(task.threadContext ? { threadContext: task.threadContext } : {}),
   });
   return pluginConnectionContinuationResponseSchema.parse({
     status: "requested",
     sourceSignalId: reply.id,
     signalId: signal.id,
     spaceId: input.spaceId,
-    targetProfileId: delivery.profileId,
-    threadId: delivery.threadContext?.threadId ?? null,
+    targetProfileId: task.profileId,
+    threadId: task.threadContext?.threadId ?? null,
   });
 }
 
@@ -319,7 +326,10 @@ async function readContinuationSource(
     profileId: reply.profile.profileId,
     spaceId: input.spaceId,
   });
-  const request = delivery?.workerSubmitRequest;
+  if (!delivery) {
+    return await readLocalContinuationSource(env, input, member, reply);
+  }
+  const request = delivery.workerSubmitRequest;
   if (
     !(
       delivery &&
@@ -362,11 +372,119 @@ async function readContinuationSource(
   }
   return {
     reply,
-    delivery,
-    request,
-    sender,
-    completedAtMs: delivery.completedAtMs,
+    task: {
+      deliveryId: delivery.deliveryId,
+      profileId: delivery.profileId,
+      triggerMessageId: delivery.triggerMessageId,
+      dispatchId: delivery.dispatchId,
+      createdAtMs: delivery.createdAtMs,
+      completedAtMs: delivery.completedAtMs,
+      threadContext: delivery.threadContext,
+    },
+    sender: { profileId: sender.profileId, displayName: sender.displayName },
+    consumer: {
+      kind: "hosted" as const,
+      ...(request.v === 4 &&
+      request.conversationIdentity?.kind === "personal_agent"
+        ? { remoteOwnerUserId: request.agentProfileOwnerUserId ?? null }
+        : {}),
+    },
   };
+}
+
+async function readLocalContinuationSource(
+  env: CoreBindings,
+  input: ReturnType<typeof pluginConnectionContinuationRpcInputSchema.parse>,
+  member: { organizationId: string; userId: string },
+  reply: Extract<SignalEnvelope, { type: "signal.text" }>
+) {
+  const source = await rpcReadPluginConnectionLocalSource(env, input);
+  const agent = await requirePluginProfile(env, source.targetProfileId);
+  if (
+    agent.profileKind !== "agent" ||
+    agent.organizationId !== member.organizationId ||
+    !agent.ownerUserId
+  ) {
+    throw denied(
+      "plugin.continue.task_unavailable",
+      "The original Local Agent is no longer available.",
+      409
+    );
+  }
+  const db = identityDb(env);
+  const binding =
+    db &&
+    (await readPrimaryAgentProfileBindingRecord({
+      db,
+      agentProfileId: source.targetProfileId,
+      owner: { kind: "owner_account", id: agent.ownerUserId },
+    }));
+  if (
+    binding?.bindingState !== "enabled_primary" ||
+    binding.runtimeKind !== "openmeld_service" ||
+    binding.bindingId !== source.bindingId
+  ) {
+    throw denied(
+      "plugin.continue.binding_changed",
+      "The original Agent's execution connection changed. Send a new request rather than resuming stale work.",
+      409
+    );
+  }
+  return {
+    reply,
+    task: {
+      deliveryId: source.executionId,
+      profileId: source.targetProfileId,
+      triggerMessageId: source.sourceSignalId,
+      dispatchId: source.dispatchId,
+      createdAtMs: source.createdAtMs,
+      completedAtMs: source.completedAtMs,
+      threadContext: source.threadContext as SpaceThreadContext | null,
+    },
+    sender: {
+      profileId: source.requesterProfileId,
+      displayName: source.requesterDisplayName,
+    },
+    consumer: { kind: "local" as const, ownerUserId: agent.ownerUserId },
+  };
+}
+
+type ContinuationConsumer =
+  | { kind: "local"; ownerUserId: string }
+  | { kind: "hosted"; remoteOwnerUserId?: string | null };
+async function authorizeContinuationConnection(input: {
+  db: D1Database;
+  organizationId: string;
+  requesterUserId: string;
+  connection: import("./connector-connection-repository").ConnectorConnectionRecord;
+  consumer: ContinuationConsumer;
+}) {
+  const { consumer, connection } = input;
+  if (consumer.kind === "local") {
+    if (
+      connection.scope === "member" &&
+      consumer.ownerUserId !== input.requesterUserId
+    ) {
+      throw denied(
+        "plugin.personal_request_required",
+        "A Local Agent cannot use another member's personal connection."
+      );
+    }
+    await requirePluginPermission({
+      ...input,
+      connectionName: connection.connectionName,
+      consumer: "local_agent",
+      effect: "read",
+    });
+    return;
+  }
+  await requireRemotePluginConnection({
+    ...input,
+    ...consumer,
+    service: connection.service,
+    connectionName: connection.connectionName,
+    effect: "read",
+  });
 }
 
 function denied(code: string, reason: string, status = 403) {

@@ -8255,7 +8255,11 @@ export async function rpcCenterAgentResolveConnectorConnection(
   const personalOwnerRequest =
     personalRequest &&
     representedUserId === personalRequest.agentProfileOwnerUserId;
-  const binding = await readPluginConnectionExecutionBinding(env, context);
+  const binding = await readPluginConnectionExecutionBinding(
+    env,
+    context,
+    service
+  );
   const connectionPreference = boundPluginConnectionPreference(
     binding,
     service,
@@ -15835,7 +15839,8 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     assertBoundPluginConnection(
       await readPluginConnectionExecutionBinding(
         env,
-        requireRpcContext(input.context)
+        requireRpcContext(input.context),
+        parsed.data.service
       ),
       parsed.data.service,
       connection
@@ -18811,6 +18816,18 @@ export async function rpcPostSignalOnceByClientMessageId(
     });
   }
   return await stub.rpcPostSignalOnceByClientMessageId(postInput);
+}
+
+export async function rpcReadPluginConnectionLocalSource(
+  env: CoreBindings,
+  input: import("@openmeld/schemas").PluginConnectionLocalSourceRequest
+) {
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return (
+    await import("@openmeld/schemas")
+  ).pluginConnectionLocalSourceResponseSchema.parse(
+    await stub.rpcReadPluginConnectionLocalSource(input)
+  );
 }
 
 /** Internal admitted execution projection, not a public connection route. */

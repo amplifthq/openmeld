@@ -60,12 +60,28 @@ receipts and refuses pending/unknown outcomes. Provider callbacks never trigger
 work. The UI reports "requested", not "completed". Existing execution and
 operation owners still determine the actual result.
 
-The implementation remains Draft pending real browser/packaged Desktop
-acceptance and the broader execution work in the repository-root
-`design-plans/1254-composable-plugin-workflow.md`. A shared message does not
-authorize its viewer to continue another person's task. External Message
-Channels and Local Agent continuation require their own supported carrier;
-their coverage is not implied by this Hosted Space endpoint.
+Local Agent final replies use the same suffix and dialog. Their continuation
+is admitted against the RuntimeCoordinator's published reply and current Local
+Binding, not a Hosted delivery or a guessed completion status. A shared message
+never authorizes its viewer to continue another person's task.
+
+Slack, Feishu and Lark deliver Plugin setup privately through the existing
+provider navigation publisher. The trusted Plugin detail URL may carry a
+`request` locator. `PluginConnectionRequestPanel` first asks Core to verify the
+signed-in requester, Organization and original provider task, then reuses
+`PluginConnectionSetupPanel` and the existing connection/Agent-access forms.
+The URL cannot choose a target Agent, task body, user, connection or permissions.
+The shared explicit Continue button sends only the request locator and scope;
+the existing provider native-delivery owner resumes in the original conversation.
+Preview, mounting, account setup and OAuth completion do not execute work. An
+unverified, expired or mismatched request shows an error instead of an unbound
+fallback. The read-only preview cache is keyed by Organization/user/request and
+is discarded on unmount. Older clients still see a normal setup page/link; they
+must not be counted as supporting the new continuation interaction.
+
+Independent authenticated browser/installed Desktop acceptance remains in
+`design-plans/1254-composable-plugin-workflow.md`; component tests are not that
+acceptance.
 
 ## Selected Space work
 

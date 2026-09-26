@@ -1,7 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { pluginConnectionContinuationBindingSchema } from "@openmeld/schemas";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   pluginContinuationMessageFingerprint,
   pluginContinuationTextDigest,
@@ -114,6 +114,66 @@ describe("Plugin continuation at the real Space persistence transaction", () => 
       };
       insertSignalRecord(state.storage.sql, source);
       insertSignalRecord(state.storage.sql, reply);
+      // Local completion uses the RuntimeCoordinator trace. Neither a final
+      // message nor D1 dispatch provenance alone is treated as completed work.
+      const trace = {
+        dispatch: { dispatchId: dispatch.dispatchId },
+        result: { publishedSignalId: reply.id, statusType: null },
+        runtimeCoordinatorExecution: {
+          runtimeCoordinatorExecutionId: "execution-local",
+          bindingId: "binding-local",
+          spaceId,
+          dispatchId: dispatch.dispatchId,
+          targetProfileId: agent,
+          status: "reply_published",
+          terminalOutcome: {
+            kind: "reply_published",
+            observedAtMs: Date.now(),
+          },
+          createdAtMs: Date.now() - 100,
+        },
+      };
+      const traceRead = vi
+        .spyOn(instance, "rpcGetDispatchTrace")
+        .mockResolvedValue({ trace } as never);
+      const localInput = {
+        spaceId,
+        sourceSignalId: reply.id,
+        context: {
+          activeOrganizationId: "org-continuation",
+          actorContext: {
+            requestId: "local-plugin-source",
+            profileKind: "human" as const,
+            openMeldProfileId: human,
+            ownerUserId: "user-continuation",
+          },
+        },
+      };
+      expect(
+        await instance.rpcReadPluginConnectionLocalSource(localInput)
+      ).toMatchObject({
+        bindingId: "binding-local",
+        executionId: "execution-local",
+        sourceSignalId: source.id,
+      });
+      trace.runtimeCoordinatorExecution.status = "running";
+      await expect(
+        instance.rpcReadPluginConnectionLocalSource(localInput)
+      ).rejects.toThrow("source_changed");
+      trace.runtimeCoordinatorExecution.status = "reply_published";
+      await expect(
+        instance.rpcReadPluginConnectionLocalSource({
+          ...localInput,
+          context: {
+            ...localInput.context,
+            actorContext: {
+              ...localInput.context.actorContext,
+              openMeldProfileId: "66666666-6666-4666-8666-666666666666",
+            },
+          },
+        })
+      ).rejects.toThrow("source_changed");
+      traceRead.mockRestore();
       const binding = pluginConnectionContinuationBindingSchema.parse({
         v: 1,
         organizationId: "org-continuation",

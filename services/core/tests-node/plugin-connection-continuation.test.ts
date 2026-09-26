@@ -18,6 +18,10 @@ const owner = vi.hoisted(() => ({
   permission: vi.fn(),
   receipts: vi.fn(),
   post: vi.fn(),
+  localSource: vi.fn(),
+  localProfile: vi.fn(),
+  localPermission: vi.fn(),
+  localBinding: vi.fn(),
 }));
 vi.mock("../src/lib/bindings", () => ({
   identityDb: () => ({}),
@@ -31,6 +35,7 @@ vi.mock("../src/rpc/methods", () => ({
   rpcListSignals: owner.signals,
   rpcGetSpaceMemberDirectory: owner.directory,
   rpcPostSignalOnceByClientMessageId: owner.post,
+  rpcReadPluginConnectionLocalSource: owner.localSource,
 }));
 vi.mock(
   "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
@@ -41,10 +46,19 @@ vi.mock("../src/connectors/connector-connection-repository", () => ({
 }));
 vi.mock("../src/connectors/plugin-access", () => ({
   requireRemotePluginConnection: owner.permission,
+  requirePluginPermission: owner.localPermission,
 }));
 vi.mock("../src/center-agent/connector-action-operation-repository", () => ({
   listConnectorOperationReceiptsForContinuation: owner.receipts,
 }));
+
+vi.mock("../src/connectors/plugin-local-caller", () => ({
+  requirePluginProfile: owner.localProfile,
+}));
+vi.mock(
+  "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo",
+  () => ({ readPrimaryAgentProfileBindingRecord: owner.localBinding })
+);
 
 const request = createSubmitTurnRequest();
 const humanId = request.author.profileId as string;
@@ -211,6 +225,61 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
         effect: "read",
       })
     );
+  });
+
+  it("continues a completed Local Agent reply through the same Message/Wake owner and checks Local rather than Hosted permissions", async () => {
+    owner.delivery.mockResolvedValue(null);
+    owner.localBinding.mockResolvedValue({
+      bindingId: request.bindingId,
+      bindingState: "enabled_primary",
+      runtimeKind: "openmeld_service",
+    });
+    owner.localProfile.mockResolvedValue({
+      profileKind: "agent",
+      organizationId: request.organizationId,
+      ownerUserId: "user_1",
+    });
+    owner.localSource.mockResolvedValue({
+      executionId: "rc-execution",
+      bindingId: request.bindingId,
+      dispatchId: request.dispatchId,
+      targetProfileId: request.agentProfileId,
+      sourceSignalId: request.triggerMessageId,
+      requesterProfileId: humanId,
+      requesterDisplayName: "Maya",
+      createdAtMs: 100,
+      completedAtMs: 200,
+      threadContext: null,
+    });
+    await continuePluginConnection(env, input);
+    expect(owner.localPermission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        consumer: "local_agent",
+        connectionName: "github-member",
+        effect: "read",
+      })
+    );
+    expect(owner.permission).not.toHaveBeenCalled();
+    expect(owner.post).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({
+        pluginContinuation: expect.objectContaining({
+          sourceDispatchId: request.dispatchId,
+          targetProfileId: request.agentProfileId,
+        }),
+      })
+    );
+    await continuePluginConnection(env, input);
+    expect(owner.post.mock.calls[0]?.[1].clientMessageId).toBe(
+      owner.post.mock.calls[1]?.[1].clientMessageId
+    );
+  });
+
+  it("does not fall back to Local continuation when a known Hosted execution is invalid", async () => {
+    owner.delivery.mockResolvedValue(delivery({ status: "accepted" }));
+    await expect(continuePluginConnection(env, input)).rejects.toThrow();
+    expect(owner.localSource).not.toHaveBeenCalled();
+    expect(owner.post).not.toHaveBeenCalled();
   });
 
   it("retries through the same idempotent message identity even from a different browser request", async () => {

@@ -1,15 +1,15 @@
 import {
 	type PluginConnectionContinuationBody,
+	pluginChannelContinueResponseSchema,
 	pluginConnectionContinuationResponseSchema,
 } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { useMutation } from "@tanstack/react-query";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
-export type PluginConnectionContinuationContext = {
-	spaceId: string;
-	sourceSignalId: string;
-};
+export type PluginConnectionContinuationContext =
+	| { spaceId: string; sourceSignalId: string }
+	| { channelRequestId: string };
 
 export function PluginConnectionContinuation(
 	input: PluginConnectionContinuationContext & {
@@ -21,8 +21,25 @@ export function PluginConnectionContinuation(
 ) {
 	const mutation = useMutation({
 		retry: false,
-		mutationFn: () =>
-			createOrganizationScopedWebOpenMeldApiFoundation({
+		mutationFn: async () => {
+			if ("channelRequestId" in input) {
+				return await createOrganizationScopedWebOpenMeldApiFoundation({
+					organizationId: input.organizationId,
+				}).requestJson({
+					url: `/v1/organizations/current/plugins/connection-requests/continue?expectedOrganizationId=${encodeURIComponent(input.organizationId)}`,
+					operation: "plugin.channel.continue",
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						requestId: input.channelRequestId,
+						scope: input.scope,
+					}),
+					schema: pluginChannelContinueResponseSchema,
+					invalidMessage:
+						"The original channel task could not be confirmed as continued. Retry this same request to check its existing delivery.",
+				});
+			}
+			return await createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			}).requestJson({
 				url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/plugin-connection/continue`,
@@ -37,7 +54,8 @@ export function PluginConnectionContinuation(
 				schema: pluginConnectionContinuationResponseSchema,
 				invalidMessage:
 					"The task continuation could not be confirmed. Try again; it will not create another request.",
-			}),
+			});
+		},
 	});
 	return (
 		<div className="space-y-2 border-border/70 border-t py-3">

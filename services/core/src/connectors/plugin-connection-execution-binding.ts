@@ -4,16 +4,27 @@ import type {
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
 import { type CoreBindings, wakeEvidenceDb } from "../lib/bindings";
-import { readRemoteAgentNativeDeliveryBySubmissionId } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import {
+  type RemoteAgentNativeDeliveryRecord,
+  readRemoteAgentNativeDeliveryByDeliveryId,
+  readRemoteAgentNativeDeliveryBySubmissionId,
+} from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readPluginChannelMetadata } from "../remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { rpcReadPluginConnectionContinuationBinding } from "../rpc/methods";
+
+type ExecutionConnectionBinding = Pick<
+  PluginConnectionContinuationBinding,
+  "service" | "scope" | "connectionName" | "connectionUpdatedAtMs"
+>;
 
 /** The selection belongs to the actual admitted Message, not a model argument,
  * prompt sentence or mutable conversation preference. Existing Core permissions
  * are still required; this constraint never grants a capability. */
 export async function readPluginConnectionExecutionBinding(
   env: CoreBindings,
-  context: OpenMeldRequestContext
+  context: OpenMeldRequestContext,
+  service?: string
 ) {
   const submissionId = context.agentControllerConversationId;
   if (!submissionId) {
@@ -40,25 +51,118 @@ export async function readPluginConnectionExecutionBinding(
   const request =
     delivery.executionRecoverySubmitRequest ?? delivery.workerSubmitRequest;
   const sender = request?.turnEnvelope.sender;
-  if (
-    delivery.conversationKind !== "space" ||
-    sender?.kind !== "member" ||
-    !sender.verified ||
-    !sender.ownerUserId
-  ) {
+  if (sender?.kind !== "member" || !sender.verified || !sender.ownerUserId) {
+    if (
+      delivery.idempotencyKey.startsWith("plugin-channel-continue:") ||
+      delivery.triggerMessageId.startsWith("plugin-channel-continue:")
+    ) {
+      throw unavailable();
+    }
     return null;
   }
-  return await rpcReadPluginConnectionContinuationBinding(env, {
-    organizationId: delivery.organizationId,
-    spaceId: delivery.spaceId,
-    signalId: delivery.triggerMessageId,
-    targetProfileId: delivery.profileId,
-    requesterUserId: sender.ownerUserId,
-  });
+  if (delivery.conversationKind !== "space") {
+    return await readChannelBindingChain(
+      db,
+      delivery,
+      sender.ownerUserId,
+      request?.author.profileId ?? null,
+      service
+    );
+  }
+  return await readSpacePluginConnectionBinding(
+    env,
+    {
+      organizationId: delivery.organizationId,
+      spaceId: delivery.spaceId,
+      signalId: delivery.triggerMessageId,
+      targetProfileId: delivery.profileId,
+      requesterUserId: sender.ownerUserId,
+    },
+    service
+  );
+}
+
+// Walk only authenticated continuation ancestry, not unrelated conversation
+// history. A second Plugin setup retains an earlier explicit account choice.
+export async function readSpacePluginConnectionBinding(
+  env: CoreBindings,
+  input: Parameters<typeof rpcReadPluginConnectionContinuationBinding>[1],
+  service?: string
+) {
+  let signalId = input.signalId;
+  const seen = new Set<string>();
+  for (let hop = 0; hop < 32; hop += 1) {
+    if (seen.has(signalId)) {
+      throw unavailable();
+    }
+    seen.add(signalId);
+    const binding = await rpcReadPluginConnectionContinuationBinding(env, {
+      ...input,
+      signalId,
+    });
+    if (!(binding && service) || binding.service === service) {
+      return binding;
+    }
+    signalId = binding.source.signalId;
+  }
+  throw unavailable();
+}
+
+async function readChannelBindingChain(
+  db: D1Database,
+  current: RemoteAgentNativeDeliveryRecord,
+  userId: string,
+  profileId: string | null,
+  service?: string
+) {
+  let delivery = current;
+  const seen = new Set<string>();
+  for (let hop = 0; hop < 32; hop += 1) {
+    if (seen.has(delivery.deliveryId)) {
+      throw unavailable();
+    }
+    seen.add(delivery.deliveryId);
+    const metadata = await readPluginChannelMetadata(db, delivery.deliveryId);
+    if (metadata?.kind !== "continuation") {
+      if (
+        delivery.idempotencyKey.startsWith("plugin-channel-continue:") ||
+        delivery.triggerMessageId.startsWith("plugin-channel-continue:")
+      ) {
+        throw unavailable();
+      }
+      return null;
+    }
+    const binding = metadata.executionSelection;
+    if (
+      binding.organizationId !== current.organizationId ||
+      binding.targetProfileId !== current.profileId ||
+      binding.requesterUserId !== userId ||
+      binding.requesterProfileId !== profileId
+    ) {
+      throw unavailable();
+    }
+    if (!service || binding.service === service) {
+      return binding;
+    }
+    const parent = await readRemoteAgentNativeDeliveryByDeliveryId({
+      db,
+      deliveryId: binding.sourceDeliveryId,
+    });
+    if (
+      !parent ||
+      parent.organizationId !== current.organizationId ||
+      parent.profileId !== current.profileId ||
+      parent.spaceId !== current.spaceId
+    ) {
+      throw unavailable();
+    }
+    delivery = parent;
+  }
+  throw unavailable();
 }
 
 export function boundPluginConnectionPreference(
-  binding: PluginConnectionContinuationBinding | null,
+  binding: ExecutionConnectionBinding | null,
   service: string,
   preference: ConnectorConnectionPreference
 ): ConnectorConnectionPreference {
@@ -73,7 +177,7 @@ export function boundPluginConnectionPreference(
 }
 
 export function assertBoundPluginConnection(
-  binding: PluginConnectionContinuationBinding | null,
+  binding: ExecutionConnectionBinding | null,
   service: string,
   connection: { connectionName: string; updatedAtMs: number } | null
 ) {

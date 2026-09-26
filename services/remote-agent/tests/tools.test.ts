@@ -2443,6 +2443,62 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).rejects.toThrow("trusted OpenMeld link is unavailable");
   });
 
+  it("routes unlinked external Plugin setup through the existing identity boundary before offering account access", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      author: { displayName: "Ari", profileId: null, profileKind: null },
+      onBehalfOf: null,
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          id: "slack:T123:U123",
+          displayName: "Ari",
+          kind: "member",
+          verified: false,
+          messageChannelIdentity: {
+            provider: "slack",
+            connectionId: "T123",
+            providerUserId: "U123",
+          },
+        },
+        trigger: { source: "slack", teamId: "T123" },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const authorize = vi.fn(async () => ({
+      authorized: true as const,
+      messageChannelIdentityLinkSupported: true as const,
+      messageChannelAccountTargetSupported: true as const,
+      sourceNativeDeliveryId: "delivery_123",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentAuthorizeAnonymousMemberTool: authorize },
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    const result = await executeTool(tools, "openmeld_get_navigation_action", {
+      kind: "plugin_connection",
+      service: "github",
+      scope: "choose",
+    });
+    expect(result).toMatchObject({
+      actionWillBeAttached: true,
+      target: {
+        kind: "message_channel_identity_link",
+        purpose: "continue_request",
+      },
+    });
+    expect(result).not.toHaveProperty("url");
+    expect(
+      await readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).toMatchObject({
+      anonymousIdentityBoundary: {
+        requestedAction: "Connect github and continue this request",
+      },
+    });
+    expect(authorize).toHaveBeenCalled();
+  });
+
   it("binds a private Message Channel connection action only after the current requester reaches a personal boundary", async () => {
     const base = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({

@@ -423,6 +423,10 @@ import {
   rpcListPluginAccess,
   rpcUpdatePluginAccess,
 } from "./connectors/plugin-access-rpc";
+import {
+  continuePluginChannelConnection,
+  previewPluginChannelConnection,
+} from "./connectors/plugin-channel-continuation";
 import { continuePluginConnection } from "./connectors/plugin-connection-continuation";
 import {
   inspectCoreDbState,
@@ -2893,6 +2897,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   pluginAction(input: import("@openmeld/schemas/types").PluginActionRpcInput) {
     return rpcPluginAction(this.env, input);
+  }
+
+  previewPluginChannelConnection(input: unknown) {
+    return previewPluginChannelConnection(this.env, input);
+  }
+
+  continuePluginChannelConnection(input: unknown) {
+    return continuePluginChannelConnection(this.env, input);
   }
 
   continuePluginConnection(input: unknown) {

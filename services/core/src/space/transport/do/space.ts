@@ -66,10 +66,13 @@ import {
   normalizeSpaceCursorPatch,
   openMeldDaemonTaskResultEnvelopeSchema,
   type PluginConnectionContinuationBinding,
+  type PluginConnectionLocalSourceRequest,
   parseOptionalClientMessageId,
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
   pluginConnectionContinuationBindingSchema,
+  pluginConnectionLocalSourceRequestSchema,
+  pluginConnectionLocalSourceResponseSchema,
   postResolvedSpaceMembersBodySchema,
   postSpaceDispatchOutboxRedriveBodySchema,
   postSpaceDispatchOutboxRedriveResponseSchema,
@@ -4974,6 +4977,73 @@ export class Space extends DurableObject<CoreBindings> {
         input.spaceAddressingVersion === OPENMELD_SPACE_ADDRESSING_VERSION,
     });
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcReadPluginConnectionLocalSource(
+    raw: PluginConnectionLocalSourceRequest
+  ) {
+    const input = pluginConnectionLocalSourceRequestSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const reply = this.readSourceTextSignalById(input.sourceSignalId);
+    if (
+      !(
+        input.context.actorContext.profileKind === "human" &&
+        reply?.profile.kind === "agent" &&
+        reply.data.meta?.dispatchId
+      ) ||
+      reply.data.meta.editedAt ||
+      reply.data.meta.recalledAt
+    ) {
+      throw pluginContinuationConflict();
+    }
+    // This authenticated trace reads RuntimeCoordinator, not a guessed D1 status.
+    const { trace } = await this.rpcGetDispatchTrace({
+      ...input,
+      dispatchId: reply.data.meta.dispatchId,
+    });
+    const execution = trace?.runtimeCoordinatorExecution;
+    if (
+      !(
+        execution?.status === "reply_published" &&
+        execution.terminalOutcome?.kind === "reply_published" &&
+        execution.spaceId === input.spaceId &&
+        execution.targetProfileId === reply.profile.profileId &&
+        execution.dispatchId === reply.data.meta.dispatchId &&
+        trace?.result?.publishedSignalId === reply.id &&
+        trace.result.statusType === null
+      )
+    ) {
+      throw pluginContinuationConflict();
+    }
+    const dispatch = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      execution.dispatchId
+    );
+    const source =
+      dispatch && this.readSourceTextSignalById(dispatch.sourceEventId);
+    if (
+      !(
+        source?.profile.kind === "human" &&
+        source.profile.profileId ===
+          input.context.actorContext.openMeldProfileId &&
+        dispatch?.organizationId === input.context.activeOrganizationId
+      ) ||
+      source.data.meta?.recalledAt
+    ) {
+      throw pluginContinuationConflict();
+    }
+    return pluginConnectionLocalSourceResponseSchema.parse({
+      executionId: execution.runtimeCoordinatorExecutionId,
+      bindingId: execution.bindingId,
+      dispatchId: execution.dispatchId,
+      targetProfileId: execution.targetProfileId,
+      sourceSignalId: source.id,
+      requesterProfileId: source.profile.profileId,
+      requesterDisplayName: source.profile.profileName,
+      createdAtMs: execution.createdAtMs,
+      completedAtMs: execution.terminalOutcome.observedAtMs,
+      threadContext: this.resolveThreadContextForSignal(reply.id),
+    });
   }
 
   async rpcPostPluginConnectionContinuation(

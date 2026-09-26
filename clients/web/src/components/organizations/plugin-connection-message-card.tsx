@@ -73,7 +73,7 @@ export function PluginConnectionMessageCard(input: {
 				</DialogHeader>
 				<ScrollArea className="max-h-[65dvh] min-h-0">
 					{open ? (
-						<PluginConnectionDialogBody
+						<PluginConnectionSetupPanel
 							continuation={input.continuation}
 							currentUserId={organization.currentUserId}
 							key={`${organization.currentOrganization.id}:${organization.currentUserId}:${plugin.service}:${input.action.target.scope}`}
@@ -88,7 +88,7 @@ export function PluginConnectionMessageCard(input: {
 	);
 }
 
-function PluginConnectionDialogBody(input: {
+export function PluginConnectionSetupPanel(input: {
 	continuation?: PluginConnectionContinuationContext;
 	currentUserId: string;
 	organization: OrganizationSummary;
@@ -273,7 +273,7 @@ function PluginConnectionSetup(input: {
 							? input.hasMemberConnection
 							: input.hasSharedConnection
 					}
-					key={`${input.continuation.sourceSignalId}:${scope}`}
+					key={`${"channelRequestId" in input.continuation ? input.continuation.channelRequestId : input.continuation.sourceSignalId}:${scope}`}
 					organizationId={input.organization.id}
 					scope={scope}
 					service={input.plugin.service}

@@ -2148,6 +2148,29 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             });
           return navigation;
         }
+        if (
+          parsedTarget.kind === "plugin_connection" &&
+          turnEnvelope?.sender.kind === "member" &&
+          !turnEnvelope.sender.verified &&
+          turnEnvelope.sender.messageChannelIdentity
+        ) {
+          await recordRemoteAgentAnonymousIdentityBoundary({
+            requestedAction: `Connect ${parsedTarget.service} and continue this request`,
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_get_navigation_action",
+          });
+          return await executeMessageChannelIdentityNavigationAction({
+            coreWorker: input.coreWorker,
+            parsedTarget: {
+              kind: "message_channel_identity_link",
+              purpose: "continue_request",
+            },
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolContext,
+          });
+        }
         const organizationWebUrl = turnEnvelope?.organization.webUrl;
         if (!organizationWebUrl) {
           throw new Error(

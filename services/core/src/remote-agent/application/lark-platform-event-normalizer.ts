@@ -262,6 +262,51 @@ function normalizeMessageEvent(input: {
       };
 }
 
+/** The GET-message API uses msg_type/body rather than the webhook envelope.
+ * Share content/mention rules without inventing another webhook or truncating
+ * the original text used by explicit continuation. */
+export function readLarkPlatformMessageSnapshot(input: {
+  item: Record<string, unknown>;
+  botOpenId: string | null;
+}) {
+  const item = input.item;
+  const body = readObject(item, "body");
+  const normalized = normalizeMessageContent({
+    messageType: readString(item, "msg_type"),
+    content: parseJsonObject(readString(body, "content")),
+  });
+  if (normalized.status !== "normalized") {
+    return null;
+  }
+  const sender = readObject(item, "sender");
+  const messageId = readString(item, "message_id");
+  const providerUserId = readString(sender, "id");
+  if (
+    !(messageId && providerUserId) ||
+    readString(sender, "sender_type") !== "user" ||
+    item.deleted === true ||
+    item.updated === true
+  ) {
+    return null;
+  }
+  const created = readString(item, "create_time");
+  const updated = readString(item, "update_time");
+  return {
+    messageId,
+    providerUserId,
+    text: stripBotMentions(
+      normalized.text,
+      readBotMentionKeys({
+        botOpenId: input.botOpenId,
+        mentions: item.mentions,
+      })
+    ),
+    resourceIds: normalized.resources.map((resource) => resource.fileKey),
+    revision:
+      updated && updated !== "0" && updated !== created ? updated : null,
+  };
+}
+
 function normalizeMessageContent(input: {
   content: JsonObject | null;
   messageType: string | null;
@@ -369,7 +414,11 @@ function readBotMentionKeys(input: {
     if (!isJsonObject(mention)) {
       continue;
     }
-    const mentionedOpenId = readNestedString(mention, "id", "open_id");
+    const mentionedOpenId =
+      readNestedString(mention, "id", "open_id") ??
+      (readString(mention, "id_type") === "open_id"
+        ? readString(mention, "id")
+        : null);
     const key = readString(mention, "key");
     if (mentionedOpenId === input.botOpenId && key) {
       keys.push(key);

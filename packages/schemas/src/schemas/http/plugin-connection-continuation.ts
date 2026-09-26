@@ -30,6 +30,30 @@ export const pluginConnectionContinuationResponseSchema = z.strictObject({
   threadId: identity.nullable(),
 });
 
+// An internal Space projection over a completed RuntimeCoordinator execution.
+// D1 request provenance alone never establishes workstation completion.
+export const pluginConnectionLocalSourceRequestSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  spaceId: identity,
+  sourceSignalId: identity,
+  password: z.string().optional(),
+});
+export const pluginConnectionLocalSourceResponseSchema = z.strictObject({
+  executionId: identity,
+  bindingId: identity,
+  dispatchId: identity,
+  targetProfileId: identity,
+  sourceSignalId: identity,
+  requesterProfileId: identity,
+  requesterDisplayName: z.string(),
+  createdAtMs: z.number().int().nonnegative(),
+  completedAtMs: z.number().int().nonnegative(),
+  threadContext: spaceThreadContextSchema.nullable(),
+});
+export type PluginConnectionLocalSourceRequest = zod.infer<
+  typeof pluginConnectionLocalSourceRequestSchema
+>;
+
 const messageGuardSchema = z.strictObject({
   signalId: identity,
   revision: z.number().int().nonnegative(),

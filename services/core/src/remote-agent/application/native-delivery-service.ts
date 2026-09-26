@@ -1,4 +1,8 @@
 import type { Profile, SignalEnvelope, SpaceMeta } from "@openmeld/protocol";
+import type {
+  PluginChannelSelection,
+  PluginChannelSourceProof,
+} from "@openmeld/schemas";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
   buildAgentTaskKey,
@@ -92,6 +96,7 @@ import { createCoreCenterAgentMemoryService } from "../../center-agent-memory/co
 import { resolveCenterAgentMemoryFrozenTurnContext } from "../../center-agent-memory/frozen-turn-context";
 import type { CenterAgentMemoryService } from "../../center-agent-memory/memory-service";
 import { readModelCatalog } from "../../config/model-catalog";
+import { preparePluginChannelNavigation } from "../../connectors/plugin-channel-navigation";
 import { buildDispatchReplyTargetProfile } from "../../dispatch/application/dispatch-reply-foundation";
 import {
   markDispatchStatus,
@@ -219,6 +224,10 @@ import {
   suppressLinkedSlackNativeDeliveryInboxProjectionIfRecipientMissing,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
+import {
+  readPluginChannelMetadata,
+  recordPluginChannelAdmission,
+} from "../infrastructure/d1/plugin-channel-metadata-repo";
 import {
   advanceSlackIdentityContinuationAttempt,
   expireSlackIdentityLinkToken,
@@ -434,6 +443,8 @@ type NativeDeliveryPublishRecord = Pick<
 };
 
 type RemoteAgentSlackNativeDeliveryInputBase = {
+  pluginSourceProof?: PluginChannelSourceProof;
+  pluginSelection?: PluginChannelSelection;
   agentProfileId: string;
   agentProfileOwnerUserId: string | null;
   author: RemoteAgentWorkerAuthorContext;
@@ -1435,7 +1446,12 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
   nowMs: number;
   request: RemoteAgentSlackNativeDeliveryInput;
 }): Promise<{ shouldAck: boolean; status: "submitted" | "failed" }> {
-  await admitRemoteAgentSlackNativeDelivery(input);
+  const admitted = await admitRemoteAgentSlackNativeDelivery(input);
+  await recordPluginChannelAdmission(
+    input.db,
+    admitted.deliveryId,
+    input.request
+  );
   const existingDelivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
     db: input.db,
     idempotencyKey: input.request.idempotencyKey,
@@ -1806,7 +1822,12 @@ export async function continueSlackIdentityOnboardingRequest(input: {
       identity: continuationIdentity,
     });
   }
+  const pluginMetadata = await readPluginChannelMetadata(
+    input.db,
+    sourceDelivery.deliveryId
+  );
   const continuationRequest: RemoteAgentSlackNativeDeliveryInput = {
+    ...(pluginMetadata ? { pluginSourceProof: pluginMetadata.proof } : {}),
     agentProfileId: sourceDelivery.profileId,
     agentProfileOwnerUserId: originalRequest.agentProfileOwnerUserId,
     author: {
@@ -8110,6 +8131,7 @@ async function retryRemoteAgentRequiredPostResultGuidance(input: {
     input.body.status === "failed" ||
     (input.body.navigationTarget?.kind !== "slack_identity_link" &&
       input.body.navigationTarget?.kind !== "computer_setup" &&
+      input.body.navigationTarget?.kind !== "plugin_connection" &&
       !(
         input.body.navigationTarget?.kind === "message_channel_identity_link" &&
         input.body.navigationTarget.purpose === "continue_request"
@@ -8131,7 +8153,10 @@ async function retryRemoteAgentRequiredPostResultGuidance(input: {
       status: "retryable",
     };
   }
-  if (input.body.navigationTarget?.kind === "computer_setup") {
+  if (
+    input.body.navigationTarget?.kind === "computer_setup" ||
+    input.body.navigationTarget?.kind === "plugin_connection"
+  ) {
     return await publishRemoteAgentMessageChannelPrivateNavigationAfterResult({
       body: input.body,
       db: input.db,
@@ -11954,7 +11979,8 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
 > | null> {
   if (
     input.body.status === "failed" ||
-    input.body.navigationTarget?.kind !== "computer_setup"
+    (input.body.navigationTarget?.kind !== "computer_setup" &&
+      input.body.navigationTarget?.kind !== "plugin_connection")
   ) {
     return null;
   }
@@ -11999,15 +12025,27 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
     };
   }
   try {
+    const db = wakeEvidenceDb(input.env);
+    if (!db) {
+      throw new Error("plugin.channel.state_unavailable");
+    }
+    const navigationAction = await preparePluginChannelNavigation({
+      db,
+      delivery: input.delivery,
+      action,
+    });
     await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
       env: input.env,
-      navigationAction: action,
+      navigationAction,
       privateRecipientUserId: identity.providerUserId,
       signal: AbortSignal.timeout(
         REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS
       ),
-      text: buildComputerSetupGuidanceText(action),
+      text:
+        action.target.kind === "plugin_connection"
+          ? "Connect or review this Plugin in OpenMeld. Only you can explicitly continue the original task after setup; connecting does not grant Agent access or start work."
+          : buildComputerSetupGuidanceText(action),
     });
     return null;
   } catch (error) {

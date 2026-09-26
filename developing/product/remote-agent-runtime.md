@@ -71,6 +71,57 @@ returns the original Message without creating another Wake. Edits to a continued
 Message invalidate its execution binding. This metadata is not a new task,
 permission store or scheduler.
 
+### Local and external conversation carriers
+
+Local Agent setup uses `openmeld plugins connect <service>` through the existing
+permission-bearing Plugin CLI/RPC path. It returns the same compatible final
+reply suffix; it is not a second OAuth or execution implementation. Native
+continuation first reads the authoritative RuntimeCoordinator published-reply
+trace and enabled Local Binding, then shares the same original-human, revision,
+Thread, receipt and Space-transaction gates as Hosted requests. A known invalid
+Hosted delivery never falls back to Local admission. Local execution still
+uses the existing Local Agent access policy, not Hosted/Center permissions.
+
+Slack, Feishu and Lark Plugin guidance is private to the provider requester.
+Unlinked users first use the existing identity-link workflow. The native delivery
+retains a private original-message proof (full received text, immutable resource
+IDs, provider author and edit revision), a bounded setup intent and the explicit
+account choice in `plugin_connection_metadata_json`. This is additive nullable
+metadata in the same delivery row, with the same retention; it is not another
+scheduler, permission store or operation ledger. No credentials enter it.
+
+A channel setup URL contains only an opaque request locator. Both preview and
+Continue require the original signed-in human and current Organization/provider
+identity. Continue rechecks the channel, current designated Agent/Binding,
+existing Plugin access and previous operation outcomes, and re-reads the exact
+original provider message. Edited, recalled, missing, relinked or unavailable
+sources are refused. A provider read and Core's acceptance are not a distributed
+atomic transaction; do not claim instantaneous revocation of already executing
+work. Native Space message acceptance retains its stronger same-transaction
+revision fence.
+
+Only the explicit human action selects the account and submits one stable
+idempotent continuation through the existing Slack or Message Channel native
+owner. The binding is stored before worker admission; duplicate clicks reuse
+that delivery, while changed account/version/target cannot rebind it. Reply
+placement stays in the original provider conversation. The native worker wire
+is unchanged: Core derives account constraints from admitted private metadata,
+not from prompt text or a model-selected argument. Success says requested,
+never completed. An OAuth callback cannot start this work.
+
+Successive setups retain each earlier Plugin identity through a bounded,
+authenticated continuation ancestry (at most 32 hops). They do not set a global
+conversation preference. A missing, cyclic or wrong-owner ancestor fails closed;
+a separate ordinary request remains unbound. Legacy deliveries without original
+source proof keep a useful setup link, not fabricated resumability. Standalone
+CLI calls and non-message provider control events are not mislabeled as editable
+human-message continuations; those retain their existing explicit control flows.
+
+Apply the additive database migration before new Core receivers/producers, then
+update Remote Agent, Web and CLI. Distinct new HTTP/CLI operations fail visibly
+against older receivers. No new secret/binding, provider scope expansion,
+production migration or connection mutation is implied by this implementation.
+
 ### Admitted Computer audience
 
 New Computer identities include Organization, Agent, Binding, conversation,

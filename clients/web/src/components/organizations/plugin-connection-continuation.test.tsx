@@ -41,6 +41,54 @@ describe("explicit Plugin task continuation", () => {
 		foundation.mockReset().mockReturnValue({ requestJson });
 	});
 	afterEach(cleanup);
+	it("uses the same explicit click for an external request and never resumes from mounting or OAuth completion", async () => {
+		requestJson.mockResolvedValue({
+			status: "requested",
+			requestId: "external",
+			provider: "slack",
+			targetProfileId: "agent",
+		});
+		const view = render(
+			<TestQueryClientProvider>
+				<PluginConnectionContinuation
+					channelRequestId="external"
+					connected={false}
+					organizationId="org-a"
+					scope="shared"
+					service="github"
+				/>
+			</TestQueryClientProvider>
+		);
+		view.rerender(
+			<TestQueryClientProvider>
+				<PluginConnectionContinuation
+					channelRequestId="external"
+					connected
+					organizationId="org-a"
+					scope="shared"
+					service="github"
+				/>
+			</TestQueryClientProvider>
+		);
+		expect(requestJson).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Continue original task" })
+		);
+		await waitFor(() => expect(requestJson).toHaveBeenCalledOnce());
+		const request = requestJson.mock.calls[0][0];
+		expect(request.url).toBe(
+			"/v1/organizations/current/plugins/connection-requests/continue?expectedOrganizationId=org-a"
+		);
+		expect(JSON.parse(request.body)).toEqual({
+			requestId: "external",
+			scope: "shared",
+		});
+		expect(
+			await screen.findByText(
+				"Continuation requested. The Agent will report its result in the original conversation."
+			)
+		).toBeTruthy();
+	});
 
 	it("does not run work on mount or connection completion; one human click uses only the original reply identity", async () => {
 		let resolvePending!: (value: typeof requested) => void;

@@ -1,6 +1,6 @@
 # #1254 — Composable Plugin setup and execution
 
-Status: Draft review corrections implemented, 2026-09-26. F1–F8 have scoped corrections and regression coverage; final check results belong to the PR. Independent authenticated product/installed-client acceptance remains open.
+Status: Draft implementation completion and self-review, 2026-09-26. F1–F8 corrections plus Local and Slack/Feishu/Lark message carriers are implemented. Exact tests/builds and handoff belong to the PR; the owner's Codex performs final independent overall review and authenticated smoke.
 Discussion: https://github.com/amplifthq/openmeld/pull/1254
 
 ## Agent context
@@ -115,6 +115,47 @@ Real provider authorization, installed Desktop, process/cancellation/export
 isolation and full end-to-end continuation acceptance remain outstanding. This
 is a code/test checkpoint for independent review, not a claim of live delivery.
 
+## Implemented carrier completion
+
+| Carrier | Setup and continuation owner | Final acceptance |
+| --- | --- | --- |
+| Center / personal Hosted native conversation | Existing final reply, shared dialog, private Space binding and idempotent Message/Wake | User's Codex |
+| Local Agent native Wake | Plugin CLI `connect`, same final suffix/dialog, actual RuntimeCoordinator completion, current Local Binding and Local Plugin access | User's Codex |
+| Slack | Existing private provider publisher, authenticated request page, exact original proof and existing Slack native delivery | User's Codex |
+| Feishu / Lark | Existing private navigation adapter, same request page, exact GET-message proof and Message Channel native delivery | User's Codex |
+| Standalone CLI / historical requests without original proof | Honest ordinary setup guidance; no invented conversation or retroactive resume grant | Verify safe behavior |
+
+A second Plugin setup preserves the first account choice through bounded
+continuation ancestry. New source metadata lives with native delivery retention;
+source/identity/account constraints are not public Signal fields. The nullable
+migration and distinct new receiver methods precede new producer/CLI rollout.
+No production database, credential, grant or existing connection is changed by
+this work. The final code audit, source-aligned regressions and affected builds
+are implementer evidence; independent review and real smoke remain separate.
+
+## Contract impact of carrier completion
+
+- Public persisted Signal/MessageEnvelope stays unchanged: the canonical link
+  is still the old-client fallback. No provider account or continuation binding
+  is added to public message metadata.
+- `PluginAction` adds a distinct `connect` operation and response. Only that new
+  operation emits `connection_guidance`; existing CLI/API callers keep their
+  previous response variants. New CLI receivers are required for that command.
+- Gateway adds separate human-authenticated preview/continue routes; Core adds
+  a distinct Local-source RPC. Existing delivery and provider tool wires are not
+  widened. Old receivers fail explicitly rather than ignoring identity guards.
+- The native-delivery owner adds one nullable private metadata column through
+  the generated `0183_warm_dark_beast` migration. Its snapshot/journal are owner
+  output, not hand-edited history. Legacy rows remain null; only new admitted
+  proofs become resumable. Database precedes Core, then new CLI/Remote/Web.
+- Current Organization, profile/Binding, provider membership and Plugin policy
+  still come from existing owners. Private metadata only constrains account and
+  source identity; it cannot grant access or assert provider operation success.
+- Standalone CLI, old proofless deliveries and non-message control events are
+  explicitly not manufactured into human-message continuations. Full Git
+  history/LFS/submodules remain the already documented snapshot limits, not a
+  hidden unfinished implementation item.
+
 ## Independent acceptance in this same implementation PR
 
 ### A. Complete and accept conversational setup
@@ -127,9 +168,11 @@ is a code/test checkpoint for independent review, not a claim of live delivery.
   recommending unnecessary reconnection. General App failures can use the same
   typed action once their exact remedy is known; do not classify arbitrary
   provider errors by message keywords.
-- Integrate other eligible Agent carriers through their existing output and
-  identity contracts. Do not claim Local Agent or external-channel coverage
-  merely because a Hosted tool exists.
+- Local final replies now use the Plugin CLI setup command and existing native
+  Message/Wake continuation, gated by the actual RuntimeCoordinator and current
+  Binding. Slack/Feishu/Lark use private provider guidance, authenticated shared
+  setup and existing native delivery. Independently exercise each real carrier;
+  do not infer live acceptance from Hosted tools, mocks or the shared UI.
 - Accept the implemented explicit return-to-work action through the existing Message/Wake owner.
   Bind it to the current authorized member, exact conversation/thread, original
   task and intended Agent. Reconcile the existing operation receipts before

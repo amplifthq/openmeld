@@ -13,6 +13,12 @@ link instead of receiving an unsupported message action. The selected account is
 kept throughout execution, and edited or recalled original requests cannot
 silently resume through an old connection card.
 
+Local Agent replies can now offer the same connection card through
+`plugins connect`. Slack, Feishu and Lark can privately guide the original
+requester to the same secure setup and explicitly continue in the original
+channel. Duplicate clicks keep one delivery, changed original requests are
+refused, and successive Plugin setups keep each selected account separate.
+
 Hosted Computers separate admitted conversation audiences. Large received
 tool results can be read or searched through bounded, expiring references under
 current access checks, including results inside Code Mode. Reading more output
