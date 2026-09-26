@@ -321,6 +321,24 @@ html[data-space-self-message-alignment="right"]
   content-visibility: visible;
 }
 
+/* Attachment rails use the available message width, including after an inline
+   edit adds the first file. Keep the existing maximum/action-space limits. */
+html:root [data-slot="message"] [data-slot="bubble"]:has([data-slot="space-attachment-strip"]) {
+  inline-size: 100%;
+}
+
+/* The same Appearance preference aligns text and attachments, not only their
+   outer message. A short caption must not stay on the opposite side. */
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"] :is([data-slot="space-message-text-surface"], [data-slot="space-message-edited"]) {
+  align-self: flex-start;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"] .space-attachment-strip-items {
+  justify-content: flex-start;
+}
+
 /* Main conversation messages reserve a side for floating actions. Thread actions
    sit below the bubble, so Thread messages can use the panel's full width. */
 :root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
@@ -364,16 +382,6 @@ html[data-space-self-message-alignment="right"]
     [data-slot="bubble"] {
     max-inline-size: min(88%, 52rem);
   }
-}
-
-/* A video needs a stable frame width; ordinary text bubbles still shrink to fit. */
-:root [data-message-row-id] [data-slot="bubble"][data-video-message="true"],
-html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"]
-  [data-message-row-id]
-  [data-slot="bubble"][data-video-message="true"] {
-  inline-size: min(100%, 26rem);
-  max-inline-size: min(100%, 26rem);
 }
 
 @media (min-width: 1280px) {

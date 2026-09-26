@@ -1,5 +1,15 @@
 // Maintenance must remain loadable when the business command graph cannot start.
 // Both distributions use this entry; normal commands keep their existing parser.
+if (
+  process.platform === "win32" &&
+  /[\\/]openmeld\.exe$/iu.test(process.execPath) &&
+  !process.argv.includes("--openmeld-windows-task")
+) {
+  const { restoreWindowsPreviewChannel } = await import(
+    "./local-components/windows-preview-channel"
+  );
+  await restoreWindowsPreviewChannel();
+}
 if (process.argv.includes("--openmeld-windows-task")) {
   const { initializeWindowsTaskEntry } = await import(
     "./local-service/lifecycle/windows-task-entry"

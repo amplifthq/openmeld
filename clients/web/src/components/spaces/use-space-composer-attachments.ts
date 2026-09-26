@@ -1151,6 +1151,15 @@ function resolveUploadFailure(error: unknown): {
 			requestId: failure.requestId,
 		};
 	}
+	if (
+		failure.code === "network.request_failed" ||
+		failure.code === "network.timeout"
+	) {
+		return {
+			message: "Couldn't connect. Check your connection and try again.",
+			requestId: failure.requestId,
+		};
+	}
 	return {
 		message: failure.message || "OpenMeld couldn't add this file. Try again.",
 		requestId: failure.requestId,
