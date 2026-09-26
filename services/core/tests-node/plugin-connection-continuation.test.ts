@@ -80,7 +80,10 @@ function delivery(overrides: Partial<RemoteAgentNativeDeliveryRecord> = {}) {
     routineRunId: null,
     workerSubmitRequest: request,
     triggerMessageId: request.triggerMessageId,
-    threadContext: { threadId: "thread-1", rootSignalId: "thread-root" },
+    threadContext: {
+      threadId: "thr_11111111-1111-4111-8111-111111111111",
+      rootSignalId: "thread-root",
+    },
     createdAtMs: 100,
     completedAtMs: 200,
     ...overrides,
@@ -132,7 +135,11 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
     });
     owner.delivery.mockResolvedValue(delivery());
     owner.connection.mockResolvedValue({
-      connection: { connectionName: "github-member", scope: "member" },
+      connection: {
+        connectionName: "github-member",
+        scope: "member",
+        updatedAtMs: 42,
+      },
       selection: "requester",
     });
     owner.permission.mockResolvedValue({});
@@ -155,7 +162,7 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       signalId: "continued-1",
       spaceId: request.spaceId,
       targetProfileId: request.agentProfileId,
-      threadId: "thread-1",
+      threadId: "thr_11111111-1111-4111-8111-111111111111",
     });
     expect(owner.post).toHaveBeenCalledOnce();
     const posted = owner.post.mock.calls[0]?.[1];
@@ -170,8 +177,23 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
         activationTargets: [request.agentProfileId],
         replyToSignalId: request.triggerMessageId,
       },
-      threadContext: { threadId: "thread-1", rootSignalId: "thread-root" },
+      threadContext: {
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        rootSignalId: "thread-root",
+      },
     });
+    expect(posted.pluginContinuation).toMatchObject({
+      service: "github",
+      scope: "member",
+      connectionName: "github-member",
+      connectionUpdatedAtMs: 42,
+      source: { signalId: request.triggerMessageId },
+      reply: { signalId: "reply-1" },
+      requesterProfileId: humanId,
+      requesterUserId: "user_1",
+      targetProfileId: request.agentProfileId,
+    });
+    expect(posted.meta).not.toHaveProperty("pluginContinuation");
     expect(posted.clientMessageId).toBe(posted.meta.clientMessageId);
     expect(posted.text).toContain('"operationId":"original-write"');
     expect(posted.text).toContain(

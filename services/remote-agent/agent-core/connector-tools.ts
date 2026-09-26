@@ -80,6 +80,7 @@ type ConnectorToolDependencies = {
 };
 type ConnectorActionOperationRequest = {
   actionId: string;
+  connectionPreference?: "requester" | "shared";
   input: Record<string, unknown>;
   operationId: string;
   providerIdempotencyKey?: string;
@@ -101,6 +102,7 @@ const listAppActionsInputSchema = object({
 });
 const executeAppActionInputSchema = object({
   actionId: pipe(string(), trim(), minLength(1), maxLength(160)),
+  connectionPreference: optional(picklist(["requester", "shared"])),
   destructiveConfirmationToken: optional(
     pipe(string(), trim(), minLength(1), maxLength(512))
   ),
@@ -193,7 +195,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     {
       name: "openmeld_execute_app_action",
       description:
-        "Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write. A successful execution returns both data and its outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. An interactive destructive action requires linked OpenMeld identity and returns an exact action preview and token. If the verified user already authorized that action and target, use the token with unchanged input now; otherwise ask first. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId and reuse it when retrying this exact action. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.",
+        "Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write. A successful execution returns both data and its outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. An interactive destructive action requires linked OpenMeld identity and returns an exact action preview and token. If the verified user already authorized that action and target, use the token with unchanged input now; otherwise ask first. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId and reuse it when retrying this exact action. Set connectionPreference to requester or shared when the user explicitly chooses their own or the Organization account; do not substitute another account. A connection continuation may pin the exact account on the server. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.",
       input: executeAppActionInputSchema,
       execute: (payload) =>
         executeAppAction({
@@ -257,6 +259,10 @@ async function executeAppAction(input: {
     service: input.request.service,
     toolContext,
   });
+  assertOperationIdentityPreference(
+    existingOperation,
+    input.request.connectionPreference
+  );
   const routineAction =
     !existingOperation && toolContext.turnEnvelope?.trigger.source === "routine"
       ? (policyAction ??
@@ -291,7 +297,10 @@ async function executeAppAction(input: {
         service: input.request.service,
       }));
     if (requiresHighRiskConnectorActionPolicy(executionAction)) {
-      const requester = resolveConnectorTurnRequester(toolContext.turnEnvelope);
+      const requester = resolveConnectorTurnRequester(
+        toolContext.turnEnvelope,
+        input.request.connectionPreference
+      );
       confirmedSelection = await requireAvailableConnectorConnection({
         storage: input.dependencies.storage,
         submissionId: input.dependencies.submissionId,
@@ -394,6 +403,21 @@ async function executeAppAction(input: {
   );
 }
 
+function assertOperationIdentityPreference(
+  operation: Awaited<ReturnType<typeof readConnectorActionOperation>>,
+  preference: ExecuteAppActionRequest["connectionPreference"]
+) {
+  if (!(operation && preference)) {
+    return;
+  }
+  const expected = preference === "requester" ? "member" : "shared";
+  if (operation.executionConnection?.scope !== expected) {
+    throw new Error(
+      "plugin.operation_identity_mismatch: An existing operation must retain its original account; it cannot be replayed as another identity."
+    );
+  }
+}
+
 export async function requireMemberResearchReadOnlyConnectorAction(input: {
   action?: OpenConnectorRuntimeAction;
   actionId: string;
@@ -468,7 +492,8 @@ async function prepareConnectorActionOperation(input: {
   if (!input.existingOperation) {
     if (!selection) {
       const requester = resolveConnectorTurnRequester(
-        input.toolContext.turnEnvelope
+        input.toolContext.turnEnvelope,
+        input.request.connectionPreference
       );
       selection = await requireAvailableConnectorConnection({
         storage: input.dependencies.storage,
@@ -667,7 +692,7 @@ export async function listConnectorActionCatalog(input: {
 }
 
 async function resolveConnectorConnection(input: {
-  connectionPreference: "automatic" | "shared";
+  connectionPreference: "automatic" | "requester" | "shared";
   coreWorker: RemoteAgentCoreWorkerBinding;
   requesterUserId: string | null;
   service: ConnectorService;
@@ -727,12 +752,16 @@ async function requireAvailableConnectorConnection(
 }
 
 function resolveConnectorTurnRequester(
-  turnEnvelope: RemoteAgentTurnEnvelope | undefined
+  turnEnvelope: RemoteAgentTurnEnvelope | undefined,
+  requested?: "requester" | "shared"
 ): {
-  connectionPreference: "automatic" | "shared";
+  connectionPreference: "automatic" | "requester" | "shared";
   requesterUserId: string | null;
 } {
   if (turnEnvelope?.trigger.source === "member_research") {
+    if (requested === "requester") {
+      throw new Error("plugin.requester_identity_unavailable");
+    }
     return { connectionPreference: "shared", requesterUserId: null };
   }
   const speaker = resolveVerifiedTurnEnvelopeSpeaker(turnEnvelope);
@@ -746,19 +775,22 @@ function resolveConnectorTurnRequester(
       );
     }
     return {
-      connectionPreference: "automatic",
+      connectionPreference: requested ?? "automatic",
       requesterUserId: speaker.userId,
     };
   }
   if (speaker) {
     return {
-      connectionPreference: "automatic",
+      connectionPreference: requested ?? "automatic",
       requesterUserId: speaker.userId,
     };
   }
   const organizationMemberSpeaker =
     resolveOrganizationMemberTurnEnvelopeSpeaker(turnEnvelope);
   if (organizationMemberSpeaker && "kind" in organizationMemberSpeaker) {
+    if (requested === "requester") {
+      throw new Error("plugin.requester_identity_unavailable");
+    }
     return { connectionPreference: "shared", requesterUserId: null };
   }
   throw new Error("App tools require a verified Organization member turn.");

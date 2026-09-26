@@ -53,6 +53,24 @@ ordinary canonical Markdown link instead of sending a new strict-union variant
 to old Signal readers. The current Web reader enhances that link only for the
 trusted origin and current Organization.
 
+The explicit continuation uses a distinct internal Core-to-Space receiver so an
+older receiver cannot silently ignore its account constraint. Space binds the
+existing idempotent Message to the selected service, account and connection
+version in private SQL metadata, not public Signal metadata. Core re-reads that
+binding from the admitted trigger before selecting or claiming a new App action.
+Neither a model argument nor a personal-first automatic selector can replace it;
+existing operation replays retain the original operation identity. Generic App
+tools also accept an explicit requester/shared preference for normal requests.
+
+Space verifies the original human request and the Agent reply at the actual
+message-insertion transaction, using accepted outbox content, current revision,
+a canonical fingerprint and each message's own Thread placement. Main requests
+may receive threaded Agent replies without becoming a different original
+request. A pending retry cannot refresh away its source fence; an accepted retry
+returns the original Message without creating another Wake. Edits to a continued
+Message invalidate its execution binding. This metadata is not a new task,
+permission store or scheduler.
+
 ### Admitted Computer audience
 
 New Computer identities include Organization, Agent, Binding, conversation,

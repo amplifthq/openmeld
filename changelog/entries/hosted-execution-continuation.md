@@ -9,7 +9,9 @@ audiences: ["users", "admins"]
 Hosted Space replies can offer an explicit continuation after Plugin setup,
 keeping the original requester, Agent and Thread. Setup itself does not start
 work or grant Agent permissions. Older clients retain an ordinary connection
-link instead of receiving an unsupported message action.
+link instead of receiving an unsupported message action. The selected account is
+kept throughout execution, and edited or recalled original requests cannot
+silently resume through an old connection card.
 
 Hosted Computers separate admitted conversation audiences. Large received
 tool results can be read or searched through bounded, expiring references under

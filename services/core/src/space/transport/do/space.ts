@@ -65,9 +65,11 @@ import {
   normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
   openMeldDaemonTaskResultEnvelopeSchema,
+  type PluginConnectionContinuationBinding,
   parseOptionalClientMessageId,
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
+  pluginConnectionContinuationBindingSchema,
   postResolvedSpaceMembersBodySchema,
   postSpaceDispatchOutboxRedriveBodySchema,
   postSpaceDispatchOutboxRedriveResponseSchema,
@@ -78,9 +80,12 @@ import {
   projectTargetWakeLifecycleIdentity,
   putSpaceContractBodySchema,
   REMOTE_AGENT_FAILURE_PURPOSE,
+  type ReadPluginConnectionContinuationBindingRequest,
   RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   readListSignalsQueryRawValues,
+  readPluginConnectionContinuationBindingRequestSchema,
+  readPluginConnectionContinuationBindingResponseSchema,
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
@@ -477,6 +482,12 @@ import {
   resolveOrganizationSpaceSelfJoinUserId,
 } from "../../application/organization-space-self-join";
 import {
+  assertPluginContinuationMessage,
+  assertPluginContinuationSource,
+  PLUGIN_CONTINUATION_CLIENT_PREFIX,
+  pluginContinuationConflict,
+} from "../../application/plugin-connection-continuation-guard";
+import {
   assertSpaceAccessMatchesSpace,
   authorizeProtectedSpaceAccess,
   authorizeSpaceAccessProof,
@@ -639,6 +650,7 @@ import {
   recordDispatchOutboxCandidateFailure,
 } from "../../infrastructure/outbox/dispatch-outbox-repo";
 import { reconcileOrganizationAgentOwnership } from "../../infrastructure/sql/organization-agent-ownership";
+import { PluginConnectionContinuationRepository } from "../../infrastructure/sql/plugin-connection-continuation-repo";
 import {
   readSpaceContractRecordStateFromSql,
   repairSpaceContractRecordIfNeeded,
@@ -4964,6 +4976,116 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcPostPluginConnectionContinuation(
+    input: PostSignalOnceByClientMessageIdInput & {
+      pluginContinuation: PluginConnectionContinuationBinding;
+    }
+  ): Promise<SignalEnvelope> {
+    const binding = pluginConnectionContinuationBindingSchema.parse(
+      input.pluginContinuation
+    );
+    if (
+      !input.clientMessageId.startsWith(PLUGIN_CONTINUATION_CLIENT_PREFIX) ||
+      binding.spaceId !== input.spaceId ||
+      binding.requesterProfileId !== input.profile.profileId ||
+      binding.organizationId !== input.context?.activeOrganizationId
+    ) {
+      throw pluginContinuationConflict();
+    }
+    return await this.rpcPostSignalOnceByClientMessageId({
+      ...input,
+      pluginContinuation: binding,
+    });
+  }
+
+  rpcReadPluginConnectionContinuationBinding(
+    raw: ReadPluginConnectionContinuationBindingRequest
+  ) {
+    const input =
+      readPluginConnectionContinuationBindingRequestSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const signal = this.readSourceTextSignalById(input.signalId);
+    if (
+      !signal ||
+      this.readSpaceMetaRecord()?.organizationId !== input.organizationId
+    ) {
+      throw pluginContinuationConflict();
+    }
+    const clientId = signal.data.meta?.clientMessageId;
+    if (!clientId?.startsWith(PLUGIN_CONTINUATION_CLIENT_PREFIX)) {
+      return Promise.resolve(
+        readPluginConnectionContinuationBindingResponseSchema.parse({
+          binding: null,
+        })
+      );
+    }
+    const record = new PluginConnectionContinuationRepository(
+      this.ctx.storage.sql
+    ).read(clientId);
+    if (
+      !record ||
+      record.signalId !== signal.id ||
+      record.binding.organizationId !== input.organizationId ||
+      record.binding.targetProfileId !== input.targetProfileId ||
+      record.binding.requesterUserId !== input.requesterUserId
+    ) {
+      throw pluginContinuationConflict();
+    }
+    assertPluginContinuationMessage(
+      signal,
+      record.binding,
+      this.resolveThreadContextForSignal(signal.id)
+    );
+    return Promise.resolve(
+      readPluginConnectionContinuationBindingResponseSchema.parse({
+        binding: record.binding,
+      })
+    );
+  }
+
+  private checkPluginContinuationInsertion(
+    signal: SignalEnvelope,
+    threadContext: SpaceThreadContext | undefined
+  ) {
+    const clientId =
+      signal.type === "signal.text"
+        ? signal.data.meta?.clientMessageId
+        : undefined;
+    if (!clientId?.startsWith(PLUGIN_CONTINUATION_CLIENT_PREFIX)) {
+      return null;
+    }
+    const repository = new PluginConnectionContinuationRepository(
+      this.ctx.storage.sql
+    );
+    const record = repository.read(clientId);
+    if (!record || (record.signalId && record.signalId !== signal.id)) {
+      throw pluginContinuationConflict();
+    }
+    assertPluginContinuationMessage(
+      signal,
+      record.binding,
+      threadContext ?? null
+    );
+    if (!record.signalId) {
+      assertPluginContinuationSource({
+        binding: record.binding,
+        source: this.readSourceTextSignalById(record.binding.source.signalId),
+        reply: this.readSourceTextSignalById(record.binding.reply.signalId),
+        dispatch: readDispatchOutboxRecordByDispatchId(
+          this.ctx.storage.sql,
+          record.binding.sourceDispatchId
+        ),
+        sourceThread: this.resolveThreadContextForSignal(
+          record.binding.source.signalId
+        ),
+        replyThread: this.resolveThreadContextForSignal(
+          record.binding.reply.signalId
+        ),
+      });
+    }
+    return { repository, clientId };
+  }
+
   async rpcPostSignalOnceByClientMessageId(
     input: PostSignalOnceByClientMessageIdInput
   ): Promise<SignalEnvelope> {
@@ -5004,9 +5126,20 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const resolution = await this.ctx.blockConcurrencyWhile(
       async (): Promise<IdempotentPostSignalResolution> => {
+        const pluginContinuation = input.pluginContinuation
+          ? new PluginConnectionContinuationRepository(
+              this.ctx.storage.sql
+            ).reserve(clientMessageId, input.pluginContinuation)
+          : null;
         const existingSignal =
           this.readSourceTextSignalByClientMessageId(clientMessageId);
         if (existingSignal) {
+          if (pluginContinuation) {
+            if (pluginContinuation.signalId !== existingSignal.id) {
+              throw pluginContinuationConflict();
+            }
+            return { signal: existingSignal, status: "accepted" };
+          }
           assertSameSpaceWorkHandoff({
             existing: existingSignal,
             authorProfileId: input.profile.profileId,
@@ -17696,6 +17829,10 @@ export class Space extends DurableObject<CoreBindings> {
             if (!this.admitSpaceTaskSignal(signal, signalContext)) {
               return;
             }
+            const pluginContinuation = this.checkPluginContinuationInsertion(
+              signal,
+              signalContext?.threadContext
+            );
             const insertResult = insertSignalRecord(
               this.ctx.storage.sql,
               signal
@@ -17706,6 +17843,10 @@ export class Space extends DurableObject<CoreBindings> {
             if (!persistedSignal) {
               return;
             }
+            pluginContinuation?.repository.accept(
+              pluginContinuation.clientId,
+              signal.id
+            );
             this.insertThreadPlacementForPublishedSignal(signal, signalContext);
             repostedSource = completeRecalledMessageRepost(
               this.ctx.storage.sql,
@@ -18000,6 +18141,10 @@ export class Space extends DurableObject<CoreBindings> {
             if (!this.admitSpaceTaskSignal(signal, signalContext)) {
               return;
             }
+            const pluginContinuation = this.checkPluginContinuationInsertion(
+              signal,
+              signalContext?.threadContext
+            );
             const insertResult = insertSignalRecord(
               this.ctx.storage.sql,
               signal
@@ -18010,6 +18155,10 @@ export class Space extends DurableObject<CoreBindings> {
             if (!persistedSignal) {
               return;
             }
+            pluginContinuation?.repository.accept(
+              pluginContinuation.clientId,
+              signal.id
+            );
             this.insertThreadPlacementForPublishedSignal(signal, signalContext);
             repostedSource = completeRecalledMessageRepost(
               this.ctx.storage.sql,

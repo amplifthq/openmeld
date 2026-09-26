@@ -605,6 +605,96 @@ describe("Remote Agent generic App tools", () => {
     });
   });
 
+  it.each([
+    "requester",
+    "shared",
+  ] as const)("executes a generic App using the explicitly selected %s identity", async (connectionPreference) => {
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "read" as const,
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          data: [action],
+          message: "OK",
+          meta: {},
+          success: true,
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          data: [],
+          message: "OK",
+          meta: {
+            actionId: action.id,
+            auditPersisted: true,
+            executionId: "provider-identity-test",
+          },
+          outputSchema: action.outputSchema,
+          success: true,
+        })
+      );
+    const select = vi.fn(async (input: { connectionPreference?: string }) =>
+      connectionSelection({
+        ownerDisplayName: "Chosen",
+        service: "posthog",
+        userId: "user_1",
+        scope: input.connectionPreference === "shared" ? "shared" : "member",
+      })
+    );
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      storage: await createStorage(createSubmitTurnRequest()),
+      submissionId: ACK.submissionId,
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "fixture-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: vi.fn(async () => ({
+          operation: null,
+        })),
+        centerAgentResolveConnectorConnection: select,
+        centerAgentRecordConnectorActionOperation: vi.fn(
+          async (input: { outcome: string }) => ({
+            attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+            operationId: "identity-operation",
+            providerExecutionId:
+              input.outcome === "attempted" ? null : "provider-identity-test",
+            recorded: true,
+            replayed: false,
+            status: input.outcome === "attempted" ? "pending" : "completed",
+          })
+        ) as never,
+      },
+    });
+    const result = await executeTool(tools, "openmeld_execute_app_action", {
+      service: "posthog",
+      actionId: action.id,
+      input: {},
+      operationId: "identity-operation",
+      connectionPreference,
+    });
+    expect(select).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionPreference })
+    );
+    expect(result).toMatchObject({
+      attribution: {
+        scope: connectionPreference === "shared" ? "shared" : "member",
+      },
+    });
+    const expectedName = connectionSelection({
+      ownerDisplayName: "Chosen",
+      service: "posthog",
+      userId: "user_1",
+      scope: connectionPreference === "shared" ? "shared" : "member",
+    }).connection.connectionName;
+    const calls = fetchMock.mock.calls;
+    expect(JSON.stringify(calls)).toContain(expectedName);
+  });
+
   it("runs a declared read action even when the display name does not describe the effect", async () => {
     const request = createSubmitTurnRequest({
       turnEnvelope: createRoutineTurnEnvelope({

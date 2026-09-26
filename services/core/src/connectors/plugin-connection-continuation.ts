@@ -1,5 +1,6 @@
 import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
 import {
+  pluginConnectionContinuationBindingSchema,
   pluginConnectionContinuationResponseSchema,
   pluginConnectionContinuationRpcInputSchema,
   readPluginConnectionReplyLink,
@@ -18,6 +19,10 @@ import {
   rpcListSignals,
   rpcPostSignalOnceByClientMessageId,
 } from "../rpc/methods";
+import {
+  pluginContinuationMessageFingerprint,
+  pluginContinuationTextDigest,
+} from "../space/application/plugin-connection-continuation-guard";
 import { selectActiveConnectorConnection } from "./connector-connection-repository";
 import { requireRemotePluginConnection } from "./plugin-access";
 
@@ -120,19 +125,7 @@ export async function continuePluginConnection(
     fromMs: delivery.createdAtMs,
     throughMs: completedAtMs,
   });
-  if (
-    receipts.length > 100 ||
-    receipts.some(
-      (receipt) =>
-        receipt.status === "pending" || receipt.status === "outcome_unknown"
-    )
-  ) {
-    throw denied(
-      "plugin.continue.outcome_unknown",
-      "A previous operation needs reconciliation before this task can continue. Do not repeat the original write.",
-      409
-    );
-  }
+  requireSettledContinuationReceipts(receipts);
   // Deliberately independent of chosen scope and browser instance: changing a
   // setup selection, retrying a timed-out POST, or double-clicking cannot create
   // another continuation of the same published reply.
@@ -148,8 +141,34 @@ export async function continuePluginConnection(
         ]
       : []),
   ].join("\n");
+  const sourceGuard = await readOriginalRequestGuard(env, {
+    ...access,
+    signalId: delivery.triggerMessageId,
+  });
+  const pluginContinuation = pluginConnectionContinuationBindingSchema.parse({
+    v: 1,
+    organizationId: member.organizationId,
+    spaceId: input.spaceId,
+    sourceDispatchId: delivery.dispatchId,
+    source: sourceGuard,
+    reply: {
+      signalId: reply.id,
+      revision: reply.data.meta?.messageRevision ?? 0,
+      fingerprint: pluginContinuationMessageFingerprint(reply),
+    },
+    requesterUserId: member.userId,
+    requesterProfileId: sender.profileId,
+    targetProfileId: delivery.profileId,
+    service: input.service,
+    scope: input.scope,
+    connectionName: selected.connection.connectionName,
+    connectionUpdatedAtMs: selected.connection.updatedAtMs,
+    continuationTextDigest: pluginContinuationTextDigest(text),
+    threadContext: delivery.threadContext ?? null,
+  });
   const signal = await rpcPostSignalOnceByClientMessageId(env, {
     ...access,
+    pluginContinuation,
     clientMessageId,
     authoringPolicy: "user_authored",
     spaceAddressingVersion: OPENMELD_SPACE_ADDRESSING_VERSION,
@@ -181,6 +200,49 @@ export async function continuePluginConnection(
     targetProfileId: delivery.profileId,
     threadId: delivery.threadContext?.threadId ?? null,
   });
+}
+
+function requireSettledContinuationReceipts(
+  receipts: Awaited<
+    ReturnType<typeof listConnectorOperationReceiptsForContinuation>
+  >
+) {
+  if (
+    receipts.length > 100 ||
+    receipts.some(
+      (receipt) =>
+        receipt.status === "pending" || receipt.status === "outcome_unknown"
+    )
+  ) {
+    throw denied(
+      "plugin.continue.outcome_unknown",
+      "A previous operation needs reconciliation before this task can continue. Do not repeat the original write.",
+      409
+    );
+  }
+}
+
+async function readOriginalRequestGuard(
+  env: CoreBindings,
+  input: Parameters<typeof rpcListSignals>[1] & { signalId: string }
+) {
+  const signals = await rpcListSignals(env, {
+    ...input,
+    aroundSignalId: input.signalId,
+    beforeCount: 0,
+    afterCount: 0,
+    limit: 1,
+  });
+  const original =
+    signals.signals.find((signal) => signal.id === input.signalId) ?? null;
+  return {
+    signalId: input.signalId,
+    revision:
+      original?.type === "signal.text"
+        ? (original.data.meta?.messageRevision ?? 0)
+        : 0,
+    fingerprint: pluginContinuationMessageFingerprint(original),
+  };
 }
 
 async function requireConnectionIntent(

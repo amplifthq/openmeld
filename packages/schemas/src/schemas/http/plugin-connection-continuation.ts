@@ -1,6 +1,7 @@
 import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { connectorServiceSchema } from "./connector-connections";
 
 const identity = z.string().trim().min(1).max(512);
@@ -28,6 +29,51 @@ export const pluginConnectionContinuationResponseSchema = z.strictObject({
   targetProfileId: identity,
   threadId: identity.nullable(),
 });
+
+const messageGuardSchema = z.strictObject({
+  signalId: identity,
+  revision: z.number().int().nonnegative(),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+});
+
+// Host-owned payload of an existing Message/Wake, never public message metadata
+// or a client-supplied grant. This is not another task or permission owner.
+export const pluginConnectionContinuationBindingSchema = z.strictObject({
+  v: z.literal(1),
+  organizationId: identity,
+  spaceId: identity,
+  sourceDispatchId: identity,
+  source: messageGuardSchema,
+  reply: messageGuardSchema,
+  requesterUserId: identity,
+  requesterProfileId: identity,
+  targetProfileId: identity,
+  service: connectorServiceSchema,
+  scope: z.enum(["member", "shared"]),
+  connectionName: identity,
+  connectionUpdatedAtMs: z.number().int().nonnegative(),
+  continuationTextDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  threadContext: spaceThreadContextSchema.nullable(),
+});
+
+export const readPluginConnectionContinuationBindingRequestSchema =
+  z.strictObject({
+    organizationId: identity,
+    spaceId: identity,
+    signalId: identity,
+    targetProfileId: identity,
+    requesterUserId: identity,
+  });
+export const readPluginConnectionContinuationBindingResponseSchema =
+  z.strictObject({
+    binding: pluginConnectionContinuationBindingSchema.nullable(),
+  });
+export type PluginConnectionContinuationBinding = zod.infer<
+  typeof pluginConnectionContinuationBindingSchema
+>;
+export type ReadPluginConnectionContinuationBindingRequest = zod.infer<
+  typeof readPluginConnectionContinuationBindingRequestSchema
+>;
 
 export type PluginConnectionContinuationBody = zod.infer<
   typeof pluginConnectionContinuationBodySchema

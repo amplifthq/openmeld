@@ -287,11 +287,16 @@ export {
   sidebarSortSchema,
 } from "./schemas/account-sidebar";
 export {
+  type PluginConnectionContinuationBinding,
   type PluginConnectionContinuationBody,
   type PluginConnectionContinuationResponse,
+  pluginConnectionContinuationBindingSchema,
   pluginConnectionContinuationBodySchema,
   pluginConnectionContinuationResponseSchema,
   pluginConnectionContinuationRpcInputSchema,
+  type ReadPluginConnectionContinuationBindingRequest,
+  readPluginConnectionContinuationBindingRequestSchema,
+  readPluginConnectionContinuationBindingResponseSchema,
 } from "./schemas/http/plugin-connection-continuation";
 export type {
   GetSpaceLinkPreviewsResponse,
