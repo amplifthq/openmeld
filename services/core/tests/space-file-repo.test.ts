@@ -133,6 +133,19 @@ describe("SpaceFileRepository", () => {
       const next = save(2, 1);
       repository.commitWrite(next);
       repository.commitWrite(next);
+      expect(
+        repository.resolveCommittedWrite(
+          next.write.clientMutationId,
+          fileId,
+          next.write
+        )?.latestRevision.revision
+      ).toBe(2);
+      expect(() =>
+        repository.resolveCommittedWrite(next.write.clientMutationId, fileId, {
+          ...next.write,
+          revisionId: `${fixture.prefix}-different-content`,
+        })
+      ).toThrowError(expect.objectContaining({ code: "space_file.conflict" }));
       expect(updates.pending(fixture.nowMs + 100)).toHaveLength(1);
       expect(() => repository.commitWrite(save(3, 1))).toThrow();
       expect(updates.pending(fixture.nowMs + 100)).toHaveLength(1);
@@ -676,6 +689,40 @@ describe("SpaceFileRepository", () => {
       ).toThrowError(
         expect.objectContaining({ code: "space_file.folder_not_empty" })
       );
+      repository.trashEntry({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: child.id,
+          fixture,
+          operation: "entry_trash",
+          operationId: `${fixture.prefix}-trash-child`,
+        }),
+        clientMutationId: `${fixture.prefix}-trash-child`,
+        entryId: child.id,
+        nowMs: fixture.nowMs + 5,
+      });
+      repository.trashEntry({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: parent.id,
+          fixture,
+          operation: "entry_trash",
+          operationId: `${fixture.prefix}-trash-parent-after-child`,
+        }),
+        clientMutationId: `${fixture.prefix}-trash-parent-after-child`,
+        entryId: parent.id,
+        nowMs: fixture.nowMs + 6,
+      });
+      expect(
+        repository.list({
+          spaceId: fixture.spaceId,
+          view: "trash",
+          canWrite: true,
+        }).entries
+      ).toMatchObject([
+        { id: parent.id, path: "/Product" },
+        { id: child.id, path: "/Product/Specs" },
+      ]);
     });
   });
 

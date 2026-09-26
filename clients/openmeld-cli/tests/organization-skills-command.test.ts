@@ -74,6 +74,56 @@ const skill: OrganizationSkill = {
 };
 
 describe("Organization Skills CLI", () => {
+  it("returns a failing process status after a JSON batch with no successful installs", async () => {
+    await withTempHome(async () => {
+      const previousExitCode = process.exitCode;
+      process.exitCode = undefined;
+      try {
+        const commitSha = "a".repeat(40);
+        const repository = "https://github.com/example/skills";
+        const { dependencies } = createDependencies();
+        const resolveApi = async () =>
+          ({
+            previewRepositoryFromGitHub: async () => ({
+              organizationId: organization.id,
+              preview: {
+                catalogLimitBytes: 1024,
+                commitSha,
+                repository,
+                skills: [
+                  {
+                    blocker: null,
+                    fileCount: 1,
+                    path: "broken",
+                    totalBytes: 100,
+                    url: `${repository}/tree/${commitSha}/broken`,
+                    warnings: [],
+                  },
+                ],
+                totalDeclaredBytes: 100,
+                warnings: [],
+              },
+            }),
+            importFromGitHub: () =>
+              Promise.reject(new Error("Repository file unavailable")),
+            list: async () => ({ organizationId: organization.id, skills: [] }),
+          }) as unknown as OrganizationSkillsApi;
+        const { plainStdout } = await withCapturedStdio(() =>
+          runOrganizationSkillsAddAll(
+            { json: true, source: repository },
+            { ...dependencies, resolveApi }
+          )
+        );
+        expect(JSON.parse(plainStdout).results).toMatchObject([
+          { status: "failed" },
+        ]);
+        expect(process.exitCode).toBe(1);
+      } finally {
+        process.exitCode = previousExitCode;
+      }
+    });
+  });
+
   it("installs repository Skills one by one with stable retry IDs and per-item results", async () => {
     await withTempHome(async () => {
       const commitSha = "a".repeat(40);

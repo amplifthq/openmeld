@@ -14,6 +14,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   FileRoot as AnyFileRoot,
+  CenterAgentVerifiedMemberToolSpeaker,
   CommitSpaceFileWriteInput,
   ListSpaceFilesResponse,
   OpenMeldRequestContext,
@@ -47,7 +48,11 @@ import {
 import { ensureFileRepositorySchema } from "./file-schema-repo";
 import { FileUploadSessions } from "./file-upload-sessions";
 
-type RootRequest = { context: OpenMeldRequestContext; root: FileRoot };
+type RootRequest = {
+  context: OpenMeldRequestContext;
+  root: FileRoot;
+  speakerMember?: CenterAgentVerifiedMemberToolSpeaker;
+};
 
 /** The single SQLite metadata writer for one Team or member Files root. */
 export class OrganizationFileRoot extends DurableObject<CoreBindings> {
@@ -406,10 +411,19 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
     try {
       return await this.commitWrite({ ...input, write });
     } catch (error) {
-      const committed = this.repository.resolveCommittedWrite(
-        write.clientMutationId,
-        write.fileId
-      );
+      let committed: SpaceFileDescriptor | null;
+      try {
+        committed = this.repositoryOperation(() =>
+          this.repository.resolveCommittedWrite(
+            write.clientMutationId,
+            write.fileId,
+            write
+          )
+        );
+      } catch (reconciliationError) {
+        await input.bucket.delete(destinationKey);
+        throw reconciliationError;
+      }
       if (committed) {
         return committed;
       }
@@ -556,6 +570,7 @@ export class OrganizationFileRoot extends DurableObject<CoreBindings> {
       context: input.context,
       env: this.env,
       root: input.root,
+      speakerMember: input.speakerMember,
     });
     const row = this.ctx.storage.sql
       .exec<{ root_json: string }>(

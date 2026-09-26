@@ -28,7 +28,8 @@ import {
 
 async function teamTarget(
   env: CoreBindings,
-  context: RemoteAgentListTeamFilesRpcInput["context"]
+  context: RemoteAgentListTeamFilesRpcInput["context"],
+  speakerMember: RemoteAgentListTeamFilesRpcInput["speakerMember"]
 ) {
   const authorization = await requireRemoteAgentToolCaller({ context, env });
   const root = {
@@ -46,6 +47,7 @@ async function teamTarget(
   const id = namespace.idFromName(organizationFileRootName(root));
   return {
     context: authorization.context,
+    speakerMember,
     root,
     rootId: id.toString(),
     stub: namespace.get(id),
@@ -57,7 +59,7 @@ export async function rpcRemoteAgentSaveTeamFile(
   input: RemoteAgentSaveTeamFileRpcInput
 ): Promise<RemoteAgentSaveTeamFileResponse> {
   const request = remoteAgentSaveTeamFileRpcInputSchema.parse(input);
-  const target = await teamTarget(env, request.context);
+  const target = await teamTarget(env, request.context, request.speakerMember);
   const encoded = new TextEncoder().encode(request.content);
   if (
     !isSpaceFileTextEditable({
@@ -100,6 +102,7 @@ export async function rpcRemoteAgentSaveTeamFile(
   };
   const file = await target.stub.writeContent({
     context: target.context,
+    speakerMember: target.speakerMember,
     root: target.root,
     bytes,
     write,
@@ -115,9 +118,10 @@ export async function rpcRemoteAgentListTeamFiles(
   input: RemoteAgentListTeamFilesRpcInput
 ): Promise<ListFileRootResponse> {
   const request = remoteAgentListTeamFilesRpcInputSchema.parse(input);
-  const target = await teamTarget(env, request.context);
+  const target = await teamTarget(env, request.context, request.speakerMember);
   const result = await target.stub.list({
     context: target.context,
+    speakerMember: target.speakerMember,
     root: target.root,
     query: {
       parentId: request.parentId ?? null,
@@ -142,9 +146,10 @@ export async function rpcRemoteAgentReadTeamFile(
   input: RemoteAgentReadTeamFileRpcInput
 ): Promise<RemoteAgentReadTeamFileResponse> {
   const request = remoteAgentReadTeamFileRpcInputSchema.parse(input);
-  const target = await teamTarget(env, request.context);
+  const target = await teamTarget(env, request.context, request.speakerMember);
   const resolved = await target.stub.resolveRevision({
     context: target.context,
+    speakerMember: target.speakerMember,
     root: target.root,
     fileId: request.fileId,
     ...(request.revision === undefined ? {} : { revision: request.revision }),
@@ -182,6 +187,7 @@ export async function rpcRemoteAgentReadTeamFile(
   } catch (error) {
     await target.stub.recordContentAudit({
       context: target.context,
+      speakerMember: target.speakerMember,
       root: target.root,
       entryId: request.fileId,
       revisionId: resolved.revision.id,
@@ -200,6 +206,7 @@ export async function rpcRemoteAgentReadTeamFile(
   } catch {
     await target.stub.recordContentAudit({
       context: target.context,
+      speakerMember: target.speakerMember,
       root: target.root,
       entryId: request.fileId,
       revisionId: resolved.revision.id,
@@ -215,6 +222,7 @@ export async function rpcRemoteAgentReadTeamFile(
   }
   await target.stub.recordContentAudit({
     context: target.context,
+    speakerMember: target.speakerMember,
     root: target.root,
     entryId: request.fileId,
     revisionId: resolved.revision.id,
@@ -223,6 +231,7 @@ export async function rpcRemoteAgentReadTeamFile(
   });
   const file = await target.stub.getFile({
     context: target.context,
+    speakerMember: target.speakerMember,
     root: target.root,
     fileId: request.fileId,
   });
@@ -230,6 +239,7 @@ export async function rpcRemoteAgentReadTeamFile(
   const revisions = request.includeHistory
     ? await target.stub.listRevisions({
         context: target.context,
+        speakerMember: target.speakerMember,
         root: target.root,
         fileId: request.fileId,
       })

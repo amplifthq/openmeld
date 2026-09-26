@@ -1,8 +1,9 @@
 import type {
+  CenterAgentVerifiedMemberToolSpeaker,
   OpenMeldRequestContext,
   SpaceFileActor,
 } from "@openmeld/schemas/types";
-import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
+import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { type CoreBindings, identityDb } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
@@ -14,6 +15,7 @@ export async function prepareOrganizationFileRootAccess(input: {
   context: OpenMeldRequestContext;
   env: CoreBindings;
   root: OrganizationFileRoot;
+  speakerMember?: CenterAgentVerifiedMemberToolSpeaker;
 }): Promise<{ actor: SpaceFileActor }> {
   const { context, env, root } = input;
   const { actorContext } = context;
@@ -22,10 +24,19 @@ export async function prepareOrganizationFileRootAccess(input: {
     actorContext.profileKind === "agent" &&
     !actorContext.ownerUserId
   ) {
-    const center = await requireCurrentDesignatedCenterAgentCaller({
-      context,
+    if (!input.speakerMember) {
+      throw createCoreRpcHttpError({
+        code: "file_root.member_required",
+        reason: "Team files require a verified current member.",
+        status: 403,
+      });
+    }
+    const represented = await prepareCenterAgentRepresentedMemberRequest(
       env,
-    });
+      context,
+      input.speakerMember
+    );
+    const center = represented.authorization;
     requireExpectedOrganizationContext({
       actualOrganizationId: center.activeOrganization.organizationId,
       expectedOrganizationId: root.organizationId,
@@ -36,6 +47,7 @@ export async function prepareOrganizationFileRootAccess(input: {
         profileId: center.actorProfileId,
         profileKind: "agent",
         displayName: center.actorProfile.profileName,
+        ownerUserId: represented.representedHuman.userId,
       },
     };
   }

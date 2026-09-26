@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { centerAgentVerifiedMemberToolSpeakerSchema } from "./center-agent-speaker";
 import { spaceFileUploadResponseSchema } from "./space-file-upload";
 import {
   spaceFileBaseRevisionSchema,
@@ -49,12 +50,14 @@ export const fileRootFileResponseSchema = z.strictObject({
 
 export const remoteAgentListTeamFilesRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  speakerMember: centerAgentVerifiedMemberToolSpeakerSchema.optional(),
   parentId: spaceFileEntryIdSchema.nullable().optional(),
   view: z.enum(["active", "trash"]).optional(),
 });
 
 export const remoteAgentReadTeamFileRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  speakerMember: centerAgentVerifiedMemberToolSpeakerSchema.optional(),
   fileId: spaceFileEntryIdSchema,
   revision: spaceFileRevisionNumberSchema.optional(),
   includeHistory: z.boolean().optional(),
@@ -72,6 +75,7 @@ export const remoteAgentSaveTeamFileRpcInputSchema = z.discriminatedUnion(
   [
     z.strictObject({
       context: openMeldRequestContextSchema,
+      speakerMember: centerAgentVerifiedMemberToolSpeakerSchema.optional(),
       action: z.literal("create"),
       clientMutationId: spaceFileClientMutationIdSchema,
       content: z.string(),
@@ -81,6 +85,7 @@ export const remoteAgentSaveTeamFileRpcInputSchema = z.discriminatedUnion(
     }),
     z.strictObject({
       context: openMeldRequestContextSchema,
+      speakerMember: centerAgentVerifiedMemberToolSpeakerSchema.optional(),
       action: z.literal("update"),
       baseRevision: spaceFileBaseRevisionSchema.unwrap(),
       clientMutationId: spaceFileClientMutationIdSchema,

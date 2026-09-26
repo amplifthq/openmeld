@@ -161,7 +161,7 @@ export class SpaceFileRepository {
               { id: null, name: "Trash" },
             ]
           : this.buildBreadcrumbs(parentId),
-      entries: rows.map((row) => this.readEntryRow(row)),
+      entries: rows.map((row) => this.readEntryRow(row, view === "trash")),
       capabilities: { canRead: true, canWrite: input.canWrite },
     };
   }
@@ -263,7 +263,8 @@ export class SpaceFileRepository {
 
   resolveCommittedWrite(
     clientMutationId: string,
-    expectedFileId: string
+    expectedFileId: string,
+    expectedWrite?: CommitSpaceFileWriteInput
   ): SpaceFileDescriptor | null {
     const row = first(
       this.sql.exec<SpaceFileMutationRow>(
@@ -280,6 +281,12 @@ export class SpaceFileRepository {
       return null;
     }
     if (row.action !== "commit_write") {
+      throw conflict("This request ID was already used for another change.");
+    }
+    if (
+      expectedWrite &&
+      row.request_fingerprint !== mutationFingerprint(expectedWrite)
+    ) {
       throw conflict("This request ID was already used for another change.");
     }
     const committedFile = spaceFileDescriptorSchema.parse(
@@ -706,13 +713,16 @@ export class SpaceFileRepository {
     return this.readEntryRow(this.requireActiveEntry(entryId));
   }
 
-  private readEntryRow(row: SpaceFileEntryRow): SpaceFileEntry {
+  private readEntryRow(
+    row: SpaceFileEntryRow,
+    includeTrashedAncestors = false
+  ): SpaceFileEntry {
     const base = {
       id: row.entry_id,
       spaceId: row.space_id,
       parentId: row.parent_id,
       name: row.name,
-      path: this.buildPath(row),
+      path: this.buildPath(row, includeTrashedAncestors),
       createdAt: timestampMsToIso(row.created_at_ms),
       updatedAt: timestampMsToIso(row.updated_at_ms),
       createdBy: parseActor(row.created_by_json),
@@ -769,11 +779,19 @@ export class SpaceFileRepository {
     return readRevisionRow(row);
   }
 
-  private buildPath(row: SpaceFileEntryRow): string {
+  private buildPath(
+    row: SpaceFileEntryRow,
+    includeTrashedAncestors = false
+  ): string {
     const segments = [row.name];
     let currentId = row.parent_id;
     while (currentId) {
-      const parent = this.requireActiveEntry(currentId);
+      const parent = includeTrashedAncestors
+        ? this.readEntry(currentId)
+        : this.requireActiveEntry(currentId);
+      if (!parent) {
+        throw notFound("Parent folder not found.");
+      }
       segments.unshift(parent.name);
       currentId = parent.parent_id;
       if (segments.length > SPACE_FILE_MAX_FOLDER_DEPTH + 1) {

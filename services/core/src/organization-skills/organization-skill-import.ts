@@ -417,7 +417,29 @@ function parseGitHubLocation(input: string): GitHubLocation {
     );
   }
   const ref = kind ? (segments[3] ?? null) : url.searchParams.get("ref");
-  const sourcePath = kind ? segments.slice(4).join("/") : null;
+  let sourcePath: string | null = null;
+  if (kind) {
+    try {
+      const pathSegments = segments.slice(4).map(decodeURIComponent);
+      if (
+        pathSegments.some(
+          (segment) =>
+            segment === "." ||
+            segment === ".." ||
+            segment.includes("/") ||
+            segment.includes("\\")
+        )
+      ) {
+        throw new Error("Invalid GitHub path segment.");
+      }
+      sourcePath = pathSegments.join("/");
+    } catch {
+      throw skillImportError(
+        "organization_skill.github_url_invalid",
+        "Enter a valid GitHub Skill directory URL."
+      );
+    }
+  }
   let path = sourcePath || null;
   if (
     kind === "blob" &&

@@ -20,6 +20,9 @@ describe("Organization Center Agent principal", () => {
     }
     const organizationId = `ownership-${crypto.randomUUID()}`;
     const profileId = `agt_${crypto.randomUUID()}`;
+    const userId = `user_${crypto.randomUUID()}`;
+    const memberId = `member_${crypto.randomUUID()}`;
+    const speakerMember = { memberId, userId };
     await db
       .prepare(
         "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Ownership test', ?, 1)"
@@ -37,6 +40,24 @@ describe("Organization Center Agent principal", () => {
         "INSERT INTO center_agent_designations (organization_id, agent_profile_id, designated_by, created_at) VALUES (?, ?, NULL, 1)"
       )
       .bind(organizationId, profileId)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, 'Member', ?, 1, 1, 1)"
+      )
+      .bind(userId, `${userId}@example.com`)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', 1)"
+      )
+      .bind(memberId, organizationId, userId)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Member', ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', 1, 1)"
+      )
+      .bind(crypto.randomUUID(), `member-${userId}`, userId, userId)
       .run();
     const context = {
       activeOrganizationId: organizationId,
@@ -59,11 +80,16 @@ describe("Organization Center Agent principal", () => {
     }
     const teamRoot = { kind: "team" as const, organizationId };
     const team = roots.getByName(organizationFileRootName(teamRoot));
-    await expect(team.list({ context, root: teamRoot })).resolves.toMatchObject(
-      {
-        entries: [],
-      }
-    );
+    await expect(
+      prepareOrganizationFileRootAccess({
+        context,
+        env: bindings,
+        root: teamRoot,
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      team.list({ context, root: teamRoot, speakerMember })
+    ).resolves.toMatchObject({ entries: [] });
     const clientMutationId = crypto.randomUUID();
     const created = await rpcRemoteAgentSaveTeamFile(bindings, {
       action: "create",
@@ -73,6 +99,7 @@ describe("Organization Center Agent principal", () => {
       mimeType: "text/plain",
       name: "team-note.txt",
       parentId: null,
+      speakerMember,
     });
     const fileId = created.file.id;
     expect(created.file).toMatchObject({
@@ -81,13 +108,18 @@ describe("Organization Center Agent principal", () => {
       latestRevision: { revision: 1 },
     });
     await expect(
-      rpcRemoteAgentListTeamFiles(bindings, { context })
+      rpcRemoteAgentListTeamFiles(bindings, { context, speakerMember })
     ).resolves.toMatchObject({
       root: teamRoot,
       entries: [{ id: fileId, name: "team-note.txt" }],
     });
     await expect(
-      rpcRemoteAgentReadTeamFile(bindings, { context, fileId, revision: 1 })
+      rpcRemoteAgentReadTeamFile(bindings, {
+        context,
+        fileId,
+        revision: 1,
+        speakerMember,
+      })
     ).resolves.toMatchObject({
       content: "Shared team note",
       file: { id: fileId, root: teamRoot },
@@ -101,6 +133,7 @@ describe("Organization Center Agent principal", () => {
       context,
       fileId,
       mimeType: "text/plain",
+      speakerMember,
     };
     await expect(
       rpcRemoteAgentSaveTeamFile(bindings, update)
@@ -120,11 +153,35 @@ describe("Organization Center Agent principal", () => {
       })
     ).rejects.toThrow('"code":"file_root.conflict"');
     await expect(
-      rpcRemoteAgentReadTeamFile(bindings, { context, fileId, revision: 1 })
+      rpcRemoteAgentReadTeamFile(bindings, {
+        context,
+        fileId,
+        revision: 1,
+        speakerMember,
+      })
     ).resolves.toMatchObject({ content: "Shared team note" });
     await expect(
-      rpcRemoteAgentReadTeamFile(bindings, { context, fileId })
+      rpcRemoteAgentReadTeamFile(bindings, { context, fileId, speakerMember })
     ).resolves.toMatchObject({ content: "Updated team note" });
+    await db.prepare("DELETE FROM members WHERE id = ?").bind(memberId).run();
+    await expect(
+      rpcRemoteAgentReadTeamFile(bindings, { context, fileId, speakerMember })
+    ).rejects.toThrow("center_agent.member_actor_required");
+    await expect(
+      rpcRemoteAgentListTeamFiles(bindings, { context, speakerMember })
+    ).rejects.toThrow("center_agent.member_actor_required");
+    await expect(
+      rpcRemoteAgentSaveTeamFile(bindings, {
+        ...update,
+        clientMutationId: crypto.randomUUID(),
+      })
+    ).rejects.toThrow("center_agent.member_actor_required");
+    await db
+      .prepare(
+        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', 1)"
+      )
+      .bind(memberId, organizationId, userId)
+      .run();
     const privateRoot = {
       kind: "member" as const,
       organizationId,
@@ -175,7 +232,7 @@ describe("Organization Center Agent principal", () => {
       requireCurrentDesignatedCenterAgentCaller({ env: bindings, context })
     ).rejects.toMatchObject({ status: 409, code: "center_agent.paused" });
     await expect(
-      rpcRemoteAgentReadTeamFile(bindings, { context, fileId })
+      rpcRemoteAgentReadTeamFile(bindings, { context, fileId, speakerMember })
     ).rejects.toMatchObject({ status: 409, code: "center_agent.paused" });
   });
 });

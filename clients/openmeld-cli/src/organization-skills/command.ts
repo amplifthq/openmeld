@@ -270,6 +270,15 @@ export async function runOrganizationSkillsAddAll(
         results,
       };
       presentRepositoryInstallSummary(context, payload);
+      if (
+        results.some(
+          (result) =>
+            result.status === "failed" ||
+            (result.status === "skipped" && !existingPaths.has(result.path))
+        )
+      ) {
+        process.exitCode = 1;
+      }
     }
   );
 }

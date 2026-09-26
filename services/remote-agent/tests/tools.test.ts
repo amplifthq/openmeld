@@ -6305,14 +6305,21 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_space_context",
     },
     {
-      expectedPayload: { parentId: null },
+      expectedPayload: {
+        parentId: null,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
       input: { parentId: null },
       response: listTeamFilesResponse(),
       rpcName: "remoteAgentListTeamFiles",
       toolName: "openmeld_list_team_files",
     },
     {
-      expectedPayload: { fileId: "file-1", revision: 1 },
+      expectedPayload: {
+        fileId: "file-1",
+        revision: 1,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
       input: { fileId: "file-1", revision: 1 },
       response: readTeamFileResponse(),
       rpcName: "remoteAgentReadTeamFile",
@@ -6326,6 +6333,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         content: "Updated team note",
         fileId: "file-1",
         mimeType: "text/markdown",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
       },
       input: {
         action: "update",

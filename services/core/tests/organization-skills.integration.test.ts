@@ -1375,6 +1375,50 @@ describe("Organization Skills", () => {
     ).toBe(true);
   });
 
+  it("imports a previewed Skill whose GitHub directory contains spaces and Unicode", async () => {
+    const commitSha = "a".repeat(40);
+    const path = "skills/My Skill 中文";
+    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.endsWith(`/repos/acme/skills/commits/${commitSha}`)) {
+        return Promise.resolve(Response.json({ sha: commitSha }));
+      }
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({
+            tree: [
+              {
+                path: `${path}/SKILL.md`,
+                size: new TextEncoder().encode(GITHUB_SKILL_MARKDOWN)
+                  .byteLength,
+                type: "blob",
+              },
+            ],
+            truncated: false,
+          })
+        );
+      }
+      if (url.endsWith(`/${commitSha}/${encodedPath}/SKILL.md`)) {
+        return Promise.resolve(new Response(GITHUB_SKILL_MARKDOWN));
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+    const preview = await previewOrganizationSkillRepositoryFromGitHub({
+      fetch: fetchMock,
+      url: "https://github.com/acme/skills",
+    });
+    expect(preview.skills[0]?.url).toBe(
+      `https://github.com/acme/skills/tree/${commitSha}/${encodedPath}`
+    );
+    const imported = await importOrganizationSkillBundleFromGitHub({
+      fetch: fetchMock,
+      url: preview.skills[0]?.url ?? "",
+    });
+    expect(imported.source.path).toBe(path);
+    expect(imported.bundle.portable.name).toBe("release-review");
+  });
+
   it("inspects a selected Skill when GitHub truncates the repository tree", async () => {
     const commitSha = "a".repeat(40);
     const rootSha = "b".repeat(40);

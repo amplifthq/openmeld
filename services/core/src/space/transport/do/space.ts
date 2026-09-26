@@ -3339,10 +3339,19 @@ export class Space extends DurableObject<CoreBindings> {
         }),
       };
     } catch (error) {
-      const committed = this.spaceFileRepository.resolveCommittedWrite(
-        write.clientMutationId,
-        write.fileId
-      );
+      let committed: SpaceFileDescriptor | null;
+      try {
+        committed = this.runSpaceFileRepositoryOperation(() =>
+          this.spaceFileRepository.resolveCommittedWrite(
+            write.clientMutationId,
+            write.fileId,
+            write
+          )
+        );
+      } catch (reconciliationError) {
+        await bucket.delete(prepared.objectKey);
+        throw reconciliationError;
+      }
       if (committed) {
         return { file: committed };
       }

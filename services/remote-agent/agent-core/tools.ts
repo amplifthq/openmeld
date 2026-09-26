@@ -3683,15 +3683,22 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       input: listTeamFilesToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(listTeamFilesToolInputSchema, payload);
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRemoteAgentToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_list_team_files",
         });
+        const { context } = toolContext;
         const response = await callCoreRpc(
           input.coreWorker,
           "remoteAgentListTeamFiles",
-          { ...request, context },
+          {
+            ...request,
+            context,
+            speakerMember: resolveVerifiedTurnEnvelopeSpeaker(
+              toolContext.turnEnvelope
+            ),
+          },
           (binding, rpcInput) => binding.remoteAgentListTeamFiles?.(rpcInput)
         );
         return listFileRootResponseSchema.parse(response);
@@ -3704,15 +3711,22 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       input: readTeamFileToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(readTeamFileToolInputSchema, payload);
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRemoteAgentToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_read_team_file",
         });
+        const { context } = toolContext;
         const response = await callCoreRpc(
           input.coreWorker,
           "remoteAgentReadTeamFile",
-          { ...request, context },
+          {
+            ...request,
+            context,
+            speakerMember: resolveVerifiedTurnEnvelopeSpeaker(
+              toolContext.turnEnvelope
+            ),
+          },
           (binding, rpcInput) => binding.remoteAgentReadTeamFile?.(rpcInput)
         );
         return remoteAgentReadTeamFileResponseSchema.parse(response);
@@ -3725,14 +3739,18 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       input: saveTeamFileToolInputSchema,
       execute: async (payload) => {
         const toolInput = parseValibot(saveTeamFileToolInputSchema, payload);
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRemoteAgentToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_save_team_file",
         });
+        const { context } = toolContext;
         const request = remoteAgentSaveTeamFileRpcInputSchema.parse({
           ...toolInput,
           context,
+          speakerMember: resolveVerifiedTurnEnvelopeSpeaker(
+            toolContext.turnEnvelope
+          ),
         });
         const response = await callCoreRpc(
           input.coreWorker,

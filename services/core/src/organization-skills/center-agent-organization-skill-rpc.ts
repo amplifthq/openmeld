@@ -196,8 +196,13 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     throw operationInProgressError();
   }
 
-  const skillId = `org_skill_${requestSignature.slice(0, 32)}`;
-  const releaseId = `org_skill_release_${requestSignature.slice(32)}`;
+  // Distinct operations must not share release object keys: a failed writer
+  // may clean up only the objects that its own operation created.
+  const releaseIdentity = await buildOrganizationSkillRequestSignature({
+    operationKey,
+  });
+  const skillId = `org_skill_${releaseIdentity.slice(0, 32)}`;
+  const releaseId = `org_skill_release_${releaseIdentity.slice(32)}`;
   const ids = [skillId, releaseId];
   const service = createOrganizationSkillService({
     bucket: prepared.bucket,
