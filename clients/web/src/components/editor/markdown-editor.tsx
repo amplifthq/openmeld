@@ -10,7 +10,7 @@ import { DocumentEditorKit } from "#/components/editor/plugins/document-editor-k
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
 import { FixedToolbar } from "#/components/editor/ui/fixed-toolbar";
 import { FixedToolbarButtons } from "#/components/editor/ui/fixed-toolbar-buttons";
-import { reportClientApplicationError } from "#/lib/observability/application-error-client";
+import { reportCaughtComponentError } from "#/lib/observability/application-error-client";
 
 /**
  * The shared WYSIWYG Markdown surface for Organization Documents,
@@ -83,7 +83,7 @@ class MarkdownEditorBoundary extends Component<
 	}
 
 	componentDidCatch(error: Error) {
-		reportClientApplicationError(error, "react_caught");
+		reportCaughtComponentError(error, "markdown_editor");
 	}
 
 	render() {

@@ -9,6 +9,7 @@ import {
 } from "./lib/app-route-loading";
 import { getAppScrollRestorationKey } from "./lib/app-scroll-restoration";
 import {
+	recordApplicationErrorNavigation,
 	reportClientApplicationError,
 	setApplicationErrorRouteReader,
 } from "./lib/observability/application-error-client";
@@ -46,6 +47,17 @@ export function getRouter(options?: { isServer?: boolean }) {
 		// Back and ordinary links remain exits from a failed recovery surface.
 		// Keep the same-tab attempt marker; navigating is not permission to loop.
 		router.subscribe("onBeforeNavigate", resetClientVersionRecovery);
+		router.subscribe("onBeforeNavigate", (event) => {
+			if (!(event.pathChanged && event.fromLocation)) {
+				return;
+			}
+			const fromRouteId = router
+				.matchRoutes(event.fromLocation.pathname)
+				.at(-1)?.routeId;
+			if (fromRouteId) {
+				recordApplicationErrorNavigation(fromRouteId);
+			}
+		});
 		installPerformanceReporting(router);
 		setApplicationErrorRouteReader(
 			() => router.state.matches.at(-1)?.routeId ?? null

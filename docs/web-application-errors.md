@@ -16,7 +16,12 @@ not a product Audit Log or an execution authority.
    detect browser failures.
 3. Inspect `report.source`, `report.error.code`, `report.routeId`, and
    `report.error.frames`. Route IDs are code templates, not actual account or
-   Space URLs. Group by client build ID, code, route template, and first frame.
+   Space URLs. `report.navigation.fromRouteId` identifies the previous route
+   template for a recent in-app navigation; `elapsedMs` is the time from that
+   navigation to capture. `report.reactBoundary`, when present, identifies a
+   local UI error boundary. Neither field identifies the failing component or
+   proves that navigation caused the error. Group by client build ID, code,
+   route template, and first frame.
 4. Compare `report.buildId` / `report.sourceSha` with `serverBuildId` /
    `serverSourceSha`. A mismatch establishes different builds, not the cause of
    the failure. `serverBuildDirty` marks uncommitted server builds. Each build
@@ -81,9 +86,11 @@ to produce the structured event.
 
 Ordinary application-error reports contain only allowlisted error names and
 categories, build asset locations, code route templates, build identifiers,
-and random event IDs. The Wake presentation event additionally contains
-bounded Space, Profile, dispatch, message, stream, and Thread pointers, the
-progress update time, and fixed source/freshness flags.
+random event IDs, and, when available, a recent previous route template and
+one of the known local error-boundary labels. Navigation context expires after
+10 minutes and is held only in page memory. The Wake presentation event
+additionally contains bounded Space, Profile, dispatch, message, stream, and
+Thread pointers, the progress update time, and fixed source/freshness flags.
 Arbitrary exception messages, full stacks, component stacks, local filesystem
 paths, request bodies, query strings, cookies, account names, email addresses,
 and message text
@@ -116,6 +123,13 @@ matching the failed asset filename, not a later rebuild of the same SHA. In
 browser DevTools, load the matching source map for the bundled file and locate
 the reported line/column. Only repository-authorized operators should access
 these artifacts: they include source code.
+
+Check that the matching map has nonempty `sources` and `mappings` before relying
+on it. Desktop renderer builds currently emit an empty map for their large
+`index-*.js` entry even when client source maps are enabled; other chunks have
+valid maps. An empty map cannot resolve a production frame. The route and
+boundary fields above can still narrow the incident, but they do not replace
+symbolication.
 
 For the guarded **local** release lane, retain
 `clients/web/dist/client/assets/**/*.map` in private operator storage with the
