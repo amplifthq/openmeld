@@ -1580,6 +1580,53 @@ describe("space signal consistency matrix", () => {
     ]);
   });
 
+  it("does not let listen_all re-wake an explicitly referenced Agent", () => {
+    const signal: SignalEnvelope = {
+      v: 1,
+      id: "reference-listen-all",
+      spaceId: "space-1",
+      ts: Date.now(),
+      profile: { kind: "human", profileId: "human-reference-sender" },
+      type: "signal.text",
+      data: {
+        text: "A note about this Agent.",
+        messageEnvelope: createMessageEnvelope({
+          text: "A note about this Agent.",
+          referenceTargets: ["agt-reference"],
+        }),
+      },
+    };
+    const records = prepareDispatchOutboxRecordsForSignal.call(
+      {
+        ctx: {
+          storage: {
+            sql: createDispatchRulesSqlStub(1, {
+              failOnLegacyDispatchPolicyQuery: true,
+              spaceMemberRows: [
+                createDispatchRulesSpaceMemberRow({
+                  profileId: "agt-reference",
+                  profileName: "Mentioned Agent",
+                }),
+                createDispatchRulesSpaceMemberRow({
+                  profileId: "agt-listener",
+                  profileName: "Other Agent",
+                }),
+              ],
+            }),
+          },
+        },
+        readSpaceContractRecord: () => ({
+          ...buildDefaultSpaceContract(),
+          dispatchPolicy: { mode: "listen_all" as const },
+        }),
+      },
+      signal
+    );
+    expect(records.map((record) => record.targetProfileId)).toEqual([
+      "agt-listener",
+    ]);
+  });
+
   it("uses SpaceContract listen_all for explicit and implicit agent targets", () => {
     const explicitTargetProfileId = "agt_contract_explicit";
     const listeningAgentProfileId = "agt_contract_listener";

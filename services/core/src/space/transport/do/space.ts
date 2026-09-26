@@ -23855,6 +23855,14 @@ function buildListenAllDispatchReadyDecisions(input: {
 
   const decisions: DispatchReadyDecision[] = [];
   for (const memberRecord of input.activeMemberRecords) {
+    if (
+      input.signal.type === "signal.text" &&
+      input.signal.data.messageEnvelope?.referenceTargets.includes(
+        memberRecord.profileId
+      )
+    ) {
+      continue;
+    }
     if (memberRecord.profileKindSnapshot !== "agent") {
       continue;
     }
