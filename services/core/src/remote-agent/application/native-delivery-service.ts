@@ -8112,6 +8112,13 @@ async function resolveRemoteAgentSettledCallbackReplay(input: {
     });
     const postResultGuidanceRetry =
       await retryRemoteAgentRequiredPostResultGuidance(input);
+    if (postResultGuidanceRetry?.status === "outcome_unknown") {
+      return remoteAgentCoreCallbackResponseSchema.parse({
+        status: "duplicate_rejected",
+        publishedSignalId: finalPublicationResultId,
+        reasonCode: postResultGuidanceRetry.reasonCode,
+      });
+    }
     if (postResultGuidanceRetry) {
       return remoteAgentCoreCallbackResponseSchema.parse({
         reasonCode: postResultGuidanceRetry.reasonCode,
@@ -8166,6 +8173,14 @@ async function resolveRemoteAgentSettledCallbackReplay(input: {
   });
 }
 
+// This outcome describes only private guidance, never the already-published
+// task result. Unknown provider delivery must not request a blind automatic resend.
+type RemoteAgentPostResultGuidance = {
+  status: "retryable" | "outcome_unknown";
+  reasonCode: string;
+  retryAfterMs?: number;
+};
+
 async function retryRemoteAgentRequiredPostResultGuidance(input: {
   body: RemoteAgentCoreCallbackBody;
   db: D1Database;
@@ -8173,10 +8188,7 @@ async function retryRemoteAgentRequiredPostResultGuidance(input: {
   env: CoreBindings;
   nowMs: number;
   options: CenterAgentMemoryRuntimeOptions;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   if (
     input.delivery.status !== "completed" ||
     input.body.status === "failed" ||
@@ -9081,6 +9093,13 @@ async function completeRemoteAgentSlackCompletedCallback(input: {
       env,
       nowMs,
     });
+  if (postResultGuidanceRetry?.status === "outcome_unknown") {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      status: "accepted",
+      publishedSignalId,
+      reasonCode: postResultGuidanceRetry.reasonCode,
+    });
+  }
   if (postResultGuidanceRetry) {
     return remoteAgentCoreCallbackResponseSchema.parse({
       reasonCode: postResultGuidanceRetry.reasonCode,
@@ -12094,10 +12113,7 @@ async function publishRemoteAgentSlackPostResultGuidance(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   const identityGuidance =
     await publishRemoteAgentSlackIdentityGuidanceAfterResult(input);
   if (identityGuidance) {
@@ -12111,10 +12127,7 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   if (
     input.body.status === "failed" ||
     (input.body.navigationTarget?.kind !== "computer_setup" &&
@@ -12151,18 +12164,18 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
       status: "retryable",
     };
   }
-  const action = await resolveRemoteAgentCallbackNavigationAction({
-    body: input.body,
-    delivery: input.delivery,
-    env: input.env,
-  });
-  if (!action) {
-    return {
-      reasonCode: "slack.private_navigation_action_unavailable",
-      status: "retryable",
-    };
-  }
   try {
+    const action = await resolveRemoteAgentCallbackNavigationAction({
+      body: input.body,
+      delivery: input.delivery,
+      env: input.env,
+    });
+    if (!action) {
+      return {
+        reasonCode: "slack.private_navigation_action_unavailable",
+        status: "retryable",
+      };
+    }
     const db = wakeEvidenceDb(input.env);
     if (!db) {
       throw new Error("plugin.channel.state_unavailable");
@@ -12187,25 +12200,57 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
     });
     return null;
   } catch (error) {
-    if (!(error instanceof SlackApiError)) {
-      console.warn(
-        "[core.remote_agent.slack_private_navigation_outcome_unknown]",
-        {
-          error: toErrorMessage(error),
-          event: CORE_LOG_EVENTS.coreInternalError,
-          submissionId: input.body.submissionId,
-        }
-      );
-      return null;
-    }
+    return classifySlackPrivateNavigationFailure(
+      error,
+      input.body.submissionId
+    );
+  }
+}
+
+function classifySlackPrivateNavigationFailure(
+  error: unknown,
+  submissionId: string
+): RemoteAgentPostResultGuidance {
+  // The actual HTTP client classifies all send/read-response failures. A
+  // generic error here (including token or presentation preparation) precedes
+  // that boundary; calling the high-level publisher is not a provider attempt.
+  if (
+    error instanceof SlackMessagePublicationError &&
+    error.publicationOutcome === "unknown"
+  ) {
+    console.warn(
+      "[core.remote_agent.slack_private_navigation_outcome_unknown]",
+      {
+        error: toErrorMessage(error),
+        event: CORE_LOG_EVENTS.coreInternalError,
+        submissionId,
+      }
+    );
     return {
-      reasonCode: `slack.private_navigation_${error.errorCode}`,
-      ...(error.retryAfterSeconds === null
-        ? { retryAfterMs: 1 }
-        : { retryAfterMs: Math.max(1, error.retryAfterSeconds * 1000) }),
-      status: "retryable",
+      status: "outcome_unknown",
+      reasonCode: "slack.private_navigation_outcome_unknown",
     };
   }
+  const providerError =
+    error instanceof SlackMessagePublicationError ||
+    error instanceof SlackApiError
+      ? error
+      : null;
+  console.warn("[core.remote_agent.slack_private_navigation_not_published]", {
+    event: CORE_LOG_EVENTS.coreInternalError,
+    submissionId,
+    error: toErrorMessage(error),
+  });
+  return {
+    reasonCode: providerError?.errorCode
+      ? `slack.private_navigation_${providerError.errorCode}`
+      : "slack.private_navigation_preparation_failed",
+    retryAfterMs:
+      providerError?.retryAfterSeconds == null
+        ? 1000
+        : Math.max(1, providerError.retryAfterSeconds * 1000),
+    status: "retryable",
+  };
 }
 
 function buildSlackIdentityGuidanceText(input: {

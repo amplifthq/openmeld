@@ -130,6 +130,16 @@ update Remote Agent, Web and CLI. Distinct new HTTP/CLI operations fail visibly
 against older receivers. No new secret/binding, provider scope expansion,
 production migration or connection mutation is implied by this implementation.
 
+Slack private setup guidance distinguishes preparation failure and explicit
+`not_published` provider responses from actual transport/response uncertainty.
+Known failures retry only the guidance through the existing completion callback,
+with provider backoff when available; the public result and task are not replayed.
+Uncertain private delivery is reported with `slack.private_navigation_outcome_unknown`
+and no automatic resend request. The existing callback acknowledgement still
+settles only the published public result, not a claim that private guidance arrived.
+This is not a new private-message exactly-once ledger; manual investigation must
+not blindly replay an uncertain provider write.
+
 ### Admitted Computer audience
 
 New Computer identities include Organization, Agent, Binding, conversation,

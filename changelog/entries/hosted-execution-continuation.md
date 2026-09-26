@@ -19,6 +19,12 @@ requester to the same secure setup and explicitly continue in the original
 channel. Duplicate clicks keep one delivery, changed original requests are
 refused, and successive Plugin setups keep each selected account separate.
 
+When both personal and organization connections exist, an unspecified request
+asks which account to use. Legitimate replay acknowledgements keep the frozen
+account and current Computer access instead of incorrectly rejecting running
+work. Slack setup guidance retries known pre-send and provider failures without
+rerunning the task or its public reply; uncertain delivery remains explicit.
+
 Hosted Computers separate admitted conversation audiences. Large received
 tool results can be read or searched through bounded, expiring references under
 current access checks, including results inside Code Mode. Reading more output

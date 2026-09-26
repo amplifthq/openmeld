@@ -280,12 +280,14 @@ export async function getSlackMessagePermalink(input: {
 export class SlackMessagePublicationError extends Error {
   readonly errorCode: string | null;
   readonly publicationOutcome: SlackMessagePublicationOutcome;
+  readonly retryAfterSeconds: number | null;
 
   constructor(input: {
     cause?: unknown;
     errorCode?: string | null;
     message: string;
     publicationOutcome: SlackMessagePublicationOutcome;
+    retryAfterSeconds?: number | null;
   }) {
     super(
       input.message,
@@ -294,6 +296,7 @@ export class SlackMessagePublicationError extends Error {
     this.name = "SlackMessagePublicationError";
     this.errorCode = input.errorCode ?? null;
     this.publicationOutcome = input.publicationOutcome;
+    this.retryAfterSeconds = input.retryAfterSeconds ?? null;
   }
 }
 
@@ -1487,6 +1490,9 @@ async function postSlackMessageOnce(input: {
       errorCode: error,
       message: `Slack chat.postMessage failed: ${error}`,
       publicationOutcome: "not_published",
+      retryAfterSeconds: parseRetryAfterSeconds(
+        response.headers.get("retry-after")
+      ),
     });
   }
   throw createUnknownSlackPublicationError(`HTTP ${response.status}`);
