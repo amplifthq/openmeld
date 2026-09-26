@@ -48,6 +48,7 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import {
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
@@ -213,6 +214,13 @@ function TeamFilesBrowser(input: {
 	const entriesByPath = new Map(
 		items.map((item, index) => [item.path, entries[index]])
 	);
+	const browserVersionKey = entries
+		.map((entry) =>
+			entry.kind === "file"
+				? `${entry.id}:${entry.latestRevision.id}:${entry.name}`
+				: `${entry.id}:${entry.name}`
+		)
+		.join("|");
 	const refresh = async () => {
 		await queryClient.invalidateQueries({
 			queryKey: ["file-root", currentOrganization.id],
@@ -273,26 +281,6 @@ function TeamFilesBrowser(input: {
 					))}
 				</div>
 			) : null}
-			{currentOrganization.isPersonal ? null : (
-				<>
-					<Button
-						onClick={() => changeLocation("team")}
-						size="sm"
-						type="button"
-						variant={location === "team" ? "secondary" : "ghost"}
-					>
-						Team files
-					</Button>
-					<Button
-						onClick={() => changeLocation("my")}
-						size="sm"
-						type="button"
-						variant={location === "my" ? "secondary" : "ghost"}
-					>
-						My files
-					</Button>
-				</>
-			)}
 			{view === "active" ? (
 				<>
 					<input
@@ -401,6 +389,22 @@ function TeamFilesBrowser(input: {
 			aria-label="Team files"
 			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
 		>
+			{currentOrganization.isPersonal ? null : (
+				<Tabs
+					className="shrink-0 border-b px-5 py-2"
+					onValueChange={(value) => {
+						if (value === "team" || value === "my") {
+							changeLocation(value);
+						}
+					}}
+					value={location}
+				>
+					<TabsList className="w-fit">
+						<TabItem label="Team files" value="team" />
+						<TabItem label="My files" value="my" />
+					</TabsList>
+				</Tabs>
+			)}
 			{actionError ? (
 				<p
 					className="border-destructive/30 border-b px-5 py-2 text-destructive text-sm"
@@ -465,7 +469,7 @@ function TeamFilesBrowser(input: {
 								}}
 								isLoading={files.isPending}
 								items={items}
-								key={`${currentOrganization.id}:${location}:${parentId ?? "root"}:${view}`}
+								key={`${currentOrganization.id}:${location}:${parentId ?? "root"}:${view}:${browserVersionKey}`}
 								onEntryContextMenu={(item) =>
 									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
 								}
