@@ -17,6 +17,43 @@ import {
 } from "../src";
 
 describe("planAgentProfileReplyRecovery", () => {
+  it("retains Local selection when the known Local profile has no binding to check", () => {
+    const member = createSpaceMemberAgentSnapshot({
+      agentControllerRef: "builtin:codex",
+      wakeState: "offline",
+      wakeabilityStatus: "blocked",
+      wakeabilityReasonCodes: ["agent_profile_binding.missing"],
+      agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+        displayState: "unknown",
+        primaryAction: "check_status",
+        reasonCodes: ["agent_profile_binding.missing"],
+        facts: {
+          binding: {
+            source: "missing",
+            routable: false,
+            reasonCodes: ["agent_profile_binding.missing"],
+          },
+          localService: {
+            source: "not_checked",
+            reachable: false,
+            refreshable: false,
+            reasonCodes: [],
+          },
+        },
+      }),
+    });
+    // Core's public availability classifies a confirmed missing binding as
+    // unavailable/action_required, not an in-progress local connection check.
+    if (!member.ownerWakeDiagnostics) {
+      throw new Error("Expected owner diagnostics");
+    }
+    member.ownerWakeDiagnostics.state = "action_required";
+    expect(planAgentProfileReplyRecovery({ member })).toMatchObject({
+      kind: "choose_controller",
+      primaryActionId: "choose_local_agent",
+    });
+  });
+
   it.each([
     "hosted:remote-agent",
     "hosted:center-agent",

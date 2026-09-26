@@ -4453,14 +4453,10 @@ describe("space-members-service", () => {
           facts: {
             route: {
               online: false,
-              source: "daemon_route",
+              source: "not_checked",
             },
           },
-          reasonCodes: expect.arrayContaining([
-            "agent_profile_binding.read_unavailable",
-            "agent_execution.route_unavailable",
-            "not_requested",
-          ]),
+          reasonCodes: ["agent_profile_binding.read_unavailable"],
         },
       },
     });
@@ -4600,6 +4596,19 @@ describe("space-members-service", () => {
   });
 
   it("projects hosted Center Agent member availability from the remote runtime", async () => {
+    const runtimeTransportClient = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const localRoute = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportRoutesBatch")
+      .mockRejectedValue(
+        new Error("Local transport must not affect Hosted availability")
+      );
+    const localService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockRejectedValue(
+        new Error("Local Service must not affect Hosted availability")
+      );
     const sql = new MutableSqlStorage();
     const spaceId = "space-members-hosted-center-agent-availability";
     const agentProfileId = "agt_members_hosted_center_agent";
@@ -4611,6 +4620,7 @@ describe("space-members-service", () => {
       profileOrganizationId: "org-1",
     });
     const env = {
+      OPENMELD_RUNTIME_TRANSPORT: {},
       OPENMELD_AUTH_WORKER: {
         resolveProfileById: vi.fn(async () => ({
           ok: true,
@@ -4675,6 +4685,8 @@ describe("space-members-service", () => {
     expect(hostedCenterAgent?.agentControllerRef).toBe(
       HOSTED_CENTER_AGENT_CONTROLLER_REF
     );
+    expect(localRoute).not.toHaveBeenCalled();
+    expect(localService).not.toHaveBeenCalled();
     expect(hostedCenterAgent?.agentWakeAvailability).toMatchObject({
       badgeLabel: "Available",
       category: "available",

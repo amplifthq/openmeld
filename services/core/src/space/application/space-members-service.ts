@@ -1147,7 +1147,7 @@ async function preloadAgentMemberDaemonRoutes(input: {
 }): Promise<ReadonlyMap<string, RuntimeTransportLookupRouteResponse>> {
   const profileIdsByOwnerUserId = new Map<string, Set<string>>();
   for (const record of input.records) {
-    if (record.profileKindSnapshot !== "agent") {
+    if (!needsLocalMemberPreload(record)) {
       continue;
     }
 
@@ -1206,7 +1206,7 @@ async function preloadAgentMemberOwnerServices(input: {
 }): Promise<ReadonlyMap<string, RuntimeTransportLookupOwnerServiceResponse>> {
   const ownerUserIds = new Set<string>();
   for (const record of input.records) {
-    if (record.profileKindSnapshot !== "agent") {
+    if (!needsLocalMemberPreload(record)) {
       continue;
     }
     const ownerUserId = normalizeOptionalText(record.ownerUserIdSnapshot);
@@ -1233,6 +1233,16 @@ async function preloadAgentMemberOwnerServices(input: {
     })
   );
   return servicesByOwnerUserId;
+}
+
+function needsLocalMemberPreload(record: SpaceMemberRecord): boolean {
+  // Resolve unknown identities before reading local evidence. Hosted members
+  // must not wait for user Computer/Service preloads.
+  return (
+    record.profileKindSnapshot === "agent" &&
+    Boolean(record.controllerRefSnapshot) &&
+    !isHostedAgentControllerRef(record.controllerRefSnapshot)
+  );
 }
 
 async function buildAgentSnapshot(input: {

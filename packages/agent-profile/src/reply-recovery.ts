@@ -605,7 +605,9 @@ function planAgentRecoveryFromExecutionPrimaryAction(input: {
         reasonCode: input.reasonCode,
       });
     case "check_status":
-      return planStatusRecoveryFromPrimaryAction(input);
+      return isUnboundAgentReasonCode(input.reasonCode)
+        ? planBindingRecoveryFromPrimaryAction(input)
+        : planStatusRecoveryFromPrimaryAction(input);
     case null:
       return null;
     default:
