@@ -1,6 +1,11 @@
 "use client";
 
-import { createFileRootApi, type FileRootLocation } from "@openmeld/api-client";
+import {
+	createFileRootApi,
+	type FileRootLocation,
+	toStructuredApiClientFailure,
+} from "@openmeld/api-client";
+import { SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES } from "@openmeld/schemas";
 import type { FileRootEntry } from "@openmeld/schemas/types";
 import {
 	AlertDialog,
@@ -22,6 +27,8 @@ import {
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
+	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
@@ -30,6 +37,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { Textarea } from "@openmeld/ui/components/textarea";
 import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
@@ -59,6 +67,10 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { FileSystemItem } from "#/components/extend/file-system";
 import {
+	UnsavedChangesDialog,
+	UnsavedChangesGuard,
+} from "#/components/forms/unsaved-changes-guard";
+import {
 	FolderNameDialog,
 	MoveEntryDialog,
 	NewTextFileDialog,
@@ -68,6 +80,7 @@ import {
 	downloadContent,
 	formatFileDateTime,
 	formatFileSize,
+	utf8ByteLength,
 } from "#/components/spaces/space-file-utils";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -120,6 +133,10 @@ function TeamFilesBrowser(input: {
 	);
 	const [movingEntry, setMovingEntry] = useState<FileRootEntry | null>(null);
 	const [historyEntry, setHistoryEntry] = useState<Extract<
+		FileRootEntry,
+		{ kind: "file" }
+	> | null>(null);
+	const [editingEntry, setEditingEntry] = useState<Extract<
 		FileRootEntry,
 		{ kind: "file" }
 	> | null>(null);
@@ -485,6 +502,14 @@ function TeamFilesBrowser(input: {
 									) : null}
 									{view === "active" && selectedEntry.kind === "file" ? (
 										<>
+											{isEditableRootTextFile(selectedEntry) ? (
+												<ContextMenuItem
+													onClick={() => setEditingEntry(selectedEntry)}
+												>
+													<PencilSimpleIcon aria-hidden="true" />
+													Edit text
+												</ContextMenuItem>
+											) : null}
 											<ContextMenuItem
 												onClick={() => setHistoryEntry(selectedEntry)}
 											>
@@ -635,6 +660,16 @@ function TeamFilesBrowser(input: {
 					key={`${location}:${historyEntry.id}`}
 					location={location}
 					onClose={() => setHistoryEntry(null)}
+				/>
+			) : null}
+			{editingEntry ? (
+				<FileRootTextEditor
+					api={api}
+					entry={editingEntry}
+					key={`${location}:${editingEntry.id}`}
+					location={location}
+					onClose={() => setEditingEntry(null)}
+					onSaved={refresh}
 				/>
 			) : null}
 			<RenameEntryDialog
@@ -876,6 +911,218 @@ function FileRootVersionHistory(input: {
 				) : null}
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function isEditableRootTextFile(
+	entry: FileRootEntry
+): entry is Extract<FileRootEntry, { kind: "file" }> {
+	if (entry.kind !== "file") {
+		return false;
+	}
+	return (
+		entry.latestRevision.sizeBytes <= SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES &&
+		["text/markdown", "text/plain", "text/csv"].includes(
+			entry.latestRevision.mimeType.split(";")[0]?.toLowerCase() ?? ""
+		)
+	);
+}
+
+function FileRootTextEditor(input: {
+	api: ReturnType<typeof createFileRootApi>;
+	entry: Extract<FileRootEntry, { kind: "file" }>;
+	location: FileRootLocation;
+	onClose: () => void;
+	onSaved: () => Promise<void>;
+}) {
+	const [draft, setDraft] = useState("");
+	const [savedDraft, setSavedDraft] = useState("");
+	const [loadedRevision, setLoadedRevision] = useState<number | null>(null);
+	const [saving, setSaving] = useState(false);
+	const [saveError, setSaveError] = useState<string | null>(null);
+	const [conflict, setConflict] = useState(false);
+	const [leaveOpen, setLeaveOpen] = useState(false);
+	const content = useQuery({
+		queryKey: [
+			"file-root-edit",
+			input.location,
+			input.entry.id,
+			input.entry.latestRevision.revision,
+		],
+		queryFn: () =>
+			input.api.download({
+				location: input.location,
+				fileId: input.entry.id,
+			}),
+	});
+	useEffect(() => {
+		if (!content.data || loadedRevision !== null) {
+			return;
+		}
+		try {
+			if (content.data.bytes.byteLength > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES) {
+				throw new Error("This file is too large to edit here.");
+			}
+			const text = new TextDecoder("utf-8", { fatal: true }).decode(
+				content.data.bytes
+			);
+			setDraft(text);
+			setSavedDraft(text);
+			setLoadedRevision(content.data.revision);
+		} catch (error) {
+			setSaveError(
+				error instanceof Error ? error.message : "This file couldn't be opened."
+			);
+		}
+	}, [content.data, loadedRevision]);
+	const hasUnsavedChanges = loadedRevision !== null && draft !== savedDraft;
+	const overLimit = utf8ByteLength(draft) > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES;
+	const save = async (): Promise<boolean> => {
+		if (
+			loadedRevision === null ||
+			!hasUnsavedChanges ||
+			overLimit ||
+			saving ||
+			conflict
+		) {
+			return false;
+		}
+		const savingDraft = draft;
+		setSaving(true);
+		setSaveError(null);
+		try {
+			const saved = await input.api.updateContent({
+				location: input.location,
+				fileId: input.entry.id,
+				bytes: new Blob([savingDraft], {
+					type: input.entry.latestRevision.mimeType,
+				}),
+				mimeType: input.entry.latestRevision.mimeType,
+				baseRevision: loadedRevision,
+				clientMutationId: crypto.randomUUID(),
+			});
+			setSavedDraft(savingDraft);
+			setLoadedRevision(saved.latestRevision.revision);
+			await input.onSaved();
+			toast.success("File saved");
+			return true;
+		} catch (error) {
+			if (toStructuredApiClientFailure(error).code === "space_file.conflict") {
+				setConflict(true);
+				setSaveError(
+					"Someone saved a newer version. Your changes are still here. Copy them before reopening the latest version."
+				);
+			} else {
+				setSaveError(
+					error instanceof Error
+						? error.message
+						: "This file couldn't be saved."
+				);
+			}
+			return false;
+		} finally {
+			setSaving(false);
+		}
+	};
+	return (
+		<>
+			<UnsavedChangesGuard
+				description="Your edits to this file haven't been saved."
+				hasUnsavedChanges={hasUnsavedChanges}
+				onSave={save}
+				saving={saving}
+			/>
+			<Dialog
+				onOpenChange={(open) => {
+					if (open || saving) {
+						return;
+					}
+					if (hasUnsavedChanges) {
+						setLeaveOpen(true);
+					} else {
+						input.onClose();
+					}
+				}}
+				open
+			>
+				<DialogContent className="flex max-h-[85vh] flex-col sm:max-w-3xl">
+					<DialogHeader>
+						<DialogTitle>Edit {input.entry.name}</DialogTitle>
+						<DialogDescription>
+							Saving creates a new version. Another person's newer version won't
+							be overwritten.
+						</DialogDescription>
+					</DialogHeader>
+					{content.isPending ? (
+						<p className="text-muted-foreground text-sm">Loading file…</p>
+					) : null}
+					{content.isError ? (
+						<div
+							className="flex items-center justify-between gap-3"
+							role="alert"
+						>
+							<p>This file couldn't be opened.</p>
+							<Button
+								onClick={() => content.refetch()}
+								size="sm"
+								variant="outline"
+							>
+								Try again
+							</Button>
+						</div>
+					) : null}
+					{loadedRevision !== null ? (
+						<>
+							<Textarea
+								aria-label="File contents"
+								className="min-h-72 flex-1 resize-none font-mono text-sm leading-6"
+								disabled={saving}
+								onChange={(event) => setDraft(event.currentTarget.value)}
+								spellCheck={false}
+								value={draft}
+							/>
+							<p
+								className={
+									overLimit
+										? "text-destructive text-xs"
+										: "text-muted-foreground text-xs"
+								}
+							>
+								{formatFileSize(utf8ByteLength(draft))} / 1 MB
+								{overLimit ? " — too long to save" : ""}
+							</p>
+						</>
+					) : null}
+					{saveError ? (
+						<p className="text-destructive text-sm" role="alert">
+							{saveError}
+						</p>
+					) : null}
+					<DialogFooter>
+						<Button
+							disabled={!hasUnsavedChanges || overLimit || saving || conflict}
+							onClick={() => save().catch(console.error)}
+						>
+							{saving ? "Saving…" : "Save changes"}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+			<UnsavedChangesDialog
+				description="Your edits to this file haven't been saved."
+				onCancel={() => setLeaveOpen(false)}
+				onDiscard={input.onClose}
+				onSaveAndLeave={async () => {
+					const saved = await save();
+					if (saved) {
+						input.onClose();
+					}
+					return saved;
+				}}
+				open={leaveOpen}
+				saving={saving}
+			/>
+		</>
 	);
 }
 
