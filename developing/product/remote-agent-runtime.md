@@ -89,6 +89,56 @@ to support paging. Normal connection-status reconciliation does not advance an
 unchanged active connection's version; an actual pending/reconnect transition
 does.
 
+### Private Git working copies
+
+The isolated Computer offers `github_checkout_repository` and
+`github_publish_checkout`. They compose with existing Computer edit/command
+tools and the existing Draft PR action; they are not a mandatory coding plan.
+The chosen personal/Organization GitHub identity is frozen with the repository
+ID, source commit/tree, admitted audience and connection version. Current Core
+permissions are checked around every provider operation. Publishing requires
+write permission and retains Routine/member-research restrictions.
+
+Checkout imports immutable Git objects in bounded batches through the existing
+connection service. It verifies binary blob hashes, modes, symlinks and the
+complete native tree before exposing a directory. A retry does not reset edits.
+This is an exact **snapshot working copy**, not a full history clone: its local
+base commit is synthetic and explicitly identifies the original remote commit.
+Git history, LFS payloads and submodule repositories are not downloaded. The
+current bounds are 30,000 tree entries, 8 MiB per blob, 256 MiB total content and
+32 downloaded blobs per call; a preparing result requires another identical
+call, not an invented ready state. Truncated provider trees fail closed.
+
+The Agent commits and tests with the ordinary Computer tools. Publication reads
+an exact immutable local commit, verifies the created GitHub tree, and updates
+only the host-issued `openmeld/work-<id>` branch with no force push. It takes the
+expected previous remote commit and rejects a changed destination. The remote
+commit may differ from the synthetic local history; the exact tree is the
+content proof. Publication never attests tests it did not run. At most 200 new
+blobs may be published per operation; larger changes need a different supported
+environment rather than silently partial publication.
+
+Core's existing operation ledger owns the outcome. A small expiring transport
+record remembers the candidate commit and whether its reference update was
+attempted. Duplicate calls cannot issue that update twice. An uncertain response
+is reconciled against the fixed branch; a different head stays outcome-unknown,
+not automatically retried under another operation ID. No repository credential,
+Git remote credential, or raw provider authorization enters the Computer.
+
+Imported private repository provenance stays with the durable Computer beyond
+the 24-hour Git operation lifetime. Ordinary Computer access rechecks these
+source grants too; expiry never unlocks previously imported bytes. A revoked or
+replaced source blocks further access to that Computer. Start a fresh
+conversation for a new authorized working context; do not silently migrate the
+old bytes. Provenance is not a second permission owner: Core still authorizes.
+
+The deployed connector keeps general HTTP/MCP proxy access blocked. A narrow
+OpenMeld working-copy ingress accepts only the required Git object operations
+and generated task branches, then delegates authentication to the pinned
+upstream GitHub proxy. Runtime token grants and provider repository grants are
+still required. See `docs/cloudflare-workers-env.md` for the reviewed overlay
+and rollout ordering; adding code never changes an existing credential grant.
+
 These are implementation contracts, not production-availability claims. See
 `design-plans/1254-composable-plugin-workflow.md` for outstanding acceptance.
 

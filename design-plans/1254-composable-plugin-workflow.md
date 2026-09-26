@@ -1,6 +1,6 @@
 # #1254 — Composable Plugin setup and execution
 
-Status: Draft implementation resumed, 2026-09-26. Private Git and full acceptance remain incomplete.
+Status: Draft implementation with private Git, 2026-09-26. Independent authenticated smoke, mixed-version Desktop and final review remain required.
 Discussion: https://github.com/amplifthq/openmeld/pull/1254
 
 ## Agent context
@@ -101,11 +101,21 @@ page remains in place, not that the Agent bypasses provider consent.
   check and independent per-file audit identity. They do not complete all of
   #1293 or supersede its remaining work.
 
-This is not yet the whole requested outcome. Private Git is not implemented.
-Real provider authorization, installed Desktop, process/cancellation/export
-isolation and full end-to-end continuation acceptance remain outstanding.
+- Controlled GitHub snapshot checkout and publication now compose with the
+  existing Computer and Draft PR tools. Real native Git tests verify binary
+  data, modes, symlinks, complete-tree identity and retry without resetting edits.
+  Publication tests verify selected-account use, fixed branches, concurrent
+  retries, cancellation, changed parents and reconciliation after lost replies.
+- Imported repository provenance is retained with the Computer and rechecked
+  for ordinary access, including after Git-operation expiry.
+- A narrow connector ingress delegates to reviewed upstream authentication;
+  general HTTP/MCP proxies remain blocked. No production grant was changed.
 
-## Remaining work in this same implementation PR
+Real provider authorization, installed Desktop, process/cancellation/export
+isolation and full end-to-end continuation acceptance remain outstanding. This
+is a code/test checkpoint for independent review, not a claim of live delivery.
+
+## Independent acceptance in this same implementation PR
 
 ### A. Complete and accept conversational setup
 
@@ -186,6 +196,14 @@ never force-push or expand repository access implicitly. The Agent may still
 choose an API edit or an eligible Local Agent instead. Do not impose a fixed
 coding workflow or silently unfreeze a general hosted-workstation platform.
 
+The implemented working copy is a verified snapshot with synthetic local base
+history. It does not promise full clone/history, LFS downloads or submodule
+checkout. Confirm that this is sufficient for the actual repository's build
+scripts; unsupported requirements must be reported rather than hidden behind
+a green tiny-repository fixture. Read the concrete size/batch bounds in the
+runtime owner. The token's GitHub proxy grant and the reviewed connector overlay
+must be present in the isolated test lane before live private-Git smoke.
+
 ## Existing work: integrate, do not duplicate
 
 | Item | Disposition |
@@ -225,9 +243,12 @@ files failed during collection because workspace packages such as
 `@openmeld/agent-runtime` had no built entry; no Remote Agent tests ran. These
 are outstanding gates, not passing tests. Record subsequent exact results in
 the PR rather than turning this checkpoint into final-head certification.
-The resumed implementation passes 399 focused Remote Agent tests, 114 focused
-Web tests, and 28 Core boundary tests. Web and Remote Agent typechecks now pass.
+The resumed implementation passed 399 focused Remote Agent tests, 114 focused
+Web tests, and 28 Core boundary tests. The private-Git slice adds native Git,
+provider/proxy, publication/reconciliation, data-provenance and public-wire
+guards; its exact final counts and build results belong to the PR checkpoint.
+Web, Remote Agent, Core and Gateway typechecks have passed during this work.
 These results supersede the initial missing-workspace-output blockers for those
 checks; they are not authenticated provider, installed Desktop, or production
-evidence. Private Git implementation and end-to-end acceptance are still open.
+evidence. End-to-end acceptance remains open.
 Keep the PR Draft until its accepted scope and compatibility gates are complete.

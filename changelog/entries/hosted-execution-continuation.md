@@ -15,3 +15,10 @@ Hosted Computers separate admitted conversation audiences. Large received
 tool results can be read or searched through bounded, expiring references under
 current access checks, including results inside Code Mode. Reading more output
 does not rerun the original tool or repeat a completed write.
+
+Hosted Agents can prepare a private GitHub snapshot working copy, edit and test
+with the existing Computer, and publish its exact tree to a dedicated task
+branch through the selected Plugin connection. Credentials remain in the
+connection service. Publication checks current access and reconciles uncertain
+outcomes rather than force-pushing or repeating a completed update. Full Git
+history, LFS data and submodule repositories are not part of the snapshot.

@@ -12,5 +12,16 @@ export async function cleanupExpiredRemoteAgentToolResults(input: {
     limit: 256,
     nowMs: input.nowMs ?? Date.now(),
   });
-  return { deleted: result.deleted, nextCleanupAtMs: result.nextExpiresAtMs };
+  const git = await input.storage.deleteExpired({
+    prefix: "github-working-copy:v1:",
+    limit: 64,
+    nowMs: input.nowMs ?? Date.now(),
+  });
+  const next = [result.nextExpiresAtMs, git.nextExpiresAtMs].filter(
+    (value): value is number => value !== null
+  );
+  return {
+    deleted: result.deleted + git.deleted,
+    nextCleanupAtMs: next.length ? Math.min(...next) : null,
+  };
 }

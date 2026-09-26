@@ -166,6 +166,35 @@ describe("current execution access is an owner projection, not a cached grant", 
     expect(owners.directory).not.toHaveBeenCalled();
   });
 
+  it("passes private Git write requirements to the existing permission owner instead of treating read access as write access", async () => {
+    owners.connection.mockImplementation(async (value) => {
+      if (value.effect === "write") {
+        throw new Error("plugin.action_forbidden");
+      }
+      return await Promise.resolve({ updatedAtMs: 42 });
+    });
+    const source = {
+      kind: "plugin_connection",
+      service: "github",
+      connectionName: "selected",
+      connectionUpdatedAtMs: 42,
+    };
+    await authorizeRemoteAgentExecutionAccess({} as CoreBindings, {
+      ...input,
+      sources: [source],
+    });
+    await expect(
+      authorizeRemoteAgentExecutionAccess({} as CoreBindings, {
+        ...input,
+        sources: [source],
+        effect: "write",
+      })
+    ).rejects.toThrow("plugin.action_forbidden");
+    expect(owners.connection).toHaveBeenLastCalledWith(
+      expect.objectContaining({ connectionName: "selected", effect: "write" })
+    );
+  });
+
   it("does not let an active connection bypass current Agent access or a replacement account", async () => {
     const withSource = {
       ...input,

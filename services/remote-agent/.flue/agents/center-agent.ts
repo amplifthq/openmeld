@@ -151,6 +151,10 @@ async function prepareCenterAgentRender() {
       executionContext.computerIsolationVersion === 1 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
+            connectorExecution: {
+              baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+              runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+            },
             context: executionContext,
             coreWorker,
             env,

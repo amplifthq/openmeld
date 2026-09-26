@@ -6,6 +6,10 @@ import {
   readPluginConnectionReplyLink,
 } from "../src/plugin-connection-reply";
 import { MAX_TEXT_LENGTH } from "../src/schemas/protocol/constants";
+import {
+  messageEnvelopeInputSchema,
+  messageEnvelopeSchema,
+} from "../src/schemas/protocol/message-envelope";
 
 const origin = "https://openmeld.example";
 const legacyEnvelope = z.strictObject({
@@ -29,6 +33,20 @@ const legacyEnvelope = z.strictObject({
 });
 
 describe("Plugin connection reply compatibility", () => {
+  it("prevents any public message writer from persisting the internal Plugin target", () => {
+    const action = buildOpenMeldNavigationAction({
+      organizationWebUrl: `${origin}/o/acme`,
+      target: { kind: "plugin_connection", service: "github", scope: "member" },
+    });
+    const envelope = {
+      text: "Connect",
+      activationTargets: [],
+      referenceTargets: [],
+      navigationAction: action,
+    };
+    expect(messageEnvelopeInputSchema.safeParse(envelope).success).toBe(false);
+    expect(messageEnvelopeSchema.safeParse(envelope).success).toBe(false);
+  });
   it.each([
     "member",
     "shared",

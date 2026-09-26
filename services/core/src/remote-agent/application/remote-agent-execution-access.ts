@@ -66,7 +66,13 @@ export async function authorizeRemoteAgentExecutionAccess(
   ) {
     throw new Error("remote_agent.requester_membership_revoked");
   }
-  await requireResultSources(caller, request, scope, sources);
+  await requireResultSources(
+    caller,
+    request,
+    scope,
+    sources,
+    parsed.effect ?? "read"
+  );
   return remoteAgentExecutionAccessResponseSchema.parse({
     scope,
     submissionId,
@@ -79,7 +85,8 @@ async function requireResultSources(
   scope: ReturnType<typeof resolveRemoteAgentExecutionScope>,
   sources: ReturnType<
     typeof remoteAgentExecutionAccessRequestSchema.parse
-  >["sources"]
+  >["sources"],
+  effect: "read" | "write"
 ) {
   const principal = scope.principal;
   for (const source of sources ?? []) {
@@ -92,7 +99,7 @@ async function requireResultSources(
       ...("personalExecution" in caller
         ? { remoteOwnerUserId: request.agentProfileOwnerUserId ?? null }
         : {}),
-      effect: "read",
+      effect,
     });
     if (
       source.connectionUpdatedAtMs !== undefined &&

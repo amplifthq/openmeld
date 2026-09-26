@@ -9,6 +9,7 @@ export const remoteAgentExecutionAccessRequestSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   submissionId: identity,
   sources: remoteAgentResultSourcesSchema.optional(),
+  effect: z.enum(["read", "write"]).optional(),
 });
 
 export const remoteAgentExecutionScopeSchema = z.strictObject({

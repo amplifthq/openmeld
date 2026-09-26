@@ -15,6 +15,7 @@ export async function requireRemoteAgentExecutionAccess(input: {
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
   sources?: RemoteAgentResultSource[];
+  effect?: "read" | "write";
 }) {
   const authorize = input.coreWorker.authorizeRemoteAgentExecutionAccess;
   if (!authorize) {
@@ -29,6 +30,7 @@ export async function requireRemoteAgentExecutionAccess(input: {
         `execution-access:${input.context.submissionId}`
       ),
       submissionId: input.context.submissionId,
+      ...(input.effect ? { effect: input.effect } : {}),
       ...(input.sources?.length ? { sources: input.sources } : {}),
     })
   );

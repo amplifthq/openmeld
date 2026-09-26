@@ -1750,7 +1750,7 @@ function githubToolDefinition(input: {
   };
 }
 
-async function resolveGitHubActionContext(input: {
+export async function resolveGitHubActionContext(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   includeAccessPolicy?: true;
