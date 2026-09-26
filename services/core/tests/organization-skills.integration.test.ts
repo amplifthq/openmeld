@@ -64,10 +64,11 @@ describe("Organization Skills", () => {
     }
     const manifest = await env.OPENMELD_ORGANIZATION_SKILLS.get(row.object_key);
     expect(manifest).not.toBeNull();
-    const stored = await manifest?.json<{
+    const serialized = await manifest?.text();
+    const stored = JSON.parse(serialized ?? "null") as {
       files: Array<{ path: string }>;
       format: string;
-    }>();
+    };
     expect(stored?.format).toBe("files-v1");
     expect(stored?.files.map((file) => file.path)).toEqual([
       "references/checklist.md",
@@ -76,6 +77,59 @@ describe("Organization Skills", () => {
     expect(await service.get(fixture.owner, created.id)).toMatchObject({
       bundle: updated.bundle,
     });
+    const selected = {
+      digest: updated.activeRelease.digest,
+      name: updated.name,
+      releaseId: updated.activeRelease.id,
+      skillId: updated.id,
+    };
+    const checklist = updated.bundle.files[0];
+    if (!checklist) {
+      throw new Error("Checklist resource is missing from the saved release.");
+    }
+    await env.OPENMELD_ORGANIZATION_SKILLS.delete(
+      `${row.object_key}/files/${encodeURIComponent("assets/template.bin")}`
+    );
+    expect(
+      await service.readRuntimeResource(
+        fixture.owner.organizationId,
+        selected,
+        "references/checklist.md"
+      )
+    ).toMatchObject(checklist);
+    await expect(
+      service.readRuntimeResource(
+        fixture.owner.organizationId,
+        selected,
+        "assets/template.bin"
+      )
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.release_object_missing", status: 503 },
+    });
+    await env.OPENMELD_ORGANIZATION_SKILLS.put(
+      `${row.object_key}/files/${encodeURIComponent("assets/template.bin")}`,
+      Uint8Array.of(0, 1)
+    );
+    await env.OPENMELD_ORGANIZATION_SKILLS.put(
+      row.object_key,
+      JSON.stringify({ ...stored, instructions: "Tampered instructions" })
+    );
+    await expect(
+      service.readRuntimeResource(
+        fixture.owner.organizationId,
+        selected,
+        "references/checklist.md"
+      )
+    ).rejects.toMatchObject({
+      cause: {
+        code: "organization_skill.release_digest_mismatch",
+        status: 503,
+      },
+    });
+    await env.OPENMELD_ORGANIZATION_SKILLS.put(
+      row.object_key,
+      serialized ?? ""
+    );
     await env.OPENMELD_ORGANIZATION_SKILLS.delete(
       `${row.object_key}/files/${encodeURIComponent("references/checklist.md")}`
     );

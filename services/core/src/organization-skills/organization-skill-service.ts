@@ -111,6 +111,8 @@ type RuntimeCatalogUsage = {
   runtime_bytes: number;
 };
 
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
+
 export async function readEnabledOrganizationSkillReleaseSelection(input: {
   db: D1Database;
   organizationId: string;
@@ -496,6 +498,27 @@ export function createOrganizationSkillService(
       });
     },
 
+    async readRuntimeResource(
+      organizationId: string,
+      selected: OrganizationSkillRuntimeReleaseSelection,
+      path: string
+    ): Promise<OrganizationSkillFile> {
+      const release = await dependencies.db
+        .prepare(
+          "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
+        )
+        .bind(organizationId, selected.skillId, selected.releaseId)
+        .first<ReleaseRow>();
+      if (!(release && release.digest === selected.digest)) {
+        throw createCoreRpcHttpError({
+          code: "organization_skill.release_missing",
+          reason: "The selected Skill release is unavailable.",
+          status: 503,
+        });
+      }
+      return readReleaseResource(dependencies.bucket, release, path);
+    },
+
     async remove(
       actor: OrganizationSkillActor,
       skillId: string,
@@ -816,7 +839,7 @@ export function createOrganizationSkillService(
         organizationId: actor.organizationId,
         skill: existing,
       });
-      const releaseObjectKeys = await writeReleaseObject(
+      const releaseStorage = await writeReleaseObject(
         dependencies.bucket,
         objectKey,
         digest,
@@ -899,7 +922,7 @@ export function createOrganizationSkillService(
               actor.userId,
               digest,
               releaseId,
-              manifestJson(bundle),
+              manifestJson(bundle, releaseStorage.manifestDigest),
               objectKey,
               actor.organizationId,
               skillId,
@@ -953,10 +976,10 @@ export function createOrganizationSkillService(
             ),
         ]);
       } catch (error) {
-        if (releaseObjectKeys.length > 0) {
+        if (releaseStorage.createdKeys.length > 0) {
           await deleteUncommittedReleaseObject(
             dependencies.bucket,
-            releaseObjectKeys,
+            releaseStorage.createdKeys,
             releaseId
           );
         }
@@ -971,10 +994,10 @@ export function createOrganizationSkillService(
         insertRelease.meta.changes !== 1 ||
         updateSkill.meta.changes !== 1
       ) {
-        if (releaseObjectKeys.length > 0) {
+        if (releaseStorage.createdKeys.length > 0) {
           await deleteUncommittedReleaseObject(
             dependencies.bucket,
-            releaseObjectKeys,
+            releaseStorage.createdKeys,
             releaseId
           );
         }
@@ -1017,7 +1040,7 @@ async function createSkill(input: {
     db: input.dependencies.db,
     organizationId: input.actor.organizationId,
   });
-  const releaseObjectKeys = await writeReleaseObject(
+  const releaseStorage = await writeReleaseObject(
     input.dependencies.bucket,
     objectKey,
     digest,
@@ -1133,7 +1156,7 @@ async function createSkill(input: {
           input.actor.userId,
           digest,
           releaseId,
-          manifestJson(input.bundle),
+          manifestJson(input.bundle, releaseStorage.manifestDigest),
           objectKey,
           input.actor.organizationId,
           skillId,
@@ -1164,6 +1187,7 @@ async function createSkill(input: {
       bundle: input.bundle,
       db: input.dependencies.db,
       digest,
+      manifestDigest: releaseStorage.manifestDigest,
       objectKey,
       releaseId,
       skillId,
@@ -1177,10 +1201,10 @@ async function createSkill(input: {
         skill: replay,
       });
     }
-    if (releaseObjectKeys.length > 0) {
+    if (releaseStorage.createdKeys.length > 0) {
       await deleteUncommittedReleaseObject(
         input.dependencies.bucket,
-        releaseObjectKeys,
+        releaseStorage.createdKeys,
         releaseId
       );
     }
@@ -1337,6 +1361,12 @@ async function readReleaseBundle(
     });
   }
   if (isFileBackedRelease(value)) {
+    if (
+      (await sha256(serialized)) !==
+      readContentManifestDigest(release.manifest_json)
+    ) {
+      throw releaseDigestMismatchError();
+    }
     const manifest = storedSkillReleaseSchema.safeParse(value);
     if (!manifest.success) {
       throw invalidReleaseError();
@@ -1391,6 +1421,85 @@ async function readReleaseBundle(
     throw releaseDigestMismatchError();
   }
   return parsed.data;
+}
+
+async function readReleaseResource(
+  bucket: R2Bucket,
+  release: ReleaseRow,
+  path: string
+): Promise<OrganizationSkillFile> {
+  const object = await bucket.get(release.object_key);
+  if (!object) {
+    throw missingReleaseObjectError();
+  }
+  const serialized = await object.text();
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch {
+    throw invalidReleaseError();
+  }
+  if (!isFileBackedRelease(value)) {
+    const bundle = await readReleaseBundle(bucket, release);
+    const file = bundle.files.find((item) => item.path === path);
+    if (!file) {
+      throw missingSkillResourceError();
+    }
+    return file;
+  }
+  if (
+    (await sha256(serialized)) !==
+    readContentManifestDigest(release.manifest_json)
+  ) {
+    throw releaseDigestMismatchError();
+  }
+  const manifest = storedSkillReleaseSchema.safeParse(value);
+  if (!manifest.success) {
+    throw invalidReleaseError();
+  }
+  const file = manifest.data.files.find((item) => item.path === path);
+  if (!file) {
+    throw missingSkillResourceError();
+  }
+  const resource = await bucket.get(
+    releaseResourceKey(release.object_key, path)
+  );
+  if (!resource) {
+    throw missingReleaseObjectError();
+  }
+  const bytes = new Uint8Array(await resource.arrayBuffer());
+  if (
+    bytes.byteLength !== file.size ||
+    (await sha256Bytes(bytes)) !== file.digest
+  ) {
+    throw releaseDigestMismatchError();
+  }
+  let content: string;
+  try {
+    content =
+      file.encoding === "utf8"
+        ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+            bytes
+          )
+        : encodeBase64(bytes);
+  } catch {
+    throw invalidReleaseError();
+  }
+  return {
+    content,
+    encoding: file.encoding,
+    mediaType: file.mediaType,
+    path: file.path,
+    size: file.size,
+  };
+}
+
+function missingSkillResourceError(): Error {
+  return createCoreRpcHttpError({
+    code: "organization_skill.resource_missing",
+    reason: "The selected Skill resource is unavailable.",
+    status: 404,
+  });
 }
 
 const storedSkillReleaseSchema = z.strictObject({
@@ -1462,7 +1571,7 @@ async function writeReleaseObject(
   objectKey: string,
   digest: string,
   bundle: OrganizationSkillBundle
-): Promise<string[]> {
+): Promise<{ createdKeys: string[]; manifestDigest: string }> {
   const resources = await Promise.all(bundle.files.map(prepareReleaseResource));
   const serialized = canonicalJson({
     files: resources.map(({ bytes: _bytes, ...file }) => file),
@@ -1470,6 +1579,7 @@ async function writeReleaseObject(
     instructions: bundle.instructions,
     portable: bundle.portable,
   });
+  const manifestDigest = await sha256(serialized);
   const existing = await bucket.get(objectKey);
   if (existing) {
     await verifyExistingReleaseObject({
@@ -1481,7 +1591,7 @@ async function writeReleaseObject(
       resources,
       serialized,
     });
-    return [];
+    return { createdKeys: [], manifestDigest };
   }
   const createdKeys: string[] = [];
   try {
@@ -1503,7 +1613,7 @@ async function writeReleaseObject(
       httpMetadata: { contentType: "application/json; charset=utf-8" },
     });
     createdKeys.push(objectKey);
-    return createdKeys;
+    return { createdKeys, manifestDigest };
   } catch (error) {
     if (createdKeys.length > 0) {
       await deleteUncommittedReleaseObject(bucket, createdKeys, objectKey);
@@ -1587,6 +1697,7 @@ async function readExactCreatedSkillReplay(input: {
   bundle: OrganizationSkillBundle;
   db: D1Database;
   digest: string;
+  manifestDigest: string;
   objectKey: string;
   releaseId: string;
   skillId: string;
@@ -1630,7 +1741,7 @@ async function readExactCreatedSkillReplay(input: {
       input.releaseId,
       input.digest,
       input.objectKey,
-      manifestJson(input.bundle),
+      manifestJson(input.bundle, input.manifestDigest),
       source.kind,
       source.repository,
       source.path,
@@ -1975,6 +2086,23 @@ function readManifestRuntimeBytes(manifestJson: string): number {
   return Number(runtimeBytes);
 }
 
+function readContentManifestDigest(manifestJson: string): string {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(manifestJson);
+  } catch {
+    throw invalidReleaseManifestError();
+  }
+  const digest =
+    manifest && typeof manifest === "object"
+      ? (manifest as { contentManifestDigest?: unknown }).contentManifestDigest
+      : undefined;
+  if (typeof digest !== "string" || !SHA256_HEX_PATTERN.test(digest)) {
+    throw invalidReleaseManifestError();
+  }
+  return digest;
+}
+
 function invalidReleaseManifestError(): Error {
   return createCoreRpcHttpError({
     code: "organization_skill.release_invalid",
@@ -1983,11 +2111,15 @@ function invalidReleaseManifestError(): Error {
   });
 }
 
-function manifestJson(bundle: OrganizationSkillBundle): string {
+function manifestJson(
+  bundle: OrganizationSkillBundle,
+  contentManifestDigest: string
+): string {
   const runtimeBytes = new TextEncoder().encode(
     stringifyOrganizationSkillBundleCanonicalJson(bundle)
   ).byteLength;
   return canonicalJson({
+    contentManifestDigest,
     files: bundle.files.map(({ encoding, mediaType, path, size }) => ({
       encoding,
       mediaType,
