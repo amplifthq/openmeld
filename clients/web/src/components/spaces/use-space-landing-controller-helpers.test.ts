@@ -1071,6 +1071,20 @@ describe("createStatusAndMembersRefreshDedupe", () => {
 });
 
 describe("resolveComposerWakeProgressTargetProfileIds", () => {
+	it("does not turn a Direct Message reference back into an implicit Wake or progress item", () => {
+		expect(
+			resolveComposerWakeProgressTargetProfileIds({
+				explicitActivationTargets: [],
+				explicitReferenceTargets: [AGENT_PROFILE_ID],
+				membersSnapshot: createMembersSnapshot(),
+				senderProfileId: HUMAN_PROFILE_ID,
+				status: createStatus({
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				}),
+			})
+		).toEqual([]);
+	});
+
 	it("exposes the implicit offline Direct Message target without inventing one for a group Space", () => {
 		const agentProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const humanProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

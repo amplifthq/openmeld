@@ -334,15 +334,10 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 
 		const composerHandle: SpaceComposerEditorHandle = {
 			setAgentMentionOnly: (profileIds) => {
-				editor.tf.setNodes(
-					{ relation: "reference" },
-					{
-						at: [],
-						match: (node) =>
-							isSpaceComposerProfileElement(node) &&
-							profileIds.includes(node.profileId) &&
-							node.relation === "wake",
-					}
+				applyComposerReferenceTargets(
+					editor,
+					input.mentionPickerItems,
+					profileIds
 				);
 				focusWhenReady();
 			},
@@ -518,6 +513,46 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			</Plate>
 		</SpaceComposerEditorContext.Provider>
 	);
+}
+
+function applyComposerReferenceTargets(
+	editor: PlateEditor,
+	items: readonly SpaceMentionPickerItem[],
+	profileIds: readonly string[]
+): void {
+	editor.tf.setNodes(
+		{ relation: "reference" },
+		{
+			at: [],
+			match: (node) =>
+				isSpaceComposerProfileElement(node) &&
+				profileIds.includes(node.profileId) &&
+				node.relation === "wake",
+		}
+	);
+	// A Direct Message's default recipient is implicit, not an editor node.
+	// Make the user's opt-out visible and serialize the ordinary Reference.
+	const existing = new Set(
+		serializeSpaceComposerEditorValue(editor.children).authoredMentions.map(
+			(mention) => mention.profileId
+		)
+	);
+	for (const profileId of new Set(profileIds)) {
+		if (existing.has(profileId)) {
+			continue;
+		}
+		const item = items.find(
+			(candidate) => candidate.suggestion.profileId === profileId
+		);
+		if (
+			item?.suggestion.profileKind !== "agent" ||
+			!item.suggestion.allowedRelations.reference
+		) {
+			continue;
+		}
+		editor.tf.select(editor.api.start([]));
+		insertProfile(editor, item, false, "reference");
+	}
 }
 
 function focusEditorAtSelection(
@@ -1134,12 +1169,15 @@ function resolveMentionPickerRelationLabel(
 function insertProfile(
 	editor: PlateEditor,
 	item: SpaceMentionPickerItem,
-	wakeRecommendationAccepted = false
+	wakeRecommendationAccepted = false,
+	relationOverride?: "reference"
 ): void {
-	const relation = resolveDefaultSpaceComposerMentionRelation(
-		item.suggestion,
-		item.agentMember
-	);
+	const relation =
+		relationOverride ??
+		resolveDefaultSpaceComposerMentionRelation(
+			item.suggestion,
+			item.agentMember
+		);
 	if (!relation) {
 		return;
 	}
