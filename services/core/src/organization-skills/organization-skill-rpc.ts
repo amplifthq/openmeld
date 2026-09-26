@@ -5,6 +5,8 @@ import {
   deleteOrganizationSkillRpcInputSchema,
   getOrganizationSkillResponseSchema,
   getOrganizationSkillRpcInputSchema,
+  importOrganizationSkillFromFilesResponseSchema,
+  importOrganizationSkillFromFilesRpcInputSchema,
   importOrganizationSkillFromGitHubResponseSchema,
   importOrganizationSkillFromGitHubRpcInputSchema,
   listOrganizationSkillsResponseSchema,
@@ -33,6 +35,8 @@ import type {
   DeleteOrganizationSkillRpcInput,
   GetOrganizationSkillResponse,
   GetOrganizationSkillRpcInput,
+  ImportOrganizationSkillFromFilesResponse,
+  ImportOrganizationSkillFromFilesRpcInput,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
   ListOrganizationSkillsResponse,
@@ -140,6 +144,24 @@ export async function rpcImportOrganizationSkillFromGitHub(
       request.url,
       request.expectedCommitSha
     ),
+  });
+}
+
+export async function rpcImportOrganizationSkillFromFiles(
+  env: CoreBindings,
+  input: ImportOrganizationSkillFromFilesRpcInput
+): Promise<ImportOrganizationSkillFromFilesResponse> {
+  const request = parseRequest(
+    importOrganizationSkillFromFilesRpcInputSchema,
+    input
+  );
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  requireExpectedOrganization(
+    actor.organizationId,
+    request.expectedOrganizationId
+  );
+  return parseResponse(importOrganizationSkillFromFilesResponseSchema, {
+    skill: await service.importFromFiles(actor, request.files),
   });
 }
 

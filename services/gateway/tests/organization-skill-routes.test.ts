@@ -94,6 +94,27 @@ describe("Organization Skill routes", () => {
       ),
       app.fetch(
         jsonRequest(
+          "http://local/v1/organizations/current/skills/import-files",
+          "POST",
+          {
+            expectedOrganizationId: "org-1",
+            files: [
+              {
+                content:
+                  "---\nname: release-review\ndescription: Review a release before it ships.\n---\nReview the release evidence.",
+                encoding: "utf8",
+                mediaType: "text/markdown",
+                path: "SKILL.md",
+                size: 106,
+              },
+            ],
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      ),
+      app.fetch(
+        jsonRequest(
           "http://local/v1/organizations/current/skills/preview-github",
           "POST",
           {
@@ -143,7 +164,7 @@ describe("Organization Skill routes", () => {
     ]);
 
     expect(responses.map((response) => response.status)).toEqual([
-      200, 200, 201, 201, 200, 200, 200, 200, 200,
+      200, 200, 201, 201, 201, 200, 200, 200, 200, 200,
     ]);
     expect(coreRpc.listOrganizationSkills).toHaveBeenCalledWith({
       context: expect.objectContaining({ activeOrganizationId: "org-1" }),
@@ -161,6 +182,12 @@ describe("Organization Skill routes", () => {
       expect.objectContaining({
         expectedOrganizationId: "org-1",
         url: "https://github.com/acme/skills/tree/main/release-review",
+      })
+    );
+    expect(coreRpc.importOrganizationSkillFromFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        files: [expect.objectContaining({ path: "SKILL.md" })],
       })
     );
     expect(coreRpc.previewOrganizationSkillFromGitHub).toHaveBeenCalledWith(
@@ -233,6 +260,7 @@ function makeEnv() {
     })),
     getOrganizationSkill: vi.fn(async () => ({ skill: SKILL })),
     importOrganizationSkillFromGitHub: vi.fn(async () => ({ skill: SKILL })),
+    importOrganizationSkillFromFiles: vi.fn(async () => ({ skill: SKILL })),
     listOrganizationSkills: vi.fn(async () => ({
       canManage: true,
       organizationId: "org-1",

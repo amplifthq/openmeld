@@ -4,6 +4,8 @@ import type {
   DeleteOrganizationSkillBody,
   DeleteOrganizationSkillResponse,
   GetOrganizationSkillResponse,
+  ImportOrganizationSkillFromFilesBody,
+  ImportOrganizationSkillFromFilesResponse,
   ImportOrganizationSkillFromGitHubBody,
   ImportOrganizationSkillFromGitHubResponse,
   ListOrganizationSkillsResponse,
@@ -43,6 +45,9 @@ export type OrganizationSkillsApi = {
   importFromGitHub: (
     input: OrganizationSkillRequestInput & ImportOrganizationSkillFromGitHubBody
   ) => Promise<ImportOrganizationSkillFromGitHubResponse>;
+  importFromFiles: (
+    input: OrganizationSkillRequestInput & ImportOrganizationSkillFromFilesBody
+  ) => Promise<ImportOrganizationSkillFromFilesResponse>;
   previewFromGitHub: (
     input: OrganizationSkillRequestInput &
       PreviewOrganizationSkillFromGitHubBody

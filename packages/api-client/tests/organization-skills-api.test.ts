@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildOrganizationSkillEnabledPath,
+  buildOrganizationSkillFilesImportPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
@@ -66,6 +67,9 @@ describe("api-client Organization Skills API", () => {
     expect(buildOrganizationSkillGitHubImportPath()).toBe(
       "/v1/organizations/current/skills/import-github"
     );
+    expect(buildOrganizationSkillFilesImportPath()).toBe(
+      "/v1/organizations/current/skills/import-files"
+    );
     expect(buildOrganizationSkillGitHubPreviewPath()).toBe(
       "/v1/organizations/current/skills/preview-github"
     );
@@ -95,6 +99,10 @@ describe("api-client Organization Skills API", () => {
       [`POST ${skillsUrl}`, () => jsonResponse({ skill: SKILL }, 201)],
       [
         `POST ${skillsUrl}/import-github`,
+        () => jsonResponse({ skill: SKILL }, 201),
+      ],
+      [
+        `POST ${skillsUrl}/import-files`,
         () => jsonResponse({ skill: SKILL }, 201),
       ],
       [
@@ -160,6 +168,19 @@ describe("api-client Organization Skills API", () => {
       expectedCommitSha: "b".repeat(40),
       expectedOrganizationId: ORGANIZATION_ID,
       url: "https://github.com/openmeld/example/tree/main/support-risk-review",
+    });
+    await api.importFromFiles({
+      expectedOrganizationId: ORGANIZATION_ID,
+      files: [
+        {
+          content:
+            "---\nname: support-risk-review\ndescription: Review support risks every week.\n---\n# Review support risks",
+          encoding: "utf8",
+          mediaType: "text/markdown",
+          path: "SKILL.md",
+          size: 105,
+        },
+      ],
     });
     await api.previewFromGitHub({
       expectedOrganizationId: ORGANIZATION_ID,
@@ -230,6 +251,24 @@ describe("api-client Organization Skills API", () => {
         method: "POST",
         operation: "organization_skill.import_github",
         url: `${skillsUrl}/import-github`,
+      },
+      {
+        body: JSON.stringify({
+          expectedOrganizationId: ORGANIZATION_ID,
+          files: [
+            {
+              content:
+                "---\nname: support-risk-review\ndescription: Review support risks every week.\n---\n# Review support risks",
+              encoding: "utf8",
+              mediaType: "text/markdown",
+              path: "SKILL.md",
+              size: 105,
+            },
+          ],
+        }),
+        method: "POST",
+        operation: "organization_skill.import_files",
+        url: `${skillsUrl}/import-files`,
       },
       {
         body: JSON.stringify({

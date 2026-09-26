@@ -250,6 +250,7 @@ export type {
 export { createOrganizationSkillsApi } from "./organization-skills/api";
 export {
   buildOrganizationSkillEnabledPath,
+  buildOrganizationSkillFilesImportPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,

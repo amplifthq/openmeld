@@ -291,6 +291,17 @@ export const importOrganizationSkillFromGitHubResponseSchema = z.strictObject({
   skill: organizationSkillSchema,
 });
 
+export const importOrganizationSkillFromFilesBodySchema = z.strictObject({
+  expectedOrganizationId: identifierSchema,
+  files: z
+    .array(organizationSkillFileSchema)
+    .min(1)
+    .max(ORGANIZATION_SKILL_FILE_LIMIT + 1),
+});
+export const importOrganizationSkillFromFilesResponseSchema = z.strictObject({
+  skill: organizationSkillSchema,
+});
+
 export const previewOrganizationSkillFromGitHubBodySchema = z.strictObject({
   expectedOrganizationId: identifierSchema,
   url: sourceUrlSchema,
@@ -506,6 +517,10 @@ export const deleteOrganizationSkillRpcInputSchema =
   });
 export const importOrganizationSkillFromGitHubRpcInputSchema =
   importOrganizationSkillFromGitHubBodySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const importOrganizationSkillFromFilesRpcInputSchema =
+  importOrganizationSkillFromFilesBodySchema.extend({
     context: openMeldRequestContextSchema,
   });
 export const previewOrganizationSkillFromGitHubRpcInputSchema =

@@ -220,6 +220,8 @@ import type {
   GitHubAppInstallationVerificationResponse,
   GitHubAppWebhookVerificationInput,
   GitHubAppWebhookVerificationResponse,
+  ImportOrganizationSkillFromFilesResponse,
+  ImportOrganizationSkillFromFilesRpcInput,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
   InboxFeedResponse,
@@ -500,6 +502,7 @@ import {
   rpcCreateOrganizationSkill,
   rpcDeleteOrganizationSkill,
   rpcGetOrganizationSkill,
+  rpcImportOrganizationSkillFromFiles,
   rpcImportOrganizationSkillFromGitHub,
   rpcListOrganizationSkills,
   rpcPreviewOrganizationSkillFromGitHub,
@@ -1668,6 +1671,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ImportOrganizationSkillFromGitHubRpcInput
   ): Promise<ImportOrganizationSkillFromGitHubResponse> {
     return rpcImportOrganizationSkillFromGitHub(this.env, input);
+  }
+
+  importOrganizationSkillFromFiles(
+    input: ImportOrganizationSkillFromFilesRpcInput
+  ): Promise<ImportOrganizationSkillFromFilesResponse> {
+    return rpcImportOrganizationSkillFromFiles(this.env, input);
   }
 
   previewOrganizationSkillFromGitHub(
@@ -4249,6 +4258,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ImportOrganizationSkillFromGitHubRpcInput
   ): Promise<ImportOrganizationSkillFromGitHubResponse> {
     return super.importOrganizationSkillFromGitHub(input);
+  }
+
+  importOrganizationSkillFromFiles(
+    input: ImportOrganizationSkillFromFilesRpcInput
+  ): Promise<ImportOrganizationSkillFromFilesResponse> {
+    return super.importOrganizationSkillFromFiles(input);
   }
 
   previewOrganizationSkillFromGitHub(

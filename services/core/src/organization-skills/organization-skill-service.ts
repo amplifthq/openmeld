@@ -27,8 +27,9 @@ import { z } from "zod/v4";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   importOrganizationSkillBundleFromGitHub,
+  parseOrganizationSkillBundleFromFiles,
   previewOrganizationSkillRepositoryFromGitHub,
-} from "./github-skill-import";
+} from "./organization-skill-import";
 
 export type OrganizationSkillActor = {
   organizationId: string;
@@ -329,6 +330,22 @@ export function createOrganizationSkillService(
         newId,
         now,
         source: imported.source,
+      });
+    },
+
+    async importFromFiles(
+      actor: OrganizationSkillActor,
+      files: OrganizationSkillFile[]
+    ): Promise<OrganizationSkill> {
+      requireManager(actor);
+      const bundle = await parseOrganizationSkillBundleFromFiles(files);
+      return await createSkill({
+        actor,
+        bundle,
+        dependencies,
+        newId,
+        now,
+        source: { kind: "created" },
       });
     },
 

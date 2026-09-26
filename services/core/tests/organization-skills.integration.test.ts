@@ -15,7 +15,7 @@ import {
 import {
   importOrganizationSkillBundleFromGitHub,
   previewOrganizationSkillRepositoryFromGitHub,
-} from "../src/organization-skills/github-skill-import";
+} from "../src/organization-skills/organization-skill-import";
 import {
   createOrganizationSkillService,
   type OrganizationSkillActor,
@@ -913,6 +913,56 @@ describe("Organization Skills", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.github_source_changed", status: 400 },
     });
+  });
+
+  it("installs one local portable Skill package atomically", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const markdown =
+      "---\nname: local-review\ndescription: Review local notes.\n---\nRead the checklist.";
+    const files = [
+      {
+        content: markdown,
+        encoding: "utf8" as const,
+        mediaType: "text/markdown",
+        path: "SKILL.md",
+        size: new TextEncoder().encode(markdown).byteLength,
+      },
+      {
+        content: "# Checklist",
+        encoding: "utf8" as const,
+        mediaType: "text/markdown",
+        path: "references/checklist.md",
+        size: 11,
+      },
+    ];
+    await expect(
+      service.importFromFiles(fixture.member, files)
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.manage_forbidden", status: 403 },
+    });
+    const installed = await service.importFromFiles(fixture.owner, files);
+    expect(installed).toMatchObject({
+      bundle: {
+        instructions: "Read the checklist.",
+        portable: { name: "local-review" },
+        files: [{ path: "references/checklist.md", content: "# Checklist" }],
+      },
+      source: { kind: "created" },
+    });
+    const reference = files[1];
+    if (!reference) {
+      throw new Error("Local Skill reference fixture is missing.");
+    }
+    await expect(
+      service.importFromFiles(fixture.owner, [
+        ...files,
+        { ...reference, path: "nested/SKILL.md" },
+      ])
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.invalid_bundle", status: 400 },
+    });
+    expect(await service.list(fixture.owner)).toHaveLength(1);
   });
 
   it("retries public GitHub reads without a repository-scoped token", async () => {

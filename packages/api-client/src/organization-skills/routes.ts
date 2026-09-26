@@ -12,6 +12,10 @@ export function buildOrganizationSkillGitHubImportPath(): string {
   return `${SKILLS_PATH}/import-github`;
 }
 
+export function buildOrganizationSkillFilesImportPath(): string {
+  return `${SKILLS_PATH}/import-files`;
+}
+
 export function buildOrganizationSkillGitHubPreviewPath(): string {
   return `${SKILLS_PATH}/preview-github`;
 }
