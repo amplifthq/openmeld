@@ -4408,6 +4408,11 @@ surface cannot inherit chat styling accidentally. The public Changelog selects
 its own fixed preset and does not consume the app content scale; changing Space
 or document typography must not change Changelog presentation.
 
+Inline Profile Mention tokens opt out of Typeset with `not-typeset` on their
+shared root, for both interactive and display-only rendering. Their avatars
+belong to the token, not the prose image flow; Markdown lists and headings must
+not add media margins inside Human Mention, Agent Wake, or Reference tokens.
+
 For an authenticated Organization view, a resolved reference navigates to the
 app route `/o/{orgSlug}/spaces/{spaceId}?profileId={activeProfileId}`. The
 canonical message token remains `/spaces/{spaceId}`; message authors and the
