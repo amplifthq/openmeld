@@ -547,7 +547,10 @@ export const cliJsonSkillsListEnvelopeSchema = defineStrictSuccessEnvelope(
 );
 
 const skillAddFields = {
-  commitSha: z.string().regex(/^[a-f0-9]{40}$/),
+  commitSha: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .optional(),
   files: z.array(
     z.strictObject({ path: z.string(), size: z.number().int().nonnegative() })
   ),

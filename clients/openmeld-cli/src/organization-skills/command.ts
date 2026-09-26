@@ -33,6 +33,7 @@ import {
   type MaterializedOrganizationSkillRelease,
   materializeOrganizationSkillRelease,
 } from "./cache";
+import { readLocalSkillFiles } from "./local-source";
 
 type OrganizationSkillsCommandInput = {
   json?: boolean;
@@ -97,7 +98,7 @@ export async function runOrganizationSkillsList(
 
 export async function runOrganizationSkillsAdd(
   input: OrganizationSkillsCommandInput & {
-    url: string;
+    source: string;
     previewOnly?: boolean;
   },
   dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
@@ -106,10 +107,39 @@ export async function runOrganizationSkillsAdd(
     input,
     dependencyOverrides,
     async (context) => {
+      if (!input.source.startsWith("https://github.com/")) {
+        if (input.source.includes("://")) {
+          throw new Error(
+            "Choose a local Skill directory or a github.com URL."
+          );
+        }
+        if (input.previewOnly) {
+          throw new Error(
+            "Preview is available for GitHub Skills. To add a local Skill, omit --preview."
+          );
+        }
+        const files = await readLocalSkillFiles(input.source);
+        const installed = await context.api.importFromFiles({
+          expectedOrganizationId: context.organization.id,
+          files,
+          requestContext: context.requestContext,
+        });
+        requireOrganizationIdentity(context, installed.skill.organizationId);
+        emitOrganizationSkillAddResult(context, "skills.add", {
+          name: installed.skill.name,
+          files: files
+            .filter((file) => file.path !== "SKILL.md")
+            .map((file) => ({ path: file.path, size: file.size })),
+          warnings: [],
+          skillId: installed.skill.id,
+          releaseId: installed.skill.activeRelease.id,
+        });
+        return;
+      }
       const preview = await context.api.previewFromGitHub({
         expectedOrganizationId: context.organization.id,
         requestContext: context.requestContext,
-        url: input.url,
+        url: input.source,
       });
       requireOrganizationIdentity(context, preview.organizationId);
       const summary = {
@@ -126,7 +156,7 @@ export async function runOrganizationSkillsAdd(
         expectedCommitSha: preview.preview.source.commitSha,
         expectedOrganizationId: context.organization.id,
         requestContext: context.requestContext,
-        url: input.url,
+        url: input.source,
       });
       requireOrganizationIdentity(context, installed.skill.organizationId);
       if (installed.skill.name !== preview.preview.portable.name) {
@@ -146,7 +176,7 @@ function emitOrganizationSkillAddResult(
   code: "skills.add" | "skills.add.preview",
   result: {
     name: string;
-    commitSha: string;
+    commitSha?: string;
     files: readonly { path: string; size: number }[];
     warnings: readonly string[];
     skillId?: string;
@@ -183,7 +213,7 @@ function emitOrganizationSkillAddResult(
   }
   context.presenter.line({
     code,
-    text: `${code === "skills.add.preview" ? "Preview" : "Added"} ${result.name} (${result.files.length} supporting files) from commit ${result.commitSha.slice(0, 12)}.`,
+    text: `${code === "skills.add.preview" ? "Preview" : "Added"} ${result.name} (${result.files.length} supporting files)${result.commitSha ? ` from commit ${result.commitSha.slice(0, 12)}` : ""}.`,
   });
   for (const warning of result.warnings) {
     context.presenter.line({ code: "skills.add.warning", text: warning });

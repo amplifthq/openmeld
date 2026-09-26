@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { OrganizationSkillsApi } from "@openmeld/api-client";
 import { stringifyOrganizationSkillBundleCanonicalJson } from "@openmeld/schemas";
 import type {
@@ -19,6 +20,7 @@ import {
   runOrganizationSkillsLoad,
   runOrganizationSkillsShow,
 } from "../src/organization-skills/command";
+import { readLocalSkillFiles } from "../src/organization-skills/local-source";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 const organization: StoredActiveOrganization = {
@@ -98,7 +100,8 @@ describe("Organization Skills CLI", () => {
       const { plainStdout } = await withCapturedStdio(async () => {
         await runOrganizationSkillsAdd(
           {
-            url: "https://github.com/example/skills/tree/main/release-review",
+            source:
+              "https://github.com/example/skills/tree/main/release-review",
             json: true,
           },
           { ...dependencies, resolveApi }
@@ -141,7 +144,7 @@ describe("Organization Skills CLI", () => {
       const { plainStdout } = await withCapturedStdio(async () => {
         await runOrganizationSkillsAdd(
           {
-            url: "https://github.com/example/skills",
+            source: "https://github.com/example/skills",
             previewOnly: true,
             json: true,
           },
@@ -150,6 +153,59 @@ describe("Organization Skills CLI", () => {
       });
       expect(importFromGitHub).not.toHaveBeenCalled();
       expect(plainStdout).toContain('"type":"skills.add.preview"');
+    });
+  });
+
+  it("adds a local Skill directory through one authorized API call", async () => {
+    await withTempHome(async (home) => {
+      const directory = join(home, "local-review");
+      await mkdir(join(directory, "references"), { recursive: true });
+      await writeFile(
+        join(directory, "SKILL.md"),
+        "---\nname: local-review\ndescription: Review local notes.\n---\nRead the checklist."
+      );
+      await writeFile(
+        join(directory, "references", "checklist.md"),
+        "# Checklist"
+      );
+      const importFromFiles = vi.fn(async () => ({
+        skill: { ...skill, name: "local-review" },
+      }));
+      const { dependencies } = createDependencies();
+      const resolveApi = async () =>
+        ({ importFromFiles }) as unknown as OrganizationSkillsApi;
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runOrganizationSkillsAdd(
+          { source: directory, json: true },
+          { ...dependencies, resolveApi }
+        );
+      });
+
+      expect(importFromFiles).toHaveBeenCalledOnce();
+      expect(importFromFiles).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedOrganizationId: organization.id,
+          files: expect.arrayContaining([
+            expect.objectContaining({ path: "SKILL.md", encoding: "utf8" }),
+            expect.objectContaining({ path: "references/checklist.md" }),
+          ]),
+        })
+      );
+      expect(plainStdout).toContain('"type":"skills.add"');
+      expect(plainStdout).toContain('"name":"local-review"');
+      expect(plainStdout).not.toContain("commitSha");
+    });
+  });
+
+  it("rejects symbolic links before uploading a local Skill", async () => {
+    await withTempHome(async (home) => {
+      const directory = join(home, "local-review");
+      await mkdir(directory);
+      await writeFile(join(directory, "SKILL.md"), "valid placeholder");
+      await symlink(join(home, "secret.txt"), join(directory, "secret.txt"));
+      await expect(readLocalSkillFiles(directory)).rejects.toThrow(
+        "cannot contain symbolic links"
+      );
     });
   });
 

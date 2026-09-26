@@ -110,14 +110,16 @@ automatic updates. This keeps localhost upgrade verification isolated from the
 production release channel.
 
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
-provides `list`, `show`, `load`, and GitHub `add` with Human View, Agent View, and strict JSON
+provides `list`, `show`, `load`, and `add` for GitHub or a local Skill directory with Human View, Agent View, and strict JSON
 contracts. `load` resolves one enabled exact release from the authenticated
 route Organization, verifies the digest, and writes only to the private
 Organization-scoped OpenMeld cache. It never copies a Skill into a global
 Codex, Claude, Cursor, or `.agents/skills` directory.
 `add <github-url> --preview` shows one importable Skill and the resolved commit;
 without `--preview`, the CLI pins that commit before installing it in the active
-Team. Local Agents use the same authenticated member authority as the CLI user.
+Team. `add <local-directory>` uploads one complete portable Skill package in a
+single authorized operation; local preview is not available yet. Local Agents
+use the same authenticated member authority as the CLI user.
 The current import endpoint still has its bundle limits and does not install a
 whole multi-Skill repository in one call.
 
