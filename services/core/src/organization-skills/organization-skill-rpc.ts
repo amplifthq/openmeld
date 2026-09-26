@@ -13,6 +13,8 @@ import {
   listOrganizationSkillsRpcInputSchema,
   organizationSkillRuntimeCatalogResponseSchema,
   organizationSkillRuntimeSnapshotResponseSchema,
+  previewOrganizationSkillFromFilesResponseSchema,
+  previewOrganizationSkillFromFilesRpcInputSchema,
   previewOrganizationSkillFromGitHubResponseSchema,
   previewOrganizationSkillFromGitHubRpcInputSchema,
   readOrganizationSkillRuntimeCatalogRpcInputSchema,
@@ -45,6 +47,8 @@ import type {
   OrganizationSkillRuntimeCatalogResponse,
   OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
+  PreviewOrganizationSkillFromFilesResponse,
+  PreviewOrganizationSkillFromFilesRpcInput,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
   ReadOrganizationSkillRuntimeCatalogRpcInput,
@@ -162,6 +166,25 @@ export async function rpcImportOrganizationSkillFromFiles(
   );
   return parseResponse(importOrganizationSkillFromFilesResponseSchema, {
     skill: await service.importFromFiles(actor, request.files),
+  });
+}
+
+export async function rpcPreviewOrganizationSkillFromFiles(
+  env: CoreBindings,
+  input: PreviewOrganizationSkillFromFilesRpcInput
+): Promise<PreviewOrganizationSkillFromFilesResponse> {
+  const request = parseRequest(
+    previewOrganizationSkillFromFilesRpcInputSchema,
+    input
+  );
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  requireExpectedOrganization(
+    actor.organizationId,
+    request.expectedOrganizationId
+  );
+  return parseResponse(previewOrganizationSkillFromFilesResponseSchema, {
+    organizationId: actor.organizationId,
+    preview: await service.previewFromFiles(actor, request.files),
   });
 }
 

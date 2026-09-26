@@ -251,6 +251,7 @@ export { createOrganizationSkillsApi } from "./organization-skills/api";
 export {
   buildOrganizationSkillEnabledPath,
   buildOrganizationSkillFilesImportPath,
+  buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,

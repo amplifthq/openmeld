@@ -113,24 +113,40 @@ export async function runOrganizationSkillsAdd(
             "Choose a local Skill directory or a github.com URL."
           );
         }
-        if (input.previewOnly) {
-          throw new Error(
-            "Preview is available for GitHub Skills. To add a local Skill, omit --preview."
-          );
-        }
         const files = await readLocalSkillFiles(input.source);
+        const preview = await context.api.previewFromFiles({
+          expectedOrganizationId: context.organization.id,
+          files,
+          requestContext: context.requestContext,
+        });
+        requireOrganizationIdentity(context, preview.organizationId);
+        const summary = {
+          name: preview.preview.portable.name,
+          files: preview.preview.files.map(({ path, size }) => ({
+            path,
+            size,
+          })),
+          warnings: preview.preview.warnings,
+        };
+        if (input.previewOnly) {
+          emitOrganizationSkillAddResult(
+            context,
+            "skills.add.preview",
+            summary
+          );
+          return;
+        }
         const installed = await context.api.importFromFiles({
           expectedOrganizationId: context.organization.id,
           files,
           requestContext: context.requestContext,
         });
         requireOrganizationIdentity(context, installed.skill.organizationId);
+        if (installed.skill.name !== preview.preview.portable.name) {
+          throw new Error("The installed Skill does not match its preview.");
+        }
         emitOrganizationSkillAddResult(context, "skills.add", {
-          name: installed.skill.name,
-          files: files
-            .filter((file) => file.path !== "SKILL.md")
-            .map((file) => ({ path: file.path, size: file.size })),
-          warnings: [],
+          ...summary,
           skillId: installed.skill.id,
           releaseId: installed.skill.activeRelease.id,
         });

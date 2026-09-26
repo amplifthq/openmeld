@@ -556,15 +556,17 @@ openmeld skills show <name-or-id>
 openmeld skills load <name-or-id>
 openmeld skills load <name-or-id> --release <release-id>
 openmeld skills add <github-url> [--preview]
-openmeld skills add <local-skill-directory>
+openmeld skills add <local-skill-directory> [--preview]
 ```
 
 Every command supports Human View, `--view agent`, and the existing explicit
 `--json` output contract where applicable. Responses use shared strict schemas.
 Local directory import includes the root `SKILL.md` and supporting files in one
-authorized operation. It rejects symbolic links and nested Skill packages;
-it does not copy local files into the Organization until Core accepts the
-complete bundle. Local `--preview` is not supported in this phase.
+authorized operation. It rejects symbolic links and nested Skill packages.
+Core validates a preview with the same bundle rules and Team management
+permission before the CLI imports; `--preview` returns that report without
+creating a Skill. The CLI does not copy local files into the Team until Core
+accepts the complete bundle.
 
 Without `--release`, loading selects the active enabled release. An explicit
 release loads that immutable bundle, including companion files, after Core

@@ -72,6 +72,15 @@ export type ImportOrganizationSkillFromFilesBody = z.infer<
 export type ImportOrganizationSkillFromFilesResponse = z.infer<
   Schemas["importOrganizationSkillFromFilesResponseSchema"]
 >;
+export type PreviewOrganizationSkillFromFilesBody = z.infer<
+  Schemas["previewOrganizationSkillFromFilesBodySchema"]
+>;
+export type OrganizationSkillFilesPreview = z.infer<
+  Schemas["organizationSkillFilesPreviewSchema"]
+>;
+export type PreviewOrganizationSkillFromFilesResponse = z.infer<
+  Schemas["previewOrganizationSkillFromFilesResponseSchema"]
+>;
 export type PreviewOrganizationSkillFromGitHubBody = z.infer<
   Schemas["previewOrganizationSkillFromGitHubBodySchema"]
 >;
@@ -137,6 +146,9 @@ export type ImportOrganizationSkillFromGitHubRpcInput = z.infer<
 >;
 export type ImportOrganizationSkillFromFilesRpcInput = z.infer<
   Schemas["importOrganizationSkillFromFilesRpcInputSchema"]
+>;
+export type PreviewOrganizationSkillFromFilesRpcInput = z.infer<
+  Schemas["previewOrganizationSkillFromFilesRpcInputSchema"]
 >;
 export type PreviewOrganizationSkillFromGitHubRpcInput = z.infer<
   Schemas["previewOrganizationSkillFromGitHubRpcInputSchema"]

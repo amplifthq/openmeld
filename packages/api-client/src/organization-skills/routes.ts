@@ -16,6 +16,10 @@ export function buildOrganizationSkillFilesImportPath(): string {
   return `${SKILLS_PATH}/import-files`;
 }
 
+export function buildOrganizationSkillFilesPreviewPath(): string {
+  return `${SKILLS_PATH}/preview-files`;
+}
+
 export function buildOrganizationSkillGitHubPreviewPath(): string {
   return `${SKILLS_PATH}/preview-github`;
 }

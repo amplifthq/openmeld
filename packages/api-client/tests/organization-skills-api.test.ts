@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildOrganizationSkillEnabledPath,
   buildOrganizationSkillFilesImportPath,
+  buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
@@ -70,6 +71,9 @@ describe("api-client Organization Skills API", () => {
     expect(buildOrganizationSkillFilesImportPath()).toBe(
       "/v1/organizations/current/skills/import-files"
     );
+    expect(buildOrganizationSkillFilesPreviewPath()).toBe(
+      "/v1/organizations/current/skills/preview-files"
+    );
     expect(buildOrganizationSkillGitHubPreviewPath()).toBe(
       "/v1/organizations/current/skills/preview-github"
     );
@@ -120,6 +124,19 @@ describe("api-client Organization Skills API", () => {
                 path: "support-risk-review",
                 repository: "https://github.com/openmeld/example",
               },
+              warnings: [],
+            },
+          }),
+      ],
+      [
+        `POST ${skillsUrl}/preview-files`,
+        () =>
+          jsonResponse({
+            organizationId: ORGANIZATION_ID,
+            preview: {
+              files: [],
+              instructionsCharacters: BUNDLE.instructions.length,
+              portable: BUNDLE.portable,
               warnings: [],
             },
           }),
@@ -185,6 +202,19 @@ describe("api-client Organization Skills API", () => {
     await api.previewFromGitHub({
       expectedOrganizationId: ORGANIZATION_ID,
       url: "https://github.com/openmeld/example/tree/main/support-risk-review",
+    });
+    await api.previewFromFiles({
+      expectedOrganizationId: ORGANIZATION_ID,
+      files: [
+        {
+          content:
+            "---\nname: support-risk-review\ndescription: Review support risks every week.\n---\n# Review support risks",
+          encoding: "utf8",
+          mediaType: "text/markdown",
+          path: "SKILL.md",
+          size: 105,
+        },
+      ],
     });
     await api.update({
       bundle: BUNDLE,
@@ -278,6 +308,24 @@ describe("api-client Organization Skills API", () => {
         method: "POST",
         operation: "organization_skill.preview_github",
         url: `${skillsUrl}/preview-github`,
+      },
+      {
+        body: JSON.stringify({
+          expectedOrganizationId: ORGANIZATION_ID,
+          files: [
+            {
+              content:
+                "---\nname: support-risk-review\ndescription: Review support risks every week.\n---\n# Review support risks",
+              encoding: "utf8",
+              mediaType: "text/markdown",
+              path: "SKILL.md",
+              size: 105,
+            },
+          ],
+        }),
+        method: "POST",
+        operation: "organization_skill.preview_files",
+        url: `${skillsUrl}/preview-files`,
       },
       {
         body: JSON.stringify({

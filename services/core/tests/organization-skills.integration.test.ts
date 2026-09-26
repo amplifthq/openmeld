@@ -937,6 +937,17 @@ describe("Organization Skills", () => {
       },
     ];
     await expect(
+      service.previewFromFiles(fixture.member, files)
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.manage_forbidden", status: 403 },
+    });
+    const preview = await service.previewFromFiles(fixture.owner, files);
+    expect(preview).toMatchObject({
+      files: [{ path: "references/checklist.md", size: 11 }],
+      portable: { name: "local-review" },
+    });
+    expect(await service.list(fixture.owner)).toHaveLength(0);
+    await expect(
       service.importFromFiles(fixture.member, files)
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.manage_forbidden", status: 403 },

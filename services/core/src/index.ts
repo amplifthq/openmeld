@@ -296,6 +296,8 @@ import type {
   PrepareSessionResponse,
   PrepareSessionWithTokenResponse,
   PrepareSpaceFileWriteResponse,
+  PreviewOrganizationSkillFromFilesResponse,
+  PreviewOrganizationSkillFromFilesRpcInput,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
   ReadFeedbackReportingPolicyRequest,
@@ -505,6 +507,7 @@ import {
   rpcImportOrganizationSkillFromFiles,
   rpcImportOrganizationSkillFromGitHub,
   rpcListOrganizationSkills,
+  rpcPreviewOrganizationSkillFromFiles,
   rpcPreviewOrganizationSkillFromGitHub,
   rpcReadOrganizationSkillRuntimeCatalog,
   rpcReadOrganizationSkillRuntimeResource,
@@ -1683,6 +1686,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: PreviewOrganizationSkillFromGitHubRpcInput
   ): Promise<PreviewOrganizationSkillFromGitHubResponse> {
     return rpcPreviewOrganizationSkillFromGitHub(this.env, input);
+  }
+
+  previewOrganizationSkillFromFiles(
+    input: PreviewOrganizationSkillFromFilesRpcInput
+  ): Promise<PreviewOrganizationSkillFromFilesResponse> {
+    return rpcPreviewOrganizationSkillFromFiles(this.env, input);
   }
 
   updateOrganizationSkill(
@@ -4270,6 +4279,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: PreviewOrganizationSkillFromGitHubRpcInput
   ): Promise<PreviewOrganizationSkillFromGitHubResponse> {
     return super.previewOrganizationSkillFromGitHub(input);
+  }
+
+  previewOrganizationSkillFromFiles(
+    input: PreviewOrganizationSkillFromFilesRpcInput
+  ): Promise<PreviewOrganizationSkillFromFilesResponse> {
+    return super.previewOrganizationSkillFromFiles(input);
   }
 
   updateOrganizationSkill(

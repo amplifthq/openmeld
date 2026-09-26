@@ -349,6 +349,26 @@ export function createOrganizationSkillService(
       });
     },
 
+    async previewFromFiles(
+      actor: OrganizationSkillActor,
+      files: OrganizationSkillFile[]
+    ) {
+      requireManager(actor);
+      const bundle = await parseOrganizationSkillBundleFromFiles(files);
+      const { warnings } = describeOrganizationSkillBundleLimitations(bundle);
+      return {
+        files: bundle.files.map(({ encoding, mediaType, path, size }) => ({
+          encoding,
+          mediaType,
+          path,
+          size,
+        })),
+        instructionsCharacters: bundle.instructions.length,
+        portable: bundle.portable,
+        warnings,
+      };
+    },
+
     async previewFromGitHub(
       actor: OrganizationSkillActor,
       url: string

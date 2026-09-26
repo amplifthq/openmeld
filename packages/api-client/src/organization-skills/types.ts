@@ -10,6 +10,8 @@ import type {
   ImportOrganizationSkillFromGitHubResponse,
   ListOrganizationSkillsResponse,
   OpenMeldRequestContext,
+  PreviewOrganizationSkillFromFilesBody,
+  PreviewOrganizationSkillFromFilesResponse,
   PreviewOrganizationSkillFromGitHubBody,
   PreviewOrganizationSkillFromGitHubResponse,
   SetOrganizationSkillEnabledBody,
@@ -48,6 +50,9 @@ export type OrganizationSkillsApi = {
   importFromFiles: (
     input: OrganizationSkillRequestInput & ImportOrganizationSkillFromFilesBody
   ) => Promise<ImportOrganizationSkillFromFilesResponse>;
+  previewFromFiles: (
+    input: OrganizationSkillRequestInput & PreviewOrganizationSkillFromFilesBody
+  ) => Promise<PreviewOrganizationSkillFromFilesResponse>;
   previewFromGitHub: (
     input: OrganizationSkillRequestInput &
       PreviewOrganizationSkillFromGitHubBody

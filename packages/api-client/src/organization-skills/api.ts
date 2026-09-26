@@ -10,6 +10,8 @@ import {
   importOrganizationSkillFromGitHubResponseSchema,
   listOrganizationSkillsResponseSchema,
   organizationSkillRouteParamsSchema,
+  previewOrganizationSkillFromFilesBodySchema,
+  previewOrganizationSkillFromFilesResponseSchema,
   previewOrganizationSkillFromGitHubBodySchema,
   previewOrganizationSkillFromGitHubResponseSchema,
   setOrganizationSkillEnabledBodySchema,
@@ -23,6 +25,7 @@ import type { OpenMeldApiClientFoundation } from "../client";
 import {
   buildOrganizationSkillEnabledPath,
   buildOrganizationSkillFilesImportPath,
+  buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
@@ -118,6 +121,26 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       operation: "organization_skill.import_files",
       schema: importOrganizationSkillFromFilesResponseSchema,
       url: buildOrganizationSkillFilesImportPath(),
+    });
+  },
+  previewFromFiles: async (input) => {
+    const body = requireValidInput(
+      previewOrganizationSkillFromFilesBodySchema,
+      {
+        expectedOrganizationId: input.expectedOrganizationId,
+        files: input.files,
+      },
+      "Organization Skill file preview request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Organization Skill file preview response",
+      method: "POST",
+      operation: "organization_skill.preview_files",
+      schema: previewOrganizationSkillFromFilesResponseSchema,
+      url: buildOrganizationSkillFilesPreviewPath(),
     });
   },
   previewFromGitHub: async (input) => {

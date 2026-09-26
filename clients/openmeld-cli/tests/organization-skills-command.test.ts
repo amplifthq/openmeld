@@ -156,7 +156,7 @@ describe("Organization Skills CLI", () => {
     });
   });
 
-  it("adds a local Skill directory through one authorized API call", async () => {
+  it("previews and adds a local Skill directory through authorized API calls", async () => {
     await withTempHome(async (home) => {
       const directory = join(home, "local-review");
       await mkdir(join(directory, "references"), { recursive: true });
@@ -171,9 +171,28 @@ describe("Organization Skills CLI", () => {
       const importFromFiles = vi.fn(async () => ({
         skill: { ...skill, name: "local-review" },
       }));
+      const previewFromFiles = vi.fn(async () => ({
+        organizationId: organization.id,
+        preview: {
+          files: [
+            {
+              encoding: "utf8" as const,
+              mediaType: "text/markdown",
+              path: "references/checklist.md",
+              size: 11,
+            },
+          ],
+          instructionsCharacters: 19,
+          portable: { ...bundle.portable, name: "local-review" },
+          warnings: [],
+        },
+      }));
       const { dependencies } = createDependencies();
       const resolveApi = async () =>
-        ({ importFromFiles }) as unknown as OrganizationSkillsApi;
+        ({
+          importFromFiles,
+          previewFromFiles,
+        }) as unknown as OrganizationSkillsApi;
       const { plainStdout } = await withCapturedStdio(async () => {
         await runOrganizationSkillsAdd(
           { source: directory, json: true },
@@ -182,6 +201,7 @@ describe("Organization Skills CLI", () => {
       });
 
       expect(importFromFiles).toHaveBeenCalledOnce();
+      expect(previewFromFiles).toHaveBeenCalledOnce();
       expect(importFromFiles).toHaveBeenCalledWith(
         expect.objectContaining({
           expectedOrganizationId: organization.id,
@@ -194,6 +214,18 @@ describe("Organization Skills CLI", () => {
       expect(plainStdout).toContain('"type":"skills.add"');
       expect(plainStdout).toContain('"name":"local-review"');
       expect(plainStdout).not.toContain("commitSha");
+
+      importFromFiles.mockClear();
+      const previewOutput = await withCapturedStdio(async () => {
+        await runOrganizationSkillsAdd(
+          { source: directory, previewOnly: true, json: true },
+          { ...dependencies, resolveApi }
+        );
+      });
+      expect(importFromFiles).not.toHaveBeenCalled();
+      expect(previewOutput.plainStdout).toContain(
+        '"type":"skills.add.preview"'
+      );
     });
   });
 
