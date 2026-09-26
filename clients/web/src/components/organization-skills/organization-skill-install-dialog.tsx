@@ -3,6 +3,7 @@ import type {
 	OrganizationSkill,
 	OrganizationSkillGitHubPreview,
 	OrganizationSkillGitHubRepositoryPreview,
+	OrganizationSkillSummary,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { DialogClose, DialogFooter } from "@openmeld/ui/components/dialog";
@@ -18,6 +19,10 @@ import {
 } from "#/lib/organizations/organization-skills";
 import { OrganizationSkillFlowDialog } from "./organization-skill-flow-dialog";
 import { GitHubSkillPreview } from "./organization-skill-import-preview";
+import {
+	OrganizationSkillRepositoryCatalog,
+	type RepositoryBatchResult,
+} from "./organization-skill-repository-catalog";
 
 type BoundPreview = {
 	operationId: string;
@@ -33,17 +38,26 @@ type BoundCatalog = {
 export function InstallSkillDialog(input: {
 	organizationId: string;
 	finalFocus: RefObject<HTMLButtonElement | null>;
+	installedSkills: OrganizationSkillSummary[];
 	onClose: () => void;
+	onBatchChanged: () => void;
 	onInstalled: (skill: OrganizationSkill) => void;
 }) {
 	const [url, setUrl] = useState("");
 	const [review, setReview] = useState<BoundPreview | null>(null);
 	const [catalog, setCatalog] = useState<BoundCatalog | null>(null);
+	const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
+	const [batchResults, setBatchResults] = useState<
+		Map<string, RepositoryBatchResult>
+	>(new Map());
+	const [batchInstalling, setBatchInstalling] = useState(false);
+	const existingPaths = getExistingGitHubPaths(catalog, input.installedSkills);
 	const [error, setError] = useState<string | null>(null);
 	const [reviewing, setReviewing] = useState(false);
 	const request = useRef(0);
 	const mounted = useRef(false);
 	const submitting = useRef(false);
+	const batchOperationIds = useRef(new Map<string, string>());
 	useLayoutEffect(() => {
 		mounted.current = true;
 		return () => {
@@ -61,6 +75,9 @@ export function InstallSkillDialog(input: {
 		setUrl(value);
 		setReview(null);
 		setCatalog(null);
+		setSelectedUrls(new Set());
+		setBatchResults(new Map());
+		batchOperationIds.current.clear();
 		setReviewing(false);
 		setError(null);
 	};
@@ -76,7 +93,22 @@ export function InstallSkillDialog(input: {
 				url: requestedUrl,
 			});
 			if (isCurrent(ticket)) {
-				setCatalog({ rootUrl: requestedUrl, preview: response.preview });
+				const nextCatalog = {
+					rootUrl: requestedUrl,
+					preview: response.preview,
+				};
+				const existing = getExistingGitHubPaths(
+					nextCatalog,
+					input.installedSkills
+				);
+				setCatalog(nextCatalog);
+				setSelectedUrls(
+					new Set(
+						response.preview.skills
+							.filter((skill) => !(skill.blocker || existing.has(skill.path)))
+							.map((skill) => skill.url)
+					)
+				);
 			}
 		} catch (failure) {
 			if (isCurrent(ticket)) {
@@ -177,29 +209,86 @@ export function InstallSkillDialog(input: {
 			submitting.current = false;
 		}
 	};
-	let description =
-		"Paste a public GitHub repository, skill folder, or SKILL.md URL.";
-	if (catalog) {
-		description = "Choose a skill to review before installing it.";
-	}
-	if (review) {
-		description = "Review the source and warnings before adding this skill.";
-	}
+	const installSelected = async () => {
+		if (!catalog || submitting.current) {
+			return;
+		}
+		const pending = catalog.preview.skills.filter(
+			(skill) =>
+				selectedUrls.has(skill.url) &&
+				!skill.blocker &&
+				!existingPaths.has(skill.path) &&
+				batchResults.get(skill.url)?.status !== "installed"
+		);
+		if (pending.length === 0) {
+			return;
+		}
+		submitting.current = true;
+		setBatchInstalling(true);
+		setError(null);
+		let installedAny = false;
+		for (const skill of pending) {
+			const operationId =
+				batchOperationIds.current.get(skill.url) ?? crypto.randomUUID();
+			batchOperationIds.current.set(skill.url, operationId);
+			try {
+				const response = await importCurrentOrganizationSkillFromGitHub({
+					expectedCommitSha: catalog.preview.commitSha,
+					expectedOrganizationId: input.organizationId,
+					operationId,
+					url: skill.url,
+				});
+				if (response.skill.organizationId !== input.organizationId) {
+					throw new Error("The installed Skill belongs to a different Team.");
+				}
+				installedAny = true;
+				setBatchResults((previous) =>
+					new Map(previous).set(skill.url, { status: "installed" })
+				);
+			} catch (failure) {
+				setBatchResults((previous) =>
+					new Map(previous).set(skill.url, {
+						error: resolveOrganizationSkillErrorMessage(failure),
+						status: "failed",
+					})
+				);
+			}
+		}
+		if (installedAny && mounted.current) {
+			input.onBatchChanged();
+		}
+		submitting.current = false;
+		if (mounted.current) {
+			setBatchInstalling(false);
+		}
+	};
+	const pendingSelection = countPendingSelection(
+		catalog,
+		selectedUrls,
+		batchResults,
+		existingPaths
+	);
+	const batchButtonLabel = getBatchButtonLabel(
+		batchInstalling,
+		batchResults.size,
+		pendingSelection
+	);
+	const description = getDialogDescription(Boolean(catalog), Boolean(review));
 	return (
 		<OrganizationSkillFlowDialog
-			committing={install.isPending}
+			committing={install.isPending || batchInstalling}
 			description={description}
-			dirty={Boolean(url.trim())}
+			dirty={Boolean(url.trim()) && batchResults.size === 0}
 			discardDescription="This skill hasn't been installed. Discarding will clear the URL and preview."
 			discardTitle="Discard this import?"
 			finalFocus={input.finalFocus}
 			footer={
 				<DialogFooter>
 					<DialogClose
-						disabled={install.isPending}
+						disabled={install.isPending || batchInstalling}
 						render={<Button variant="outline" />}
 					>
-						Cancel
+						{batchResults.size > 0 ? "Done" : "Cancel"}
 					</DialogClose>
 					{review && (
 						<>
@@ -220,17 +309,29 @@ export function InstallSkillDialog(input: {
 						</>
 					)}
 					{!review && catalog && (
-						<Button
-							disabled={reviewing}
-							onClick={() => {
-								setCatalog(null);
-								setError(null);
-								request.current += 1;
-							}}
-							variant="outline"
-						>
-							Back
-						</Button>
+						<>
+							<Button
+								disabled={reviewing || batchInstalling}
+								onClick={() => {
+									setCatalog(null);
+									setError(null);
+									request.current += 1;
+								}}
+								variant="outline"
+							>
+								Back
+							</Button>
+							{(pendingSelection > 0 || batchResults.size === 0) && (
+								<Button
+									disabled={
+										reviewing || batchInstalling || pendingSelection === 0
+									}
+									onClick={installSelected}
+								>
+									{batchButtonLabel}
+								</Button>
+							)}
+						</>
 					)}
 					{!(review || catalog) && (
 						<Button
@@ -251,31 +352,16 @@ export function InstallSkillDialog(input: {
 			<div className="grid min-w-0 gap-4">
 				{review && <GitHubSkillPreview preview={review.preview} />}
 				{!review && catalog && (
-					<div className="grid max-h-96 gap-2 overflow-y-auto">
-						<p className="text-muted-foreground text-sm">
-							{catalog.preview.skills.length} skills found at commit{" "}
-							{catalog.preview.commitSha.slice(0, 12)}.
-						</p>
-						{catalog.preview.skills.map((skill) => (
-							<Button
-								className="h-auto justify-start text-left"
-								disabled={reviewing || Boolean(skill.blocker)}
-								key={skill.url}
-								onClick={() => previewSkill(skill.url, catalog.rootUrl)}
-								variant="outline"
-							>
-								<span className="grid min-w-0 gap-1 py-1">
-									<span className="truncate">
-										{skill.path || "Repository root"}
-									</span>
-									<span className="text-muted-foreground text-xs">
-										{skill.blocker?.message ??
-											`${skill.fileCount} ${skill.fileCount === 1 ? "file" : "files"} · ${skill.totalBytes.toLocaleString()} bytes`}
-									</span>
-								</span>
-							</Button>
-						))}
-					</div>
+					<OrganizationSkillRepositoryCatalog
+						batchInstalling={batchInstalling}
+						existingPaths={existingPaths}
+						onReview={(skillUrl) => previewSkill(skillUrl, catalog.rootUrl)}
+						preview={catalog.preview}
+						results={batchResults}
+						reviewing={reviewing}
+						selectedUrls={selectedUrls}
+						setSelectedUrls={setSelectedUrls}
+					/>
 				)}
 				{!(review || catalog) && (
 					<div className="grid gap-2">
@@ -303,4 +389,63 @@ export function InstallSkillDialog(input: {
 			</div>
 		</OrganizationSkillFlowDialog>
 	);
+}
+
+function countPendingSelection(
+	catalog: BoundCatalog | null,
+	selectedUrls: Set<string>,
+	results: Map<string, RepositoryBatchResult>,
+	existingPaths: Set<string>
+): number {
+	return (
+		catalog?.preview.skills.filter(
+			(skill) =>
+				selectedUrls.has(skill.url) &&
+				!skill.blocker &&
+				!existingPaths.has(skill.path) &&
+				results.get(skill.url)?.status !== "installed"
+		).length ?? 0
+	);
+}
+
+function getExistingGitHubPaths(
+	catalog: BoundCatalog | null,
+	installedSkills: OrganizationSkillSummary[]
+): Set<string> {
+	if (!catalog) {
+		return new Set();
+	}
+	return new Set(
+		installedSkills.flatMap((skill) =>
+			skill.source.kind === "github" &&
+			skill.source.repository === catalog.preview.repository
+				? [skill.source.path]
+				: []
+		)
+	);
+}
+
+function getBatchButtonLabel(
+	installing: boolean,
+	resultCount: number,
+	pendingCount: number
+): string {
+	if (installing) {
+		return "Installing…";
+	}
+	const count = `${pendingCount} ${pendingCount === 1 ? "Skill" : "Skills"}`;
+	if (resultCount > 0) {
+		return `Retry ${count}`;
+	}
+	return `Install ${count}`;
+}
+
+function getDialogDescription(hasCatalog: boolean, hasReview: boolean): string {
+	if (hasReview) {
+		return "Review the source and warnings before adding this skill.";
+	}
+	if (hasCatalog) {
+		return "Choose Skills to install, or review one Skill first.";
+	}
+	return "Paste a public GitHub repository, skill folder, or SKILL.md URL.";
 }

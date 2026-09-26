@@ -16,6 +16,7 @@ import type { OpenMeldProfile } from "../src/config/openmeld-profiles-api";
 import {
   type OrganizationSkillsCommandDependencies,
   runOrganizationSkillsAdd,
+  runOrganizationSkillsAddAll,
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
   runOrganizationSkillsScan,
@@ -73,6 +74,125 @@ const skill: OrganizationSkill = {
 };
 
 describe("Organization Skills CLI", () => {
+  it("installs repository Skills one by one with stable retry IDs and per-item results", async () => {
+    await withTempHome(async () => {
+      const commitSha = "a".repeat(40);
+      const baseUrl = "https://github.com/example/skills";
+      const installUrl = `${baseUrl}/tree/${commitSha}/review`;
+      const blockedUrl = `${baseUrl}/tree/${commitSha}/too-large`;
+      const failedUrl = `${baseUrl}/tree/${commitSha}/broken`;
+      const previewRepositoryFromGitHub = vi.fn(async () => ({
+        organizationId: organization.id,
+        preview: {
+          catalogLimitBytes: 1024,
+          commitSha,
+          repository: baseUrl,
+          skills: [
+            {
+              blocker: null,
+              fileCount: 1,
+              path: "review",
+              totalBytes: 100,
+              url: installUrl,
+              warnings: [],
+            },
+            {
+              blocker: { code: "too_large", message: "Too large" },
+              fileCount: 1,
+              path: "too-large",
+              totalBytes: 5000,
+              url: blockedUrl,
+              warnings: [],
+            },
+            {
+              blocker: null,
+              fileCount: 1,
+              path: "broken",
+              totalBytes: 100,
+              url: failedUrl,
+              warnings: [],
+            },
+          ],
+          totalDeclaredBytes: 5200,
+          warnings: [],
+        },
+      }));
+      const importFromGitHub = vi.fn((request: { url: string }) =>
+        request.url === failedUrl
+          ? Promise.reject(new Error("Repository file unavailable"))
+          : Promise.resolve({ skill })
+      );
+      let alreadyInstalled = false;
+      const { dependencies } = createDependencies();
+      const resolveApi = async () =>
+        ({
+          previewRepositoryFromGitHub,
+          importFromGitHub,
+          list: async () => ({
+            organizationId: organization.id,
+            skills: alreadyInstalled
+              ? [
+                  {
+                    ...skill,
+                    source: {
+                      commitSha,
+                      kind: "github" as const,
+                      path: "review",
+                      repository: baseUrl,
+                    },
+                  },
+                ]
+              : [],
+          }),
+        }) as unknown as OrganizationSkillsApi;
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runOrganizationSkillsAddAll(
+          { json: true, source: baseUrl },
+          { ...dependencies, resolveApi }
+        );
+      });
+      const payload = JSON.parse(plainStdout.trim());
+      expect(payload.type).toBe("skills.add.all");
+      expect(payload.operationId).toBeTruthy();
+      expect(payload.retrySource).toBe(`${baseUrl}/tree/${commitSha}`);
+      expect(
+        payload.results.map((item: { status: string }) => item.status)
+      ).toEqual(["installed", "skipped", "failed"]);
+      expect(importFromGitHub).toHaveBeenCalledTimes(2);
+      expect(importFromGitHub).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedCommitSha: commitSha,
+          operationId: createHash("sha256")
+            .update(`${payload.operationId}\nreview`)
+            .digest("hex"),
+          url: installUrl,
+        })
+      );
+      alreadyInstalled = true;
+      const secondRun = await withCapturedStdio(async () => {
+        await runOrganizationSkillsAddAll(
+          {
+            json: true,
+            operationId: payload.operationId,
+            source: payload.retrySource,
+          },
+          { ...dependencies, resolveApi }
+        );
+      });
+      const retryPayload = JSON.parse(secondRun.plainStdout.trim());
+      expect(
+        retryPayload.results.map((item: { status: string }) => item.status)
+      ).toEqual(["skipped", "skipped", "failed"]);
+      expect(importFromGitHub).toHaveBeenCalledTimes(3);
+      await expect(
+        runOrganizationSkillsAddAll(
+          { json: true, operationId: payload.operationId, source: baseUrl },
+          { ...dependencies, resolveApi }
+        )
+      ).rejects.toThrow("pinned commit URL");
+    });
+  });
+
   it("reports a pinned repository inventory to a Local Agent without installing anything", async () => {
     await withTempHome(async () => {
       const commitSha = "a".repeat(40);

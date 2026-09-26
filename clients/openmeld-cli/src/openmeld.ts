@@ -232,6 +232,7 @@ import {
 import { runOrganizationInvitationRequests } from "./org/invitation-requests-command";
 import {
   runOrganizationSkillsAdd,
+  runOrganizationSkillsAddAll,
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
   runOrganizationSkillsScan,
@@ -1801,34 +1802,59 @@ registerSkillsTargetSelectionOptions({
 
 skillsCmd
   .command("add")
-  .description("Add one local or GitHub Skill to the active Team.")
-  .argument("<source>", "Local Skill directory or GitHub Skill URL")
+  .description(
+    "Add a local or GitHub Skill, or every eligible Skill in a repository."
+  )
+  .argument(
+    "<source>",
+    "Local Skill directory or GitHub Skill or repository URL"
+  )
   .option(
     "--preview",
     "Show the exact Skill and source commit without adding it"
   )
   .option(
     "--operation-id <id>",
-    "Reuse this ID to safely retry a GitHub install"
+    "Reuse this ID to safely retry a GitHub install or repository batch"
   )
+  .option("--all", "Install every eligible Skill in a GitHub repository")
   .option("--json", "Print one machine-readable JSON envelope.", false)
   .action(
     async (
       source: string,
-      opts: { json?: boolean; operationId?: string; preview?: boolean }
+      opts: {
+        all?: boolean;
+        json?: boolean;
+        operationId?: string;
+        preview?: boolean;
+      }
     ) => {
+      if (opts.all && opts.preview) {
+        throw new Error(
+          "Use skills scan to preview a repository before --all."
+        );
+      }
       const view = getGlobalViewOption();
       await runCommandWithEntryChecks({
         routeTokens: ["skills", "add"],
         view,
         run: async () => {
-          await runOrganizationSkillsAdd({
-            json: skillsJsonRequested(opts),
-            previewOnly: opts.preview === true,
-            operationId: opts.operationId,
-            source,
-            view,
-          });
+          if (opts.all) {
+            await runOrganizationSkillsAddAll({
+              json: skillsJsonRequested(opts),
+              operationId: opts.operationId,
+              source,
+              view,
+            });
+          } else {
+            await runOrganizationSkillsAdd({
+              json: skillsJsonRequested(opts),
+              previewOnly: opts.preview === true,
+              operationId: opts.operationId,
+              source,
+              view,
+            });
+          }
         },
       });
     }

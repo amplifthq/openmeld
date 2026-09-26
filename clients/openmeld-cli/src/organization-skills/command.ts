@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import {
   createOrganizationSkillsApi,
   type OrganizationSkillsApi,
 } from "@openmeld/api-client";
 import {
+  cliJsonSkillsAddAllEnvelopeSchema,
   cliJsonSkillsAddEnvelopeSchema,
   cliJsonSkillsAddPreviewEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
@@ -13,6 +15,7 @@ import {
 import type {
   OpenMeldRequestContext,
   OrganizationSkill,
+  OrganizationSkillGitHubRepositoryPreview,
   OrganizationSkillSource,
   OrganizationSkillSummary,
 } from "@openmeld/schemas/types";
@@ -65,6 +68,7 @@ const defaultDependencies: OrganizationSkillsCommandDependencies = {
     ),
   resolveHumanProfile: resolveOpenMeldProfile,
 };
+const GITHUB_COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 
 export async function runOrganizationSkillsList(
   input: OrganizationSkillsCommandInput = {},
@@ -188,6 +192,208 @@ export async function runOrganizationSkillsAdd(
       });
     }
   );
+}
+
+export async function runOrganizationSkillsAddAll(
+  input: OrganizationSkillsCommandInput & {
+    source: string;
+    operationId?: string;
+  },
+  dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
+): Promise<void> {
+  const source = parseRepositoryBatchSource(input.source);
+  if (input.operationId && !source.pinnedCommitSha) {
+    throw new Error(
+      "Retry a repository batch with its pinned commit URL and --operation-id."
+    );
+  }
+  await runOrganizationSkillsCommand(
+    input,
+    dependencyOverrides,
+    async (context) => {
+      const response = await context.api.previewRepositoryFromGitHub({
+        expectedOrganizationId: context.organization.id,
+        requestContext: context.requestContext,
+        url: source.url,
+      });
+      requireOrganizationIdentity(context, response.organizationId);
+      if (
+        source.pinnedCommitSha &&
+        source.pinnedCommitSha !== response.preview.commitSha
+      ) {
+        throw new Error(
+          "The repository preview did not match the pinned commit."
+        );
+      }
+      const existingSkills = await listForCurrentOrganization(context);
+      const existingPaths = new Set(
+        existingSkills.skills.flatMap((skill) =>
+          skill.source.kind === "github" &&
+          skill.source.repository === response.preview.repository
+            ? [skill.source.path]
+            : []
+        )
+      );
+      const batchId = input.operationId ?? crypto.randomUUID();
+      const results: RepositoryInstallResult[] = [];
+      if (!context.json && context.presenter.view !== "agent") {
+        context.presenter.line({
+          code: "skills.add.all.start",
+          text: `Installing Skills from commit ${response.preview.commitSha.slice(0, 12)}. Retry ID: ${batchId}.`,
+        });
+      }
+      for (const item of response.preview.skills) {
+        const result = await installRepositorySkill(
+          context,
+          item,
+          response.preview.commitSha,
+          batchId,
+          existingPaths
+        );
+        results.push(result);
+        if (!context.json && context.presenter.view !== "agent") {
+          context.presenter.line({
+            code: "skills.add.all.item",
+            text: `${sanitizeTerminalDisplayText(result.path || "Repository root")} — ${result.status}${result.error ? `: ${sanitizeTerminalDisplayText(result.error)}` : ""}`,
+          });
+        }
+      }
+      const payload = {
+        commitSha: response.preview.commitSha,
+        operationId: batchId,
+        organizationId: context.organization.id,
+        repository: response.preview.repository,
+        retrySource: `${response.preview.repository}/tree/${response.preview.commitSha}`,
+        results,
+      };
+      presentRepositoryInstallSummary(context, payload);
+    }
+  );
+}
+
+function presentRepositoryInstallSummary(
+  context: OrganizationSkillsCommandContext,
+  payload: {
+    commitSha: string;
+    operationId: string;
+    organizationId: string;
+    repository: string;
+    retrySource: string;
+    results: RepositoryInstallResult[];
+  }
+): void {
+  if (context.json) {
+    emitCliJsonEnvelope(
+      cliJsonSkillsAddAllEnvelopeSchema.parse({
+        schemaVersion: 1,
+        type: "skills.add.all",
+        ...payload,
+      })
+    );
+    return;
+  }
+  if (context.presenter.view === "agent") {
+    context.presenter.data({ code: "skills.add.all", payload });
+    return;
+  }
+  const installedCount = payload.results.filter(
+    (item) => item.status === "installed"
+  ).length;
+  context.presenter.line({
+    code: "skills.add.all.summary",
+    text: `${installedCount} of ${payload.results.length} Skills installed from commit ${payload.commitSha.slice(0, 12)}. Retry with: openmeld skills add ${payload.retrySource} --all --operation-id ${payload.operationId}`,
+  });
+}
+
+function parseRepositoryBatchSource(source: string): {
+  pinnedCommitSha: string | null;
+  url: string;
+} {
+  let parsed: URL;
+  try {
+    parsed = new URL(source);
+  } catch {
+    throw new Error("Choose a public github.com repository for --all.");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") {
+    throw new Error("Choose a public github.com repository for --all.");
+  }
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  const pinnedCommitSha =
+    parts.length === 4 &&
+    parts[2] === "tree" &&
+    GITHUB_COMMIT_SHA_PATTERN.test(parts[3] ?? "")
+      ? (parts[3] ?? null)
+      : null;
+  if (parts.length !== 2 && !pinnedCommitSha) {
+    throw new Error(
+      "Use a GitHub repository URL or its pinned commit URL for --all."
+    );
+  }
+  return { pinnedCommitSha, url: source };
+}
+
+type RepositoryInstallItem =
+  OrganizationSkillGitHubRepositoryPreview["skills"][number];
+type RepositoryInstallResult = {
+  error?: string;
+  path: string;
+  releaseId?: string;
+  skillId?: string;
+  status: "installed" | "skipped" | "failed";
+  url: string;
+};
+
+async function installRepositorySkill(
+  context: OrganizationSkillsCommandContext,
+  item: RepositoryInstallItem,
+  commitSha: string,
+  batchId: string,
+  existingPaths: Set<string>
+): Promise<RepositoryInstallResult> {
+  if (existingPaths.has(item.path)) {
+    return {
+      error: "Already in Team",
+      path: item.path,
+      status: "skipped",
+      url: item.url,
+    };
+  }
+  if (item.blocker) {
+    return {
+      error: item.blocker.message,
+      path: item.path,
+      status: "skipped",
+      url: item.url,
+    };
+  }
+  const operationId = createHash("sha256")
+    .update(`${batchId}\n${item.path}`)
+    .digest("hex");
+  try {
+    const installed = await context.api.importFromGitHub({
+      expectedCommitSha: commitSha,
+      expectedOrganizationId: context.organization.id,
+      operationId,
+      requestContext: context.requestContext,
+      url: item.url,
+    });
+    requireOrganizationIdentity(context, installed.skill.organizationId);
+    return {
+      path: item.path,
+      releaseId: installed.skill.activeRelease.id,
+      skillId: installed.skill.id,
+      status: "installed",
+      url: item.url,
+    };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      path: item.path,
+      status: "failed",
+      url: item.url,
+    };
+  }
 }
 
 export async function runOrganizationSkillsScan(

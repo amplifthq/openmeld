@@ -166,6 +166,7 @@ export {
   cliJsonRoutinesRunsEnvelopeSchema,
   cliJsonRoutinesShowEnvelopeSchema,
   cliJsonRoutinesUpdateEnvelopeSchema,
+  cliJsonSkillsAddAllEnvelopeSchema,
   cliJsonSkillsAddEnvelopeSchema,
   cliJsonSkillsAddPreviewEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,

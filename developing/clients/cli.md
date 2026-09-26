@@ -146,6 +146,10 @@ The old ambiguous local-helper `skills list` spelling is not retained because
 Skill directories and their declared blockers without installing anything.
 `--json` and Agent View return the same server-authorized inventory, so a
 Local Agent can select an exact Skill URL before `openmeld skills add`.
+`openmeld skills add <github-repository-url> --all` installs every eligible
+candidate at the scanned commit, reporting each installed, skipped, or failed
+item. The result includes a pinned `retrySource` and an operation ID. A Local
+Agent must pass both to retry without duplicating completed Skills.
 
 CLI must not infer Wake blocking from local component drift by itself. Core owns
 the user-visible local component update projection for Wake eligibility:

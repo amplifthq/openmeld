@@ -573,6 +573,7 @@ openmeld skills show <name-or-id>
 openmeld skills load <name-or-id>
 openmeld skills load <name-or-id> --release <release-id>
 openmeld skills add <github-url> [--preview]
+openmeld skills add <github-repository-url> --all [--operation-id <retry-id>]
 openmeld skills add <local-skill-directory> [--preview]
 ```
 
@@ -584,6 +585,16 @@ Core validates a preview with the same bundle rules and Team management
 permission before the CLI imports; `--preview` returns that report without
 creating a Skill. The CLI does not copy local files into the Team until Core
 accepts the complete bundle.
+
+`skills add --all` scans a public GitHub repository at one pinned commit and
+installs each eligible Skill independently. It reports installed, skipped, and
+failed items; one failed package does not undo successful installs. A retry
+with the returned operation ID and pinned `retrySource` replays completed items
+instead of creating duplicate Skills. A retry using a mutable repository URL
+is rejected. The
+current CLI owns the batch loop, so its final summary is not retained as a
+server-side job record after the process exits. Core retains each completed
+item's retry receipt. This does not remove package-level limits.
 
 Without `--release`, loading selects the active enabled release. An explicit
 release loads that immutable bundle, including companion files, after Core

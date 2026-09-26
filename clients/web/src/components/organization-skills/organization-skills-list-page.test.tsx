@@ -355,11 +355,12 @@ describe("OrganizationSkillsListPage", () => {
 
 		await waitFor(() =>
 			expect(importCurrentOrganizationSkillFromGitHubMock).toHaveBeenCalledWith(
-				{
+				expect.objectContaining({
 					expectedCommitSha: commitSha,
 					expectedOrganizationId: "org-acme",
+					operationId: expect.any(String),
 					url: "https://github.com/acme/skills/tree/main/release-review",
-				}
+				})
 			)
 		);
 		await waitFor(() =>
@@ -616,12 +617,13 @@ describe("Skill add flow protection", () => {
 				previewCurrentOrganizationSkillRepositoryMock
 			).toHaveBeenCalledTimes(1)
 		);
-		const selected = await screen.findByRole("button", {
-			name: REVIEW_SKILL_PATTERN,
-		});
-		expect(
-			screen.getByRole("button", { name: HUGE_SKILL_PATTERN })
-		).toHaveProperty("disabled", true);
+		await screen.findByText(REVIEW_SKILL_PATTERN);
+		const selected = screen.getAllByRole("button", { name: "Review" })[0];
+		expect(screen.getByText(HUGE_SKILL_PATTERN)).toBeTruthy();
+		expect(screen.getAllByRole("button", { name: "Review" })[1]).toHaveProperty(
+			"disabled",
+			true
+		);
 		fireEvent.click(selected);
 		await screen.findByRole("button", { name: "Install skill" });
 		expect(
@@ -679,12 +681,14 @@ describe("Skill add flow protection", () => {
 		await waitFor(() =>
 			expect(router.state.location.pathname).toBe("/o/acme/skills/new-method")
 		);
-		for (const [payload] of importCurrentOrganizationSkillFromGitHubMock.mock
-			.calls) {
-			expect(payload).toEqual({
+		const importCalls = importCurrentOrganizationSkillFromGitHubMock.mock.calls;
+		expect(importCalls[0]?.[0].operationId).toBeTruthy();
+		for (const [payload] of importCalls) {
+			expect(payload).toMatchObject({
 				expectedOrganizationId: "org-acme",
 				expectedCommitSha: "b".repeat(40),
 				url: "https://github.com/acme/new",
+				operationId: importCalls[0]?.[0].operationId,
 			});
 		}
 	});

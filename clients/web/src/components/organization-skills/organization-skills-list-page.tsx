@@ -281,6 +281,16 @@ function OrganizationSkillsCatalog() {
 			{installOpen && (
 				<InstallSkillDialog
 					finalFocus={addRef}
+					installedSkills={skillsQuery.data?.skills ?? []}
+					onBatchChanged={() => {
+						queryClient
+							.invalidateQueries({
+								queryKey: organizationSkillQueryKeys.list(
+									currentOrganization.id
+								),
+							})
+							.catch(console.error);
+					}}
 					onClose={() => setInstallOpen(false)}
 					onInstalled={openSkill}
 					organizationId={currentOrganization.id}
