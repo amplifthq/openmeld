@@ -19,6 +19,7 @@ import {
 import {
   OPENMELD_HOME_ENV_KEY,
   openMeldManagedVersionBinaryPath,
+  resolveOpenMeldRootDir,
 } from "../../config/paths";
 import { resolveCliSelfVersion } from "../../local-components/managed-install";
 import {
@@ -208,6 +209,11 @@ function buildSystemServiceEnvironment(): Record<string, string> {
   }
   if (process.platform === "darwin") {
     env.PATH ??= DEFAULT_LAUNCHD_PATH;
+  }
+  if (process.platform === "win32") {
+    // Task ownership checks need the same lane root used to register the task.
+    // The published setup command intentionally leaves OPENMELD_HOME unset.
+    env[OPENMELD_HOME_ENV_KEY] ??= resolveOpenMeldRootDir();
   }
   env.HOME ??= userInfo().homedir;
   env.USER ??= env.LOGNAME ?? runtimeUser;
