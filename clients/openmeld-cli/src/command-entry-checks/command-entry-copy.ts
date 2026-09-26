@@ -307,6 +307,11 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "copying a file",
     profileAction: null,
   },
+  "files.copy-to-space": {
+    ...DEFAULT_COPY,
+    signInAction: "copying a file to a Space",
+    profileAction: null,
+  },
   "files.upload": {
     ...DEFAULT_COPY,
     signInAction: "uploading a file",

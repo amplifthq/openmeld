@@ -16,6 +16,9 @@ describe("command entry name", () => {
     expect(resolveCommandEntryNameFromTokens(["files", "copy"])).toBe(
       "files.copy"
     );
+    expect(resolveCommandEntryNameFromTokens(["files", "copy-to-space"])).toBe(
+      "files.copy-to-space"
+    );
     expect(
       resolveCommandEntryNameFromTokens(["profiles", "execution-mode"])
     ).toBe("profile.execution-mode");

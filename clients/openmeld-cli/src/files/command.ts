@@ -289,6 +289,57 @@ export function registerFilesCommands(
     });
 
   files
+    .command("copy-to-space")
+    .description("Copy one saved Team or My file revision into a Space.")
+    .argument("<file-id>", "Source file ID")
+    .requiredOption("--source-location <team|my>", "Where the source file is")
+    .requiredOption("--space <id>", "Destination Space ID")
+    .requiredOption("--revision <number>", "Exact source revision to copy")
+    .option("--folder <id>", "Destination folder ID, or root", "root")
+    .option("--name <name>", "Name for the new copy")
+    .option("--json", "Print canonical JSON", false)
+    .action(async (fileId: string, opts, command: Command) => {
+      await runChecked(["files", "copy-to-space"], async () => {
+        await withFiles({
+          command,
+          json: opts.json === true,
+          location: opts.sourceLocation,
+          run: async ({ api, location: sourceLocation, output, presenter }) => {
+            const sourceRevision = revision(opts.revision);
+            if (sourceRevision === undefined) {
+              throw new Error("--revision is required.");
+            }
+            const source = await api.getFile({
+              location: sourceLocation,
+              fileId,
+            });
+            const spaceId = opts.space?.trim();
+            if (!spaceId) {
+              throw new Error("Choose a destination Space ID with --space.");
+            }
+            const result = await api.copyToSpace({
+              spaceId,
+              body: {
+                sourceLocation,
+                sourceFileId: fileId,
+                sourceRevision,
+                name: opts.name?.trim() || source.name,
+                parentId: folder(opts.folder),
+                clientMutationId: randomUUID(),
+              },
+            });
+            output("files.copy_to_space", { file: result, spaceId }, () =>
+              presenter.line({
+                code: "files.copied_to_space",
+                text: `Copied revision ${sourceRevision} to Space ${spaceId} as ${result.path}.`,
+              })
+            );
+          },
+        });
+      });
+    });
+
+  files
     .command("upload")
     .description("Upload a local file to Team files or My files.")
     .argument("<file>", "Local file path")

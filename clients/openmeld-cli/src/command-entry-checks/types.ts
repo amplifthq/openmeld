@@ -91,6 +91,7 @@ export type CommandEntryName =
   | "files.read"
   | "files.history"
   | "files.copy"
+  | "files.copy-to-space"
   | "files.upload"
   | "files.write"
   | "files.download"

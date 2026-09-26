@@ -117,8 +117,9 @@ Organization-scoped OpenMeld cache. It never copies a Skill into a global
 Codex, Claude, Cursor, or `.agents/skills` directory.
 `add <github-url> --preview` shows one importable Skill and the resolved commit;
 without `--preview`, the CLI pins that commit before installing it in the active
-Team. `add <local-directory>` uploads one complete portable Skill package in a
-single authorized operation; local preview is not available yet. Local Agents
+Team. `add <local-directory> [--preview]` previews one complete portable Skill
+package through Core and installs it in one authorized operation unless
+preview-only is requested. Local Agents
 use the same authenticated member authority as the CLI user.
 The current import endpoint still has its bundle limits and does not install a
 whole multi-Skill repository in one call.
@@ -128,7 +129,8 @@ member's private files in the active Organization. `--location team|my` is
 required so a person or Local Agent chooses the audience explicitly. The
 initial commands list files, read an exact text revision, download a binary
 revision, inspect history, upload local content, copy one exact Team/My revision
-to a stated destination, and write a new revision
+to a stated Team or My destination, copy an exact Team/My revision into a named
+Space with `copy-to-space`, and write a new revision
 against the version previously read. `--view agent` and `--json` expose the same server-authorized results
 without a second local file authority. Existing `openmeld space files`
 commands remain the Space location entry; adding a location to the CLI never
