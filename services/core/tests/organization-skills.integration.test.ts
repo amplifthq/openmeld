@@ -1233,6 +1233,59 @@ describe("Organization Skills", () => {
     ]);
   });
 
+  it("rejects invalid GitHub frontmatter before fetching supporting files", async () => {
+    const commitSha = "b".repeat(40);
+    const markdown = `---\nname: release-review\ndescription: ${"A".repeat(1068)}\n---\nUse the reference.`;
+    const resourcePath = "release/references/large.txt";
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({
+            tree: [
+              {
+                mode: "100644",
+                path: "release/SKILL.md",
+                size: new TextEncoder().encode(markdown).byteLength,
+                type: "blob",
+              },
+              {
+                mode: "100644",
+                path: resourcePath,
+                size: 100,
+                type: "blob",
+              },
+            ],
+            truncated: false,
+          })
+        );
+      }
+      if (url.endsWith(`/${commitSha}/release/SKILL.md`)) {
+        return Promise.resolve(new Response(markdown));
+      }
+      if (url.endsWith(`/${commitSha}/${resourcePath}`)) {
+        throw new Error(
+          "Supporting resource was fetched before SKILL.md validation."
+        );
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+
+    await expect(
+      importOrganizationSkillBundleFromGitHub({
+        fetch: fetchMock,
+        url: "https://github.com/acme/skills",
+      })
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.frontmatter_invalid", status: 400 },
+    });
+    expect(
+      fetchMock.mock.calls.some(([request]) =>
+        String(request).endsWith(`/${commitSha}/${resourcePath}`)
+      )
+    ).toBe(false);
+  });
+
   it("previews every Skill directory and its blockers without downloading bundles", async () => {
     const commitSha = "e".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request) => {

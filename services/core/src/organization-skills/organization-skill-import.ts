@@ -134,11 +134,35 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
   );
   requireSafeGitHubFileDeclarations(files);
 
-  let totalBytes = 0;
-  let skillMarkdown = "";
+  const skillMarkdownFile = files.find(
+    (item) => item.path === skillMarkdownPath
+  );
+  if (!skillMarkdownFile) {
+    throw skillImportError(
+      "organization_skill.skill_markdown_missing",
+      "The selected GitHub directory does not contain SKILL.md."
+    );
+  }
+  const skillMarkdownBytes = await readRawFile(
+    fetchImpl,
+    location,
+    commitSha,
+    skillMarkdownPath,
+    skillMarkdownFile.size as number
+  );
+  const { parse: parseYaml } = await loadYamlRuntime();
+  const parsed = parseSkillMarkdown(
+    decodeRequiredUtf8(skillMarkdownBytes, skillMarkdownPath),
+    parseYaml
+  );
+
+  let totalBytes = skillMarkdownBytes.byteLength;
   const bundleFiles: OrganizationSkillBundle["files"] = [];
   for (const item of files) {
     const fullPath = requireTreePath(item);
+    if (fullPath === skillMarkdownPath) {
+      continue;
+    }
     const bytes = await readRawFile(
       fetchImpl,
       location,
@@ -152,10 +176,6 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
         "organization_skill.bundle_too_large",
         "This Skill is too large to install."
       );
-    }
-    if (fullPath === skillMarkdownPath) {
-      skillMarkdown = decodeRequiredUtf8(bytes, fullPath);
-      continue;
     }
     const relativePath =
       skillDirectory.length === 0
@@ -171,14 +191,6 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
     });
   }
 
-  if (!skillMarkdown) {
-    throw skillImportError(
-      "organization_skill.skill_markdown_missing",
-      "The selected GitHub directory does not contain SKILL.md."
-    );
-  }
-  const { parse: parseYaml } = await loadYamlRuntime();
-  const parsed = parseSkillMarkdown(skillMarkdown, parseYaml);
   const bundle = organizationSkillBundleSchema.safeParse({
     files: bundleFiles,
     instructions: parsed.instructions,
