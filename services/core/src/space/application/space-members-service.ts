@@ -37,7 +37,11 @@ import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import { type CoreBindings, identityDb } from "../../lib/bindings";
+import {
+  type CoreBindings,
+  identityDb,
+  localStateDb,
+} from "../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
   clearMemberProfileLivenessEvidence,
@@ -555,6 +559,18 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
           () => listLatestAgentOriginFactsFromSql(input.sql)
         );
   const liveProfileById = buildLiveProfileById(liveSessions);
+  const readinessReads = createAgentExecutionReadinessReads({
+    batchProfileReads: true,
+    profileFacts: input.profileFacts,
+  });
+  const localPreloadRecords =
+    input.includeAgentReadiness === false
+      ? Promise.resolve([])
+      : resolveCurrentLocalPreloadRecords({
+          env: input.env,
+          records,
+          reads: readinessReads,
+        });
   const [
     preloadedHumanAvatarByOwnerUserId,
     preloadedDaemonRouteByProfileId,
@@ -578,10 +594,12 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       () =>
         input.includeAgentReadiness === false
           ? Promise.resolve(new Map())
-          : preloadAgentMemberDaemonRoutes({
-              env: input.env,
-              records,
-            })
+          : localPreloadRecords.then((currentRecords) =>
+              preloadAgentMemberDaemonRoutes({
+                env: input.env,
+                records: currentRecords,
+              })
+            )
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
@@ -590,10 +608,12 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       () =>
         input.includeAgentReadiness === false
           ? Promise.resolve(new Map())
-          : preloadAgentMemberOwnerServices({
-              env: input.env,
-              records,
-            })
+          : localPreloadRecords.then((currentRecords) =>
+              preloadAgentMemberOwnerServices({
+                env: input.env,
+                records: currentRecords,
+              })
+            )
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
@@ -620,10 +640,14 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   const humans: SpaceMemberHumanSnapshot[] = [];
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
-  const readinessReads = createAgentExecutionReadinessReads({
-    batchProfileReads: true,
-    profileFacts: input.profileFacts,
-  });
+  const preloadedOwnerServiceByProfileId = new Map(
+    (await localPreloadRecords).flatMap((record) => {
+      const service = preloadedOwnerServiceByOwnerUserId.get(
+        record.ownerUserIdSnapshot ?? ""
+      );
+      return service ? [[record.profileId, service] as const] : [];
+    })
+  );
 
   for (const record of records) {
     if (record.profileKindSnapshot === "human") {
@@ -670,7 +694,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
             latestSignalActivity,
             latestAgentOriginFactsByProfileId,
             preloadedDaemonRouteByProfileId,
-            preloadedOwnerServiceByOwnerUserId,
+            preloadedOwnerServiceByProfileId,
             readinessReads,
             generatedAt,
           })
@@ -1141,6 +1165,69 @@ function buildAgentIdentitySnapshot(input: {
   };
 }
 
+async function resolveCurrentLocalPreloadRecords(input: {
+  env: CoreBindings;
+  records: readonly SpaceMemberRecord[];
+  reads: AgentExecutionReadinessReads;
+}): Promise<SpaceMemberRecord[]> {
+  const db = localStateDb(input.env);
+  const authWorker = input.env.OPENMELD_AUTH_WORKER;
+  if (!(db && authWorker?.resolveProfileById)) {
+    return [];
+  }
+  const candidates = await Promise.all(
+    input.records.map(async (record): Promise<SpaceMemberRecord | null> => {
+      if (record.profileKindSnapshot !== "agent") {
+        return null;
+      }
+      try {
+        const result = await input.reads.resolveProfileById({
+          // The method's presence was checked above; TypeScript does not lift
+          // that property refinement into the owning RPC object type.
+          authWorker: authWorker as Parameters<
+            AgentExecutionReadinessReads["resolveProfileById"]
+          >[0]["authWorker"],
+          profileId: record.profileId,
+        });
+        if (
+          !result.ok ||
+          result.profile.profileId !== record.profileId ||
+          result.profile.profileKind !== "agent" ||
+          result.profile.status !== "active" ||
+          !result.profile.ownerUserId
+        ) {
+          return null;
+        }
+        const binding = await input.reads.readPrimaryAgentProfileBindingRecord({
+          db,
+          agentProfileId: record.profileId,
+          owner: { kind: "owner_account", id: result.profile.ownerUserId },
+        });
+        if (
+          binding?.runtimeKind !== "openmeld_service" ||
+          !binding.agentControllerRef ||
+          isHostedAgentControllerRef(binding.agentControllerRef)
+        ) {
+          return null;
+        }
+        // These are request-local preload keys, never persisted member identity.
+        return {
+          ...record,
+          ownerUserIdSnapshot: result.profile.ownerUserId,
+          controllerRefSnapshot: binding.agentControllerRef,
+        };
+      } catch {
+        // The same cached failure is interpreted by the readiness owner below.
+        // A failed read is never evidence that local transport should be queried.
+        return null;
+      }
+    })
+  );
+  return candidates.filter(
+    (record): record is SpaceMemberRecord => record !== null
+  );
+}
+
 async function preloadAgentMemberDaemonRoutes(input: {
   env: CoreBindings;
   records: readonly SpaceMemberRecord[];
@@ -1236,8 +1323,7 @@ async function preloadAgentMemberOwnerServices(input: {
 }
 
 function needsLocalMemberPreload(record: SpaceMemberRecord): boolean {
-  // Resolve unknown identities before reading local evidence. Hosted members
-  // must not wait for user Computer/Service preloads.
+  // Called only on records classified from the request's current binding.
   return (
     record.profileKindSnapshot === "agent" &&
     Boolean(record.controllerRefSnapshot) &&
@@ -1260,7 +1346,7 @@ async function buildAgentSnapshot(input: {
     string,
     RuntimeTransportLookupRouteResponse
   >;
-  preloadedOwnerServiceByOwnerUserId: ReadonlyMap<
+  preloadedOwnerServiceByProfileId: ReadonlyMap<
     string,
     RuntimeTransportLookupOwnerServiceResponse
   >;
@@ -1277,11 +1363,9 @@ async function buildAgentSnapshot(input: {
   const preloadedDaemonRoute = input.preloadedDaemonRouteByProfileId.get(
     input.record.profileId
   );
-  const preloadedOwnerService = input.record.ownerUserIdSnapshot
-    ? input.preloadedOwnerServiceByOwnerUserId.get(
-        input.record.ownerUserIdSnapshot
-      )
-    : undefined;
+  const preloadedOwnerService = input.preloadedOwnerServiceByProfileId.get(
+    input.record.profileId
+  );
   const executionReadiness = await resolveCoreAgentExecutionReadiness({
     reads: input.readinessReads,
     activeOrganizationId: input.activeOrganizationId ?? null,

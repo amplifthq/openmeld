@@ -33,7 +33,11 @@ for that Remote Agent. This does not add a multi-chat management surface.
 Execution family and current availability are separate facts. Hosted Remote and
 Center Agents do not depend on the viewer's Computer, local Service, local Agent
 catalog, or connection/upgrade state. Their member reads must not wait for local
-route preloads. Real cloud authorization, model, binding, and service failures
+route preloads. Preload selection uses current Auth identity and validated
+Binding evidence shared with that request's readiness read, never the member's
+historical controller snapshot. Both Local-to-Hosted and Hosted-to-Local changes
+must preserve that boundary without dropping needed Local reads. Real cloud
+authorization, model, binding, and service failures
 still block work; hosted does not mean unconditionally ready. A missing or failed
 binding read is unknown execution evidence, not permission to assume a Local
 Agent. Only confirmed Local identities receive Connect/Reconnect/Prepare local

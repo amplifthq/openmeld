@@ -40,10 +40,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { resolveCurrentWorkingFolderObservation } from "../../agent-profile-binding/application/current-working-folder-observation";
-import {
-  readPrimaryAgentProfileBindingRecord,
-  readPrimaryAgentProfileBindingRecordByControllerConversation,
-} from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecordByControllerConversation } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   isAgentProfileEligibleForOrganization,
   readAgentProfileOrganizationContext,
@@ -1175,12 +1172,13 @@ async function resolveAgentExecutionBindingEvidence(input: {
         },
       };
     }
-    const bindingRecord = await readPrimaryAgentProfileBindingRecord({
-      agentProfileId: input.agentProfileId,
-      db: domainDb,
-      owner,
-      readBatch: input.reads.readBatch,
-    });
+    const bindingRecord =
+      await input.reads.readPrimaryAgentProfileBindingRecord({
+        agentProfileId: input.agentProfileId,
+        db: domainDb,
+        owner,
+        readBatch: input.reads.readBatch,
+      });
     if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
         await readPrimaryAgentProfileBindingRecordByControllerConversation({
