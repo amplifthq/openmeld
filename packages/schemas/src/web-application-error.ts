@@ -52,6 +52,17 @@ export const webApplicationErrorQueryDiagnosticSchema = z.object({
   }),
 });
 
+export const webApplicationErrorRouteIdSchema = z
+  .string()
+  .max(240)
+  .regex(/^[A-Za-z0-9_/$().{}-]+$/);
+
+export const webApplicationErrorBoundarySchema = z.enum([
+  "space_conversation",
+  "space_composer_editor",
+  "markdown_editor",
+]);
+
 export const webApplicationErrorSummarySchema = z.object({
   name: z.enum([
     "Error",
@@ -103,11 +114,14 @@ export const webApplicationErrorReportSchema = z.object({
     .nullable(),
   source: webApplicationErrorSourceSchema,
   submission: z.enum(["user"]).optional(),
-  routeId: z
-    .string()
-    .max(240)
-    .regex(/^[A-Za-z0-9_/$().{}-]+$/)
-    .nullable(),
+  routeId: webApplicationErrorRouteIdSchema.nullable(),
+  navigation: z
+    .object({
+      fromRouteId: webApplicationErrorRouteIdSchema,
+      elapsedMs: z.number().int().nonnegative().max(600_000),
+    })
+    .optional(),
+  reactBoundary: webApplicationErrorBoundarySchema.optional(),
   query: webApplicationErrorQueryDiagnosticSchema.optional(),
   wakeProgress: z
     .strictObject({
@@ -145,4 +159,7 @@ export type WebApplicationErrorQueryCategory = z.infer<
 >;
 export type WebApplicationErrorQueryDiagnostic = z.infer<
   typeof webApplicationErrorQueryDiagnosticSchema
+>;
+export type WebApplicationErrorBoundary = z.infer<
+  typeof webApplicationErrorBoundarySchema
 >;

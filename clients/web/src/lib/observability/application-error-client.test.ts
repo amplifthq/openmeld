@@ -14,7 +14,53 @@ describe("browser application error reporting", () => {
 	afterEach(() => {
 		dispose?.();
 		dispose = undefined;
+		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
+	});
+
+	it("reports the incoming route and caught area without sending a URL or error text", async () => {
+		const {
+			recordApplicationErrorNavigation,
+			reportCaughtComponentError,
+			setApplicationErrorRouteReader,
+		} = await import("./application-error-client");
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(1000)
+			.mockReturnValue(1250);
+		setApplicationErrorRouteReader(
+			() => "/o/$orgSlug/_center-agent/chats/center-agent"
+		);
+		recordApplicationErrorNavigation("/o/$orgSlug/inbox");
+		const error = new Error("private token from https://openmeld.ai/o/secret");
+		reportCaughtComponentError(error, "space_conversation");
+		const first = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(first).toMatchObject({
+			routeId: "/o/$orgSlug/_center-agent/chats/center-agent",
+			navigation: { fromRouteId: "/o/$orgSlug/inbox", elapsedMs: 250 },
+			reactBoundary: "space_conversation",
+		});
+		expect(JSON.stringify(first)).not.toMatch(PRIVATE_CONTENT);
+		reportCaughtComponentError(error, "space_conversation");
+		expect(fetch).toHaveBeenCalledOnce();
+		recordApplicationErrorNavigation("/o/private?token=private");
+		reportCaughtComponentError(error, "markdown_editor");
+		const second = JSON.parse(
+			String(vi.mocked(fetch).mock.calls[1]?.[1]?.body)
+		);
+		expect(second.navigation).toBeUndefined();
+		expect(second.reactBoundary).toBe("markdown_editor");
+	});
+
+	it("expires the previous route before a later error or manual report", async () => {
+		const { recordApplicationErrorNavigation, submitApplicationErrorReport } =
+			await import("./application-error-client");
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(1000)
+			.mockReturnValue(601_001);
+		recordApplicationErrorNavigation("/o/$orgSlug/inbox");
+		await submitApplicationErrorReport(new Error("late failure"));
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body.navigation).toBeUndefined();
 	});
 
 	it("captures resource and route failures without suppressing the original error", async () => {

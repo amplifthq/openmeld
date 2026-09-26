@@ -399,14 +399,17 @@ export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,
   WEB_APPLICATION_ERROR_PATH,
+  type WebApplicationErrorBoundary,
   type WebApplicationErrorQueryCategory,
   type WebApplicationErrorQueryDiagnostic,
   type WebApplicationErrorReport,
   type WebApplicationErrorSource,
+  webApplicationErrorBoundarySchema,
   webApplicationErrorQueryCategorySchema,
   webApplicationErrorQueryCodeSchema,
   webApplicationErrorQueryDiagnosticSchema,
   webApplicationErrorReportSchema,
+  webApplicationErrorRouteIdSchema,
   webApplicationErrorSourceSchema,
   webApplicationErrorSummarySchema,
 } from "./web-application-error";
