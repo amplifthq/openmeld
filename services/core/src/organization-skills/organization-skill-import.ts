@@ -138,7 +138,13 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
   const bundleFiles: OrganizationSkillBundle["files"] = [];
   for (const item of files) {
     const fullPath = requireTreePath(item);
-    const bytes = await readRawFile(fetchImpl, location, commitSha, fullPath);
+    const bytes = await readRawFile(
+      fetchImpl,
+      location,
+      commitSha,
+      fullPath,
+      item.size as number
+    );
     totalBytes += bytes.byteLength;
     if (totalBytes > ORGANIZATION_SKILL_BUNDLE_MAX_BYTES) {
       throw skillImportError(
@@ -667,7 +673,8 @@ async function readRawFile(
   fetchImpl: typeof fetch,
   location: GitHubLocation,
   commitSha: string,
-  path: string
+  path: string,
+  declaredSize: number
 ): Promise<Uint8Array> {
   const response = await fetchImpl(
     `https://raw.githubusercontent.com/${encodeURIComponent(location.owner)}/${encodeURIComponent(location.repo)}/${commitSha}/${path
@@ -682,7 +689,41 @@ async function readRawFile(
       `GitHub could not read ${path}.`
     );
   }
-  return new Uint8Array(await response.arrayBuffer());
+  if (!response.body) {
+    throw skillImportError(
+      "organization_skill.github_response_invalid",
+      `GitHub returned no content for ${path}.`
+    );
+  }
+  const bytes = new Uint8Array(declaredSize);
+  const reader = response.body.getReader();
+  let received = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) {
+        break;
+      }
+      if (received + result.value.byteLength > declaredSize) {
+        await reader.cancel();
+        throw skillImportError(
+          "organization_skill.github_response_invalid",
+          `GitHub returned more content than declared for ${path}.`
+        );
+      }
+      bytes.set(result.value, received);
+      received += result.value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (received !== declaredSize) {
+    throw skillImportError(
+      "organization_skill.github_response_invalid",
+      `GitHub returned ${received} bytes for ${path}; ${declaredSize} were declared.`
+    );
+  }
+  return bytes;
 }
 
 async function githubApiFetch(

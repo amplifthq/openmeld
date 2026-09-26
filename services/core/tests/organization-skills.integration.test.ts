@@ -24,6 +24,16 @@ import {
   readEnabledOrganizationSkillReleaseSelection,
 } from "../src/organization-skills/organization-skill-service";
 
+const GITHUB_SKILL_MARKDOWN = [
+  "---",
+  "name: release-review",
+  "description: Review release evidence.",
+  "license: MIT",
+  "allowed-tools: Read, Grep",
+  "---",
+  "Follow the release checklist.",
+].join("\n");
+
 describe("Organization Skills", () => {
   it("keeps new writes inline while the file-backed writer is disabled", async () => {
     const fixture = await seedFixture();
@@ -1062,6 +1072,45 @@ describe("Organization Skills", () => {
     ).toBe(false);
   });
 
+  it("rejects a GitHub blob that exceeds its declared size while reading it", async () => {
+    const commitSha = "c".repeat(40);
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = String(request);
+      if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {
+        return Promise.resolve(
+          Response.json({
+            tree: [
+              {
+                mode: "100644",
+                path: "release/SKILL.md",
+                size: 1,
+                type: "blob",
+              },
+            ],
+            truncated: false,
+          })
+        );
+      }
+      if (url.startsWith("https://raw.githubusercontent.com/")) {
+        return Promise.resolve(new Response("unexpectedly large body"));
+      }
+      return Promise.resolve(readGitHubFixtureResponse(url, commitSha));
+    });
+
+    await expect(
+      importOrganizationSkillBundleFromGitHub({
+        fetch: fetchMock,
+        url: "https://github.com/acme/skills",
+      })
+    ).rejects.toMatchObject({
+      cause: {
+        code: "organization_skill.github_response_invalid",
+        status: 400,
+      },
+      message: expect.stringContaining("more content than declared"),
+    });
+  });
+
   it("previews every Skill directory and its blockers without downloading bundles", async () => {
     const commitSha = "e".repeat(40);
     const fetchMock = vi.fn<typeof fetch>((request) => {
@@ -1576,7 +1625,8 @@ describe("Organization Skills", () => {
               {
                 mode: "100644",
                 path: "release/SKILL.md",
-                size: 161,
+                size: new TextEncoder().encode(GITHUB_SKILL_MARKDOWN)
+                  .byteLength,
                 type: "blob",
               },
               {
@@ -1704,7 +1754,7 @@ function readGitHubFixtureResponse(url: string, commitSha: string): Response {
         {
           mode: "100644",
           path: "release/SKILL.md",
-          size: 161,
+          size: new TextEncoder().encode(GITHUB_SKILL_MARKDOWN).byteLength,
           type: "blob",
         },
         {
@@ -1718,17 +1768,7 @@ function readGitHubFixtureResponse(url: string, commitSha: string): Response {
     });
   }
   if (url.endsWith(`/${commitSha}/release/SKILL.md`)) {
-    return new Response(
-      [
-        "---",
-        "name: release-review",
-        "description: Review release evidence.",
-        "license: MIT",
-        "allowed-tools: Read, Grep",
-        "---",
-        "Follow the release checklist.",
-      ].join("\n")
-    );
+    return new Response(GITHUB_SKILL_MARKDOWN);
   }
   if (url.endsWith(`/${commitSha}/release/references/checklist.md`)) {
     return new Response("# Checklist");
