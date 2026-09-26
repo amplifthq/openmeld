@@ -6,12 +6,6 @@ import {
 	SpaceComposerFileTray,
 } from "./space-composer-attachments";
 
-vi.mock("@phosphor-icons/react", () => ({
-	FileIcon: () => <span />,
-	PlusIcon: () => <span />,
-	XIcon: () => <span />,
-}));
-
 const LONG_FILE_NAME =
 	"quarterly-product-review-with-an-intentionally-long-file-name-for-layout-testing.pdf";
 
@@ -56,15 +50,85 @@ describe("SpaceComposerFileTray", () => {
 		expect(screen.getByRole("alert").textContent).toBe(
 			"OpenMeld couldn’t add this file. Try again."
 		);
-		expect(screen.getByText("Request ID: request-file-failed")).toBeTruthy();
+		expect(screen.queryByText("Request ID: request-file-failed")).toBeNull();
 
 		const removeReadyFile = screen.getByRole("button", {
 			name: "Remove launch-brief.pdf",
 		});
 		fireEvent.click(removeReadyFile);
 		expect(onRemove).toHaveBeenCalledWith("ready-file");
+		fireEvent.click(
+			screen.getByRole("button", { name: "Attachment error: broken.pdf" })
+		);
+		expect(screen.getByText("Request ID: request-file-failed")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 		expect(onRetry).toHaveBeenCalledWith("failed-file");
+	});
+
+	it.each([
+		["photo.png", "image/png", "image"],
+		["photo.jpg", "image/jpeg", "image"],
+		["animation.gif", "image/gif", "image"],
+		["photo.webp", "image/webp", "image"],
+		["diagram.svg", "image/svg+xml", "image"],
+		["demo.mp4", "video/mp4", "video"],
+		["demo.webm", "video/webm", "video"],
+		["report.pdf", "application/pdf", "file"],
+		[
+			"report.docx",
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			"file",
+		],
+		[
+			"budget.xlsx",
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			"file",
+		],
+		[
+			"slides.pptx",
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			"file",
+		],
+		["page.html", "text/html", "file"],
+		["data.csv", "text/csv", "file"],
+		["notes.md", "text/markdown", "file"],
+		["config.json", "application/json", "file"],
+		["recording.mp3", "audio/mpeg", "file"],
+		["source.zip", "application/zip", "file"],
+		["unknown.bin", "application/octet-stream", "file"],
+	])("preserves preview and removal for %s (%s)", (fileName, mimeType, kind) => {
+		const onRemove = vi.fn();
+		const file = createComposerFile({
+			fileName,
+			mimeType,
+			previewUrl: kind === "file" ? null : "blob:attachment",
+		});
+		const view = render(
+			<SpaceComposerFileTray
+				disabled={false}
+				files={[file]}
+				onRemove={onRemove}
+			/>
+		);
+		expect(
+			screen.getAllByRole("group", { name: "Files to send" })
+		).toHaveLength(1);
+		if (kind === "image") {
+			expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
+				"blob:attachment"
+			);
+		}
+		if (kind === "video") {
+			expect(
+				screen.getByRole("button", { name: `Play ${fileName}` })
+			).toBeTruthy();
+		}
+		if (kind === "file") {
+			expect(screen.getByRole("img", { name: fileName })).toBeTruthy();
+			expect(view.container.querySelector("img,video")).toBeNull();
+		}
+		fireEvent.click(screen.getByRole("button", { name: `Remove ${fileName}` }));
+		expect(onRemove).toHaveBeenCalledWith("ready-file");
 	});
 
 	it("keeps failed cleanup and restoration actions available", () => {
