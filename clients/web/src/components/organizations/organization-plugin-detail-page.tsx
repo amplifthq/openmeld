@@ -5,10 +5,9 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
 import { AppLogo } from "./app-logo";
-import { CenterAgentGitHubConnectionCard } from "./center-agent-github-connection-card";
 import { PluginAgentAccess } from "./plugin-agent-access";
 import type { PluginDefinition } from "./plugin-catalog";
-import { PluginConnectionCard } from "./plugin-connection-card";
+import { PluginConnectionSurface } from "./plugin-connection-surface";
 import { PluginScopeTabs, usePluginScope } from "./plugin-scope-tabs";
 import { PluginStatusBadge } from "./plugins-catalog-panel";
 
@@ -91,26 +90,15 @@ export function OrganizationPluginDetailPage(input: {
 							</p>
 						) : null}
 					</div>
-					{input.plugin.service === "github" ? (
-						<CenterAgentGitHubConnectionCard
-							canManage={input.canManageSharedPlugins}
-							isPersonalWorkspace={input.isPersonalWorkspace}
-							key={`${input.organizationId}:github`}
-							mode={scope}
-							organizationId={input.organizationId}
-							organizationName={input.organizationName}
-						/>
-					) : (
-						<PluginConnectionCard
-							canManage={input.canManageSharedPlugins}
-							isPersonalWorkspace={input.isPersonalWorkspace}
-							key={`${input.organizationId}:${input.plugin.service}`}
-							mode={scope}
-							organizationId={input.organizationId}
-							organizationName={input.organizationName}
-							plugin={input.plugin}
-						/>
-					)}
+					<PluginConnectionSurface
+						canManage={input.canManageSharedPlugins}
+						isPersonalWorkspace={input.isPersonalWorkspace}
+						key={`${input.organizationId}:${input.plugin.service}`}
+						mode={scope}
+						organizationId={input.organizationId}
+						organizationName={input.organizationName}
+						plugin={input.plugin}
+					/>
 					<PluginAgentAccess
 						organizationId={input.organizationId}
 						organizationName={input.organizationName}

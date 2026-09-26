@@ -23,6 +23,39 @@
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
 
+## Conversational Plugin setup
+
+A typed `plugin_connection` navigation action opens the current Organization's
+existing Plugin connection surface in a Fluid dialog without replacing the
+conversation route. The message stores only the supported service and setup
+scope. Provider authorization, credentials, current status and Agent access
+remain in their existing owners, not in the message.
+
+Plugins, Onboarding and conversation setup share `PluginConnectionSurface`.
+It selects the existing GitHub adapter or generic App adapter; it does not
+implement another authorization state machine. GitHub user authorization and
+Organization installation remain distinct, as do OAuth and secure credential
+forms for other supported providers.
+
+The dialog reads the signed-in viewer and current connection options only when
+opened. An explicit personal or shared scope wins. Unspecified setup uses an
+existing applicable connection view; with no connection, ordinary members get
+personal setup and eligible owners/admins can choose personal or Organization
+setup. Choosing a view does not connect an account or choose a later execution
+identity. The server rechecks every mutation. The Agent access editor is loaded
+only when expanded and never saves permissions automatically.
+
+Closing the dialog keeps the conversation in place and unmounts the existing
+authorization view. A disconnected, expired or provider-denied connection is
+not evidence that a task completed. Automatic return-to-work is not implemented
+by this dialog. External providers still require their own consent/approval.
+
+The initial implementation is Draft. The strict navigation target union needs
+an explicit old-reader publication/upgrade contract before its producer is
+released; a fallback URL alone cannot protect an older message parser. See
+`design-plans/1254-composable-plugin-workflow.md` at the repository root for
+remaining acceptance, reader compatibility and the broader execution work.
+
 ## Selected Space work
 
 The writable Space Files browser offers **Hand off** for files in the current

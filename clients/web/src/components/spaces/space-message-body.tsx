@@ -8,9 +8,11 @@ import { QueryClientContext } from "@tanstack/react-query";
 import { useReducedMotionConfig } from "framer-motion";
 import {
 	type ComponentProps,
+	lazy,
 	memo,
 	type ReactNode,
 	type Ref,
+	Suspense,
 	useCallback,
 	useContext,
 	useLayoutEffect,
@@ -67,6 +69,13 @@ import { SpaceVideoPreview } from "./space-video-preview";
 import { useImageFrameActivity } from "./use-image-frame-activity";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
+
+const PluginConnectionMessageCard = lazy(async () => {
+	const module = await import(
+		"#/components/organizations/plugin-connection-message-card"
+	);
+	return { default: module.PluginConnectionMessageCard };
+});
 
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
@@ -387,6 +396,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			: undefined;
 	const navigationActionContent = renderSpaceMessageNavigationAction({
 		action: navigationAction,
+		organizationSlug: input.orgSlug,
 		computerSetupContext: input.computerSetupContext,
 		computerSetupSourceSignalId: input.computerSetupSourceSignalId,
 	});
@@ -646,11 +656,28 @@ function renderSpaceMessageTextContent(input: {
 
 function renderSpaceMessageNavigationAction(input: {
 	action: NavigationAction | null | undefined;
+	organizationSlug: string | undefined;
 	computerSetupContext: CenterAgentComputerSetupContext | undefined;
 	computerSetupSourceSignalId: string | undefined;
 }): ReactNode {
 	if (!input.action) {
 		return null;
+	}
+	if (input.action.target.kind === "plugin_connection") {
+		return (
+			<Suspense
+				fallback={
+					<DesktopAwareLink href={input.action.url}>
+						{input.action.label}
+					</DesktopAwareLink>
+				}
+			>
+				<PluginConnectionMessageCard
+					action={{ ...input.action, target: input.action.target }}
+					organizationSlug={input.organizationSlug}
+				/>
+			</Suspense>
+		);
 	}
 	if (
 		input.computerSetupContext &&

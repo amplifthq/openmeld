@@ -1955,14 +1955,15 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_get_current_user", {})
     ).rejects.toThrow(
-      "Your GitHub is not ready. It may be disconnected or authorization may still be pending. Use the Open GitHub access action below, check Your GitHub, and try again. OpenMeld did not use a different GitHub identity."
+      "Your GitHub is not ready. It may be disconnected or authorization may still be pending. Use the Plugin connection action below, check Your GitHub, and try again. OpenMeld did not use a different GitHub identity."
     );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
     ).resolves.toMatchObject({
       navigationTarget: {
-        kind: "organization_app",
+        kind: "plugin_connection",
         service: "github",
+        scope: "member",
       },
     });
   });
@@ -2018,14 +2019,15 @@ describe("Remote Agent GitHub tools", () => {
         githubActor: "organization",
       })
     ).rejects.toThrow(
-      "Organization access is not ready. It may be disconnected or authorization may still be pending. Use the Open GitHub access action below, check Organization access, and try again. OpenMeld did not use a different GitHub identity."
+      "Organization access is not ready. It may be disconnected or authorization may still be pending. Use the Plugin connection action below, check Organization access, and try again. OpenMeld did not use a different GitHub identity."
     );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
     ).resolves.toMatchObject({
       navigationTarget: {
-        kind: "organization_app",
+        kind: "plugin_connection",
         service: "github",
+        scope: "shared",
       },
     });
   });

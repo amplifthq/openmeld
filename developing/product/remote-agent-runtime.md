@@ -30,6 +30,26 @@
   pinned Flue package before changing worker interfaces; method names are not
   strategic contract.
 
+## Plugin connection action boundary
+
+The existing navigation action capability can offer `plugin_connection` with
+one supported service and `member`, `shared`, or `choose` setup intent. An
+explicit identity requirement is preserved; `choose` requests a permitted Web
+setup choice and never authorizes automatic execution-account fallback.
+The final action is still owned by the current native delivery. It contains no
+credential or provider authorization URL and starts no authorization itself.
+
+Personal Hosted Agents expose only Plugin setup through this navigation
+capability, not Center Agent computer administration or Message Channel identity
+linking. Their normal per-call execution authorization remains in force.
+Ordinary Center navigation and existing legacy GitHub actions remain readable.
+
+Connection setup does not grant Agent access, prove repository permission, or
+resume a task. Before releasing the new producer, complete the strict-union
+reader compatibility and current/old Signal-reader checks recorded in the
+repository-root `design-plans/1254-composable-plugin-workflow.md`. This draft
+slice is not a production-availability claim or a new workflow owner.
+
 ## North Star
 
 A remote agent is **not a new species of identity**. It is the same Agent

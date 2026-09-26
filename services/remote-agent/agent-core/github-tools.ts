@@ -1793,7 +1793,11 @@ async function resolveGitHubActionContext(input: {
       await recordRemoteAgentNavigationTarget({
         storage: input.storage,
         submissionId: input.submissionId,
-        target: { kind: "organization_app", service: "github" },
+        target: {
+          kind: "plugin_connection",
+          service: "github",
+          scope: input.githubActor === "organization" ? "shared" : "member",
+        },
       });
     }
     throw new Error(
@@ -3249,7 +3253,7 @@ function resolveUnavailableGitHubConnectionMessage(input: {
       ? "Organization access"
       : "Your GitHub";
   const action = input.hasNavigationAction
-    ? "Use the Open GitHub access action below"
+    ? "Use the Plugin connection action below"
     : "Open Plugins → GitHub for this workspace";
   return `${accessName} is not ready. It may be disconnected or authorization may still be pending. ${action}, check ${accessName}, and try again. OpenMeld did not use a different GitHub identity.`;
 }

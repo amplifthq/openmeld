@@ -2351,6 +2351,82 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).rejects.toThrow();
   });
 
+  it.each([
+    ["github", "shared", "organization"],
+    ["notion", "member", "personal"],
+    ["cloudflare_r2", "choose", null],
+  ] as const)("offers %s setup through the shared navigation contract, without connecting it", async (service, scope, routeScope) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        organization: {
+          ...base.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service,
+        scope,
+      })
+    ).resolves.toEqual({
+      label: "Open Plugin connection",
+      target: { kind: "plugin_connection", service, scope },
+      url: `https://openmeld.ai/o/amplift/plugins/${service}${routeScope ? `?scope=${routeScope}` : ""}`,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service,
+        scope,
+        token: "must-not-be-accepted",
+      })
+    ).rejects.toThrow();
+  });
+
+  it("limits personal Agent navigation to the same Plugin setup implementation", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        organization: {
+          ...base.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      personalAgent: true,
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service: "notion",
+        scope: "member",
+      })
+    ).resolves.toMatchObject({
+      target: { kind: "plugin_connection", service: "notion", scope: "member" },
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "message_channel_identity_link",
+        purpose: "continue_request",
+      })
+    ).rejects.toThrow();
+  });
+
   it("refuses to guess a navigation URL without Core-owned Web context", async () => {
     const request = createSubmitTurnRequest();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
