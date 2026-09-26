@@ -8,9 +8,7 @@ const SETUP_COMMAND_ERROR =
   "Use the official Staging Canary binary setup command copied from OpenMeld Staging.";
 const SAFE_UNQUOTED_SHELL_WORD = /^[A-Za-z0-9_./:@%+=,?&-]+$/u;
 const TOKEN_VALUE_PATTERN = /^[A-Za-z0-9_./:@%+=,-]{1,4096}$/u;
-const SETUP_DOWNLOAD_SCRIPT = `setup_file=$(mktemp "\${TMPDIR:-/tmp}/openmeld-setup.XXXXXX") || exit 1; trap 'rm -f "$setup_file"' EXIT; curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --speed-limit 1 --speed-time 30 -o "$setup_file" "$1" || exit 1; [ -s "$setup_file" ] || { echo 'OpenMeld setup download was empty.' >&2; exit 1; }; [ "$(tail -n 1 "$setup_file")" = '# openmeld-setup-script-complete-v1' ] || { echo 'OpenMeld setup download was incomplete.' >&2; exit 1; }; shift; sh "$setup_file" "$@" < /dev/null`;
-const SETUP_COMMAND_PREFIX = `sh -c '${SETUP_DOWNLOAD_SCRIPT.replaceAll("'", "'\\''")}' sh `;
-const SETUP_COMMAND_SUFFIX_PATTERN = /^(('[^']*')|([^\s]+)) (.+)$/u;
+const SETUP_COMMAND_PREFIX = `curl -fsSL --proto '=https' --proto-redir '=https' '${STAGING_COMPUTER_SMOKE_SETUP_URL}' | sh -s -- `;
 const UNSAFE_SHELL_SYNTAX_PATTERN = /[;$`()<>\\]/u;
 const SHELL_WORD_SEPARATOR_PATTERN = /\s+/u;
 
@@ -44,18 +42,14 @@ export function parseStagingWebSetupCommand(command) {
     if (normalized.includes("\n") || normalized.includes("\r")) {
       throw new Error("Setup command must be one line.");
     }
-    const match = normalized.startsWith(SETUP_COMMAND_PREFIX)
-      ? SETUP_COMMAND_SUFFIX_PATTERN.exec(
-          normalized.slice(SETUP_COMMAND_PREFIX.length)
-        )
-      : null;
-    if (!match) {
+    if (!normalized.startsWith(SETUP_COMMAND_PREFIX)) {
       throw new Error("Setup command shape is not recognized.");
     }
 
-    const setupUrl = decodeShellWord(match[1]);
-    assertOfficialStagingSetupUrl(setupUrl);
-    const setupArgs = parseShellWords(match[4]);
+    const setupUrl = STAGING_COMPUTER_SMOKE_SETUP_URL;
+    const setupArgs = parseShellWords(
+      normalized.slice(SETUP_COMMAND_PREFIX.length)
+    );
     validateSetupArgs(setupArgs);
     return { setupArgs, setupUrl };
   } catch (error) {
@@ -87,7 +81,7 @@ export function redactStagingSetupCommand(command) {
       redactedArgs[index + 1] = "[redacted]";
     }
   }
-  return `${SETUP_COMMAND_PREFIX}'${parsed.setupUrl}' ${redactedArgs.join(" ")}`;
+  return `${SETUP_COMMAND_PREFIX}${redactedArgs.join(" ")}`;
 }
 
 export function readStagingSetupSensitiveValues(args) {
@@ -138,35 +132,6 @@ export function assertCoalescedStagingUpdate(input) {
     );
   }
   return automaticOperationId;
-}
-
-function assertOfficialStagingSetupUrl(value) {
-  const url = new URL(value);
-  const keys = [...url.searchParams.keys()].sort();
-  if (
-    url.origin !== STAGING_ORIGIN ||
-    url.pathname !== "/setup" ||
-    url.username ||
-    url.password ||
-    url.hash ||
-    keys.length !== 2 ||
-    keys[0] !== "dist" ||
-    keys[1] !== "lane" ||
-    url.searchParams.get("dist") !== "binary" ||
-    url.searchParams.get("lane") !== "canary"
-  ) {
-    throw new Error("Setup URL is outside the Staging Canary binary lane.");
-  }
-}
-
-function decodeShellWord(word) {
-  if (word.startsWith("'") && word.endsWith("'")) {
-    return word.slice(1, -1);
-  }
-  if (!SAFE_UNQUOTED_SHELL_WORD.test(word)) {
-    throw new Error("Setup URL contains unsupported shell syntax.");
-  }
-  return word;
 }
 
 function parseShellWords(value) {

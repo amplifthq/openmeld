@@ -1409,6 +1409,22 @@ approved that exact version; `--version` and `--next` are mutually exclusive.
 - Required is sometimes the least harmful user choice, but it is not the
   default and must not be applied to every release.
 
+Before stamping a Service hash that reuses Windows helper bytes, prepare them
+in the clean release worktree with the same source check used by publication:
+
+```sh
+node scripts/release/reuse-windows-process-artifact.mjs <trusted-main-run-id>
+```
+
+This checks the run's repository, `main` branch, official CLI workflow and
+successful Windows job before downloading anything; it then verifies ancestry,
+native source, and artifact bytes before importing the helper. A PR Windows
+compatibility artifact is not a release source even if its source fingerprint
+matches. Pin this exact run ID for publication. If no matching trusted run
+exists, dispatch `.github/workflows/cli-release.yml` on `main` with
+`helper_only=true` and `production_train_scopes=cli`, then use that successful
+Windows helper run. This preparation publishes neither CLI nor Core.
+
 The stamp command writes the version and required-update floor before building
 the packaged CLI, then records its Service hash and verifies the result. It
 rejects source drift and restores its metadata changes on failure. Never hand-edit the hash, reuse
@@ -1436,14 +1452,9 @@ For GitHub, use `.github/workflows/cli-release.yml`:
    requires database or cloud fleet changes.
 
 Windows Native AOT helper bytes can differ across builds of identical source.
-When a committed Service hash was stamped with a helper from an earlier trusted
-`main` CLI workflow run, set `windows_artifact_run_id` to that run instead of
-rebuilding the helper. The macOS publisher checks the producer workflow,
-branch, repository, and successful helper job, then verifies the downloaded
-helper's source fingerprint and bytes. This reuse path skips the Windows build
-job entirely. Use the run whose helper bytes were used for the stamp, not merely
-a run with the same source. A fresh Windows build can prepare a new candidate;
-stamp from its downloaded artifact and pin that run for publication.
+Set `windows_artifact_run_id` to the run used above when publishing the stamped
+manifest. The publisher rechecks its provenance and bytes and skips a second
+Windows build. A different run with the same source is not interchangeable.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.
