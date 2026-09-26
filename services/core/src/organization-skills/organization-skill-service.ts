@@ -1465,36 +1465,12 @@ async function readReleaseBundle(
     if (!manifest.success) {
       throw invalidReleaseError();
     }
-    const files = await Promise.all(
-      manifest.data.files.map(async (file) => {
-        const resource = await bucket.get(
-          releaseResourceKey(release.object_key, file.path)
-        );
-        if (!resource) {
-          throw missingReleaseObjectError();
-        }
-        const bytes = new Uint8Array(await resource.arrayBuffer());
-        if (
-          bytes.byteLength !== file.size ||
-          (await sha256Bytes(bytes)) !== file.digest
-        ) {
-          throw releaseDigestMismatchError();
-        }
-        return {
-          content:
-            file.encoding === "utf8"
-              ? new TextDecoder("utf-8", {
-                  fatal: true,
-                  ignoreBOM: true,
-                }).decode(bytes)
-              : encodeBase64(bytes),
-          encoding: file.encoding,
-          mediaType: file.mediaType,
-          path: file.path,
-          size: file.size,
-        } satisfies OrganizationSkillFile;
-      })
-    );
+    const files: OrganizationSkillFile[] = [];
+    for (const file of manifest.data.files) {
+      files.push(
+        await readStoredReleaseResource(bucket, release.object_key, file)
+      );
+    }
     value = {
       files,
       instructions: manifest.data.instructions,
@@ -1565,9 +1541,15 @@ async function readReleaseResource(
   if (!file) {
     throw missingSkillResourceError();
   }
-  const resource = await bucket.get(
-    releaseResourceKey(release.object_key, path)
-  );
+  return await readStoredReleaseResource(bucket, release.object_key, file);
+}
+
+async function readStoredReleaseResource(
+  bucket: R2Bucket,
+  objectKey: string,
+  file: z.infer<typeof storedSkillReleaseSchema>["files"][number]
+): Promise<OrganizationSkillFile> {
+  const resource = await bucket.get(releaseResourceKey(objectKey, file.path));
   if (!resource) {
     throw missingReleaseObjectError();
   }
