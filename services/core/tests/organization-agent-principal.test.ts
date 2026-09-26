@@ -1,9 +1,5 @@
 import { env } from "cloudflare:test";
-import {
-  buildSpaceFileEntryIdForMutation,
-  buildSpaceFileRevisionIdFromDigest,
-  HOSTED_CENTER_AGENT_CONTROLLER_REF,
-} from "@openmeld/schemas";
+import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { requireCurrentDesignatedCenterAgentCaller } from "../src/center-agent/current-designated-center-agent";
 import { prepareOrganizationFileRootAccess } from "../src/files/file-root-access";
@@ -11,9 +7,9 @@ import { organizationFileRootName } from "../src/files/file-root-identity";
 import {
   rpcRemoteAgentListTeamFiles,
   rpcRemoteAgentReadTeamFile,
+  rpcRemoteAgentSaveTeamFile,
 } from "../src/files/remote-agent-team-files";
 import type { CoreBindings } from "../src/lib/bindings";
-import { hashSpaceFileStream } from "../src/space/application/space-file-stream";
 
 describe("Organization Center Agent principal", () => {
   it("authorizes the designated Organization identity without a creator account and rejects impersonation", async () => {
@@ -62,39 +58,27 @@ describe("Organization Center Agent principal", () => {
       throw new Error("Files root binding is required");
     }
     const teamRoot = { kind: "team" as const, organizationId };
-    const teamId = roots.idFromName(organizationFileRootName(teamRoot));
-    const team = roots.get(teamId);
+    const team = roots.getByName(organizationFileRootName(teamRoot));
     await expect(team.list({ context, root: teamRoot })).resolves.toMatchObject(
       {
         entries: [],
       }
     );
-    const bytes = new TextEncoder().encode("Shared team note");
     const clientMutationId = crypto.randomUUID();
-    const fileId = await buildSpaceFileEntryIdForMutation(clientMutationId);
-    const revisionId = await buildSpaceFileRevisionIdFromDigest({
-      baseRevision: null,
-      contentDigest: await hashSpaceFileStream(new Blob([bytes]).stream()),
+    const created = await rpcRemoteAgentSaveTeamFile(bindings, {
+      action: "create",
       clientMutationId,
+      content: "Shared team note",
+      context,
       mimeType: "text/plain",
       name: "team-note.txt",
       parentId: null,
     });
-    await team.writeContent({
-      context,
+    const fileId = created.file.id;
+    expect(created.file).toMatchObject({
+      name: "team-note.txt",
       root: teamRoot,
-      bytes: bytes.buffer as ArrayBuffer,
-      write: {
-        spaceId: teamId.toString(),
-        fileId,
-        revisionId,
-        name: "team-note.txt",
-        parentId: null,
-        baseRevision: null,
-        clientMutationId,
-        mimeType: "text/plain",
-        sizeBytes: bytes.byteLength,
-      },
+      latestRevision: { revision: 1 },
     });
     await expect(
       rpcRemoteAgentListTeamFiles(bindings, { context })
@@ -109,6 +93,38 @@ describe("Organization Center Agent principal", () => {
       file: { id: fileId, root: teamRoot },
       revision: { revision: 1 },
     });
+    const update = {
+      action: "update" as const,
+      baseRevision: 1,
+      clientMutationId: crypto.randomUUID(),
+      content: "Updated team note",
+      context,
+      fileId,
+      mimeType: "text/plain",
+    };
+    await expect(
+      rpcRemoteAgentSaveTeamFile(bindings, update)
+    ).resolves.toMatchObject({
+      file: { id: fileId, root: teamRoot, latestRevision: { revision: 2 } },
+    });
+    await expect(
+      rpcRemoteAgentSaveTeamFile(bindings, update)
+    ).resolves.toMatchObject({
+      file: { id: fileId, latestRevision: { revision: 2 } },
+    });
+    await expect(
+      rpcRemoteAgentSaveTeamFile(bindings, {
+        ...update,
+        clientMutationId: crypto.randomUUID(),
+        content: "Stale overwrite",
+      })
+    ).rejects.toThrow('"code":"file_root.conflict"');
+    await expect(
+      rpcRemoteAgentReadTeamFile(bindings, { context, fileId, revision: 1 })
+    ).resolves.toMatchObject({ content: "Shared team note" });
+    await expect(
+      rpcRemoteAgentReadTeamFile(bindings, { context, fileId })
+    ).resolves.toMatchObject({ content: "Updated team note" });
     const privateRoot = {
       kind: "member" as const,
       organizationId,

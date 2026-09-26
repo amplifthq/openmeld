@@ -31,3 +31,9 @@ export type RemoteAgentReadTeamFileRpcInput = z.infer<
 export type RemoteAgentReadTeamFileResponse = z.infer<
   Schemas["remoteAgentReadTeamFileResponseSchema"]
 >;
+export type RemoteAgentSaveTeamFileRpcInput = z.infer<
+  Schemas["remoteAgentSaveTeamFileRpcInputSchema"]
+>;
+export type RemoteAgentSaveTeamFileResponse = z.infer<
+  Schemas["remoteAgentSaveTeamFileResponseSchema"]
+>;

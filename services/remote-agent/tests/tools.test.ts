@@ -6320,6 +6320,27 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
+        action: "update",
+        baseRevision: 1,
+        clientMutationId: "save-team-note-r2",
+        content: "Updated team note",
+        fileId: "file-1",
+        mimeType: "text/markdown",
+      },
+      input: {
+        action: "update",
+        baseRevision: 1,
+        clientMutationId: "save-team-note-r2",
+        content: "Updated team note",
+        fileId: "file-1",
+        mimeType: "text/markdown",
+      },
+      response: { file: teamFileDescriptor() },
+      rpcName: "remoteAgentSaveTeamFile",
+      toolName: "openmeld_save_team_file",
+    },
+    {
+      expectedPayload: {
         parentId: null,
         requestedOriginModel: "origin_aware",
         spaceId: SPACE_ID,

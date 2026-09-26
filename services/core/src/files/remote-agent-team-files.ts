@@ -1,15 +1,22 @@
 import {
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileRevisionIdForMutation,
   isSpaceFileTextEditable,
   listFileRootResponseSchema,
   remoteAgentListTeamFilesRpcInputSchema,
   remoteAgentReadTeamFileResponseSchema,
   remoteAgentReadTeamFileRpcInputSchema,
+  remoteAgentSaveTeamFileResponseSchema,
+  remoteAgentSaveTeamFileRpcInputSchema,
 } from "@openmeld/schemas";
 import type {
+  CommitSpaceFileWriteInput,
   ListFileRootResponse,
   RemoteAgentListTeamFilesRpcInput,
   RemoteAgentReadTeamFileResponse,
   RemoteAgentReadTeamFileRpcInput,
+  RemoteAgentSaveTeamFileResponse,
+  RemoteAgentSaveTeamFileRpcInput,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../lib/bindings";
 import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
@@ -36,11 +43,71 @@ async function teamTarget(
       status: 503,
     });
   }
+  const id = namespace.idFromName(organizationFileRootName(root));
   return {
     context: authorization.context,
     root,
-    stub: namespace.getByName(organizationFileRootName(root)),
+    rootId: id.toString(),
+    stub: namespace.get(id),
   };
+}
+
+export async function rpcRemoteAgentSaveTeamFile(
+  env: CoreBindings,
+  input: RemoteAgentSaveTeamFileRpcInput
+): Promise<RemoteAgentSaveTeamFileResponse> {
+  const request = remoteAgentSaveTeamFileRpcInputSchema.parse(input);
+  const target = await teamTarget(env, request.context);
+  const encoded = new TextEncoder().encode(request.content);
+  if (
+    !isSpaceFileTextEditable({
+      mimeType: request.mimeType,
+      sizeBytes: encoded.byteLength,
+    })
+  ) {
+    throw createCoreRpcHttpError({
+      code: "file_root.type_unsupported",
+      reason: "This tool saves UTF-8 text files up to 1 MiB.",
+      status: 415,
+    });
+  }
+  const bytes = new ArrayBuffer(encoded.byteLength);
+  new Uint8Array(bytes).set(encoded);
+  const fileId =
+    request.action === "create"
+      ? await buildSpaceFileEntryIdForMutation(request.clientMutationId)
+      : request.fileId;
+  const revisionId = await buildSpaceFileRevisionIdForMutation({
+    baseRevision: request.action === "create" ? null : request.baseRevision,
+    bytes,
+    clientMutationId: request.clientMutationId,
+    mimeType: request.mimeType,
+    ...(request.action === "create"
+      ? { name: request.name, parentId: request.parentId ?? null }
+      : {}),
+  });
+  const write: CommitSpaceFileWriteInput = {
+    baseRevision: request.action === "create" ? null : request.baseRevision,
+    clientMutationId: request.clientMutationId,
+    fileId,
+    mimeType: request.mimeType,
+    ...(request.action === "create"
+      ? { name: request.name, parentId: request.parentId ?? null }
+      : {}),
+    revisionId,
+    sizeBytes: encoded.byteLength,
+    spaceId: target.rootId,
+  };
+  const file = await target.stub.writeContent({
+    context: target.context,
+    root: target.root,
+    bytes,
+    write,
+  });
+  const { spaceId: _internalRootId, ...details } = file;
+  return remoteAgentSaveTeamFileResponseSchema.parse({
+    file: { ...details, root: target.root },
+  });
 }
 
 export async function rpcRemoteAgentListTeamFiles(
@@ -104,6 +171,7 @@ export async function rpcRemoteAgentReadTeamFile(
     fileId: request.fileId,
     revisionId: resolved.revision.id,
   });
+  const operationId = crypto.randomUUID();
   let bytes: ArrayBuffer;
   try {
     const object = await bucket.get(key);
@@ -118,7 +186,7 @@ export async function rpcRemoteAgentReadTeamFile(
       entryId: request.fileId,
       revisionId: resolved.revision.id,
       operation: "content_read",
-      operationId: target.context.actorContext.requestId,
+      operationId,
       errorCode: "file_root.storage_failed",
     });
     throw error;
@@ -136,7 +204,7 @@ export async function rpcRemoteAgentReadTeamFile(
       entryId: request.fileId,
       revisionId: resolved.revision.id,
       operation: "content_read",
-      operationId: target.context.actorContext.requestId,
+      operationId,
       errorCode: "file_root.type_unsupported",
     });
     throw createCoreRpcHttpError({
@@ -151,7 +219,7 @@ export async function rpcRemoteAgentReadTeamFile(
     entryId: request.fileId,
     revisionId: resolved.revision.id,
     operation: "content_read",
-    operationId: target.context.actorContext.requestId,
+    operationId,
   });
   const file = await target.stub.getFile({
     context: target.context,

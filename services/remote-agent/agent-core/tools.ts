@@ -173,6 +173,8 @@ import {
   peopleComputerTargetSchema,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   remoteAgentReadTeamFileResponseSchema,
+  remoteAgentSaveTeamFileResponseSchema,
+  remoteAgentSaveTeamFileRpcInputSchema,
   resumeCenterAgentRoutineResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
@@ -569,6 +571,16 @@ const readTeamFileToolInputSchema = strictObject({
   fileId: spaceFileIdToolInputSchema,
   includeHistory: optional(boolean()),
   revision: optional(pipe(number(), integer(), minValue(1))),
+});
+const saveTeamFileToolInputSchema = strictObject({
+  action: picklist(["create", "update"]),
+  baseRevision: optional(pipe(number(), integer(), minValue(1))),
+  clientMutationId: spaceFileMutationIdToolInputSchema,
+  content: spaceFileTextContentToolInputSchema,
+  fileId: optional(spaceFileIdToolInputSchema),
+  mimeType: pipe(string(), trim(), minLength(3), maxLength(255)),
+  name: optional(spaceFileNameToolInputSchema),
+  parentId: optional(nullable(spaceFileIdToolInputSchema)),
 });
 const readSpaceFileToolInputSchema = strictObject({
   fileId: spaceFileIdToolInputSchema,
@@ -1416,6 +1428,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_manage_space_tasks",
   "openmeld_list_team_files",
   "openmeld_read_team_file",
+  "openmeld_save_team_file",
   "openmeld_list_space_files",
   "openmeld_read_space_file",
   "openmeld_save_space_file",
@@ -3703,6 +3716,31 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           (binding, rpcInput) => binding.remoteAgentReadTeamFile?.(rpcInput)
         );
         return remoteAgentReadTeamFileResponseSchema.parse(response);
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_save_team_file",
+      description:
+        "Create a UTF-8 text file in Team Files or save a new revision. To update, first read the file and pass its revision as baseRevision; a concurrent change fails instead of overwriting it. Reuse clientMutationId only to retry the exact same save. Everyone with Team Files access can see the result.",
+      input: saveTeamFileToolInputSchema,
+      execute: async (payload) => {
+        const toolInput = parseValibot(saveTeamFileToolInputSchema, payload);
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_save_team_file",
+        });
+        const request = remoteAgentSaveTeamFileRpcInputSchema.parse({
+          ...toolInput,
+          context,
+        });
+        const response = await callCoreRpc(
+          input.coreWorker,
+          "remoteAgentSaveTeamFile",
+          request,
+          (binding, rpcInput) => binding.remoteAgentSaveTeamFile?.(rpcInput)
+        );
+        return remoteAgentSaveTeamFileResponseSchema.parse(response);
       },
     }),
     toolDefinition({

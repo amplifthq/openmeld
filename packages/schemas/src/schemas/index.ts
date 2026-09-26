@@ -1560,6 +1560,8 @@ export {
   remoteAgentListTeamFilesRpcInputSchema,
   remoteAgentReadTeamFileResponseSchema,
   remoteAgentReadTeamFileRpcInputSchema,
+  remoteAgentSaveTeamFileResponseSchema,
+  remoteAgentSaveTeamFileRpcInputSchema,
 } from "./http/file-root";
 export {
   gatewayErrorCodeSchema,

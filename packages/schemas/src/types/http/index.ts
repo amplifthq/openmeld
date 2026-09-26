@@ -550,6 +550,8 @@ export type {
   RemoteAgentListTeamFilesRpcInput,
   RemoteAgentReadTeamFileResponse,
   RemoteAgentReadTeamFileRpcInput,
+  RemoteAgentSaveTeamFileResponse,
+  RemoteAgentSaveTeamFileRpcInput,
 } from "./file-root";
 export type { GatewayErrorCode, GatewayErrorEnvelope } from "./gateway-error";
 export type * from "./inbox";

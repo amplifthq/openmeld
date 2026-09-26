@@ -147,6 +147,8 @@ import type {
   RemoteAgentReadTeamFileResponse,
   RemoteAgentReadTeamFileRpcInput,
   RemoteAgentRuntimeEvidenceOutcomeReasonCode,
+  RemoteAgentSaveTeamFileResponse,
+  RemoteAgentSaveTeamFileRpcInput,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
   RemoteAgentTurnEnvelope,
@@ -543,6 +545,9 @@ export type RemoteAgentCoreWorkerBinding = {
   remoteAgentReadTeamFile?(
     input: RemoteAgentReadTeamFileRpcInput
   ): Promise<RemoteAgentReadTeamFileResponse>;
+  remoteAgentSaveTeamFile?(
+    input: RemoteAgentSaveTeamFileRpcInput
+  ): Promise<RemoteAgentSaveTeamFileResponse>;
   centerAgentReadSpaceFile?(
     input: CenterAgentReadSpaceFileRpcInput
   ): Promise<CenterAgentReadSpaceFileResponse>;

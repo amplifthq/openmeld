@@ -309,6 +309,8 @@ import type {
   RemoteAgentListTeamFilesRpcInput,
   RemoteAgentReadTeamFileResponse,
   RemoteAgentReadTeamFileRpcInput,
+  RemoteAgentSaveTeamFileResponse,
+  RemoteAgentSaveTeamFileRpcInput,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
@@ -440,6 +442,7 @@ import { rpcSubmitFeedbackIssue } from "./feedback/transport/rpc/feedback-rpc";
 import {
   rpcRemoteAgentListTeamFiles,
   rpcRemoteAgentReadTeamFile,
+  rpcRemoteAgentSaveTeamFile,
 } from "./files/remote-agent-team-files";
 import {
   rpcDismissInboxItem,
@@ -3541,6 +3544,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: RemoteAgentReadTeamFileRpcInput
   ): Promise<RemoteAgentReadTeamFileResponse> {
     return rpcRemoteAgentReadTeamFile(this.env, input);
+  }
+
+  remoteAgentSaveTeamFile(
+    input: RemoteAgentSaveTeamFileRpcInput
+  ): Promise<RemoteAgentSaveTeamFileResponse> {
+    return rpcRemoteAgentSaveTeamFile(this.env, input);
   }
 
   centerAgentReadSpaceFile(

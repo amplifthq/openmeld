@@ -2,11 +2,13 @@ import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { spaceFileUploadResponseSchema } from "./space-file-upload";
 import {
+  spaceFileBaseRevisionSchema,
   spaceFileBreadcrumbSchema,
   spaceFileCapabilitiesSchema,
   spaceFileClientMutationIdSchema,
   spaceFileDescriptorSchema,
   spaceFileEntryIdSchema,
+  spaceFileMimeTypeSchema,
   spaceFileNameSchema,
   spaceFileRevisionNumberSchema,
   spaceFileRevisionSchema,
@@ -63,6 +65,34 @@ export const remoteAgentReadTeamFileResponseSchema = z.strictObject({
   file: fileRootFileDescriptorSchema,
   revision: spaceFileRevisionSchema,
   revisions: z.array(spaceFileRevisionSchema).optional(),
+});
+
+export const remoteAgentSaveTeamFileRpcInputSchema = z.discriminatedUnion(
+  "action",
+  [
+    z.strictObject({
+      context: openMeldRequestContextSchema,
+      action: z.literal("create"),
+      clientMutationId: spaceFileClientMutationIdSchema,
+      content: z.string(),
+      mimeType: spaceFileMimeTypeSchema,
+      name: spaceFileNameSchema,
+      parentId: spaceFileEntryIdSchema.nullable().optional(),
+    }),
+    z.strictObject({
+      context: openMeldRequestContextSchema,
+      action: z.literal("update"),
+      baseRevision: spaceFileBaseRevisionSchema.unwrap(),
+      clientMutationId: spaceFileClientMutationIdSchema,
+      content: z.string(),
+      fileId: spaceFileEntryIdSchema,
+      mimeType: spaceFileMimeTypeSchema,
+    }),
+  ]
+);
+
+export const remoteAgentSaveTeamFileResponseSchema = z.strictObject({
+  file: fileRootFileDescriptorSchema,
 });
 
 /** Copy one immutable revision into a new Team or member-owned file. */
