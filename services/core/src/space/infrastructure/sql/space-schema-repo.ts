@@ -10,8 +10,8 @@ import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { SpaceTaskDeliveryRepository } from "./space-task-delivery-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 47;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v47";
+export const SPACE_SQL_SCHEMA_VERSION = 48;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v48";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -220,6 +220,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
       status TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
       queued_at_ms INTEGER NULL,
+      native_admission_started_at_ms INTEGER NULL,
       poison_failure_count INTEGER NOT NULL DEFAULT 0,
       poisoned_at_ms INTEGER NULL,
       poison_reason_code TEXT NULL
@@ -672,6 +673,13 @@ function backfillSpaceFileEntriesOrigin(sql: SqlStorage): void {
 
 function ensureOpenMeldDaemonOutboxPoisonColumns(sql: SqlStorage): void {
   const columnNames = listTableColumnNames(sql, "openMeldDaemon_outbox");
+  if (!columnNames.has("native_admission_started_at_ms")) {
+    // Historical/in-flight rows remain unknown, never "not yet admitted".
+    sql.exec(`
+      ALTER TABLE openMeldDaemon_outbox
+      ADD COLUMN native_admission_started_at_ms INTEGER NULL
+    `);
+  }
   if (!columnNames.has(OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN)) {
     sql.exec(`
       ALTER TABLE openMeldDaemon_outbox

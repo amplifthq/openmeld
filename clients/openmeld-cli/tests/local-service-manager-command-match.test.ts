@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { daemonRuntimeBundlesPath } from "../src/config/daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   openMeldManagedVersionBinaryPath,
@@ -94,6 +95,44 @@ describe("local service manager command matching", () => {
           },
         })
       ).resolves.toBe(false);
+    });
+  });
+  it("recognizes an owned direct Windows Service task before legacy cleanup", async () => {
+    await withTempHome(async () => {
+      const pathInput = testPathInput();
+      const executable = join(
+        daemonRuntimeBundlesPath(pathInput),
+        "0.3.225-verified",
+        "openmeld.exe"
+      );
+      const input = {
+        controller: "windows-service" as const,
+        definitionPath: "Task Scheduler: OpenMeld (current user)",
+        commandSummary: `${executable} service run --mode foreground`,
+        commandSpec: {
+          executable,
+          args: ["service", "run", "--mode", "foreground"],
+          env: { OPENMELD_HOME: process.env.OPENMELD_HOME ?? "" },
+        },
+        pathInput,
+      };
+      expect(matchesExpectedDaemonServiceManagerCommand(input)).toBe(true);
+      await expect(
+        matchesExpectedDaemonServiceManagerDefinition(input)
+      ).resolves.toBe(true);
+      expect(
+        matchesExpectedDaemonServiceManagerCommand({
+          ...input,
+          commandSpec: {
+            ...input.commandSpec,
+            executable: join(
+              process.env.OPENMELD_HOME ?? "",
+              "other",
+              "openmeld.exe"
+            ),
+          },
+        })
+      ).toBe(false);
     });
   });
   it("matches binary launchd definitions that point at the stable Service executable", async () => {

@@ -2546,6 +2546,8 @@ export {
   postSpaceWakeStopBodySchema,
   postSpaceWakeStopInputSchema,
   postSpaceWakeStopResponseSchema,
+  spaceWakeStopIntentQuerySchema,
+  spaceWakeStopIntentResponseSchema,
   spaceWakeStopSelectorSchema,
 } from "./http/space-wake-stop";
 export {
