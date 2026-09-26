@@ -71,10 +71,11 @@ function TeamFilesBrowser(input: {
 		null
 	);
 	const [movingEntry, setMovingEntry] = useState<FileRootEntry | null>(null);
-	const [copyingEntry, setCopyingEntry] = useState<Extract<
-		FileRootEntry,
-		{ kind: "file" }
-	> | null>(null);
+	const [copyingEntry, setCopyingEntry] = useState<{
+		entry: Extract<FileRootEntry, { kind: "file" }>;
+		clientMutationId: string;
+	} | null>(null);
+	const [copyError, setCopyError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [uploadProgress, setUploadProgress] = useState<{
 		name: string;
@@ -400,7 +401,13 @@ function TeamFilesBrowser(input: {
 									selectedEntry.kind === "file" &&
 									!currentOrganization.isPersonal ? (
 										<ContextMenuItem
-											onClick={() => setCopyingEntry(selectedEntry)}
+											onClick={() => {
+												setCopyError(null);
+												setCopyingEntry({
+													entry: selectedEntry,
+													clientMutationId: crypto.randomUUID(),
+												});
+											}}
 										>
 											<CopyIcon aria-hidden="true" />
 											{location === "my"
@@ -540,7 +547,7 @@ function TeamFilesBrowser(input: {
 				<AlertDialogContent>
 					<AlertDialogHeader>
 						<AlertDialogTitle>
-							Copy {copyingEntry?.name} to{" "}
+							Copy {copyingEntry?.entry.name} to{" "}
 							{copyDestination === "team" ? "Team files" : "My files"}?
 						</AlertDialogTitle>
 						<AlertDialogDescription>
@@ -550,35 +557,47 @@ function TeamFilesBrowser(input: {
 							The copy keeps this version and won't follow later changes.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
+					{copyError ? (
+						<p className="text-destructive text-sm" role="alert">
+							{copyError}
+						</p>
+					) : null}
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
 						<AlertDialogAction
 							disabled={busy}
-							onClick={() => {
-								const entry = copyingEntry;
-								if (!entry) {
+							onClick={async (event) => {
+								event.preventDefault();
+								const choice = copyingEntry;
+								if (!choice) {
 									return;
 								}
-								runAction(() =>
-									api.copyRevision({
+								setBusy(true);
+								setCopyError(null);
+								try {
+									await api.copyRevision({
 										location: copyDestination,
 										body: {
 											sourceLocation: location,
-											sourceFileId: entry.id,
-											sourceRevision: entry.latestRevision.revision,
-											name: entry.name,
+											sourceFileId: choice.entry.id,
+											sourceRevision: choice.entry.latestRevision.revision,
+											name: choice.entry.name,
 											parentId: null,
-											clientMutationId: crypto.randomUUID(),
+											clientMutationId: choice.clientMutationId,
 										},
-									})
-								)
-									.then((copied) => {
-										if (copied) {
-											setCopyingEntry(null);
-											changeLocation(copyDestination);
-										}
-									})
-									.catch(console.error);
+									});
+									await refresh();
+									setCopyingEntry(null);
+									changeLocation(copyDestination);
+								} catch (cause) {
+									setCopyError(
+										cause instanceof Error
+											? cause.message
+											: "Files couldn't copy that file."
+									);
+								} finally {
+									setBusy(false);
+								}
 							}}
 							type="button"
 						>
