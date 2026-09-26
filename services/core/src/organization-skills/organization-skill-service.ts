@@ -12,6 +12,7 @@ import {
 import type {
   OrganizationSkill,
   OrganizationSkillBundle,
+  OrganizationSkillFile,
   OrganizationSkillGitHubPreview,
   OrganizationSkillGitHubRepositoryPreview,
   OrganizationSkillRuntimeReleaseSelection,
@@ -19,6 +20,7 @@ import type {
   OrganizationSkillSource,
   OrganizationSkillSummary,
 } from "@openmeld/schemas/types";
+import { z } from "zod/v4";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   importOrganizationSkillBundleFromGitHub,
@@ -814,11 +816,11 @@ export function createOrganizationSkillService(
         organizationId: actor.organizationId,
         skill: existing,
       });
-      const releaseObjectCreated = await writeReleaseObject(
+      const releaseObjectKeys = await writeReleaseObject(
         dependencies.bucket,
         objectKey,
         digest,
-        serialized
+        bundle
       );
       const timestamp = now();
       const sourceColumns = columnsFromSource(source);
@@ -951,10 +953,10 @@ export function createOrganizationSkillService(
             ),
         ]);
       } catch (error) {
-        if (releaseObjectCreated) {
+        if (releaseObjectKeys.length > 0) {
           await deleteUncommittedReleaseObject(
             dependencies.bucket,
-            objectKey,
+            releaseObjectKeys,
             releaseId
           );
         }
@@ -969,10 +971,10 @@ export function createOrganizationSkillService(
         insertRelease.meta.changes !== 1 ||
         updateSkill.meta.changes !== 1
       ) {
-        if (releaseObjectCreated) {
+        if (releaseObjectKeys.length > 0) {
           await deleteUncommittedReleaseObject(
             dependencies.bucket,
-            objectKey,
+            releaseObjectKeys,
             releaseId
           );
         }
@@ -1015,11 +1017,11 @@ async function createSkill(input: {
     db: input.dependencies.db,
     organizationId: input.actor.organizationId,
   });
-  const releaseObjectCreated = await writeReleaseObject(
+  const releaseObjectKeys = await writeReleaseObject(
     input.dependencies.bucket,
     objectKey,
     digest,
-    serialized
+    input.bundle
   );
   const timestamp = input.now();
   const source = columnsFromSource(input.source);
@@ -1175,10 +1177,10 @@ async function createSkill(input: {
         skill: replay,
       });
     }
-    if (releaseObjectCreated) {
+    if (releaseObjectKeys.length > 0) {
       await deleteUncommittedReleaseObject(
         input.dependencies.bucket,
-        objectKey,
+        releaseObjectKeys,
         releaseId
       );
     }
@@ -1324,14 +1326,6 @@ async function readReleaseBundle(
     });
   }
   const serialized = await object.text();
-  const digest = await sha256(serialized);
-  if (digest !== release.digest) {
-    throw createCoreRpcHttpError({
-      code: "organization_skill.release_digest_mismatch",
-      reason: "The active Skill release failed its integrity check.",
-      status: 503,
-    });
-  }
   let value: unknown;
   try {
     value = JSON.parse(serialized);
@@ -1342,41 +1336,250 @@ async function readReleaseBundle(
       status: 503,
     });
   }
+  if (isFileBackedRelease(value)) {
+    const manifest = storedSkillReleaseSchema.safeParse(value);
+    if (!manifest.success) {
+      throw invalidReleaseError();
+    }
+    const files = await Promise.all(
+      manifest.data.files.map(async (file) => {
+        const resource = await bucket.get(
+          releaseResourceKey(release.object_key, file.path)
+        );
+        if (!resource) {
+          throw missingReleaseObjectError();
+        }
+        const bytes = new Uint8Array(await resource.arrayBuffer());
+        if (
+          bytes.byteLength !== file.size ||
+          (await sha256Bytes(bytes)) !== file.digest
+        ) {
+          throw releaseDigestMismatchError();
+        }
+        return {
+          content:
+            file.encoding === "utf8"
+              ? new TextDecoder("utf-8", {
+                  fatal: true,
+                  ignoreBOM: false,
+                }).decode(bytes)
+              : encodeBase64(bytes),
+          encoding: file.encoding,
+          mediaType: file.mediaType,
+          path: file.path,
+          size: file.size,
+        } satisfies OrganizationSkillFile;
+      })
+    );
+    value = {
+      files,
+      instructions: manifest.data.instructions,
+      portable: manifest.data.portable,
+    };
+  } else if ((await sha256(serialized)) !== release.digest) {
+    throw releaseDigestMismatchError();
+  }
   const parsed = organizationSkillBundleSchema.safeParse(value);
   if (!parsed.success) {
-    throw createCoreRpcHttpError({
-      code: "organization_skill.release_invalid",
-      reason: "The active Skill release content is invalid.",
-      status: 503,
-    });
+    throw invalidReleaseError();
+  }
+  if (
+    (await sha256(
+      stringifyOrganizationSkillBundleCanonicalJson(parsed.data)
+    )) !== release.digest
+  ) {
+    throw releaseDigestMismatchError();
   }
   return parsed.data;
+}
+
+const storedSkillReleaseSchema = z.strictObject({
+  files: z.array(
+    z.strictObject({
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+      encoding: z.enum(["base64", "utf8"]),
+      mediaType: z.string(),
+      path: z.string(),
+      size: z.number().int().nonnegative(),
+    })
+  ),
+  format: z.literal("files-v1"),
+  instructions: z.string(),
+  portable: z.unknown(),
+});
+
+function isFileBackedRelease(value: unknown): value is { format: string } {
+  return typeof value === "object" && value !== null && "format" in value;
+}
+
+function releaseResourceKey(objectKey: string, path: string): string {
+  return `${objectKey}/files/${encodeURIComponent(path)}`;
+}
+
+function decodeSkillFileBytes(file: OrganizationSkillFile): Uint8Array {
+  if (file.encoding === "utf8") {
+    return new TextEncoder().encode(file.content);
+  }
+  return Uint8Array.from(atob(file.content), (character) =>
+    character.charCodeAt(0)
+  );
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  const chunks: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 8192) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 8192)));
+  }
+  return btoa(chunks.join(""));
+}
+
+function invalidReleaseError(): Error {
+  return createCoreRpcHttpError({
+    code: "organization_skill.release_invalid",
+    reason: "The active Skill release content is invalid.",
+    status: 503,
+  });
+}
+
+function missingReleaseObjectError(): Error {
+  return createCoreRpcHttpError({
+    code: "organization_skill.release_object_missing",
+    reason: "The active Skill release content is unavailable.",
+    status: 503,
+  });
+}
+
+function releaseDigestMismatchError(): Error {
+  return createCoreRpcHttpError({
+    code: "organization_skill.release_digest_mismatch",
+    reason: "The active Skill release failed its integrity check.",
+    status: 503,
+  });
 }
 
 async function writeReleaseObject(
   bucket: R2Bucket,
   objectKey: string,
   digest: string,
-  serialized: string
-): Promise<boolean> {
+  bundle: OrganizationSkillBundle
+): Promise<string[]> {
+  const resources = await Promise.all(bundle.files.map(prepareReleaseResource));
+  const serialized = canonicalJson({
+    files: resources.map(({ bytes: _bytes, ...file }) => file),
+    format: "files-v1",
+    instructions: bundle.instructions,
+    portable: bundle.portable,
+  });
   const existing = await bucket.get(objectKey);
   if (existing) {
-    const existingSerialized = await existing.text();
-    if (
-      existing.customMetadata?.digest === digest &&
-      existingSerialized === serialized
-    ) {
-      return false;
+    await verifyExistingReleaseObject({
+      bucket,
+      bundle,
+      digest,
+      existing,
+      objectKey,
+      resources,
+      serialized,
+    });
+    return [];
+  }
+  const createdKeys: string[] = [];
+  try {
+    for (const resource of resources) {
+      const key = releaseResourceKey(objectKey, resource.path);
+      const prior = await bucket.get(key);
+      if (prior) {
+        await verifyReleaseResource(prior, resource);
+        continue;
+      }
+      await bucket.put(key, resource.bytes, {
+        customMetadata: { digest: resource.digest },
+        httpMetadata: { contentType: resource.mediaType },
+      });
+      createdKeys.push(key);
     }
+    await bucket.put(objectKey, serialized, {
+      customMetadata: { digest },
+      httpMetadata: { contentType: "application/json; charset=utf-8" },
+    });
+    createdKeys.push(objectKey);
+    return createdKeys;
+  } catch (error) {
+    if (createdKeys.length > 0) {
+      await deleteUncommittedReleaseObject(bucket, createdKeys, objectKey);
+    }
+    throw error;
+  }
+}
+
+type PreparedReleaseResource = {
+  bytes: Uint8Array;
+  digest: string;
+  encoding: OrganizationSkillFile["encoding"];
+  mediaType: string;
+  path: string;
+  size: number;
+};
+
+async function prepareReleaseResource(
+  file: OrganizationSkillFile
+): Promise<PreparedReleaseResource> {
+  const bytes = decodeSkillFileBytes(file);
+  return {
+    bytes,
+    digest: await sha256Bytes(bytes),
+    encoding: file.encoding,
+    mediaType: file.mediaType,
+    path: file.path,
+    size: file.size,
+  };
+}
+
+async function verifyReleaseResource(
+  stored: R2ObjectBody,
+  resource: Pick<PreparedReleaseResource, "digest" | "size">
+): Promise<void> {
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  if (
+    bytes.byteLength !== resource.size ||
+    (await sha256Bytes(bytes)) !== resource.digest
+  ) {
+    throw releaseDigestMismatchError();
+  }
+}
+
+async function verifyExistingReleaseObject(input: {
+  bucket: R2Bucket;
+  bundle: OrganizationSkillBundle;
+  digest: string;
+  existing: R2ObjectBody;
+  objectKey: string;
+  resources: PreparedReleaseResource[];
+  serialized: string;
+}): Promise<void> {
+  const existingSerialized = await input.existing.text();
+  if (
+    input.existing.customMetadata?.digest !== input.digest ||
+    (existingSerialized !== input.serialized &&
+      existingSerialized !==
+        stringifyOrganizationSkillBundleCanonicalJson(input.bundle))
+  ) {
     throw new Error(
-      `Organization Skill release object already exists: ${objectKey}`
+      `Organization Skill release object already exists: ${input.objectKey}`
     );
   }
-  await bucket.put(objectKey, serialized, {
-    customMetadata: { digest },
-    httpMetadata: { contentType: "application/json; charset=utf-8" },
-  });
-  return true;
+  if (existingSerialized !== input.serialized) {
+    return;
+  }
+  for (const resource of input.resources) {
+    const stored = await input.bucket.get(
+      releaseResourceKey(input.objectKey, resource.path)
+    );
+    if (!stored) {
+      throw missingReleaseObjectError();
+    }
+    await verifyReleaseResource(stored, resource);
+  }
 }
 
 async function readExactCreatedSkillReplay(input: {
@@ -1438,15 +1641,15 @@ async function readExactCreatedSkillReplay(input: {
 
 async function deleteUncommittedReleaseObject(
   bucket: R2Bucket,
-  objectKey: string,
+  objectKeys: string[],
   releaseId: string
 ): Promise<void> {
   try {
-    await bucket.delete(objectKey);
+    await bucket.delete(objectKeys);
   } catch (error) {
     console.error("[core.organization_skill.release_cleanup_failed]", {
       error: error instanceof Error ? error.message : String(error),
-      objectKey,
+      objectKeys,
       releaseId,
     });
   }
@@ -1814,10 +2017,11 @@ function sortJson(value: unknown): unknown {
 }
 
 async function sha256(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value)
-  );
+  return await sha256Bytes(new TextEncoder().encode(value));
+}
+
+async function sha256Bytes(value: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", value);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");

@@ -4,6 +4,7 @@ import {
   ORGANIZATION_SKILL_BUNDLE_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
+  stringifyOrganizationSkillBundleCanonicalJson,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -22,6 +23,111 @@ import {
 } from "../src/organization-skills/organization-skill-service";
 
 describe("Organization Skills", () => {
+  it("keeps release resources separate and fails closed when one is missing", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const created = await service.create(fixture.owner, {
+      description: "Review a release before it ships.",
+      instructions: "Read the checklist.",
+      name: "file-backed-review",
+    });
+    const updated = await service.update(fixture.owner, created.id, {
+      bundle: {
+        ...created.bundle,
+        files: [
+          {
+            content: "# Checklist",
+            encoding: "utf8",
+            mediaType: "text/markdown",
+            path: "references/checklist.md",
+            size: 11,
+          },
+          {
+            content: "AAE=",
+            encoding: "base64",
+            mediaType: "application/octet-stream",
+            path: "assets/template.bin",
+            size: 2,
+          },
+        ],
+      },
+      expectedActiveReleaseId: created.activeRelease.id,
+      expectedVersion: created.version,
+    });
+    const row = await env.OPENMELD_DB.prepare(
+      "SELECT object_key FROM organization_skill_releases WHERE id = ?"
+    )
+      .bind(updated.activeRelease.id)
+      .first<{ object_key: string }>();
+    if (!row) {
+      throw new Error("Release row is missing.");
+    }
+    const manifest = await env.OPENMELD_ORGANIZATION_SKILLS.get(row.object_key);
+    expect(manifest).not.toBeNull();
+    const stored = await manifest?.json<{
+      files: Array<{ path: string }>;
+      format: string;
+    }>();
+    expect(stored?.format).toBe("files-v1");
+    expect(stored?.files.map((file) => file.path)).toEqual([
+      "references/checklist.md",
+      "assets/template.bin",
+    ]);
+    expect(await service.get(fixture.owner, created.id)).toMatchObject({
+      bundle: updated.bundle,
+    });
+    await env.OPENMELD_ORGANIZATION_SKILLS.delete(
+      `${row.object_key}/files/${encodeURIComponent("references/checklist.md")}`
+    );
+    await expect(service.get(fixture.owner, created.id)).rejects.toMatchObject({
+      cause: { code: "organization_skill.release_object_missing", status: 503 },
+    });
+  });
+
+  it("still reads a legacy inline release", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const created = await service.create(fixture.owner, {
+      description: "Review a release before it ships.",
+      instructions: "Check the release evidence.",
+      name: "legacy-review",
+    });
+    const saved = await service.update(fixture.owner, created.id, {
+      bundle: {
+        ...created.bundle,
+        files: [
+          {
+            content: "# Historical checklist",
+            encoding: "utf8",
+            mediaType: "text/markdown",
+            path: "references/checklist.md",
+            size: 22,
+          },
+        ],
+      },
+      expectedActiveReleaseId: created.activeRelease.id,
+      expectedVersion: created.version,
+    });
+    const row = await env.OPENMELD_DB.prepare(
+      "SELECT object_key FROM organization_skill_releases WHERE id = ?"
+    )
+      .bind(saved.activeRelease.id)
+      .first<{ object_key: string }>();
+    if (!row) {
+      throw new Error("Release row is missing.");
+    }
+    await env.OPENMELD_ORGANIZATION_SKILLS.put(
+      row.object_key,
+      stringifyOrganizationSkillBundleCanonicalJson(saved.bundle),
+      { customMetadata: { digest: saved.activeRelease.digest } }
+    );
+    await expect(service.get(fixture.owner, created.id)).resolves.toMatchObject(
+      {
+        bundle: saved.bundle,
+      }
+    );
+  });
+
   it("keeps management with owners and admins while assigned maintainers can edit", async () => {
     const fixture = await seedFixture();
     const service = createService();
