@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ORGANIZATION_SKILL_FILE_MAX_BYTES,
   organizationSkillBundleSchema,
   organizationSkillRuntimeSnapshotResponseSchema,
   updateOrganizationSkillBodySchema,
@@ -85,6 +86,29 @@ describe("Organization Skill contracts", () => {
         ],
       })
     ).toThrow("Skill file content is not valid base64.");
+  });
+
+  it("accepts a binary file at the documented byte limit", () => {
+    const content = Buffer.alloc(
+      ORGANIZATION_SKILL_FILE_MAX_BYTES,
+      0x7f
+    ).toString("base64");
+    const file = {
+      content,
+      encoding: "base64",
+      mediaType: "application/octet-stream",
+      path: "assets/template.bin",
+      size: ORGANIZATION_SKILL_FILE_MAX_BYTES,
+    };
+    expect(
+      organizationSkillBundleSchema.parse({ ...bundle, files: [file] })
+    ).toMatchObject({ files: [file] });
+    expect(() =>
+      organizationSkillBundleSchema.parse({
+        ...bundle,
+        files: [{ ...file, size: ORGANIZATION_SKILL_FILE_MAX_BYTES + 1 }],
+      })
+    ).toThrow();
   });
 
   it("requires optimistic concurrency for every save", () => {

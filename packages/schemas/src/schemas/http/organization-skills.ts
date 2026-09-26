@@ -7,6 +7,8 @@ export const ORGANIZATION_SKILL_NAME_MAX_CHARS = 64;
 export const ORGANIZATION_SKILL_DESCRIPTION_MAX_CHARS = 1024;
 export const ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS = 100_000;
 export const ORGANIZATION_SKILL_FILE_MAX_BYTES = 256_000;
+const ORGANIZATION_SKILL_FILE_MAX_ENCODED_CHARS =
+  4 * Math.ceil(ORGANIZATION_SKILL_FILE_MAX_BYTES / 3);
 export const ORGANIZATION_SKILL_BUNDLE_MAX_BYTES = 2_000_000;
 export const ORGANIZATION_SKILL_FILE_LIMIT = 128;
 export const ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT = 64;
@@ -101,7 +103,7 @@ export const organizationSkillPortableMetadataSchema = z.strictObject({
 });
 
 export const organizationSkillFileSchema = z.strictObject({
-  content: z.string().max(ORGANIZATION_SKILL_FILE_MAX_BYTES),
+  content: z.string().max(ORGANIZATION_SKILL_FILE_MAX_ENCODED_CHARS),
   encoding: z.enum(["base64", "utf8"]),
   mediaType: z.string().trim().min(1).max(256),
   path: z
