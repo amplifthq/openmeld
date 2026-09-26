@@ -1747,41 +1747,49 @@ async function writeReleaseObject(
     });
     return { createdKeys: [objectKey], manifestDigest: null };
   }
-  const resources = await Promise.all(bundle.files.map(prepareReleaseResource));
-  const serialized = canonicalJson({
-    files: resources.map(({ bytes: _bytes, ...file }) => file),
-    format: "files-v1",
-    instructions: bundle.instructions,
-    portable: bundle.portable,
-  });
-  const manifestDigest = await sha256(serialized);
   const existing = await bucket.get(objectKey);
-  if (existing) {
-    await verifyExistingReleaseObject({
-      bucket,
-      bundle,
-      digest,
-      existing,
-      objectKey,
-      resources,
-      serialized,
-    });
-    return { createdKeys: [], manifestDigest };
+  const existingSerialized = existing ? await existing.text() : null;
+  if (isExistingInlineRelease(existing, existingSerialized, digest, bundle)) {
+    return { createdKeys: [], manifestDigest: null };
   }
   const createdKeys: string[] = [];
+  const manifestFiles: Omit<PreparedReleaseResource, "bytes">[] = [];
   try {
-    for (const resource of resources) {
+    for (const file of bundle.files) {
+      const resource = await prepareReleaseResource(file);
+      const { bytes: _bytes, ...manifestFile } = resource;
+      manifestFiles.push(manifestFile);
       const key = releaseResourceKey(objectKey, resource.path);
       const prior = await bucket.get(key);
       if (prior) {
         await verifyReleaseResource(prior, resource);
         continue;
       }
+      if (existing) {
+        throw missingReleaseObjectError();
+      }
       await bucket.put(key, resource.bytes, {
         customMetadata: { digest: resource.digest },
         httpMetadata: { contentType: resource.mediaType },
       });
       createdKeys.push(key);
+    }
+    const serialized = canonicalJson({
+      files: manifestFiles,
+      format: "files-v1",
+      instructions: bundle.instructions,
+      portable: bundle.portable,
+    });
+    const manifestDigest = await sha256(serialized);
+    if (existing) {
+      requireExistingReleaseManifest(
+        existing,
+        existingSerialized,
+        digest,
+        serialized,
+        objectKey
+      );
+      return { createdKeys: [], manifestDigest };
     }
     await bucket.put(objectKey, serialized, {
       customMetadata: { digest },
@@ -1795,6 +1803,35 @@ async function writeReleaseObject(
     }
     throw error;
   }
+}
+
+function requireExistingReleaseManifest(
+  existing: R2ObjectBody,
+  existingSerialized: string | null,
+  digest: string,
+  serialized: string,
+  objectKey: string
+): void {
+  if (
+    existing.customMetadata?.digest !== digest ||
+    existingSerialized !== serialized
+  ) {
+    throw new Error(
+      `Organization Skill release object already exists: ${objectKey}`
+    );
+  }
+}
+
+function isExistingInlineRelease(
+  existing: R2ObjectBody | null,
+  serialized: string | null,
+  digest: string,
+  bundle: OrganizationSkillBundle
+): boolean {
+  return (
+    existing?.customMetadata?.digest === digest &&
+    serialized === stringifyOrganizationSkillBundleCanonicalJson(bundle)
+  );
 }
 
 type PreparedReleaseResource = {
@@ -1830,40 +1867,6 @@ async function verifyReleaseResource(
     (await sha256Bytes(bytes)) !== resource.digest
   ) {
     throw releaseDigestMismatchError();
-  }
-}
-
-async function verifyExistingReleaseObject(input: {
-  bucket: R2Bucket;
-  bundle: OrganizationSkillBundle;
-  digest: string;
-  existing: R2ObjectBody;
-  objectKey: string;
-  resources: PreparedReleaseResource[];
-  serialized: string;
-}): Promise<void> {
-  const existingSerialized = await input.existing.text();
-  if (
-    input.existing.customMetadata?.digest !== input.digest ||
-    (existingSerialized !== input.serialized &&
-      existingSerialized !==
-        stringifyOrganizationSkillBundleCanonicalJson(input.bundle))
-  ) {
-    throw new Error(
-      `Organization Skill release object already exists: ${input.objectKey}`
-    );
-  }
-  if (existingSerialized !== input.serialized) {
-    return;
-  }
-  for (const resource of input.resources) {
-    const stored = await input.bucket.get(
-      releaseResourceKey(input.objectKey, resource.path)
-    );
-    if (!stored) {
-      throw missingReleaseObjectError();
-    }
-    await verifyReleaseResource(stored, resource);
   }
 }
 
