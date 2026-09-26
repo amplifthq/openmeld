@@ -47,6 +47,7 @@ type OrganizationSkillServiceDependencies = {
   bucket: R2Bucket;
   db: D1Database;
   fetch?: typeof fetch;
+  fileBackedWritesEnabled?: boolean;
   githubToken?: string;
   newId?: () => string;
   now?: () => number;
@@ -875,7 +876,10 @@ export function createOrganizationSkillService(
         releaseId
       );
       const serialized = stringifyOrganizationSkillBundleCanonicalJson(bundle);
-      const runtimeBytes = readRuntimeCatalogBytes(bundle);
+      const runtimeBytes = readReleaseRuntimeBytesForWrite(
+        bundle,
+        dependencies.fileBackedWritesEnabled !== false
+      );
       const digest = await sha256(serialized);
       const currentRelease = await requireRelease(dependencies.db, existing);
       if (currentRelease.digest === digest) {
@@ -891,7 +895,8 @@ export function createOrganizationSkillService(
         dependencies.bucket,
         objectKey,
         digest,
-        bundle
+        bundle,
+        dependencies.fileBackedWritesEnabled !== false
       );
       const timestamp = now();
       const sourceColumns = columnsFromSource(source);
@@ -1081,7 +1086,10 @@ async function createSkill(input: {
   const serialized = stringifyOrganizationSkillBundleCanonicalJson(
     input.bundle
   );
-  const runtimeBytes = readRuntimeCatalogBytes(input.bundle);
+  const runtimeBytes = readReleaseRuntimeBytesForWrite(
+    input.bundle,
+    input.dependencies.fileBackedWritesEnabled !== false
+  );
   const digest = await sha256(serialized);
   await requireRuntimeCatalogCapacity({
     additionalRuntimeBytes: runtimeBytes,
@@ -1092,7 +1100,8 @@ async function createSkill(input: {
     input.dependencies.bucket,
     objectKey,
     digest,
-    input.bundle
+    input.bundle,
+    input.dependencies.fileBackedWritesEnabled !== false
   );
   const timestamp = input.now();
   const source = columnsFromSource(input.source);
@@ -1678,8 +1687,29 @@ async function writeReleaseObject(
   bucket: R2Bucket,
   objectKey: string,
   digest: string,
-  bundle: OrganizationSkillBundle
-): Promise<{ createdKeys: string[]; manifestDigest: string }> {
+  bundle: OrganizationSkillBundle,
+  fileBackedWritesEnabled: boolean
+): Promise<{ createdKeys: string[]; manifestDigest: string | null }> {
+  if (!fileBackedWritesEnabled) {
+    const serialized = stringifyOrganizationSkillBundleCanonicalJson(bundle);
+    const existing = await bucket.get(objectKey);
+    if (existing) {
+      if (
+        existing.customMetadata?.digest !== digest ||
+        (await existing.text()) !== serialized
+      ) {
+        throw new Error(
+          `Organization Skill release object already exists: ${objectKey}`
+        );
+      }
+      return { createdKeys: [], manifestDigest: null };
+    }
+    await bucket.put(objectKey, serialized, {
+      customMetadata: { digest },
+      httpMetadata: { contentType: "application/json; charset=utf-8" },
+    });
+    return { createdKeys: [objectKey], manifestDigest: null };
+  }
   const resources = await Promise.all(bundle.files.map(prepareReleaseResource));
   const serialized = canonicalJson({
     files: resources.map(({ bytes: _bytes, ...file }) => file),
@@ -1805,7 +1835,7 @@ async function readExactCreatedSkillReplay(input: {
   bundle: OrganizationSkillBundle;
   db: D1Database;
   digest: string;
-  manifestDigest: string;
+  manifestDigest: string | null;
   objectKey: string;
   releaseId: string;
   skillId: string;
@@ -2221,11 +2251,14 @@ function invalidReleaseManifestError(): Error {
 
 function manifestJson(
   bundle: OrganizationSkillBundle,
-  contentManifestDigest: string
+  contentManifestDigest: string | null
 ): string {
-  const runtimeBytes = readRuntimeCatalogBytes(bundle);
+  const runtimeBytes = readReleaseRuntimeBytesForWrite(
+    bundle,
+    contentManifestDigest !== null
+  );
   return canonicalJson({
-    contentManifestDigest,
+    ...(contentManifestDigest === null ? {} : { contentManifestDigest }),
     files: bundle.files.map(({ encoding, mediaType, path, size }) => ({
       encoding,
       mediaType,
@@ -2234,6 +2267,17 @@ function manifestJson(
     })),
     runtimeBytes,
   });
+}
+
+function readReleaseRuntimeBytesForWrite(
+  bundle: OrganizationSkillBundle,
+  fileBackedWritesEnabled: boolean
+): number {
+  return fileBackedWritesEnabled
+    ? readRuntimeCatalogBytes(bundle)
+    : new TextEncoder().encode(
+        stringifyOrganizationSkillBundleCanonicalJson(bundle)
+      ).byteLength;
 }
 
 function readRuntimeCatalogBytes(bundle: OrganizationSkillBundle): number {

@@ -23,6 +23,63 @@ import {
 } from "../src/organization-skills/organization-skill-service";
 
 describe("Organization Skills", () => {
+  it("keeps new writes inline while the file-backed writer is disabled", async () => {
+    const fixture = await seedFixture();
+    const service = createService({ fileBackedWritesEnabled: false });
+    const created = await service.create(fixture.owner, {
+      description: "A rollout-compatible Skill.",
+      instructions: "Read the reference when needed.",
+      name: "rollout-compatible",
+    });
+    const content = "Read me only when needed.";
+    const updated = await service.update(fixture.owner, created.id, {
+      bundle: {
+        ...created.bundle,
+        files: [
+          {
+            content,
+            encoding: "utf8",
+            mediaType: "text/plain",
+            path: "references/note.txt",
+            size: content.length,
+          },
+        ],
+      },
+      expectedActiveReleaseId: created.activeRelease.id,
+      expectedVersion: created.version,
+    });
+    const row = await env.OPENMELD_DB.prepare(
+      "SELECT object_key, manifest_json FROM organization_skill_releases WHERE id = ?"
+    )
+      .bind(updated.activeRelease.id)
+      .first<{ object_key: string; manifest_json: string }>();
+    if (!row) {
+      throw new Error("Release row is missing.");
+    }
+    const object = await env.OPENMELD_ORGANIZATION_SKILLS.get(row.object_key);
+    const saved = JSON.parse((await object?.text()) ?? "null") as {
+      files?: Array<{ content: string }>;
+      format?: string;
+    };
+    expect(saved.format).toBeUndefined();
+    expect(saved.files?.[0]?.content).toBe(content);
+    expect(JSON.parse(row.manifest_json)).not.toHaveProperty(
+      "contentManifestDigest"
+    );
+    expect(
+      await service.readRuntimeResource(
+        fixture.owner.organizationId,
+        {
+          digest: updated.activeRelease.digest,
+          name: updated.name,
+          releaseId: updated.activeRelease.id,
+          skillId: updated.id,
+        },
+        "references/note.txt"
+      )
+    ).toMatchObject({ content });
+  });
+
   it("budgets enabled Skills by catalog metadata rather than resource bytes", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -1409,11 +1466,18 @@ function readGitHubFixtureResponse(url: string, commitSha: string): Response {
   return new Response("not found", { status: 404 });
 }
 
-function createService(input: { db?: D1Database; fetch?: typeof fetch } = {}) {
+function createService(
+  input: {
+    db?: D1Database;
+    fetch?: typeof fetch;
+    fileBackedWritesEnabled?: boolean;
+  } = {}
+) {
   return createOrganizationSkillService({
     bucket: env.OPENMELD_ORGANIZATION_SKILLS,
     db: input.db ?? env.OPENMELD_DB,
     fetch: input.fetch,
+    fileBackedWritesEnabled: input.fileBackedWritesEnabled,
   });
 }
 

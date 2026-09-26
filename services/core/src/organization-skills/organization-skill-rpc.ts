@@ -511,6 +511,7 @@ async function prepareHumanRequest(
     service: createOrganizationSkillService({
       bucket,
       db,
+      fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
       githubToken: env.GITHUB_OPENMELD_API_TOKEN,
     }),
   };

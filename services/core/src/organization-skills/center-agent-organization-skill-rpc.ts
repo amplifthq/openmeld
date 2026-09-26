@@ -75,6 +75,7 @@ export async function rpcCenterAgentReadOrganizationSkills(
   const service = createOrganizationSkillService({
     bucket: prepared.bucket,
     db: prepared.db,
+    fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
     githubToken: env.GITHUB_OPENMELD_API_TOKEN,
   });
   if (request.action === "list") {
@@ -201,6 +202,7 @@ export async function rpcCenterAgentInstallOrganizationSkill(
   const service = createOrganizationSkillService({
     bucket: prepared.bucket,
     db: prepared.db,
+    fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
     githubToken: env.GITHUB_OPENMELD_API_TOKEN,
     newId: () => {
       const id = ids.shift();

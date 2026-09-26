@@ -191,8 +191,13 @@ Workers, and verifies the public entry points. See
   - `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY`
   - `ZEP_OPENMELD_API_KEY`
 - Resource bindings
-  - `OPENMELD_ORGANIZATION_SKILLS` stores private, immutable Organization Skill
+- `OPENMELD_ORGANIZATION_SKILLS` stores private, immutable Organization Skill
     release bundles after Core authorizes the Organization-scoped mutation
+  - `OPENMELD_SKILL_FILE_BACKED_WRITES` controls the Skill release writer format.
+    Local and test use `true`; staging and production start at `false` so a
+    rollback to the older Core can still read newly written inline releases.
+    Enable it only after the new Core reader has been deployed and the rollback
+    window has closed. The reader accepts both formats regardless of this flag.
   - `OPENMELD_SPACE_ATTACHMENTS` stores provider image bytes and immutable
     Space file revision bytes only after Core
     verifies the exact Message Channel connection, conversation, and
