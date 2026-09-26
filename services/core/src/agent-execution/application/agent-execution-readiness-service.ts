@@ -40,10 +40,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { resolveCurrentWorkingFolderObservation } from "../../agent-profile-binding/application/current-working-folder-observation";
-import {
-  readPrimaryAgentProfileBindingRecord,
-  readPrimaryAgentProfileBindingRecordByControllerConversation,
-} from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecordByControllerConversation } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   isAgentProfileEligibleForOrganization,
   readAgentProfileOrganizationContext,
@@ -311,11 +308,7 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     agentProfileId: input.agent.profileId,
     binding: bindingSnapshot.agentExecutionBinding,
     claimDiagnostics: bindingSnapshot.claimDiagnostics,
-    executionFamily: isHostedAgentControllerRef(
-      bindingSnapshot.agentControllerRef
-    )
-      ? "native"
-      : "workstation",
+    executionFamily: resolveReadinessExecutionFamily(bindingSnapshot),
     route:
       bindingSnapshot.routeEvidence ??
       createAgentExecutionRouteEvidence({
@@ -368,6 +361,17 @@ export async function resolveCoreAgentExecutionReadiness(input: {
       agentExecutionReadiness
     ),
   };
+}
+
+function resolveReadinessExecutionFamily(
+  snapshot: AgentBindingSnapshot
+): "native" | "workstation" | "unknown" {
+  if (!snapshot.agentControllerRef) {
+    return "unknown";
+  }
+  return isHostedAgentControllerRef(snapshot.agentControllerRef)
+    ? "native"
+    : "workstation";
 }
 
 async function resolveAgentBindingSnapshot(
@@ -682,6 +686,33 @@ async function enrichAgentBindingSnapshot(input: {
     bindingProjection?.bindingState === "enabled_primary"
       ? ("bound" as const)
       : ("missing" as const);
+  if (!parsedAgentControllerRef) {
+    // Retain identity/binding failures, without guessing that this Agent uses
+    // the member's local Computer or probing that unrelated Service.
+    return {
+      ...createProfileIdentityOnlyBindingSnapshot({
+        agent: input.agent,
+        generatedAt: input.generatedAt,
+        ownerUserId: input.snapshot.ownerUserId,
+        profileEvidence: input.snapshot.profileEvidence,
+        profileName: input.snapshot.profileName,
+      }),
+      agentExecutionBinding,
+      primaryBinding: bindingProjection,
+      claimDiagnostics: await resolveAgentProfileOrganizationClaimDiagnostics({
+        reads: input.reads,
+        activeOrganizationId: input.activeOrganizationId,
+        binding: agentExecutionBinding,
+        env: input.env,
+        resolveRuntimeClaimDiagnostics: async () => ({ status: "not_checked" }),
+      }),
+      routeEvidence: {
+        status: "unavailable",
+        source: "not_checked",
+        reasonCodes: [],
+      },
+    };
+  }
   if (
     bindingProjection &&
     isHostedAgentControllerRef(parsedAgentControllerRef?.ref)
@@ -1141,12 +1172,13 @@ async function resolveAgentExecutionBindingEvidence(input: {
         },
       };
     }
-    const bindingRecord = await readPrimaryAgentProfileBindingRecord({
-      agentProfileId: input.agentProfileId,
-      db: domainDb,
-      owner,
-      readBatch: input.reads.readBatch,
-    });
+    const bindingRecord =
+      await input.reads.readPrimaryAgentProfileBindingRecord({
+        agentProfileId: input.agentProfileId,
+        db: domainDb,
+        owner,
+        readBatch: input.reads.readBatch,
+      });
     if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
         await readPrimaryAgentProfileBindingRecordByControllerConversation({

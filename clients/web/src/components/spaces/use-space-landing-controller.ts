@@ -2993,6 +2993,8 @@ export function useSpaceLandingController(input: {
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets:
 						preparedSubmission.messageEnvelope?.activationTargets ?? [],
+					explicitReferenceTargets:
+						preparedSubmission.messageEnvelope?.referenceTargets,
 					membersSnapshot,
 					senderProfileId: input.profileId,
 					status: currentStatus,
@@ -3173,6 +3175,8 @@ export function useSpaceLandingController(input: {
 			? []
 			: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets,
+					explicitReferenceTargets:
+						sendInput.preparedSubmission.messageEnvelope?.referenceTargets,
 					membersSnapshot,
 					senderProfileId: input.profileId,
 					status: sendInput.status,
@@ -4308,6 +4312,8 @@ function useSpaceThreadController(input: {
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
+				explicitReferenceTargets:
+					preparedSubmission.messageEnvelope?.referenceTargets,
 				membersSnapshot: input.membersSnapshot,
 				senderProfileId: input.profileId,
 				status: input.status,
