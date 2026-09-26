@@ -224,10 +224,8 @@ export class GitHubWorkingCopyProvider {
         }),
       }
     );
-    const envelope = asRecord(
-      JSON.parse(
-        await readBounded(response, REMOTE_AGENT_GIT_MAX_TREE_BYTES * 2)
-      )
+    const envelope = parseProviderEnvelope(
+      await readBounded(response, REMOTE_AGENT_GIT_MAX_TREE_BYTES * 2)
     );
     const data =
       envelope.data && typeof envelope.data === "object"
@@ -262,6 +260,16 @@ export class GitHubWorkingCopyProviderError extends Error {
   constructor(status: number, message: string) {
     super(message);
     this.status = status;
+  }
+}
+
+function parseProviderEnvelope(text: string): Record<string, unknown> {
+  try {
+    return asRecord(JSON.parse(text));
+  } catch {
+    // JSON parser errors may quote response bytes. Never return those bytes
+    // from this authenticated transport as a model-visible failure message.
+    throw new Error("github.checkout.invalid_provider_response");
   }
 }
 

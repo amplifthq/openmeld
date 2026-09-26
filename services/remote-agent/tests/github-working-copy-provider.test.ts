@@ -123,6 +123,16 @@ describe("fixed GitHub working-copy proxy adapter", () => {
       "sensitive-provider-data"
     );
   });
+  it("does not leak malformed authenticated response text through JSON parser errors", async () => {
+    const f = fixture({});
+    f.fetchMock.mockResolvedValueOnce(
+      new Response("private-secret-invalid-json")
+    );
+    await expect(f.provider.repository()).rejects.toThrow(
+      "github.checkout.invalid_provider_response"
+    );
+  });
+
   it("only treats an actual provider 404 as an absent task branch", async () => {
     const f = fixture({}, 404);
     expect(await f.provider.branch(BRANCH)).toBeNull();
