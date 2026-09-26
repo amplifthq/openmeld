@@ -12,22 +12,19 @@ import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	FileIcon,
-	PlusIcon,
-	UsersThreeIcon,
-	XIcon,
-} from "@phosphor-icons/react";
+import { FileIcon, PlusIcon, UsersThreeIcon } from "@phosphor-icons/react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import { PromptInputAction } from "#/components/ibelick/prompt-input";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
-import { SpaceFileHtmlBadge } from "./space-file-html-badge";
-import { SpaceImagePreview } from "./space-image-preview";
-import { SpaceVideoPreview } from "./space-video-preview";
+import {
+	SpaceAttachmentFailure,
+	SpaceAttachmentRemoveButton,
+} from "./space-attachment-actions";
+import { SpaceAttachmentStrip } from "./space-attachment-strip";
+import { SpaceLocalAttachmentPreview } from "./space-local-attachment-preview";
 
 export function useSpaceComposerFileInput(input: {
 	disabled: boolean;
@@ -170,116 +167,65 @@ export function SpaceComposerFileTray(input: {
 	}
 
 	return (
-		<fieldset
-			aria-label="Files to send"
-			className="m-0 flex min-w-0 flex-nowrap items-start gap-2 overflow-x-auto overscroll-x-contain border-0 px-1 pt-1 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+		<SpaceAttachmentStrip
+			className="pb-2"
+			label="Files to send"
+			size="composer"
 		>
-			{input.files.map((file) => (
-				<div className="flex-none" key={file.localId}>
-					<div
-						className={cn(
-							"relative w-fit rounded-xl",
-							surfaceClasses(3, 1),
-							file.status === "failed" && "ring-1 ring-destructive"
-						)}
-					>
-						<Tooltip>
-							<TooltipTrigger render={<span className="block" />}>
-								<SpaceComposerFileThumbnail file={file} />
-							</TooltipTrigger>
-							<TooltipContent
-								className="max-w-80 break-all text-left"
-								side="top"
-							>
-								{file.fileName}
-							</TooltipContent>
-						</Tooltip>
-						<button
-							aria-label={`Remove ${file.fileName}`}
-							className="absolute top-0 right-0 z-10 flex size-7 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							disabled={input.disabled}
-							onClick={() => input.onRemove(file.localId)}
-							type="button"
-						>
-							<XIcon aria-hidden="true" className="size-3" />
-						</button>
-					</div>
-					{file.status === "failed" ? (
-						<div className="mt-1 max-w-56">
-							<p className="break-words text-destructive text-xs" role="alert">
-								{file.errorMessage ?? "File could not be added."}
-							</p>
-							{file.errorRequestId ? (
-								<p className="mt-0.5 break-all text-[11px] text-muted-foreground">
-									Request ID: {file.errorRequestId}
-								</p>
-							) : null}
-							<div className="mt-1 flex gap-2">
-								{file.failurePhase !== "validation" && input.onRetry ? (
-									<Button
-										disabled={input.disabled}
-										onClick={() => input.onRetry?.(file.localId)}
-										size="sm"
-										type="button"
-										variant="outline"
-									>
-										Retry
-									</Button>
-								) : null}
-								<Button
-									disabled={input.disabled}
-									onClick={() => input.onRemove(file.localId)}
-									size="sm"
-									type="button"
-									variant="ghost"
-								>
-									Remove
-								</Button>
-							</div>
-						</div>
-					) : null}
-				</div>
-			))}
-		</fieldset>
+			<SpaceComposerFileItems {...input} />
+		</SpaceAttachmentStrip>
 	);
 }
 
-function SpaceComposerFileThumbnail({ file }: { file: SpaceComposerFile }) {
-	if (file.previewUrl && file.mimeType.startsWith("video/")) {
-		return (
-			<SpaceVideoPreview
-				compact
-				fileName={file.fileName}
-				isLocal
-				localPreviewUrl={file.previewUrl}
-			/>
-		);
-	}
-	if (file.previewUrl) {
-		return (
-			<SpaceImagePreview
-				altText={file.fileName}
-				imageSource={file.previewUrl}
-				isSingle={false}
-				thumbnailClassName="size-16 rounded-xl"
-			/>
-		);
-	}
+/** Also composed with existing attachments in the inline editor's single rail. */
+export function SpaceComposerFileItems(input: {
+	disabled: boolean;
+	files: readonly SpaceComposerFile[];
+	onRemove: (localId: string) => void;
+	onRetry?: (localId: string) => void;
+}) {
 	return (
-		<span
-			aria-label={file.fileName}
-			className="flex size-16 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground"
-			role="img"
-		>
-			{file.mimeType === "text/html" ? (
-				<SpaceFileHtmlBadge />
-			) : (
-				<FileIcon aria-hidden="true" className="size-7" />
-			)}
-			<span className="max-w-16 truncate text-[10px] uppercase">
-				{file.fileName.includes(".") ? file.fileName.split(".").at(-1) : "File"}
-			</span>
-		</span>
+		<>
+			{input.files.map((file) => (
+				<div
+					className={cn(
+						"relative shrink-0 rounded-lg",
+						file.status === "failed" && "ring-1 ring-destructive"
+					)}
+					data-attachment-name={file.fileName}
+					key={file.localId}
+				>
+					<Tooltip>
+						<TooltipTrigger render={<div />}>
+							<SpaceLocalAttachmentPreview
+								editable
+								fileName={file.fileName}
+								mimeType={file.mimeType}
+								previewUrl={file.previewUrl}
+							/>
+						</TooltipTrigger>
+						<TooltipContent className="max-w-80 break-all text-left" side="top">
+							{file.fileName}
+						</TooltipContent>
+					</Tooltip>
+					<SpaceAttachmentRemoveButton
+						disabled={input.disabled}
+						fileName={file.fileName}
+						onRemove={() => input.onRemove(file.localId)}
+					/>
+					{file.status === "failed" && (
+						<SpaceAttachmentFailure
+							disabled={input.disabled}
+							file={file}
+							onRemove={() => input.onRemove(file.localId)}
+							onRetry={
+								input.onRetry ? () => input.onRetry?.(file.localId) : undefined
+							}
+						/>
+					)}
+				</div>
+			))}
+		</>
 	);
 }
 

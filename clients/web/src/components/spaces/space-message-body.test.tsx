@@ -1152,7 +1152,9 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(screen.getByLabelText("2 attached images")).toBeTruthy();
+		expect(
+			screen.getByRole("group", { name: "Message attachments" })
+		).toBeTruthy();
 		expect(
 			screen.getByRole("img", { name: "diagram.png" }).getAttribute("src")
 		).toBe(
@@ -1331,8 +1333,8 @@ describe("SpaceMessageBody", () => {
 		);
 		expect(screen.getByRole("button", { name: "Play demo.mp4" })).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Expand demo.mp4" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "Expand demo.mp4" })
+		).toBeNull();
 		expect(document.querySelector("video")?.getAttribute("src")).toContain(
 			"/files/demo/content?revision=3"
 		);
@@ -1419,6 +1421,90 @@ describe("SpaceMessageBody", () => {
 
 		expect(screen.getByText("Image unavailable")).toBeTruthy();
 		expect(screen.queryByRole("img", { name: "broken.jpg" })).toBeNull();
+	});
+
+	it.each([
+		1, 4, 5, 10, 50,
+	])("keeps %s mixed attachments in one ordered rail without dropping files", (count) => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const types = [
+			"image/png",
+			"application/pdf",
+			"video/mp4",
+			"text/html",
+			"audio/mpeg",
+			"application/zip",
+			"text/csv",
+			"application/octet-stream",
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			"application/json",
+		];
+		const files = Array.from({ length: count }, (_, index) => ({
+			fileId: `file-${index}`,
+			name: `attachment-${index}`,
+			mimeType: types[index % types.length],
+			isLocal:
+				types[index % types.length].startsWith("image/") ||
+				types[index % types.length].startsWith("video/"),
+			revision: 3,
+			sizeBytes: 4096,
+			localPreviewUrl:
+				types[index % types.length].startsWith("image/") ||
+				types[index % types.length].startsWith("video/")
+					? `blob:preview-${index}`
+					: null,
+		}));
+		const onOpenSpaceFile = vi.fn();
+		const view = render(
+			<QueryClientProvider client={client}>
+				<SpaceMessageBody
+					item={{ text: "", spaceId: "space-123", files }}
+					onOpenSpaceFile={onOpenSpaceFile}
+				/>
+			</QueryClientProvider>
+		);
+		expect(
+			screen.getAllByRole("group", { name: "Message attachments" })
+		).toHaveLength(1);
+		expect(
+			Array.from(
+				view.container.querySelectorAll("[data-attachment-name]"),
+				(element) => element.getAttribute("data-attachment-name")
+			)
+		).toEqual(files.map((file) => file.name));
+		if (count > 1) {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Open attachment-1 in Files" })
+			);
+			expect(onOpenSpaceFile).toHaveBeenCalledWith("file-1", 3);
+		}
+		expect(downloadFileContent).not.toHaveBeenCalled();
+		view.unmount();
+		client.clear();
+	});
+
+	it("does not create empty text content when the transcript owns the attachments", () => {
+		const view = render(
+			<SpaceMessageBody
+				includeAttachments={false}
+				item={{
+					text: "",
+					files: [
+						{
+							fileId: "pdf",
+							name: "brief.pdf",
+							mimeType: "application/pdf",
+							revision: 1,
+							sizeBytes: 12,
+							localPreviewUrl: null,
+						},
+					],
+				}}
+			/>
+		);
+		expect(view.container.childElementCount).toBe(0);
 	});
 
 	it("locally collapses long complete messages with Show more and Show less", () => {

@@ -3876,13 +3876,33 @@ Revocation notifies already decoded composer and focused-view images as well as
 message thumbnails. In-flight reads cannot repopulate a cleared account cache.
 Binary bytes and object URLs are never admitted to persisted display histories.
 
-One frame owns loading, decoded image, error, and retry. Valid display-oriented
-revision geometry reserves the aspect ratio, bounded to a 512-pixel box without
-upscaling; legacy/unsupported metadata uses a fixed 288-by-192 fallback. That
-initial geometry stays fixed for the mount even if metadata arrives later.
-Multi-image cells are explicitly square and use `object-contain`, preserving the
-whole long screenshot. Decode completion is source/attempt fenced. A decode
-failure is recoverable with an explicit retry, not an indefinite skeleton.
+One frame owns loading, decoded image, error, and retry. Attachment thumbnails
+use a fixed 96-pixel square in messages and a 64-pixel square in composers and
+inline editors, regardless of image count or source dimensions. `object-cover`
+fills the thumbnail without distortion; cropping never changes original bytes.
+The focused viewer still contains the complete original. Non-attachment detail
+frames retain their bounded natural geometry and fallback. Decode completion is
+source/attempt fenced. A decode failure offers explicit retry in the same frame.
+
+`SpaceAttachmentStrip` composes the existing horizontal Fluid ScrollArea, its
+overflow-edge fades, and its scrollbar. Media thumbnails and same-height file
+cards occupy one non-wrapping row with an eight-pixel gap. Both legacy attachments
+and canonical files remain accessible; canonical files retain their authored
+order instead of being regrouped by MIME type. File cards show type-aware icons,
+names, sizes when known, and the referenced revision. HTML keeps its shared badge;
+unsupported formats remain files rather than invented image previews. Corners
+follow the root Appearance radius through semantic utilities.
+
+Main conversations and Threads compose the strip above and outside the painted
+text surface, but inside the same message identity, toolbar anchor, and action
+scope. Attachment-only messages have no visible empty text surface. Short text
+does not constrain the attachment viewport. Center Agent's pre-Space pending
+message uses the same local previews. Composer and inline editing share the
+strip and item actions; existing and newly selected attachments are not separate
+rows. Removal stays on the attachment, and file failures announce immediately
+with click/keyboard-accessible diagnostics and retry in a popover, not a tall
+error paragraph below the thumbnail. Upload limits, publication, retained file
+IDs, and Agent context are unchanged.
 
 Genuinely cold, active image loads use the pinned `img-fx` `ImageGeneration`
 component through a lazy adapter. `images=[]` and `autoReveal=false` keep private
@@ -3914,9 +3934,12 @@ root cause or verify GPU rendering.
 Conversation, Thread replies, Files details, and the local composer share
 `SpaceVideoPreview`. Video remains a canonical Space File revision. Idle cards
 use the browser's native lazy video loading to show the first frame near the
-viewport. Once a visible frame is ready, they prepare the shared player so a
-Play click can start the same mounted media element in the user gesture. The
-player module loads once and no per-row observer is created. This introduces
+viewport. Compact message and composer cards retain their square poster and
+open the existing shared player only in the dialog; preparing its module does
+not mount an inline player in the thumbnail. Native posters also subscribe to
+account, Space, and file revocation before the player module is loaded. Larger
+Files detail cards still prepare the inline player when a visible frame is ready.
+The player module loads once and no per-row observer is created. This introduces
 no poster-generation or transcoding service. The shared Media Chrome controls
 overlay the picture without an opaque control bar.
 
@@ -4451,6 +4474,11 @@ Skills, and Space Markdown Files consumes the document preset. Every
 surface cannot inherit chat styling accidentally. The public Changelog selects
 its own fixed preset and does not consume the app content scale; changing Space
 or document typography must not change Changelog presentation.
+
+Inline Profile Mention tokens opt out of Typeset with `not-typeset` on their
+shared root, for both interactive and display-only rendering. Their avatars
+belong to the token, not the prose image flow; Markdown lists and headings must
+not add media margins inside Human Mention, Agent Wake, or Reference tokens.
 
 For an authenticated Organization view, a resolved reference navigates to the
 app route `/o/{orgSlug}/spaces/{spaceId}?profileId={activeProfileId}`. The

@@ -25,6 +25,12 @@ const STAGING_VERSION = /^\.install-[A-Za-z0-9]{6}$/u;
 export async function readWindowsManagedCliVersion(
   root: string
 ): Promise<string | null> {
+  return (await readWindowsManagedCliInstallation(root))?.version ?? null;
+}
+
+export async function readWindowsManagedCliInstallation(
+  root: string
+): Promise<{ version: string; releaseChannel?: "windows-preview" } | null> {
   const serialized = await readFile(
     join(root, "bin", INSTALLATION_RECORD),
     "utf8"
@@ -45,7 +51,7 @@ export async function readWindowsManagedCliVersion(
       "The managed Windows CLI installation record is invalid. No version was selected."
     );
   }
-  return parsed.data.version;
+  return parsed.data;
 }
 
 /** Publish the complete immutable directory, never overwrite an in-use image. */
@@ -102,11 +108,13 @@ export async function placeWindowsManagedVersion(input: {
 /** The caller holds the shared managed-install lock. Record replacement is the commit. */
 export async function activateWindowsManagedCli(
   root: string,
-  version: string
+  version: string,
+  releaseChannel?: "windows-preview"
 ): Promise<void> {
   const record = windowsManagedCliInstallationSchema.parse({
     schemaVersion: 1,
     version,
+    ...(releaseChannel ? { releaseChannel } : {}),
   });
   await reconcileWindowsManagedLauncher(root, version);
   const destination = join(root, "bin", INSTALLATION_RECORD);
