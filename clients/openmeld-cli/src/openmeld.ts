@@ -234,6 +234,7 @@ import {
   runOrganizationSkillsAdd,
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
+  runOrganizationSkillsScan,
   runOrganizationSkillsShow,
 } from "./organization-skills/command";
 import { formatAgentControllerPermissionModeHelp } from "./profile/controller-permission-mode-input";
@@ -1699,6 +1700,10 @@ const skillsCmd = program
   .description("Read and load Organization Skills.")
   .option("--json", "Print one machine-readable JSON envelope.", false);
 
+function skillsJsonRequested(opts: { json?: boolean }): boolean {
+  return opts.json === true || skillsCmd.opts().json === true;
+}
+
 registerPluginCommands(program, {
   view: getGlobalViewOption,
   run: (routeTokens, run) =>
@@ -1811,7 +1816,7 @@ skillsCmd
         view,
         run: async () => {
           await runOrganizationSkillsAdd({
-            json: opts.json === true,
+            json: skillsJsonRequested(opts),
             previewOnly: opts.preview === true,
             source,
             view,
@@ -1820,6 +1825,28 @@ skillsCmd
       });
     }
   );
+
+skillsCmd
+  .command("scan")
+  .description(
+    "List the Skills in a GitHub repository without installing them."
+  )
+  .argument("<url>", "GitHub repository or folder URL")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (url: string, opts: { json?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "scan"],
+      view,
+      run: async () => {
+        await runOrganizationSkillsScan({
+          json: skillsJsonRequested(opts),
+          url,
+          view,
+        });
+      },
+    });
+  });
 
 skillsCmd
   .command("list")
@@ -1833,7 +1860,7 @@ skillsCmd
       view,
       run: async () => {
         await runOrganizationSkillsList({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
           view,
         });
         await maybeRunAgentViewRecoveryAfterSuccess({
@@ -1855,7 +1882,7 @@ skillsCmd
       view,
       run: async () => {
         await runOrganizationSkillsShow({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
           skill,
           view,
         });
@@ -1882,7 +1909,7 @@ skillsCmd
       view,
       run: async () => {
         await runOrganizationSkillsLoad({
-          json: opts.json === true,
+          json: skillsJsonRequested(opts),
           releaseId: opts.release,
           skill,
           view,

@@ -170,6 +170,7 @@ export {
   cliJsonSkillsAddPreviewEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
   cliJsonSkillsLoadEnvelopeSchema,
+  cliJsonSkillsScanEnvelopeSchema,
   cliJsonSkillsShowEnvelopeSchema,
   cliJsonSpaceListOrganizationEnvelopeSchema,
   cliJsonSpaceMembersEnvelopeSchema,

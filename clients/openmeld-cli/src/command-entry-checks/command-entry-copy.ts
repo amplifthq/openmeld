@@ -352,6 +352,11 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "adding a Team Skill",
     profileAction: null,
   },
+  "skills.scan": {
+    ...DEFAULT_COPY,
+    signInAction: "reviewing a GitHub Skill repository",
+    profileAction: null,
+  },
   "plugins.list": {
     ...DEFAULT_COPY,
     signInAction: "listing available plugin accounts",

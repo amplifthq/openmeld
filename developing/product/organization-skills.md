@@ -206,7 +206,8 @@ An ambiguous repository containing multiple Skills requires an exact user
 selection. OpenMeld does not guess the intended directory.
 
 For a multi-Skill repository, Center Agent, Web, and an authenticated Local Agent
-client can request the same bounded, metadata-only repository preview. It lists
+through `openmeld skills scan` can request the same bounded, metadata-only
+repository preview. It lists
 each Skill directory at one resolved commit, its
 declared file count and bytes, policy blockers with the offending path and
 actual limit where available, and script-execution warnings. Supporting

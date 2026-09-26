@@ -7,6 +7,7 @@ import {
   cliJsonSkillsAddPreviewEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
   cliJsonSkillsLoadEnvelopeSchema,
+  cliJsonSkillsScanEnvelopeSchema,
   cliJsonSkillsShowEnvelopeSchema,
 } from "@openmeld/schemas";
 import type {
@@ -183,6 +184,58 @@ export async function runOrganizationSkillsAdd(
         skillId: installed.skill.id,
         releaseId: installed.skill.activeRelease.id,
       });
+    }
+  );
+}
+
+export async function runOrganizationSkillsScan(
+  input: OrganizationSkillsCommandInput & { url: string },
+  dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
+): Promise<void> {
+  await runOrganizationSkillsCommand(
+    input,
+    dependencyOverrides,
+    async (context) => {
+      const response = await context.api.previewRepositoryFromGitHub({
+        expectedOrganizationId: context.organization.id,
+        requestContext: context.requestContext,
+        url: input.url,
+      });
+      requireOrganizationIdentity(context, response.organizationId);
+      const payload = {
+        organizationId: response.organizationId,
+        preview: response.preview,
+      };
+      if (context.json) {
+        emitCliJsonEnvelope(
+          cliJsonSkillsScanEnvelopeSchema.parse({
+            schemaVersion: 1,
+            type: "skills.scan",
+            ...payload,
+          })
+        );
+        return;
+      }
+      if (context.presenter.view === "agent") {
+        context.presenter.data({ code: "skills.scan", payload });
+        return;
+      }
+      context.presenter.line({
+        code: "skills.scan.summary",
+        text: `${response.preview.skills.length} Skills found at commit ${response.preview.commitSha.slice(0, 12)}.`,
+      });
+      for (const item of response.preview.skills) {
+        const path = sanitizeTerminalDisplayText(
+          item.path || "Repository root"
+        );
+        const status = item.blocker
+          ? `Can't install: ${sanitizeTerminalDisplayText(item.blocker.message)}`
+          : `${item.fileCount} ${item.fileCount === 1 ? "file" : "files"} · ${item.totalBytes.toLocaleString()} bytes`;
+        context.presenter.line({
+          code: "skills.scan.item",
+          text: `${path} — ${status}`,
+        });
+      }
     }
   );
 }

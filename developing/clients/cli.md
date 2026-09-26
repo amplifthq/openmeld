@@ -142,6 +142,10 @@ deprecated compatibility aliases for one published CLI window, print their
 Setup/Doctor replacement, and preserve existing behavior during that window.
 The old ambiguous local-helper `skills list` spelling is not retained because
 `openmeld skills list` now lists Organization Skills.
+`openmeld skills scan <github-repository-url>` lists one pinned repository's
+Skill directories and their declared blockers without installing anything.
+`--json` and Agent View return the same server-authorized inventory, so a
+Local Agent can select an exact Skill URL before `openmeld skills add`.
 
 CLI must not infer Wake blocking from local component drift by itself. Core owns
 the user-visible local component update projection for Wake eligibility:

@@ -70,6 +70,7 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "skills uninstall": "skills.uninstall",
   "skills list": "skills.list",
   "skills add": "skills.add",
+  "skills scan": "skills.scan",
   "skills ls": "skills.list",
   "skills show": "skills.show",
   "skills load": "skills.load",

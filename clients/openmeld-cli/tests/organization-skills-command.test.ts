@@ -18,6 +18,7 @@ import {
   runOrganizationSkillsAdd,
   runOrganizationSkillsList,
   runOrganizationSkillsLoad,
+  runOrganizationSkillsScan,
   runOrganizationSkillsShow,
 } from "../src/organization-skills/command";
 import { readLocalSkillFiles } from "../src/organization-skills/local-source";
@@ -72,6 +73,49 @@ const skill: OrganizationSkill = {
 };
 
 describe("Organization Skills CLI", () => {
+  it("reports a pinned repository inventory to a Local Agent without installing anything", async () => {
+    await withTempHome(async () => {
+      const commitSha = "a".repeat(40);
+      const previewRepositoryFromGitHub = vi.fn(async () => ({
+        organizationId: organization.id,
+        preview: {
+          catalogLimitBytes: 1024,
+          commitSha,
+          repository: "https://github.com/example/skills",
+          skills: [
+            {
+              blocker: null,
+              fileCount: 2,
+              path: "review",
+              totalBytes: 450,
+              url: `https://github.com/example/skills/tree/${commitSha}/review`,
+              warnings: [],
+            },
+          ],
+          totalDeclaredBytes: 450,
+          warnings: [],
+        },
+      }));
+      const { dependencies } = createDependencies();
+      const resolveApi = async () =>
+        ({ previewRepositoryFromGitHub }) as unknown as OrganizationSkillsApi;
+      const { plainStdout } = await withCapturedStdio(async () => {
+        await runOrganizationSkillsScan(
+          { json: true, url: "https://github.com/example/skills" },
+          { ...dependencies, resolveApi }
+        );
+      });
+      expect(previewRepositoryFromGitHub).toHaveBeenCalledWith(
+        expect.objectContaining({
+          expectedOrganizationId: organization.id,
+          url: "https://github.com/example/skills",
+        })
+      );
+      expect(plainStdout).toContain('"type":"skills.scan"');
+      expect(plainStdout).toContain(commitSha);
+      expect(plainStdout).toContain('"path":"review"');
+    });
+  });
   it("pins the previewed GitHub commit when a Local Agent adds a Team Skill", async () => {
     await withTempHome(async () => {
       const commitSha = "a".repeat(40);

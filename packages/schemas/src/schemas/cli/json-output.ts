@@ -26,6 +26,7 @@ import {
   getOrganizationSkillResponseSchema,
   listOrganizationSkillsResponseSchema,
   ORGANIZATION_SKILL_FILE_LIMIT,
+  organizationSkillGitHubRepositoryPreviewSchema,
   organizationSkillReleaseSummarySchema,
   organizationSkillSummarySchema,
 } from "../http/organization-skills";
@@ -545,6 +546,13 @@ export const cliJsonSkillsListEnvelopeSchema = defineStrictSuccessEnvelope(
   "skills.list",
   listOrganizationSkillsResponseSchema.shape
 );
+export const cliJsonSkillsScanEnvelopeSchema = defineStrictSuccessEnvelope(
+  "skills.scan",
+  {
+    organizationId: organizationSkillSummarySchema.shape.organizationId,
+    preview: organizationSkillGitHubRepositoryPreviewSchema,
+  }
+);
 
 const skillAddFields = {
   commitSha: z
@@ -694,6 +702,7 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonOrganizationInviteLinkCreateEnvelopeSchema,
   cliJsonOrganizationInviteLinkRevokeEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
+  cliJsonSkillsScanEnvelopeSchema,
   cliJsonSkillsAddPreviewEnvelopeSchema,
   cliJsonSkillsAddEnvelopeSchema,
   cliJsonSkillsShowEnvelopeSchema,
@@ -758,6 +767,7 @@ export const CLI_JSON_OUTPUT_TYPES = [
   "organization.invite_link.create",
   "organization.invite_link.revoke",
   "skills.list",
+  "skills.scan",
   "skills.show",
   "skills.load",
 ] as const satisfies readonly CliJsonOutputType[];
