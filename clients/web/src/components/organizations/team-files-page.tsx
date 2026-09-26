@@ -20,6 +20,15 @@ import {
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
 import {
+	DropdownMenu,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -29,9 +38,11 @@ import {
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
 	CopyIcon,
+	FileTextIcon,
 	FolderOpenIcon,
 	FolderPlusIcon,
 	PencilSimpleIcon,
+	PlusIcon,
 	TrashIcon,
 	UploadSimpleIcon,
 } from "@phosphor-icons/react";
@@ -42,6 +53,7 @@ import type { FileSystemItem } from "#/components/extend/file-system";
 import {
 	FolderNameDialog,
 	MoveEntryDialog,
+	NewTextFileDialog,
 	RenameEntryDialog,
 } from "#/components/spaces/space-file-dialogs";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -54,6 +66,17 @@ const FileSystem = lazy(() =>
 		default: module.FileSystem,
 	}))
 );
+
+const NEW_TEXT_FILE_MIME_TYPES = {
+	markdown: "text/markdown",
+	text: "text/plain",
+	csv: "text/csv",
+} as const;
+const NEW_TEXT_FILE_CONTEXT_LABELS = {
+	markdown: "New Markdown file",
+	text: "New text file",
+	csv: "New CSV file",
+} as const;
 
 export function TeamFilesPage() {
 	const { currentOrganization } = useAppOrganization();
@@ -76,6 +99,9 @@ function TeamFilesBrowser(input: {
 	const [parentId, setParentId] = useState<string | null>(null);
 	const [view, setView] = useState<"active" | "trash">("active");
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+	const [newTextFileKind, setNewTextFileKind] = useState<
+		"markdown" | "text" | "csv" | null
+	>(null);
 	const [renamingEntry, setRenamingEntry] = useState<FileRootEntry | null>(
 		null
 	);
@@ -274,15 +300,44 @@ function TeamFilesBrowser(input: {
 					>
 						<UploadSimpleIcon aria-hidden="true" /> Upload
 					</Button>
-					<Button
-						disabled={busy}
-						onClick={() => setFolderDialogOpen(true)}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						<FolderPlusIcon aria-hidden="true" /> New folder
-					</Button>
+					<DropdownMenu>
+						<DropdownMenuTrigger render={<Button disabled={busy} size="sm" />}>
+							<PlusIcon aria-hidden="true" /> New
+						</DropdownMenuTrigger>
+						<FluidDropdownMenuContent align="start">
+							<FluidDropdownMenuItem
+								index={0}
+								onClick={() => setNewTextFileKind("markdown")}
+							>
+								<FileTextIcon aria-hidden="true" /> Markdown file
+							</FluidDropdownMenuItem>
+							<FluidDropdownMenuItem
+								index={1}
+								onClick={() => setNewTextFileKind("text")}
+							>
+								<FileTextIcon aria-hidden="true" /> Text file
+							</FluidDropdownMenuItem>
+							<FluidDropdownMenuItem
+								index={2}
+								onClick={() => setNewTextFileKind("csv")}
+							>
+								<FileTextIcon aria-hidden="true" /> CSV file
+							</FluidDropdownMenuItem>
+							<FluidDropdownMenuItem
+								index={3}
+								onClick={() => setFolderDialogOpen(true)}
+							>
+								<FolderPlusIcon aria-hidden="true" /> Folder
+							</FluidDropdownMenuItem>
+							<DropdownMenuSeparator />
+							<FluidDropdownMenuItem
+								index={4}
+								onClick={() => inputRef.current?.click()}
+							>
+								<UploadSimpleIcon aria-hidden="true" /> Upload file…
+							</FluidDropdownMenuItem>
+						</FluidDropdownMenuContent>
+					</DropdownMenu>
 					<Button
 						onClick={() => {
 							setParentId(null);
@@ -482,6 +537,15 @@ function TeamFilesBrowser(input: {
 										<FolderPlusIcon aria-hidden="true" />
 										New folder
 									</ContextMenuItem>
+									{(["markdown", "text", "csv"] as const).map((kind) => (
+										<ContextMenuItem
+											key={kind}
+											onClick={() => setNewTextFileKind(kind)}
+										>
+											<FileTextIcon aria-hidden="true" />
+											{NEW_TEXT_FILE_CONTEXT_LABELS[kind]}
+										</ContextMenuItem>
+									))}
 									<ContextMenuItem onClick={() => inputRef.current?.click()}>
 										<UploadSimpleIcon aria-hidden="true" />
 										Upload file…
@@ -510,6 +574,35 @@ function TeamFilesBrowser(input: {
 				open={folderDialogOpen}
 				pending={busy}
 			/>
+			{newTextFileKind ? (
+				<NewTextFileDialog
+					kind={newTextFileKind}
+					onOpenChange={(open) => {
+						if (!open) {
+							setNewTextFileKind(null);
+						}
+					}}
+					onSubmit={async ({ content, name }) => {
+						const created = await runAction(() =>
+							api.upload({
+								location,
+								bytes: new Blob([content], {
+									type: NEW_TEXT_FILE_MIME_TYPES[newTextFileKind],
+								}),
+								mimeType: NEW_TEXT_FILE_MIME_TYPES[newTextFileKind],
+								name,
+								parentId,
+								clientMutationId: crypto.randomUUID(),
+							})
+						);
+						if (created) {
+							setNewTextFileKind(null);
+						}
+					}}
+					open={true}
+					pending={busy}
+				/>
+			) : null}
 			<RenameEntryDialog
 				entry={renamingEntry}
 				onOpenChange={(open) => {
