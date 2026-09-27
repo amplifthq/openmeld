@@ -240,6 +240,7 @@ export const createDispatchOutboxRecord = (input: {
     }),
     dispatchSnapshot,
     idempotencyKey,
+    outboxCreatedAtMs: input.nowMs,
     enqueuedAtMs: input.nowMs,
   };
 

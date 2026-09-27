@@ -20097,6 +20097,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
     return {
       ...dispatchMessage,
+      outboxCreatedAtMs: candidate.createdAtMs,
       enqueuedAtMs: handedOffAtMs ?? dispatchMessage.enqueuedAtMs,
       ...(deliveryRecoveryReason &&
       dispatchMessage.deliveryRecoveryReason !== deliveryRecoveryReason

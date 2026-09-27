@@ -1173,6 +1173,7 @@ describe("handleDispatchQueueBatch", () => {
     targetProfileId: string;
     visitedProfileIdsHash: string;
     enqueuedAtMs?: number;
+    outboxCreatedAtMs?: number;
     sourceProfileNameSnapshot?: string;
     sourceProfileId?: string;
     sourceProfileKind?: "agent" | "human";
@@ -1256,6 +1257,9 @@ describe("handleDispatchQueueBatch", () => {
         : {}),
       ...(input.threadContext ? { threadContext: input.threadContext } : {}),
       idempotencyKey: `5:${input.sourceEventId}|5:${targetProfileId}`,
+      ...(input.outboxCreatedAtMs !== undefined
+        ? { outboxCreatedAtMs: input.outboxCreatedAtMs }
+        : {}),
       enqueuedAtMs: input.enqueuedAtMs ?? Date.now(),
     };
   };
@@ -2128,7 +2132,9 @@ describe("handleDispatchQueueBatch", () => {
   it("publishes a visible failure when a mutation lease keeps rejecting head admission", async () => {
     const body = createDispatchBody({
       dispatchId: "dispatch-mutation-expired",
-      enqueuedAtMs: Date.now() - EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS,
+      enqueuedAtMs: Date.now(),
+      outboxCreatedAtMs:
+        Date.now() - EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS,
       sourceEventId: "evt-mutation-expired",
       targetProfileId: "agt-mutation-expired",
       visitedProfileIdsHash: "stable32:mutation-expired",

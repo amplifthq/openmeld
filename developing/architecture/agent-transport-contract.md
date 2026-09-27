@@ -113,6 +113,10 @@ preserves FIFO order within one target. A candidate failure is isolated from
 the other target queues. After a full batch advances successfully while more
 pending records remain, the shared Space alarm schedules an immediate
 continuation; retrying or poisoned work keeps the normal durable retry cadence.
+The outbox creation time remains stable across handoffs and redrives so a Wake
+waiting on an execution-target settings lease reaches its bounded, visible
+failure deadline. The queue handoff timestamp is separate and may advance on
+each redrive.
 Concurrent flush callers share one in-flight flush per Space. D1 overload is
 storage backpressure, not evidence of a malformed request or a missing Agent
 account: it does not consume the candidate poison budget. The same durable

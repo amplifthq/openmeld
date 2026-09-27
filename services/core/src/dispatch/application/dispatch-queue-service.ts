@@ -1398,7 +1398,9 @@ const settleFreshHeadAdmissionWithoutDelivery = async (input: {
     if (
       input.headAcceptance.reasonCode ===
         "runtime_coordinator.execution_target_mutation_in_progress" &&
-      input.nowMs - input.dispatchMessage.enqueuedAtMs >=
+      input.nowMs -
+        (input.dispatchMessage.outboxCreatedAtMs ??
+          input.dispatchMessage.enqueuedAtMs) >=
         EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS
     ) {
       return {
