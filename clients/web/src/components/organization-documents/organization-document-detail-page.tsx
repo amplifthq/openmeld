@@ -48,6 +48,7 @@ import {
 	organizationDocumentQueryKeys,
 	organizationDocumentQueryOptions,
 } from "#/query/organizations/organization-documents";
+import { organizationDocumentDisplayTitle } from "./organization-document-browser-model";
 import {
 	ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS,
 	OrganizationDocumentMarkdownEditor,
@@ -241,7 +242,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 						/>
 					</div>
 					<h1 className="mt-1 break-words font-medium text-2xl">
-						{document.title}
+						{organizationDocumentDisplayTitle(document)}
 					</h1>
 				</div>
 				{document.canManage ? (
@@ -606,7 +607,7 @@ function organizationDocumentKindLabel(
 ): string {
 	switch (kind) {
 		case "brief":
-			return "Organization Brief";
+			return "Team Brief";
 		case "member_profile":
 			return "Profile Report";
 		default:

@@ -40,7 +40,7 @@ import {
 const KIND_OPTIONS = [
 	{ label: "Knowledge", value: "knowledge" },
 	{ label: "Profile Report", value: "member_profile" },
-	{ label: "Organization Brief", value: "brief" },
+	{ label: "Team Brief", value: "brief" },
 ] as const;
 
 export function OrganizationDocumentNewPage(input: {
@@ -261,7 +261,7 @@ function DocumentTargetFields(input: {
 			) : null}
 			{input.kind === "brief" ? (
 				<div>
-					<p className="font-medium text-sm">Organization Brief</p>
+					<p className="font-medium text-sm">Team Brief</p>
 					<p className="mt-1 text-muted-foreground text-xs">
 						The approved content is added to the Center Agent’s context.
 					</p>

@@ -112,6 +112,9 @@ describe("OrganizationDocumentDetailPage", () => {
 
 		// The pending draft opens read-only in the editor surface while the
 		// approved content stays untouched behind the view toggle.
+		expect(
+			await screen.findByRole("heading", { name: "Team Brief" })
+		).toBeTruthy();
 		const draftEditor = (await screen.findByLabelText(
 			"Center Agent draft content"
 		)) as HTMLTextAreaElement;

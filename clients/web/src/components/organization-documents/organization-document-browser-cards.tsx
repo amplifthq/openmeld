@@ -50,6 +50,7 @@ import {
 	documentKindLabel,
 	FOLDER_DRAG_TYPE,
 	type FolderMoveTarget,
+	organizationDocumentDisplayTitle,
 } from "./organization-document-browser-model";
 import { setBrowserItemDragPreview } from "./organization-document-drag-preview";
 
@@ -184,7 +185,9 @@ export function OrganizationDocumentFileCard(input: {
 				</span>
 				<div className="mt-auto min-w-0 pt-5">
 					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						<h2 className="truncate font-medium text-base">{document.title}</h2>
+						<h2 className="truncate font-medium text-base">
+							{organizationDocumentDisplayTitle(document)}
+						</h2>
 						{document.kind === "brief" ? (
 							<Badge variant="outline">Brief</Badge>
 						) : null}
@@ -200,7 +203,7 @@ export function OrganizationDocumentFileCard(input: {
 			</Link>
 			{input.canManage ? (
 				<DocumentActions
-					documentTitle={document.title}
+					documentTitle={organizationDocumentDisplayTitle(document)}
 					moveTargets={input.canMove ? input.moveTargets : []}
 					onDelete={input.onDelete}
 					onMove={input.onMove}

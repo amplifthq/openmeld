@@ -188,9 +188,7 @@ describe("OrganizationDocumentsPage", () => {
 		});
 		const rows = within(list).getAllByRole("listitem");
 		expect(rows).toHaveLength(3);
-		expect(
-			within(rows[0] as HTMLElement).getByText("Organization Brief")
-		).toBeTruthy();
+		expect(within(rows[0] as HTMLElement).getByText("Team Brief")).toBeTruthy();
 		expect(within(rows[0] as HTMLElement).getByText("Brief")).toBeTruthy();
 		expect(within(rows[0] as HTMLElement).getByText("Draft")).toBeTruthy();
 		expect(

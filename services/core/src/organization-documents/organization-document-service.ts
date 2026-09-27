@@ -2136,7 +2136,7 @@ function mapCreateError(error: unknown, kind: OrganizationDocumentKind): Error {
     return documentError(
       409,
       "organization_document.brief_exists",
-      "This Organization already has an Organization Brief."
+      "This Team already has a Team Brief."
     );
   }
   return documentError(
