@@ -17,7 +17,11 @@ import {
   importOrganizationSkillBundleFromGitHub,
   previewOrganizationSkillRepositoryFromGitHub,
 } from "../src/organization-skills/organization-skill-import";
-import { rpcImportOrganizationSkillFromGitHub } from "../src/organization-skills/organization-skill-rpc";
+import {
+  rpcBeginOrganizationSkillImportBatch,
+  rpcGetOrganizationSkillImportBatch,
+  rpcImportOrganizationSkillFromGitHub,
+} from "../src/organization-skills/organization-skill-rpc";
 import {
   createOrganizationSkillService,
   type OrganizationSkillActor,
@@ -1718,6 +1722,126 @@ describe("Organization Skills", () => {
     }
   });
 
+  it("recovers a pinned batch and its installed result across requests", async () => {
+    const fixture = await seedFixture();
+    const profile = await env.OPENMELD_DB.prepare(
+      "SELECT profile_id FROM openmeld_profiles WHERE owner_user_id = ? AND profile_kind = 'human' LIMIT 1"
+    )
+      .bind(fixture.owner.userId)
+      .first<{ profile_id: string }>();
+    if (!profile) {
+      throw new Error("Human test profile is missing.");
+    }
+    const commitSha = "c".repeat(40);
+    let resourceUnavailable = true;
+    const fetchMock = vi.fn<typeof fetch>((request) =>
+      Promise.resolve(
+        resourceUnavailable &&
+          String(request).endsWith("/release/references/checklist.md")
+          ? new Response("not found", { status: 404 })
+          : readGitHubFixtureResponse(String(request), commitSha)
+      )
+    );
+    const context = {
+      activeOrganizationId: fixture.organizationId,
+      actorContext: {
+        callerPrincipalId: fixture.owner.userId,
+        openMeldProfileId: profile.profile_id,
+        profileKind: "human" as const,
+        requestId: `skill-request-${crypto.randomUUID()}`,
+      },
+    };
+    const sourceUrl = "https://github.com/acme/skills";
+    const batchId = crypto.randomUUID();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const unselectedBatchId = crypto.randomUUID();
+      const unselected = await rpcBeginOrganizationSkillImportBatch(coreEnv(), {
+        batchId: unselectedBatchId,
+        context,
+        expectedOrganizationId: fixture.organizationId,
+        selectedPaths: [],
+        url: sourceUrl,
+      });
+      expect(unselected.batch.results).toMatchObject([
+        { selected: false, status: "skipped", error: "Not selected" },
+      ]);
+      await expect(
+        rpcImportOrganizationSkillFromGitHub(coreEnv(), {
+          batchId: unselectedBatchId,
+          context,
+          expectedCommitSha: commitSha,
+          expectedOrganizationId: fixture.organizationId,
+          url: unselected.batch.preview.skills[0]?.url ?? "",
+        })
+      ).rejects.toMatchObject({
+        cause: { code: "organization_skill.batch_conflict", status: 409 },
+      });
+      const started = await rpcBeginOrganizationSkillImportBatch(coreEnv(), {
+        batchId,
+        context,
+        expectedOrganizationId: fixture.organizationId,
+        url: sourceUrl,
+      });
+      expect(started.batch.results).toMatchObject([{ status: "pending" }]);
+      const candidate = started.batch.preview.skills[0];
+      if (!candidate) {
+        throw new Error("GitHub fixture has no Skill.");
+      }
+      const installRequest = {
+        batchId,
+        context,
+        expectedCommitSha: commitSha,
+        expectedOrganizationId: fixture.organizationId,
+        url: candidate.url,
+      };
+      await expect(
+        rpcImportOrganizationSkillFromGitHub(coreEnv(), installRequest)
+      ).rejects.toThrow();
+      expect(
+        (
+          await rpcGetOrganizationSkillImportBatch(coreEnv(), {
+            batchId,
+            context,
+          })
+        ).batch.results
+      ).toMatchObject([{ status: "failed" }]);
+      resourceUnavailable = false;
+      const installed = await rpcImportOrganizationSkillFromGitHub(
+        coreEnv(),
+        installRequest
+      );
+      const recovered = await rpcGetOrganizationSkillImportBatch(coreEnv(), {
+        batchId,
+        context,
+      });
+      expect(recovered.batch.results).toMatchObject([
+        {
+          path: candidate.path,
+          releaseId: installed.skill.activeRelease.id,
+          skillId: installed.skill.id,
+          status: "installed",
+        },
+      ]);
+      await expect(
+        rpcBeginOrganizationSkillImportBatch(coreEnv(), {
+          batchId,
+          context,
+          expectedOrganizationId: fixture.organizationId,
+          url: `${sourceUrl}/tree/${commitSha}`,
+        })
+      ).resolves.toEqual(recovered);
+      const count = await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM organization_skills WHERE organization_id = ?"
+      )
+        .bind(fixture.organizationId)
+        .first<{ count: number }>();
+      expect(count?.count).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("lets the represented owner install once through Center Agent while members can only read", async () => {
     const fixture = await seedFixture();
     const context = centerAgentRequestContext(fixture);
@@ -1969,7 +2093,10 @@ function readGitHubFixtureResponse(url: string, commitSha: string): Response {
   if (url === "https://api.github.com/repos/acme/skills") {
     return Response.json({ default_branch: "main" });
   }
-  if (url.endsWith("/repos/acme/skills/commits/main")) {
+  if (
+    url.endsWith("/repos/acme/skills/commits/main") ||
+    url.endsWith(`/repos/acme/skills/commits/${commitSha}`)
+  ) {
     return Response.json({ sha: commitSha });
   }
   if (url.includes(`/git/trees/${commitSha}?recursive=1`)) {

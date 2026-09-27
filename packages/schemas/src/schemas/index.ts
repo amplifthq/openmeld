@@ -1846,6 +1846,9 @@ export {
   organizationMemberOpenMeldServiceStatusSchema,
 } from "./http/organization-member-openmeld-service-status";
 export {
+  beginOrganizationSkillImportBatchBodySchema,
+  beginOrganizationSkillImportBatchResponseSchema,
+  beginOrganizationSkillImportBatchRpcInputSchema,
   centerAgentInstallOrganizationSkillResponseSchema,
   centerAgentInstallOrganizationSkillRpcInputSchema,
   centerAgentReadOrganizationSkillsResponseSchema,
@@ -1856,6 +1859,8 @@ export {
   deleteOrganizationSkillBodySchema,
   deleteOrganizationSkillResponseSchema,
   deleteOrganizationSkillRpcInputSchema,
+  getOrganizationSkillImportBatchResponseSchema,
+  getOrganizationSkillImportBatchRpcInputSchema,
   getOrganizationSkillResponseSchema,
   getOrganizationSkillRpcInputSchema,
   importOrganizationSkillFromFilesBodySchema,
@@ -1884,6 +1889,8 @@ export {
   organizationSkillGitHubPreviewSchema,
   organizationSkillGitHubRepositoryPreviewSchema,
   organizationSkillGitHubSourceSchema,
+  organizationSkillImportBatchResultSchema,
+  organizationSkillImportBatchSchema,
   organizationSkillPermissionsSchema,
   organizationSkillPortableMetadataSchema,
   organizationSkillReleaseSummarySchema,

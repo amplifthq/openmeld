@@ -27,6 +27,8 @@ import type {
   AgentProfileExecutionModeResponse,
   ApproveOrganizationDocumentDraftResponse,
   ApproveOrganizationDocumentDraftRpcInput,
+  BeginOrganizationSkillImportBatchResponse,
+  BeginOrganizationSkillImportBatchRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
   CenterAgentAddMembersToSpaceResponse,
   CenterAgentAttribution,
@@ -202,6 +204,8 @@ import type {
   GetModelCatalogResponse,
   GetOrganizationDocumentResponse,
   GetOrganizationDocumentRpcInput,
+  GetOrganizationSkillImportBatchResponse,
+  GetOrganizationSkillImportBatchRpcInput,
   GetOrganizationSkillResponse,
   GetOrganizationSkillRpcInput,
   GetPrepareReadinessResponse,
@@ -503,9 +507,11 @@ import {
   rpcCenterAgentReadOrganizationSkills,
 } from "./organization-skills/center-agent-organization-skill-rpc";
 import {
+  rpcBeginOrganizationSkillImportBatch,
   rpcCreateOrganizationSkill,
   rpcDeleteOrganizationSkill,
   rpcGetOrganizationSkill,
+  rpcGetOrganizationSkillImportBatch,
   rpcImportOrganizationSkillFromFiles,
   rpcImportOrganizationSkillFromGitHub,
   rpcListOrganizationSkills,
@@ -1695,6 +1701,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: PreviewOrganizationSkillRepositoryRpcInput
   ): Promise<PreviewOrganizationSkillRepositoryResponse> {
     return rpcPreviewOrganizationSkillRepository(this.env, input);
+  }
+
+  beginOrganizationSkillImportBatch(
+    input: BeginOrganizationSkillImportBatchRpcInput
+  ): Promise<BeginOrganizationSkillImportBatchResponse> {
+    return rpcBeginOrganizationSkillImportBatch(this.env, input);
+  }
+
+  getOrganizationSkillImportBatch(
+    input: GetOrganizationSkillImportBatchRpcInput
+  ): Promise<GetOrganizationSkillImportBatchResponse> {
+    return rpcGetOrganizationSkillImportBatch(this.env, input);
   }
 
   previewOrganizationSkillFromFiles(
@@ -4294,6 +4312,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: PreviewOrganizationSkillRepositoryRpcInput
   ): Promise<PreviewOrganizationSkillRepositoryResponse> {
     return super.previewOrganizationSkillRepository(input);
+  }
+
+  beginOrganizationSkillImportBatch(
+    input: BeginOrganizationSkillImportBatchRpcInput
+  ): Promise<BeginOrganizationSkillImportBatchResponse> {
+    return super.beginOrganizationSkillImportBatch(input);
+  }
+
+  getOrganizationSkillImportBatch(
+    input: GetOrganizationSkillImportBatchRpcInput
+  ): Promise<GetOrganizationSkillImportBatchResponse> {
+    return super.getOrganizationSkillImportBatch(input);
   }
 
   previewOrganizationSkillFromFiles(

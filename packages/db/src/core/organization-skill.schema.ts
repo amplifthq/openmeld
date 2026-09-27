@@ -228,3 +228,28 @@ export const organizationSkillImportOperations = sqliteTable(
     ),
   ]
 );
+
+export const organizationSkillImportBatches = sqliteTable(
+  "organization_skill_import_batches",
+  {
+    batchId: text("batch_id").notNull(),
+    commitSha: text("commit_sha").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").notNull(),
+    previewJson: text("preview_json").notNull(),
+    repository: text("repository").notNull(),
+    resultsJson: text("results_json").notNull(),
+    sourceUrl: text("source_url").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.organizationId, table.batchId],
+      name: "organization_skill_import_batches_pk",
+    }),
+  ]
+);

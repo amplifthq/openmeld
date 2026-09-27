@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   createOrganizationSkillsApi,
   type OrganizationSkillsApi,
@@ -213,74 +212,84 @@ export async function runOrganizationSkillsAddAll(
   await runOrganizationSkillsCommand(
     input,
     dependencyOverrides,
-    async (context) => {
-      const response = await context.api.previewRepositoryFromGitHub({
-        expectedOrganizationId: context.organization.id,
-        requestContext: context.requestContext,
-        url: source.url,
-      });
-      requireOrganizationIdentity(context, response.organizationId);
-      if (
-        source.pinnedCommitSha &&
-        source.pinnedCommitSha !== response.preview.commitSha
-      ) {
-        throw new Error(
-          "The repository preview did not match the pinned commit."
-        );
-      }
-      const existingSkills = await listForCurrentOrganization(context);
-      const existingPaths = new Set(
-        existingSkills.skills.flatMap((skill) =>
-          skill.source.kind === "github" &&
-          skill.source.repository === response.preview.repository
-            ? [skill.source.path]
-            : []
-        )
-      );
-      const batchId = input.operationId ?? crypto.randomUUID();
-      const results: RepositoryInstallResult[] = [];
-      if (!context.json && context.presenter.view !== "agent") {
-        context.presenter.line({
-          code: "skills.add.all.start",
-          text: `Installing Skills from commit ${response.preview.commitSha.slice(0, 12)}. Retry ID: ${batchId}.`,
-        });
-      }
-      for (const item of response.preview.skills) {
-        const result = await installRepositorySkill(
-          context,
-          item,
-          response.preview.commitSha,
-          batchId,
-          existingPaths
-        );
-        results.push(result);
-        if (!context.json && context.presenter.view !== "agent") {
-          context.presenter.line({
-            code: "skills.add.all.item",
-            text: `${sanitizeTerminalDisplayText(result.path || "Repository root")} — ${result.status}${result.error ? `: ${sanitizeTerminalDisplayText(result.error)}` : ""}`,
-          });
-        }
-      }
-      const payload = {
-        commitSha: response.preview.commitSha,
-        operationId: batchId,
-        organizationId: context.organization.id,
-        repository: response.preview.repository,
-        retrySource: `${response.preview.repository}/tree/${response.preview.commitSha}`,
-        results,
-      };
-      presentRepositoryInstallSummary(context, payload);
-      if (
-        results.some(
-          (result) =>
-            result.status === "failed" ||
-            (result.status === "skipped" && !existingPaths.has(result.path))
-        )
-      ) {
-        process.exitCode = 1;
-      }
-    }
+    async (context) =>
+      await installRepositoryBatch(context, source, input.operationId)
   );
+}
+
+async function installRepositoryBatch(
+  context: OrganizationSkillsCommandContext,
+  source: ReturnType<typeof parseRepositoryBatchSource>,
+  requestedBatchId?: string
+): Promise<void> {
+  const batchId = requestedBatchId ?? crypto.randomUUID();
+  const started = await context.api.beginImportBatch({
+    batchId,
+    expectedOrganizationId: context.organization.id,
+    requestContext: context.requestContext,
+    timeoutMs: ORGANIZATION_SKILL_GITHUB_REQUEST_TIMEOUT_MS,
+    url: source.url,
+  });
+  requireOrganizationIdentity(context, started.batch.organizationId);
+  if (
+    source.pinnedCommitSha &&
+    source.pinnedCommitSha !== started.batch.preview.commitSha
+  ) {
+    throw new Error("The saved batch does not match the pinned commit.");
+  }
+  if (!context.json && context.presenter.view !== "agent") {
+    context.presenter.line({
+      code: "skills.add.all.start",
+      text: `Installing Skills from commit ${started.batch.preview.commitSha.slice(0, 12)}. Retry ID: ${batchId}.`,
+    });
+  }
+  for (const [index, item] of started.batch.preview.skills.entries()) {
+    const prior = started.batch.results[index];
+    if (prior?.status === "installed" || prior?.status === "skipped") {
+      continue;
+    }
+    const result = await installRepositorySkill(
+      context,
+      item,
+      started.batch.preview.commitSha,
+      batchId
+    );
+    if (!context.json && context.presenter.view !== "agent") {
+      context.presenter.line({
+        code: "skills.add.all.item",
+        text: `${sanitizeTerminalDisplayText(result.path || "Repository root")} — ${result.status}${result.error ? `: ${sanitizeTerminalDisplayText(result.error)}` : ""}`,
+      });
+    }
+  }
+  const saved = await context.api.getImportBatch({
+    batchId,
+    requestContext: context.requestContext,
+  });
+  requireOrganizationIdentity(context, saved.batch.organizationId);
+  const results = saved.batch.results.map(
+    ({ selected: _selected, ...result }, index) => ({
+      ...result,
+      url: saved.batch.preview.skills[index]?.url ?? "",
+    })
+  );
+  presentRepositoryInstallSummary(context, {
+    commitSha: saved.batch.preview.commitSha,
+    operationId: batchId,
+    organizationId: context.organization.id,
+    repository: saved.batch.preview.repository,
+    retrySource: `${saved.batch.preview.repository}/tree/${saved.batch.preview.commitSha}`,
+    results,
+  });
+  if (
+    results.some(
+      (result) =>
+        result.status === "failed" ||
+        result.status === "pending" ||
+        (result.status === "skipped" && result.error !== "Already in Team")
+    )
+  ) {
+    process.exitCode = 1;
+  }
 }
 
 function presentRepositoryInstallSummary(
@@ -352,7 +361,7 @@ type RepositoryInstallResult = {
   path: string;
   releaseId?: string;
   skillId?: string;
-  status: "installed" | "skipped" | "failed";
+  status: "pending" | "installed" | "skipped" | "failed";
   url: string;
 };
 
@@ -360,17 +369,8 @@ async function installRepositorySkill(
   context: OrganizationSkillsCommandContext,
   item: RepositoryInstallItem,
   commitSha: string,
-  batchId: string,
-  existingPaths: Set<string>
+  batchId: string
 ): Promise<RepositoryInstallResult> {
-  if (existingPaths.has(item.path)) {
-    return {
-      error: "Already in Team",
-      path: item.path,
-      status: "skipped",
-      url: item.url,
-    };
-  }
   if (item.blocker) {
     return {
       error: item.blocker.message,
@@ -379,14 +379,11 @@ async function installRepositorySkill(
       url: item.url,
     };
   }
-  const operationId = createHash("sha256")
-    .update(`${batchId}\n${item.path}`)
-    .digest("hex");
   try {
     const installed = await context.api.importFromGitHub({
       expectedCommitSha: commitSha,
       expectedOrganizationId: context.organization.id,
-      operationId,
+      batchId,
       requestContext: context.requestContext,
       timeoutMs: ORGANIZATION_SKILL_GITHUB_REQUEST_TIMEOUT_MS,
       url: item.url,

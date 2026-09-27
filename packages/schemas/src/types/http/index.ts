@@ -738,6 +738,9 @@ export type {
   OrganizationMemberOpenMeldServiceStatusesResponse,
 } from "./organization-member-openmeld-service-status";
 export type {
+  BeginOrganizationSkillImportBatchBody,
+  BeginOrganizationSkillImportBatchResponse,
+  BeginOrganizationSkillImportBatchRpcInput,
   CenterAgentInstallOrganizationSkillResponse,
   CenterAgentInstallOrganizationSkillRpcInput,
   CenterAgentReadOrganizationSkillsResponse,
@@ -748,6 +751,8 @@ export type {
   DeleteOrganizationSkillBody,
   DeleteOrganizationSkillResponse,
   DeleteOrganizationSkillRpcInput,
+  GetOrganizationSkillImportBatchResponse,
+  GetOrganizationSkillImportBatchRpcInput,
   GetOrganizationSkillResponse,
   GetOrganizationSkillRpcInput,
   ImportOrganizationSkillFromFilesBody,
@@ -765,6 +770,7 @@ export type {
   OrganizationSkillGitHubPreview,
   OrganizationSkillGitHubRepositoryPreview,
   OrganizationSkillGitHubSource,
+  OrganizationSkillImportBatch,
   OrganizationSkillPortableMetadata,
   OrganizationSkillReleaseSummary,
   OrganizationSkillRuntimeCatalogResponse,

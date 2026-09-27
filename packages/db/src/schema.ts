@@ -103,6 +103,7 @@ export const {
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
   organizationSkillImportOperations,
+  organizationSkillImportBatches,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
   organizationMemberPresenceSessions,

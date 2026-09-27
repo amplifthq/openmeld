@@ -289,6 +289,7 @@ export const importOrganizationSkillFromGitHubBodySchema = z
       .regex(/^[a-f0-9]{40}$/)
       .optional(),
     expectedOrganizationId: identifierSchema,
+    batchId: operationIdSchema.optional(),
     operationId: operationIdSchema.optional(),
     url: sourceUrlSchema,
   })
@@ -384,6 +385,42 @@ export const previewOrganizationSkillRepositoryResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   preview: organizationSkillGitHubRepositoryPreviewSchema,
 });
+export const beginOrganizationSkillImportBatchBodySchema = z.strictObject({
+  batchId: operationIdSchema,
+  expectedCommitSha: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .optional(),
+  expectedOrganizationId: identifierSchema,
+  selectedPaths: z
+    .array(z.string().max(1024))
+    .max(ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT)
+    .optional(),
+  url: sourceUrlSchema,
+});
+export const organizationSkillImportBatchResultSchema = z.strictObject({
+  error: z.string().max(2048).optional(),
+  path: z.string().max(1024),
+  releaseId: identifierSchema.optional(),
+  selected: z.boolean(),
+  skillId: identifierSchema.optional(),
+  status: z.enum(["pending", "installed", "skipped", "failed"]),
+});
+export const organizationSkillImportBatchSchema = z.strictObject({
+  batchId: operationIdSchema,
+  createdAt: isoDateTimeSchema,
+  organizationId: identifierSchema,
+  preview: organizationSkillGitHubRepositoryPreviewSchema,
+  results: z
+    .array(organizationSkillImportBatchResultSchema)
+    .max(ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT),
+  sourceUrl: sourceUrlSchema,
+});
+export const beginOrganizationSkillImportBatchResponseSchema = z.strictObject({
+  batch: organizationSkillImportBatchSchema,
+});
+export const getOrganizationSkillImportBatchResponseSchema =
+  beginOrganizationSkillImportBatchResponseSchema;
 export const previewOrganizationSkillFromFilesResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   preview: organizationSkillFilesPreviewSchema,
@@ -575,6 +612,14 @@ export const previewOrganizationSkillRepositoryRpcInputSchema =
   previewOrganizationSkillRepositoryBodySchema.extend({
     context: openMeldRequestContextSchema,
   });
+export const beginOrganizationSkillImportBatchRpcInputSchema =
+  beginOrganizationSkillImportBatchBodySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const getOrganizationSkillImportBatchRpcInputSchema = z.strictObject({
+  batchId: operationIdSchema,
+  context: openMeldRequestContextSchema,
+});
 export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =
   z.strictObject({
     context: openMeldRequestContextSchema,

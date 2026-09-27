@@ -602,10 +602,14 @@ installs each eligible Skill independently. It reports installed, skipped, and
 failed items; one failed package does not undo successful installs. A retry
 with the returned operation ID and pinned `retrySource` replays completed items
 instead of creating duplicate Skills. A retry using a mutable repository URL
-is rejected. The
-current CLI owns the batch loop, so its final summary is not retained as a
-server-side job record after the process exits. Core retains each completed
-item's retry receipt. This does not remove package-level limits.
+is rejected. Core owns the pinned batch plan and per-item results in D1; Web
+and CLI run the eligible items sequentially through the same idempotent import
+operation. A client that loses its connection can query the batch by ID and
+continue pending or failed items without recreating completed releases. The
+batch freezes the member's selected Skill paths; retries cannot install paths
+that were not selected. It is scoped to its initiating member and current Team
+authority. This does
+not remove package-level limits.
 
 Without `--release`, loading selects the active enabled release. An explicit
 release loads that immutable bundle, including companion files, after Core

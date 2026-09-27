@@ -12,6 +12,14 @@ export function buildOrganizationSkillGitHubImportPath(): string {
   return `${SKILLS_PATH}/import-github`;
 }
 
+export function buildOrganizationSkillImportBatchesPath(): string {
+  return `${SKILLS_PATH}/import-github-batches`;
+}
+
+export function buildOrganizationSkillImportBatchPath(batchId: string): string {
+  return `${buildOrganizationSkillImportBatchesPath()}/${encodeURIComponent(batchId)}`;
+}
+
 export function buildOrganizationSkillFilesImportPath(): string {
   return `${SKILLS_PATH}/import-files`;
 }

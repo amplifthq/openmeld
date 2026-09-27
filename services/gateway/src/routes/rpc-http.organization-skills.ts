@@ -1,8 +1,11 @@
 import {
+  beginOrganizationSkillImportBatchBodySchema,
+  beginOrganizationSkillImportBatchResponseSchema,
   createOrganizationSkillBodySchema,
   createOrganizationSkillResponseSchema,
   deleteOrganizationSkillBodySchema,
   deleteOrganizationSkillResponseSchema,
+  getOrganizationSkillImportBatchResponseSchema,
   getOrganizationSkillResponseSchema,
   importOrganizationSkillFromFilesBodySchema,
   importOrganizationSkillFromFilesResponseSchema,
@@ -44,8 +47,48 @@ const SKILL_FILES_IMPORT_ROUTE = `${SKILLS_ROUTE}/import-files`;
 const SKILL_GITHUB_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-github`;
 const SKILL_REPOSITORY_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-github-repository`;
 const SKILL_FILES_PREVIEW_ROUTE = `${SKILLS_ROUTE}/preview-files`;
+const SKILL_IMPORT_BATCHES_ROUTE = `${SKILLS_ROUTE}/import-github-batches`;
+const SKILL_IMPORT_BATCH_ROUTE = `${SKILL_IMPORT_BATCHES_ROUTE}/:batchId`;
 
 export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
+  app.post(SKILL_IMPORT_BATCHES_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      SKILL_IMPORT_BATCHES_ROUTE,
+      "POST",
+      beginOrganizationSkillImportBatchBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.beginOrganizationSkillImportBatch({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: beginOrganizationSkillImportBatchResponseSchema,
+      route: SKILL_IMPORT_BATCHES_ROUTE,
+      successStatus: 201,
+    });
+  });
+
+  app.get(SKILL_IMPORT_BATCH_ROUTE, (c) =>
+    executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getOrganizationSkillImportBatch({
+          batchId: c.req.param("batchId"),
+          context: buildCoreRpcContext(c),
+        }),
+      method: "GET",
+      responseSchema: getOrganizationSkillImportBatchResponseSchema,
+      route: SKILL_IMPORT_BATCH_ROUTE,
+    })
+  );
+
   app.get(SKILLS_ROUTE, (c) => {
     const query = listOrganizationSkillsQuerySchema.safeParse(c.req.query());
     if (!query.success) {

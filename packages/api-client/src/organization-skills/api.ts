@@ -1,8 +1,11 @@
 import {
+  beginOrganizationSkillImportBatchBodySchema,
+  beginOrganizationSkillImportBatchResponseSchema,
   createOrganizationSkillBodySchema,
   createOrganizationSkillResponseSchema,
   deleteOrganizationSkillBodySchema,
   deleteOrganizationSkillResponseSchema,
+  getOrganizationSkillImportBatchResponseSchema,
   getOrganizationSkillResponseSchema,
   importOrganizationSkillFromFilesBodySchema,
   importOrganizationSkillFromFilesResponseSchema,
@@ -30,6 +33,8 @@ import {
   buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
+  buildOrganizationSkillImportBatchesPath,
+  buildOrganizationSkillImportBatchPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
   buildOrganizationSkillRepositoryPreviewPath,
@@ -43,6 +48,42 @@ import type {
 export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  beginImportBatch: async (input) => {
+    const body = requireValidInput(
+      beginOrganizationSkillImportBatchBodySchema,
+      {
+        batchId: input.batchId,
+        ...(input.expectedCommitSha === undefined
+          ? {}
+          : { expectedCommitSha: input.expectedCommitSha }),
+        expectedOrganizationId: input.expectedOrganizationId,
+        ...(input.selectedPaths === undefined
+          ? {}
+          : { selectedPaths: input.selectedPaths }),
+        url: input.url,
+      },
+      "Skill batch request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Skill batch response",
+      method: "POST",
+      operation: "organization_skill.begin_import_batch",
+      schema: beginOrganizationSkillImportBatchResponseSchema,
+      url: buildOrganizationSkillImportBatchesPath(),
+    });
+  },
+  getImportBatch: async (input) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Skill batch response",
+      method: "GET",
+      operation: "organization_skill.get_import_batch",
+      schema: getOrganizationSkillImportBatchResponseSchema,
+      url: buildOrganizationSkillImportBatchPath(input.batchId),
+    }),
   list: async (input = {}) =>
     await client.requestJson({
       ...requestOptions(input),
@@ -94,6 +135,7 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
         ...(input.operationId === undefined
           ? {}
           : { operationId: input.operationId }),
+        ...(input.batchId === undefined ? {} : { batchId: input.batchId }),
         url: input.url,
       },
       "Organization Skill GitHub import request is invalid."

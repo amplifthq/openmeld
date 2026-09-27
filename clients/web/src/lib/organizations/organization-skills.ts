@@ -6,10 +6,13 @@ import {
 } from "@openmeld/api-client";
 import { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "@openmeld/schemas";
 import type {
+	BeginOrganizationSkillImportBatchBody,
+	BeginOrganizationSkillImportBatchResponse,
 	CreateOrganizationSkillBody,
 	CreateOrganizationSkillResponse,
 	DeleteOrganizationSkillBody,
 	DeleteOrganizationSkillResponse,
+	GetOrganizationSkillImportBatchResponse,
 	GetOrganizationSkillResponse,
 	ImportOrganizationSkillFromGitHubBody,
 	ImportOrganizationSkillFromGitHubResponse,
@@ -90,6 +93,30 @@ export async function importCurrentOrganizationSkillFromGitHub(
 		response.skill.organizationId,
 		input.expectedOrganizationId
 	);
+	return response;
+}
+
+export async function beginCurrentOrganizationSkillImportBatch(
+	input: OrganizationSkillRequestInput & BeginOrganizationSkillImportBatchBody
+): Promise<BeginOrganizationSkillImportBatchResponse> {
+	const response = await runMutation(input.expectedOrganizationId, (api) =>
+		api.beginImportBatch(input)
+	);
+	assertOrganizationId(
+		response.batch.organizationId,
+		input.expectedOrganizationId
+	);
+	return response;
+}
+
+export async function getCurrentOrganizationSkillImportBatch(input: {
+	batchId: string;
+	organizationId: string;
+}): Promise<GetOrganizationSkillImportBatchResponse> {
+	const response = await runMutation(input.organizationId, (api) =>
+		api.getImportBatch({ batchId: input.batchId })
+	);
+	assertOrganizationId(response.batch.organizationId, input.organizationId);
 	return response;
 }
 

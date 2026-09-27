@@ -99,6 +99,18 @@ export type PreviewOrganizationSkillRepositoryBody = z.infer<
 export type PreviewOrganizationSkillRepositoryResponse = z.infer<
   Schemas["previewOrganizationSkillRepositoryResponseSchema"]
 >;
+export type OrganizationSkillImportBatch = z.infer<
+  Schemas["organizationSkillImportBatchSchema"]
+>;
+export type BeginOrganizationSkillImportBatchBody = z.infer<
+  Schemas["beginOrganizationSkillImportBatchBodySchema"]
+>;
+export type BeginOrganizationSkillImportBatchResponse = z.infer<
+  Schemas["beginOrganizationSkillImportBatchResponseSchema"]
+>;
+export type GetOrganizationSkillImportBatchResponse = z.infer<
+  Schemas["getOrganizationSkillImportBatchResponseSchema"]
+>;
 export type CenterAgentReadOrganizationSkillsRpcInput = z.infer<
   Schemas["centerAgentReadOrganizationSkillsRpcInputSchema"]
 >;
@@ -161,6 +173,12 @@ export type PreviewOrganizationSkillFromGitHubRpcInput = z.infer<
 >;
 export type PreviewOrganizationSkillRepositoryRpcInput = z.infer<
   Schemas["previewOrganizationSkillRepositoryRpcInputSchema"]
+>;
+export type BeginOrganizationSkillImportBatchRpcInput = z.infer<
+  Schemas["beginOrganizationSkillImportBatchRpcInputSchema"]
+>;
+export type GetOrganizationSkillImportBatchRpcInput = z.infer<
+  Schemas["getOrganizationSkillImportBatchRpcInputSchema"]
 >;
 export type ReadOrganizationSkillRuntimeSnapshotRpcInput = z.infer<
   Schemas["readOrganizationSkillRuntimeSnapshotRpcInputSchema"]

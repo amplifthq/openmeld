@@ -593,7 +593,7 @@ export const cliJsonSkillsAddAllEnvelopeSchema = defineStrictSuccessEnvelope(
         path: z.string(),
         releaseId: organizationSkillReleaseSummarySchema.shape.id.optional(),
         skillId: organizationSkillSummarySchema.shape.id.optional(),
-        status: z.enum(["installed", "skipped", "failed"]),
+        status: z.enum(["pending", "installed", "skipped", "failed"]),
         url: z.url(),
       })
     ),

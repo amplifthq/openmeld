@@ -82,26 +82,60 @@ describe("Organization Skills CLI", () => {
         const commitSha = "a".repeat(40);
         const repository = "https://github.com/example/skills";
         const { dependencies } = createDependencies();
+        const preview = {
+          catalogLimitBytes: 1024,
+          commitSha,
+          repository,
+          skills: [
+            {
+              blocker: null,
+              fileCount: 1,
+              path: "broken",
+              totalBytes: 100,
+              url: `${repository}/tree/${commitSha}/broken`,
+              warnings: [],
+            },
+          ],
+          totalDeclaredBytes: 100,
+          warnings: [],
+        };
+        let batchId = "";
         const resolveApi = async () =>
           ({
             previewRepositoryFromGitHub: async () => ({
               organizationId: organization.id,
-              preview: {
-                catalogLimitBytes: 1024,
-                commitSha,
-                repository,
-                skills: [
+              preview,
+            }),
+            beginImportBatch: (input: { batchId: string }) => {
+              batchId = input.batchId;
+              return Promise.resolve({
+                batch: {
+                  batchId,
+                  createdAt: "2026-07-26T00:00:00.000Z",
+                  organizationId: organization.id,
+                  preview,
+                  sourceUrl: repository,
+                  results: [
+                    { path: "broken", selected: true, status: "pending" },
+                  ],
+                },
+              });
+            },
+            getImportBatch: async () => ({
+              batch: {
+                batchId,
+                createdAt: "2026-07-26T00:00:00.000Z",
+                organizationId: organization.id,
+                preview,
+                sourceUrl: repository,
+                results: [
                   {
-                    blocker: null,
-                    fileCount: 1,
                     path: "broken",
-                    totalBytes: 100,
-                    url: `${repository}/tree/${commitSha}/broken`,
-                    warnings: [],
+                    selected: true,
+                    status: "failed",
+                    error: "Repository file unavailable",
                   },
                 ],
-                totalDeclaredBytes: 100,
-                warnings: [],
               },
             }),
             importFromGitHub: () =>
@@ -167,33 +201,84 @@ describe("Organization Skills CLI", () => {
           warnings: [],
         },
       }));
-      const importFromGitHub = vi.fn((request: { url: string }) =>
-        request.url === failedUrl
-          ? Promise.reject(new Error("Repository file unavailable"))
-          : Promise.resolve({ skill })
-      );
-      let alreadyInstalled = false;
+      let batchId = "";
+      const batchResults = [
+        { path: "review", selected: true, status: "pending" },
+        {
+          path: "too-large",
+          selected: true,
+          status: "skipped",
+          error: "Too large",
+        },
+        { path: "broken", selected: true, status: "pending" },
+      ];
+      const savedBatch = () => ({
+        batchId,
+        createdAt: "2026-07-26T00:00:00.000Z",
+        organizationId: organization.id,
+        preview: {
+          catalogLimitBytes: 1024,
+          commitSha,
+          repository: baseUrl,
+          skills: [
+            {
+              blocker: null,
+              fileCount: 1,
+              path: "review",
+              totalBytes: 100,
+              url: installUrl,
+              warnings: [],
+            },
+            {
+              blocker: { code: "too_large", message: "Too large" },
+              fileCount: 1,
+              path: "too-large",
+              totalBytes: 5000,
+              url: blockedUrl,
+              warnings: [],
+            },
+            {
+              blocker: null,
+              fileCount: 1,
+              path: "broken",
+              totalBytes: 100,
+              url: failedUrl,
+              warnings: [],
+            },
+          ],
+          totalDeclaredBytes: 5200,
+          warnings: [],
+        },
+        results: batchResults,
+        sourceUrl: baseUrl,
+      });
+      const importFromGitHub = vi.fn((request: { url: string }) => {
+        if (request.url === failedUrl) {
+          batchResults[2] = {
+            path: "broken",
+            selected: true,
+            status: "failed",
+            error: "Repository file unavailable",
+          };
+          return Promise.reject(new Error("Repository file unavailable"));
+        }
+        batchResults[0] = {
+          path: "review",
+          selected: true,
+          status: "installed",
+        };
+        return Promise.resolve({ skill });
+      });
       const { dependencies } = createDependencies();
       const resolveApi = async () =>
         ({
           previewRepositoryFromGitHub,
+          beginImportBatch: (input: { batchId: string }) => {
+            batchId = input.batchId;
+            return Promise.resolve({ batch: savedBatch() });
+          },
+          getImportBatch: async () => ({ batch: savedBatch() }),
           importFromGitHub,
-          list: async () => ({
-            organizationId: organization.id,
-            skills: alreadyInstalled
-              ? [
-                  {
-                    ...skill,
-                    source: {
-                      commitSha,
-                      kind: "github" as const,
-                      path: "review",
-                      repository: baseUrl,
-                    },
-                  },
-                ]
-              : [],
-          }),
         }) as unknown as OrganizationSkillsApi;
       const { plainStdout } = await withCapturedStdio(async () => {
         await runOrganizationSkillsAddAll(
@@ -212,14 +297,11 @@ describe("Organization Skills CLI", () => {
       expect(importFromGitHub).toHaveBeenCalledWith(
         expect.objectContaining({
           expectedCommitSha: commitSha,
-          operationId: createHash("sha256")
-            .update(`${payload.operationId}\nreview`)
-            .digest("hex"),
+          batchId: payload.operationId,
           timeoutMs: 60_000,
           url: installUrl,
         })
       );
-      alreadyInstalled = true;
       const secondRun = await withCapturedStdio(async () => {
         await runOrganizationSkillsAddAll(
           {
@@ -233,7 +315,7 @@ describe("Organization Skills CLI", () => {
       const retryPayload = JSON.parse(secondRun.plainStdout.trim());
       expect(
         retryPayload.results.map((item: { status: string }) => item.status)
-      ).toEqual(["skipped", "skipped", "failed"]);
+      ).toEqual(["installed", "skipped", "failed"]);
       expect(importFromGitHub).toHaveBeenCalledTimes(3);
       await expect(
         runOrganizationSkillsAddAll(

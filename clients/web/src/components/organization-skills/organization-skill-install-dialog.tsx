@@ -3,6 +3,7 @@ import type {
 	OrganizationSkill,
 	OrganizationSkillGitHubPreview,
 	OrganizationSkillGitHubRepositoryPreview,
+	OrganizationSkillImportBatch,
 	OrganizationSkillSummary,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -12,6 +13,8 @@ import { Label } from "@openmeld/ui/components/label";
 import { useMutation } from "@tanstack/react-query";
 import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import {
+	beginCurrentOrganizationSkillImportBatch,
+	getCurrentOrganizationSkillImportBatch,
 	importCurrentOrganizationSkillFromGitHub,
 	previewCurrentOrganizationSkillFromGitHub,
 	previewCurrentOrganizationSkillRepository,
@@ -57,7 +60,9 @@ export function InstallSkillDialog(input: {
 	const request = useRef(0);
 	const mounted = useRef(false);
 	const submitting = useRef(false);
-	const batchOperationIds = useRef(new Map<string, string>());
+	const batchPlan = useRef<{ id: string; selectedPaths: string[] } | null>(
+		null
+	);
 	useLayoutEffect(() => {
 		mounted.current = true;
 		return () => {
@@ -77,7 +82,7 @@ export function InstallSkillDialog(input: {
 		setCatalog(null);
 		setSelectedUrls(new Set());
 		setBatchResults(new Map());
-		batchOperationIds.current.clear();
+		batchPlan.current = null;
 		setReviewing(false);
 		setError(null);
 	};
@@ -227,39 +232,63 @@ export function InstallSkillDialog(input: {
 		setBatchInstalling(true);
 		setError(null);
 		let installedAny = false;
-		for (const skill of pending) {
-			const operationId =
-				batchOperationIds.current.get(skill.url) ?? crypto.randomUUID();
-			batchOperationIds.current.set(skill.url, operationId);
-			try {
-				const response = await importCurrentOrganizationSkillFromGitHub({
-					expectedCommitSha: catalog.preview.commitSha,
-					expectedOrganizationId: input.organizationId,
-					operationId,
-					url: skill.url,
-				});
-				if (response.skill.organizationId !== input.organizationId) {
-					throw new Error("The installed Skill belongs to a different Team.");
-				}
-				installedAny = true;
-				setBatchResults((previous) =>
-					new Map(previous).set(skill.url, { status: "installed" })
-				);
-			} catch (failure) {
-				setBatchResults((previous) =>
-					new Map(previous).set(skill.url, {
-						error: resolveOrganizationSkillErrorMessage(failure),
-						status: "failed",
-					})
+		try {
+			const plan = batchPlan.current ?? {
+				id: crypto.randomUUID(),
+				selectedPaths: pending.map((skill) => skill.path),
+			};
+			const started = await beginCurrentOrganizationSkillImportBatch({
+				batchId: plan.id,
+				expectedCommitSha: catalog.preview.commitSha,
+				expectedOrganizationId: input.organizationId,
+				selectedPaths: plan.selectedPaths,
+				url: catalog.rootUrl,
+			});
+			if (started.batch.preview.commitSha !== catalog.preview.commitSha) {
+				throw new Error(
+					"The repository changed. Review it again before installing."
 				);
 			}
-		}
-		if (installedAny && mounted.current) {
-			input.onBatchChanged();
-		}
-		submitting.current = false;
-		if (mounted.current) {
-			setBatchInstalling(false);
+			batchPlan.current = plan;
+			const outcome = await installSelectedBatchSkills({
+				batch: started.batch,
+				organizationId: input.organizationId,
+				selectedUrls: new Set(pending.map((skill) => skill.url)),
+			});
+			installedAny = outcome.installedAny;
+			setBatchResults(
+				(previous) => new Map([...previous, ...outcome.failures])
+			);
+			const saved = await getCurrentOrganizationSkillImportBatch({
+				batchId: plan.id,
+				organizationId: input.organizationId,
+			});
+			setBatchResults(
+				new Map(
+					saved.batch.results.flatMap((result, index) => {
+						const item = saved.batch.preview.skills[index];
+						return item &&
+							(result.status === "installed" || result.status === "failed")
+							? [
+									[
+										item.url,
+										{ status: result.status, error: result.error },
+									] as const,
+								]
+							: [];
+					})
+				)
+			);
+		} catch (failure) {
+			setError(resolveOrganizationSkillErrorMessage(failure));
+		} finally {
+			if (installedAny && mounted.current) {
+				input.onBatchChanged();
+			}
+			submitting.current = false;
+			if (mounted.current) {
+				setBatchInstalling(false);
+			}
 		}
 	};
 	const pendingSelection = countPendingSelection(
@@ -360,7 +389,10 @@ export function InstallSkillDialog(input: {
 						results={batchResults}
 						reviewing={reviewing}
 						selectedUrls={selectedUrls}
-						setSelectedUrls={setSelectedUrls}
+						setSelectedUrls={(next) => {
+							batchPlan.current = null;
+							setSelectedUrls(next);
+						}}
 					/>
 				)}
 				{!(review || catalog) && (
@@ -389,6 +421,45 @@ export function InstallSkillDialog(input: {
 			</div>
 		</OrganizationSkillFlowDialog>
 	);
+}
+
+async function installSelectedBatchSkills(input: {
+	batch: OrganizationSkillImportBatch;
+	organizationId: string;
+	selectedUrls: Set<string>;
+}): Promise<{
+	installedAny: boolean;
+	failures: Map<string, RepositoryBatchResult>;
+}> {
+	let installedAny = false;
+	const failures = new Map<string, RepositoryBatchResult>();
+	for (const [index, skill] of input.batch.preview.skills.entries()) {
+		if (
+			!input.selectedUrls.has(skill.url) ||
+			input.batch.results[index]?.status === "installed" ||
+			input.batch.results[index]?.status === "skipped"
+		) {
+			continue;
+		}
+		try {
+			const response = await importCurrentOrganizationSkillFromGitHub({
+				batchId: input.batch.batchId,
+				expectedCommitSha: input.batch.preview.commitSha,
+				expectedOrganizationId: input.organizationId,
+				url: skill.url,
+			});
+			if (response.skill.organizationId !== input.organizationId) {
+				throw new Error("The installed Skill belongs to a different Team.");
+			}
+			installedAny = true;
+		} catch (failure) {
+			failures.set(skill.url, {
+				error: resolveOrganizationSkillErrorMessage(failure),
+				status: "failed",
+			});
+		}
+	}
+	return { installedAny, failures };
 }
 
 function countPendingSelection(

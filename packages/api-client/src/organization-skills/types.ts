@@ -1,8 +1,11 @@
 import type {
+  BeginOrganizationSkillImportBatchBody,
+  BeginOrganizationSkillImportBatchResponse,
   CreateOrganizationSkillBody,
   CreateOrganizationSkillResponse,
   DeleteOrganizationSkillBody,
   DeleteOrganizationSkillResponse,
+  GetOrganizationSkillImportBatchResponse,
   GetOrganizationSkillResponse,
   ImportOrganizationSkillFromFilesBody,
   ImportOrganizationSkillFromFilesResponse,
@@ -36,6 +39,12 @@ type OrganizationSkillMutationTarget = {
 };
 
 export type OrganizationSkillsApi = {
+  beginImportBatch: (
+    input: OrganizationSkillRequestInput & BeginOrganizationSkillImportBatchBody
+  ) => Promise<BeginOrganizationSkillImportBatchResponse>;
+  getImportBatch: (
+    input: OrganizationSkillRequestInput & { batchId: string }
+  ) => Promise<GetOrganizationSkillImportBatchResponse>;
   list: (
     input?: OrganizationSkillRequestInput
   ) => Promise<ListOrganizationSkillsResponse>;
