@@ -1,5 +1,18 @@
 # Windows startup observation timing
 
+## Agent Context
+
+- Purpose: Preserve native failure evidence and the startup observation correction.
+- Read this when: Continuing Windows Web connection acceptance or reviewing PR #1357.
+- Update this when: Native candidate checks or published Windows acceptance produce new evidence.
+- Do not use this for: Readiness policy, release authorization, or a claim of completed setup.
+- Source of truth: Native observer records for evidence; the local Service owner document for lifecycle rules.
+
+Status: In progress; native candidate and published Web acceptance remain pending.
+
+Remove this report after the fix passes published Windows acceptance and its
+evidence and remaining limitations are retained in the closed PR and release record.
+
 ## Native evidence
 
 The 0.3.227 Windows preview was built from
