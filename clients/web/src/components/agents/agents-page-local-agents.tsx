@@ -1369,7 +1369,7 @@ function LocalAgentInstallationControl(input: {
 						Used for new {input.displayName} work on this computer.
 					</p>
 				</div>
-				<div className="w-full min-w-0 sm:w-72">
+				<div className="w-fit min-w-0 max-w-full sm:max-w-72">
 					{renderLocalAgentInstallationField({
 						currentInstallation,
 						disabled: pendingInstallationId !== null || selectionBlocked,
@@ -1503,7 +1503,7 @@ function renderLocalAgentInstallationField(input: {
 		>
 			<SelectTrigger
 				aria-label={`${input.displayName} installation`}
-				className="h-10 w-full px-3 text-sm"
+				className="w-fit min-w-0 text-sm"
 				displayValue={input.selectedDisplay}
 				placeholder="Choose an installation"
 			/>
