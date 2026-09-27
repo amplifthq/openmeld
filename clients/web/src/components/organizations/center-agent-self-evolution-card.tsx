@@ -779,7 +779,7 @@ function SelfEvolutionSetupDialog(input: {
 						<p className="text-muted-foreground text-xs leading-5">
 							Self-Evolution maintains Organization Understanding, Opportunity
 							Ledger, and a monthly Learning Log in a dedicated Organization
-							Documents folder.
+							Files → Knowledge folder.
 						</p>
 					</div>
 

@@ -61,7 +61,7 @@ must not become user-editable or optional merely to reduce the system prompt.
 
 Use the surrounding product owners for adjacent concepts:
 
-- **Organization Documents** store Organization facts and shared knowledge.
+- **Files → Knowledge** stores approved Team facts and shared knowledge.
 - **Plugins, tools, and MCP connections** provide data access and actions.
 - **Permissions** decide who may do what.
 - **Routines** decide when the Center Agent runs.
@@ -70,7 +70,7 @@ Use the surrounding product owners for adjacent concepts:
 
 Example: `weekly-customer-risk-review` may describe how to collect signals,
 assess risk, and write the report. CRM and Slack Plugins provide data. Organization
-Documents provide customer or policy facts. A Routine chooses Friday at 3 PM.
+Files → Knowledge provides customer or policy facts. A Routine chooses Friday at 3 PM.
 Core authority decides whether any read, message, or external write is allowed.
 
 ## Portable Bundle Contract
@@ -417,7 +417,7 @@ of bundle files.
 Instructions and references reuse the shared Plate/CommonMark + GFM editor. Its
 opt-in page presentation supplies a quiet, accessible toolbar and document
 spacing; character limits appear near the boundary, not as permanent decoration.
-The default presentation for Documents and Space Files remains unchanged. The
+The default presentation for managed Knowledge and Space Files remains unchanged. The
 shared editor reports content changes only; focus and selection must not
 serialize untouched content into a false unsaved draft. No second editor engine,
 autosave or publish state is introduced.
@@ -477,7 +477,7 @@ cached Skill changes, and Organization switching. Browser refresh, close, or
 external navigation uses the native browser before-unload prompt.
 
 The unsaved-changes guard and Markdown editor are shared Web primitives used by
-Organization Documents and Organization Skills. Do not create a second Plate
+managed Knowledge and Organization Skills. Do not create a second Plate
 configuration or page-specific navigation blocker.
 
 ## Core Data And Storage Ownership

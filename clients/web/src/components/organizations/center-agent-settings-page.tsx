@@ -443,7 +443,7 @@ export function CenterAgentSettingsContent(input: {
 						Organization Brief →
 					</Link>
 					<p className="mt-1 text-muted-foreground text-xs">
-						Manage the approved context your Center Agent receives in Documents.
+						Manage the approved knowledge your Center Agent receives in Files.
 					</p>
 				</section>
 			) : null}
@@ -452,10 +452,10 @@ export function CenterAgentSettingsContent(input: {
 					message="OpenMeld could not load the Organization Brief link."
 					onRetry={() => {
 						documentsQuery.refetch().catch((error) => {
-							console.error("Failed to refresh Organization documents.", error);
+							console.error("Failed to refresh Team knowledge.", error);
 						});
 					}}
-					title="Could not load Documents."
+					title="Could not load Team knowledge."
 				/>
 			) : null}
 			{designationQuery.data && !designation ? (
