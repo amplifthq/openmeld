@@ -322,6 +322,7 @@ function TeamFilesBrowser(input: {
 			kind: "folder",
 			name: "Team Knowledge",
 			path: knowledgeFolderPath,
+			emblem: "knowledge",
 		});
 	}
 	const entriesByPath = new Map(

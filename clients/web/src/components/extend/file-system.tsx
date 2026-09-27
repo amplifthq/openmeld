@@ -120,6 +120,8 @@ export type FileSystemFolderItem = {
   /** Folder prefix, e.g. `"invoices/2026/"`. A trailing slash is added when missing. */
   path: string
   name?: string
+  /** Small mark shown on a managed folder without changing its navigation behavior. */
+  emblem?: "knowledge"
   parentPath?: string
   /** Set when children exist but are not in `items` yet; enables `loadChildren`. */
   hasChildren?: boolean
@@ -829,13 +831,14 @@ function folderHasChildren(index: FileSystemIndex, folder: FolderEntry) {
 }
 // A single SVG source so the same glyph renders as a React element, inside the
 // @pierre/trees shadow DOM (via CSS url()), and stays pixel-identical in both.
-const FOLDER_GLYPH_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 50" width="64" height="50"><defs><linearGradient id="fs-folder-back" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3dabf5"/><stop offset="1" stop-color="#1d84dd"/></linearGradient><linearGradient id="fs-folder-front" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#7accfb"/><stop offset="1" stop-color="#37a0ef"/></linearGradient></defs><path d="M5 10c0-3.31 2.69-6 6-6h10.9c1.6 0 3.13.7 4.18 1.9l1.5 1.73a3.5 3.5 0 0 0 2.64 1.22H54c2.76 0 5 2.24 5 5V40c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V10Z" fill="url(#fs-folder-back)"/><path d="M5 15.5h54V40c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V15.5Z" fill="url(#fs-folder-front)"/></svg>`
-const FOLDER_GLYPH_DATA_URL = `data:image/svg+xml,${encodeURIComponent(FOLDER_GLYPH_SVG)}`
-function FileSystemFolderGlyph({ className }: { className?: string }) {
+const folderGlyphSvg = (emblem?: FileSystemFolderItem["emblem"]) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 50" width="64" height="50"><defs><linearGradient id="fs-folder-back" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3dabf5"/><stop offset="1" stop-color="#1d84dd"/></linearGradient><linearGradient id="fs-folder-front" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#7accfb"/><stop offset="1" stop-color="#37a0ef"/></linearGradient></defs><path d="M5 10c0-3.31 2.69-6 6-6h10.9c1.6 0 3.13.7 4.18 1.9l1.5 1.73a3.5 3.5 0 0 0 2.64 1.22H54c2.76 0 5 2.24 5 5V40c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V10Z" fill="url(#fs-folder-back)"/><path d="M5 15.5h54V40c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V15.5Z" fill="url(#fs-folder-front)"/>${emblem === "knowledge" ? '<path d="M32 23.5c-2.8-1.7-6-1.9-9.5-1.2v11.5c3.7-.7 6.8-.3 9.5 1.4 2.7-1.7 5.8-2.1 9.5-1.4V22.3c-3.5-.7-6.7-.5-9.5 1.2Zm0 0v11.7" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>' : ""}</svg>`
+const FOLDER_GLYPH_DATA_URL = `data:image/svg+xml,${encodeURIComponent(folderGlyphSvg())}`
+const KNOWLEDGE_FOLDER_GLYPH_DATA_URL = `data:image/svg+xml,${encodeURIComponent(folderGlyphSvg("knowledge"))}`
+function FileSystemFolderGlyph({ className, emblem }: { className?: string; emblem?: FileSystemFolderItem["emblem"] }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element -- The folder glyph is an inline SVG data URL shared with the tree sprite.
     <img
-      src={FOLDER_GLYPH_DATA_URL}
+      src={emblem === "knowledge" ? KNOWLEDGE_FOLDER_GLYPH_DATA_URL : FOLDER_GLYPH_DATA_URL}
       alt=""
       aria-hidden="true"
       draggable={false}
@@ -3378,7 +3381,7 @@ function FileSystemIconsView({
                   )}
                 >
                   {entry.kind === "folder" ? (
-                    <FileSystemFolderGlyph className="h-12 w-auto drop-shadow-sm" />
+                    <FileSystemFolderGlyph className="h-12 w-auto drop-shadow-sm" emblem={entry.emblem} />
                   ) : (
                     <div style={{ width: Math.min(76, 48 * previewAspectRatio) }}>
                       <FileVisual
@@ -4340,7 +4343,7 @@ const FileSystemColumn = React.memo(function FileSystemColumn({
                   )}
                 >
                   {entry.kind === "folder" ? (
-                    <FileSystemFolderGlyph className="h-3.5 w-auto shrink-0" />
+                    <FileSystemFolderGlyph className="h-3.5 w-auto shrink-0" emblem={entry.emblem} />
                   ) : coverUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element -- Cover thumbnails come from caller-provided file preview URLs.
                     <img
@@ -4717,7 +4720,7 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
                   )}
                 >
                   {entry.kind === "folder" ? (
-                    <FileSystemFolderGlyph className="h-9 w-auto" />
+                    <FileSystemFolderGlyph className="h-9 w-auto" emblem={entry.emblem} />
                   ) : (
                     <FileVisual
                       file={entry}
@@ -4735,7 +4738,7 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center p-3">
           {activeEntry?.kind === "folder" ? (
-            <FileSystemFolderGlyph className="h-40 max-h-full w-auto drop-shadow-md" />
+            <FileSystemFolderGlyph className="h-40 max-h-full w-auto drop-shadow-md" emblem={activeEntry.emblem} />
           ) : activeFile && !attachedStagePaths.includes(activeFile.path) ? (
             <InlineSpinner className="size-6 text-muted-foreground" />
           ) : null}
@@ -4785,7 +4788,7 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
                   renderFilePreview={renderFilePreview}
                 />
               ) : (
-                <FileSystemFolderGlyph className="h-8 w-auto shrink-0" />
+                <FileSystemFolderGlyph className="h-8 w-auto shrink-0" emblem={activeEntry.kind === "folder" ? activeEntry.emblem : undefined} />
               )}
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold break-words">
