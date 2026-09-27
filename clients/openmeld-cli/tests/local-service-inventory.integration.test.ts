@@ -65,6 +65,66 @@ const EXTERNAL_MANAGER_STATUS: DaemonServiceManagerRuntimeStatus = {
 };
 
 describe("local service inventory process evidence", () => {
+  it.each([
+    "appears",
+    "disappears",
+  ])("uses the current lease when it %s during manager inspection", async (transition) => {
+    await withTempHome(async (home) => {
+      const definitionPath = join(home, "current-service.plist");
+      await writeFile(
+        definitionPath,
+        `<plist><string>${daemonServiceExecutableWrapperPath()}</string></plist>`
+      );
+      if (transition === "disappears") {
+        await writeRunningRuntimeLease();
+      }
+      const manager = createServiceManager({
+        installed: true,
+        running: true,
+        enabled: true,
+        definitionPath,
+      });
+      manager.status = async () => {
+        if (transition === "appears") {
+          await writeRunningRuntimeLease();
+        } else {
+          await rm(daemonRuntimeLeasePath());
+        }
+        return {
+          installed: true,
+          running: true,
+          enabled: true,
+          definitionPath,
+        };
+      };
+      const inventory = await inspectDaemonServiceInventory({
+        expectedVersion: "0.2.2",
+        readDaemonStatus: async () => INSTALLED_STATUS,
+        resolveServiceManager: async () => manager,
+        listOwnedProcesses: async () => [
+          {
+            pid: process.pid,
+            parentPid: process.ppid,
+            command: `node ${daemonServiceLauncherPath()} service run --mode foreground`,
+            mode: "background",
+            ownership: "cli_direct",
+          },
+        ],
+      });
+      const anomalies = inventory.anomalies.map(({ code }) => code);
+      if (transition === "appears") {
+        expect(inventory.runtimeStatus.status).toBe("running");
+        expect(inventory.runtimeLease?.pid).toBe(process.pid);
+        expect(anomalies).not.toContain("runtime_stale");
+        expect(anomalies).not.toContain("manager_running_without_runtime");
+        expect(anomalies).not.toContain("multiple_active_owners");
+      } else {
+        expect(inventory.runtimeStatus.status).toBe("stale");
+        expect(inventory.runtimeLease).toBeUndefined();
+        expect(anomalies).toContain("runtime_stale");
+      }
+    });
+  });
   it("does not diagnose a missing live command as bundle corruption after the process exits", async () => {
     await withTempHome(async () => {
       const exited = spawnSync(process.execPath, ["-e", ""]);
