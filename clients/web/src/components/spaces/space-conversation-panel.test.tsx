@@ -1636,7 +1636,7 @@ describe("SpaceConversationPanel", () => {
 					actorProfileKind: "agent",
 					actorProfileName: "Center Agent",
 					[field]: [TARGET_PROFILE_ID],
-					text: "Please check this.",
+					text: "@Codex 5.6 Sol Please check this.",
 				}),
 			],
 		});
@@ -1644,6 +1644,11 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByTestId("space-message-addressing").textContent
 		).toContain(`${label} Codex 5.6 Sol`);
+		expect(
+			screen.getByRole("button", {
+				name: `Open Codex 5.6 Sol profile (${label === "Mention" ? "Mention only" : label})`,
+			})
+		).toBeTruthy();
 	});
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
