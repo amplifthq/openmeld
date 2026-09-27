@@ -1718,7 +1718,12 @@ another card.
 The Service-owned selection status disables the selector while matching work is
 queued or running and explains: the agent has work in progress, so the person
 must wait until it finishes. A concurrent installation operation gets a separate
-short-lived message. One verified installation is read-only. Loading, empty,
+short-lived message. One verified installation is read-only only when it is the
+current selection. If the saved selection is gone, the sole verified alternative
+still has an explicit switch action. Installation controls never depend on the
+inventory's candidate count: the live installation response owns the available
+choices and selected identity. Launch check describes launch readiness only;
+installation identity and choices belong in the Installation section. Loading, empty,
 failure, switching, and slow-reconciliation states remain inline without moving
 the surrounding dialog. Long names and details truncate within the selector,
 the control never blocks setup, and it never appears for another member's

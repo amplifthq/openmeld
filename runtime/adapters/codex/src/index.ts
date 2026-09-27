@@ -101,6 +101,7 @@ export type CodexAdapterOptions = {
 export {
   type CodexInstalledLaunchCandidatesOptions,
   isCodexHostApplicationCommandPath,
+  refreshCodexPersistedLaunchContract,
   resolveCodexTimeoutMs,
   resolveInstalledCodexLaunchCandidates,
   resolveInstalledCodexLaunchContract,

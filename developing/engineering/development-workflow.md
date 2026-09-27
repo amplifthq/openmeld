@@ -1181,6 +1181,31 @@ transport; it adds no cloud-to-Service frame or shared schema field.
   future-work-only behavior. It must not rewrite Binding state, active Wake
   state, or pending Agent Interactions.
 
+### Local Installation Recovery Contract Impact Audit
+
+- Boundaries: Codex host-app discovery and persisted launch reconciliation,
+  additive optional ACI `launch.failureReason`, and Web installation controls.
+  The raw message/path privacy boundary remains unchanged. Setup, Wake frames,
+  Space actions, status, trace, and self-rescue commands retain their contracts.
+- Publish schema consumers before the Service emits the optional reason. Old
+  Services omit it; new Web retains generic repair guidance. Old cloud uses a
+  strict snapshot schema and must be upgraded before the new producer. Rollback
+  must retain the additive schema reader while new Services remain connected.
+- The Service contract advances to
+  `openmeld-service-contract-2026-09-local-install-recovery-v1`. The release
+  owner must stamp Service **required**: old carriers retain a disappeared Codex
+  App executable and cannot recover the affected Wake path. Use the existing
+  required-update floor and automatic updater, preserving accepted work and
+  self-rescue. Do not invent a separate connection reset or rollout mechanism.
+- CLI commands remain compatible; stamp CLI **available** unless another change
+  in the release requires a higher floor. Feature branches leave release version
+  and manifest untouched. The clean release PR stamps the exact post-merge
+  artifact and publishes CLI/Service before Core advertises its required floor.
+- Cursor keeps its provider-owned relocation rule. Other providers share stable
+  entrypoint preservation, typed file-failure diagnostics, and owner selection
+  even with one alternative. Node-version or package-channel changes do not
+  authorize silently adopting a different installation.
+
 ### Safe Local Agent Installation Selection Contract Impact Audit
 
 Safe installation selection changes Web behavior, Local Runtimes HTTP/RPC,

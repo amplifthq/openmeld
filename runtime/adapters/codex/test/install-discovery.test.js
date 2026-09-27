@@ -75,73 +75,121 @@ test("Codex install discovery finds the bundled Codex.app binary outside degrade
   }
 });
 
-test("Codex install discovery finds the Codex bundled with ChatGPT outside degraded PATH", async () => {
-  const fixtureDir = await mkdtemp(join(tmpdir(), "adapter-chatgpt-codex-"));
-  const chatGptResourcesDir = join(
-    fixtureDir,
-    "Applications",
-    "ChatGPT.app",
-    "Contents",
-    "Resources"
-  );
-  const chatGptCodexPath = join(chatGptResourcesDir, "codex");
-  const originalHome = process.env.HOME;
-  const originalPath = process.env.PATH;
-  const originalSearchEnv = snapshotEnvVars(EXECUTABLE_SEARCH_ENV_KEYS);
-
-  await mkdir(chatGptResourcesDir, { recursive: true });
-  await writeFile(
-    chatGptCodexPath,
-    fakeCodexSource("0.149.0-alpha.4.3"),
-    "utf8"
-  );
-  await chmod(chatGptCodexPath, 0o755);
-
-  try {
-    process.env.HOME = fixtureDir;
-    process.env.PATH = "/usr/bin:/bin";
-    process.env.BUN_INSTALL = join(fixtureDir, ".bun");
-    process.env.FNM_DIR = join(fixtureDir, ".fnm");
-    process.env.NPM_CONFIG_PREFIX = join(fixtureDir, ".npm-global");
-    process.env.NVM_DIR = join(fixtureDir, ".nvm");
-    process.env.PNPM_HOME = join(fixtureDir, ".local", "share", "pnpm");
-    process.env.SHELL = "/bin/false";
-    process.env.VOLTA_HOME = join(fixtureDir, ".volta");
-    process.env.OPENMELD_EXECUTABLE_LOGIN_SHELL_TIMEOUT_MS = "100";
-    Reflect.deleteProperty(process.env, "OPENMELD_DAEMON_RUNTIME_CODEX_BIN");
-
-    const { resolveInstalledCodexLaunchCandidates } = await import(
-      "../dist/index.js"
+for (const layout of [
+  ["codex"],
+  ["codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex"],
+]) {
+  test(`Codex discovers and recovers ChatGPT layout ${layout.join("/")} outside degraded PATH`, async () => {
+    const fixtureDir = await mkdtemp(join(tmpdir(), "adapter-chatgpt-codex-"));
+    const chatGptResourcesDir = join(
+      fixtureDir,
+      "Applications",
+      "ChatGPT.app",
+      "Contents",
+      "Resources"
     );
-    const resolution = await resolveInstalledCodexLaunchCandidates({
-      appBundleRoots: [join(fixtureDir, "Applications")],
-      timeoutMs: 1000,
-    });
+    const chatGptCodexPath = join(chatGptResourcesDir, ...layout);
+    const originalHome = process.env.HOME;
+    const originalPath = process.env.PATH;
+    const originalSearchEnv = snapshotEnvVars(EXECUTABLE_SEARCH_ENV_KEYS);
 
-    if (!resolution.ok) {
-      throw new Error(JSON.stringify(resolution));
-    }
-    if (
-      !resolution.candidates.some(
+    await mkdir(join(chatGptCodexPath, ".."), { recursive: true });
+    await writeFile(
+      chatGptCodexPath,
+      fakeCodexSource("0.149.0-alpha.4.3"),
+      "utf8"
+    );
+    await chmod(chatGptCodexPath, 0o755);
+
+    try {
+      process.env.HOME = fixtureDir;
+      process.env.PATH = "/usr/bin:/bin";
+      process.env.BUN_INSTALL = join(fixtureDir, ".bun");
+      process.env.FNM_DIR = join(fixtureDir, ".fnm");
+      process.env.NPM_CONFIG_PREFIX = join(fixtureDir, ".npm-global");
+      process.env.NVM_DIR = join(fixtureDir, ".nvm");
+      process.env.PNPM_HOME = join(fixtureDir, ".local", "share", "pnpm");
+      process.env.SHELL = "/bin/false";
+      process.env.VOLTA_HOME = join(fixtureDir, ".volta");
+      process.env.OPENMELD_EXECUTABLE_LOGIN_SHELL_TIMEOUT_MS = "100";
+      Reflect.deleteProperty(process.env, "OPENMELD_DAEMON_RUNTIME_CODEX_BIN");
+
+      const {
+        resolveInstalledCodexLaunchCandidates,
+        refreshCodexPersistedLaunchContract,
+      } = await import("../dist/index.js");
+      const resolution = await resolveInstalledCodexLaunchCandidates({
+        appBundleRoots: [join(fixtureDir, "Applications")],
+        timeoutMs: 1000,
+      });
+
+      if (!resolution.ok) {
+        throw new Error(JSON.stringify(resolution));
+      }
+      if (
+        !resolution.candidates.some(
+          (candidate) => candidate.commandPath === chatGptCodexPath
+        )
+      ) {
+        throw new Error(JSON.stringify(resolution));
+      }
+      const chatGptCandidate = resolution.candidates.find(
         (candidate) => candidate.commandPath === chatGptCodexPath
-      )
-    ) {
-      throw new Error(JSON.stringify(resolution));
+      );
+      assert.equal(chatGptCandidate?.label, "ChatGPT app");
+      assert.match(
+        chatGptCandidate?.detail ?? "",
+        CHATGPT_CODEX_VERSION_PATTERN
+      );
+      assert.match(chatGptCandidate?.detail ?? "", SIGNED_IN_PATTERN);
+      assert.equal(resolution.preferredInstallId, chatGptCandidate?.installId);
+      const otherLayout =
+        layout.length === 1
+          ? ["codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex"]
+          : ["codex"];
+      const selected = {
+        kind: "executable",
+        commandPath: join(chatGptResourcesDir, ...otherLayout),
+      };
+      assert.deepEqual(
+        await refreshCodexPersistedLaunchContract({ launchContract: selected }),
+        {
+          kind: "executable",
+          commandPath: chatGptCodexPath,
+        }
+      );
+      const unrelated = {
+        kind: "executable",
+        commandPath: join(fixtureDir, "other", "codex"),
+      };
+      assert.deepEqual(
+        await refreshCodexPersistedLaunchContract({
+          launchContract: unrelated,
+        }),
+        unrelated
+      );
+      // A permission problem at the selected location is not an App relocation.
+      await mkdir(join(selected.commandPath, ".."), { recursive: true });
+      await writeFile(selected.commandPath, fakeCodexSource("0.149.0"), "utf8");
+      await chmod(selected.commandPath, 0o644);
+      assert.deepEqual(
+        await refreshCodexPersistedLaunchContract({ launchContract: selected }),
+        selected
+      );
+      await rm(selected.commandPath);
+      await writeFile(chatGptCodexPath, "#!/bin/sh\nexit 1\n", "utf8");
+      assert.deepEqual(
+        await refreshCodexPersistedLaunchContract({ launchContract: selected }),
+        selected
+      );
+    } finally {
+      restoreOptionalEnvVar("HOME", originalHome);
+      restoreOptionalEnvVar("PATH", originalPath);
+      restoreEnvVars(originalSearchEnv);
+      await rm(fixtureDir, { force: true, recursive: true });
     }
-    const chatGptCandidate = resolution.candidates.find(
-      (candidate) => candidate.commandPath === chatGptCodexPath
-    );
-    assert.equal(chatGptCandidate?.label, "ChatGPT app");
-    assert.match(chatGptCandidate?.detail ?? "", CHATGPT_CODEX_VERSION_PATTERN);
-    assert.match(chatGptCandidate?.detail ?? "", SIGNED_IN_PATTERN);
-    assert.equal(resolution.preferredInstallId, chatGptCandidate?.installId);
-  } finally {
-    restoreOptionalEnvVar("HOME", originalHome);
-    restoreOptionalEnvVar("PATH", originalPath);
-    restoreEnvVars(originalSearchEnv);
-    await rm(fixtureDir, { force: true, recursive: true });
-  }
-});
+  });
+}
 
 test("Codex install discovery prefers signed-in ChatGPT Codex over a signed-in PATH install", async () => {
   const fixtureDir = await mkdtemp(join(tmpdir(), "adapter-codex-choice-"));
