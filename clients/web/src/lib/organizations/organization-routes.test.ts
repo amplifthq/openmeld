@@ -21,11 +21,14 @@ import {
 	buildOrganizationDirectoryLegacyMembersPath,
 	buildOrganizationDirectoryPeoplePath,
 	buildOrganizationDirectoryRootPath,
+	buildOrganizationDocumentPath,
+	buildOrganizationDocumentsPath,
 	buildOrganizationFilesPath,
 	buildOrganizationInboxItemPath,
 	buildOrganizationInboxPath,
 	buildOrganizationLegacyCenterAgentSettingsPath,
 	buildOrganizationMemoryPath,
+	buildOrganizationNewDocumentPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationOrganizationsPath,
 	buildOrganizationOrgSettingsPath,
@@ -192,6 +195,21 @@ describe("primary organization routes", () => {
 				nextOrgSlug: "next-team",
 			})
 		).toBe("/o/next-team/files");
+	});
+
+	it("opens managed knowledge directly inside Files", () => {
+		expect(buildOrganizationDocumentsPath("acme")).toBe(
+			"/o/acme/files?view=knowledge"
+		);
+		expect(
+			buildOrganizationDocumentPath({
+				documentId: "brief/one",
+				orgSlug: "acme",
+			})
+		).toBe("/o/acme/files?view=knowledge&document=brief%2Fone");
+		expect(
+			buildOrganizationNewDocumentPath({ kind: "brief", orgSlug: "acme" })
+		).toBe("/o/acme/files?view=knowledge&create=1&kind=brief");
 	});
 
 	it("uses immutable Project ids for the Projects route family", () => {

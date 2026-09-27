@@ -156,7 +156,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 				queryKey: organizationDocumentQueryKeys.list(currentOrganization.id),
 			});
 			await navigate({
-				search: documentFolderSearch,
+				search: { ...documentFolderSearch, view: "knowledge" },
 				to: buildOrganizationDocumentsPath(currentOrganization.slug),
 			});
 		},
@@ -221,7 +221,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 		<div className="grid gap-6">
 			<Link
 				className={APP_INLINE_BACK_LINK_CLASS_NAME}
-				search={documentFolderSearch}
+				search={{ ...documentFolderSearch, view: "knowledge" }}
 				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 			>
 				<ArrowLeftIcon aria-hidden="true" /> Back to knowledge

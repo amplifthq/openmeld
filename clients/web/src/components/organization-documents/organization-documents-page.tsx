@@ -435,7 +435,11 @@ function DocumentsEmptyState(input: {
 				{input.canManage ? (
 					<Link
 						className={cn(buttonVariants({ size: "sm" }), "mt-4")}
-						search={input.activeFolder ? { folder: input.activeFolder.id } : {}}
+						search={{
+							...(input.activeFolder ? { folder: input.activeFolder.id } : {}),
+							view: "knowledge",
+							create: "1",
+						}}
 						to={input.newDocumentPath}
 					>
 						Create a document
@@ -493,7 +497,10 @@ function useDocumentsPageMutations(options: {
 			if (options.activeFolder?.id === folderId) {
 				const parentId = parentFolderId(options.activeFolder);
 				await navigate({
-					search: parentId ? { folder: parentId } : {},
+					search: {
+						...(parentId ? { folder: parentId } : {}),
+						view: "knowledge",
+					},
 					to: buildOrganizationDocumentsPath(currentOrganization.slug),
 				});
 			}
@@ -557,7 +564,11 @@ function DocumentsPageHeader(input: {
 					</Button>
 					<Link
 						className={buttonVariants({ size: "sm" })}
-						search={activeFolder ? { folder: activeFolder.id } : {}}
+						search={{
+							...(activeFolder ? { folder: activeFolder.id } : {}),
+							view: "knowledge",
+							create: "1",
+						}}
 						to={input.newDocumentPath}
 					>
 						<PlusIcon aria-hidden="true" /> New document
@@ -649,7 +660,10 @@ function BreadcrumbLink(input: {
 				"rounded-sm text-muted-foreground transition-colors hover:text-foreground",
 				dropActive && "bg-primary/10 text-foreground ring-1 ring-primary/40"
 			)}
-			search={input.targetFolderId ? { folder: input.targetFolderId } : {}}
+			search={{
+				...(input.targetFolderId ? { folder: input.targetFolderId } : {}),
+				view: "knowledge",
+			}}
 			to={buildOrganizationDocumentsPath(input.orgSlug)}
 			{...dropProps}
 		>

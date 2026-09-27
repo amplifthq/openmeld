@@ -109,7 +109,7 @@ export function OrganizationDocumentNewPage(input: {
 		<div className="grid gap-6">
 			<Link
 				className={APP_INLINE_BACK_LINK_CLASS_NAME}
-				search={folderSearch}
+				search={{ ...folderSearch, view: "knowledge" }}
 				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 			>
 				<ArrowLeftIcon aria-hidden="true" /> Back to knowledge
@@ -154,7 +154,7 @@ export function OrganizationDocumentNewPage(input: {
 			<div className="flex justify-end gap-2 border-t pt-4">
 				<Link
 					className={buttonVariants({ variant: "outline" })}
-					search={folderSearch}
+					search={{ ...folderSearch, view: "knowledge" }}
 					to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 				>
 					Cancel

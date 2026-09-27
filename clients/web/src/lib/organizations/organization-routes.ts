@@ -205,16 +205,20 @@ export function buildOrganizationCenterAgentRoutinesPath(
 }
 
 export function buildOrganizationDocumentsPath(orgSlug: string): string {
-	return `${buildOrganizationRootPath(orgSlug)}/documents`;
+	return `${buildOrganizationFilesPath(orgSlug)}?view=knowledge`;
 }
 
 export function buildOrganizationDocumentPath(input: {
 	documentId: string;
 	orgSlug: string;
 }): string {
-	return `${buildOrganizationDocumentsPath(input.orgSlug)}/${encodePathSegment(
-		input.documentId
-	)}`;
+	const url = new URL(
+		buildOrganizationFilesPath(input.orgSlug),
+		"http://localhost"
+	);
+	url.searchParams.set("view", "knowledge");
+	url.searchParams.set("document", input.documentId);
+	return `${url.pathname}${url.search}`;
 }
 
 export function buildOrganizationNewDocumentPath(input: {
@@ -223,9 +227,11 @@ export function buildOrganizationNewDocumentPath(input: {
 	subjectUserId?: string;
 }): string {
 	const url = new URL(
-		`${buildOrganizationDocumentsPath(input.orgSlug)}/new`,
+		buildOrganizationFilesPath(input.orgSlug),
 		"http://localhost"
 	);
+	url.searchParams.set("view", "knowledge");
+	url.searchParams.set("create", "1");
 	if (input.kind) {
 		url.searchParams.set("kind", input.kind);
 	}

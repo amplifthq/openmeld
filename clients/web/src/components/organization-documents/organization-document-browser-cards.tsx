@@ -88,7 +88,7 @@ export function OrganizationDocumentFolderCard(input: {
 					event.dataTransfer.effectAllowed = "move";
 					setBrowserItemDragPreview(event);
 				}}
-				search={{ folder: input.folder.id }}
+				search={{ folder: input.folder.id, view: "knowledge" }}
 				to={buildOrganizationDocumentsPath(input.orgSlug)}
 			>
 				<span className="grid size-12 place-items-center rounded-md border border-border/70 bg-background/70 text-foreground/75">
