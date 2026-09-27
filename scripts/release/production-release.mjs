@@ -2085,6 +2085,45 @@ function isReviewedHostedProgressCompatibilityBridge(input) {
   }
 }
 
+function isReviewedProviderConnectionMissingResponseAddition(input) {
+  if (
+    !(
+      input.base &&
+      input.sourceSha &&
+      input.changedPaths.includes(REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH)
+    ) ||
+    input.changedPaths.some(
+      (path) =>
+        (REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS.has(path) &&
+          path !== REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH) ||
+        REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS.has(path)
+    )
+  ) {
+    return false;
+  }
+  const readGitFile =
+    input.readGitFile ?? ((ref, path) => runGit(["show", `${ref}:${path}`]));
+  try {
+    const before = readGitFile(
+      input.base,
+      REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH
+    );
+    const after = readGitFile(
+      input.sourceSha,
+      REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH
+    );
+    const addition =
+      '  PROVIDER_CONNECTION_MISSING: "remote_agent.provider.connection_missing",\n';
+    return (
+      !before.includes(addition) &&
+      after.includes(addition) &&
+      after.replace(addition, "") === before
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function buildProductionReleasePlan(input) {
   const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
   const sourceSha = input.sourceSha ?? readHeadSha();
@@ -2128,6 +2167,12 @@ export function buildProductionReleasePlan(input) {
       REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH
     ) &&
     !isRemoteAgentWorkerRequestReceiverFirstDiff(compatibilityChangedPaths) &&
+    !isReviewedProviderConnectionMissingResponseAddition({
+      base: input.base,
+      changedPaths: compatibilityChangedPaths,
+      readGitFile: input.readGitFile,
+      sourceSha,
+    }) &&
     !compatibilityChangedPaths.some((file) =>
       REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS.has(file)
     )
