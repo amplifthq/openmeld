@@ -142,34 +142,41 @@ export function TeamKnowledgeFilesPage(input: {
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const navigate = useNavigate();
+	const tabs = (
+		<Tabs
+			className={
+				input.documentId || input.create
+					? "shrink-0 px-[var(--app-page-inline-padding)] py-3"
+					: "shrink-0"
+			}
+			onValueChange={(value) => {
+				if (value === "skills") {
+					navigate({
+						to: buildOrganizationFilesPath(currentOrganization.slug),
+						search: { view: "skills" },
+					}).catch(console.error);
+				}
+				if (value === "team" || value === "my") {
+					navigate({
+						to: buildOrganizationFilesPath(currentOrganization.slug),
+						search: value === "my" ? { view: "my" } : {},
+					}).catch(console.error);
+				}
+			}}
+			value="team"
+		>
+			<TabsList className="w-fit">
+				<TabItem label="Team files" value="team" />
+				{currentOrganization.isPersonal ? null : (
+					<TabItem label="My files" value="my" />
+				)}
+				<TabItem label="Skills" value="skills" />
+			</TabsList>
+		</Tabs>
+	);
 	return (
 		<section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-			<Tabs
-				className="shrink-0 px-[var(--app-page-inline-padding)] py-2"
-				onValueChange={(value) => {
-					if (value === "skills") {
-						navigate({
-							to: buildOrganizationFilesPath(currentOrganization.slug),
-							search: { view: "skills" },
-						}).catch(console.error);
-					}
-					if (value === "team" || value === "my") {
-						navigate({
-							to: buildOrganizationFilesPath(currentOrganization.slug),
-							search: value === "my" ? { view: "my" } : {},
-						}).catch(console.error);
-					}
-				}}
-				value="team"
-			>
-				<TabsList className="w-fit">
-					<TabItem label="Team files" value="team" />
-					{currentOrganization.isPersonal ? null : (
-						<TabItem label="My files" value="my" />
-					)}
-					<TabItem label="Skills" value="skills" />
-				</TabsList>
-			</Tabs>
+			{input.documentId || input.create ? tabs : null}
 			<div
 				className={
 					input.documentId || input.create
@@ -188,7 +195,10 @@ export function TeamKnowledgeFilesPage(input: {
 					/>
 				) : null}
 				{input.documentId || input.create ? null : (
-					<TeamKnowledgeFilesBrowser folderId={input.folderId} />
+					<TeamKnowledgeFilesBrowser
+						folderId={input.folderId}
+						toolbarTabs={tabs}
+					/>
 				)}
 			</div>
 		</section>
@@ -660,21 +670,23 @@ function TeamFilesBrowser(input: {
 		setActionError(null);
 	};
 	const copyDestination: FileRootLocation = location === "team" ? "my" : "team";
-	const toolbarStart = (
-		<div className="flex min-w-0 flex-wrap items-center gap-1.5">
-			{parentId && view === "active" ? (
-				<div className="flex min-w-0 items-center gap-1 text-sm">
-					{files.data?.breadcrumbs.map((crumb, index) => (
-						<span
-							className="flex min-w-0 items-center gap-1"
-							key={crumb.id ?? "root"}
-						>
-							{index > 0 ? (
-								<CaretRightIcon
-									aria-hidden="true"
-									className="size-3.5 text-muted-foreground"
-								/>
-							) : null}
+	const breadcrumb =
+		parentId && view === "active" ? (
+			<div className="flex min-w-0 items-center gap-1 text-sm">
+				{files.data?.breadcrumbs.map((crumb, index) => (
+					<span
+						className="flex min-w-0 items-center gap-1"
+						key={crumb.id ?? "root"}
+					>
+						{index > 0 ? (
+							<CaretRightIcon
+								aria-hidden="true"
+								className="size-3.5 text-muted-foreground"
+							/>
+						) : null}
+						{crumb.id === parentId ? (
+							<span className="font-medium">{crumb.name}</span>
+						) : (
 							<Button
 								onClick={() => setParentId(crumb.id)}
 								size="sm"
@@ -683,10 +695,13 @@ function TeamFilesBrowser(input: {
 							>
 								{crumb.name}
 							</Button>
-						</span>
-					))}
-				</div>
-			) : null}
+						)}
+					</span>
+				))}
+			</div>
+		) : null;
+	const toolbarActions = (
+		<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 			{view === "active" ? (
 				<>
 					<input
@@ -786,29 +801,6 @@ function TeamFilesBrowser(input: {
 			aria-label="Team files"
 			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
 		>
-			<Tabs
-				className="shrink-0 px-[var(--app-page-inline-padding)] py-2"
-				onValueChange={(value) => {
-					if (value === "skills") {
-						navigate({
-							to: buildOrganizationFilesPath(currentOrganization.slug),
-							search: { view: "skills" },
-						}).catch(console.error);
-					}
-					if (value === "team" || value === "my") {
-						changeLocation(value);
-					}
-				}}
-				value={location}
-			>
-				<TabsList className="w-fit">
-					<TabItem label="Team files" value="team" />
-					{currentOrganization.isPersonal ? null : (
-						<TabItem label="My files" value="my" />
-					)}
-					<TabItem label="Skills" value="skills" />
-				</TabsList>
-			</Tabs>
 			{actionError ? (
 				<p
 					className="border-destructive/30 border-b px-5 py-2 text-destructive text-sm"
@@ -843,6 +835,7 @@ function TeamFilesBrowser(input: {
 							}
 						>
 							<FileSystem
+								breadcrumb={breadcrumb}
 								className="h-full min-h-96"
 								embedded
 								errorContent={
@@ -904,7 +897,33 @@ function TeamFilesBrowser(input: {
 									files.data?.breadcrumbs.at(-1)?.name ??
 									(location === "my" ? "My files" : "Team files")
 								}
-								toolbarStart={toolbarStart}
+								toolbarActions={toolbarActions}
+								toolbarStart={
+									<Tabs
+										onValueChange={(value) => {
+											if (value === "skills") {
+												navigate({
+													to: buildOrganizationFilesPath(
+														currentOrganization.slug
+													),
+													search: { view: "skills" },
+												}).catch(console.error);
+											}
+											if (value === "team" || value === "my") {
+												changeLocation(value);
+											}
+										}}
+										value={location}
+									>
+										<TabsList className="w-fit">
+											<TabItem label="Team files" value="team" />
+											{currentOrganization.isPersonal ? null : (
+												<TabItem label="My files" value="my" />
+											)}
+											<TabItem label="Skills" value="skills" />
+										</TabsList>
+									</Tabs>
+								}
 							/>
 						</Suspense>
 					</ContextMenuTrigger>

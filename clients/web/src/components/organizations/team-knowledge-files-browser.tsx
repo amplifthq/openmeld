@@ -79,7 +79,10 @@ function folderBreadcrumb(
 	return result;
 }
 
-export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
+export function TeamKnowledgeFilesBrowser(input: {
+	folderId?: string;
+	toolbarTabs: ReactNode;
+}) {
 	const { currentOrganization } = useAppOrganization();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
@@ -169,7 +172,7 @@ export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 		setFolderError(null);
 		setFolderDialogOpen(true);
 	};
-	const toolbarStart = (
+	const breadcrumb = (
 		<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 			<Button
 				onClick={() =>
@@ -213,25 +216,25 @@ export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 					)}
 				</span>
 			))}
-			{canCreate ? (
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={<Button disabled={creatingFolder} size="sm" />}
-					>
-						<PlusIcon aria-hidden="true" /> New
-					</DropdownMenuTrigger>
-					<FluidDropdownMenuContent align="start">
-						<FluidDropdownMenuItem index={0} onClick={openNewDocument}>
-							<FileTextIcon aria-hidden="true" /> Markdown file
-						</FluidDropdownMenuItem>
-						<FluidDropdownMenuItem index={1} onClick={openFolderDialog}>
-							<FolderPlusIcon aria-hidden="true" /> Folder
-						</FluidDropdownMenuItem>
-					</FluidDropdownMenuContent>
-				</DropdownMenu>
-			) : null}
 		</div>
 	);
+	const toolbarActions = canCreate ? (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={<Button disabled={creatingFolder} size="sm" />}
+			>
+				<PlusIcon aria-hidden="true" /> New
+			</DropdownMenuTrigger>
+			<FluidDropdownMenuContent align="start">
+				<FluidDropdownMenuItem index={0} onClick={openNewDocument}>
+					<FileTextIcon aria-hidden="true" /> Markdown file
+				</FluidDropdownMenuItem>
+				<FluidDropdownMenuItem index={1} onClick={openFolderDialog}>
+					<FolderPlusIcon aria-hidden="true" /> Folder
+				</FluidDropdownMenuItem>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	) : null;
 	let errorContent: ReactNode;
 	if (missingFolder) {
 		errorContent = <p className="p-5">This folder is no longer available.</p>;
@@ -258,6 +261,7 @@ export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 				>
 					<Suspense fallback={<p>Loading files…</p>}>
 						<FileSystem
+							breadcrumb={breadcrumb}
 							className="h-full min-h-96"
 							embedded
 							errorContent={errorContent}
@@ -269,7 +273,8 @@ export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 							onFolderOpen={(folder) => openEntry(entries.get(folder.path))}
 							onSelectionChange={(item) => setSelectedPath(item?.path ?? null)}
 							title={activeFolder?.name ?? "Team Knowledge"}
-							toolbarStart={toolbarStart}
+							toolbarActions={toolbarActions}
+							toolbarStart={input.toolbarTabs}
 						/>
 					</Suspense>
 				</ContextMenuTrigger>

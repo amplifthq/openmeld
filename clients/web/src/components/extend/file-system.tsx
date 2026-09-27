@@ -176,6 +176,10 @@ export type FileSystemProps = {
   embedded?: boolean
   /** Actions supplied by the owning Files location, before shared view controls. */
   toolbarStart?: React.ReactNode
+  /** Location actions displayed alongside shared view controls. */
+  toolbarActions?: React.ReactNode
+  /** Current location path, shown beneath the toolbar. */
+  breadcrumb?: React.ReactNode
   isLoading?: boolean
   /** Keep the shared toolbar available when the owning file service fails. */
   errorContent?: React.ReactNode
@@ -1234,6 +1238,8 @@ export function FileSystem({
   className,
   embedded = false,
   toolbarStart,
+  toolbarActions,
+  breadcrumb,
   isLoading = false,
   errorContent,
   title = "Files",
@@ -1931,6 +1937,9 @@ export function FileSystem({
           {toolbarStart}
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1">
+        {toolbarActions ? (
+          <div className="mr-2 flex shrink-0 items-center gap-1.5">{toolbarActions}</div>
+        ) : null}
         {headerLayout !== "full" || isBelowIpadWidth || isToolbarCompact ? (
           <FluidSelect
             value={view}
@@ -1995,6 +2004,11 @@ export function FileSystem({
         </div>
         </div>
       </div>
+      {breadcrumb ? (
+        <nav aria-label="File location" className="flex min-h-9 shrink-0 items-center gap-1 px-2 text-sm">
+          {breadcrumb}
+        </nav>
+      ) : null}
       {hasActiveFilters ? (
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground">
           {filters.map((filter) => {
