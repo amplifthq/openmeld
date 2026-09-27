@@ -1134,6 +1134,33 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
+	it("shows which Agent will resume from a child result without address targets", () => {
+		const childResult = createTimelineItem({
+			actorName: "Runner",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorProfileKind: "agent",
+			actorProfileName: "Runner",
+			id: "signal-child-result",
+			text: "The review is complete.",
+		});
+		renderSpaceConversationPanel({
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem({ sourceSignalId: childResult.id }),
+					clientMessageId: null,
+					message: "@Amplift Center Agent is working...",
+					targetLabel: "@Amplift Center Agent",
+					targetProfileId: "agent-profile-center",
+				},
+			],
+			timelineItems: [childResult],
+		});
+
+		expect(screen.getByTestId("space-message-addressing").textContent).toBe(
+			"Auto resumes Amplift Center Agent"
+		);
+	});
+
 	it("can hide unread navigation without reading its messages", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
@@ -1593,6 +1620,30 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
 		expect(screen.getByText("Please investigate.")).toBeTruthy();
+	});
+
+	it.each([
+		["Wake", "wakeTargetProfileIds"],
+		["Mention", "mentionTargetProfileIds"],
+		["Reference", "referenceTargetProfileIds"],
+	] as const)("shows the %s badge from structured Agent addressing", (label, field) => {
+		renderSpaceConversationPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
+			timelineItems: [
+				createTimelineItem({
+					actorName: "Center Agent",
+					actorProfileId: "agent-profile-center",
+					actorProfileKind: "agent",
+					actorProfileName: "Center Agent",
+					[field]: [TARGET_PROFILE_ID],
+					text: "Please check this.",
+				}),
+			],
+		});
+
+		expect(
+			screen.getByTestId("space-message-addressing").textContent
+		).toContain(`${label} Codex 5.6 Sol`);
 	});
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
