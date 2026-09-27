@@ -127,8 +127,7 @@ type SpaceMessageFooterProps = {
 	failureSummary?: string | null;
 	isDirectMessage?: boolean;
 	layout?: "floating" | "inline";
-	onCopy: () => void;
-	copyDisabled?: boolean;
+	onCopy?: () => void;
 	reply?: SpaceMessageFooterAction;
 	task?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
@@ -297,6 +296,7 @@ function MessageFooterActions({
 	const showPicker = input.reaction && !input.reaction.readOnly;
 	const pending = input.item?.deliveryState === "pending";
 	const inline = input.layout === "inline";
+	const hasMessageText = Boolean(input.item?.text.trim());
 	const toolbarRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (inline) {
@@ -306,6 +306,12 @@ function MessageFooterActions({
 		const row = toolbar?.closest<HTMLElement>("[data-message-row-id]");
 		const bubble = row?.querySelector<HTMLElement>(
 			"[data-slot='bubble-content']"
+		);
+		const attachmentStrip = bubble?.querySelector<HTMLElement>(
+			"[data-slot='space-attachment-strip']"
+		);
+		const attachmentViewport = attachmentStrip?.querySelector<HTMLElement>(
+			'[data-slot="scroll-area-viewport"]'
 		);
 		const container = row;
 		const viewport = row?.closest<HTMLElement>(
@@ -317,14 +323,45 @@ function MessageFooterActions({
 		let observer: ResizeObserver | null = null;
 		const position = () => {
 			const toolbarRect = toolbar.getBoundingClientRect();
+			const textSurface = bubble.querySelector<HTMLElement>(
+				"[data-slot='space-message-text-surface']"
+			);
+			const preferredSide =
+				row.closest('[data-space-self-message="true"]') &&
+				document.documentElement.dataset.spaceSelfMessageAlignment === "right"
+					? "before"
+					: "after";
+			const attachmentItems = attachmentStrip?.querySelector(
+				".space-attachment-strip-items"
+			);
+			const attachmentViewportRect =
+				attachmentViewport?.getBoundingClientRect();
+			const visibleAttachmentPreviews = Array.from(
+				attachmentItems?.children ?? []
+			).filter((preview) => {
+				const rect = preview.getBoundingClientRect();
+				return (
+					!attachmentViewportRect ||
+					(rect.right > attachmentViewportRect.left &&
+						rect.left < attachmentViewportRect.right)
+				);
+			});
+			const attachmentPreview =
+				preferredSide === "before"
+					? visibleAttachmentPreviews[0]
+					: visibleAttachmentPreviews.at(-1);
+			const anchor =
+				hasMessageText && textSurface?.getClientRects().length
+					? textSurface.getBoundingClientRect()
+					: (
+							attachmentPreview ??
+							attachmentStrip ??
+							bubble
+						).getBoundingClientRect();
 			const next = resolveToolbarPosition({
-				bubble: bubble.getBoundingClientRect(),
+				bubble: anchor,
 				container: container.getBoundingClientRect(),
-				preferredSide:
-					row.closest('[data-space-self-message="true"]') &&
-					document.documentElement.dataset.spaceSelfMessageAlignment === "right"
-						? "before"
-						: "after",
+				preferredSide,
 				toolbar: toolbarRect,
 				viewport: viewport?.getBoundingClientRect(),
 			});
@@ -338,7 +375,13 @@ function MessageFooterActions({
 				observer = new ResizeObserver(position);
 				observer.observe(container);
 				observer.observe(bubble);
+				if (attachmentStrip) {
+					observer.observe(attachmentStrip);
+				}
 				viewport?.addEventListener("scroll", position, { passive: true });
+				attachmentViewport?.addEventListener("scroll", position, {
+					passive: true,
+				});
 				window.addEventListener("resize", position);
 			}
 		};
@@ -353,6 +396,7 @@ function MessageFooterActions({
 			observer?.disconnect();
 			observer = null;
 			viewport?.removeEventListener("scroll", position);
+			attachmentViewport?.removeEventListener("scroll", position);
 			window.removeEventListener("resize", position);
 		};
 		const onFocusOut = () => queueMicrotask(deactivate);
@@ -370,9 +414,10 @@ function MessageFooterActions({
 			row.removeEventListener("focusout", onFocusOut);
 			observer?.disconnect();
 			viewport?.removeEventListener("scroll", position);
+			attachmentViewport?.removeEventListener("scroll", position);
 			window.removeEventListener("resize", position);
 		};
-	}, [inline, persistent]);
+	}, [hasMessageText, inline, persistent]);
 	return (
 		<div
 			className={cn(
@@ -465,7 +510,7 @@ function MessageFooterOverflowActions({
 			addressingTargets={persistent ? input.addressingTargets : []}
 			details={input.details}
 			edit={input.onEdit}
-			onCopy={input.copyDisabled ? undefined : input.onCopy}
+			onCopy={input.onCopy}
 			onOpenChange={setMenuOpen}
 			onViewReactions={
 				hasReactions ? () => reactions.setViewerOpen(true) : undefined
@@ -490,15 +535,13 @@ function MessageFooterStandardActions({
 }) {
 	return (
 		<>
-			{" "}
-			{
+			{input.onCopy ? (
 				<MessageFooterIconAction
-					disabled={input.copyDisabled}
 					icon={<CopyIcon aria-hidden="true" />}
 					label="Copy message"
 					onSelect={input.onCopy}
 				/>
-			}
+			) : null}
 			{input.reply ? (
 				<MessageFooterIconAction
 					disabled={input.reply.disabled}

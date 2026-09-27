@@ -9,8 +9,8 @@ import {
   restoreSpaceFileRevisionResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
-  SPACE_FILE_UPLOAD_PART_BYTES,
   spaceFileMimeTypeSchema,
+  spaceFileUploadIdForMutation,
   spaceFileUploadResponseSchema,
   stageSpaceComposerUploadResponseSchema,
   trashSpaceFileEntryResponseSchema,
@@ -35,6 +35,7 @@ import {
   OpenMeldApiClientInvalidResponseError,
   readApiClientTextResponse,
 } from "../errors";
+import { uploadMultipart as uploadMultipartTransport } from "../file-root/multipart-upload";
 import { currentSpaceFileHeaders } from "./addressing-contract";
 import {
   buildSpaceComposerUploadPath,
@@ -65,17 +66,6 @@ function bodySize(body: ArrayBuffer | Blob): number {
   return body instanceof Blob ? body.size : body.byteLength;
 }
 
-async function mutationUploadId(mutation: string): Promise<string> {
-  const hash = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(mutation)
-  );
-  const hex = Array.from(new Uint8Array(hash), (b) =>
-    b.toString(16).padStart(2, "0")
-  ).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
 async function uploadMultipart(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput &
@@ -84,109 +74,34 @@ async function uploadMultipart(
   uploadId: string
 ) {
   const body = toRequestBody(input.bytes);
-  const blob = body instanceof Blob ? body : new Blob([body]);
   const url = `/v1/spaces/${encodeURIComponent(input.spaceId)}/file-uploads/${uploadId}`;
   const request = async (
     command: import("@openmeld/schemas/types").SpaceFileUploadCommand,
     part?: Blob
   ) => {
-    return await retryUploadRequest(input.signal, () =>
-      client.requestJson({
-        ...requestFields(input),
-        url:
-          command.action === "part" ? `${url}?part=${command.partNumber}` : url,
-        method: "POST",
-        operation: "space.files.upload",
-        headers: {
-          ...currentSpaceFileHeaders(),
-          "content-type": part
-            ? "application/octet-stream"
-            : "application/json",
-        },
-        body: part ?? JSON.stringify(command),
-        schema: spaceFileUploadResponseSchema,
-        invalidMessage: "Invalid file upload response.",
-      })
-    );
+    return await client.requestJson({
+      ...requestFields(input),
+      url:
+        command.action === "part" ? `${url}?part=${command.partNumber}` : url,
+      method: "POST",
+      operation: "space.files.upload",
+      headers: {
+        ...currentSpaceFileHeaders(),
+        "content-type": part ? "application/octet-stream" : "application/json",
+      },
+      body: part ?? JSON.stringify(command),
+      schema: spaceFileUploadResponseSchema,
+      invalidMessage: "Invalid file upload response.",
+    });
   };
-  const partDigests: string[] = [];
-  for (
-    let offset = 0;
-    offset < blob.size;
-    offset += SPACE_FILE_UPLOAD_PART_BYTES
-  ) {
-    input.signal?.throwIfAborted();
-    const hash = await crypto.subtle.digest(
-      "SHA-256",
-      await blob
-        .slice(offset, offset + SPACE_FILE_UPLOAD_PART_BYTES)
-        .arrayBuffer()
-    );
-    partDigests.push(
-      Array.from(new Uint8Array(hash), (b) =>
-        b.toString(16).padStart(2, "0")
-      ).join("")
-    );
-  }
-  let session = await request({
-    action: "start",
-    metadata: {
-      target,
-      mimeType: input.mimeType,
-      sizeBytes: blob.size,
-      partDigests,
-    },
+  return await uploadMultipartTransport({
+    bytes: body,
+    mimeType: input.mimeType,
+    target,
+    signal: input.signal,
+    onProgress: input.onProgress,
+    request,
   });
-  if (session.file || session.upload) {
-    return session;
-  }
-  input.onProgress?.(
-    session.parts.reduce((n, p) => n + p.sizeBytes, 0),
-    blob.size
-  );
-  for (
-    let start = 0, number = 1;
-    start < blob.size;
-    start += session.partSizeBytes, number++
-  ) {
-    if (session.parts.some((p) => p.partNumber === number)) {
-      continue;
-    }
-    session = await request(
-      { action: "part", partNumber: number },
-      blob.slice(start, start + session.partSizeBytes)
-    );
-    input.onProgress?.(
-      session.parts.reduce((n, p) => n + p.sizeBytes, 0),
-      blob.size
-    );
-  }
-  return await request({ action: "complete" });
-}
-
-async function retryUploadRequest<T>(
-  signal: AbortSignal | undefined,
-  request: () => Promise<T>
-): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      signal?.throwIfAborted();
-      return await request();
-    } catch (error) {
-      const status =
-        error && typeof error === "object" && "status" in error
-          ? error.status
-          : undefined;
-      if (
-        signal?.aborted ||
-        attempt >= 2 ||
-        (typeof status === "number" && status < 500 && status !== 429)
-      ) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
-    }
-  }
 }
 
 export async function listSpaceFiles(
@@ -405,7 +320,7 @@ export async function uploadSpaceFile(
         origin: input.origin,
         parentId: input.parentId ?? null,
       },
-      await mutationUploadId(input.clientMutationId)
+      await spaceFileUploadIdForMutation(input.clientMutationId)
     );
     if (!response.file) {
       throw new Error("The upload did not return a file.");
@@ -529,7 +444,7 @@ export async function updateSpaceFileContent(
         fileId: input.fileId,
         baseRevision: input.baseRevision,
       },
-      await mutationUploadId(input.clientMutationId)
+      await spaceFileUploadIdForMutation(input.clientMutationId)
     );
     if (!response.file) {
       throw new Error("The upload did not return a file.");
@@ -629,6 +544,8 @@ function toRequestBody(bytes: SpaceFileContentBytes): ArrayBuffer | Blob {
 function validateSize(body: ArrayBuffer | Blob): void {
   const size = body instanceof Blob ? body.size : body.byteLength;
   if (size > SPACE_FILE_MAX_SIZE_BYTES) {
-    throw new Error("Space files must be 250 MiB or smaller");
+    throw new Error(
+      `Space files must be ${SPACE_FILE_MAX_SIZE_BYTES / (1024 * 1024)} MiB or smaller`
+    );
   }
 }

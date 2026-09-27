@@ -5,6 +5,7 @@ import { wakeProgressPhaseSchema } from "./schemas/http/space-wake-progress";
 export const WEB_APPLICATION_ERROR_PATH =
   "/v1/observability/application-errors";
 export const WEB_APPLICATION_ERROR_MAX_BYTES = 8192;
+export const WEB_APPLICATION_REACT_UPDATE_TRACE_MAX_EVENTS = 40;
 
 export const webApplicationErrorSourceSchema = z.enum([
   "window",
@@ -40,6 +41,7 @@ export const webApplicationErrorQueryCodeSchema = z.union([
 
 export const webApplicationErrorQueryDiagnosticSchema = z.object({
   category: webApplicationErrorQueryCategorySchema,
+  stage: z.enum(["prepare", "navigate", "persist", "refresh"]).optional(),
   failure: z.object({
     code: webApplicationErrorQueryCodeSchema.nullable(),
     requestId: z
@@ -51,6 +53,35 @@ export const webApplicationErrorQueryDiagnosticSchema = z.object({
     status: z.number().int().min(100).max(599).nullable(),
   }),
 });
+
+export const webApplicationErrorRouteIdSchema = z
+  .string()
+  .max(240)
+  .regex(/^[A-Za-z0-9_/$().{}-]+$/);
+
+export const webApplicationErrorBoundarySchema = z.enum([
+  "space_conversation",
+  "space_composer_editor",
+  "markdown_editor",
+]);
+
+// Static code-path labels only. Never accept component props, draft content,
+// stack text, account identity, or browser URLs in this diagnostic trace.
+export const webApplicationReactUpdateEventSchema = z.enum([
+  "composer_draft_set",
+  "composer_draft_restore",
+  "composer_editor_external_value",
+  "composer_editor_change_equal",
+  "composer_editor_change_different",
+  "conversation_position_restore",
+  "conversation_position_ready",
+  "conversation_position_follow",
+  "center_agent_pending_scope_write",
+]);
+
+export type WebApplicationReactUpdateEvent = z.infer<
+  typeof webApplicationReactUpdateEventSchema
+>;
 
 export const webApplicationErrorSummarySchema = z.object({
   name: z.enum([
@@ -71,6 +102,7 @@ export const webApplicationErrorSummarySchema = z.object({
     "http_5xx",
     "unexpected",
     "unconfirmed_wake_progress_displayed",
+    "react_update_depth",
   ]),
   // Only build asset locations, never raw messages, URLs, or stack text.
   frames: z
@@ -103,11 +135,23 @@ export const webApplicationErrorReportSchema = z.object({
     .nullable(),
   source: webApplicationErrorSourceSchema,
   submission: z.enum(["user"]).optional(),
-  routeId: z
-    .string()
-    .max(240)
-    .regex(/^[A-Za-z0-9_/$().{}-]+$/)
-    .nullable(),
+  routeId: webApplicationErrorRouteIdSchema.nullable(),
+  navigation: z
+    .object({
+      fromRouteId: webApplicationErrorRouteIdSchema,
+      elapsedMs: z.number().int().nonnegative().max(600_000),
+    })
+    .optional(),
+  reactBoundary: webApplicationErrorBoundarySchema.optional(),
+  reactUpdateTrace: z
+    .array(
+      z.strictObject({
+        event: webApplicationReactUpdateEventSchema,
+        ageMs: z.number().int().nonnegative().max(5000),
+      })
+    )
+    .max(WEB_APPLICATION_REACT_UPDATE_TRACE_MAX_EVENTS)
+    .optional(),
   query: webApplicationErrorQueryDiagnosticSchema.optional(),
   wakeProgress: z
     .strictObject({
@@ -125,6 +169,7 @@ export const webApplicationErrorReportSchema = z.object({
       fromCachedSpaceSummary: z.boolean(),
       fromCachedOwnSummary: z.boolean(),
       fromBootstrapStream: z.boolean(),
+      fromHistoricalSignal: z.boolean().optional(),
       spaceSummaryFetchedAfterMount: z.boolean(),
       ownSummaryFetchedAfterMount: z.boolean(),
       bootstrapFetchedAfterMount: z.boolean(),
@@ -144,4 +189,7 @@ export type WebApplicationErrorQueryCategory = z.infer<
 >;
 export type WebApplicationErrorQueryDiagnostic = z.infer<
   typeof webApplicationErrorQueryDiagnosticSchema
+>;
+export type WebApplicationErrorBoundary = z.infer<
+  typeof webApplicationErrorBoundarySchema
 >;

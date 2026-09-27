@@ -7,6 +7,7 @@ export { CodemodeRuntime } from "@cloudflare/codemode";
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
 // and the WorkspaceProxy that carries the container's /ws egress home.
 export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
+export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
 
 import {

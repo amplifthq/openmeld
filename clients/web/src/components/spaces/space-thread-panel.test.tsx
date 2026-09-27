@@ -367,7 +367,7 @@ describe("SpaceThreadPanel", () => {
 		const activityTrigger = screen.getByRole("button", {
 			name: "Agent is working. Work summary: Reviewing source files…",
 		});
-		expect(activityTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
 			'[data-slot="space-message-progress-row"]'
 		);
@@ -384,7 +384,9 @@ describe("SpaceThreadPanel", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("button", { name: "Open message details" })
+			within(messageRow as HTMLElement).getByRole("button", {
+				name: "Message details",
+			})
 		);
 
 		expect(
@@ -651,7 +653,7 @@ describe("SpaceThreadPanel", () => {
 
 		const bubbleContent = screen
 			.getByText("Here is the thread summary.")
-			.closest("[data-slot='bubble-content']");
+			.closest("[data-slot='space-message-text-surface']");
 		expect(bubbleContent?.contains(activityTriggers[0] ?? null)).toBe(true);
 		const answerElement = screen.getByText("Here is the thread summary.");
 		const directChildren = Array.from(bubbleContent?.children ?? []);
@@ -661,8 +663,8 @@ describe("SpaceThreadPanel", () => {
 		const activitySection = directChildren.find((child) =>
 			child.contains(activityTriggers[0] ?? null)
 		);
-		expect(directChildren.indexOf(answerSection as Element)).toBeLessThan(
-			directChildren.indexOf(activitySection as Element)
+		expect(directChildren.indexOf(activitySection as Element)).toBeLessThan(
+			directChildren.indexOf(answerSection as Element)
 		);
 	});
 
@@ -706,6 +708,49 @@ describe("SpaceThreadPanel", () => {
 				message?.querySelector('[data-slot="message-footer"]')
 			).not.toBeNull();
 		}
+	});
+
+	it.each([
+		false,
+		true,
+	])("keeps a thread's mixed files in one rail outside its text (DM=%s)", (isDirectMessage) => {
+		const onOpenSpaceFile = vi.fn();
+		const signal = createTextSignal({ text: "Review these attachments" });
+		if (signal.type !== "signal.text") {
+			throw new Error("Expected text fixture");
+		}
+		signal.data.files = [
+			{
+				fileId: "document-1",
+				name: "review.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 128,
+				revision: 3,
+			},
+			{
+				fileId: "archive-1",
+				name: "source.zip",
+				mimeType: "application/zip",
+				sizeBytes: 256,
+				revision: 1,
+			},
+		];
+		renderThreadPanel({ isDirectMessage, onOpenSpaceFile, signals: [signal] });
+		const text = screen.getByText("Review these attachments");
+		const file = screen.getByRole("button", {
+			name: "Open review.pdf in Files",
+		});
+		const message = text.closest("[data-slot='bubble-content']");
+		expect(message?.contains(file)).toBe(true);
+		expect(file.closest("[data-slot='space-message-text-surface']")).toBeNull();
+		expect(
+			text.closest("[data-slot='space-message-text-surface']")
+		).not.toBeNull();
+		expect(
+			message?.querySelectorAll("[data-slot='space-attachment-strip']")
+		).toHaveLength(1);
+		fireEvent.click(file);
+		expect(onOpenSpaceFile).toHaveBeenCalledWith("document-1", 3);
 	});
 
 	it("shows direct-message times only in the shared thread toolbars", () => {

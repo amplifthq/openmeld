@@ -62,7 +62,7 @@ import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
 } from "./center-agent-computer-setup-card";
-import { Bubble, BubbleContent } from "./primitives/bubble";
+import { Bubble } from "./primitives/bubble";
 import { Message, MessageContent, MessageHeader } from "./primitives/message";
 import {
 	MessageScroller,
@@ -82,7 +82,6 @@ import {
 	type SpaceAgentInteractionPlacement,
 } from "./space-agent-interaction-placement";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
-import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import {
 	buildSpaceCollaborationProfilePresentations,
 	buildSpaceMemberDirectoryEntryByProfileId,
@@ -118,13 +117,15 @@ import {
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
+import {
+	hasSpaceMessageAttachments,
+	SpaceMessageAttachments,
+} from "./space-message-attachments";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageRowLayoutClassName,
-	SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
-	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
@@ -156,7 +157,9 @@ import {
 } from "./space-message-reactions";
 import { SpaceMessageReadObserver } from "./space-message-read-observer";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
+import { SpaceMessageSurface } from "./space-message-surface";
 import { SpaceMessageTime } from "./space-message-time";
+import { SpaceMessageWork } from "./space-message-work";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -349,7 +352,6 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				orgSlug={input.orgSlug}
 				readOnly={input.readOnly}
 				selfProfileId={input.selfProfileId}
-				threadRootSignalId={input.activeThread?.rootSignalId}
 			>
 				<SpaceDeviceWaitOutcomeScope
 					onComposeAgain={
@@ -1546,28 +1548,49 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								placement="header"
 							/>
 						</MessageHeader>
-						<Bubble align={messageAlign}>
-							<BubbleContent
-								className={cn(
-									"group/thread-message relative flex min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
-									SPACE_MESSAGE_CONTENT_PADDING_CLASS,
-									SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
+						<Bubble
+							align={messageAlign}
+							className={
+								hasSpaceMessageAttachments(input.item) ? "w-full" : undefined
+							}
+						>
+							<SpaceMessageSurface
+								attachments={
+									<SpaceMessageAttachments
+										align={messageAlign}
+										item={input.item}
+										onOpenSpaceFile={input.onOpenSpaceFile}
+										openMeldProfileId={input.selfProfileId}
+										organizationSlug={input.orgSlug}
+										spaceId={input.item.spaceId}
+									/>
+								}
+								bubbleClassName={cn(
+									"transition-colors motion-reduce:transition-none",
 									selfMessageContentLayoutClassName,
 									resolveSpaceMessageBubblePresentationClass({
 										isSelf: isSelfMessage,
-									}),
-									null
+									})
 								)}
+								className="group/thread-message relative"
 								data-signal-id={input.item.id}
+								edited={Boolean(input.item.editedAt) && !input.item.recalledAt}
 								ref={(element) => {
 									input.registerMessageElement(input.item.id, element);
 								}}
 								tabIndex={-1}
 							>
+								{input.item.actorProfileKind === "agent" ? (
+									<SpaceMessageWork
+										item={input.item}
+										status={showProgressInAnswerArea ? progressStatus : null}
+									/>
+								) : null}
 								<SpaceMessageBody
 									computerSetupContext={computerSetupPresentation.context}
 									computerSetupSourceSignalId={input.item.id}
 									containerClassName={selfMessageContentLayoutClassName}
+									includeAttachments={false}
 									item={input.item}
 									onOpenProfile={input.onOpenProfile}
 									onOpenSpaceFile={input.onOpenSpaceFile}
@@ -1597,17 +1620,10 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										/>
 									)
 								)}
-								{input.item.agentActivity ? (
-									<SpaceAgentToolActivity
-										item={input.item}
-										onOpenDetails={
-											messageDetailsItem
-												? () => input.onOpenMessageDetails(messageDetailsItem)
-												: undefined
-										}
-										placement="message"
-									/>
-								) : null}
+								{input.item.actorProfileKind !== "agent" &&
+								showProgressInAnswerArea
+									? progressStatus
+									: null}
 								{renderAnchoredThreadOutcomeRows({
 									notices: anchoredOutcomeNotices,
 									onOpenMessageDetails: input.onOpenMessageDetails,
@@ -1618,9 +1634,8 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 									targetLabelsByProfileId:
 										input.wakeStopTargetLabelsByProfileId,
 								})}
-								{showProgressInAnswerArea ? progressStatus : null}
 								<MessageBubbleReactions />
-							</BubbleContent>
+							</SpaceMessageSurface>
 						</Bubble>
 						{showProgressInAnswerArea ? null : progressStatus}
 						<ThreadTimelineMessageFooter
@@ -1679,7 +1694,6 @@ function ThreadTimelineMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={input.addressingTargets}
 			align={input.align}
-			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
 			deviceWaitOutcome={{
 				notices: input.anchoredOutcomeNotices,
@@ -1689,12 +1703,15 @@ function ThreadTimelineMessageFooter(input: {
 			isDirectMessage={input.isDirectMessage}
 			item={input.item}
 			layout="inline"
-			onCopy={() =>
-				copySpaceTimelineItemWithFeedback({
-					item: input.item,
-					openMeldProfileId: input.openMeldProfileId,
-					organizationSlug: input.organizationSlug,
-				})
+			onCopy={
+				input.item.text.trim() && !isSpaceMessageCopyPending(input.item)
+					? () =>
+							copySpaceTimelineItemWithFeedback({
+								item: input.item,
+								openMeldProfileId: input.openMeldProfileId,
+								organizationSlug: input.organizationSlug,
+							})
+					: undefined
 			}
 		/>
 	);

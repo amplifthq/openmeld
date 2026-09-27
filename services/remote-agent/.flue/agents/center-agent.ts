@@ -90,7 +90,7 @@ import {
 } from "../../flue-adapter/execution-reconciliation";
 import { registerRemoteAgentCloudflareProvider } from "../../flue-adapter/model";
 import { resolveCurrentOrganizationDocumentPromptContext } from "../../flue-adapter/organization-document-prompt-context";
-import { materializeOrganizationSkillFlueSkills } from "../../flue-adapter/organization-skills";
+import { materializeOrganizationSkillFlueSkillsFromCatalog } from "../../flue-adapter/organization-skills";
 import {
   resolveRemoteAgentCompactionReserveTokens,
   resolveRemoteAgentProviderContextCapacity,
@@ -148,12 +148,18 @@ async function prepareCenterAgentRender() {
     createSandbox: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
+      executionContext.computerIsolationVersion === 2 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
+            connectorExecution: {
+              baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+              runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+            },
             context: executionContext,
             coreWorker,
             env,
             storage,
+            prepareImage: prepareImageForContext,
             includeOrganizationDocuments:
               runtimeContextPlan.includeOrganizationDocuments,
           })
@@ -186,6 +192,7 @@ async function prepareCenterAgentRender() {
             memberProfileReportFiles:
               sandboxCapability.memberProfileReportFiles,
             modelRoute: executionContext.modelRoute,
+            organizationSkillContext: executionContext,
             prepareImage: prepareImageForContext,
             sandboxDefinitions: sandboxCapability.definitions,
             storage,
@@ -209,12 +216,12 @@ async function prepareCenterAgentRender() {
       !executionContext.replyRecovery &&
       runtimeContextPlan.materializeOrganizationSkills &&
       organizationSkillSelections.length > 0
-        ? await materializeOrganizationSkillFlueSkills({
+        ? materializeOrganizationSkillFlueSkillsFromCatalog({
             expectedOrganizationId: executionContext.organizationId,
             selections: organizationSkillSelections,
-            snapshot: await callCoreRpc(
+            catalog: await callCoreRpc(
               coreWorker,
-              "readOrganizationSkillRuntimeSnapshot",
+              "readOrganizationSkillRuntimeCatalog",
               {
                 context: buildRemoteAgentCoreContext(
                   executionContext,
@@ -230,7 +237,7 @@ async function prepareCenterAgentRender() {
                   : {}),
               },
               (binding, rpcInput) =>
-                binding.readOrganizationSkillRuntimeSnapshot?.(rpcInput)
+                binding.readOrganizationSkillRuntimeCatalog?.(rpcInput)
             ),
           })
         : [],
@@ -649,6 +656,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         const request = remoteAgentWorkerCancellationRequestSchema.parse(input);
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const cancellation = await cancelFlueRemoteAgentExecution({
+          scheduleReconciliation: () => this.armRemoteAgentCallbackRetry(),
           abortSubmission: async () => {
             const abort = await abortFlueCenterAgentSubmission({
               conversationId: buildRemoteAgentName(request),
@@ -684,7 +692,6 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
             submissionId: request.submissionId,
           });
         }
-        await this.armRemoteAgentCallbackRetry();
         return cancellation.response;
       }
 

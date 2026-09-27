@@ -112,9 +112,11 @@ export type SpaceTimelineItem = {
 		toolParts?: readonly AgentStreamToolPart[];
 		thinking?: string;
 		thinkingActive?: boolean;
+		progress?: string;
 		reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
 	};
 	agentActivity?: SpaceAgentActivity;
+	agentPublicProgress?: string;
 };
 
 export type SpaceTimelineAttachment = SpaceMessageAttachment & {
@@ -305,6 +307,11 @@ export function buildSpaceTimelineItems(input: {
 								thinkingActive: stream.thinkingActive,
 							}
 						: {}),
+					...(stream.status === "streaming" && stream.progress
+						? {
+								progress: stream.progress,
+							}
+						: {}),
 				},
 				isAgentFinalReply: true,
 				text: stream.text,
@@ -427,6 +434,11 @@ function buildSpaceTimelineItem(input: {
 		agentControllerConversationId:
 			agentReplyDetails.agentControllerConversationId,
 		agentActivity: readAgentActivity(input.signal),
+		agentPublicProgress:
+			input.signal.type === "signal.text" &&
+			isAgentFinalReplySignal(input.signal)
+				? input.signal.data.meta?.agentPublicProgress
+				: undefined,
 		agentWorkspace: agentReplyDetails.agentWorkspace,
 		clientMessageId: readClientMessageId(input.signal),
 		centerAgentInteractionSource:
@@ -913,6 +925,10 @@ function compareSignalEnvelopeOrder(
 	left: SignalEnvelope,
 	right: SignalEnvelope
 ): number {
+	const localOrder = compareLocalSubmissionOrder(left.id, right.id);
+	if (localOrder !== 0) {
+		return localOrder;
+	}
 	if (left.ts !== right.ts) {
 		return left.ts - right.ts;
 	}
@@ -923,10 +939,22 @@ function compareSpaceTimelineItemOrder(
 	left: SpaceTimelineItem,
 	right: SpaceTimelineItem
 ): number {
+	const localOrder = compareLocalSubmissionOrder(left.id, right.id);
+	if (localOrder !== 0) {
+		return localOrder;
+	}
 	if (left.createdAtMs !== right.createdAtMs) {
 		return left.createdAtMs - right.createdAtMs;
 	}
 	return left.id.localeCompare(right.id);
+}
+
+function compareLocalSubmissionOrder(leftId: string, rightId: string): number {
+	const leftLocal =
+		leftId.startsWith("pending:") || leftId.startsWith("failed:");
+	const rightLocal =
+		rightId.startsWith("pending:") || rightId.startsWith("failed:");
+	return Number(leftLocal) - Number(rightLocal);
 }
 
 function resolveActorName(

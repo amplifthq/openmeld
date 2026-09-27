@@ -53,6 +53,7 @@ import {
 } from "#/components/editor/ui/inline-combobox";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
@@ -263,6 +264,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			text: input.text,
 		};
 		const wasFocused = editor.api.isFocused();
+		recordReactUpdate("composer_editor_external_value");
 		editor.tf.setValue(
 			createSpaceComposerEditorValue({
 				authoredMentions: input.authoredMentions,
@@ -334,15 +336,10 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 
 		const composerHandle: SpaceComposerEditorHandle = {
 			setAgentMentionOnly: (profileIds) => {
-				editor.tf.setNodes(
-					{ relation: "reference" },
-					{
-						at: [],
-						match: (node) =>
-							isSpaceComposerProfileElement(node) &&
-							profileIds.includes(node.profileId) &&
-							node.relation === "wake",
-					}
+				applyComposerReferenceTargets(
+					editor,
+					input.mentionPickerItems,
+					profileIds
 				);
 				focusWhenReady();
 			},
@@ -403,6 +400,15 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				onChange={({ editor: changedEditor }) => {
 					const serialized = serializeSpaceComposerEditorValue(
 						changedEditor.children
+					);
+					recordReactUpdate(
+						serialized.text === input.text &&
+							authoredMentionsEqual(
+								serialized.authoredMentions,
+								input.authoredMentions
+							)
+							? "composer_editor_change_equal"
+							: "composer_editor_change_different"
 					);
 					const pendingExternalValue = pendingExternalValueRef.current;
 					if (
@@ -518,6 +524,46 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			</Plate>
 		</SpaceComposerEditorContext.Provider>
 	);
+}
+
+function applyComposerReferenceTargets(
+	editor: PlateEditor,
+	items: readonly SpaceMentionPickerItem[],
+	profileIds: readonly string[]
+): void {
+	editor.tf.setNodes(
+		{ relation: "reference" },
+		{
+			at: [],
+			match: (node) =>
+				isSpaceComposerProfileElement(node) &&
+				profileIds.includes(node.profileId) &&
+				node.relation === "wake",
+		}
+	);
+	// A Direct Message's default recipient is implicit, not an editor node.
+	// Make the user's opt-out visible and serialize the ordinary Reference.
+	const existing = new Set(
+		serializeSpaceComposerEditorValue(editor.children).authoredMentions.map(
+			(mention) => mention.profileId
+		)
+	);
+	for (const profileId of new Set(profileIds)) {
+		if (existing.has(profileId)) {
+			continue;
+		}
+		const item = items.find(
+			(candidate) => candidate.suggestion.profileId === profileId
+		);
+		if (
+			item?.suggestion.profileKind !== "agent" ||
+			!item.suggestion.allowedRelations.reference
+		) {
+			continue;
+		}
+		editor.tf.select(editor.api.start([]));
+		insertProfile(editor, item, false, "reference");
+	}
 }
 
 function focusEditorAtSelection(
@@ -1134,12 +1180,15 @@ function resolveMentionPickerRelationLabel(
 function insertProfile(
 	editor: PlateEditor,
 	item: SpaceMentionPickerItem,
-	wakeRecommendationAccepted = false
+	wakeRecommendationAccepted = false,
+	relationOverride?: "reference"
 ): void {
-	const relation = resolveDefaultSpaceComposerMentionRelation(
-		item.suggestion,
-		item.agentMember
-	);
+	const relation =
+		relationOverride ??
+		resolveDefaultSpaceComposerMentionRelation(
+			item.suggestion,
+			item.agentMember
+		);
 	if (!relation) {
 		return;
 	}

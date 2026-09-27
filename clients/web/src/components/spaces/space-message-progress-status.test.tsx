@@ -73,14 +73,12 @@ describe("SpaceMessageProgressStatus", () => {
 	});
 
 	it("keeps the explicit working state beside live tool activity", () => {
-		const onOpenMessageDetails = vi.fn();
 		const view = render(
 			<SpaceMessageProgressStatus
 				align="end"
 				control={<button type="button">Stop</button>}
 				entries={[createWakeProgressEntry()]}
 				item={createStreamingToolActivityItem()}
-				onOpenMessageDetails={onOpenMessageDetails}
 			/>
 		);
 
@@ -94,15 +92,36 @@ describe("SpaceMessageProgressStatus", () => {
 		expect(
 			within(row as HTMLElement).getByRole("button", { name: "Stop" })
 		).toBeTruthy();
+		const controlSlot = screen.getByTestId(
+			"space-message-progress-control-slot"
+		);
+		expect(activity.nextElementSibling).toBe(controlSlot);
+		expect(controlSlot.className).not.toContain("w-20");
 
 		const activityTrigger = screen.getByRole("button", {
 			name: "Agent is working. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger).toBe(activity);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Open message details" })
+		expect(
+			screen.queryByRole("button", { name: "Open message details" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Message details" })
+		).toBeNull();
+	});
+
+	it("does not duplicate Message details in a workstation Wake's work summary", () => {
+		const item = createStreamingToolActivityItem();
+		item.activeWakeProgress = createStartingItem().activeWakeProgress;
+		render(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={item}
+			/>
 		);
-		expect(onOpenMessageDetails).toHaveBeenCalledOnce();
+		expect(
+			screen.queryByRole("button", { name: "Message details" })
+		).toBeNull();
 	});
 
 	it("shows required input ahead of stale live tool activity", () => {
@@ -139,6 +158,113 @@ describe("SpaceMessageProgressStatus", () => {
 
 		expect(screen.getAllByText(AGENT_WORKING_TEXT_PATTERN)).toHaveLength(1);
 		expect(screen.queryByText("Responding...")).toBeNull();
+	});
+
+	it.each([
+		["without tools", createStreamingItem],
+		["beside tool activity", createStreamingToolActivityItem],
+	] as const)("shows hosted progress inside the work panel %s", (caseName, createItem) => {
+		const item = createItem();
+		if (!item.agentStreamState) {
+			throw new Error("Expected a live Agent stream fixture.");
+		}
+		item.agentStreamState = {
+			...item.agentStreamState,
+			progress: "Checking the current Space context.",
+		};
+		render(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={item}
+			/>
+		);
+		expect(
+			screen
+				.getByTestId("space-agent-tool-activity")
+				.getAttribute("aria-expanded")
+		).toBe("true");
+		const updateLabel = within(
+			screen.getByRole("list", { name: "Work steps and updates" })
+		).queryByText("Agent updates");
+		expect(Boolean(updateLabel)).toBe(caseName === "beside tool activity");
+		expect(
+			screen.getByRole("list", { name: "Work steps and updates" }).textContent
+		).toContain("Checking the current Space context.");
+		expect(
+			screen.queryByRole("button", { name: "Thinking process" })
+		).toBeNull();
+	});
+
+	it("shows local Markdown reasoning in the same work disclosure", () => {
+		const item = createStreamingItem();
+		if (!item.agentStreamState) {
+			throw new Error("Expected a live Agent stream fixture.");
+		}
+		item.agentStreamState = {
+			...item.agentStreamState,
+			thinking: "**Checking** the current Space context.",
+			thinkingActive: true,
+			toolParts: createStreamingToolActivityItem().agentStreamState?.toolParts,
+		};
+		render(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={item}
+			/>
+		);
+		expect(
+			screen.getByRole("button", {
+				name: "Agent is working. Work summary: Reviewing source files…",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByRole("list", { name: "Work steps and reasoning" }).textContent
+		).toContain("Checking the current Space context.");
+		expect(screen.getByText("Checking", { selector: "strong" })).toBeTruthy();
+		expect(screen.getAllByTestId("space-agent-tool-activity")).toHaveLength(1);
+	});
+
+	it("uses the shared disclosure when local reasoning has no tool steps", () => {
+		const item = createStreamingItem();
+		if (!item.agentStreamState) {
+			throw new Error("Expected a live Agent stream fixture.");
+		}
+		item.agentStreamState = {
+			...item.agentStreamState,
+			thinking: "Reviewing the request.",
+			thinkingActive: true,
+		};
+		const view = render(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={item}
+			/>
+		);
+
+		const trigger = screen.getByRole("button", {
+			name: "Agent is working. Thinking process",
+		});
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		expect(screen.getByText("Reviewing the request.")).toBeTruthy();
+		expect(screen.getAllByTestId("space-agent-tool-activity")).toHaveLength(1);
+		fireEvent.click(trigger);
+		view.rerender(
+			<SpaceMessageProgressStatus
+				entries={[createWakeProgressEntry()]}
+				item={{
+					...item,
+					agentStreamState: {
+						...item.agentStreamState,
+						thinking: "Reviewing the request. Checking files.",
+					},
+				}}
+			/>
+		);
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(trigger);
+		expect(
+			screen.getByRole("list", { name: "Work steps and reasoning" }).textContent
+		).toContain("Reviewing the request. Checking files.");
 	});
 
 	it("shows live output without repeating a generic working label", () => {

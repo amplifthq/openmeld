@@ -296,6 +296,13 @@ export function classifyRemoteAgentTurnFailure(
         REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_RATE_LIMITED,
     };
   }
+  if (messages.includes("has no byok credential named")) {
+    return {
+      errorName,
+      reasonCode:
+        REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_CONNECTION_MISSING,
+    };
+  }
   if (
     includesAny(structured, [
       "401",

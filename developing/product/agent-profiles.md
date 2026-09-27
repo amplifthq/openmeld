@@ -30,6 +30,21 @@ is stored on that Agent's Binding, independently of Center Agent settings.
 Each Space, including a Direct Message, has a separate persistent conversation
 for that Remote Agent. This does not add a multi-chat management surface.
 
+Execution family and current availability are separate facts. Hosted Remote and
+Center Agents do not depend on the viewer's Computer, local Service, local Agent
+catalog, or connection/upgrade state. Their member reads must not wait for local
+route preloads. Preload selection uses current Auth identity and validated
+Binding evidence shared with that request's readiness read, never the member's
+historical controller snapshot. Both Local-to-Hosted and Hosted-to-Local changes
+must preserve that boundary without dropping needed Local reads. Real cloud
+authorization, model, binding, and service failures
+still block work; hosted does not mean unconditionally ready. A missing or failed
+binding read is unknown execution evidence, not permission to assume a Local
+Agent. Only confirmed Local identities receive Connect/Reconnect/Prepare local
+recovery. Local missing-binding recovery remains available. Hosted and unknown
+identities keep applicable model/settings guidance or a factual status hint,
+never a local setup action.
+
 Users should understand it as the named AI collaborator they can invite into a
 Space, address in conversation, Wake for work, and recognize across replies.
 
@@ -349,6 +364,12 @@ Core checkpoints the committed ID on the fenced `approved` request immediately
 after Auth returns and before starting Space, Binding, working-folder, or
 Default Project setup. A stale-attempt recovery therefore cannot relabel a
 known committed identity as a creation failure.
+After Binding, Core completes the working-folder mutation and releases its
+execution-target mutation lease before setting Default Project. The two
+operations must not compete for the same lease. The request checkpoints each
+completed post-Binding step so a retry of the same committed Profile skips that
+step. If the working-folder outcome is unknown, Core does not advance to Default
+Project; the lease and request failure remain visible for safe recovery.
 
 Before Auth creates the Agent Profile identity, Core revalidates the selected
 local-agent candidate against the target member's current Computer projection.

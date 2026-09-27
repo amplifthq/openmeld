@@ -2,9 +2,34 @@ import { describe, expect, it } from "vitest";
 import {
   postSpaceWakeStopInputSchema,
   postSpaceWakeStopResponseSchema,
+  spaceWakeStopIntentQuerySchema,
+  spaceWakeStopIntentResponseSchema,
 } from "../../src";
 
 describe("space Wake Stop HTTP schemas", () => {
+  it("validates private admission identities without inventing terminal Stop evidence", () => {
+    const query = {
+      dispatchId: "dispatch-1",
+      spaceId: "space-1",
+      targetProfileId: "agent-1",
+    };
+    expect(spaceWakeStopIntentQuerySchema.parse(query)).toEqual(query);
+    expect(
+      spaceWakeStopIntentQuerySchema.safeParse({ ...query, dispatchId: " " })
+        .success
+    ).toBe(false);
+    expect(
+      spaceWakeStopIntentQuerySchema.safeParse({ ...query, trusted: true })
+        .success
+    ).toBe(false);
+    expect(
+      spaceWakeStopIntentResponseSchema.parse({ status: "requested" })
+    ).toEqual({ status: "requested" });
+    expect(
+      spaceWakeStopIntentResponseSchema.safeParse({ status: "cancelled" })
+        .success
+    ).toBe(false);
+  });
   it("accepts source-signal and client-message selectors without trusted dispatch ids", () => {
     expect(
       postSpaceWakeStopInputSchema.safeParse({

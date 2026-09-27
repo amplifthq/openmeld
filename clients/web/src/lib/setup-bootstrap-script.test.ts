@@ -175,6 +175,29 @@ describe("setup-bootstrap-script", () => {
 		expect(script).toContain("OPENMELD_SETUP_RUN_STDIN=/dev/null");
 	});
 
+	it("does not start setup when the piped shell script is truncated", () => {
+		const script = buildOpenMeldSetupBootstrapScript({ lane: "prod" });
+		const withoutFinalFi = script.slice(0, script.lastIndexOf("\nfi "));
+		const result = spawnSync(
+			"sh",
+			[
+				"-s",
+				"--",
+				"setup",
+				"--start-session",
+				"test",
+				"--device-code",
+				"test",
+				"--view",
+				"human",
+			],
+			{ input: withoutFinalFi, encoding: "utf8", timeout: 5000 }
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).not.toBe("");
+	});
+
 	it("requires a Prepare Session command with an approved computer grant", () => {
 		const script = buildOpenMeldSetupBootstrapScript({
 			lane: "prod",

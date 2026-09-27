@@ -4,9 +4,11 @@ import type {
 } from "@openmeld/schemas/types";
 import type { RemoteAgentStorage } from "../agent-core/callback-context";
 import { requestRemoteAgentExecutionCancellation } from "../agent-core/execution-state";
+import { ConfirmedLostComputerCommandsError } from "./computer-command";
 
 export async function cancelFlueRemoteAgentExecution(input: {
   abortSubmission: () => Promise<{ aborted: boolean }>;
+  scheduleReconciliation: () => Promise<void>;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
   reason?: string;
@@ -21,6 +23,9 @@ export async function cancelFlueRemoteAgentExecution(input: {
     reason: input.reason,
     storage: input.storage,
   });
+  // Arm recovery after durable intent, before external abort/cleanup can throw
+  // or stall. A Stop response never certifies that cleanup has completed.
+  await input.scheduleReconciliation();
   if (
     !(
       requested.status === "cancellation_requested" &&
@@ -33,7 +38,21 @@ export async function cancelFlueRemoteAgentExecution(input: {
     };
   }
 
-  const abort = await input.abortSubmission();
+  let abort: { aborted: boolean };
+  try {
+    abort = await input.abortSubmission();
+  } catch (error) {
+    if (!(error instanceof ConfirmedLostComputerCommandsError)) {
+      throw error;
+    }
+    // Cancellation intent is durable. Exact command cleanup confirmed the old
+    // execution is gone, so no process remains to signal. The already
+    // scheduled reconciliation publishes the terminal aborted outcome.
+    return {
+      abortedFlueSubmission: null,
+      response: requested,
+    };
+  }
   // The Flue response acknowledges durable abort intent, not that an external
   // operation has finished unwinding. Its observer/reconciler owns settlement.
   // A false result can also mean the submission is absent; absence is not proof

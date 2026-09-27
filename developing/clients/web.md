@@ -23,7 +23,93 @@
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
 
+## Conversational Plugin setup
+
+A Plugin setup intent opens the current Organization's existing connection
+surface in a Fluid dialog without replacing the conversation route. Hosted
+publication appends a normal Markdown link; the new `plugin_connection` union
+member is not published into the callback or stored message envelope. Older
+readers retain a usable link. Current Web/packaged Desktop readers enhance only
+an exact final-reply suffix on the trusted app origin and current Organization,
+without rewriting stored text. Provider authorization, credentials, current
+status and Agent access remain in their existing owners.
+
+Plugins, Onboarding and conversation setup share `PluginConnectionSurface`.
+It selects the existing GitHub adapter or generic App adapter; it does not
+implement another authorization state machine. GitHub user authorization and
+Organization installation remain distinct, as do OAuth and secure credential
+forms for other supported providers.
+
+The dialog reads the signed-in viewer and current connection options only when
+opened. An explicit personal/shared scope or server-frozen choice wins.
+Unspecified setup reuses a single existing connection, but when both identities
+exist it asks which to use instead of silently preferring personal. Members may
+choose an existing shared connection without receiving its management rights;
+Core still checks its actual Agent access. With no connection, ordinary members
+get personal setup and eligible owners/admins can choose. Personal Workspaces
+omit this team choice. A choice does not connect or run anything; explicit
+Continue submits that scope and Core freezes the exact authorized account.
+Connection refreshes and transport retries must not silently change it. The
+server rechecks every mutation. Once an active connection is present, the
+existing Agent access editor is visible directly below its form, shared by
+Plugins, Onboarding and the conversation dialog. New registrations show no Agent
+access; only an explicit Save access action changes permissions. Historical
+connection policies are preserved, not silently reset. Opening historical
+messages does not query access before the user opens setup.
+
+Access queries use the current viewer and connection authorization snapshot,
+filter to that viewer's personal and the selected shared registration, and
+refresh all scoped editor views after a save. Reauthorization and revision
+changes discard stale permission drafts. The conversation Continue control is
+disabled while permissions are unavailable, all consumers are denied, or edits
+remain unsaved. Enabling it is not an execution grant: Core still checks the
+original Agent's specific consumer permission and each action's effect. Shared
+read-only viewers retain the Continue control outside the management fieldset;
+only an owner/admin may change shared policy. A save never resumes work.
+
+Closing the dialog keeps the conversation in place and unmounts the existing
+authorization view. A disconnected, expired or provider-denied connection is
+not evidence that a task completed. External providers still require their own
+consent/approval. An explicit **Continue original task** button calls the
+Core-owned continuation endpoint with only the original reply, service and
+selected scope. Core verifies the original human, delivered reply, current
+membership and Plugin access; it submits one idempotent Message/Wake in the
+original conversation and Thread. It includes bounded existing operation
+receipts and refuses pending/unknown outcomes. Provider callbacks never trigger
+work. The UI reports "requested", not "completed". Existing execution and
+operation owners still determine the actual result.
+
+Local Agent final replies use the same suffix and dialog. Their continuation
+is admitted against the RuntimeCoordinator's published reply and current Local
+Binding, not a Hosted delivery or a guessed completion status. A shared message
+never authorizes its viewer to continue another person's task.
+
+Slack, Feishu and Lark deliver Plugin setup privately through the existing
+provider navigation publisher. The trusted Plugin detail URL may carry a
+`request` locator. `PluginConnectionRequestPanel` first asks Core to verify the
+signed-in requester, Organization and original provider task, then reuses
+`PluginConnectionSetupPanel` and the existing connection/Agent-access forms.
+The URL cannot choose a target Agent, task body, user, connection or permissions.
+The shared explicit Continue button sends only the request locator and scope;
+the existing provider native-delivery owner resumes in the original conversation.
+Preview, mounting, account setup and OAuth completion do not execute work. An
+unverified, expired or mismatched request shows an error instead of an unbound
+fallback. The read-only preview cache is keyed by Organization/user/request and
+is discarded on unmount. Older clients still see a normal setup page/link; they
+must not be counted as supporting the new continuation interaction.
+
+Independent authenticated browser/installed Desktop acceptance remains in
+`design-plans/1254-composable-plugin-workflow.md`; component tests are not that
+acceptance.
+
 ## Selected Space work
+
+Team → Files contains Team files, member-private My files, and Knowledge. Knowledge
+opens the existing approved-content and draft-review workflow inside the Files
+entry; old Documents list, detail, and creation links redirect into Files while
+preserving their target and selection. This navigation step
+does not make an ordinary Markdown file approved knowledge or add a second
+content writer.
 
 The writable Space Files browser offers **Hand off** for files in the current
 folder. The dialog freezes their displayed revisions, selects one authorized
@@ -96,8 +182,10 @@ from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
 switching remains at the top; the global Create entry is temporarily hidden.
 Creation remains available in the Spaces and Team contextual headers. Global search sits
 above Settings in the footer, using the same compact utility styling. Inbox
-retains the shared attention badge and active-route treatment. The Organization
-avatar fills its circular trigger. Account, theme, and Settings remain reachable
+retains the shared attention badge and active-route treatment. In the compact
+rail, hover and active backgrounds surround the icon and its attention marker;
+labels stay outside that background. The Organization avatar fills its 36px
+shape-aware trigger. Account, theme, and Settings remain reachable
 from the rail. Search, Settings, theme, and account controls share one footer
 hover scope, so the same background moves across all four without nested or
 competing highlights. Spaces and its contextual sidebar heading always open
@@ -106,8 +194,9 @@ Discover, in that order (Discover is absent in personal workspaces).
 
 The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal
-workspaces) and Agent creation route. People search and existing connection,
-activity, and group filters remain available beside the search field.
+workspaces) and Agent creation route. Its adjacent Filter people menu retains
+connection, activity, and group filters. The compact search field uses the
+same size as Spaces and says "Search people..." without a close action.
 Direct messages uses `?view=messages`; the old `/chats` index redirects there.
 Individual chat, profile, thread, and session links retain their existing routes.
 The contextual heading has no aggregate attention dot; the rail and individual
@@ -120,12 +209,15 @@ Spaces, direct messages, and Center Agent conversations share the Spaces
 list in the middle column. Team places its member list in that column instead;
 Settings retains its own settings navigation. A page without contextual
 navigation does not create an empty middle column or load the Spaces list.
-The work-area header toggles the middle list without hiding the application
-rail or remounting the conversation. The existing Fluid sidebar engine owns
-resizing and keyboard shortcuts. Dragging the middle column can collapse it,
+The contextual title holds the collapse control while the middle list is open;
+when collapsed, list-page work-area headers show the expand control beside that
+list's edge. Spaces uses this control in place of its decorative title icon,
+and Team uses the same placement. Toggling does not hide the application rail or
+remount the conversation. The existing Fluid sidebar engine owns resizing and
+keyboard shortcuts. Dragging the middle column can collapse it,
 and a 32px hover-intent strip along the content edge reveals a floating preview.
-The preview's top Expand sidebar action or the work-area header button restores
-the full column. The existing outer-sidebar cookie
+The preview keeps the same title toggle, which restores the full column even on
+detail pages without a work-area header. The existing outer-sidebar cookie
 now stores middle-column geometry, with a 308px default; legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in
@@ -150,12 +242,14 @@ Agent sessions once each. Its shared manual order uses the existing root
 sidebar preference; ordinary pin membership remains Space Index-owned and
 session pins remain in `chats` preferences. Unpin restores the saved group.
 Spaces, People, and Agents are optional filters. The plus menu offers New message
-and New Space. Search conversations filters existing conversations only. When no
-conversations match, Find someone opens the existing organization-wide people
-and Agents picker with the search text prefilled. Browse spaces is a compass icon
-in the Spaces header, before the plus menu, with a tooltip and accessible
-label. It remains visible in both Grouped and Recent, including with collapsed groups,
-filters, or empty results, and opens the existing Your Spaces / Discover page.
+and New Space. The adjacent View and filters menu holds separate Conversation
+view and Filter conversations submenus. The Spaces title remains the link to
+the Your Spaces / Discover directory; there is no separate Browse button.
+The compact search field says "Find a space..." while searching existing
+conversations. When no conversations match, Find someone opens the existing
+organization-wide people and Agents picker with the search text prefilled.
+The module sidebar header
+shares the work-area title row's vertical center.
 Team remains the member directory; there is no separate Contacts destination.
 Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.
@@ -1631,7 +1725,12 @@ another card.
 The Service-owned selection status disables the selector while matching work is
 queued or running and explains: the agent has work in progress, so the person
 must wait until it finishes. A concurrent installation operation gets a separate
-short-lived message. One verified installation is read-only. Loading, empty,
+short-lived message. One verified installation is read-only only when it is the
+current selection. If the saved selection is gone, the sole verified alternative
+still has an explicit switch action. Installation controls never depend on the
+inventory's candidate count: the live installation response owns the available
+choices and selected identity. Launch check describes launch readiness only;
+installation identity and choices belong in the Installation section. Loading, empty,
 failure, switching, and slow-reconciliation states remain inline without moving
 the surrounding dialog. Long names and details truncate within the selector,
 the control never blocks setup, and it never appears for another member's
@@ -2431,6 +2530,12 @@ time when known, and enabled local-agent icons. Computer explanations remain in
 the icon tooltip and accessible name; Channel identities and email are omitted.
 Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
 remain personal preferences; dragging cannot change Human presence.
+People keeps its last successful Computer and Local Agent display in the
+Organization-scoped in-memory query cache for up to one day after leaving Team.
+An expired query refreshes on return or through the visible 30-second poll
+without clearing that display; a failed read shows unavailable Computer status
+while retaining the last known Agent logos as read-only context.
+This Computer projection is not restored from IndexedDB.
 
 People and Space member/profile avatars show a small inset green dot only when
 the Human is Online. Offline and unknown states have no visible marker; accessible
@@ -3347,7 +3452,7 @@ client read-cache API. Dexie is the IndexedDB storage engine underneath the
 official TanStack Query persistence protocol; routes and components must not
 read Dexie directly or create a second browser data model.
 
-The persistence allowlist contains exactly seven successful query families:
+The persistence allowlist contains these successful query families:
 
 - `startQueryKeys.profilesForStorageScope(accountId)` for the confirmed account;
 - `startQueryKeys.currentComputerToolbarDisplaySnapshot(accountId)` for a
@@ -3356,6 +3461,8 @@ The persistence allowlist contains exactly seven successful query families:
   inventory, readiness payload, diagnostics, paths, accounts, and actions;
 - `organizationQueryKeys.spaces(organizationId)` for one confirmed account and
   Organization pair;
+- `accountSidebarQueryKey(accountId, organizationId)` for the same confirmed
+  account and Organization pair;
 - `organizationAppConnectionQueryKeys.statusSummary(organizationId)` for a
   privacy-safe App catalog hint containing only the Organization id and the
   service ids that had an active Core-returned connection;
@@ -3368,7 +3475,12 @@ The persistence allowlist contains exactly seven successful query families:
   recorded signals; and
 - `spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)` for a versioned,
   validated Space identity and presentation snapshot with current actions and
-  latest-message preview removed.
+  latest-message preview removed;
+- `spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId)` for
+  bounded member names and avatars used to render saved messages; and
+- `spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId)` for the
+  validated, bounded history slider directory. It is display-only, scoped to
+  the same confirmed Space and Human Profile, and revalidated by its query.
 
 No prefix, default-on, or exclusion-based persistence rule is allowed. Adding a
 query requires an explicit allowlist change, privacy and authority review, and a
@@ -3811,13 +3923,33 @@ Revocation notifies already decoded composer and focused-view images as well as
 message thumbnails. In-flight reads cannot repopulate a cleared account cache.
 Binary bytes and object URLs are never admitted to persisted display histories.
 
-One frame owns loading, decoded image, error, and retry. Valid display-oriented
-revision geometry reserves the aspect ratio, bounded to a 512-pixel box without
-upscaling; legacy/unsupported metadata uses a fixed 288-by-192 fallback. That
-initial geometry stays fixed for the mount even if metadata arrives later.
-Multi-image cells are explicitly square and use `object-contain`, preserving the
-whole long screenshot. Decode completion is source/attempt fenced. A decode
-failure is recoverable with an explicit retry, not an indefinite skeleton.
+One frame owns loading, decoded image, error, and retry. Attachment thumbnails
+use a fixed 96-pixel square in messages and a 64-pixel square in composers and
+inline editors, regardless of image count or source dimensions. `object-cover`
+fills the thumbnail without distortion; cropping never changes original bytes.
+The focused viewer still contains the complete original. Non-attachment detail
+frames retain their bounded natural geometry and fallback. Decode completion is
+source/attempt fenced. A decode failure offers explicit retry in the same frame.
+
+`SpaceAttachmentStrip` composes the existing horizontal Fluid ScrollArea, its
+overflow-edge fades, and its scrollbar. Media thumbnails and same-height file
+cards occupy one non-wrapping row with an eight-pixel gap. Both legacy attachments
+and canonical files remain accessible; canonical files retain their authored
+order instead of being regrouped by MIME type. File cards show type-aware icons,
+names, sizes when known, and the referenced revision. HTML keeps its shared badge;
+unsupported formats remain files rather than invented image previews. Corners
+follow the root Appearance radius through semantic utilities.
+
+Main conversations and Threads compose the strip above and outside the painted
+text surface, but inside the same message identity, toolbar anchor, and action
+scope. Attachment-only messages have no visible empty text surface. Short text
+does not constrain the attachment viewport. Center Agent's pre-Space pending
+message uses the same local previews. Composer and inline editing share the
+strip and item actions; existing and newly selected attachments are not separate
+rows. Removal stays on the attachment, and file failures announce immediately
+with click/keyboard-accessible diagnostics and retry in a popover, not a tall
+error paragraph below the thumbnail. Upload limits, publication, retained file
+IDs, and Agent context are unchanged.
 
 Genuinely cold, active image loads use the pinned `img-fx` `ImageGeneration`
 component through a lazy adapter. `images=[]` and `autoReveal=false` keep private
@@ -3849,9 +3981,12 @@ root cause or verify GPU rendering.
 Conversation, Thread replies, Files details, and the local composer share
 `SpaceVideoPreview`. Video remains a canonical Space File revision. Idle cards
 use the browser's native lazy video loading to show the first frame near the
-viewport. Once a visible frame is ready, they prepare the shared player so a
-Play click can start the same mounted media element in the user gesture. The
-player module loads once and no per-row observer is created. This introduces
+viewport. Compact message and composer cards retain their square poster and
+open the existing shared player only in the dialog; preparing its module does
+not mount an inline player in the thumbnail. Native posters also subscribe to
+account, Space, and file revocation before the player module is loaded. Larger
+Files detail cards still prepare the inline player when a visible frame is ready.
+The player module loads once and no per-row observer is created. This introduces
 no poster-generation or transcoding service. The shared Media Chrome controls
 overlay the picture without an opaque control bar.
 
@@ -4304,7 +4439,7 @@ above the composer with a **Files** item so later composer actions can be added
 without changing the primary control. The file picker accepts arbitrary files;
 paste and drag and drop use the same path.
 
-A composer accepts up to ten files, each up to the shared 10 MiB limit.
+A composer accepts up to ten files, each up to the shared 1 GiB Space File limit.
 Selection immediately stages each file as a temporary Composer Upload and keeps
 a removable local row with image thumbnail when available, file name, progress,
 failure, and request id. A staged upload is not listed in Files. The file tray
@@ -4387,6 +4522,11 @@ surface cannot inherit chat styling accidentally. The public Changelog selects
 its own fixed preset and does not consume the app content scale; changing Space
 or document typography must not change Changelog presentation.
 
+Inline Profile Mention tokens opt out of Typeset with `not-typeset` on their
+shared root, for both interactive and display-only rendering. Their avatars
+belong to the token, not the prose image flow; Markdown lists and headings must
+not add media margins inside Human Mention, Agent Wake, or Reference tokens.
+
 For an authenticated Organization view, a resolved reference navigates to the
 app route `/o/{orgSlug}/spaces/{spaceId}?profileId={activeProfileId}`. The
 canonical message token remains `/spaces/{spaceId}`; message authors and the
@@ -4404,15 +4544,22 @@ severity. Web must never deep-link to a retired authorization surface.
 
 Thread placement is conversation placement. It is not execution truth.
 
-For a hosted Center Agent Space reply, Web may overlay live model thinking and
-accumulated stream text while the turn is active. Neither projection is a Space
-message or final outcome. Thinking appears inside the Agent bubble as a
-collapsed `Thinking…` disclosure with the latest text visible in its summary;
-opening it shows the bounded live content. Web never writes thinking to its
-persisted browser read cache or a durable message, and removes it as soon as a
-terminal frame or durable outcome arrives. Reconnect restores the privacy-safe
-active stream presence and any accumulated text; thinking is not replayed from
-bootstrap.
+For hosted Center Agent and Remote Agent Space replies, Web may overlay
+explicit public progress updates and accumulated stream text while the turn is
+active. Neither live projection is a Space message or final outcome. Public
+updates appear inside the Agent bubble in the Work summary disclosure, sharing
+its bounded scroll viewport with tool steps when present. Local Agent reasoning,
+when the owner permits it and the controller supplies it, uses this same
+disclosure and Markdown renderer instead of a second collapsible panel. The
+reasoning remains transient and retains its separate privacy policy; Web never
+turns it into hosted public progress or durable reply history. Web does not write
+an active stream to its browser read cache. On successful publication, the final
+Signal may retain up to 8,192 characters of explicit public updates as
+`agentPublicProgress`; failed and stopped streams retain none. The published
+reply's collapsed Work summary lets the reader reopen those updates from
+history. Reconnect restores the privacy-safe active stream presence and any
+accumulated text; a bounded live progress tail can be replayed from the Space
+instance, but is absent from bootstrap.
 
 For hosted Center Agents and workstation Local Agents, Web may also show one
 compact live **Work summary** from the sequenced Space stream. A row describes
@@ -4427,17 +4574,17 @@ Connected App discovery names the App, and Connected App execution names both
 the App and its normalized catalog action. If either safe meaning is missing,
 the call is invisible instead of falling back to `connected app action`.
 
-The live Work summary shares the existing progress row instead of adding a
-second row and preserves the same Stop control and Message details action
-without shifting the conversation layout. While the authoritative stream is
+The live work disclosure shares the existing progress row instead of adding a
+second row and keeps Stop immediately after the expandable work summary.
+While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never
 replace or hide the active execution state. The live progress row belongs inside
 the Agent answer bubble after any accumulated answer text and before the
 message footer, so the state remains visually attached to the Agent and message
-actions never precede it. The summary defaults collapsed; the user can expand
-it into a bounded scroll viewport no taller than 12 rem or 30% of the dynamic
-viewport.
+actions never precede it. The summary opens while the stream is live,
+collapses after the final reply, and remains under the reader's control. Its
+scroll viewport is no taller than 12 rem or 30% of the dynamic viewport.
 Web first reconciles lifecycle parts by tool-call identity so starting and
 completed evidence for one call remains one step. It then groups only
 consecutive calls with the same semantic work, safe subject, and lifecycle
@@ -4554,9 +4701,9 @@ pre-execution Wake phases such as queueing or connecting keep their exact phase
 copy and must not claim that the Agent is working. When
 the latest admitted semantic tool step settles, the live Work summary keeps its
 concrete completed or failed meaning instead of inventing a generic
-response-preparation phase. Because the Work summary header owns expansion, an
-adjacent Message details action remains available as a distinct control during
-live tool activity instead of overloading or removing either action.
+response-preparation phase. The message toolbar owns Message details. The Work
+summary does not repeat that action. After completion, the durable message
+toolbar still owns it.
 The Space bootstrap snapshot seeds active stream projections in the same room
 entry read as recent durable signals; Web must not issue a separate
 conversation-state request. Web requests
@@ -4567,10 +4714,10 @@ arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
 newer sequence. Private thinking and the compact live Work summary are not
 replayed on reconnect. A successfully published Agent reply may carry a durable
-privacy-bounded work projection. Web renders the reply body first and then one
-collapsed Work summary so historical steps cannot displace the answer.
-Reopening it shows the latest five grouped steps and offers
-`View all work details` when the retained projection is longer or truncated.
+privacy-bounded work projection and public progress. Web renders the reply body
+first and then one collapsed Work summary so historical steps cannot displace
+the answer. Reopening it shows all retained grouped steps and public updates
+inside the same bounded scroll viewport.
 Message details uses the same semantic copy in its unified **Activity** timeline
 and may show the retained timestamped work projection for 14 days. It never
 falls back to a technical tool journal. Web omits work events for older replies
@@ -5363,6 +5510,9 @@ only `sourceSignalId` or `clientMessageId + targetProfileId`, never
 state. HTTP 403 with `space.wake_stop.forbidden` means the current account is
 neither the requester nor the Agent owner. A raw HTTP 404 is a route/deployment/proxy
 problem, not normal Wake Stop unsupported behavior.
+For `retry_later`, Web says that OpenMeld could not confirm Stop and offers a
+retry. The response alone does not prove a local Service connection failure:
+native Hosted Agent cancellation can return the same status.
 
 Web must not show `cancellation_requested` as stopped. It may show a low-noise
 stopping state while waiting for Core to project a stopped progress phase or a

@@ -744,10 +744,10 @@ requests. It does not reinterpret an existing operation as
 provider-attributed.
 
 OpenConnector receives that operation ID as its idempotency key and owns the
-provider execution ID plus durable result replay. Every successful provider
-response carries the exact output schema that describes its data, and
-OpenConnector persists and replays both together. Core stores only the provider
-execution ID and `pending`, `completed`, `failed`, or `outcome_unknown` status;
+provider execution ID plus durable result replay. The action catalog carries
+the output schema; a successful execution response carries data and execution
+metadata without a schema. Core stores only the provider execution ID and
+`pending`, `completed`, `failed`, or `outcome_unknown` status;
 it does not copy provider output, its output schema, credentials, or action
 input. A later provider replay may reconcile `outcome_unknown` to `completed`
 or `failed`. Audit history may therefore show the earlier uncertainty and later
@@ -1263,6 +1263,17 @@ hierarchy, current placement, revision sequence, Trash state, and actor
 attribution. Its SQLite tables are canonical business state, not a D1
 projection. No Resources, Organization Documents, Center Agent Computer, or
 Space Index table mirrors this tree.
+
+Team and member-private Files use one independent `OrganizationFileRoot`
+Durable Object per Organization Team root or Organization member root. Its
+SQLite database owns that root's file metadata and reuses the Space File
+repository behavior where the file contract matches; its identity row fixes
+the exact root before any mutation. Space roots remain in their existing Space
+Durable Objects. Core checks current Organization membership, active Profile
+ownership, and member-private ownership before each Team/member root operation.
+The initial Team/member endpoint covers metadata and folders only; immutable
+content transport and Agent audience authorization require separate completion
+before this is a user-facing Files location.
 
 The same Space owns `space_file_update_settings` and
 `space_file_update_outbox`. The file revision transaction enqueues notification
@@ -1938,6 +1949,14 @@ continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
 
+An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
+`center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
+attribution before a direct Space publication; delegated publication writes
+the same deterministic row during accepted settlement. Space compares that
+row's Organization, actor, Space, and represented member to the persisted
+source Signal when authorizing Stop. Older direct Wakes without an exact row
+do not gain this special Stop authority.
+
 `center_agent_wake_publications` is the durable publication outbox for the
 initial Space message that starts delegated child work. It stores the exact
 validated publication command before delegation preparation and uses the Space
@@ -2198,6 +2217,12 @@ Only a native delivery whose `conversationKind` is `space` may populate
 external conversation identity in their owning locator and leave
 `sourceSpaceId` null; an external conversation ID must never be reinterpreted as
 an OpenMeld Space ID.
+
+For a verified member's task continuation, a connector-operation audit row may
+also retain the matched source Native Delivery id alongside `onBehalfOf`. The
+requester-attribution key remains the represented user, so replay identity does
+not change. A final audit phase reuses the source id from the attempted phase;
+the current caller cannot replace it during recovery.
 
 For a native delivery created from a Space Wake, the native-delivery ledger
 remains the authoritative hosted execution record while the Dispatch Ledger is
@@ -2486,8 +2511,22 @@ deduplication window, including CardKit mutation ambiguity, become
 republish them automatically or select another connected provider.
 
 Native-delivery admission also freezes the originating recovery destination
-and controller normalization evidence in the native-delivery ledger. The
-snapshot contains the Space thread, Slack channel/thread, or Lark/Feishu typed
+and controller normalization evidence in the native-delivery ledger. CardKit
+presentation receipts additionally occupy the nullable
+`provider_progress_card_history_json` column on that same row. Core is the only
+writer. The bounded, versioned value stores up to five retired card IDs and
+rendered hashes plus one pending source snapshot while a provider claim is
+unresolved. It is not execution truth or a second publication outbox. Successful
+updates discard the pending text; rollover handoff atomically retains the
+outgoing identity before replacing the active card. Work-loop continuation
+resets the current response's receipt range without altering earlier work.
+This history cannot be rebuilt from provider offsets alone. Legacy missing
+receipts produce an explicit supersession notice, not invented card identities.
+Apply the additive database migration before deploying a Core reader that selects
+this column. Older Core readers ignore it; a rollback does not remove the column.
+
+The frozen admission snapshot contains the Space thread, Slack channel/thread,
+or Lark/Feishu typed
 locator needed by publication and recovery. Inspect and execute read that
 historical snapshot; they never recalculate it from the current mutable
 Binding, caller surface, or current connector selection. Retained final payload
@@ -2900,9 +2939,11 @@ Hosted external tool usage is a separate Analytics Engine projection named
 `remote_agent.tool_usage.v1`. It records the organization, Space, submission,
 tool name, provider, operation, outcome, wall duration, bounded input/output
 byte counts, provider request count, and Browser Run milliseconds when
-available. Research records OpenRouter server-tool request counts, Browser Run
-records `X-Browser-Ms-Used`, and Cloudflare Sandbox records each filesystem or
-shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
+available. The Organization is its single Analytics Engine sampling index;
+Space and submission are blob dimensions, since Analytics Engine accepts only
+one index per data point. Research records OpenRouter server-tool request
+counts, Browser Run records `X-Browser-Ms-Used`, and Cloudflare Sandbox records
+each filesystem or shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
 execution with bounded generated-code input and result byte counts plus the
 number of inner tool calls. Each inner call keeps its existing capability-owned
 usage record. Generated code, tool arguments, commands, tool results, logs, page
@@ -3558,14 +3599,18 @@ and caps log volume. Raw exception text, full stacks, actual page URLs, user
 content, credentials, and local paths must not enter this report. Error categories,
 code-template route IDs, build asset positions, build IDs, source SHAs, and
 Cloudflare request correlation support diagnosis without product payloads.
+React update-depth reports may also include a bounded, recent sequence of fixed
+client code-path labels and relative ages. The labels carry no user content or
+identity and cannot become execution or product-state authority.
 This does not create another product audit or execution ledger. Coverage,
 retention, source-map handling, and manual queries are documented in
 `docs/web-application-errors.md`.
 
 Web also uses that intake for the bounded
 `web.openmeld.wake_progress_presentation_unconfirmed` event when a Space shows
-restored Wake progress, an unverified active-summary item, or a seeded main
-reply stream without a matching current active-Wake read. The additive shared
+restored Wake progress, an unverified active-summary item, a historical
+transient signal, or a seeded main reply stream without a matching current
+active-Wake read. The additive shared
 report schema permits only correlation IDs, source/reply Thread pointers,
 phase, update time, presentation source, and query-freshness flags, alongside
 the existing build and page-session identity. No message body, stream text,

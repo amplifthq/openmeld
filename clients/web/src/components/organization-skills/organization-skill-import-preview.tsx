@@ -39,6 +39,9 @@ export function GitHubSkillPreview({
 					</dd>
 				</div>
 			</dl>
+			<p className="text-muted-foreground text-xs">
+				File sizes come from GitHub. File contents are checked when you install.
+			</p>
 			{preview.warnings.length > 0 && (
 				<section
 					aria-label="Import warnings"
@@ -81,7 +84,7 @@ export function GitHubSkillPreview({
 						>
 							<span className="break-all">{file.path}</span>
 							<span className="text-muted-foreground text-xs">
-								{file.size.toLocaleString("en-US")} B · {file.mediaType}
+								{file.size.toLocaleString("en-US")} B
 							</span>
 						</li>
 					))}

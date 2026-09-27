@@ -37,5 +37,10 @@ describe("application error minimization", () => {
 		expect(
 			summarizeApplicationError(new Error("Please review my salary"))
 		).toEqual({ name: "Error", code: "unexpected", frames: [] });
+		expect(
+			summarizeApplicationError(
+				new Error("Minified React error #185; private customer message")
+			)
+		).toEqual({ name: "Error", code: "react_update_depth", frames: [] });
 	});
 });

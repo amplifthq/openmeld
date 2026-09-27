@@ -202,7 +202,11 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
           },
         ],
         model: input.model.modelId,
-        provider: REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING,
+        provider: {
+          ...REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING,
+          require_parameters: true,
+        },
+        reasoning: { effort: input.model.reasoningLevel },
       }),
       headers: { ...input.headers, "Content-Type": "application/json" },
       method: "POST",

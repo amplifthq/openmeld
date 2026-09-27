@@ -37,32 +37,60 @@ const DOPPLER_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./doppler-environment.mjs", import.meta.url)
 );
 
-test("isolated Plugin fixtures override only Gateway and never use real credentials", () => {
-  const env = {
-    ...ISOLATED_ENV,
-    OPENMELD_DEV_PLUGIN_FIXTURE_URL: "http://127.0.0.1:31999",
-  };
-  const plan = resolveIsolatedWorkerDevPlan({ service: "gateway", env });
-  assert.ok(
-    plan.args.includes("OPENMELD_CONNECTORS_BASE_URL:http://127.0.0.1:31999")
-  );
-  assert.ok(
-    plan.args.includes(
-      "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN:local-plugin-fixture"
-    )
-  );
-  assert.throws(
-    () =>
-      resolveIsolatedWorkerDevPlan({
-        service: "gateway",
-        env: {
-          ...env,
-          OPENMELD_DEV_PLUGIN_FIXTURE_URL: "https://connectors.openmeld.ai",
-        },
-      }),
-    FIXTURE_LOOPBACK_ORIGIN_RE
-  );
-});
+for (const service of ["gateway", "remote-agent"]) {
+  test(`isolated Plugin fixtures redirect ${service} with dummy credentials in both child environment and runtime arguments`, () => {
+    const env = {
+      ...ISOLATED_ENV,
+      OPENMELD_DEV_PLUGIN_FIXTURE_URL: "http://127.0.0.1:31999",
+      OPENMELD_CONNECTORS_BASE_URL: "https://connectors.example.invalid",
+      OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "unusable-admin-sentinel",
+      OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "unusable-runtime-sentinel",
+    };
+    for (const sandbox of ["true", "false"]) {
+      const plan = resolveIsolatedWorkerDevPlan({
+        service,
+        env: { ...env, OPENMELD_DEV_REMOTE_AGENT_SANDBOX_ENABLED: sandbox },
+      });
+      for (const [key, value] of Object.entries({
+        OPENMELD_CONNECTORS_BASE_URL: "http://127.0.0.1:31999",
+        OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "local-plugin-fixture",
+        OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "local-plugin-fixture",
+      })) {
+        assert.equal(plan.env[key], value);
+        assert.ok(plan.args.includes(`${key}:${value}`));
+      }
+      assert.equal(plan.env.WEB_APP_URL, ISOLATED_ENV.WEB_APP_URL);
+    }
+    assert.equal(
+      env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      "unusable-runtime-sentinel"
+    );
+  });
+  test(`explicit invalid fixture endpoints stop ${service} rather than falling back to production`, () => {
+    for (const value of [
+      "",
+      " ",
+      "https://connectors.openmeld.ai",
+      "http://example.com",
+      "http://127.0.0.1:31999/path",
+      "http://user@127.0.0.1:31999",
+      "http://127.0.0.1:31999?x=1",
+      "http://127.0.0.1:31999#x",
+    ]) {
+      assert.throws(
+        () =>
+          resolveIsolatedWorkerDevPlan({
+            service,
+            env: { ...ISOLATED_ENV, OPENMELD_DEV_PLUGIN_FIXTURE_URL: value },
+          }),
+        FIXTURE_LOOPBACK_ORIGIN_RE
+      );
+    }
+    const normal = resolveIsolatedWorkerDevPlan({ service, env: ISOLATED_ENV });
+    assert.equal(normal.env, undefined);
+    assert.ok(!normal.args.some((arg) => arg.includes("local-plugin-fixture")));
+  });
+}
 
 test("enters Doppler at the individual Worker process boundary", () => {
   const command = resolveIsolatedWorkerDopplerCommand("gateway", {

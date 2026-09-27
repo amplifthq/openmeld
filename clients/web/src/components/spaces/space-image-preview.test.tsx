@@ -192,16 +192,23 @@ describe("stable image rendering", () => {
 		expect(screen.queryAllByRole("img")).toHaveLength(0);
 	});
 
-	it("contains long screenshots in an explicitly square grid cell", () => {
+	it.each([
+		[400, 12_000],
+		[12_000, 400],
+		[16, 16],
+	])("crops a %s by %s attachment without changing its original viewer", (width, height) => {
 		const view = render(
-			preview("blob:long", { isSingle: false, width: 400, height: 12_000 })
+			preview("blob:original", { attachmentThumbnail: true, width, height })
 		);
-		expect(frame(view.container).className).toContain("aspect-square");
+		expect(frame(view.container).style.width).toBe("");
 		expect(screen.getByRole("img", { name: "Screenshot" }).className).toContain(
-			"object-contain"
+			"object-cover"
 		);
-		expect(
-			screen.getByRole("img", { name: "Screenshot" }).className
-		).not.toContain("object-cover");
+		fireEvent.click(screen.getByRole("button", { name: "Open Screenshot" }));
+		const original = within(
+			screen.getByRole("dialog", { name: "Screenshot" })
+		).getByRole("img");
+		expect(original.className).toContain("object-contain");
+		expect(original.getAttribute("src")).toBe("blob:original");
 	});
 });

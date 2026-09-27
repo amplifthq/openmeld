@@ -1,6 +1,7 @@
 export type AppShellSection =
 	| "plugins"
 	| "skills"
+	| "files"
 	| "newAgent"
 	| "agentActivity"
 	| "agents"
@@ -8,7 +9,6 @@ export type AppShellSection =
 	| "computers"
 	| "connect"
 	| "directMessages"
-	| "documents"
 	| "home"
 	| "inbox"
 	| "onboarding"
@@ -25,13 +25,12 @@ export type AppOuterRailDestination =
 	| "agents"
 	| "computers"
 	| "directMessages"
-	| "documents"
 	| "home"
 	| "people"
 	| "projects"
 	| "settings"
 	| "spaces";
-type AppShellStaticDataKey = AppShellSection;
+type AppShellStaticDataKey = AppShellSection | "documents";
 
 declare module "@tanstack/react-router" {
 	// biome-ignore lint/style/useConsistentTypeDefinitions: TanStack Router staticData uses interface declaration merging.
@@ -47,6 +46,7 @@ export const APP_SPACE_FRAME_CLASS_NAME = "max-w-[96rem]";
 export const appShellStaticData = {
 	plugins: { appShellSection: "plugins" },
 	skills: { appShellSection: "skills" },
+	files: { appShellSection: "files" },
 	newAgent: { appShellSection: "newAgent" },
 	agentActivity: { appShellSection: "agentActivity" },
 	agents: { appShellSection: "agents" },
@@ -54,7 +54,7 @@ export const appShellStaticData = {
 	computers: { appShellSection: "people" },
 	connect: { appShellSection: "connect" },
 	directMessages: { appShellSection: "directMessages" },
-	documents: { appShellSection: "documents" },
+	documents: { appShellSection: "files" },
 	home: { appShellSection: "home" },
 	inbox: { appShellSection: "inbox" },
 	onboarding: { appShellSection: "onboarding" },
@@ -108,13 +108,13 @@ export function resolveAppOuterRailDestinationFromMatches(
 	switch (section) {
 		case "plugins":
 		case "skills":
+		case "files":
 			return "people";
 		case "newAgent":
 		case "agentActivity":
 		case "agents":
 		case "computers":
 		case "directMessages":
-		case "documents":
 		case "home":
 		case "inbox":
 		case "people":

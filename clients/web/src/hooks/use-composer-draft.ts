@@ -12,6 +12,7 @@ import {
 	removeComposerDraft,
 	writeComposerDraft,
 } from "#/lib/composer-draft-storage";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 
 type ComposerDraftState = {
 	draft: ComposerDraftRecord;
@@ -65,6 +66,7 @@ export function useComposerDraft(input: {
 	}, [initialDraft, input.migrateFromScopes, input.scope]);
 
 	useLayoutEffect(() => {
+		recordReactUpdate("composer_draft_restore");
 		setState((current) =>
 			restoreComposerDraftState({
 				current,
@@ -89,6 +91,10 @@ export function useComposerDraft(input: {
 				const currentContent = toComposerDraftContent(boundDraft);
 				const nextContent =
 					typeof update === "function" ? update(currentContent) : update;
+				if (areComposerDraftContentsEqual(currentContent, nextContent)) {
+					return current;
+				}
+				recordReactUpdate("composer_draft_set");
 				const nextRecord = createComposerDraftRecord(
 					nextContent,
 					Math.max(Date.now(), boundDraft.updatedAtMs + 1)
@@ -241,6 +247,15 @@ function areComposerDraftRecordsEqual(
 ): boolean {
 	return (
 		left.updatedAtMs === right.updatedAtMs &&
+		areComposerDraftContentsEqual(left, right)
+	);
+}
+
+function areComposerDraftContentsEqual(
+	left: ComposerDraftContent,
+	right: ComposerDraftContent
+): boolean {
+	return (
 		left.text === right.text &&
 		left.replyToSignalId === right.replyToSignalId &&
 		left.restoredFromSignalId === right.restoredFromSignalId &&
@@ -251,6 +266,7 @@ function areComposerDraftRecordsEqual(
 			const other = right.authoredMentions[index];
 			return (
 				other !== undefined &&
+				mention.audience === other.audience &&
 				mention.end === other.end &&
 				mention.profileId === other.profileId &&
 				mention.relation === other.relation &&

@@ -1907,25 +1907,29 @@ function SettingsLocalAgentDetailsDialog({
               size="lg"
             />
             <div className="min-w-0 space-y-1">
-              <DialogTitle className="font-medium text-base">
-                {row.displayName}
-              </DialogTitle>
-              <p className="flex items-center gap-1.5 font-medium text-xs">
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "status-dot",
-                    resolveStatusToneIndicatorClassName(status.tone ?? "muted")
-                  )}
-                />
-                <span
-                  className={cn(
-                    resolveLocalAgentSummaryStatusClassName(status.tone)
-                  )}
-                >
-                  {status.label}
-                </span>
-              </p>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                <DialogTitle className="min-w-0 break-words font-medium text-base">
+                  {row.displayName}
+                </DialogTitle>
+                <p className="flex shrink-0 items-center gap-1.5 font-medium text-xs">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "status-dot",
+                      resolveStatusToneIndicatorClassName(
+                        status.tone ?? "muted"
+                      )
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      resolveLocalAgentSummaryStatusClassName(status.tone)
+                    )}
+                  >
+                    {status.label}
+                  </span>
+                </p>
+              </div>
               {row.description ? (
                 <DialogDescription>{row.description}</DialogDescription>
               ) : null}

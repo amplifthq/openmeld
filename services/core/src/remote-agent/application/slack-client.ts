@@ -69,6 +69,7 @@ type SlackApiResponse = {
     text?: string | null;
     ts?: string | null;
     user?: string | null;
+    edited?: { ts?: string | null } | null;
     username?: string | null;
     metadata?: {
       event_payload?: Record<string, unknown> | null;
@@ -193,6 +194,7 @@ export type SlackUserIdentity = {
   teamId: string | null;
 };
 export type SlackThreadMessage = {
+  editedTs?: string;
   richContent?: { text: string; incomplete: boolean };
   botId: string | null;
   displayName: string | null;
@@ -278,12 +280,14 @@ export async function getSlackMessagePermalink(input: {
 export class SlackMessagePublicationError extends Error {
   readonly errorCode: string | null;
   readonly publicationOutcome: SlackMessagePublicationOutcome;
+  readonly retryAfterSeconds: number | null;
 
   constructor(input: {
     cause?: unknown;
     errorCode?: string | null;
     message: string;
     publicationOutcome: SlackMessagePublicationOutcome;
+    retryAfterSeconds?: number | null;
   }) {
     super(
       input.message,
@@ -292,6 +296,7 @@ export class SlackMessagePublicationError extends Error {
     this.name = "SlackMessagePublicationError";
     this.errorCode = input.errorCode ?? null;
     this.publicationOutcome = input.publicationOutcome;
+    this.retryAfterSeconds = input.retryAfterSeconds ?? null;
   }
 }
 
@@ -1485,6 +1490,9 @@ async function postSlackMessageOnce(input: {
       errorCode: error,
       message: `Slack chat.postMessage failed: ${error}`,
       publicationOutcome: "not_published",
+      retryAfterSeconds: parseRetryAfterSeconds(
+        response.headers.get("retry-after")
+      ),
     });
   }
   throw createUnknownSlackPublicationError(`HTTP ${response.status}`);
@@ -1806,6 +1814,7 @@ function toSlackThreadMessages(
         text: normalizeOptionalText(message.text),
         ts,
         userId: normalizeOptionalText(message.user),
+        ...(message.edited?.ts ? { editedTs: message.edited.ts } : {}),
       },
     ];
   });

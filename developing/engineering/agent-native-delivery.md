@@ -26,10 +26,15 @@ branches used.
    on each leaf. For a batch crossing release scopes, run
    `pnpm run release:plan -- --base <pre-merge-sha>` on the integrated candidate
    to inspect the changed paths and deployment order without scanning hosted
-   history. Decide intended versions for artifacts in scope; make CLI version
-   and manifest changes only in the clean
-   [publishing release worktree](development-workflow.md#local-components-release-tool)
-   on a `codex/release-X.Y.Z-<baseSHA>` branch.
+   history. Decide intended versions for artifacts in scope. Stable local-component
+   source, its compatibility floor, and its stamp may share one PR and one Final
+   Candidate. A separate release PR is useful when the product change already
+   merged. Restamp after any later source change.
+   Resolve Core/Service version-floor changes and the
+   [Windows helper source](production-release.md#cli-release) before paying for
+   the final candidate or stamping a release manifest.
+   Branch names do not grant release permission; the actual
+   manifest diff selects strict artifact verification.
 2. [Merge](#merge) against current `main`. If a merge command fails or returns
    an uncertain result, read the remote PR's `state` and `mergeCommit` before
    retrying. Pin the integrated product SHA; a later release-only version
@@ -43,18 +48,25 @@ branches used.
    before it. Guarded release commands recheck before publication.
    Do not repeat the full history scan after each stage; use that stage's
    workflow result, release receipt, and health evidence to track completion.
+   When every planned stage has those receipts, do not rescan solely to close
+   the task; rescan for missing, changed, or conflicting evidence.
    If unrelated commits landed between separate merges, plan those ranges
    separately instead of attributing them to this batch.
    It covers Database, cloud, and CLI; read current-change scopes separately
    from historical backlog. [Assess Desktop](production-release.md#desktop-release-coverage)
-   for the same range. A zero pending-scope result does not close the Desktop
-   row.
+   for the same range, and [assess OpenConnector](production-release.md#openconnector-release)
+   when that external source or its production configuration is in the batch.
+   A zero pending-scope result does not close these separate rows. Once the
+   exact source is pinned, start independent native artifact builds while cloud
+   stages run; promotion still waits for its own provenance and dependencies.
 4. [Release](#release) each affected component through its owner workflow,
    respecting the planner's dependency order. If Core is selected and shared
    schema or Service inputs changed, run the read-only
    `pnpm release:local-components plan --next` before starting Core; it can run
    alongside an earlier independent deploy stage. Decide the supported Core/CLI
-   path from that result. Record each component and supported Desktop platform as
+   path from that result. Use one low-frequency workflow wait; read logs when
+   state changes or fails instead of polling unchanged output. Record each
+   component and supported Desktop platform as
    released, pending, excluded with a concrete
    reason, or unknown when evidence cannot be read. Promotion and [installed
    A-to-B acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
@@ -174,12 +186,17 @@ FC certifies one exact `head SHA + base SHA + tree SHA`. Standard FC retains:
 - trusted control entrypoints and complete, matching results;
 - static contracts for changed owners and control-code quality when control changes;
 - database checks when database owner paths change; and
-- deferred or strict local-component release readiness, selected by branch/path.
+- deferred or strict local-component release readiness, selected by the manifest diff.
 
 Standard FC does not repeat broad workspace unit or integration tests. This
 keeps final merge latency separate from development feedback. Full confidence
 is explicit when remaining risk justifies a whole-repository rerun. The printed
 plan is the authority for selected/skipped commands, reasons, and durations:
+
+Release and CI script changes use focused owner tests before Ready; standard FC
+checks their exact diff and control identity without rerunning every repository
+workflow test. Dependency and task-graph controls still select the wider static
+repository contracts.
 
 ```sh
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan

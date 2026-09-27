@@ -2914,7 +2914,7 @@ roll back callers before receivers. Gateway fails closed if an old Core omits
 stream metadata rather than mislabeling a full response as partial. MIME
 inference adds MP4, M4V, MOV and WebM extensions, not a universal codec guarantee.
 
-Space Files accept individual files up to 250 MiB. The single-request
+Space Files accept individual files up to 1 GiB. The single-request
 compatibility path remains capped at 10 MiB; larger files use the shared
 resumable multipart contract rather than buffering larger requests in Gateway:
 Core-authorized upload
@@ -2930,7 +2930,7 @@ The resumable contract uses one server-owned lifecycle for creates and new
 revisions:
 
 1. `start` carries the exact target, requested name and folder when creating,
-   MIME type, expected byte size, per-part SHA-256 digests, base revision, and client mutation id. The
+   MIME type, expected byte size, up to 128 per-part SHA-256 digests, base revision, and client mutation id. The
    owning Space reauthorizes the actor, freezes that metadata, and returns an
    client's opaque upload-session id plus the R2-compatible part policy.
 2. The owning Space creates or resumes the R2 multipart upload under a private
@@ -2972,19 +2972,22 @@ contract verification in one receiver-first rollout. Downloads stream through
 Core and Gateway; CLI downloads stream to disk. The existing buffered internal
 read RPC remains capped at 10 MiB and rejects larger reads explicitly.
 
-The 250 MiB policy widens existing strict file descriptors. An older client
-can still upload small files but can reject a response containing a larger file.
-Release updated readers before enabling large-file producers: local components
-and Remote Agent readers, then Core and Gateway receivers, then Web and CLI
-authoring. Already-open Web clients must refresh. Setup, Service lifecycle,
-Wake routing, and execution authority are unchanged. Rollback disables new
-producers first and keeps readers capable of reading existing large files.
-The CLI and Service contracts and runtime execution epoch advance because old
-dispatch validators reject file references above 10 MiB. Both local components
-are required updates before receiving new dispatches; Skills are unchanged.
-Publish their compatible channel before deploying Core's new epoch. This avoids
-accepting a Wake that the old Service cannot decode. Existing in-flight work
-retains its normal coordinator finalization path.
+The 1 GiB policy widens existing strict file descriptors. An older client can
+still upload small files but can reject a response containing a file above its
+previous 250 MiB ceiling. Release updated readers before enabling larger-file
+producers: local components and Remote Agent readers, then Core and Gateway
+receivers, then Web and CLI authoring. Already-open Web clients must refresh.
+Deploy the Remote Agent video tool and Workers AI binding before Core begins
+including the video-inspection hint in hosted submissions; its file RPC calls
+use already-existing Core methods during that brief mixed-version interval.
+Setup, Service lifecycle, Wake routing, and execution authority are unchanged.
+Rollback disables new producers first and keeps readers capable of reading
+existing large files. The CLI and Service contracts and runtime execution epoch
+advance because old dispatch validators reject file references above 250 MiB.
+Both local components are required updates before receiving new dispatches;
+Skills are unchanged. Publish their compatible channel before deploying Core's
+new epoch. This avoids accepting a Wake that the old Service cannot decode.
+Existing in-flight work retains its normal coordinator finalization path.
 
 The canonical Space File rollout is receiver-first across strict boundaries:
 
@@ -3319,9 +3322,9 @@ Shared schema surfaces define the hosted Center Agent and workstation Local
 Agent Space-stream paths:
 
 - `packages/schemas/src/schemas/runtime/remote-agent-worker.ts` owns the
-  worker-to-Core sequenced text/thinking snapshot and tool-part callbacks plus
+  worker-to-Core sequenced text/public-progress snapshot and tool-part callbacks plus
   their shared response. Core accepts the legacy text-only callback while the
-  current producer emits the typed callback. Thinking is transient and must not
+  current producer emits the typed callback. Public progress is transient and must not
   enter callback-context storage or the final completion callback. This schema
   also owns the durable execution query and targeted
   cancellation request/response unions for one native-delivery submission.
@@ -3364,13 +3367,13 @@ Agent Space-stream paths:
   or a stuck execution from silence. Old Service/Gateway combinations do not
   negotiate the header and therefore continue without live reasoning.
 - `packages/schemas/src/schemas/protocol/agent-stream.ts` owns Space live text,
-  thinking, tool-part, and terminal frames plus the active stream presence,
+  thinking, public-progress, tool-part, and terminal frames plus the active stream presence,
   active text snapshot, and durable privacy-bounded Agent reply work
   projection. Text frames preserve the legacy wire shape. The active presence
   contains only stream identity, sequence, gap, and timing evidence; it carries
-  no reply text or private thinking. Thinking frames are active-stream-only
+  no reply text or private thinking. Thinking and public-progress frames are active-stream-only
   refresh data: Space may advance the shared sequence cursor and expose its
-  privacy-safe presence, but must not store thinking in SQL, bootstrap,
+  privacy-safe presence, but must not store either transient tail in SQL, bootstrap,
   conversation snapshots, Message details, or final Signals. The optional
   versioned `work`
   object is the only user-presentation meaning: it contains an admitted
@@ -3426,6 +3429,11 @@ response field for callers that did not opt in. A successful
 final reply carries the complete optional durable projection in
 `signal.text.data.meta.agentWorkSummary` and may separately expose its
 timestamped bounded summary through Message details for 14 days. During a
+successful hosted turn, the same final Signal may carry up to 8,192 characters
+of explicit public updates in `meta.agentPublicProgress`. This additive field
+contains neither provider reasoning nor tool input or output. Space stores its
+draft only until a terminal outcome and omits it for failed or stopped turns.
+During a
 mixed-version rollout, Core may also emit `meta.agentActivity` containing only
 steps accepted by the previously deployed strict schema. A cached older Web
 client ignores the additive `agentWorkSummary` field and can therefore keep the
@@ -5489,16 +5497,19 @@ pinned runtime validator for OpenConnector action metadata. It mirrors the
 OpenConnector `/v1/actions?service=` serializer and the bounded
 `/v1/actions/search` projection, including required schemas, provider
 permissions, the executor-owned `execution` projection, and optional
-first-class `effect = read | write | destructive` metadata. Remote Agent must
+`operationType = read | write | destructive` metadata. Remote Agent normalizes
+this field to its internal `effect` policy field, accepts legacy `effect`, and
+rejects entries where both fields disagree. Remote Agent must
 fail closed on a malformed entry and may expose only
 `execution.locallyExecutable = true` actions to the model. Catalog-only entries
 are provider documentation, not executable Center Agent capability. The same
 module validates OpenConnector action-operation metadata so Remote Agent does
 not hand-interpret provider execution IDs, idempotency keys, or replay flags.
-It also validates the successful action envelope and requires the exact
-execution-owned output schema beside the returned data. Missing or malformed
-execution schemas fail closed instead of falling back to a possibly newer
-catalog contract.
+It also validates the successful action envelope's JSON data and execution
+metadata. The execution endpoint does not return `outputSchema`; Remote Agent
+uses the verified action catalog schema for a new operation. A replay can
+recover the provider result without consulting a catalog that may have changed
+or become unavailable, so its result may omit `outputSchema`.
 Remote Agent recognizes destructive legacy action IDs or names as well as
 `effect = destructive`; conflicting read/write metadata cannot downgrade a
 legacy destructive action. This vocabulary classifies the action's effect only

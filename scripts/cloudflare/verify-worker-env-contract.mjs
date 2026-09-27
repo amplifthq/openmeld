@@ -643,7 +643,10 @@ if (verifiesStaging) {
         openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS &&
       stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_ACTIONS ===
         openConnectorWrangler.vars?.OOMOL_CONNECT_BLOCKED_ACTIONS &&
-      stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*",
+      stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*" &&
+      openConnectorWrangler.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*" &&
+      stagingConnector.main === ".openmeld-working-copy-worker.mjs" &&
+      openConnectorWrangler.main === ".openmeld-working-copy-worker.mjs",
     "OpenConnector staging must preserve the reviewed production capability and credential contracts."
   );
 }

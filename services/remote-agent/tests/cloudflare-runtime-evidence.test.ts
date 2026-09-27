@@ -224,6 +224,17 @@ describe("Remote Agent Cloudflare runtime evidence", () => {
       reasonCode: "remote_agent.provider.rate_limited",
     });
     expect(
+      classifyRemoteAgentTurnFailure({
+        message:
+          'dispatch failed: 400 [{"code":2040,"message":"Provider has no BYOK credential named \'missing-alias\'"}]',
+        name: "FlueError",
+        type: "operation_failed",
+      })
+    ).toEqual({
+      errorName: "FlueError",
+      reasonCode: "remote_agent.provider.connection_missing",
+    });
+    expect(
       classifyRemoteAgentTurnFailure(
         new Error("Customer message mentioned network and 503")
       )

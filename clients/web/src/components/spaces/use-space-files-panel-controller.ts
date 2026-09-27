@@ -83,7 +83,9 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		[]
 	);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-	const [markdownFileDialogOpen, setMarkdownFileDialogOpen] = useState(false);
+	const [newTextFileKind, setNewTextFileKind] = useState<
+		"markdown" | "text" | "csv" | null
+	>(null);
 	const [entryDialog, setEntryDialog] = useState<SpaceFileEntryDialogState>({
 		kind: "closed",
 	});
@@ -317,7 +319,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		fileInputRef,
 		filesQuery,
 		folderDialogOpen,
-		markdownFileDialogOpen,
+		newTextFileKind,
 		moveEntry,
 		parentId,
 		pendingAction,
@@ -332,7 +334,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		setActionError,
 		setEntryDialog,
 		setFolderDialogOpen,
-		setMarkdownFileDialogOpen,
+		setNewTextFileKind,
 		setParentId,
 		selectFile,
 		showChatUploads,

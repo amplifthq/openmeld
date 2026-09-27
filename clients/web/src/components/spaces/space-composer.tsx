@@ -1,4 +1,7 @@
-import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
+import {
+	isHostedAgentControllerRef,
+	resolvePublicAgentAvailabilityCopy,
+} from "@openmeld/schemas";
 import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
@@ -511,8 +514,8 @@ function ComposerRecovery(input: {
 	recovery: SpaceComposerProps["recovery"];
 	target: SpaceComposerAddressingTarget | undefined;
 }) {
-	const profileId =
-		input.recovery?.blockedWakeProfileId ?? input.target?.profileId;
+	// A retained failed-send target is not authority for the current draft.
+	const profileId = input.target?.profileId;
 	if (!(profileId && input.recovery)) {
 		return input.target && input.hint ? (
 			<span className="ml-2 text-muted-foreground text-xs">{input.hint}</span>
@@ -571,8 +574,9 @@ function resolvePerAgentComposerHint(
 function SpaceComposerMentionOnlyAction(input: SpaceComposerProps) {
 	const targets = input.content.addressingTargets.filter(
 		(target) =>
-			target.relation === "wake" &&
-			target.wakeAvailability.status !== "ready" &&
+			isBlockedWakeTarget(target) &&
+			Boolean(target.agentControllerRef) &&
+			!isHostedAgentControllerRef(target.agentControllerRef) &&
 			target.allowedRelations.reference
 	);
 	if (!targets.length) {

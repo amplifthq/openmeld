@@ -1,7 +1,5 @@
 import type { OrganizationDocumentKind } from "@openmeld/schemas/types";
-import { createFileRoute } from "@tanstack/react-router";
-import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
-import { OrganizationDocumentNewPage } from "#/components/organization-documents/organization-document-new-page";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/o/$orgSlug/documents/new")({
 	validateSearch: (search: Record<string, unknown>) => ({
@@ -15,21 +13,22 @@ export const Route = createFileRoute("/o/$orgSlug/documents/new")({
 				? search.subjectUserId.trim()
 				: undefined,
 	}),
-	component: NewDocumentRoute,
+	beforeLoad: ({ params, search }) => {
+		throw redirect({
+			to: "/o/$orgSlug/files",
+			params,
+			search: {
+				view: "knowledge",
+				create: "1",
+				folder: search.folder,
+				kind: search.kind,
+				subjectUserId: search.subjectUserId,
+				document: undefined,
+			},
+			replace: true,
+		});
+	},
 });
-
-function NewDocumentRoute() {
-	const search = Route.useSearch();
-	return (
-		<AppFullWidthLayout>
-			<OrganizationDocumentNewPage
-				initialFolderId={search.folder}
-				initialKind={search.kind}
-				initialSubjectUserId={search.subjectUserId}
-			/>
-		</AppFullWidthLayout>
-	);
-}
 
 function parseKind(value: unknown): OrganizationDocumentKind | undefined {
 	return value === "brief" ||

@@ -11,7 +11,7 @@ import {
   type AgentStreamProjectionStorage,
   applyAgentStreamDelta,
   applyAgentStreamPart,
-  applyAgentStreamThinkingDelta,
+  applyAgentStreamTransientDelta,
   attachAgentActivityToFinalReply,
   cleanupExpiredAgentStreamProjections,
   closeAgentStreamProjection,
@@ -53,11 +53,10 @@ describe("Space Agent stream projection", () => {
     const storage = new MemoryProjectionStorage();
 
     await expect(
-      applyAgentStreamThinkingDelta({
+      applyAgentStreamTransientDelta({
         storage,
         delta: {
           ...createDelta({ sequence: 1 }),
-          thinkingSnapshot: "Checking the current Space state",
         },
         nowMs: 1000,
       })

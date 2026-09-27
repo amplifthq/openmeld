@@ -1,5 +1,8 @@
 import type { WorkspaceClient } from "@cloudflare/computer";
-import { CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_MAX_SIZE_BYTES,
+} from "@openmeld/schemas";
 import type { RemoteAgentComputerFileHandoff } from "../agent-core/tools";
 
 const MAX_HANDOFF_FILE_BYTES = 32_000;
@@ -22,34 +25,27 @@ export function createAgentComputerFileHandoff(input: {
   );
   return {
     async readBinaryFile(path) {
-      const resolved = resolveSelectedPath({
-        selectedPath: path,
-        workingDirectory,
-      });
-      const declaredSize = await requireRegularFileWithoutSymlink({
-        relativePath: resolved.relativePath,
-        workingDirectory,
-        workspace: input.workspace,
-      });
       const maxBytes =
         input.maxBinaryFileBytes ?? CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES;
-      if (declaredSize > maxBytes) {
-        throw new Error(
-          `${resolved.relativePath} is larger than the ${maxBytes}-byte file limit.`
-        );
-      }
+      const resolved = await inspectComputerFileForTransfer({
+        path,
+        workingDirectory,
+        workspace: input.workspace,
+        maxBytes,
+      });
       const bytes = await readWorkspaceFileBytes(
         input.workspace,
-        resolved.absolutePath
+        resolved.absolutePath,
+        maxBytes
       );
-      if (bytes.byteLength !== declaredSize) {
+      if (bytes.byteLength !== resolved.sizeBytes) {
         throw new Error(
           `${resolved.relativePath} changed while OpenMeld was reading it.`
         );
       }
       return {
         bytes,
-        fileName: resolved.relativePath.split("/").at(-1) ?? "file",
+        fileName: resolved.fileName,
         path: resolved.relativePath,
       };
     },
@@ -137,7 +133,8 @@ export function createAgentComputerFileHandoff(input: {
 
 async function readWorkspaceFileBytes(
   workspace: Pick<WorkspaceClient, "fs">,
-  path: string
+  path: string,
+  maxBytes: number
 ): Promise<Uint8Array> {
   const stream = await workspace.fs.readFile(path);
   const reader = stream.getReader();
@@ -149,10 +146,10 @@ async function readWorkspaceFileBytes(
       break;
     }
     size += value.byteLength;
-    if (size > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES) {
+    if (size > maxBytes) {
       await reader.cancel();
       throw new Error(
-        `Computer file is larger than the ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES}-byte Slack file limit.`
+        `Computer file is larger than the ${maxBytes}-byte file limit.`
       );
     }
     chunks.push(value);
@@ -164,6 +161,44 @@ async function readWorkspaceFileBytes(
     offset += chunk.byteLength;
   }
   return bytes;
+}
+
+/** Validate a selected Computer file before a bounded Space transfer. */
+export async function inspectComputerFileForTransfer(input: {
+  path: string;
+  workingDirectory: string;
+  workspace: Pick<WorkspaceClient, "fs">;
+  maxBytes?: number;
+}): Promise<{
+  absolutePath: string;
+  relativePath: string;
+  fileName: string;
+  sizeBytes: number;
+}> {
+  const workingDirectory = input.workingDirectory.replace(
+    TRAILING_SLASHES_PATTERN,
+    ""
+  );
+  const resolved = resolveSelectedPath({
+    selectedPath: input.path,
+    workingDirectory,
+  });
+  const sizeBytes = await requireRegularFileWithoutSymlink({
+    relativePath: resolved.relativePath,
+    workingDirectory,
+    workspace: input.workspace,
+  });
+  const maxBytes = input.maxBytes ?? SPACE_FILE_MAX_SIZE_BYTES;
+  if (sizeBytes < 1 || sizeBytes > maxBytes) {
+    throw new Error(
+      `${resolved.relativePath} must be between 1 and ${maxBytes} bytes.`
+    );
+  }
+  return {
+    ...resolved,
+    fileName: resolved.relativePath.split("/").at(-1) ?? "file",
+    sizeBytes,
+  };
 }
 
 function resolveSelectedPath(input: {

@@ -281,17 +281,25 @@ operation key, attempt and exact applied identity. Database receipts retain
 Use current-main release tooling; old control checkouts are not certified to
 interpret version 3.
 
-`release:status` pages relevant workflows and all job attempts rather than
-filtering an all-workflow 250-run window. It compares actual job completion
-times, never workflow creation order. A missing source, invalid completion time,
-ambiguous tie, API failure or safety-bound truncation remains explicit evidence
-uncertainty; it cannot silently make the affected component current. A known
-later deployment can supersede an older unreadable-source event, but the
-historical limitation remains in the report. Historical planner failures are
+`release:status` pages relevant workflows and job attempts rather than
+filtering an all-workflow 250-run window. It reads newer runs first and stops
+opening older jobs once every scope has a successful receipt newer than those
+runs' last update. Active runs and runs without a valid update time are always read. It compares
+actual job completion times, never workflow creation order. A missing source,
+invalid completion time, ambiguous tie, API failure, or safety-bound truncation
+in the inspected range remains explicit uncertainty; it cannot silently make
+the affected component current. The report does not claim to audit jobs older
+than every scope's selected deployment. Historical planner failures are
 contained in per-component `unknown` results; a genuine current-change planning
 conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
 independent live-production acceptance check.
+
+For a verified Database release, status can classify later Database schema and
+migration changes independently when unrelated historical Worker contracts no
+longer compose into one plan. The database stage still checks the live pending
+migration list and committed schema before applying anything. Other components
+remain unknown when their historical compatibility plan cannot be established.
 
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
@@ -415,6 +423,15 @@ request-only recovery fields from being mistaken for response-only changes;
 adding the bidirectional service to a request allowlist would reverse the bug
 for response changes.
 
+The reviewed addition of only `remote_agent.provider.connection_missing` to
+the worker-response reason codes is a narrow exception to that ambiguity. It
+does not change a request envelope or Core request producer. When this is the
+exact schema diff, the planner retains the response-reader dependency and
+deploys Core before Remote Agent. A second schema edit or a changed request
+producer remains blocked for separate direction review. The Center Agent's
+Organization Skills catalog RPC in the same release also has a Core receiver,
+so it follows that Core-first order.
+
 The strict version-4 Center Agent conversation contract is such a request-side
 change. Apply its D1 generation-pointer migration first, deploy Remote Agent so
 it accepts version 4, and deploy Core last so it begins producing version 4.
@@ -433,6 +450,17 @@ valid new rejection as a protocol error. The schema path alone remains
 non-directional, so request-only changes do not accidentally select this
 profile. This response-reader requirement takes precedence when the same diff
 also contains Center Agent Task or Context Manifest paths.
+
+The hosted public-progress bridge is a narrow reviewed exception: if the
+versioned worker schema differs only by its output-limit reason constant and
+the additive progress callback kind, and the target Remote Agent contains the
+old-Core rejection fallback, the planner does not invent a strict worker
+*response* change from that shared file path. It keeps the real Remote Agent
+request receiver-first dependency. Any other schema edit, missing historical
+content, or missing fallback retains the conservative response dependency.
+For this bridge, deploy Remote Agent before Core; an older Core can reject a
+public progress update while the agent still streams text and publishes its
+final reply. The new Core reader then enables the progress update.
 
 The planner selects the `center-agent-cli-receiver-first` profile when the diff
 contains a Center Agent Task or Context Manifest contract path. Within the
@@ -1392,17 +1420,33 @@ approved that exact version; `--version` and `--next` are mutually exclusive.
 - Required is sometimes the least harmful user choice, but it is not the
   default and must not be applied to every release.
 
+Before stamping a Service hash that reuses Windows helper bytes, prepare them
+in the clean release worktree with the same source check used by publication:
+
+```sh
+node scripts/release/reuse-windows-process-artifact.mjs <trusted-main-run-id>
+```
+
+This checks the run's repository, `main` branch, official CLI workflow and
+successful Windows job before downloading anything; it then verifies ancestry,
+native source, and artifact bytes before importing the helper. A PR Windows
+compatibility artifact is not a release source even if its source fingerprint
+matches. Pin this exact run ID for publication. If no matching trusted run
+exists, dispatch `.github/workflows/cli-release.yml` on `main` with
+`helper_only=true` and `production_train_scopes=cli`, then use that successful
+Windows helper run. This preparation publishes neither CLI nor Core.
+
 The stamp command writes the version and required-update floor before building
 the packaged CLI, then records its Service hash and verifies the result. It
 rejects source drift and restores its metadata changes on failure. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
 stamp after any merge, rebase, or later local-component change. Land the stamp
-through a versioned `codex/release-X.Y.Z-<baseSHA>` PR from a clean worktree;
-never push `main` directly. A normal release PR changes only the CLI package and
-local-components manifest. If `main` already declares the same not-yet-published
-version, a later restamp may change only the manifest. Ordinary feature branches
-must keep both release files unchanged, which the pre-push gate enforces through
-deferred-release verification against the PR base.
+through a PR from a clean worktree; never push `main` directly. The package and
+manifest may land with the source and compatibility floor they describe when
+that candidate is stable. Otherwise stamp in a separate release PR after the
+feature merges. A later source change requires a restamp. Final Candidate
+selects strict artifact verification from the actual manifest diff,
+independent of the branch name.
 
 At publication time, `pnpm run release:deploy:local -- --scope cli` rechecks the
 committed package and manifest through the guarded local production lane. It
@@ -1417,6 +1461,11 @@ For GitHub, use `.github/workflows/cli-release.yml`:
 2. the workflow runs the `release_ready` gate before publication;
 3. use `Scoped Production Release` separately when the release card also
    requires database or cloud fleet changes.
+
+Windows Native AOT helper bytes can differ across builds of identical source.
+Set `windows_artifact_run_id` to the run used above when publishing the stamped
+manifest. The publisher rechecks its provenance and bytes and skips a second
+Windows build. A different run with the same source is not interchangeable.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.

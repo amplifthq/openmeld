@@ -27,6 +27,8 @@ import type {
   AgentProfileExecutionModeResponse,
   ApproveOrganizationDocumentDraftResponse,
   ApproveOrganizationDocumentDraftRpcInput,
+  BeginOrganizationSkillImportBatchResponse,
+  BeginOrganizationSkillImportBatchRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
   CenterAgentAddMembersToSpaceResponse,
   CenterAgentAttribution,
@@ -202,6 +204,8 @@ import type {
   GetModelCatalogResponse,
   GetOrganizationDocumentResponse,
   GetOrganizationDocumentRpcInput,
+  GetOrganizationSkillImportBatchResponse,
+  GetOrganizationSkillImportBatchRpcInput,
   GetOrganizationSkillResponse,
   GetOrganizationSkillRpcInput,
   GetPrepareReadinessResponse,
@@ -220,6 +224,8 @@ import type {
   GitHubAppInstallationVerificationResponse,
   GitHubAppWebhookVerificationInput,
   GitHubAppWebhookVerificationResponse,
+  ImportOrganizationSkillFromFilesResponse,
+  ImportOrganizationSkillFromFilesRpcInput,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
   InboxFeedResponse,
@@ -236,11 +242,14 @@ import type {
   ListCenterAgentRoutinesResponse,
   ListFeedbackIssuesForOrganizationRequest,
   ListFeedbackIssuesForOrganizationResponse,
+  ListFileRootResponse,
   ListInboxFeedRpcInput,
   ListInboxItemsResponse,
   ListInboxItemsRpcInput,
   ListOrganizationDocumentsResponse,
   ListOrganizationDocumentsRpcInput,
+  ListOrganizationSkillImportBatchesResponse,
+  ListOrganizationSkillImportBatchesRpcInput,
   ListOrganizationSkillsResponse,
   ListOrganizationSkillsRpcInput,
   ListSpaceFileRevisionsResponse,
@@ -278,6 +287,7 @@ import type {
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationMemberWebActivityResponse,
   OrganizationProfileDirectoryResponse,
+  OrganizationSkillRuntimeCatalogResponse,
   OrganizationSkillRuntimeSnapshotResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
@@ -292,9 +302,16 @@ import type {
   PrepareSessionResponse,
   PrepareSessionWithTokenResponse,
   PrepareSpaceFileWriteResponse,
+  PreviewOrganizationSkillFromFilesResponse,
+  PreviewOrganizationSkillFromFilesRpcInput,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
+  PreviewOrganizationSkillRepositoryResponse,
+  PreviewOrganizationSkillRepositoryRpcInput,
   ReadFeedbackReportingPolicyRequest,
+  ReadOrganizationSkillRuntimeCatalogRpcInput,
+  ReadOrganizationSkillRuntimeResourceResponse,
+  ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   ReconcileDeletedAgentProfileRequest,
   ReconcileDeletedAgentProfileResponse,
@@ -305,6 +322,11 @@ import type {
   RefreshCurrentLocalAgentCatalogResponse,
   RemoteAgentCoreCallbackEvent,
   RemoteAgentCoreCallbackResponse,
+  RemoteAgentListTeamFilesRpcInput,
+  RemoteAgentReadTeamFileResponse,
+  RemoteAgentReadTeamFileRpcInput,
+  RemoteAgentSaveTeamFileResponse,
+  RemoteAgentSaveTeamFileRpcInput,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
@@ -424,6 +446,11 @@ import {
   rpcUpdatePluginAccess,
 } from "./connectors/plugin-access-rpc";
 import {
+  continuePluginChannelConnection,
+  previewPluginChannelConnection,
+} from "./connectors/plugin-channel-continuation";
+import { continuePluginConnection } from "./connectors/plugin-connection-continuation";
+import {
   inspectCoreDbState,
   inspectCoreDispatchStorageReadiness,
 } from "./db/runtime-facts";
@@ -433,6 +460,11 @@ import {
   rpcUpdateFeedbackIssueStatusForOrganization,
 } from "./feedback/transport/rpc/feedback-management-rpc";
 import { rpcSubmitFeedbackIssue } from "./feedback/transport/rpc/feedback-rpc";
+import {
+  rpcRemoteAgentListTeamFiles,
+  rpcRemoteAgentReadTeamFile,
+  rpcRemoteAgentSaveTeamFile,
+} from "./files/remote-agent-team-files";
 import {
   rpcDismissInboxItem,
   rpcGetCenterAgentInboxSummary,
@@ -482,12 +514,21 @@ import {
   rpcCenterAgentReadOrganizationSkills,
 } from "./organization-skills/center-agent-organization-skill-rpc";
 import {
+  rpcBeginOrganizationSkillImportBatch,
   rpcCreateOrganizationSkill,
   rpcDeleteOrganizationSkill,
   rpcGetOrganizationSkill,
+  rpcGetOrganizationSkillCatalog,
+  rpcGetOrganizationSkillImportBatch,
+  rpcImportOrganizationSkillFromFiles,
   rpcImportOrganizationSkillFromGitHub,
+  rpcListOrganizationSkillImportBatches,
   rpcListOrganizationSkills,
+  rpcPreviewOrganizationSkillFromFiles,
   rpcPreviewOrganizationSkillFromGitHub,
+  rpcPreviewOrganizationSkillRepository,
+  rpcReadOrganizationSkillRuntimeCatalog,
+  rpcReadOrganizationSkillRuntimeResource,
   rpcReadOrganizationSkillRuntimeSnapshot,
   rpcRecordOrganizationSkillActivation,
   rpcSetOrganizationSkillEnabled,
@@ -533,6 +574,7 @@ import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platf
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
+import { authorizeRemoteAgentExecutionAccess } from "./remote-agent/application/remote-agent-execution-access";
 import { processRemoteAgentSlackEvent } from "./remote-agent/application/slack-signal-service";
 import {
   handleCenterAgentSlackTeammateInvitations,
@@ -616,6 +658,7 @@ import {
   type CenterAgentSearchSlackMessagesInput,
   type CenterAgentSelectLocalAgentInstallationInput,
   type CenterAgentSetOpenMeldToolsMaintenanceInput,
+  type CenterAgentStopSpaceWakeInput,
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
   type CenterAgentWakeAgentProfilesInSpaceInput,
@@ -839,6 +882,7 @@ import {
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
   rpcCenterAgentStartSelfMemberResearch,
+  rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
@@ -1641,6 +1685,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcGetOrganizationSkill(this.env, input);
   }
 
+  getOrganizationSkillCatalog(
+    input: GetOrganizationSkillRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+    return rpcGetOrganizationSkillCatalog(this.env, input);
+  }
+
   createOrganizationSkill(
     input: CreateOrganizationSkillRpcInput
   ): Promise<CreateOrganizationSkillResponse> {
@@ -1653,10 +1703,46 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcImportOrganizationSkillFromGitHub(this.env, input);
   }
 
+  importOrganizationSkillFromFiles(
+    input: ImportOrganizationSkillFromFilesRpcInput
+  ): Promise<ImportOrganizationSkillFromFilesResponse> {
+    return rpcImportOrganizationSkillFromFiles(this.env, input);
+  }
+
   previewOrganizationSkillFromGitHub(
     input: PreviewOrganizationSkillFromGitHubRpcInput
   ): Promise<PreviewOrganizationSkillFromGitHubResponse> {
     return rpcPreviewOrganizationSkillFromGitHub(this.env, input);
+  }
+
+  previewOrganizationSkillRepository(
+    input: PreviewOrganizationSkillRepositoryRpcInput
+  ): Promise<PreviewOrganizationSkillRepositoryResponse> {
+    return rpcPreviewOrganizationSkillRepository(this.env, input);
+  }
+
+  beginOrganizationSkillImportBatch(
+    input: BeginOrganizationSkillImportBatchRpcInput
+  ): Promise<BeginOrganizationSkillImportBatchResponse> {
+    return rpcBeginOrganizationSkillImportBatch(this.env, input);
+  }
+
+  getOrganizationSkillImportBatch(
+    input: GetOrganizationSkillImportBatchRpcInput
+  ): Promise<GetOrganizationSkillImportBatchResponse> {
+    return rpcGetOrganizationSkillImportBatch(this.env, input);
+  }
+
+  listOrganizationSkillImportBatches(
+    input: ListOrganizationSkillImportBatchesRpcInput
+  ): Promise<ListOrganizationSkillImportBatchesResponse> {
+    return rpcListOrganizationSkillImportBatches(this.env, input);
+  }
+
+  previewOrganizationSkillFromFiles(
+    input: PreviewOrganizationSkillFromFilesRpcInput
+  ): Promise<PreviewOrganizationSkillFromFilesResponse> {
+    return rpcPreviewOrganizationSkillFromFiles(this.env, input);
   }
 
   updateOrganizationSkill(
@@ -1687,6 +1773,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
     return rpcReadOrganizationSkillRuntimeSnapshot(this.env, input);
+  }
+
+  readOrganizationSkillRuntimeCatalog(
+    input: ReadOrganizationSkillRuntimeCatalogRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+    return rpcReadOrganizationSkillRuntimeCatalog(this.env, input);
+  }
+
+  readOrganizationSkillRuntimeResource(
+    input: ReadOrganizationSkillRuntimeResourceRpcInput
+  ): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
+    return rpcReadOrganizationSkillRuntimeResource(this.env, input);
   }
 
   recordOrganizationSkillActivation(
@@ -2893,6 +2991,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcPluginAction(this.env, input);
   }
 
+  previewPluginChannelConnection(input: unknown) {
+    return previewPluginChannelConnection(this.env, input);
+  }
+
+  continuePluginChannelConnection(input: unknown) {
+    return continuePluginChannelConnection(this.env, input);
+  }
+
+  continuePluginConnection(input: unknown) {
+    return continuePluginConnection(this.env, input);
+  }
+
   updatePluginAccess(input: PluginAccessUpdateRpcInput) {
     return rpcUpdatePluginAccess(this.env, input);
   }
@@ -2931,6 +3041,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: CenterAgentResolveConnectorConnectionInput
   ): Promise<CenterAgentConnectorConnectionSelection> {
     return rpcCenterAgentResolveConnectorConnection(this.env, input);
+  }
+
+  authorizeRemoteAgentExecutionAccess(input: unknown) {
+    return authorizeRemoteAgentExecutionAccess(this.env, input);
   }
 
   getCenterAgentDesignation(
@@ -3501,6 +3615,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
   }
 
+  centerAgentStopSpaceWake(
+    input: CenterAgentStopSpaceWakeInput
+  ): Promise<PostSpaceWakeStopResponse> {
+    return rpcCenterAgentStopSpaceWake(this.env, input);
+  }
+
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
@@ -3521,6 +3641,24 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
         input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
       )
     );
+  }
+
+  remoteAgentListTeamFiles(
+    input: RemoteAgentListTeamFilesRpcInput
+  ): Promise<ListFileRootResponse> {
+    return rpcRemoteAgentListTeamFiles(this.env, input);
+  }
+
+  remoteAgentReadTeamFile(
+    input: RemoteAgentReadTeamFileRpcInput
+  ): Promise<RemoteAgentReadTeamFileResponse> {
+    return rpcRemoteAgentReadTeamFile(this.env, input);
+  }
+
+  remoteAgentSaveTeamFile(
+    input: RemoteAgentSaveTeamFileRpcInput
+  ): Promise<RemoteAgentSaveTeamFileResponse> {
+    return rpcRemoteAgentSaveTeamFile(this.env, input);
   }
 
   centerAgentReadSpaceFile(
@@ -4192,6 +4330,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getOrganizationSkill(input);
   }
 
+  getOrganizationSkillCatalog(
+    input: GetOrganizationSkillRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+    return super.getOrganizationSkillCatalog(input);
+  }
+
   createOrganizationSkill(
     input: CreateOrganizationSkillRpcInput
   ): Promise<CreateOrganizationSkillResponse> {
@@ -4204,10 +4348,46 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.importOrganizationSkillFromGitHub(input);
   }
 
+  importOrganizationSkillFromFiles(
+    input: ImportOrganizationSkillFromFilesRpcInput
+  ): Promise<ImportOrganizationSkillFromFilesResponse> {
+    return super.importOrganizationSkillFromFiles(input);
+  }
+
   previewOrganizationSkillFromGitHub(
     input: PreviewOrganizationSkillFromGitHubRpcInput
   ): Promise<PreviewOrganizationSkillFromGitHubResponse> {
     return super.previewOrganizationSkillFromGitHub(input);
+  }
+
+  previewOrganizationSkillRepository(
+    input: PreviewOrganizationSkillRepositoryRpcInput
+  ): Promise<PreviewOrganizationSkillRepositoryResponse> {
+    return super.previewOrganizationSkillRepository(input);
+  }
+
+  beginOrganizationSkillImportBatch(
+    input: BeginOrganizationSkillImportBatchRpcInput
+  ): Promise<BeginOrganizationSkillImportBatchResponse> {
+    return super.beginOrganizationSkillImportBatch(input);
+  }
+
+  getOrganizationSkillImportBatch(
+    input: GetOrganizationSkillImportBatchRpcInput
+  ): Promise<GetOrganizationSkillImportBatchResponse> {
+    return super.getOrganizationSkillImportBatch(input);
+  }
+
+  listOrganizationSkillImportBatches(
+    input: ListOrganizationSkillImportBatchesRpcInput
+  ): Promise<ListOrganizationSkillImportBatchesResponse> {
+    return super.listOrganizationSkillImportBatches(input);
+  }
+
+  previewOrganizationSkillFromFiles(
+    input: PreviewOrganizationSkillFromFilesRpcInput
+  ): Promise<PreviewOrganizationSkillFromFilesResponse> {
+    return super.previewOrganizationSkillFromFiles(input);
   }
 
   updateOrganizationSkill(
@@ -4238,6 +4418,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse> {
     return super.readOrganizationSkillRuntimeSnapshot(input);
+  }
+
+  readOrganizationSkillRuntimeCatalog(
+    input: ReadOrganizationSkillRuntimeCatalogRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+    return super.readOrganizationSkillRuntimeCatalog(input);
+  }
+
+  readOrganizationSkillRuntimeResource(
+    input: ReadOrganizationSkillRuntimeResourceRpcInput
+  ): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
+    return super.readOrganizationSkillRuntimeResource(input);
   }
 
   recordOrganizationSkillActivation(
@@ -5894,6 +6086,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
   }
 
+  centerAgentStopSpaceWake(
+    input: CenterAgentStopSpaceWakeInput
+  ): Promise<PostSpaceWakeStopResponse> {
+    return rpcCenterAgentStopSpaceWake(this.env, input);
+  }
+
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
     return rpcCenterAgentReadChangelog(this.env, input);
   }
@@ -6111,6 +6309,7 @@ class CoreEntrypoint extends CenterAgentRpcEntrypoint {
 
 // biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
 export { AccountInvalidationHub } from "./account-invalidation/account-invalidation-hub";
+export { OrganizationFileRoot } from "./files/organization-file-root";
 export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export {
   app,

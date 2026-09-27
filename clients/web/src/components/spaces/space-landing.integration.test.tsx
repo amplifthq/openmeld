@@ -3553,7 +3553,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("keeps transient dispatch activity out of the transcript and shows source Wake progress under the message", () => {
+	it("keeps historical dispatch activity out of the transcript without reviving a Wake", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -3599,6 +3599,25 @@ describe("SpaceLanding", () => {
 								profileName: "OpenMeld System",
 							},
 						}),
+						createTextSignal({
+							id: "sig-replying",
+							text: "@runner is replying...",
+							ts: RECENT_ACTIVITY_TS + 2,
+							meta: {
+								dispatchId: "dispatch-1",
+								purpose: AGENT_REPLYING_PURPOSE,
+								sourceClientMessageId: "client-message-1",
+								sourceEventId: "sig-user",
+								targetMentionLabel: "runner",
+								targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+								transient: true,
+							},
+							profile: {
+								kind: "system",
+								profileId: "openmeld-system",
+								profileName: "OpenMeld System",
+							},
+						}),
 					],
 					nextCursor: null,
 				},
@@ -3612,14 +3631,7 @@ describe("SpaceLanding", () => {
 			.getByText("@runner(wake) status check")
 			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
-		// Active Wake progress stays at the conversation tail while its source remains visible.
-		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
-		expect(sourceMessageGroup).not.toBeNull();
-		const thinkingIndicator = screen.getByTestId(
-			"space-wake-thinking-indicator"
-		);
-		expect(thinkingIndicator.textContent).toContain("Wake sent to runner");
-		expect(thinkingIndicator.textContent).not.toContain("Wake is queued");
+		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 		expect(screen.queryByText("Starting Wake for @runner...")).toBeNull();
 		expect(screen.queryByText("OpenMeld System")).toBeNull();
 	});
