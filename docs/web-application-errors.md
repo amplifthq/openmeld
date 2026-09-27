@@ -22,6 +22,9 @@ not a product Audit Log or an execution authority.
    local UI error boundary. Neither field identifies the failing component or
    proves that navigation caused the error. Group by client build ID, code,
    route template, and first frame.
+   For `react_update_depth`, inspect `report.reactUpdateTrace` when present.
+   Repeated labels narrow the state writer to inspect; an absent label does not
+   exonerate code paths that are not instrumented.
 4. Compare `report.buildId` / `report.sourceSha` with `serverBuildId` /
    `serverSourceSha`. A mismatch establishes different builds, not the cause of
    the failure. `serverBuildDirty` marks uncommitted server builds. Each build
@@ -97,6 +100,15 @@ and message text
 are not collected by this reporter. Unknown exceptions keep their category and
 available code locations; there is intentionally no arbitrary free-text field.
 Native framework logs predate this reporter and are not intercepted or rewritten.
+
+For React update-depth errors only, the reporter can include up to 40 fixed
+code-path labels from the preceding five seconds, with bounded age in
+milliseconds. The labels cover composer draft writes and restoration, editor
+changes and external replacements, reading-position state writes, and Center
+Agent pending-scope writes. This trace is held only in page memory and contains
+no draft content, message text, component props, identities, URLs, or arbitrary
+call stacks. It is a lead to reproduce and inspect the writer, not proof that
+the last recorded update initiated the loop. Older clients omit the field.
 
 Browser reports omit credentials. The receiver accepts same-origin JSON from Web
 and the fixed `openmeld-desktop://app` Origin only with the installed Desktop
