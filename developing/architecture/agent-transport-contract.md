@@ -113,6 +113,10 @@ preserves FIFO order within one target. A candidate failure is isolated from
 the other target queues. After a full batch advances successfully while more
 pending records remain, the shared Space alarm schedules an immediate
 continuation; retrying or poisoned work keeps the normal durable retry cadence.
+The outbox creation time remains stable across handoffs and redrives so a Wake
+waiting on an execution-target settings lease reaches its bounded, visible
+failure deadline. The queue handoff timestamp is separate and may advance on
+each redrive.
 Concurrent flush callers share one in-flight flush per Space. D1 overload is
 storage backpressure, not evidence of a malformed request or a missing Agent
 account: it does not consume the candidate poison budget. The same durable
@@ -686,6 +690,15 @@ Important execution rules:
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
+- A designated Organization Center Agent may request Stop only for a member
+  verified by its current native delivery. Space grants the represented member
+  ordinary source-account or target-owner authority, or authority over an exact
+  Center-authored Wake whose immutable, Core-written audit provenance records
+  that same member as `onBehalfOf`. A missing or mismatched attribution grants
+  no Center-authored Wake authority. Routine deliveries use their verified
+  delegated member in the same comparison. An ownerless Center Agent Profile,
+  Organization membership, or a caller-supplied selector grants no Stop
+  authority. The progress projection uses this same Space authorization.
 - An explicit Space Task cancellation has one additional, Task-scoped Stop
   authority. The same currently active, Auth-verified actor must have authored
   the retained cancellation operation, its event ID must match the operation

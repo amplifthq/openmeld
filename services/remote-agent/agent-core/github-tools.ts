@@ -1645,7 +1645,7 @@ function githubCatalogToolDefinitions(
   return [
     {
       name: "github_execute_action",
-      description: `${GITHUB_ACTOR_GUIDANCE} Execute an exact GitHub action from github_list_actions using its upstream input schema. Returns provider data and its execution-owned outputSchema, plus the existing operation receipt. Reuse operationId only to recover the same execution with unchanged input; use a new ID for a fresh read. Ordinary writes require the verified request; destructive or unspecified effects use the existing exact-action confirmation, and are unavailable to Routines. No missing action is emulated. Existing named GitHub tools remain available, including segmented file reads. A completed action is not proof that a workflow or user task finished.`,
+      description: `${GITHUB_ACTOR_GUIDANCE} Execute an exact GitHub action from github_list_actions using its upstream input schema. Returns provider data and the action catalog's outputSchema, plus the existing operation receipt. Reuse operationId only to recover the same execution with unchanged input; use a new ID for a fresh read. Ordinary writes require the verified request; destructive or unspecified effects use the existing exact-action confirmation, and are unavailable to Routines. No missing action is emulated. Existing named GitHub tools remain available, including segmented file reads. A completed action is not proof that a workflow or user task finished.`,
       input: executeInput,
       execute: async (payload) => {
         const request = parse(executeInput, payload);
@@ -2224,7 +2224,7 @@ async function executeIdempotentGitHubAction(input: {
   const result = {
     attribution,
     data: run.data,
-    ...(input.useRuntimeCatalog ? { outputSchema: run.outputSchema } : {}),
+    ...(action?.action ? { outputSchema: action.action.outputSchema } : {}),
     operationId: input.operationId,
     providerExecutionId: run.providerExecutionId,
     replayed: claim.replayed,

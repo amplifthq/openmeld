@@ -6219,6 +6219,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       expectedPayload: {
         sourceProfileId: HUMAN_PROFILE_ID,
         spaceId: SPACE_ID,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
         targetProfileId: AGENT_PROFILE_ID,
       },
       input: {
@@ -6255,6 +6256,110 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       rpcName: "centerAgentReadSpaceWakeProgress",
       toolName: "openmeld_read_space_wake_progress",
+    },
+    {
+      expectedPayload: {
+        body: {
+          target: {
+            by: "source_signal",
+            sourceSignalId: "signal-1",
+            targetProfileId: AGENT_PROFILE_ID,
+          },
+        },
+        spaceId: SPACE_ID,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        target: {
+          by: "source_signal",
+          sourceSignalId: "signal-1",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      },
+      response: {
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.wake_stop_requested",
+          status: "requested",
+        },
+        ok: true,
+        runtimeCoordinatorExecutionId: "rce-1",
+        status: "cancellation_requested",
+        targetProfileId: AGENT_PROFILE_ID,
+      },
+      rpcName: "centerAgentStopSpaceWake",
+      toolName: "openmeld_stop_space_wake",
+    },
+    {
+      expectedPayload: {
+        body: {
+          target: {
+            by: "source_signal",
+            sourceSignalId: "signal-1",
+            targetProfileId: AGENT_PROFILE_ID,
+          },
+        },
+        spaceId: SPACE_ID,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        target: {
+          by: "source_signal",
+          sourceSignalId: "signal-1",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      },
+      response: {
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+          status: "cancelled",
+        },
+        ok: true,
+        runtimeCoordinatorExecutionId: null,
+        status: "already_cancelled",
+        stopMode: "openmeld_owned_pre_agent",
+        targetProfileId: AGENT_PROFILE_ID,
+      },
+      rpcName: "centerAgentStopSpaceWake",
+      toolName: "openmeld_stop_space_wake",
+    },
+    {
+      expectedPayload: {
+        body: {
+          target: {
+            by: "source_signal",
+            sourceSignalId: "signal-1",
+            targetProfileId: AGENT_PROFILE_ID,
+          },
+        },
+        spaceId: SPACE_ID,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        target: {
+          by: "source_signal",
+          sourceSignalId: "signal-1",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      },
+      response: {
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.wake_stop_not_stoppable",
+          status: "not_requested",
+        },
+        ok: false,
+        reasonCode: "runtime_coordinator.wake_stop_not_stoppable",
+        runtimeCoordinatorExecutionId: null,
+        status: "not_stoppable",
+        targetProfileId: AGENT_PROFILE_ID,
+      },
+      rpcName: "centerAgentStopSpaceWake",
+      toolName: "openmeld_stop_space_wake",
     },
     {
       expectedPayload: {

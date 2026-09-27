@@ -2717,7 +2717,7 @@ describe("space signal consistency matrix", () => {
     expect(syncSpaceBackgroundAlarm).toHaveBeenCalledTimes(1);
   });
 
-  it("rebuilds redrive messages with the latest handoff timestamp", () => {
+  it("keeps the original outbox age across repeated redrives", () => {
     const dispatchMessage = createDispatchMessageFixture(
       "evt-outbox-refresh-enqueued-at"
     );
@@ -2736,7 +2736,22 @@ describe("space signal consistency matrix", () => {
       }
     );
 
+    const redriven = buildDispatchMessageFromRecoveryCandidate.call(
+      {
+        resolveDispatchQueueSourceSignalSnapshot: vi.fn().mockReturnValue(null),
+        resolveDispatchQueueReplyToSnapshot: vi.fn().mockReturnValue(null),
+      },
+      {
+        ...rebuilt,
+        outboxStatus: "handed_off",
+        createdAtMs: 1_700_000_000_000,
+        handedOffAtMs: 1_700_000_030_000,
+      }
+    );
+
     expect(rebuilt.enqueuedAtMs).toBe(1_700_000_015_000);
+    expect(redriven.enqueuedAtMs).toBe(1_700_000_030_000);
+    expect(redriven.outboxCreatedAtMs).toBe(1_700_000_000_000);
   });
 
   it("distinguishes an ordinary thread Wake from explicit context selection", async () => {

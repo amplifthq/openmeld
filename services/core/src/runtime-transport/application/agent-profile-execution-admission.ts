@@ -15,6 +15,7 @@ import type {
   RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse,
   RuntimeTransportAgentProfileWorkRecoveryReadResponse,
 } from "@openmeld/schemas/types";
+import { EXECUTION_TARGET_MUTATION_LEASE_MS } from "../../strategy-constants";
 import {
   type AgentProfileContextMigration,
   isAgentProfileContextMigration,
@@ -113,7 +114,6 @@ const EXECUTION_INDEX_REPAIR_PAGE_SIZE = 128;
 const EXECUTION_INDEX_INLINE_REPAIR_STEPS = 3;
 const EXECUTION_INDEX_REPAIR_RETRY_BASE_MS = 5000;
 const EXECUTION_INDEX_REPAIR_RETRY_MAX_MS = 5 * 60_000;
-const EXECUTION_TARGET_MUTATION_LEASE_MS = 5 * 60_000;
 const DURABLE_OBJECT_STORAGE_GET_MAX_KEYS = 128;
 const DURABLE_OBJECT_STORAGE_GET_MAX_CONCURRENCY = 4;
 const MAX_EXECUTION_ADMISSION_REFERENCES_PER_KIND = 128;

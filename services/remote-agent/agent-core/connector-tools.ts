@@ -195,7 +195,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     {
       name: "openmeld_execute_app_action",
       description:
-        "Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write. A successful execution returns both data and its outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. An interactive destructive action requires linked OpenMeld identity and returns an exact action preview and token. If the verified user already authorized that action and target, use the token with unchanged input now; otherwise ask first. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId and reuse it when retrying this exact action. Set connectionPreference to requester or shared when the user explicitly chooses their own or the Organization account; do not substitute another account. A connection continuation may pin the exact account on the server. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.",
+        "Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write. A successful execution returns provider data and the action catalog's outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. An interactive destructive action requires linked OpenMeld identity and returns an exact action preview and token. If the verified user already authorized that action and target, use the token with unchanged input now; otherwise ask first. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId and reuse it when retrying this exact action. Set connectionPreference to requester or shared when the user explicitly chooses their own or the Organization account; do not substitute another account. A connection continuation may pin the exact account on the server. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.",
       input: executeAppActionInputSchema,
       execute: (payload) =>
         executeAppAction({
@@ -388,7 +388,7 @@ async function executeAppAction(input: {
       attribution,
       data: run.data,
       operationId: input.request.operationId,
-      outputSchema: run.outputSchema,
+      outputSchema: executionAction?.outputSchema,
       providerExecutionId: run.providerExecutionId,
       replayed: operation.coreOperationReplayed,
     },

@@ -118,6 +118,17 @@ describe("resolveDispatchFailureHintText", () => {
     );
   });
 
+  it("gives a next step when settings changes outlast Wake admission", () => {
+    expect(
+      resolveDispatchFailureHintText({
+        errorCode: "runtime_coordinator.execution_target_mutation_wait_expired",
+        targetProfileLabel: 'Agent "ops-bot"',
+      })
+    ).toBe(
+      'Agent "ops-bot"\'s settings were still changing, so this Wake could not start. Wait for the settings change to finish, then send the Wake again.'
+    );
+  });
+
   it("explains Phase 1 local-agent interactions instead of treating them as reply authorization failures", () => {
     expect(
       resolveDispatchFailureHintText({

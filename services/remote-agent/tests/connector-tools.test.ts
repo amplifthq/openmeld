@@ -1,3 +1,4 @@
+import { openConnectorRuntimeActionSchema } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
@@ -6,9 +7,14 @@ import {
 } from "../agent-core/callback-context";
 import {
   getRemoteAgentConnectorToolDefinitions,
+  listConnectorActionCatalog,
   REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
   type RemoteAgentConnectorToolName,
 } from "../agent-core/connector-tools";
+import {
+  listOpenConnectorActions,
+  searchOpenConnectorActions,
+} from "../connectors/open-connector-runtime";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
@@ -134,7 +140,7 @@ describe("Remote Agent generic App tools", () => {
     };
     const action = {
       ...capturedExecutableOpenConnectorAction,
-      effect: "write" as const,
+      operationType: "write" as const,
       id: "posthog.update_project",
       name: "Update project",
       service: "posthog" as const,
@@ -218,8 +224,15 @@ describe("Remote Agent generic App tools", () => {
 
   it("discovers exact provider action schemas through the selected connection", async () => {
     const request = createSubmitTurnRequest();
+    const forkCatalog = {
+      ...openConnectorRuntimeActions,
+      data: [
+        { ...capturedExecutableOpenConnectorAction, operationType: "read" },
+        openConnectorRuntimeActions.data[1],
+      ],
+    };
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json(openConnectorRuntimeActions)
+      Response.json(forkCatalog)
     );
     const tools = getRemoteAgentConnectorToolDefinitions({
       connectorExecution: {
@@ -248,7 +261,7 @@ describe("Remote Agent generic App tools", () => {
       actions: [
         {
           description: "List projects.",
-          effect: "unspecified",
+          effect: "read",
           id: "posthog.list_projects",
           inputSchema: { properties: {}, type: "object" },
           name: "List projects",
@@ -277,7 +290,7 @@ describe("Remote Agent generic App tools", () => {
       ...capturedExecutableOpenConnectorAction,
       description:
         "List or count Gmail messages with Gmail search filters, including unread inbox messages.",
-      effect: "read" as const,
+      operationType: "read" as const,
       id: "gmail.fetch_emails",
       name: "fetch_emails",
       outputSchema: {
@@ -301,7 +314,7 @@ describe("Remote Agent generic App tools", () => {
               {
                 authenticated: true,
                 description: action.description,
-                effect: "read",
+                operationType: "read",
                 id: action.id,
                 inputSchema: action.inputSchema,
                 name: action.name,
@@ -373,6 +386,21 @@ describe("Remote Agent generic App tools", () => {
         headers: { authorization: "Bearer test-runtime-token" },
       })
     );
+    await expect(
+      listConnectorActionCatalog({
+        connectorExecution: {
+          baseUrl: "https://connectors.example.test",
+          fetch: fetchMock,
+          runtimeToken: "test-runtime-token",
+        },
+        query: "unread inbox count",
+        readOnly: true,
+        service: "gmail",
+      })
+    ).resolves.toMatchObject({
+      actions: [expect.objectContaining({ effect: "read", id: action.id })],
+      matchingCount: 1,
+    });
   });
 
   it("returns the action output contract with paginated provider data", async () => {
@@ -425,7 +453,6 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
-            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -513,6 +540,62 @@ describe("Remote Agent generic App tools", () => {
         service: "posthog",
       })
     ).rejects.toThrow("OpenConnector returned an invalid action catalog");
+  });
+
+  it("rejects conflicting effect metadata in catalog and search results", async () => {
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "read" as const,
+      operationType: "write" as const,
+    };
+    const connectorExecution = {
+      baseUrl: "https://connectors.example.test",
+      fetch: vi.fn<typeof fetch>(async () =>
+        Response.json({
+          data: [action],
+          message: "OK",
+          meta: {},
+          success: true,
+        })
+      ),
+      runtimeToken: "test-runtime-token",
+    };
+    await expect(
+      listOpenConnectorActions({ connectorExecution, service: "posthog" })
+    ).rejects.toThrow("conflicting effect metadata");
+
+    const searchResult = {
+      authenticated: true,
+      description: action.description,
+      effect: "read",
+      id: action.id,
+      inputSchema: action.inputSchema,
+      name: action.name,
+      operationType: "write",
+      outputSchema: action.outputSchema,
+      service: action.service,
+    };
+    connectorExecution.fetch.mockImplementation(async () =>
+      Response.json({
+        data: [searchResult],
+        message: "OK",
+        meta: {},
+        success: true,
+      })
+    );
+    await expect(
+      searchOpenConnectorActions({
+        actions: [
+          openConnectorRuntimeActionSchema.parse({
+            ...capturedExecutableOpenConnectorAction,
+            effect: "read",
+          }),
+        ],
+        connectorExecution,
+        query: "list projects",
+        service: "posthog",
+      })
+    ).rejects.toThrow("conflicting effect metadata");
   });
 
   it("uses the declared effect even when an action name sounds destructive", async () => {
@@ -632,7 +715,6 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: "provider-identity-test",
           },
-          outputSchema: action.outputSchema,
           success: true,
         })
       );
@@ -727,7 +809,6 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
-          outputSchema: action.outputSchema,
           success: true,
         })
       );
@@ -945,7 +1026,6 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
-            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -1004,14 +1084,13 @@ describe("Remote Agent generic App tools", () => {
       submissionId: ACK.submissionId,
     });
 
-    await expect(
-      executeTool(tools, "openmeld_execute_app_action", {
-        actionId: action.id,
-        input: {},
-        operationId,
-        service: "posthog",
-      })
-    ).resolves.toMatchObject({
+    const replay = await executeTool(tools, "openmeld_execute_app_action", {
+      actionId: action.id,
+      input: {},
+      operationId,
+      service: "posthog",
+    });
+    expect(replay).toMatchObject({
       actionId: action.id,
       attribution: {
         connectionName,
@@ -1024,10 +1103,10 @@ describe("Remote Agent generic App tools", () => {
       },
       data: [{ id: 1, name: "OpenMeld" }],
       operationId,
-      outputSchema: action.outputSchema,
       providerExecutionId,
       replayed: true,
     });
+    expect(replay).toHaveProperty("outputSchema", undefined);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(centerAgentReadConnectorActionOperation).toHaveBeenCalledTimes(1);
     expect(centerAgentResolveConnectorConnection).not.toHaveBeenCalled();
@@ -1119,7 +1198,7 @@ describe("Remote Agent generic App tools", () => {
 
   it.each([
     {
-      effect: "destructive" as const,
+      operationType: "destructive" as const,
       id: "posthog.delete_project",
       name: "Delete project",
     },
@@ -1232,7 +1311,6 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
-            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -1330,7 +1408,6 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
-            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -1437,7 +1514,6 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
-          outputSchema: action.outputSchema,
           success: true,
         })
       )
@@ -1450,7 +1526,6 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
-          outputSchema: action.outputSchema,
           success: true,
         })
       );

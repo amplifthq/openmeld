@@ -23,6 +23,7 @@ const DISPATCH_TARGET_PROFILE_IDENTITY_NON_RETRYABLE_ERROR_CODES = [
 const DISPATCH_HINT_ELIGIBLE_ERROR_CODES = new Set([
   "agent_profile_work_coordinator.continuation_needs_attention",
   "agent_profile_work_coordinator.queue_full",
+  "runtime_coordinator.execution_target_mutation_wait_expired",
   "daemon.profile.offline",
   "daemon.profile.configuration_not_synced",
   "daemon.delivery.timeout",
@@ -218,6 +219,8 @@ const resolveKnownDispatchFailureHintText = (input: {
       return `${input.targetProfileLabel}'s settings changed after this interrupted Wake was approved, so OpenMeld did not continue it. Review the interrupted Wake, then retry it or continue the queued Wakes.`;
     case "agent_profile_work_coordinator.queue_full":
       return `${input.targetProfileLabel}'s local work queue is full, so this Wake was not accepted. Wait for an earlier Wake to finish, then try again.`;
+    case "runtime_coordinator.execution_target_mutation_wait_expired":
+      return `${input.targetProfileLabel}'s settings were still changing, so this Wake could not start. Wait for the settings change to finish, then send the Wake again.`;
     case "daemon.profile.offline":
     case "daemon.session.not_found":
       return `${input.targetProfileLabel} is offline or reconnecting. OpenMeld service may be running, but this target profile has no active daemon route right now. Retry in a few seconds.`;

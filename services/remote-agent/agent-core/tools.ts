@@ -172,6 +172,7 @@ import {
   PROJECT_NAME_MAX_CHARS,
   pauseCenterAgentRoutineResponseSchema,
   peopleComputerTargetSchema,
+  postSpaceWakeStopResponseSchema,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   remoteAgentReadTeamFileResponseSchema,
   remoteAgentSaveTeamFileResponseSchema,
@@ -1306,6 +1307,21 @@ const readSpaceWakeProgressToolInputSchema = strictObject({
   spaceId: trimmedNonEmptyStringSchema,
   targetProfileId: optional(trimmedNonEmptyStringSchema),
 });
+const stopSpaceWakeToolInputSchema = strictObject({
+  spaceId: trimmedNonEmptyStringSchema,
+  target: union([
+    strictObject({
+      by: literal("source_signal"),
+      sourceSignalId: trimmedNonEmptyStringSchema,
+      targetProfileId: trimmedNonEmptyStringSchema,
+    }),
+    strictObject({
+      by: literal("client_message"),
+      clientMessageId: trimmedNonEmptyStringSchema,
+      targetProfileId: trimmedNonEmptyStringSchema,
+    }),
+  ]),
+});
 
 async function executeMessageChannelIdentityNavigationAction(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
@@ -1417,6 +1433,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_list_spaces",
   "openmeld_list_active_space_wakes",
   "openmeld_read_space_wake_progress",
+  "openmeld_stop_space_wake",
   "openmeld_list_projects",
   "openmeld_create_project",
   "openmeld_update_project",
@@ -3145,18 +3162,45 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           readSpaceWakeProgressToolInputSchema,
           payload
         );
-        const toolContext =
-          await buildAnonymousCompatibleOrganizationReadToolContext({
-            storage: input.storage,
-            submissionId: input.submissionId,
-            toolName: "openmeld_read_space_wake_progress",
-          });
+        const toolContext = await buildOrganizationMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_space_wake_progress",
+        });
         const rpc = requireCoreRpc(
           input.coreWorker.centerAgentReadSpaceWakeProgress,
           "centerAgentReadSpaceWakeProgress"
         );
         return getActiveSpaceWakeProgressResponseSchema.parse(
           await rpc({ ...request, ...toolContext })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_stop_space_wake",
+      description:
+        "Request Stop for one exact Wake in a Space. Use the sourceSignalId or clientMessageId and targetProfileId from Wake progress. OpenMeld checks whether this Center Agent sent the Wake or the verified current requester could stop it in Web. The result distinguishes a Stop request from a confirmed stopped outcome; do not describe cancellation_requested as stopped.",
+      input: stopSpaceWakeToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(stopSpaceWakeToolInputSchema, payload);
+        const toolContext = await buildOrganizationMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_stop_space_wake",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentStopSpaceWake,
+          "centerAgentStopSpaceWake"
+        );
+        return postSpaceWakeStopResponseSchema.parse(
+          await rpc({
+            body: { target: request.target },
+            context: toolContext.context,
+            ...(toolContext.speakerMember
+              ? { speakerMember: toolContext.speakerMember }
+              : {}),
+            spaceId: request.spaceId,
+          })
         );
       },
     }),
