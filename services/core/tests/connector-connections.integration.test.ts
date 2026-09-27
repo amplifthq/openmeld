@@ -953,6 +953,7 @@ describe("Core connector connection ownership", () => {
       },
       requestSignature: "a".repeat(64),
       service: "github",
+      sourceNativeDeliveryId: "delivery-original-request-continuation",
       sourceSpaceId: "space-authorized",
     } as const;
 
@@ -974,6 +975,17 @@ describe("Core connector connection ownership", () => {
     expect(replayedClaim).toMatchObject({
       operation: { status: "pending" },
       replayed: true,
+    });
+    await expect(
+      env.OPENMELD_DB.prepare(
+        `SELECT on_behalf_of_user_id, source_native_delivery_id
+         FROM center_agent_audit_journal WHERE resource_id = ? AND action = 'execute_connector_action'`
+      )
+        .bind(`github:github.create_issue:${baseInput.operationId}`)
+        .first()
+    ).resolves.toEqual({
+      on_behalf_of_user_id: fixture.ownerA,
+      source_native_delivery_id: baseInput.sourceNativeDeliveryId,
     });
     await expect(
       recordCenterAgentConnectorActionOperation({
@@ -1009,6 +1021,16 @@ describe("Core connector connection ownership", () => {
       replayed: false,
     });
     expect(replayedCompletion.replayed).toBe(true);
+    await expect(
+      env.OPENMELD_DB.prepare(
+        `SELECT source_native_delivery_id FROM center_agent_audit_journal
+         WHERE resource_id = ? AND action = 'complete_connector_action'`
+      )
+        .bind(`github:github.create_issue:${baseInput.operationId}`)
+        .first()
+    ).resolves.toEqual({
+      source_native_delivery_id: baseInput.sourceNativeDeliveryId,
+    });
     await expect(
       recordCenterAgentConnectorActionOperation({
         ...baseInput,

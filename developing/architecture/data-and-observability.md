@@ -2218,6 +2218,12 @@ external conversation identity in their owning locator and leave
 `sourceSpaceId` null; an external conversation ID must never be reinterpreted as
 an OpenMeld Space ID.
 
+For a verified member's task continuation, a connector-operation audit row may
+also retain the matched source Native Delivery id alongside `onBehalfOf`. The
+requester-attribution key remains the represented user, so replay identity does
+not change. A final audit phase reuses the source id from the attempted phase;
+the current caller cannot replace it during recovery.
+
 For a native delivery created from a Space Wake, the native-delivery ledger
 remains the authoritative hosted execution record while the Dispatch Ledger is
 the public Wake trace projection. Core closes that projection only from a

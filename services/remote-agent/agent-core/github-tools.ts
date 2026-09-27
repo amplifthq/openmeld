@@ -1766,9 +1766,13 @@ export async function resolveGitHubActionContext(input: {
       "Your GitHub requires a linked OpenMeld identity. Use githubActor = organization for this Organization's shared GitHub access."
     );
   }
-  if (requesterKind !== "interactive" && input.githubActor === "requester") {
+  if (
+    requesterKind !== "interactive" &&
+    requesterKind !== "continuation" &&
+    input.githubActor === "requester"
+  ) {
     throw new Error(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
     );
   }
   const connectionPreference =
@@ -2083,9 +2087,13 @@ async function executeIdempotentGitHubAction(input: {
   const { requesterKind, requesterUserId } = resolveGitHubTurnRequester(
     input.toolContext.turnEnvelope
   );
-  if (requesterKind !== "interactive" && input.githubActor === "requester") {
+  if (
+    requesterKind !== "interactive" &&
+    requesterKind !== "continuation" &&
+    input.githubActor === "requester"
+  ) {
     throw new Error(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
     );
   }
   const existingOperation = await readConnectorActionOperation({
@@ -2203,6 +2211,7 @@ async function executeIdempotentGitHubAction(input: {
       organizationId: input.toolContext.context.activeOrganizationId,
       requestId: input.toolContext.context.actorContext.requestId,
       requesterUserId,
+      turnSource: input.toolContext.turnEnvelope?.trigger.source,
       selection,
       service: "github",
     });
@@ -2218,6 +2227,7 @@ async function executeIdempotentGitHubAction(input: {
     organizationId: input.toolContext.context.activeOrganizationId,
     requestId: input.toolContext.context.actorContext.requestId,
     requesterUserId,
+    turnSource: input.toolContext.turnEnvelope?.trigger.source,
     selection,
     service: "github",
   });
@@ -3303,7 +3313,11 @@ function requireGitHubWriteOperationId(value: unknown): string {
 function resolveGitHubTurnRequester(
   turnEnvelope: RemoteAgentTurnEnvelope | undefined
 ): {
-  requesterKind: "interactive" | "routine" | "shared_unattended";
+  requesterKind:
+    | "interactive"
+    | "continuation"
+    | "routine"
+    | "shared_unattended";
   requesterUserId: string | null;
 } {
   if (turnEnvelope?.trigger.source === "member_research") {
@@ -3314,13 +3328,13 @@ function resolveGitHubTurnRequester(
     turnEnvelope?.trigger.source === "task_continuation" ||
     turnEnvelope?.trigger.source === "task_watch_continuation"
   ) {
-    if (!speaker) {
+    if (turnEnvelope.sender.kind !== "member" || !speaker) {
       throw new Error(
         "Unattended GitHub work requires a verified Organization member context."
       );
     }
     return {
-      requesterKind: "shared_unattended",
+      requesterKind: "continuation",
       requesterUserId: speaker.userId,
     };
   }

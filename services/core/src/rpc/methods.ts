@@ -15986,6 +15986,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requester,
     requestSignature: parsed.data.requestSignature,
     service: parsed.data.service,
+    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     sourceSpaceId: member.sourceSpaceId,
   });
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
