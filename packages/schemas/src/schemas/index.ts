@@ -1869,6 +1869,8 @@ export {
   importOrganizationSkillFromGitHubBodySchema,
   importOrganizationSkillFromGitHubResponseSchema,
   importOrganizationSkillFromGitHubRpcInputSchema,
+  listOrganizationSkillImportBatchesResponseSchema,
+  listOrganizationSkillImportBatchesRpcInputSchema,
   listOrganizationSkillsQuerySchema,
   listOrganizationSkillsResponseSchema,
   listOrganizationSkillsRpcInputSchema,

@@ -16,6 +16,7 @@ import type {
 	GetOrganizationSkillResponse,
 	ImportOrganizationSkillFromGitHubBody,
 	ImportOrganizationSkillFromGitHubResponse,
+	ListOrganizationSkillImportBatchesResponse,
 	ListOrganizationSkillsResponse,
 	PreviewOrganizationSkillFromGitHubBody,
 	PreviewOrganizationSkillFromGitHubResponse,
@@ -118,6 +119,20 @@ export async function getCurrentOrganizationSkillImportBatch(input: {
 	);
 	assertOrganizationId(response.batch.organizationId, input.organizationId);
 	return response;
+}
+
+export async function listCurrentOrganizationSkillImportBatches(input: {
+	organizationId: string;
+}): Promise<ListOrganizationSkillImportBatchesResponse> {
+	try {
+		const response = await createWebOrganizationSkillsApi(
+			input.organizationId
+		).listImportBatches();
+		assertOrganizationId(response.organizationId, input.organizationId);
+		return response;
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
 }
 
 export async function previewCurrentOrganizationSkillFromGitHub(

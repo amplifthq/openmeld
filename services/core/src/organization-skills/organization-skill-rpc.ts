@@ -13,6 +13,8 @@ import {
   importOrganizationSkillFromFilesRpcInputSchema,
   importOrganizationSkillFromGitHubResponseSchema,
   importOrganizationSkillFromGitHubRpcInputSchema,
+  listOrganizationSkillImportBatchesResponseSchema,
+  listOrganizationSkillImportBatchesRpcInputSchema,
   listOrganizationSkillsResponseSchema,
   listOrganizationSkillsRpcInputSchema,
   organizationSkillRuntimeCatalogResponseSchema,
@@ -51,6 +53,8 @@ import type {
   ImportOrganizationSkillFromFilesRpcInput,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
+  ListOrganizationSkillImportBatchesResponse,
+  ListOrganizationSkillImportBatchesRpcInput,
   ListOrganizationSkillsResponse,
   ListOrganizationSkillsRpcInput,
   OpenMeldRequestContext,
@@ -83,6 +87,7 @@ import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   beginOrganizationSkillImportBatch,
+  listOrganizationSkillImportBatches,
   readOrganizationSkillImportBatch,
   recordOrganizationSkillImportBatchResult,
   requireBatchCandidate,
@@ -274,6 +279,27 @@ export async function rpcGetOrganizationSkillImportBatch(
   }
   return parseResponse(getOrganizationSkillImportBatchResponseSchema, {
     batch,
+  });
+}
+
+export async function rpcListOrganizationSkillImportBatches(
+  env: CoreBindings,
+  input: ListOrganizationSkillImportBatchesRpcInput
+): Promise<ListOrganizationSkillImportBatchesResponse> {
+  const request = parseRequest(
+    listOrganizationSkillImportBatchesRpcInputSchema,
+    input
+  );
+  const { actor } = await prepareHumanRequest(env, request.context);
+  requireManagerActor(actor);
+  const { db } = requireStores(env);
+  return parseResponse(listOrganizationSkillImportBatchesResponseSchema, {
+    organizationId: actor.organizationId,
+    batches: await listOrganizationSkillImportBatches({
+      db,
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+    }),
   });
 }
 

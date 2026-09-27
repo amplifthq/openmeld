@@ -11,6 +11,7 @@ import {
   importOrganizationSkillFromFilesResponseSchema,
   importOrganizationSkillFromGitHubBodySchema,
   importOrganizationSkillFromGitHubResponseSchema,
+  listOrganizationSkillImportBatchesResponseSchema,
   listOrganizationSkillsResponseSchema,
   organizationSkillRouteParamsSchema,
   previewOrganizationSkillFromFilesBodySchema,
@@ -83,6 +84,15 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       operation: "organization_skill.get_import_batch",
       schema: getOrganizationSkillImportBatchResponseSchema,
       url: buildOrganizationSkillImportBatchPath(input.batchId),
+    }),
+  listImportBatches: async (input = {}) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Skill batch list response",
+      method: "GET",
+      operation: "organization_skill.list_import_batches",
+      schema: listOrganizationSkillImportBatchesResponseSchema,
+      url: buildOrganizationSkillImportBatchesPath(),
     }),
   list: async (input = {}) =>
     await client.requestJson({

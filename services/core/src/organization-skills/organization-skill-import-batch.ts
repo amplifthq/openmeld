@@ -37,6 +37,43 @@ export async function readOrganizationSkillImportBatch(input: {
   return row ? parseBatch(row) : null;
 }
 
+export async function listOrganizationSkillImportBatches(input: {
+  db: D1Database;
+  organizationId: string;
+  userId: string;
+}) {
+  const rows = await input.db
+    .prepare(
+      `SELECT * FROM organization_skill_import_batches
+       WHERE organization_id = ? AND owner_user_id = ?
+         AND EXISTS (
+           SELECT 1 FROM json_each(results_json) AS result
+           WHERE json_extract(result.value, '$.selected') = 1
+             AND json_extract(result.value, '$.status') IN ('pending', 'failed')
+         )
+       ORDER BY created_at DESC LIMIT 10`
+    )
+    .bind(input.organizationId, input.userId)
+    .all<BatchRow>();
+  return rows.results.map((row) => {
+    const batch = parseBatch(row);
+    return {
+      batchId: batch.batchId,
+      createdAt: batch.createdAt,
+      repository: batch.preview.repository,
+      installedCount: batch.results.filter(
+        (item) => item.status === "installed"
+      ).length,
+      failedCount: batch.results.filter(
+        (item) => item.selected && item.status === "failed"
+      ).length,
+      pendingCount: batch.results.filter(
+        (item) => item.selected && item.status === "pending"
+      ).length,
+    };
+  });
+}
+
 export async function beginOrganizationSkillImportBatch(input: {
   batchId: string;
   db: D1Database;

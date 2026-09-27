@@ -11,6 +11,7 @@ import {
   importOrganizationSkillFromFilesResponseSchema,
   importOrganizationSkillFromGitHubBodySchema,
   importOrganizationSkillFromGitHubResponseSchema,
+  listOrganizationSkillImportBatchesResponseSchema,
   listOrganizationSkillsQuerySchema,
   listOrganizationSkillsResponseSchema,
   organizationSkillRouteParamsSchema,
@@ -51,6 +52,18 @@ const SKILL_IMPORT_BATCHES_ROUTE = `${SKILLS_ROUTE}/import-github-batches`;
 const SKILL_IMPORT_BATCH_ROUTE = `${SKILL_IMPORT_BATCHES_ROUTE}/:batchId`;
 
 export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
+  app.get(SKILL_IMPORT_BATCHES_ROUTE, (c) =>
+    executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.listOrganizationSkillImportBatches({
+          context: buildCoreRpcContext(c),
+        }),
+      method: "GET",
+      responseSchema: listOrganizationSkillImportBatchesResponseSchema,
+      route: SKILL_IMPORT_BATCHES_ROUTE,
+    })
+  );
   app.post(SKILL_IMPORT_BATCHES_ROUTE, async (c) => {
     const body = await parseBody(
       c,

@@ -21,6 +21,7 @@ import {
   rpcBeginOrganizationSkillImportBatch,
   rpcGetOrganizationSkillImportBatch,
   rpcImportOrganizationSkillFromGitHub,
+  rpcListOrganizationSkillImportBatches,
 } from "../src/organization-skills/organization-skill-rpc";
 import {
   createOrganizationSkillService,
@@ -1808,6 +1809,10 @@ describe("Organization Skills", () => {
       ).toMatchObject([
         { status: "failed", error: expect.not.stringContaining("HTTP 4") },
       ]);
+      expect(
+        (await rpcListOrganizationSkillImportBatches(coreEnv(), { context }))
+          .batches
+      ).toMatchObject([{ batchId, failedCount: 1, pendingCount: 0 }]);
       resourceUnavailable = false;
       const installed = await rpcImportOrganizationSkillFromGitHub(
         coreEnv(),
@@ -1825,6 +1830,10 @@ describe("Organization Skills", () => {
           status: "installed",
         },
       ]);
+      expect(
+        (await rpcListOrganizationSkillImportBatches(coreEnv(), { context }))
+          .batches
+      ).toEqual([]);
       await expect(
         rpcBeginOrganizationSkillImportBatch(coreEnv(), {
           batchId,

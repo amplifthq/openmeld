@@ -1,5 +1,6 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
+	ListOrganizationSkillImportBatchesResponse,
 	OrganizationSkill,
 	OrganizationSkillGitHubPreview,
 	OrganizationSkillGitHubRepositoryPreview,
@@ -11,11 +12,18 @@ import { DialogClose, DialogFooter } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { useMutation } from "@tanstack/react-query";
-import { type RefObject, useLayoutEffect, useRef, useState } from "react";
+import {
+	type RefObject,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import {
 	beginCurrentOrganizationSkillImportBatch,
 	getCurrentOrganizationSkillImportBatch,
 	importCurrentOrganizationSkillFromGitHub,
+	listCurrentOrganizationSkillImportBatches,
 	previewCurrentOrganizationSkillFromGitHub,
 	previewCurrentOrganizationSkillRepository,
 	resolveOrganizationSkillErrorMessage,
@@ -54,6 +62,9 @@ export function InstallSkillDialog(input: {
 		Map<string, RepositoryBatchResult>
 	>(new Map());
 	const [batchInstalling, setBatchInstalling] = useState(false);
+	const [recentBatches, setRecentBatches] = useState<
+		ListOrganizationSkillImportBatchesResponse["batches"]
+	>([]);
 	const existingPaths = getExistingGitHubPaths(catalog, input.installedSkills);
 	const [error, setError] = useState<string | null>(null);
 	const [reviewing, setReviewing] = useState(false);
@@ -70,6 +81,19 @@ export function InstallSkillDialog(input: {
 			request.current += 1;
 		};
 	}, []);
+	useEffect(() => {
+		listCurrentOrganizationSkillImportBatches({
+			organizationId: input.organizationId,
+		})
+			.then((response) => {
+				if (mounted.current) {
+					setRecentBatches(response.batches);
+				}
+			})
+			.catch(() => {
+				// A stale batch list does not block a new installation.
+			});
+	}, [input.organizationId]);
 	const install = useMutation({
 		mutationFn: (
 			body: Parameters<typeof importCurrentOrganizationSkillFromGitHub>[0]
@@ -154,6 +178,44 @@ export function InstallSkillDialog(input: {
 			) {
 				await loadRepositoryCatalog(requestedUrl, ticket);
 			} else if (isCurrent(ticket)) {
+				setError(resolveOrganizationSkillErrorMessage(failure));
+			}
+		} finally {
+			if (isCurrent(ticket)) {
+				setReviewing(false);
+			}
+		}
+	};
+	const resumeBatch = async (requestedBatchId: string) => {
+		const ticket = ++request.current;
+		setError(null);
+		setReviewing(true);
+		try {
+			const { batch } = await getCurrentOrganizationSkillImportBatch({
+				batchId: requestedBatchId,
+				organizationId: input.organizationId,
+			});
+			if (!isCurrent(ticket)) {
+				return;
+			}
+			batchPlan.current = {
+				id: batch.batchId,
+				selectedPaths: batch.results
+					.filter((result) => result.selected)
+					.map((result) => result.path),
+			};
+			setUrl(batch.sourceUrl);
+			setCatalog({ rootUrl: batch.sourceUrl, preview: batch.preview });
+			setSelectedUrls(
+				new Set(
+					batch.preview.skills.flatMap((skill, index) =>
+						batch.results[index]?.selected ? [skill.url] : []
+					)
+				)
+			);
+			setBatchResults(resultsFromBatch(batch));
+		} catch (failure) {
+			if (isCurrent(ticket)) {
 				setError(resolveOrganizationSkillErrorMessage(failure));
 			}
 		} finally {
@@ -263,22 +325,7 @@ export function InstallSkillDialog(input: {
 				batchId: plan.id,
 				organizationId: input.organizationId,
 			});
-			setBatchResults(
-				new Map(
-					saved.batch.results.flatMap((result, index) => {
-						const item = saved.batch.preview.skills[index];
-						return item &&
-							(result.status === "installed" || result.status === "failed")
-							? [
-									[
-										item.url,
-										{ status: result.status, error: result.error },
-									] as const,
-								]
-							: [];
-					})
-				)
-			);
+			setBatchResults(resultsFromBatch(saved.batch));
 		} catch (failure) {
 			setError(resolveOrganizationSkillErrorMessage(failure));
 		} finally {
@@ -391,6 +438,7 @@ export function InstallSkillDialog(input: {
 						selectedUrls={selectedUrls}
 						setSelectedUrls={(next) => {
 							batchPlan.current = null;
+							setBatchResults(new Map());
 							setSelectedUrls(next);
 						}}
 					/>
@@ -411,6 +459,11 @@ export function InstallSkillDialog(input: {
 							Choose a repository to browse its skills, or link to one skill
 							folder.
 						</p>
+						<RecentBatches
+							batches={recentBatches}
+							onResume={resumeBatch}
+							reviewing={reviewing}
+						/>
 					</div>
 				)}
 				{error && (
@@ -420,6 +473,38 @@ export function InstallSkillDialog(input: {
 				)}
 			</div>
 		</OrganizationSkillFlowDialog>
+	);
+}
+
+function RecentBatches(input: {
+	batches: ListOrganizationSkillImportBatchesResponse["batches"];
+	onResume: (batchId: string) => void;
+	reviewing: boolean;
+}) {
+	if (input.batches.length === 0) {
+		return null;
+	}
+	return (
+		<div className="grid gap-2 pt-2">
+			<p className="text-muted-foreground text-xs">
+				Recent unfinished installs
+			</p>
+			{input.batches.map((batch) => (
+				<Button
+					className="min-w-0 justify-start"
+					disabled={input.reviewing}
+					key={batch.batchId}
+					onClick={() => input.onResume(batch.batchId)}
+					size="sm"
+					variant="outline"
+				>
+					<span className="truncate">Resume {batch.repository}</span>
+					<span className="ml-auto shrink-0 text-muted-foreground">
+						{batch.pendingCount + batch.failedCount} left
+					</span>
+				</Button>
+			))}
+		</div>
 	);
 }
 
@@ -460,6 +545,19 @@ async function installSelectedBatchSkills(input: {
 		}
 	}
 	return { installedAny, failures };
+}
+
+function resultsFromBatch(
+	batch: OrganizationSkillImportBatch
+): Map<string, RepositoryBatchResult> {
+	return new Map(
+		batch.preview.skills.flatMap((skill, index) => {
+			const result = batch.results[index];
+			return result?.status === "installed" || result?.status === "failed"
+				? [[skill.url, { status: result.status, error: result.error }] as const]
+				: [];
+		})
+	);
 }
 
 function countPendingSelection(

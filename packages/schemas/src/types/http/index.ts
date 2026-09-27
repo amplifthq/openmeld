@@ -761,6 +761,8 @@ export type {
   ImportOrganizationSkillFromGitHubBody,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
+  ListOrganizationSkillImportBatchesResponse,
+  ListOrganizationSkillImportBatchesRpcInput,
   ListOrganizationSkillsResponse,
   ListOrganizationSkillsRpcInput,
   OrganizationSkill,

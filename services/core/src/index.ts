@@ -248,6 +248,8 @@ import type {
   ListInboxItemsRpcInput,
   ListOrganizationDocumentsResponse,
   ListOrganizationDocumentsRpcInput,
+  ListOrganizationSkillImportBatchesResponse,
+  ListOrganizationSkillImportBatchesRpcInput,
   ListOrganizationSkillsResponse,
   ListOrganizationSkillsRpcInput,
   ListSpaceFileRevisionsResponse,
@@ -514,6 +516,7 @@ import {
   rpcGetOrganizationSkillImportBatch,
   rpcImportOrganizationSkillFromFiles,
   rpcImportOrganizationSkillFromGitHub,
+  rpcListOrganizationSkillImportBatches,
   rpcListOrganizationSkills,
   rpcPreviewOrganizationSkillFromFiles,
   rpcPreviewOrganizationSkillFromGitHub,
@@ -1713,6 +1716,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetOrganizationSkillImportBatchRpcInput
   ): Promise<GetOrganizationSkillImportBatchResponse> {
     return rpcGetOrganizationSkillImportBatch(this.env, input);
+  }
+
+  listOrganizationSkillImportBatches(
+    input: ListOrganizationSkillImportBatchesRpcInput
+  ): Promise<ListOrganizationSkillImportBatchesResponse> {
+    return rpcListOrganizationSkillImportBatches(this.env, input);
   }
 
   previewOrganizationSkillFromFiles(
@@ -4324,6 +4333,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetOrganizationSkillImportBatchRpcInput
   ): Promise<GetOrganizationSkillImportBatchResponse> {
     return super.getOrganizationSkillImportBatch(input);
+  }
+
+  listOrganizationSkillImportBatches(
+    input: ListOrganizationSkillImportBatchesRpcInput
+  ): Promise<ListOrganizationSkillImportBatchesResponse> {
+    return super.listOrganizationSkillImportBatches(input);
   }
 
   previewOrganizationSkillFromFiles(

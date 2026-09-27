@@ -111,6 +111,12 @@ export type BeginOrganizationSkillImportBatchResponse = z.infer<
 export type GetOrganizationSkillImportBatchResponse = z.infer<
   Schemas["getOrganizationSkillImportBatchResponseSchema"]
 >;
+export type ListOrganizationSkillImportBatchesResponse = z.infer<
+  Schemas["listOrganizationSkillImportBatchesResponseSchema"]
+>;
+export type ListOrganizationSkillImportBatchesRpcInput = z.infer<
+  Schemas["listOrganizationSkillImportBatchesRpcInputSchema"]
+>;
 export type CenterAgentReadOrganizationSkillsRpcInput = z.infer<
   Schemas["centerAgentReadOrganizationSkillsRpcInputSchema"]
 >;

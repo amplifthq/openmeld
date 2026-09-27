@@ -421,6 +421,21 @@ export const beginOrganizationSkillImportBatchResponseSchema = z.strictObject({
 });
 export const getOrganizationSkillImportBatchResponseSchema =
   beginOrganizationSkillImportBatchResponseSchema;
+export const listOrganizationSkillImportBatchesResponseSchema = z.strictObject({
+  batches: z
+    .array(
+      z.strictObject({
+        batchId: operationIdSchema,
+        createdAt: isoDateTimeSchema,
+        failedCount: z.number().int().nonnegative(),
+        installedCount: z.number().int().nonnegative(),
+        pendingCount: z.number().int().nonnegative(),
+        repository: sourceUrlSchema,
+      })
+    )
+    .max(10),
+  organizationId: identifierSchema,
+});
 export const previewOrganizationSkillFromFilesResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   preview: organizationSkillFilesPreviewSchema,
@@ -618,6 +633,9 @@ export const beginOrganizationSkillImportBatchRpcInputSchema =
   });
 export const getOrganizationSkillImportBatchRpcInputSchema = z.strictObject({
   batchId: operationIdSchema,
+  context: openMeldRequestContextSchema,
+});
+export const listOrganizationSkillImportBatchesRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
 });
 export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =

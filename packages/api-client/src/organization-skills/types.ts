@@ -11,6 +11,7 @@ import type {
   ImportOrganizationSkillFromFilesResponse,
   ImportOrganizationSkillFromGitHubBody,
   ImportOrganizationSkillFromGitHubResponse,
+  ListOrganizationSkillImportBatchesResponse,
   ListOrganizationSkillsResponse,
   OpenMeldRequestContext,
   PreviewOrganizationSkillFromFilesBody,
@@ -45,6 +46,9 @@ export type OrganizationSkillsApi = {
   getImportBatch: (
     input: OrganizationSkillRequestInput & { batchId: string }
   ) => Promise<GetOrganizationSkillImportBatchResponse>;
+  listImportBatches: (
+    input?: OrganizationSkillRequestInput
+  ) => Promise<ListOrganizationSkillImportBatchesResponse>;
   list: (
     input?: OrganizationSkillRequestInput
   ) => Promise<ListOrganizationSkillsResponse>;
