@@ -3126,6 +3126,12 @@ but not trigger.
    settles as aborted. Every tool call rechecks that state before side effects.
    Space Stop targets one logical Wake, including its automatic work-loop
    submissions; it must not abort unrelated queued work in the conversation.
+   The Center Agent's Stop tool accepts one exact Wake selector and uses the
+   same Core and Space Stop mutation as Web. It can Stop its own authored Wake;
+   acting for a requester additionally requires verified current delivery
+   attribution and the requester's ordinary Stop permission. Progress exposes
+   Stop eligibility only to an authorized viewer. A requested cancellation is
+   reported as requested until the execution owner confirms it stopped.
    Space records Stop in its existing dispatch outbox before contacting the
    Worker. Native admission checks that fence before submission and again after
    acknowledgement; late acknowledgements forward cancellation to the exact
