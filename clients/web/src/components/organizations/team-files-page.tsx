@@ -69,6 +69,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
+	type DragEvent,
 	lazy,
 	type ReactNode,
 	Suspense,
@@ -253,6 +254,7 @@ function TeamFilesBrowser(input: {
 		clientMutationId: string;
 	} | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [fileDragDepth, setFileDragDepth] = useState(0);
 	const [uploadProgress, setUploadProgress] = useState<{
 		name: string;
 		percent: number;
@@ -365,6 +367,35 @@ function TeamFilesBrowser(input: {
 			setBusy(false);
 		}
 	};
+	const uploadFiles = async (selected: readonly File[]) => {
+		if (selected.length === 0 || busy || view !== "active") {
+			return;
+		}
+		try {
+			await runAction(async () => {
+				for (const file of selected) {
+					setUploadProgress({ name: file.name, percent: 0 });
+					await api.upload({
+						location,
+						bytes: file,
+						mimeType: file.type || "application/octet-stream",
+						name: file.name,
+						parentId,
+						clientMutationId: crypto.randomUUID(),
+						onProgress: (uploadedBytes, totalBytes) =>
+							setUploadProgress({
+								name: file.name,
+								percent: Math.round((uploadedBytes / totalBytes) * 100),
+							}),
+					});
+				}
+			});
+		} finally {
+			setUploadProgress(null);
+		}
+	};
+	const isFileDrag = (event: DragEvent<HTMLElement>) =>
+		event.dataTransfer.types.includes("Files");
 	const changeView = (
 		nextLocation: FileRootLocation,
 		nextView: "active" | "trash"
@@ -447,26 +478,7 @@ function TeamFilesBrowser(input: {
 						onChange={(event) => {
 							const selected = Array.from(event.currentTarget.files ?? []);
 							event.currentTarget.value = "";
-							runAction(async () => {
-								for (const file of selected) {
-									setUploadProgress({ name: file.name, percent: 0 });
-									await api.upload({
-										location,
-										bytes: file,
-										mimeType: file.type || "application/octet-stream",
-										name: file.name,
-										parentId,
-										clientMutationId: crypto.randomUUID(),
-										onProgress: (uploadedBytes, totalBytes) =>
-											setUploadProgress({
-												name: file.name,
-												percent: Math.round((uploadedBytes / totalBytes) * 100),
-											}),
-									});
-								}
-							})
-								.finally(() => setUploadProgress(null))
-								.catch(console.error);
+							uploadFiles(selected).catch(console.error);
 						}}
 						ref={inputRef}
 						type="file"
@@ -541,10 +553,54 @@ function TeamFilesBrowser(input: {
 			: (files.data?.breadcrumbs.at(-1)?.name ??
 				(location === "my" ? "My files" : "Team files"));
 	return (
+		// biome-ignore lint/a11y/noNoninteractiveElementInteractions: the Files surface accepts OS file drops; the New menu and empty state provide keyboard upload controls.
 		<section
 			aria-label={browserTitle}
-			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+			className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+			onDragEnter={(event) => {
+				if (view !== "active" || !isFileDrag(event)) {
+					return;
+				}
+				event.preventDefault();
+				setFileDragDepth((depth) => depth + 1);
+			}}
+			onDragLeave={(event) => {
+				if (view !== "active" || !isFileDrag(event)) {
+					return;
+				}
+				event.preventDefault();
+				setFileDragDepth((depth) => Math.max(0, depth - 1));
+			}}
+			onDragOver={(event) => {
+				if (view !== "active" || !isFileDrag(event)) {
+					return;
+				}
+				event.preventDefault();
+				event.dataTransfer.dropEffect = busy ? "none" : "copy";
+			}}
+			onDrop={(event) => {
+				if (view !== "active" || !isFileDrag(event)) {
+					return;
+				}
+				event.preventDefault();
+				setFileDragDepth(0);
+				uploadFiles(Array.from(event.dataTransfer.files)).catch(console.error);
+			}}
 		>
+			{view === "active" && fileDragDepth > 0 && !busy ? (
+				<div className="pointer-events-none absolute inset-3 z-30 grid place-items-center rounded-md border-2 border-primary border-dashed bg-background/95">
+					<div className="text-center">
+						<UploadSimpleIcon
+							aria-hidden="true"
+							className="mx-auto size-8 text-primary"
+						/>
+						<p className="mt-3 font-medium text-sm">Drop files to upload</p>
+						<p className="mt-1 text-muted-foreground text-xs">
+							Files will be added to {browserTitle}.
+						</p>
+					</div>
+				</div>
+			) : null}
 			{actionError ? (
 				<p
 					className="border-destructive/30 border-b px-5 py-2 text-destructive text-sm"
@@ -582,6 +638,29 @@ function TeamFilesBrowser(input: {
 								breadcrumb={breadcrumb}
 								className="h-full min-h-96"
 								embedded
+								emptyContent={
+									view === "active" ? (
+										<div className="grid size-full place-items-center px-4 py-8">
+											<button
+												className="flex min-h-48 w-full max-w-lg flex-col items-center justify-center rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-8 text-center transition-colors hover:border-foreground/25 hover:bg-card/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+												disabled={busy}
+												onClick={() => inputRef.current?.click()}
+												type="button"
+											>
+												<UploadSimpleIcon
+													aria-hidden="true"
+													className="size-7 text-muted-foreground"
+												/>
+												<span className="mt-3 font-medium text-sm">
+													Drop files here or browse
+												</span>
+												<span className="mt-1 text-muted-foreground text-xs">
+													Add files to {browserTitle}.
+												</span>
+											</button>
+										</div>
+									) : undefined
+								}
 								emptyLabel={view === "trash" ? "Trash is empty" : undefined}
 								errorContent={
 									files.isError ? (

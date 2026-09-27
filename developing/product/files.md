@@ -28,6 +28,7 @@ The user must always see the current location and audience before adding content
 - A file or folder has a stable identity and one root. Folder placement does not grant access to another root.
 - Content revisions are immutable. Writes state the expected current revision; a conflicting write fails visibly. An exact revision can be read again if current authorization still permits access.
 - Upload sessions, chunks, checksums, resumability, and retry handling use the shared file transport. A completed upload is not reported before its metadata revision is committed.
+- Team and My files accept files dropped anywhere in the active browser. An empty folder offers the same upload through an accessible browse control; both entries use the ordinary upload transport and show its progress and errors.
 - Folders, file names, metadata, history, Trash, restore, and audit use the same behavior where Team, My, and Space semantics match. Deletion is recoverable until a separate retention policy says otherwise.
 - Team Files presents Trash as a Files tab. The Trash location selector keeps Team and My audiences separate; restoring an item returns it to its owning root.
 - Creating a file or folder with an occupied sibling name keeps both items by assigning the new item the next available numbered name in the owning root. The committed response shows that name. Explicit rename and move still report a collision rather than silently renaming an existing item.

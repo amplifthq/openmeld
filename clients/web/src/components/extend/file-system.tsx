@@ -187,6 +187,8 @@ export type FileSystemProps = {
   title?: string
   /** Message shown when the current location has no items. */
   emptyLabel?: string
+  /** Actionable empty state supplied by the owning Files location. */
+  emptyContent?: React.ReactNode
   defaultView?: FileSystemView
   view?: FileSystemView
   onViewChange?: (view: FileSystemView) => void
@@ -1246,6 +1248,7 @@ export function FileSystem({
   errorContent,
   title = "Files",
   emptyLabel = "This folder is empty",
+  emptyContent,
   defaultView = "icons",
   view: viewProp,
   onViewChange,
@@ -2076,8 +2079,8 @@ export function FileSystem({
         ) : isLoading || (isLoadingCurrentFolder && currentEntries.length === 0) ? (
           <FileSystemEmptyState label="Loading…" isLoading />
         ) : currentEntries.length === 0 &&
-          (view !== "columns" || isSearching || hasActiveFilters) ? (
-          <FileSystemEmptyState
+          (view !== "columns" || isSearching || hasActiveFilters || emptyContent) ? (
+          !isSearching && !hasActiveFilters && emptyContent ? emptyContent : <FileSystemEmptyState
             label={
               isSearching
                 ? `No results for “${searchInput.trim()}”`
