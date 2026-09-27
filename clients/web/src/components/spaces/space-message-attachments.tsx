@@ -54,7 +54,6 @@ export function SpaceMessageAttachments(
 	return (
 		<SpaceAttachmentStrip
 			align={input.align}
-			className={input.item.text?.trim() ? undefined : "ml-0"}
 			label="Message attachments"
 			matchTextWidth={Boolean(input.item.text?.trim())}
 		>
