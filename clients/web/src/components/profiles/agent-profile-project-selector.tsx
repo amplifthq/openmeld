@@ -54,6 +54,7 @@ type PendingFolderMove =
 type ProjectSelectorInput = {
 	target?: PeopleComputerTarget;
 	disabled: boolean;
+	localFolderChangesBlocked?: boolean;
 	manualPath: string;
 	onConnectionReady: (connection: LocalProjectControlConnection | null) => void;
 	onManualPathChange: (path: string) => void;
@@ -124,6 +125,7 @@ export function AgentProfileProjectSelector(input: ProjectSelectorInput) {
 }
 
 function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
+	const localControlsDisabled = isLocalControlDisabled(input);
 	const controller = useProjectDiscovery({
 		target: input.target,
 		includeCandidates: false,
@@ -415,7 +417,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 			{input.projectId && input.onUseManagedWorkspace ? (
 				<Button
 					className="justify-self-start"
-					disabled={input.disabled}
+					disabled={input.disabled || input.localFolderChangesBlocked}
 					onClick={() => {
 						input.onProjectChange("");
 						input.onUseManagedWorkspace?.();
@@ -432,7 +434,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 					branch={branch}
 					confirmNonGit={confirmNonGit}
 					declaredPath={declaredPath}
-					disabled={input.disabled || pendingOperation !== null}
+					disabled={localControlsDisabled || pendingOperation !== null}
 					onConnectCandidate={connectCandidate}
 					onConnectPath={connectDeclaredPath}
 					onDeclaredPathChange={(path) => {
@@ -503,7 +505,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 			/>
 
 			<WorkspaceFallbackControls
-				disabled={input.disabled}
+				disabled={localControlsDisabled}
 				manualPath={input.manualPath}
 				onManualPathChange={input.onManualPathChange}
 				pickerDeviceId={pickerDeviceId}
@@ -530,7 +532,11 @@ function resolveFolderSource(input: {
 	if (input.workspaceFallbackMode === "advanced") {
 		return "custom";
 	}
-	return "managed";
+	return input.workspaceFallbackMode === "managed" ? "managed" : "";
+}
+
+function isLocalControlDisabled(input: ProjectSelectorInput): boolean {
+	return input.disabled || input.localFolderChangesBlocked === true;
 }
 
 const FOLDER_SOURCES = [
@@ -541,7 +547,8 @@ const FOLDER_SOURCES = [
 
 function ProjectSourceControls(input: {
 	disabled: boolean;
-	source: "project" | "custom" | "managed";
+	localFolderChangesBlocked?: boolean;
+	source: "project" | "custom" | "managed" | "";
 	organizationId: string;
 	projectId: string;
 	projects: readonly Project[];
@@ -555,8 +562,13 @@ function ProjectSourceControls(input: {
 				<WorkingFolderSelect
 					disabled={input.disabled}
 					id="working-folder-source"
-					items={FOLDER_SOURCES}
+					items={FOLDER_SOURCES.map((source) => ({
+						...source,
+						disabled:
+							input.localFolderChangesBlocked && source.value !== "project",
+					}))}
 					onChange={input.onChangeSource}
+					placeholder="Choose a folder source"
 					value={input.source}
 				/>
 			</div>
@@ -580,7 +592,9 @@ function ProjectSourceControls(input: {
 						value={input.projectId}
 					/>
 					<ProjectPickerActions
-						disabled={input.disabled}
+						disabled={
+							input.disabled || Boolean(input.localFolderChangesBlocked)
+						}
 						key={input.organizationId}
 						onProjectSelected={input.onChangeProject}
 						organizationId={input.organizationId}

@@ -18,6 +18,7 @@ import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { projectQueryKeys } from "#/query/organizations/projects";
 import { startQueryKeys } from "#/query/query-keys";
 import {
 	createTestQueryClient,
@@ -902,6 +903,25 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			screen.getAllByRole("region", { name: "Usage limits" })
 		).toHaveLength(1);
+	});
+
+	it("shows the selected Project instead of assuming an OpenMeld-managed folder", async () => {
+		const profile = {
+			...createAgentProfile(),
+			defaultProjectId: "project-1",
+		};
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const overrides = { agentProfiles: [profile] };
+		const view = renderAgentProfilesCard(overrides, binding, {
+			presentation: "detail",
+		});
+		view.queryClient.setQueryData(projectQueryKeys.organization("org-acme"), {
+			organizationId: "org-acme",
+			projects: [{ id: "project-1", name: "OpenMeld" }],
+		});
+		view.rerenderAgentProfilesCard(overrides, binding);
+		expect(await screen.findByText("Project: OpenMeld")).toBeTruthy();
+		expect(screen.queryByText("OpenMeld managed")).toBeNull();
 	});
 
 	it("shows a missing working folder with one direct recovery action", () => {

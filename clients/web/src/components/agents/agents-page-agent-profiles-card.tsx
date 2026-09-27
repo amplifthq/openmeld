@@ -169,6 +169,7 @@ import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
 import { inboxQueryKeys } from "#/query/organizations/inbox";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { projectsQueryOptions } from "#/query/organizations/projects";
 import {
 	agentProfileControllerChangeEligibilityQueryOptions,
 	agentProfilePrimaryBindingQueryKeys,
@@ -3677,6 +3678,17 @@ function AgentProfileWorkspacePresentation(input: {
 		unbindControllerDisabled: boolean;
 	};
 }) {
+	const projectId = input.input.profile.defaultProjectId;
+	const projectsQuery = useQuery(
+		projectsQueryOptions({
+			organizationId: input.input.organizationId,
+			enabled: Boolean(projectId),
+		})
+	);
+	const workingFolderProjectName = projectId
+		? (projectsQuery.data?.projects.find((project) => project.id === projectId)
+				?.name ?? null)
+		: null;
 	const parsedControllerRef = parseAgentControllerRef(
 		input.input.primaryAgentControllerRef
 	);
@@ -3792,6 +3804,11 @@ function AgentProfileWorkspacePresentation(input: {
 							runtime={input.runtime}
 							usageCard={usageCard}
 							wakeAvailability={input.input.wakeAvailability}
+							workingFolderProjectName={workingFolderProjectName}
+							workingFolderProjectPending={
+								Boolean(projectId) && projectsQuery.isPending
+							}
+							workingFolderProjectSelected={Boolean(projectId)}
 						/>
 					) : (
 						<AgentProfileReadOnlyConfigurationOverview
@@ -3887,6 +3904,9 @@ function AgentProfileWorkspacePresentation(input: {
 }
 
 type AgentProfileConfigurationOverviewProps = {
+	workingFolderProjectName?: string | null;
+	workingFolderProjectPending?: boolean;
+	workingFolderProjectSelected?: boolean;
 	usageCard?: ReactNode;
 	isLoading?: boolean;
 	agentControllerRef?: string | null;
@@ -4094,10 +4114,10 @@ export function AgentProfileConfigurationOverview(
 	const workingFolderMissing = isWorkingFolderMissing(
 		input.wakeAvailability?.reasonCode
 	);
-	const workingFolder = workingFolderMissing
-		? "Working folder missing"
-		: (resolveProfileDetailsValue(input.details, "workspace_directory") ??
-			"OpenMeld managed");
+	const workingFolder = resolveWorkingFolderSummary(
+		input,
+		workingFolderMissing
+	);
 	return (
 		<section
 			className="grid min-w-0 gap-3"
@@ -4163,6 +4183,28 @@ export function AgentProfileConfigurationOverview(
 				{input.usageCard}
 			</AgentConfigurationGrid>
 		</section>
+	);
+}
+
+function resolveWorkingFolderSummary(
+	input: AgentProfileConfigurationOverviewProps,
+	missing: boolean
+): string {
+	if (missing) {
+		return "Working folder missing";
+	}
+	if (input.workingFolderProjectName) {
+		return `Project: ${input.workingFolderProjectName}`;
+	}
+	if (input.workingFolderProjectPending) {
+		return "Loading project…";
+	}
+	if (input.workingFolderProjectSelected) {
+		return "Project details unavailable";
+	}
+	return (
+		resolveProfileDetailsValue(input.details, "workspace_directory") ??
+		"Folder details unavailable"
 	);
 }
 
