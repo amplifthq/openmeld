@@ -1715,7 +1715,7 @@ Grok 4.5, DeepSeek V4 Flash, or any other primary models. If all providers for
 the exact model fail, the turn still ends in one visible failure. Public-web
 research uses the same exact-model provider-rerouting rule.
 
-The separate session-title RPC uses the fixed `z-ai/glm-5.3-flash` helper model
+The separate session-title RPC uses the fixed `openai/gpt-6-luna` helper model
 with low reasoning and structured output. It runs outside the conversation and
 execution queue, cannot call tools, and never blocks or changes the primary
 turn. Its bounded failure leaves the default chat title; see
@@ -1728,7 +1728,7 @@ process-global `openrouter` registration that a concurrent Organization can
 overwrite.
 
 Every current-version image input uses the frozen image-understanding route,
-currently Grok 4.6, before admission to the persistent primary conversation.
+currently GPT-6 Luna at medium reasoning, before admission to the persistent primary conversation.
 The worker derives a bounded, non-animated WebP representation from the exact
 authorized source and gives only that transient representation to the
 auxiliary model. Instructions visible inside the image are explicitly untrusted
