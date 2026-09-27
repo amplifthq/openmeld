@@ -34,7 +34,9 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { lazy, type ReactNode, Suspense, useMemo, useState } from "react";
+import { toast } from "sonner";
 import type { FileSystemItem } from "#/components/extend/file-system";
+import { organizationDocumentDisplayTitle } from "#/components/organization-documents/organization-document-browser-model";
 import {
 	FolderNameDialog,
 	NewTextFileDialog,
@@ -130,7 +132,7 @@ export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 			: {
 					kind: "file",
 					path,
-					name: entry.document.title,
+					name: organizationDocumentDisplayTitle(entry.document),
 					contentType: "text/markdown",
 					createdAt: entry.document.createdAt,
 					updatedAt: entry.document.updatedAt,
@@ -185,22 +187,30 @@ export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 				aria-hidden="true"
 				className="size-3 text-muted-foreground"
 			/>
-			<Button onClick={() => navigateToFolder()} size="sm" variant="ghost">
-				Team Knowledge
-			</Button>
+			{activeFolder ? (
+				<Button onClick={() => navigateToFolder()} size="sm" variant="ghost">
+					Team Knowledge
+				</Button>
+			) : (
+				<span className="font-medium text-sm">Team Knowledge</span>
+			)}
 			{folderBreadcrumb(activeFolder, folders).map((folder) => (
 				<span className="flex items-center gap-1" key={folder.id}>
 					<CaretRightIcon
 						aria-hidden="true"
 						className="size-3 text-muted-foreground"
 					/>
-					<Button
-						onClick={() => navigateToFolder(folder.id)}
-						size="sm"
-						variant="ghost"
-					>
-						{folder.name}
-					</Button>
+					{folder.id === activeFolder?.id ? (
+						<span className="font-medium text-sm">{folder.name}</span>
+					) : (
+						<Button
+							onClick={() => navigateToFolder(folder.id)}
+							size="sm"
+							variant="ghost"
+						>
+							{folder.name}
+						</Button>
+					)}
 				</span>
 			))}
 			{canCreate ? (
@@ -297,7 +307,7 @@ export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 					setCreatingFolder(true);
 					setFolderError(null);
 					try {
-						await createCurrentOrganizationDocumentFolder({
+						const created = await createCurrentOrganizationDocumentFolder({
 							expectedOrganizationId: currentOrganization.id,
 							name,
 							parentFolderId,
@@ -308,6 +318,11 @@ export function TeamKnowledgeFilesBrowser(input: { folderId?: string }) {
 							),
 						});
 						setFolderDialogOpen(false);
+						if (created.folder.name !== name) {
+							toast.message(
+								`Created “${created.folder.name}” because “${name}” is already here.`
+							);
+						}
 					} catch (error) {
 						setFolderError(resolveOrganizationDocumentErrorMessage(error));
 					} finally {

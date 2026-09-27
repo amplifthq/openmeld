@@ -3321,7 +3321,7 @@ function FileSystemIconsView({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") onOpen(entry)
                 }}
-                className="group flex min-h-[5.875rem] w-18 flex-col items-center gap-1.5 outline-none"
+                className="group flex min-h-[5.875rem] w-18 flex-col items-center justify-self-start gap-1.5 outline-none"
               >
                 <span
                   className={cn(
