@@ -177,6 +177,10 @@ A fresh running lease identifying a directly started process takes precedence
 over that same PID's managed executable path when classifying lifecycle owners.
 Using an installed binary does not itself mean the OS service manager started
 it. Other PIDs and an actually running manager remain independent evidence.
+A fresh running lease identifying a system-managed PID likewise takes precedence
+over that same PID's path-based direct/unknown classification. Do not count one
+verified system-managed process as both lifecycle owners; a different direct
+process must still be reported independently.
 
 Isolated Service smoke must use the development or Canary entry point, not
 borrow the installed Production binary with a different `OPENMELD_HOME` or
