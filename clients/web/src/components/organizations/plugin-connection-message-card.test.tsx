@@ -624,6 +624,41 @@ describe("Plugin connection in a conversation", () => {
 				.disabled
 		).toBe(true);
 		expect(api.updateAccess).toHaveBeenCalledOnce();
+		// Losing organization administration does not turn an unsaved draft into
+		// the readonly authority projection; the saved all-none policy must win.
+		const sharedGroup = () =>
+			within(all.getByRole("group", { name: "Agents in Acme" }));
+		fireEvent.click(sharedGroup().getByLabelText("Center Agent"));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "Read and write" })
+		);
+		shared.canManage = false;
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: [
+					...organizationPluginConnectionQueryKeys.service(
+						"org-acme",
+						"linear"
+					),
+					"access",
+				],
+			});
+		});
+		await waitFor(() => {
+			const currentShared = sharedGroup();
+			expect(
+				currentShared.getByText(
+					"An organization owner or admin manages this access."
+				)
+			).toBeTruthy();
+			expect(
+				currentShared.getByLabelText("Center Agent").textContent
+			).toContain("No access");
+			expect(
+				currentShared.queryByRole("button", { name: "Save access" })
+			).toBeNull();
+		});
+		expect(api.updateAccess).toHaveBeenCalledOnce();
 	});
 
 	it("reuses an existing connection without another authorization", async () => {

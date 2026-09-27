@@ -151,7 +151,7 @@ export function PluginAgentAccess(input: {
 			{active.map((item) => {
 				return (
 					<ConnectionAgentAccess
-						key={`${snapshot?.currentUserId}:${snapshotKey}:${item.connectionName}:${item.revision}`}
+						key={`${snapshot?.currentUserId}:${snapshotKey}:${item.connectionName}:${item.revision}:${item.canManage}`}
 						{...input}
 						access={item}
 						label={
