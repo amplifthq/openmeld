@@ -1147,7 +1147,7 @@ another execution authority.
 
 GLM 5.3 Flash, Grok 4.6, and Grok 4.5 are provider-declared as text-and-image
 models; DeepSeek V4 Flash is text-only. Regardless of the primary model's
-capability, every current-version image first uses frozen Grok 4.6 as the
+capability, every current-version image first uses frozen GPT-6 Luna as the
 auxiliary image-understanding model. The primary receives its bounded
 untrusted description, not the raw image. An auxiliary or primary model
 failure fails the turn; OpenMeld never switches the primary automatically.
