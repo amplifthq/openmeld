@@ -607,6 +607,7 @@ import {
   type BeginCurrentMemberConnectorAuthorizationInput,
   type BeginCurrentOrganizationGitHubAppInstallationInput,
   type BeginCurrentOrganizationSharedConnectorAuthorizationInput,
+  type BeginExistingGitHubAppInstallationVerificationInput,
   type BeginGitHubAppInstallationVerificationInput,
   type BeginLarkPlatformRegistrationInput,
   type CenterAgentAddAgentProfilesToSpaceInput,
@@ -825,6 +826,7 @@ import {
   rpcBeginCurrentMemberConnectorAuthorization,
   rpcBeginCurrentOrganizationGitHubAppInstallation,
   rpcBeginCurrentOrganizationSharedConnectorAuthorization,
+  rpcBeginExistingGitHubAppInstallationVerification,
   rpcBeginGitHubAppInstallationVerification,
   rpcBeginLarkPlatformRegistration,
   rpcCenterAgentAddAgentProfilesToSpace,
@@ -2963,6 +2965,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: BeginGitHubAppInstallationVerificationInput
   ): Promise<GitHubAppInstallationVerificationResponse> {
     return rpcBeginGitHubAppInstallationVerification(this.env, input);
+  }
+
+  beginExistingGitHubAppInstallationVerification(
+    input: BeginExistingGitHubAppInstallationVerificationInput
+  ): Promise<boolean> {
+    return rpcBeginExistingGitHubAppInstallationVerification(this.env, input);
   }
 
   readPendingGitHubAppInstallation(
