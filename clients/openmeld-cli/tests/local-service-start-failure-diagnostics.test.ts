@@ -14,6 +14,7 @@ import type {
 } from "../src/local-service/lifecycle/daemon-service-manager";
 import {
   buildSystemServiceStartupTimeoutMessage,
+  resolveSystemServiceStartupWaitMs,
   SystemServiceStartupTimeoutError,
 } from "../src/local-service/lifecycle/daemon-service-startup-wait";
 
@@ -109,6 +110,14 @@ function findRowValue(
 }
 
 describe("system service startup failure diagnostics", () => {
+  it("allows a Windows cold start to publish its first lease before declaring failure", () => {
+    // A native 0.3.228 start published its first lease about 20 seconds after
+    // the scheduled task launched, one second after the old readiness failure.
+    expect(
+      resolveSystemServiceStartupWaitMs("windows-service")
+    ).toBeGreaterThan(20_000);
+  });
+
   it("reports the rejected inventory rather than a later manager observation", async () => {
     const runtimeStatus = {
       status: "stale" as const,
