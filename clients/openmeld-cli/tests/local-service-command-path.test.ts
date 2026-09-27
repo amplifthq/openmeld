@@ -52,7 +52,9 @@ describe("local service command path parsing", () => {
   });
 
   it("extracts a managed binary pointer path before service run", () => {
-    const entryPath = "/Users/dev/.openmeld-dev/bin/openmeld";
+    const binaryName =
+      process.platform === "win32" ? "openmeld.exe" : "openmeld";
+    const entryPath = `/Users/dev/.openmeld-dev/bin/${binaryName}`;
 
     expect(
       extractDaemonCommandEntryPath(
