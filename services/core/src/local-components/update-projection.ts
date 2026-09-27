@@ -40,14 +40,15 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-// 0.3.224 accepts the expanded 1 GiB Space File reference contract. Earlier
-// Services can reject files admitted by the new cloud release during Wake work.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.224";
+// 0.3.226 reports the strict Agent Controller launch failure reason. Earlier
+// Services cannot satisfy the current launch and readiness contract for new work.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.226";
 // Keep the last published floor active while its replacement is not yet on the
 // stable channel. These historical floors also preserve recovery when a Core
 // projection uses an earlier published manifest.
-const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.218";
-const LEGACY_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.217";
+const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.224";
+const LEGACY_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.218";
+const EARLIEST_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.217";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
@@ -232,6 +233,7 @@ function resolveMinimumRecoveryTargetVersion(input: {
     MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
     PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
     LEGACY_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    EARLIEST_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
   ].find((floor) => {
     const comparison = compareSemver(input.publishedVersion, floor);
     return comparison !== null && comparison >= 0;
