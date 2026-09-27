@@ -1720,57 +1720,49 @@ async function writeReleaseObject(
   if (isExistingInlineRelease(existing, existingSerialized, digest, bundle)) {
     return { createdKeys: [], manifestDigest: null };
   }
-  const createdKeys: string[] = [];
   const manifestFiles: Omit<PreparedReleaseResource, "bytes">[] = [];
-  try {
-    for (const file of bundle.files) {
-      const resource = await prepareReleaseResource(file);
-      const { bytes: _bytes, ...manifestFile } = resource;
-      manifestFiles.push(manifestFile);
-      const key = releaseResourceKey(objectKey, resource.path);
-      const prior = await bucket.get(key);
-      if (prior) {
-        await verifyReleaseResource(prior, resource);
-        continue;
-      }
-      if (existing) {
-        throw missingReleaseObjectError();
-      }
-      await bucket.put(key, resource.bytes, {
-        customMetadata: { digest: resource.digest },
-        httpMetadata: { contentType: resource.mediaType },
-      });
-      createdKeys.push(key);
+  for (const file of bundle.files) {
+    const resource = await prepareReleaseResource(file);
+    const { bytes: _bytes, ...manifestFile } = resource;
+    manifestFiles.push(manifestFile);
+    const key = releaseResourceKey(objectKey, resource.path);
+    const prior = await bucket.get(key);
+    if (prior) {
+      await verifyReleaseResource(prior, resource);
+      continue;
     }
-    const serialized = canonicalJson({
-      files: manifestFiles,
-      format: "files-v1",
-      instructions: bundle.instructions,
-      portable: bundle.portable,
-    });
-    const manifestDigest = await sha256(serialized);
     if (existing) {
-      requireExistingReleaseManifest(
-        existing,
-        existingSerialized,
-        digest,
-        serialized,
-        objectKey
-      );
-      return { createdKeys: [], manifestDigest };
+      throw missingReleaseObjectError();
     }
-    await bucket.put(objectKey, serialized, {
-      customMetadata: { digest },
-      httpMetadata: { contentType: "application/json; charset=utf-8" },
+    await bucket.put(key, resource.bytes, {
+      customMetadata: { digest: resource.digest },
+      httpMetadata: { contentType: resource.mediaType },
     });
-    createdKeys.push(objectKey);
-    return { createdKeys, manifestDigest };
-  } catch (error) {
-    if (createdKeys.length > 0) {
-      await deleteUncommittedReleaseObject(bucket, createdKeys, objectKey);
-    }
-    throw error;
   }
+  const serialized = canonicalJson({
+    files: manifestFiles,
+    format: "files-v1",
+    instructions: bundle.instructions,
+    portable: bundle.portable,
+  });
+  const manifestDigest = await sha256(serialized);
+  if (existing) {
+    requireExistingReleaseManifest(
+      existing,
+      existingSerialized,
+      digest,
+      serialized,
+      objectKey
+    );
+    return { createdKeys: [], manifestDigest };
+  }
+  await bucket.put(objectKey, serialized, {
+    customMetadata: { digest },
+    httpMetadata: { contentType: "application/json; charset=utf-8" },
+  });
+  // Release keys are deterministic. Another installer may already have adopted
+  // these immutable objects, so a failed writer must not delete them.
+  return { createdKeys: [], manifestDigest };
 }
 
 function requireExistingReleaseManifest(

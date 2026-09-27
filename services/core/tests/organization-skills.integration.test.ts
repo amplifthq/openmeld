@@ -321,6 +321,93 @@ describe("Organization Skills", () => {
     });
   });
 
+  it("keeps a successful release intact when another writer fails after sharing its resource", async () => {
+    const fixture = await seedFixture();
+    const created = await createService().create(fixture.owner, {
+      description: "Review release evidence.",
+      instructions: "Read the checklist.",
+      name: "shared-resource-race",
+    });
+    const bundle = {
+      ...created.bundle,
+      files: [
+        {
+          content: "alpha",
+          encoding: "utf8" as const,
+          mediaType: "text/plain",
+          path: "a.txt",
+          size: 5,
+        },
+        {
+          content: "beta",
+          encoding: "utf8" as const,
+          mediaType: "text/plain",
+          path: "b.txt",
+          size: 4,
+        },
+      ],
+    };
+    let signalFirstWrite: () => void = () => undefined;
+    let releaseSecondWrite: () => void = () => undefined;
+    const firstWrite = new Promise<void>((resolve) => {
+      signalFirstWrite = resolve;
+    });
+    const secondWrite = new Promise<void>((resolve) => {
+      releaseSecondWrite = resolve;
+    });
+    const bucket = new Proxy(env.OPENMELD_ORGANIZATION_SKILLS, {
+      get(target, property, receiver) {
+        if (property === "put") {
+          return async (...args: Parameters<R2Bucket["put"]>) => {
+            if (String(args[0]).endsWith("/files/b.txt")) {
+              await secondWrite;
+              throw new Error("simulated resource write failure");
+            }
+            const result = await target.put(...args);
+            if (String(args[0]).endsWith("/files/a.txt")) {
+              signalFirstWrite();
+            }
+            return result;
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const sharedId = () => "shared-release-race";
+    const failedWriter = createOrganizationSkillService({
+      bucket,
+      db: env.OPENMELD_DB,
+      newId: sharedId,
+    });
+    const winningWriter = createOrganizationSkillService({
+      bucket: env.OPENMELD_ORGANIZATION_SKILLS,
+      db: env.OPENMELD_DB,
+      newId: sharedId,
+    });
+    const update = {
+      bundle,
+      expectedActiveReleaseId: created.activeRelease.id,
+      expectedVersion: created.version,
+    };
+    const failed = failedWriter.update(fixture.owner, created.id, update);
+    await firstWrite;
+    const winner = await winningWriter.update(
+      fixture.owner,
+      created.id,
+      update
+    );
+    releaseSecondWrite();
+    await expect(failed).rejects.toThrow("simulated resource write failure");
+    expect(
+      (await winningWriter.get(fixture.owner, created.id)).bundle.files
+    ).toEqual(bundle.files);
+    const objectKey = `organizations/${fixture.organizationId}/skills/${created.id}/releases/${winner.activeRelease.id}.json`;
+    expect(
+      await env.OPENMELD_ORGANIZATION_SKILLS.get(`${objectKey}/files/a.txt`)
+    ).not.toBeNull();
+  });
+
   it("still reads a legacy inline release", async () => {
     const fixture = await seedFixture();
     const service = createService();
@@ -697,10 +784,10 @@ describe("Organization Skills", () => {
     });
   });
 
-  it("rejects duplicate names without leaving an uncommitted release object", async () => {
+  it("rejects duplicate names without changing the committed release", async () => {
     const fixture = await seedFixture();
     const service = createService();
-    await service.create(fixture.owner, {
+    const created = await service.create(fixture.owner, {
       description: "Review a release before it ships.",
       instructions: "Check the release evidence.",
       name: "release-review",
@@ -715,10 +802,19 @@ describe("Organization Skills", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.name_exists", status: 409 },
     });
-    const objects = await env.OPENMELD_ORGANIZATION_SKILLS.list({
-      prefix: `organizations/${fixture.organizationId}/`,
+    expect(await service.get(fixture.owner, created.id)).toMatchObject({
+      activeRelease: created.activeRelease,
+      bundle: created.bundle,
     });
-    expect(objects.objects).toHaveLength(1);
+    expect(
+      (
+        await env.OPENMELD_DB.prepare(
+          "SELECT COUNT(*) AS count FROM organization_skills WHERE organization_id = ?"
+        )
+          .bind(fixture.organizationId)
+          .first<{ count: number }>()
+      )?.count
+    ).toBe(1);
   });
 
   it("rejects management actions before the enabled runtime catalog exceeds its limits", async () => {
