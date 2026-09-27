@@ -686,13 +686,15 @@ Important execution rules:
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
-- The current designated Organization Center Agent may also Stop a Wake whose
-  persisted source Signal was authored by that exact Center Agent Profile. Core
-  verifies the current designation and Organization; an ownerless Agent Profile,
-  an Organization member, or a caller-supplied source selector alone grants no
-  Stop authority. A represented requester may use ordinary Stop only when the
-  current native delivery proves that member's identity and Space applies the
-  same source-account or target-owner check used for Web Stop.
+- A designated Organization Center Agent may request Stop only for a member
+  verified by its current native delivery. Space grants the represented member
+  ordinary source-account or target-owner authority, or authority over an exact
+  Center-authored Wake whose immutable, Core-written audit provenance records
+  that same member as `onBehalfOf`. A missing or mismatched attribution grants
+  no Center-authored Wake authority. Routine deliveries use their verified
+  delegated member in the same comparison. An ownerless Center Agent Profile,
+  Organization membership, or a caller-supplied selector grants no Stop
+  authority. The progress projection uses this same Space authorization.
 - An explicit Space Task cancellation has one additional, Task-scoped Stop
   authority. The same currently active, Auth-verified actor must have authored
   the retained cancellation operation, its event ID must match the operation

@@ -282,9 +282,9 @@ import type { AuthProfileFacts } from "../../../auth/application/profile-facts-r
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
   readCenterAgentDesignationRecord,
+  readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationOwnerHumanSpaceMember,
 } from "../../../center-agent/center-agent-repository";
-import { requireCurrentDesignatedCenterAgentCaller } from "../../../center-agent/current-designated-center-agent";
 import { projectSpaceDiagnosticReportPointers } from "../../../diagnostics/application/space-diagnostic-report-pointer";
 import { writeSpaceDiagnosticReport } from "../../../diagnostics/infrastructure/d1/space-diagnostic-report-repo";
 import {
@@ -13054,7 +13054,7 @@ export class Space extends DurableObject<CoreBindings> {
         status: 403,
         code: "space.wake_stop.forbidden",
         reason:
-          "Only the requester, the target Agent's owner, or the Center Agent that sent this Wake can stop it.",
+          "You can't stop this Wake from this request. Ask its requester or the target Agent's owner to stop it in OpenMeld Web.",
       });
     }
 
@@ -13085,18 +13085,25 @@ export class Space extends DurableObject<CoreBindings> {
     const source = input.sourceSignalId
       ? this.readSignalById(input.sourceSignalId)
       : null;
-    if (
-      !ownerUserId &&
-      actor.profileKind === "agent" &&
-      source?.profile.kind === "agent" &&
-      source.profile.profileId === actor.openMeldProfileId
-    ) {
-      return await this.isCurrentDesignatedCenterAgentCaller(input.context);
-    }
     if (!ownerUserId || actor.profileKind === "system") {
       return false;
     }
     if (source?.profile.profileId === actor.openMeldProfileId) {
+      return true;
+    }
+    // The Center Agent has no owner account. Its exact Wake is attributed to
+    // a human only when Core recorded that requester before publication.
+    if (
+      actor.profileKind === "human" &&
+      source?.type === "signal.text" &&
+      source.profile.kind === "agent" &&
+      source.data.meta?.clientMessageId &&
+      (await this.isRepresentedCenterAgentWakeRequester({
+        clientMessageId: source.data.meta.clientMessageId,
+        context: input.context,
+        sourceProfileId: source.profile.profileId,
+      }))
+    ) {
       return true;
     }
     const auth = this.bindings.OPENMELD_AUTH_WORKER;
@@ -13130,18 +13137,40 @@ export class Space extends DurableObject<CoreBindings> {
     return false;
   }
 
-  private async isCurrentDesignatedCenterAgentCaller(
-    context: OpenMeldRequestContext
-  ): Promise<boolean> {
-    try {
-      await requireCurrentDesignatedCenterAgentCaller({
-        context,
-        env: this.bindings,
-      });
-      return true;
-    } catch {
+  private async isRepresentedCenterAgentWakeRequester(input: {
+    clientMessageId: string;
+    context: OpenMeldRequestContext;
+    sourceProfileId: string;
+  }): Promise<boolean> {
+    const db = localStateDb(this.bindings);
+    if (!db) {
       return false;
     }
+    let provenance: Awaited<
+      ReturnType<typeof readCenterAgentWakeAuditAttribution>
+    >;
+    try {
+      provenance = await readCenterAgentWakeAuditAttribution({
+        clientMessageId: input.clientMessageId,
+        db,
+      });
+    } catch (error) {
+      console.warn("[core.space.wake_stop_provenance_unavailable]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+      });
+      return false;
+    }
+    return Boolean(
+      provenance &&
+        provenance.organizationId === input.context.activeOrganizationId &&
+        provenance.actorProfileId === input.sourceProfileId &&
+        provenance.resourceType === "space" &&
+        provenance.resourceId === this.spaceId &&
+        provenance.onBehalfOfProfileId ===
+          input.context.actorContext.openMeldProfileId &&
+        provenance.onBehalfOfUserId === input.context.actorContext.ownerUserId
+    );
   }
 
   private async projectWakeStopEligibilityForViewer<
