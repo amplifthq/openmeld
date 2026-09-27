@@ -42,7 +42,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	buildOrganizationDocumentPath,
-	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
 } from "#/lib/organizations/organization-routes";
 import {
 	browserItemDropProps,
@@ -89,7 +89,7 @@ export function OrganizationDocumentFolderCard(input: {
 					setBrowserItemDragPreview(event);
 				}}
 				search={{ folder: input.folder.id, view: "knowledge" }}
-				to={buildOrganizationDocumentsPath(input.orgSlug)}
+				to={buildOrganizationFilesPath(input.orgSlug)}
 			>
 				<span className="grid size-12 place-items-center rounded-md border border-border/70 bg-background/70 text-foreground/75">
 					{dropActive ? (

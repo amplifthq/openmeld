@@ -25,7 +25,7 @@ import {
 } from "#/lib/organizations/organization-documents";
 import {
 	buildOrganizationDocumentPath,
-	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
 } from "#/lib/organizations/organization-routes";
 import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import {
@@ -110,7 +110,7 @@ export function OrganizationDocumentNewPage(input: {
 			<Link
 				className={APP_INLINE_BACK_LINK_CLASS_NAME}
 				search={{ ...folderSearch, view: "knowledge" }}
-				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
+				to={buildOrganizationFilesPath(currentOrganization.slug)}
 			>
 				<ArrowLeftIcon aria-hidden="true" /> Back to knowledge
 			</Link>
@@ -155,7 +155,7 @@ export function OrganizationDocumentNewPage(input: {
 				<Link
 					className={buttonVariants({ variant: "outline" })}
 					search={{ ...folderSearch, view: "knowledge" }}
-					to={buildOrganizationDocumentsPath(currentOrganization.slug)}
+					to={buildOrganizationFilesPath(currentOrganization.slug)}
 				>
 					Cancel
 				</Link>

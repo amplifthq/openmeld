@@ -39,7 +39,10 @@ import {
 	resolveOrganizationDocumentErrorMessage,
 	updateCurrentOrganizationDocument,
 } from "#/lib/organizations/organization-documents";
-import { buildOrganizationDocumentsPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
+} from "#/lib/organizations/organization-routes";
 import { invalidateInboxFacts } from "#/query/organizations/inbox";
 import {
 	organizationDocumentQueryKeys,
@@ -157,7 +160,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 			});
 			await navigate({
 				search: { ...documentFolderSearch, view: "knowledge" },
-				to: buildOrganizationDocumentsPath(currentOrganization.slug),
+				to: buildOrganizationFilesPath(currentOrganization.slug),
 			});
 		},
 	});
@@ -222,7 +225,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 			<Link
 				className={APP_INLINE_BACK_LINK_CLASS_NAME}
 				search={{ ...documentFolderSearch, view: "knowledge" }}
-				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
+				to={buildOrganizationFilesPath(currentOrganization.slug)}
 			>
 				<ArrowLeftIcon aria-hidden="true" /> Back to knowledge
 			</Link>

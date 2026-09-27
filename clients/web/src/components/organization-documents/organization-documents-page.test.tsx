@@ -133,6 +133,12 @@ describe("OrganizationDocumentsPage", () => {
 		expect(emptyState?.className).toContain("rounded-md");
 		expect(emptyState?.className).toContain("bg-card/25");
 		expect(emptyState?.querySelector(".rounded-md")).toBeTruthy();
+		const createHref = screen
+			.getByRole("link", { name: "Create a document" })
+			.getAttribute("href");
+		expect(createHref?.split("?")).toHaveLength(2);
+		expect(createHref).toContain("view=knowledge");
+		expect(createHref).toContain("create=");
 	});
 
 	it("renders files in the shared icon-card grid with the brief first, member attribution, and draft state", async () => {

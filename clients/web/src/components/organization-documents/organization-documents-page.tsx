@@ -54,7 +54,7 @@ import {
 } from "#/lib/organizations/organization-documents";
 import {
 	buildOrganizationDocumentsPath,
-	buildOrganizationNewDocumentPath,
+	buildOrganizationFilesPath,
 } from "#/lib/organizations/organization-routes";
 import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import {
@@ -139,9 +139,7 @@ export function OrganizationDocumentsPage(input: { folderId?: string }) {
 		onDocumentDeleted: () => setDocumentToDelete(null),
 		onFolderDeleted: () => setFolderDialog({ kind: "closed" }),
 	});
-	const newDocumentPath = buildOrganizationNewDocumentPath({
-		orgSlug: currentOrganization.slug,
-	});
+	const newDocumentPath = buildOrganizationFilesPath(currentOrganization.slug);
 	const folderDialogKey =
 		folderDialog.kind === "rename"
 			? `rename-${folderDialog.folder.id}`
@@ -501,7 +499,7 @@ function useDocumentsPageMutations(options: {
 						...(parentId ? { folder: parentId } : {}),
 						view: "knowledge",
 					},
-					to: buildOrganizationDocumentsPath(currentOrganization.slug),
+					to: buildOrganizationFilesPath(currentOrganization.slug),
 				});
 			}
 		},
@@ -664,7 +662,7 @@ function BreadcrumbLink(input: {
 				...(input.targetFolderId ? { folder: input.targetFolderId } : {}),
 				view: "knowledge",
 			}}
-			to={buildOrganizationDocumentsPath(input.orgSlug)}
+			to={buildOrganizationFilesPath(input.orgSlug)}
 			{...dropProps}
 		>
 			{input.label}
