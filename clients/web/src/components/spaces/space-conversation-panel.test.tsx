@@ -2381,6 +2381,20 @@ describe("SpaceConversationPanel", () => {
 				],
 			]),
 			allowedActions: ["post_message"],
+			composerAddressingTargets: [
+				{
+					allowedRelations: { mention: false, reference: true, wake: false },
+					primaryMentionLabel: "Runner",
+					profileId: blockedProfileId,
+					profileName: "Runner",
+					relation: "wake",
+					wakeAvailability: {
+						reasonCodes: ["agent_profile_binding.missing"],
+						reasonText: "Runner can't reply right now.",
+						status: "blocked",
+					},
+				},
+			],
 			composerBlockedWakeProfileId: blockedProfileId,
 			composerErrorMessage: "Runner can't reply right now.",
 			readOnly: false,
@@ -3503,6 +3517,12 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("renders profile avatars and keeps message time outside the bubble", () => {
+		const imageComplete = vi
+			.spyOn(HTMLImageElement.prototype, "complete", "get")
+			.mockReturnValue(true);
+		const imageWidth = vi
+			.spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
+			.mockReturnValue(24);
 		const createdAtMs = Date.UTC(2026, 4, 27, 10, 0, 7);
 		const expectedTime = formatTestTime(createdAtMs);
 		renderSpaceConversationPanel({
@@ -3537,6 +3557,8 @@ describe("SpaceConversationPanel", () => {
 		expect(profileName.className).toContain("text-muted-foreground");
 		expect(screen.getByText(expectedTime)).toBeTruthy();
 		expect(messageBubble?.textContent).not.toContain(expectedTime);
+		imageComplete.mockRestore();
+		imageWidth.mockRestore();
 	});
 
 	it("only adds pending message status after sending takes eight seconds", () => {
