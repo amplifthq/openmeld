@@ -34,6 +34,9 @@ export function projectAgentControllerInterfaceForCloud(
       commandPath: null,
       installChoiceCount: snapshot.launch.installChoiceCount,
       status: snapshot.launch.status,
+      ...(snapshot.launch.failureReason
+        ? { failureReason: snapshot.launch.failureReason }
+        : {}),
     },
     message: null,
     models: snapshot.models.map((model) => ({ ...model })),
