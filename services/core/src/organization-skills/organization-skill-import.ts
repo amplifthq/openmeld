@@ -21,6 +21,7 @@ const GITHUB_PUBLIC_FALLBACK_STATUSES = new Set([401, 403, 404]);
 const LEADING_LINE_BREAK_PATTERN = /^\r?\n/;
 const GITHUB_TREE_FALLBACK_MAX_REQUESTS = 256;
 const GITHUB_TREE_FALLBACK_MAX_ITEMS = 100_000;
+const GITHUB_BLOB_READ_CONCURRENCY = 4;
 
 type GitHubTreeItem = {
   mode?: string;
@@ -118,37 +119,54 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
 
   let totalBytes = skillMarkdownBytes.byteLength;
   const bundleFiles: OrganizationSkillBundle["files"] = [];
-  for (const item of files) {
-    const fullPath = requireTreePath(item);
-    if (fullPath === skillMarkdownPath) {
-      continue;
-    }
-    const bytes = await readRawFile(
-      fetchImpl,
-      location,
-      commitSha,
-      fullPath,
-      item.size as number
+  const resources = files.filter(
+    (item) => requireTreePath(item) !== skillMarkdownPath
+  );
+  for (
+    let offset = 0;
+    offset < resources.length;
+    offset += GITHUB_BLOB_READ_CONCURRENCY
+  ) {
+    const batch = resources.slice(
+      offset,
+      offset + GITHUB_BLOB_READ_CONCURRENCY
     );
-    totalBytes += bytes.byteLength;
-    if (totalBytes > ORGANIZATION_SKILL_BUNDLE_MAX_BYTES) {
-      throw skillImportError(
-        "organization_skill.bundle_too_large",
-        "This Skill is too large to install."
-      );
+    const downloaded = await Promise.all(
+      batch.map(async (item) => {
+        const fullPath = requireTreePath(item);
+        return {
+          fullPath,
+          bytes: await readRawFile(
+            fetchImpl,
+            location,
+            commitSha,
+            fullPath,
+            item.size as number
+          ),
+        };
+      })
+    );
+    for (const { fullPath, bytes } of downloaded) {
+      totalBytes += bytes.byteLength;
+      if (totalBytes > ORGANIZATION_SKILL_BUNDLE_MAX_BYTES) {
+        throw skillImportError(
+          "organization_skill.bundle_too_large",
+          "This Skill is too large to install."
+        );
+      }
+      const relativePath =
+        skillDirectory.length === 0
+          ? fullPath
+          : fullPath.slice(skillDirectory.length + 1);
+      const decoded = decodeOptionalUtf8(bytes);
+      bundleFiles.push({
+        content: decoded ?? bytesToBase64(bytes),
+        encoding: decoded === null ? "base64" : "utf8",
+        mediaType: inferMediaType(relativePath, decoded !== null),
+        path: relativePath,
+        size: bytes.byteLength,
+      });
     }
-    const relativePath =
-      skillDirectory.length === 0
-        ? fullPath
-        : fullPath.slice(skillDirectory.length + 1);
-    const decoded = decodeOptionalUtf8(bytes);
-    bundleFiles.push({
-      content: decoded ?? bytesToBase64(bytes),
-      encoding: decoded === null ? "base64" : "utf8",
-      mediaType: inferMediaType(relativePath, decoded !== null),
-      path: relativePath,
-      size: bytes.byteLength,
-    });
   }
 
   const bundle = organizationSkillBundleSchema.safeParse({

@@ -120,8 +120,8 @@ exportable as a valid portable Agent Skills directory.
 The product imposes bounded file count, text size, total uncompressed size, and
 instruction length limits below platform limits. Validation failures are
 specific and visible; import must never silently drop or rewrite unsafe files.
-Phase 1 accepts at most 128 bundled files, 256,000 bytes per file, and
-2,000,000 uncompressed bytes across instructions and resources. GitHub tree
+Phase 1 accepts at most 256 supporting files, 2,000,000 bytes per file, and
+8,000,000 uncompressed bytes across instructions and resources. GitHub tree
 metadata is checked before blob downloads, and downloaded bytes are checked
 again.
 

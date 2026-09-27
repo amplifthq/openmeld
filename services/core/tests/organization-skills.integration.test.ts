@@ -6,6 +6,7 @@ import {
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   ORGANIZATION_SKILL_BUNDLE_MAX_BYTES,
+  ORGANIZATION_SKILL_FILE_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES,
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillGitHubRepositoryPreviewSchema,
@@ -1341,7 +1342,7 @@ describe("Organization Skills", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_skill.bundle_too_large", status: 400 },
       message: expect.stringContaining(
-        `release/SKILL.md is ${ORGANIZATION_SKILL_BUNDLE_MAX_BYTES + 1} bytes; the single-file limit is 256000 bytes.`
+        `release/SKILL.md is ${ORGANIZATION_SKILL_BUNDLE_MAX_BYTES + 1} bytes; the single-file limit is ${ORGANIZATION_SKILL_FILE_MAX_BYTES} bytes.`
       ),
     });
     expect(
@@ -1504,7 +1505,7 @@ describe("Organization Skills", () => {
               { path: "skills/blocked/SKILL.md", size: 100, type: "blob" },
               {
                 path: "skills/blocked/references/large.pdf",
-                size: 300_000,
+                size: ORGANIZATION_SKILL_FILE_MAX_BYTES + 1,
                 type: "blob",
               },
             ],
