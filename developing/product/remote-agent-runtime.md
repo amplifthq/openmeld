@@ -328,6 +328,13 @@ same native delivery. The recovery reconciler may then publish that failure
 without repeatedly stopping a process that no longer exists. A failed
 inspection alone does not prove termination; a Stop request without an exit
 receipt keeps cleanup pending. Neither case replays the command.
+The Computer's `EEXEC_LOST` also confirms that the retained execution belonged
+to a replaced container runtime. When cleanup first discovers that loss, it
+records the exact command as lost without signaling an unrelated new runtime.
+Recovery must record the failed execution even if the Worker restarted after
+the command-loss record was saved but before the failure request was stored.
+Other owned commands still require their own termination evidence; a transient
+inspection failure never becomes a confirmed loss.
 If the member already requested Stop, the durable cancellation request is
 acknowledged once exact-command absence is confirmed; reconciliation publishes
 the stopped outcome without treating the missing command as a local Service
