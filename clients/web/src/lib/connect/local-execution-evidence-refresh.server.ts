@@ -37,7 +37,9 @@ export async function notifyLocalExecutionEvidenceChanged(input: {
 		new URL("/v1/agent-profiles/route-catalog-sync", input.gatewayUrl),
 		{
 			method: "POST",
-			redirect: "error",
+			// Keep the forwarded session cookie on the intended Gateway request.
+			// The non-OK check below rejects a redirect without following it.
+			redirect: "manual",
 			headers,
 			body: JSON.stringify({
 				agentProfileIds: [normalizedProfileId],
