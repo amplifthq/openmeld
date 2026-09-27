@@ -4433,7 +4433,7 @@ async function runSystemServiceManager(input: {
       code: "daemon.service.start",
       progress: input.serviceProgress,
       spinner: startSpinner,
-      text: "Starting OpenMeld Service with macOS...",
+      text: "Starting OpenMeld Service...",
     });
     const startResult = await runDaemonServiceManagerAction({
       action: "start",
@@ -4457,7 +4457,7 @@ async function runSystemServiceManager(input: {
               code: "daemon.service.start",
               progress: input.serviceProgress,
               spinner: startSpinner,
-              text: "Starting OpenMeld Service with macOS...",
+              text: "Starting OpenMeld Service...",
             });
           },
         }),

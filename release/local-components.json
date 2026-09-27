@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-27T05:05:07.526Z",
+  "updatedAt": "2026-09-27T09:31:38.925Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.226",
+      "packageVersion": "0.3.227",
       "updatePolicy": "available",
-      "reason": "Plugin connection commands and Codex installation recovery are additive; existing CLI commands remain compatible with both cloud versions."
+      "reason": "Windows command-path and lifecycle classification fixes preserve existing commands and both cloud compatibility directions."
     },
     "service": {
-      "bundleHash": "11fd6688e8f3bad0d67caf8f1b6914bd8517d0fbd5d40d95b10d1d6cf5f22ac1",
-      "portableBundleHash": "67fae3e375c7340b2c08b7598a10a97b0a543f5ed843c44e524170d9124750b9",
-      "bundleVersion": "0.3.226",
+      "bundleHash": "51dfb34989778faec34cf2549665176440dfff0e854b9bc19cb9d62c86607425",
+      "portableBundleHash": "9a5cd86a8b85247f7b116e1d986922e4b230c8928f85b7b833c140b0485df804",
+      "bundleVersion": "0.3.227",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
-      "updatePolicy": "required",
-      "reason": "The strict Agent Controller launch snapshot now includes a failure reason; Core must receive this contract before new Services report it, and older Services must update before new Wake work."
+      "updatePolicy": "available",
+      "reason": "Recognize Windows bundle paths and count a verified system-managed PID once without changing runtime protocols or existing version floors."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",

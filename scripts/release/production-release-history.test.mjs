@@ -5,6 +5,7 @@ import {
   readGithubReleaseJobs,
   readGithubReleaseRuns,
 } from "./production-release-history.mjs";
+import { readLatestSuccessfulReleaseSources } from "./production-release-status.mjs";
 
 // Envelopes and job timestamps follow GitHub REST Actions workflow/job schemas.
 // Only the HTTP boundary is replaced; paging/filtering runs through the real reader.
@@ -29,6 +30,8 @@ test("finds an old deployment without spending its window on unrelated CI runs",
           id: 3,
           head_sha: "a".repeat(40),
           created_at: "2025-01-01T00:00:00Z",
+          updated_at: "2025-01-01T00:01:00Z",
+          status: "completed",
           run_attempt: 2,
           conclusion: "failure",
           display_title: "release",
@@ -41,7 +44,81 @@ test("finds an old deployment without spending its window on unrelated CI runs",
   assert.equal(result.runs[0].databaseId, 3);
   assert.equal(result.runs[0].conclusion, "failure");
   assert.equal(result.runs[0].attempt, 2);
+  assert.equal(result.runs[0].updatedAt, "2025-01-01T00:01:00Z");
+  assert.equal(result.runs[0].status, "completed");
   assert.equal(requested.length, 2);
+});
+
+test("stops reading old jobs once every scope has a newer successful receipt", async () => {
+  const scopes = [
+    "db",
+    "web",
+    "gateway",
+    "auth",
+    "cli",
+    "core",
+    "remote-agent",
+  ];
+  const names = [
+    "Release Production Database",
+    "Deploy Web",
+    "Deploy Gateway Worker",
+    "Deploy Auth Worker",
+    "Publish CLI And Release Core",
+    "Deploy Core Worker",
+    "Deploy Remote Agent Worker",
+  ];
+  const runs = Array.from({ length: 40 }, (_, index) => ({
+    databaseId: index + 1,
+    status: "completed",
+    updatedAt: index === 0 ? "2026-09-27T12:00:00Z" : "2026-09-26T12:00:00Z",
+    workflowName: "Scoped Production Release",
+  }));
+  runs.at(-1).updatedAt = undefined;
+  runs.at(-2).status = "in_progress";
+  const jobsRead = [];
+  const issues = [];
+  const sources = await readLatestSuccessfulReleaseSources({
+    issues,
+    readJobReleaseSha: async () => "a".repeat(40),
+    readReleaseJobs: (id) => {
+      jobsRead.push(id);
+      if (id === 39) {
+        return {
+          complete: true,
+          jobs: [
+            {
+              id: 100,
+              name: "Deploy Web",
+              conclusion: "success",
+              completed_at: "2026-09-27T13:00:00Z",
+            },
+          ],
+        };
+      }
+      return {
+        complete: true,
+        jobs:
+          id === 1
+            ? names.map((name, index) => ({
+                id: index + 1,
+                name,
+                conclusion: "success",
+                completed_at: "2026-09-27T11:00:00Z",
+              }))
+            : [],
+      };
+    },
+    repo: "test/repo",
+    runs,
+    sourceIsAncestor: () => true,
+  });
+  assert.deepEqual([...sources.keys()].sort(), scopes.sort());
+  assert.equal(jobsRead.length, 16);
+  assert.ok(jobsRead.includes(40));
+  assert.ok(jobsRead.includes(39));
+  assert.equal(sources.get("web").recordedAt, "2026-09-27T13:00:00Z");
+  assert.deepEqual(issues, []);
 });
 
 test("reads every job page and every attempt instead of losing a previously successful job", async () => {

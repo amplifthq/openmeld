@@ -140,12 +140,13 @@ function looksLikeDaemonEntryPath(
   token: string,
   pathInput: OpenMeldPathResolutionInput
 ): boolean {
+  const normalizedToken = normalizeDaemonCommandPath(token);
   return (
-    token.includes("/bundles/") ||
-    token.includes("openmeld/dist/openmeld.js") ||
-    token.endsWith("/openmeld.js") ||
-    token.endsWith("/openmeld-dev.js") ||
-    token.endsWith("/daemon-service-launcher.mjs") ||
+    normalizedToken.includes("/bundles/") ||
+    normalizedToken.includes("openmeld/dist/openmeld.js") ||
+    normalizedToken.endsWith("/openmeld.js") ||
+    normalizedToken.endsWith("/openmeld-dev.js") ||
+    normalizedToken.endsWith("/daemon-service-launcher.mjs") ||
     isRecognizedDaemonServiceExecutableWrapperPath(token, pathInput) ||
     isOpenMeldManagedBinaryPath(token, pathInput)
   );

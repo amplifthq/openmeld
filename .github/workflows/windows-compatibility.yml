@@ -37,6 +37,8 @@ jobs:
         run: node scripts/release/build-windows-process-helper.mjs
       - name: Build workspace dependencies
         run: pnpm exec turbo run build --filter=openmeld^... --concurrency=1
+      - name: Verify native Service path and owner classification
+        run: pnpm --dir clients/openmeld-cli exec vitest run --config vitest.config.ts tests/local-service-command-path.test.ts tests/local-service-owner-snapshot.test.ts tests/local-service-process-inventory.test.ts
       - name: Record native build identity
         shell: pwsh
         run: |
