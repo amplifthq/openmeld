@@ -981,7 +981,7 @@ function FileGenericPreview({ file }: { file: FileEntry }) {
       className="flex size-full flex-col items-center justify-center gap-1.5 bg-white text-neutral-400 dark:bg-neutral-100"
     >
       <FileTypeIcon
-        fileName={extension ? `file.${extension}` : file.name}
+        fileName={file.name}
         className="size-1/3 min-h-4 min-w-4"
       />
       {extension ? (
