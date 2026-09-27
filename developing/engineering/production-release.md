@@ -281,9 +281,11 @@ operation key, attempt and exact applied identity. Database receipts retain
 Use current-main release tooling; old control checkouts are not certified to
 interpret version 3.
 
-`release:status` pages relevant workflows and all job attempts rather than
-filtering an all-workflow 250-run window. It compares actual job completion
-times, never workflow creation order. A missing source, invalid completion time,
+`release:status` pages relevant workflows and job attempts rather than
+filtering an all-workflow 250-run window. It reads newer runs first and stops
+opening older jobs once every scope has a successful receipt newer than those
+runs' last update. Runs without a valid update time are still read. It compares
+actual job completion times, never workflow creation order. A missing source, invalid completion time,
 ambiguous tie, API failure or safety-bound truncation remains explicit evidence
 uncertainty; it cannot silently make the affected component current. A known
 later deployment can supersede an older unreadable-source event, but the
@@ -1430,12 +1432,12 @@ the packaged CLI, then records its Service hash and verifies the result. It
 rejects source drift and restores its metadata changes on failure. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
 stamp after any merge, rebase, or later local-component change. Land the stamp
-through a versioned `codex/release-X.Y.Z-<baseSHA>` PR from a clean worktree;
-never push `main` directly. A normal release PR changes only the CLI package and
-local-components manifest. If `main` already declares the same not-yet-published
-version, a later restamp may change only the manifest. Ordinary feature branches
-must keep both release files unchanged, which the pre-push gate enforces through
-deferred-release verification against the PR base.
+through a PR from a clean worktree; never push `main` directly. The package and
+manifest may land with the source and compatibility floor they describe when
+that candidate is stable. Otherwise stamp in a separate release PR after the
+feature merges. A later source change requires a restamp. Final Candidate
+selects strict artifact verification from the actual package or manifest diff,
+independent of the branch name.
 
 At publication time, `pnpm run release:deploy:local -- --scope cli` rechecks the
 committed package and manifest through the guarded local production lane. It

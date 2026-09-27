@@ -649,14 +649,33 @@ function describeComponentEvidence(releaseSource) {
   };
 }
 
-async function readLatestSuccessfulReleaseSources(input) {
+export async function readLatestSuccessfulReleaseSources(input) {
   const sources = new Map();
+  // A run cannot contain a job completed after the run's last update. Read
+  // newer runs first, then stop once every scope has a newer receipt. Runs
+  // without a trustworthy update time still need their jobs inspected.
+  const runsByUpdate = [...input.runs].sort((left, right) => {
+    const leftTime = runUpdateTime(left);
+    const rightTime = runUpdateTime(right);
+    return leftTime === rightTime ? 0 : rightTime - leftTime;
+  });
   for (
     let offset = 0;
-    offset < input.runs.length;
+    offset < runsByUpdate.length;
     offset += RELEASE_JOB_BATCH_SIZE
   ) {
-    const runs = input.runs.slice(offset, offset + RELEASE_JOB_BATCH_SIZE);
+    const remaining = runsByUpdate.slice(offset);
+    const oldestReceipt = Math.min(
+      ...RELEASE_SCOPES.map((scope) =>
+        sources.has(scope)
+          ? Date.parse(sources.get(scope).recordedAt)
+          : Number.NEGATIVE_INFINITY
+      )
+    );
+    if (runUpdateTime(remaining[0]) < oldestReceipt) {
+      break;
+    }
+    const runs = remaining.slice(0, RELEASE_JOB_BATCH_SIZE);
     const jobsByRun = await Promise.all(
       runs.map(async (run) => {
         try {
@@ -693,6 +712,11 @@ async function readLatestSuccessfulReleaseSources(input) {
     }
   }
   return sources;
+}
+
+function runUpdateTime(run) {
+  const value = Date.parse(run.updatedAt);
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 }
 
 async function readReleaseJobSource(job, run, input) {

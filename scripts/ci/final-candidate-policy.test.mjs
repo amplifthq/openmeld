@@ -171,10 +171,10 @@ test("a product change with docs and Changelog runs only their static contracts"
   ]);
 });
 
-test("uses strict release-ready verification only on an exact versioned release branch", () => {
+test("a stamped candidate uses strict release-ready verification on any branch", () => {
   const plan = createPlan(
     ["clients/openmeld-cli/package.json", "release/local-components.json"],
-    { branchName: "codex/release-0.4.0-1234abcd" }
+    { branchName: "codex/feature-and-release" }
   );
 
   assert.deepEqual(

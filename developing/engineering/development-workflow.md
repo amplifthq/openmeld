@@ -2338,31 +2338,24 @@ source and hash changes as pending work for the final clean-`main` release. It
 does not treat the base manifest hash as release truth for changed feature
 source.
 
-The final operator-approved release commit uses a versioned
-`codex/release-X.Y.Z-<baseSHA>` branch. The version must match the CLI package
-and local-components manifest, and the SHA suffix must match the PR's exact
-base. A normal release PR changes exactly
-`clients/openmeld-cli/package.json` and `release/local-components.json`. If the
-base package and manifest already declare that same release version, a restamp
-after later local-component changes may change only
-`release/local-components.json`; publication preflight must still confirm that
-version is unpublished. That explicit, release-only branch shape selects strict
-release-ready verification in both pre-push and Final Candidate, so the stamped
-manifest can pass the exact candidate gate before merging to PR-only `main`.
-The shared release branch
-policy script owns this classification; ordinary feature branches remain
-deferred and cannot carry a release stamp, while a malformed or mixed-scope
-release branch fails closed.
+The final operator-approved release stamp may share a PR with the exact stable
+local-component source and compatibility floor it describes. If the feature
+already merged, use a separate release PR. The CLI package version must match
+the manifest version, and the manifest must match the built candidate. Any
+subsequent source change requires a restamp. Final Candidate selects strict
+release-ready verification whenever the candidate changes the CLI package or
+local-components manifest; otherwise local-component source changes receive
+deferred verification. Branch spelling and release-only diffs are not release
+authority. Publication preflight still confirms the version is unpublished.
 
 The pre-push release check does not run ordinary development builds or tests.
 Agents select focused checks before Ready. Release checking remains
 strict when a push includes `refs/heads/main`, any `codex/release-*` branch,
-a tag, malformed input, or no input. Malformed release branch names fail at
-pre-push instead of waiting for Final Candidate. A strict push
+a tag, malformed input, or no input. A strict push
 requires every non-deletion object to resolve to checked-out `HEAD` and rejects
 uncommitted release-relevant or gate-control paths. Final Candidate passes the
 pull request's exact base SHA and chooses deferred or strict release readiness
-from the branch contract. Release preflight, publish, Core deploy, and every
+from the candidate diff. Release preflight, publish, Core deploy, and every
 actual release path remain strict.
 
 Inspect the exact local-component changes before choosing an advisory or

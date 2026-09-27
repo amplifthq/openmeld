@@ -15,7 +15,7 @@ import {
 } from "./pre-push-release-ready.mjs";
 import {
   assertDeferredReleaseBranchFacts,
-  assertVersionedReleaseBranchFacts,
+  assertStampedReleaseFacts,
   resolvePullRequestReleaseMode,
 } from "./release-branch-policy.mjs";
 
@@ -25,13 +25,10 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const HOOK_READS_PUSH_UPDATES = /push_updates=\$\(cat\)/u;
 const HOOK_RUNS_RELEASE_SELECTOR = /pre-push-release-ready\.mjs/u;
 const PUSHED_OBJECT_MISMATCH_PATTERN = /does not match the checked-out HEAD/u;
-const PACKAGE_VERSION_MISMATCH_PATTERN = /package version/u;
-const BASE_COMMIT_MISMATCH_PATTERN = /base commit/u;
-const RELEASE_ONLY_DIFF_PATTERN = /release-only diff/u;
-const RESTAMP_VERSION_MISMATCH_PATTERN = /already declare the release version/u;
-const PREMATURE_RELEASE_STAMP_PATTERN = /must match the PR base/u;
-const MALFORMED_RELEASE_BRANCH_PATTERN =
-  /requires codex\/release-X\.Y\.Z-<baseSHA>/u;
+const PACKAGE_VERSION_MISMATCH_PATTERN =
+  /package version.*release manifest version/u;
+const PREMATURE_RELEASE_STAMP_PATTERN =
+  /changed without a stamped candidate diff/u;
 const RELEASE_RELEVANT_PATH_PATTERN = /packages\/schemas\/src\/index\.ts/u;
 const PRE_PUSH_GATE_CONTROL_PATH_EXAMPLES = [
   ".husky/pre-push",
@@ -73,7 +70,7 @@ test("ordinary non-main branch destinations do not block iterative pushes", () =
   );
 });
 
-test("release branch pushes select strict verification even when their name is malformed", () => {
+test("release branch pushes select strict artifact verification regardless of their name", () => {
   assert.equal(
     resolvePrePushReleaseMode(
       `refs/heads/codex/release-0.3.35-563a8ae8 ${SHA} refs/heads/codex/release-0.3.35-563a8ae8 ${REMOTE_SHA}\n`
@@ -92,16 +89,9 @@ test("release branch pushes select strict verification even when their name is m
     ),
     "codex/release-0.3.221-routine"
   );
-  assert.throws(
-    () =>
-      assertVersionedReleaseBranchFacts({
-        branchName: "codex/release-0.3.221-routine",
-      }),
-    MALFORMED_RELEASE_BRANCH_PATTERN
-  );
 });
 
-test("release PR strict mode requires matching version, base, and release-only diff", () => {
+test("a stamped PR validates version consistency without requiring a second PR", () => {
   const facts = {
     baseSha: `563a8ae8${"1".repeat(32)}`,
     baseManifestVersion: "0.3.34",
@@ -115,35 +105,27 @@ test("release PR strict mode requires matching version, base, and release-only d
     packageVersion: "0.3.35",
   };
 
-  assert.doesNotThrow(() => assertVersionedReleaseBranchFacts(facts));
+  assert.doesNotThrow(() => assertStampedReleaseFacts(facts));
   assert.equal(resolvePullRequestReleaseMode(facts), "strict");
   assert.throws(
     () =>
-      assertVersionedReleaseBranchFacts({
+      assertStampedReleaseFacts({
         ...facts,
         packageVersion: "0.3.34",
       }),
     PACKAGE_VERSION_MISMATCH_PATTERN
   );
-  assert.throws(
-    () =>
-      assertVersionedReleaseBranchFacts({
-        ...facts,
-        baseSha: `419e5651${"2".repeat(32)}`,
-      }),
-    BASE_COMMIT_MISMATCH_PATTERN
-  );
-  assert.throws(
-    () =>
-      assertVersionedReleaseBranchFacts({
-        ...facts,
-        changedPaths: [...facts.changedPaths, "services/core/src/index.ts"],
-      }),
-    RELEASE_ONLY_DIFF_PATTERN
+  assert.equal(
+    resolvePullRequestReleaseMode({
+      ...facts,
+      branchName: "codex/feature-and-release",
+      changedPaths: [...facts.changedPaths, "services/core/src/index.ts"],
+    }),
+    "strict"
   );
 });
 
-test("release PR strict mode allows a manifest-only restamp of an already declared version", () => {
+test("a manifest-only restamp uses strict artifact verification", () => {
   const facts = {
     baseSha: `563a8ae8${"1".repeat(32)}`,
     baseManifestVersion: "0.3.35",
@@ -154,24 +136,8 @@ test("release PR strict mode allows a manifest-only restamp of an already declar
     packageVersion: "0.3.35",
   };
 
-  assert.doesNotThrow(() => assertVersionedReleaseBranchFacts(facts));
+  assert.doesNotThrow(() => assertStampedReleaseFacts(facts));
   assert.equal(resolvePullRequestReleaseMode(facts), "strict");
-  assert.throws(
-    () =>
-      assertVersionedReleaseBranchFacts({
-        ...facts,
-        basePackageVersion: "0.3.34",
-      }),
-    RESTAMP_VERSION_MISMATCH_PATTERN
-  );
-  assert.throws(
-    () =>
-      assertVersionedReleaseBranchFacts({
-        ...facts,
-        baseManifestVersion: "0.3.34",
-      }),
-    RESTAMP_VERSION_MISMATCH_PATTERN
-  );
 });
 
 test("deferred release mode rejects only premature release stamps", () => {

@@ -26,15 +26,15 @@ branches used.
    on each leaf. For a batch crossing release scopes, run
    `pnpm run release:plan -- --base <pre-merge-sha>` on the integrated candidate
    to inspect the changed paths and deployment order without scanning hosted
-   history. Decide intended versions for artifacts in scope; make CLI version
-   and manifest changes only in the clean
-   [publishing release worktree](development-workflow.md#local-components-release-tool)
-   on a `codex/release-X.Y.Z-<baseSHA>` branch.
+   history. Decide intended versions for artifacts in scope. Stable local-component
+   source, its compatibility floor, and its stamp may share one PR and one Final
+   Candidate. A separate release PR is useful when the product change already
+   merged. Restamp after any later source change.
    Resolve Core/Service version-floor changes and the
    [Windows helper source](production-release.md#cli-release) before paying for
    the final candidate or stamping a release manifest.
-   Reserve the `codex/release-` prefix for those versioned branches; ordinary
-   delivery-tool changes use a different `codex/` branch name.
+   Branch names do not grant release permission; the actual package and
+   manifest diff selects strict artifact verification.
 2. [Merge](#merge) against current `main`. If a merge command fails or returns
    an uncertain result, read the remote PR's `state` and `mergeCommit` before
    retrying. Pin the integrated product SHA; a later release-only version
@@ -54,8 +54,11 @@ branches used.
    separately instead of attributing them to this batch.
    It covers Database, cloud, and CLI; read current-change scopes separately
    from historical backlog. [Assess Desktop](production-release.md#desktop-release-coverage)
-   for the same range. A zero pending-scope result does not close the Desktop
-   row.
+   for the same range, and [assess OpenConnector](production-release.md#openconnector-release)
+   when that external source or its production configuration is in the batch.
+   A zero pending-scope result does not close these separate rows. Once the
+   exact source is pinned, start independent native artifact builds while cloud
+   stages run; promotion still waits for its own provenance and dependencies.
 4. [Release](#release) each affected component through its owner workflow,
    respecting the planner's dependency order. If Core is selected and shared
    schema or Service inputs changed, run the read-only
