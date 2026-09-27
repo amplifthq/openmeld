@@ -8,6 +8,7 @@ import {
 } from "@openmeld/adapter-claude-code";
 import {
   isCodexHostApplicationCommandPath,
+  refreshCodexPersistedLaunchContract,
   resolveInstalledCodexLaunchCandidates,
   verifyCodexLaunchContract,
 } from "@openmeld/adapter-codex";
@@ -194,6 +195,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     },
     installResolver: {
       resolveInstalledLaunchCandidates: resolveInstalledCodexLaunchCandidates,
+      refreshPersistedLaunchContract: refreshCodexPersistedLaunchContract,
       verifyLaunchContract: verifyCodexLaunchContract,
     },
     nativeInterface: "codex-app-server",

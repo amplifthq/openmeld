@@ -96,6 +96,10 @@ export function createAgentControllerInterfaceDisplayRows(
       value: snapshot.message,
     });
   }
+  const launchIssue = resolveAgentControllerLaunchIssue(snapshot);
+  if (launchIssue && !snapshot.message) {
+    rows.splice(1, 0, { label: "Message", value: launchIssue });
+  }
   if (
     snapshot.versionAdvisory?.status === "behind_latest" &&
     snapshot.versionAdvisory.updateCommand
@@ -117,6 +121,10 @@ export function resolveAgentControllerInterfaceDescription(input: {
 }): string {
   if (!input.snapshot) {
     return input.displayDescription;
+  }
+  const launchIssue = resolveAgentControllerLaunchIssue(input.snapshot);
+  if (launchIssue) {
+    return launchIssue;
   }
   if (input.snapshot.check?.status === "failed") {
     return `${input.snapshot.displayName} check is delayed. OpenMeld will retry automatically.`;
@@ -316,6 +324,22 @@ function formatAgentControllerNativeInterface(
   }
 }
 
+function resolveAgentControllerLaunchIssue(
+  snapshot: AgentControllerInterfaceSnapshot
+): string | null {
+  if (snapshot.launch.status !== "needs_repair") {
+    return null;
+  }
+  switch (snapshot.launch.failureReason) {
+    case "installation_missing":
+      return "The selected installation is no longer at its saved location. Choose an available installation, or reinstall the app and check again.";
+    case "installation_access_denied":
+      return "OpenMeld does not have permission to start the selected installation. Check its file permissions or choose another installation.";
+    default:
+      return "OpenMeld could not start the selected installation. Choose another installation or check it on this computer.";
+  }
+}
+
 function formatAgentControllerLaunch(
   snapshot: AgentControllerInterfaceSnapshot
 ): string {
@@ -323,7 +347,6 @@ function formatAgentControllerLaunch(
   if (snapshot.launch.commandPath) {
     parts.push(snapshot.launch.commandPath);
   }
-  appendLocalInstallCount(parts, snapshot.launch.installChoiceCount);
   return parts.join(" · ");
 }
 
@@ -337,16 +360,7 @@ function formatAgentControllerOperationalLaunchParts(
   snapshot: Pick<OrganizationComputerLocalAgentDetails, "launch">
 ): string[] {
   const parts = [formatLocalAgentLaunchStatus(snapshot.launch.status)];
-  appendLocalInstallCount(parts, snapshot.launch.installChoiceCount);
   return parts;
-}
-
-function appendLocalInstallCount(parts: string[], count: number): void {
-  if (count > 0) {
-    parts.push(
-      count === 1 ? "1 local install found" : `${count} local installs found`
-    );
-  }
 }
 
 function formatLocalAgentLaunchStatus(
