@@ -3335,11 +3335,11 @@ function FileSystemIconsView({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") onOpen(entry)
                 }}
-                className="group flex min-h-[5.875rem] w-18 flex-col items-center justify-self-start gap-1.5 outline-none"
+                className="group flex min-h-[5.875rem] w-24 flex-col items-center gap-1.5 outline-none"
               >
                 <span
                   className={cn(
-                    "mx-auto flex h-14 w-18 shrink-0 items-center justify-center rounded-lg p-0.5 transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring",
+                    "mx-auto flex h-14 w-24 shrink-0 items-center justify-center rounded-lg p-0.5 transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring",
                     isSelected && "bg-accent"
                   )}
                 >
