@@ -11,7 +11,14 @@ export const Route = createFileRoute("/o/$orgSlug/documents/")({
 		throw redirect({
 			to: "/o/$orgSlug/files",
 			params,
-			search: { view: "knowledge", folder: search.folder },
+			search: {
+				view: "knowledge",
+				folder: search.folder,
+				create: undefined,
+				document: undefined,
+				kind: undefined,
+				subjectUserId: undefined,
+			},
 			replace: true,
 		});
 	},

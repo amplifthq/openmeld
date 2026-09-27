@@ -27,8 +27,8 @@
 
 Team → Files contains Team files, member-private My files, and Knowledge. Knowledge
 opens the existing approved-content and draft-review workflow inside the Files
-entry; old Documents list links redirect to this location while their detail
-and creation routes continue to preserve existing links. This navigation step
+entry; old Documents list, detail, and creation links redirect into Files while
+preserving their target and selection. This navigation step
 does not make an ordinary Markdown file approved knowledge or add a second
 content writer.
 

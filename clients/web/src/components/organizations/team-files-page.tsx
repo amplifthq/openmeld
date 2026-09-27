@@ -6,7 +6,10 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import { SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES } from "@openmeld/schemas";
-import type { FileRootEntry } from "@openmeld/schemas/types";
+import type {
+	FileRootEntry,
+	OrganizationDocumentKind,
+} from "@openmeld/schemas/types";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -72,6 +75,8 @@ import {
 	UnsavedChangesDialog,
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
+import { OrganizationDocumentDetailPage } from "#/components/organization-documents/organization-document-detail-page";
+import { OrganizationDocumentNewPage } from "#/components/organization-documents/organization-document-new-page";
 import { OrganizationDocumentsPage } from "#/components/organization-documents/organization-documents-page";
 import {
 	FolderNameDialog,
@@ -121,7 +126,13 @@ export function TeamFilesPage(
 	);
 }
 
-export function TeamKnowledgeFilesPage(input: { folderId?: string }) {
+export function TeamKnowledgeFilesPage(input: {
+	create?: boolean;
+	documentId?: string;
+	folderId?: string;
+	kind?: OrganizationDocumentKind;
+	subjectUserId?: string;
+}) {
 	const { currentOrganization } = useAppOrganization();
 	const navigate = useNavigate();
 	return (
@@ -147,7 +158,19 @@ export function TeamKnowledgeFilesPage(input: { folderId?: string }) {
 				</TabsList>
 			</Tabs>
 			<div className="min-h-0 flex-1 overflow-auto p-5">
-				<OrganizationDocumentsPage folderId={input.folderId} />
+				{input.documentId ? (
+					<OrganizationDocumentDetailPage documentId={input.documentId} />
+				) : null}
+				{!input.documentId && input.create ? (
+					<OrganizationDocumentNewPage
+						initialFolderId={input.folderId}
+						initialKind={input.kind}
+						initialSubjectUserId={input.subjectUserId}
+					/>
+				) : null}
+				{input.documentId || input.create ? null : (
+					<OrganizationDocumentsPage folderId={input.folderId} />
+				)}
 			</div>
 		</section>
 	);
