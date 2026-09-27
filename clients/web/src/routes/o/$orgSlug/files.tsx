@@ -1,5 +1,5 @@
 import type { OrganizationDocumentKind } from "@openmeld/schemas/types";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { TeamHeader } from "#/components/directory/team-header";
@@ -7,8 +7,8 @@ import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import {
 	TeamFilesPage,
 	TeamKnowledgeFilesPage,
-	TeamSkillFilesPage,
 } from "#/components/organizations/team-files-page";
+import { buildOrganizationSkillsPath } from "#/lib/organizations/organization-routes";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 export const Route = createFileRoute("/o/$orgSlug/files")({
@@ -36,6 +36,14 @@ export const Route = createFileRoute("/o/$orgSlug/files")({
 				? search.subjectUserId.trim()
 				: undefined,
 	}),
+	beforeLoad: ({ params, search }) => {
+		if (search.view === "skills") {
+			throw redirect({
+				to: buildOrganizationSkillsPath(params.orgSlug),
+				replace: true,
+			});
+		}
+	},
 	component: TeamFilesRoute,
 });
 
@@ -56,8 +64,6 @@ function TeamFilesRoute() {
 				subjectUserId={subjectUserId}
 			/>
 		);
-	} else if (view === "skills") {
-		content = <TeamSkillFilesPage />;
 	}
 	return (
 		<AppFullWidthLayout

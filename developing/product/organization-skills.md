@@ -61,7 +61,7 @@ must not become user-editable or optional merely to reduce the system prompt.
 
 Use the surrounding product owners for adjacent concepts:
 
-- **Files → Knowledge** stores approved Team facts and shared knowledge.
+- **Team Files → Team Knowledge** stores approved Team facts and shared knowledge.
 - **Plugins, tools, and MCP connections** provide data access and actions.
 - **Permissions** decide who may do what.
 - **Routines** decide when the Center Agent runs.
@@ -69,8 +69,8 @@ Use the surrounding product owners for adjacent concepts:
 - **Organization Skills** describe a repeatable method.
 
 Example: `weekly-customer-risk-review` may describe how to collect signals,
-assess risk, and write the report. CRM and Slack Plugins provide data. Organization
-Files → Knowledge provides customer or policy facts. A Routine chooses Friday at 3 PM.
+assess risk, and write the report. CRM and Slack Plugins provide data. The
+Team Knowledge folder in Team Files provides customer or policy facts. A Routine chooses Friday at 3 PM.
 Core authority decides whether any read, message, or external write is allowed.
 
 ## Portable Bundle Contract

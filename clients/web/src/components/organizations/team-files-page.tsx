@@ -2,7 +2,6 @@
 
 import {
 	createFileRootApi,
-	createOrganizationSkillsApi,
 	type FileRootLocation,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
@@ -10,7 +9,6 @@ import { SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES } from "@openmeld/schemas";
 import type {
 	FileRootEntry,
 	OrganizationDocumentKind,
-	OrganizationSkillRuntimeCatalogResponse,
 } from "@openmeld/schemas/types";
 import {
 	AlertDialog,
@@ -95,12 +93,8 @@ import {
 } from "#/components/spaces/space-file-utils";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import {
-	buildOrganizationFilesPath,
-	buildOrganizationSkillPath,
-} from "#/lib/organizations/organization-routes";
+import { buildOrganizationFilesPath } from "#/lib/organizations/organization-routes";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
-import { organizationSkillsQueryOptions } from "#/query/organizations/organization-skills";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 
 const FileSystem = lazy(() =>
@@ -150,12 +144,6 @@ export function TeamKnowledgeFilesPage(input: {
 					: "shrink-0"
 			}
 			onValueChange={(value) => {
-				if (value === "skills") {
-					navigate({
-						to: buildOrganizationFilesPath(currentOrganization.slug),
-						search: { view: "skills" },
-					}).catch(console.error);
-				}
 				if (value === "team" || value === "my") {
 					navigate({
 						to: buildOrganizationFilesPath(currentOrganization.slug),
@@ -170,7 +158,6 @@ export function TeamKnowledgeFilesPage(input: {
 				{currentOrganization.isPersonal ? null : (
 					<TabItem label="My files" value="my" />
 				)}
-				<TabItem label="Skills" value="skills" />
 			</TabsList>
 		</Tabs>
 	);
@@ -202,311 +189,6 @@ export function TeamKnowledgeFilesPage(input: {
 				)}
 			</div>
 		</section>
-	);
-}
-
-export function TeamSkillFilesPage() {
-	const { currentOrganization } = useAppOrganization();
-	const navigate = useNavigate();
-	const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
-	const [selectedResourcePath, setSelectedResourcePath] = useState<
-		string | null
-	>(null);
-	const skills = useQuery(
-		organizationSkillsQueryOptions({
-			organizationId: currentOrganization.id,
-		})
-	);
-	const selected =
-		skills.data?.skills.find((skill) => skill.id === selectedSkillId) ??
-		skills.data?.skills[0];
-	const activeSkillId = selected?.id ?? null;
-	const api = useMemo(
-		() =>
-			createOrganizationSkillsApi(
-				createOrganizationScopedWebOpenMeldApiFoundation({
-					organizationId: currentOrganization.id,
-				})
-			),
-		[currentOrganization.id]
-	);
-	const catalog = useQuery({
-		enabled: activeSkillId !== null,
-		queryKey: [
-			"organization-skills",
-			currentOrganization.id,
-			"catalog",
-			activeSkillId,
-			selected?.activeRelease.id,
-		],
-		queryFn: ({ signal }) =>
-			api.getCatalog({ skillId: activeSkillId ?? "", signal }),
-	});
-	const release = catalog.data?.releases[0];
-	const selectedResource = release?.files.find(
-		(file) => file.path === selectedResourcePath
-	);
-	return (
-		<section
-			aria-label="Skill files"
-			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-		>
-			<Tabs
-				className="shrink-0 px-[var(--app-page-inline-padding)] py-2"
-				onValueChange={(value) => {
-					if (value === "team" || value === "my") {
-						navigate({
-							to: buildOrganizationFilesPath(currentOrganization.slug),
-							search: value === "team" ? {} : { view: value },
-						}).catch(console.error);
-					}
-				}}
-				value="skills"
-			>
-				<TabsList className="w-fit">
-					<TabItem label="Team files" value="team" />
-					{currentOrganization.isPersonal ? null : (
-						<TabItem label="My files" value="my" />
-					)}
-					<TabItem label="Skills" value="skills" />
-				</TabsList>
-			</Tabs>
-			<div className="min-h-0 flex-1 overflow-auto px-[var(--app-page-inline-padding)] py-5">
-				<p className="mb-5 text-muted-foreground text-sm">
-					Published Skill instructions and resources are read-only here. Manage
-					installation and versions in Skills.
-				</p>
-				{skills.isError ? (
-					<p role="alert">
-						Skills couldn't be loaded.{" "}
-						<Button
-							onClick={() => skills.refetch()}
-							size="sm"
-							variant="outline"
-						>
-							Try again
-						</Button>
-					</p>
-				) : null}
-				{skills.isPending ? (
-					<p className="text-muted-foreground text-sm">Loading Skills…</p>
-				) : null}
-				{skills.data?.skills.length === 0 ? (
-					<p className="text-muted-foreground text-sm">
-						No Skills have been installed for this Team.
-					</p>
-				) : null}
-				<div className="grid gap-6 md:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)]">
-					{skills.data?.skills.length ? (
-						<div className="flex flex-col gap-1">
-							<h2 className="sr-only">Installed Skills</h2>
-							{skills.data.skills.map((skill) => (
-								<Button
-									aria-pressed={activeSkillId === skill.id}
-									className="justify-start"
-									key={skill.id}
-									onClick={() => {
-										setSelectedSkillId(skill.id);
-										setSelectedResourcePath(null);
-									}}
-									variant={activeSkillId === skill.id ? "secondary" : "ghost"}
-								>
-									{skill.name}
-								</Button>
-							))}
-						</div>
-					) : null}
-					{selected ? (
-						<div className="min-w-0 space-y-4">
-							<div className="flex flex-wrap items-start justify-between gap-3">
-								<div>
-									<h2 className="font-semibold text-lg">{selected.name}</h2>
-									<p className="text-muted-foreground text-sm">
-										{selected.description}
-									</p>
-								</div>
-								<Button
-									onClick={() =>
-										navigate({
-											to: buildOrganizationSkillPath({
-												orgSlug: currentOrganization.slug,
-												skillId: selected.id,
-											}),
-										}).catch(console.error)
-									}
-									size="sm"
-									variant="outline"
-								>
-									Manage Skill
-								</Button>
-							</div>
-							{catalog.isPending ? (
-								<p className="text-muted-foreground text-sm">
-									Loading release…
-								</p>
-							) : null}
-							{catalog.isError ? (
-								<p role="alert">
-									This Skill's release couldn't be loaded.{" "}
-									<Button
-										onClick={() => catalog.refetch()}
-										size="sm"
-										variant="outline"
-									>
-										Try again
-									</Button>
-								</p>
-							) : null}
-							{release ? (
-								<>
-									<p className="text-muted-foreground text-xs">
-										Release {release.releaseId}
-									</p>
-									<div>
-										<h3 className="mb-2 font-medium">Instructions</h3>
-										<pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border p-4 font-sans text-sm">
-											{release.instructions}
-										</pre>
-									</div>
-									<div>
-										<h3 className="mb-2 font-medium">Resources</h3>
-										{release.files.length ? (
-											<ul className="divide-y rounded-lg border">
-												{release.files.map((file) => (
-													<li
-														className="flex flex-wrap justify-between gap-2 px-3 py-2 text-sm"
-														key={file.path}
-													>
-														<Button
-															className="h-auto p-0 text-left"
-															onClick={() => setSelectedResourcePath(file.path)}
-															variant="link"
-														>
-															{file.path}
-														</Button>
-														<span className="text-muted-foreground">
-															{formatFileSize(file.size)}
-														</span>
-													</li>
-												))}
-											</ul>
-										) : (
-											<p className="text-muted-foreground text-sm">
-												This Skill has no supporting files.
-											</p>
-										)}
-									</div>
-								</>
-							) : null}
-						</div>
-					) : null}
-				</div>
-			</div>
-			{selectedResource && release && activeSkillId ? (
-				<TeamSkillResourceDialog
-					api={api}
-					file={selectedResource}
-					onClose={() => setSelectedResourcePath(null)}
-					organizationId={currentOrganization.id}
-					releaseId={release.releaseId}
-					skillId={activeSkillId}
-				/>
-			) : null}
-		</section>
-	);
-}
-
-function TeamSkillResourceDialog(input: {
-	api: ReturnType<typeof createOrganizationSkillsApi>;
-	file: OrganizationSkillRuntimeCatalogResponse["releases"][number]["files"][number];
-	onClose: () => void;
-	organizationId: string;
-	releaseId: string;
-	skillId: string;
-}) {
-	const resource = useQuery({
-		queryKey: [
-			"organization-skills",
-			input.organizationId,
-			"resource",
-			input.skillId,
-			input.releaseId,
-			input.file.path,
-		],
-		queryFn: ({ signal }) =>
-			input.api.readResource({
-				skillId: input.skillId,
-				releaseId: input.releaseId,
-				path: input.file.path,
-				signal,
-			}),
-	});
-	let resourceText: string | null = null;
-	if (input.file.encoding === "utf8" && resource.data) {
-		try {
-			resourceText = new TextDecoder("utf-8", { fatal: true }).decode(
-				resource.data
-			);
-		} catch {
-			resourceText = null;
-		}
-	}
-	return (
-		<Dialog onOpenChange={(open) => !open && input.onClose()} open>
-			<DialogContent className="flex max-h-[85vh] flex-col sm:max-w-3xl">
-				<DialogHeader>
-					<DialogTitle className="break-all">{input.file.path}</DialogTitle>
-					<DialogDescription>
-						Read-only resource from this Skill release.
-					</DialogDescription>
-				</DialogHeader>
-				{resource.isPending ? (
-					<p className="text-muted-foreground text-sm">Loading resource…</p>
-				) : null}
-				{resource.isError ? (
-					<p role="alert">
-						This resource couldn't be loaded.{" "}
-						<Button
-							onClick={() => resource.refetch()}
-							size="sm"
-							variant="outline"
-						>
-							Try again
-						</Button>
-					</p>
-				) : null}
-				{resource.data && resourceText !== null ? (
-					<pre className="min-h-0 overflow-auto whitespace-pre-wrap rounded-lg border p-4 text-sm">
-						{resourceText}
-					</pre>
-				) : null}
-				{resource.data && resourceText === null ? (
-					<p className="text-muted-foreground text-sm">
-						Download this file to open it in a compatible app.
-					</p>
-				) : null}
-				{resource.data ? (
-					<DialogFooter>
-						<Button
-							onClick={() =>
-								downloadContent(
-									input.file.path.split("/").at(-1) ?? input.file.path,
-									{
-										bytes: new Blob([Uint8Array.from(resource.data)], {
-											type: input.file.mediaType,
-										}),
-										mimeType: input.file.mediaType,
-									}
-								)
-							}
-							variant="outline"
-						>
-							<DownloadSimpleIcon aria-hidden="true" /> Download
-						</Button>
-					</DialogFooter>
-				) : null}
-			</DialogContent>
-		</Dialog>
 	);
 }
 
@@ -901,14 +583,6 @@ function TeamFilesBrowser(input: {
 								toolbarStart={
 									<Tabs
 										onValueChange={(value) => {
-											if (value === "skills") {
-												navigate({
-													to: buildOrganizationFilesPath(
-														currentOrganization.slug
-													),
-													search: { view: "skills" },
-												}).catch(console.error);
-											}
 											if (value === "team" || value === "my") {
 												changeLocation(value);
 											}
@@ -920,7 +594,6 @@ function TeamFilesBrowser(input: {
 											{currentOrganization.isPersonal ? null : (
 												<TabItem label="My files" value="my" />
 											)}
-											<TabItem label="Skills" value="skills" />
 										</TabsList>
 									</Tabs>
 								}
