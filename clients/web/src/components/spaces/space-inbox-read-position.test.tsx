@@ -7,13 +7,23 @@ const {
 	markCurrentSpaceInboxReadThroughMock,
 	optimisticallyMarkSpaceInboxReadThroughMock,
 	queryClient,
+	reportClientQueryErrorMock,
 	rollbackMock,
 } = vi.hoisted(() => ({
 	invalidateInboxFactsMock: vi.fn(),
 	markCurrentSpaceInboxReadThroughMock: vi.fn(),
 	optimisticallyMarkSpaceInboxReadThroughMock: vi.fn(),
-	queryClient: { cancelQueries: vi.fn(), fetchQuery: vi.fn() },
+	queryClient: {
+		cancelQueries: vi.fn(),
+		fetchQuery: vi.fn(),
+		invalidateQueries: vi.fn(),
+	},
+	reportClientQueryErrorMock: vi.fn(),
 	rollbackMock: vi.fn(),
+}));
+
+vi.mock("#/lib/observability/application-error-client", () => ({
+	reportClientQueryError: reportClientQueryErrorMock,
 }));
 
 vi.mock("@tanstack/react-query", async () => {
@@ -40,6 +50,12 @@ vi.mock("#/lib/organizations/inbox", () => ({
 vi.mock("#/query/organizations/inbox", () => ({
 	inboxQueryKeys: {
 		organization: (organizationId: string) => ["inbox", organizationId],
+		spaceUnreadTargets: (organizationId: string, spaceId: string) => [
+			"inbox",
+			organizationId,
+			"space-unread-targets",
+			spaceId,
+		],
 	},
 	invalidateInboxFacts: invalidateInboxFactsMock,
 	spaceInboxSummaryQueryOptions: vi.fn(() => ({})),
@@ -54,6 +70,7 @@ vi.mock("#/query/organizations/inbox-read-through-cache", () => ({
 describe("useSpaceInboxReadPosition", () => {
 	beforeEach(() => {
 		queryClient.cancelQueries.mockReset().mockResolvedValue(undefined);
+		queryClient.invalidateQueries.mockReset().mockResolvedValue(undefined);
 		queryClient.fetchQuery.mockReset().mockResolvedValue({
 			organizationId: "org-acme",
 			spaces: [
@@ -69,6 +86,7 @@ describe("useSpaceInboxReadPosition", () => {
 			.mockReset()
 			.mockResolvedValue(undefined);
 		rollbackMock.mockReset();
+		reportClientQueryErrorMock.mockReset();
 		optimisticallyMarkSpaceInboxReadThroughMock
 			.mockReset()
 			.mockReturnValue({ rollback: rollbackMock });
@@ -107,6 +125,54 @@ describe("useSpaceInboxReadPosition", () => {
 			organizationId: "org-acme",
 			queryClient,
 		});
+	});
+
+	it("treats a saved read position as success when the Inbox refresh fails", async () => {
+		const refreshError = new Error("refresh failed");
+		invalidateInboxFactsMock.mockRejectedValueOnce(refreshError);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const { result } = renderHook(() =>
+			useSpaceInboxReadPosition({
+				destination: "ordinary-space",
+				organizationId: "org-acme",
+				profileId: "profile-felix",
+				spaceId: "space-project",
+			})
+		);
+
+		await expect(result.current.markReadThrough(42)).resolves.toBeUndefined();
+
+		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledOnce();
+		expect(rollbackMock).not.toHaveBeenCalled();
+		expect(warn).toHaveBeenCalledOnce();
+		expect(reportClientQueryErrorMock).toHaveBeenCalledWith(
+			refreshError,
+			"inbox",
+			"refresh"
+		);
+		warn.mockRestore();
+	});
+
+	it("refreshes stale unread targets instead of failing when the summary has no unread", async () => {
+		queryClient.fetchQuery.mockResolvedValueOnce({
+			organizationId: "org-acme",
+			spaces: [],
+		});
+		const { result } = renderHook(() =>
+			useSpaceInboxReadPosition({
+				destination: "ordinary-space",
+				organizationId: "org-acme",
+				profileId: "profile-felix",
+				spaceId: "space-project",
+			})
+		);
+
+		await expect(result.current.prepareCatchUpMain()).resolves.toBeNull();
+
+		expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+			queryKey: ["inbox", "org-acme", "space-unread-targets", "space-project"],
+		});
+		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
 	});
 
 	it("does not write without an Organization identity", async () => {

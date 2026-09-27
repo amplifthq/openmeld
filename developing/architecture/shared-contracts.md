@@ -5497,16 +5497,19 @@ pinned runtime validator for OpenConnector action metadata. It mirrors the
 OpenConnector `/v1/actions?service=` serializer and the bounded
 `/v1/actions/search` projection, including required schemas, provider
 permissions, the executor-owned `execution` projection, and optional
-first-class `effect = read | write | destructive` metadata. Remote Agent must
+`operationType = read | write | destructive` metadata. Remote Agent normalizes
+this field to its internal `effect` policy field, accepts legacy `effect`, and
+rejects entries where both fields disagree. Remote Agent must
 fail closed on a malformed entry and may expose only
 `execution.locallyExecutable = true` actions to the model. Catalog-only entries
 are provider documentation, not executable Center Agent capability. The same
 module validates OpenConnector action-operation metadata so Remote Agent does
 not hand-interpret provider execution IDs, idempotency keys, or replay flags.
-It also validates the successful action envelope and requires the exact
-execution-owned output schema beside the returned data. Missing or malformed
-execution schemas fail closed instead of falling back to a possibly newer
-catalog contract.
+It also validates the successful action envelope's JSON data and execution
+metadata. The execution endpoint does not return `outputSchema`; Remote Agent
+uses the verified action catalog schema for a new operation. A replay can
+recover the provider result without consulting a catalog that may have changed
+or become unavailable, so its result may omit `outputSchema`.
 Remote Agent recognizes destructive legacy action IDs or names as well as
 `effect = destructive`; conflicting read/write metadata cannot downgrade a
 legacy destructive action. This vocabulary classifies the action's effect only

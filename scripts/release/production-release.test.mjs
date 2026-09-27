@@ -2122,6 +2122,65 @@ test("rejects ambiguous native delivery rollouts but permits reviewed single-sid
   }
 });
 
+test("accepts only the reviewed provider-connection response addition as Core-first", () => {
+  const schemaPath =
+    "packages/schemas/src/schemas/runtime/remote-agent-worker.ts";
+  const addition =
+    '  PROVIDER_CONNECTION_MISSING: "remote_agent.provider.connection_missing",\n';
+  const before =
+    '  PROVIDER_AUTHENTICATION_FAILED: "remote_agent.provider.authentication_failed",\n' +
+    '  PROVIDER_FAILED: "remote_agent.provider.failed",\n';
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [
+      schemaPath,
+      "services/core/src/remote-agent/application/native-delivery-service.ts",
+      "services/remote-agent/.flue/agents/center-agent.ts",
+    ],
+    readGitFile: (ref, path) => {
+      assert.equal(path, schemaPath);
+      return ref === "previous-release"
+        ? before
+        : before.replace(
+            '  PROVIDER_FAILED: "remote_agent.provider.failed",\n',
+            `${addition}  PROVIDER_FAILED: "remote_agent.provider.failed",\n`
+          );
+    },
+    scope: "db,auth,core,gateway,web,remote-agent,cli",
+    sourceSha: REMOTE_SOURCE_SHA,
+  };
+
+  assert.equal(
+    buildProductionReleasePlan(input).deployOrderProfile,
+    "core-worker-response-reader-first"
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        ...input,
+        changedPaths: [
+          ...input.changedPaths,
+          "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+        ],
+      }),
+    AMBIGUOUS_NATIVE_DELIVERY_ORDER
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        ...input,
+        readGitFile: (ref, path) => {
+          const content = input.readGitFile(ref, path);
+          return ref === REMOTE_SOURCE_SHA
+            ? `${content}// other change\n`
+            : content;
+        },
+      }),
+    AMBIGUOUS_NATIVE_DELIVERY_ORDER
+  );
+});
+
 test("prints the current production Worker version before a harmless redeploy", async () => {
   const sideEffects = [];
   const output = [];

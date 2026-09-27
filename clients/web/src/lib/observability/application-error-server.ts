@@ -80,6 +80,18 @@ const response = (status: number) =>
 		headers: { "Cache-Control": "no-store" },
 	});
 
+function isInvalidClientReport(report: WebApplicationErrorReport): boolean {
+	return (
+		report.source.startsWith("server_") ||
+		(report.reactUpdateTrace !== undefined &&
+			report.error.code !== "react_update_depth") ||
+		(report.source === "wake_progress_presentation") !==
+			(report.wakeProgress !== undefined) ||
+		(report.source === "wake_progress_presentation" &&
+			report.error.code !== "unconfirmed_wake_progress_displayed")
+	);
+}
+
 // Best-effort isolate log-volume cap, not a distributed security rate limit.
 // Fixed-size state; never retain IPs, sessions, exception text, or request bodies.
 let windowStarted = 0;
@@ -146,14 +158,7 @@ export async function receiveApplicationError(
 		const parsed = webApplicationErrorReportSchema.safeParse(
 			JSON.parse(new TextDecoder().decode(body))
 		);
-		if (
-			!parsed.success ||
-			parsed.data.source.startsWith("server_") ||
-			(parsed.data.source === "wake_progress_presentation") !==
-				(parsed.data.wakeProgress !== undefined) ||
-			(parsed.data.source === "wake_progress_presentation" &&
-				parsed.data.error.code !== "unconfirmed_wake_progress_displayed")
-		) {
+		if (!parsed.success || isInvalidClientReport(parsed.data)) {
 			return response(400);
 		}
 		logApplicationError(parsed.data, request);

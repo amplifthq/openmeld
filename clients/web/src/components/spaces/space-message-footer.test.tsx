@@ -64,6 +64,7 @@ function rect(left: number, top: number, width: number, height: number) {
 describe("floating message actions position", () => {
 	afterEach(() => {
 		cleanup();
+		delete document.documentElement.dataset.spaceSelfMessageAlignment;
 	});
 
 	it("follows a long message's lower visible edge after its top scrolls away", () => {
@@ -130,6 +131,63 @@ describe("floating message actions position", () => {
 		rowTop = -300;
 		fireEvent.scroll(viewport);
 		expect(toolbar.style.insetBlockStart).toBe("864px");
+	});
+
+	it.each([
+		{ alignment: "left", previewLeft: 40, toolbarLeft: 150 },
+		{ alignment: "right", previewLeft: 450, toolbarLeft: 284 },
+	])("keeps attachment-only actions beside the visible preview on the $alignment", ({
+		alignment,
+		previewLeft,
+		toolbarLeft,
+	}) => {
+		document.documentElement.dataset.spaceSelfMessageAlignment = alignment;
+		const view = render(
+			<div data-slot="message-scroller-viewport">
+				<div
+					data-message-row-id="attachment-message"
+					data-space-self-message="true"
+				>
+					<div data-slot="bubble-content">
+						<fieldset data-slot="space-attachment-strip">
+							<div data-slot="scroll-area-viewport">
+								<div className="space-attachment-strip-items">
+									<div data-testid="attachment-preview" />
+								</div>
+							</div>
+						</fieldset>
+					</div>
+					<SpaceMessageFooter addressingTargets={[]} />
+				</div>
+			</div>
+		);
+		const row = view.container.querySelector<HTMLElement>(
+			'[data-message-row-id="attachment-message"]'
+		);
+		const bubble = row?.querySelector<HTMLElement>(
+			'[data-slot="bubble-content"]'
+		);
+		const viewport = row?.querySelector<HTMLElement>(
+			'[data-slot="scroll-area-viewport"]'
+		);
+		const preview = row?.querySelector<HTMLElement>(
+			'[data-testid="attachment-preview"]'
+		);
+		const toolbar = row?.querySelector<HTMLElement>(
+			'[data-slot="message-footer"]'
+		);
+		expect(row && bubble && viewport && preview && toolbar).toBeTruthy();
+		if (!(row && bubble && viewport && preview && toolbar)) {
+			return;
+		}
+		row.getBoundingClientRect = () => rect(0, 100, 600, 200);
+		bubble.getBoundingClientRect = () => rect(0, 100, 560, 104);
+		viewport.getBoundingClientRect = () => rect(0, 100, 560, 104);
+		preview.getBoundingClientRect = () => rect(previewLeft, 100, 104, 104);
+		toolbar.getBoundingClientRect = () => rect(0, 0, 160, 28);
+
+		fireEvent.pointerEnter(row);
+		expect(toolbar.style.insetInlineStart).toBe(`${toolbarLeft}px`);
 	});
 });
 

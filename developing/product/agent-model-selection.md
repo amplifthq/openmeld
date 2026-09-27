@@ -566,13 +566,14 @@ Sources: the official OpenRouter models API response for `z-ai/glm-5.3-flash`
 captured on 2026-08-27 (`https://openrouter.ai/api/v1/models`; captured shape
 mirrored in `services/remote-agent/tests/fixtures/openrouter-model-z-ai-glm-5.3-flash.json`).
 
-`x-ai/grok-4.6` remains the dedicated `imageUnderstandingModelId`: the
-auxiliary image path stays on the production-proven model while the primary
-default changes independently. GLM 5.3 Flash is declared `["text", "image"]`
-to reflect the verified provider capability and selector contract, but the
-current version still sends every raw image through the frozen Grok 4.6
-auxiliary before GLM receives the bounded text description. Explicitly
-selected Grok 4.6 turns remain Grok 4.6 as the primary model as well.
+At this refresh, `x-ai/grok-4.6` remained the dedicated
+`imageUnderstandingModelId` while the primary default changed independently.
+The later auxiliary-model change selects `openai/gpt-6-luna` at medium
+reasoning. GLM 5.3 Flash is declared `["text", "image"]` to reflect the verified
+provider capability and selector contract, but current-version images still
+pass through the frozen auxiliary route before GLM receives the bounded text
+description. Explicitly selected Grok 4.6 turns remain Grok 4.6 as the primary
+model; the auxiliary route remains GPT-6 Luna.
 
 ### 5.7 OpenCode controller catalog refresh
 
@@ -682,6 +683,15 @@ input, tool calling, and `high` reasoning. OpenMeld retains its 16,384 output
 budget. Direct OpenAI Chat Completions has a separate tool/effort limitation;
 OpenRouter is the actual hosted boundary and must pass live tool continuation
 before support is claimed. The API model names alone are not adapter evidence.
+
+The hosted auxiliary image route uses GPT-6 Luna at `medium` reasoning to
+preserve accurate transcription and explicit uncertainty; the independent
+session-title request uses `low` reasoning for its short, structured output.
+Both efforts are in the captured OpenRouter model metadata at
+`services/remote-agent/tests/fixtures/openrouter-gpt-6-sol-luna-2026-09-23.json`.
+The title request omits temperature because that model's captured supported
+parameters do not include it. Live image and title latency remain release
+smoke evidence, not catalog assumptions.
 
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 

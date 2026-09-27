@@ -162,6 +162,7 @@ import type {
   ExecuteExecutionRecoveryResponse,
   ExecutionRecoveryIdentity,
   ExecutionRecoveryProjection,
+  FileRoot,
   GetActiveSpaceWakeProgressResponse,
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
@@ -281,6 +282,7 @@ import type { AuthProfileFacts } from "../../../auth/application/profile-facts-r
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
   readCenterAgentDesignationRecord,
+  readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationOwnerHumanSpaceMember,
 } from "../../../center-agent/center-agent-repository";
 import { projectSpaceDiagnosticReportPointers } from "../../../diagnostics/application/space-diagnostic-report-pointer";
@@ -345,6 +347,8 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
 import { inspectExecutionRecovery } from "../../../execution-recovery/application/execution-recovery-service";
+import { reserveFileCopyRequest } from "../../../files/file-copy-request";
+import { FileUploadSessions } from "../../../files/file-upload-sessions";
 import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbox-agent-owner-access";
 import {
   agentTaskCoordinationDb,
@@ -528,7 +532,6 @@ import { resolveSpaceDispatchConversationContinuityScope } from "../../applicati
 import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
 import { readStoredSpaceFileImageDimensions } from "../../application/space-file-image-metadata";
 import { hashSpaceFileStream } from "../../application/space-file-stream";
-import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
 import { recordSpaceInboxFirstContacts } from "../../application/space-inbox-first-contact";
 import {
@@ -2708,7 +2711,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
     await this.runIsolatedAlarmStep("file_upload_cleanup", async () => {
       if (this.env.OPENMELD_SPACE_ATTACHMENTS) {
-        await new SpaceFileUploads(
+        await new FileUploadSessions(
           this.ctx.storage.sql,
           this.env.OPENMELD_SPACE_ATTACHMENTS
         ).cleanup();
@@ -3225,7 +3228,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (!bucket) {
       throw new Error("Space file storage is unavailable.");
     }
-    const uploads = new SpaceFileUploads(this.ctx.storage.sql, bucket);
+    const uploads = new FileUploadSessions(this.ctx.storage.sql, bucket);
     try {
       return await uploads.execute({
         actorId: actor.profileId,
@@ -3370,10 +3373,19 @@ export class Space extends DurableObject<CoreBindings> {
         }),
       };
     } catch (error) {
-      const committed = this.spaceFileRepository.resolveCommittedWrite(
-        write.clientMutationId,
-        write.fileId
-      );
+      let committed: SpaceFileDescriptor | null;
+      try {
+        committed = this.runSpaceFileRepositoryOperation(() =>
+          this.spaceFileRepository.resolveCommittedWrite(
+            write.clientMutationId,
+            write.fileId,
+            write
+          )
+        );
+      } catch (reconciliationError) {
+        await bucket.delete(prepared.objectKey);
+        throw reconciliationError;
+      }
       if (committed) {
         return { file: committed };
       }
@@ -3406,6 +3418,33 @@ export class Space extends DurableObject<CoreBindings> {
       }),
       ...(committedFile ? { committedFile } : {}),
     };
+  }
+
+  async rpcReserveSpaceFileCopy(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+    clientMutationId: string;
+    sourceRoot: FileRoot;
+    sourceFileId: string;
+    sourceRevisionId: string;
+    name: string;
+    parentId: string | null;
+  }): Promise<void> {
+    this.applySpaceRef(input.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    reserveFileCopyRequest({
+      sql: this.ctx.storage.sql,
+      clientMutationId: spaceFileClientMutationIdSchema.parse(
+        input.clientMutationId
+      ),
+      requestJson: JSON.stringify({
+        sourceRoot: input.sourceRoot,
+        sourceFileId: input.sourceFileId,
+        sourceRevisionId: input.sourceRevisionId,
+        name: input.name,
+        parentId: input.parentId,
+      }),
+    });
   }
 
   async rpcResolveCommittedSpaceFileWrite(input: {
@@ -6885,7 +6924,7 @@ export class Space extends DurableObject<CoreBindings> {
       minNullableTimestamp(
         nextAgentStreamAlarmAtMs,
         this.env.OPENMELD_SPACE_ATTACHMENTS
-          ? new SpaceFileUploads(
+          ? new FileUploadSessions(
               this.ctx.storage.sql,
               this.env.OPENMELD_SPACE_ATTACHMENTS
             ).nextExpiry()
@@ -13015,7 +13054,7 @@ export class Space extends DurableObject<CoreBindings> {
         status: 403,
         code: "space.wake_stop.forbidden",
         reason:
-          "Only the person who started this Wake or the agent's owner can stop it.",
+          "You can't stop this Wake from this request. Ask its requester or the target Agent's owner to stop it in OpenMeld Web.",
       });
     }
 
@@ -13043,13 +13082,28 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<boolean> {
     const actor = input.context.actorContext;
     const ownerUserId = normalizeOptionalText(actor.ownerUserId);
-    if (!ownerUserId || actor.profileKind === "system") {
-      return false;
-    }
     const source = input.sourceSignalId
       ? this.readSignalById(input.sourceSignalId)
       : null;
+    if (!ownerUserId || actor.profileKind === "system") {
+      return false;
+    }
     if (source?.profile.profileId === actor.openMeldProfileId) {
+      return true;
+    }
+    // The Center Agent has no owner account. Its exact Wake is attributed to
+    // a human only when Core recorded that requester before publication.
+    if (
+      actor.profileKind === "human" &&
+      source?.type === "signal.text" &&
+      source.profile.kind === "agent" &&
+      source.data.meta?.clientMessageId &&
+      (await this.isRepresentedCenterAgentWakeRequester({
+        clientMessageId: source.data.meta.clientMessageId,
+        context: input.context,
+        sourceProfileId: source.profile.profileId,
+      }))
+    ) {
       return true;
     }
     const auth = this.bindings.OPENMELD_AUTH_WORKER;
@@ -13081,6 +13135,42 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
     return false;
+  }
+
+  private async isRepresentedCenterAgentWakeRequester(input: {
+    clientMessageId: string;
+    context: OpenMeldRequestContext;
+    sourceProfileId: string;
+  }): Promise<boolean> {
+    const db = localStateDb(this.bindings);
+    if (!db) {
+      return false;
+    }
+    let provenance: Awaited<
+      ReturnType<typeof readCenterAgentWakeAuditAttribution>
+    >;
+    try {
+      provenance = await readCenterAgentWakeAuditAttribution({
+        clientMessageId: input.clientMessageId,
+        db,
+      });
+    } catch (error) {
+      console.warn("[core.space.wake_stop_provenance_unavailable]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+      });
+      return false;
+    }
+    return Boolean(
+      provenance &&
+        provenance.organizationId === input.context.activeOrganizationId &&
+        provenance.actorProfileId === input.sourceProfileId &&
+        provenance.resourceType === "space" &&
+        provenance.resourceId === this.spaceId &&
+        provenance.onBehalfOfProfileId ===
+          input.context.actorContext.openMeldProfileId &&
+        provenance.onBehalfOfUserId === input.context.actorContext.ownerUserId
+    );
   }
 
   private async projectWakeStopEligibilityForViewer<
@@ -20007,6 +20097,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
     return {
       ...dispatchMessage,
+      outboxCreatedAtMs: candidate.createdAtMs,
       enqueuedAtMs: handedOffAtMs ?? dispatchMessage.enqueuedAtMs,
       ...(deliveryRecoveryReason &&
       dispatchMessage.deliveryRecoveryReason !== deliveryRecoveryReason

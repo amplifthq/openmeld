@@ -310,6 +310,9 @@ function MessageFooterActions({
 		const attachmentStrip = bubble?.querySelector<HTMLElement>(
 			"[data-slot='space-attachment-strip']"
 		);
+		const attachmentViewport = attachmentStrip?.querySelector<HTMLElement>(
+			'[data-slot="scroll-area-viewport"]'
+		);
 		const container = row;
 		const viewport = row?.closest<HTMLElement>(
 			'[data-slot="message-scroller-viewport"]'
@@ -323,18 +326,42 @@ function MessageFooterActions({
 			const textSurface = bubble.querySelector<HTMLElement>(
 				"[data-slot='space-message-text-surface']"
 			);
+			const preferredSide =
+				row.closest('[data-space-self-message="true"]') &&
+				document.documentElement.dataset.spaceSelfMessageAlignment === "right"
+					? "before"
+					: "after";
+			const attachmentItems = attachmentStrip?.querySelector(
+				".space-attachment-strip-items"
+			);
+			const attachmentViewportRect =
+				attachmentViewport?.getBoundingClientRect();
+			const visibleAttachmentPreviews = Array.from(
+				attachmentItems?.children ?? []
+			).filter((preview) => {
+				const rect = preview.getBoundingClientRect();
+				return (
+					!attachmentViewportRect ||
+					(rect.right > attachmentViewportRect.left &&
+						rect.left < attachmentViewportRect.right)
+				);
+			});
+			const attachmentPreview =
+				preferredSide === "before"
+					? visibleAttachmentPreviews[0]
+					: visibleAttachmentPreviews.at(-1);
 			const anchor =
 				hasMessageText && textSurface?.getClientRects().length
 					? textSurface.getBoundingClientRect()
-					: (attachmentStrip ?? bubble).getBoundingClientRect();
+					: (
+							attachmentPreview ??
+							attachmentStrip ??
+							bubble
+						).getBoundingClientRect();
 			const next = resolveToolbarPosition({
 				bubble: anchor,
 				container: container.getBoundingClientRect(),
-				preferredSide:
-					row.closest('[data-space-self-message="true"]') &&
-					document.documentElement.dataset.spaceSelfMessageAlignment === "right"
-						? "before"
-						: "after",
+				preferredSide,
 				toolbar: toolbarRect,
 				viewport: viewport?.getBoundingClientRect(),
 			});
@@ -352,6 +379,9 @@ function MessageFooterActions({
 					observer.observe(attachmentStrip);
 				}
 				viewport?.addEventListener("scroll", position, { passive: true });
+				attachmentViewport?.addEventListener("scroll", position, {
+					passive: true,
+				});
 				window.addEventListener("resize", position);
 			}
 		};
@@ -366,6 +396,7 @@ function MessageFooterActions({
 			observer?.disconnect();
 			observer = null;
 			viewport?.removeEventListener("scroll", position);
+			attachmentViewport?.removeEventListener("scroll", position);
 			window.removeEventListener("resize", position);
 		};
 		const onFocusOut = () => queueMicrotask(deactivate);
@@ -383,6 +414,7 @@ function MessageFooterActions({
 			row.removeEventListener("focusout", onFocusOut);
 			observer?.disconnect();
 			viewport?.removeEventListener("scroll", position);
+			attachmentViewport?.removeEventListener("scroll", position);
 			window.removeEventListener("resize", position);
 		};
 	}, [hasMessageText, inline, persistent]);

@@ -358,7 +358,7 @@ describe("model catalog schema", () => {
         defaultModelId: "anthropic/claude-opus-5.5",
         hostedRuntimePolicy: {
           automaticModelFallback: false,
-          imageUnderstandingModelId: "x-ai/grok-4.6",
+          imageUnderstandingModelId: "openai/gpt-6-luna",
           personalRemoteAgentDefaultModelId: "openai/gpt-6-sol",
         },
         models: expect.arrayContaining([

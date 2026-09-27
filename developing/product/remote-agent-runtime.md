@@ -328,6 +328,13 @@ same native delivery. The recovery reconciler may then publish that failure
 without repeatedly stopping a process that no longer exists. A failed
 inspection alone does not prove termination; a Stop request without an exit
 receipt keeps cleanup pending. Neither case replays the command.
+The Computer's `EEXEC_LOST` also confirms that the retained execution belonged
+to a replaced container runtime. When cleanup first discovers that loss, it
+records the exact command as lost without signaling an unrelated new runtime.
+Recovery must record the failed execution even if the Worker restarted after
+the command-loss record was saved but before the failure request was stored.
+Other owned commands still require their own termination evidence; a transient
+inspection failure never becomes a confirmed loss.
 If the member already requested Stop, the durable cancellation request is
 acknowledged once exact-command absence is confirmed; reconciliation publishes
 the stopped outcome without treating the missing command as a local Service
@@ -1331,6 +1338,12 @@ the primary turn. The original bytes, their base64 encoding, and the transient
 derivative never enter the persistent Flue conversation, even when the selected
 primary model can accept images directly. Other binary formats remain explicit
 file references rather than being presented as content the model understood.
+For an older JPEG or PNG revision, the Center Agent can call
+`openmeld_describe_space_image` with the exact Space, file id, and revision.
+Core checks Space access again and streams that immutable revision; the same
+auxiliary route returns only a text observation to the primary model. The tool
+rejects sources over 8 MiB and reports auxiliary failures instead of claiming
+the image was understood.
 
 `web_dm` is used for the Center Agent DM, `space_wake` for ordinary Space Wake
 delivery to the hosted Center Agent, `slack` for the legacy Slack channel
@@ -1708,7 +1721,7 @@ Grok 4.5, DeepSeek V4 Flash, or any other primary models. If all providers for
 the exact model fail, the turn still ends in one visible failure. Public-web
 research uses the same exact-model provider-rerouting rule.
 
-The separate session-title RPC uses the fixed `z-ai/glm-5.3-flash` helper model
+The separate session-title RPC uses the fixed `openai/gpt-6-luna` helper model
 with low reasoning and structured output. It runs outside the conversation and
 execution queue, cannot call tools, and never blocks or changes the primary
 turn. Its bounded failure leaves the default chat title; see
@@ -1721,7 +1734,7 @@ process-global `openrouter` registration that a concurrent Organization can
 overwrite.
 
 Every current-version image input uses the frozen image-understanding route,
-currently Grok 4.6, before admission to the persistent primary conversation.
+currently GPT-6 Luna at medium reasoning, before admission to the persistent primary conversation.
 The worker derives a bounded, non-animated WebP representation from the exact
 authorized source and gives only that transient representation to the
 auxiliary model. Instructions visible inside the image are explicitly untrusted
@@ -2506,8 +2519,11 @@ Organization's selected-repository GitHub App installation and the OpenMeld bot.
 `requester` means the verified current member's GitHub user authorization. Core
 resolves only the requested identity and never falls back to the other one.
 Interactive turns choose from the concrete repository and authorship need.
-Routine turns and member research reject `requester`; they may use only
-`organization`. Remote Agent strips `githubActor` before calling OpenConnector
+Core-created task continuations may use `requester` only when the original
+requester is a verified, current Organization member with an active GitHub
+connection. The connector action audit records that member and the source
+Native Delivery. Routine turns and member research reject `requester`; they may
+use only `organization`. Remote Agent strips `githubActor` before calling OpenConnector
 because it is OpenMeld authorization input, not a provider action parameter.
 
 Workflow dispatch is a general GitHub capability, not an OpenMeld release
@@ -2654,10 +2670,11 @@ source of truth for whether the request is a replay. If provider
 execution succeeds but Core finalization is interrupted, the next exact retry
 reads the Core operation metadata first, rebuilds and verifies the same
 signature with its frozen connection, replays OpenConnector's stored result,
-including the output schema that describes that result, and finishes the same
-operation instead of creating a second provider mutation. The Remote Agent
-interprets the returned data through this execution-owned schema rather than
-reconstructing it from a possibly newer catalog. Current membership, connection
+and finishes the same operation instead of creating a second provider mutation.
+The execution response contains data and metadata, but no output schema. New
+operations return the schema from the verified action catalog; an exact replay
+may omit it when the current catalog is unavailable, rather than misreporting
+the recovered provider result as a failed write. Current membership, connection
 availability, and provider catalog state gate only a new claim; they cannot
 erase or redefine a provider execution that Core already claimed.
 
@@ -3118,6 +3135,13 @@ but not trigger.
    settles as aborted. Every tool call rechecks that state before side effects.
    Space Stop targets one logical Wake, including its automatic work-loop
    submissions; it must not abort unrelated queued work in the conversation.
+   The Center Agent's Stop tool accepts one exact Wake selector and uses the
+   same Core and Space Stop mutation as Web. It can Stop its own authored Wake
+   only when that Wake's persisted `onBehalfOf` matches the member verified by
+   the current delivery. Other Wakes require that member's ordinary Web Stop
+   permission. Progress exposes
+   Stop eligibility only to an authorized viewer. A requested cancellation is
+   reported as requested until the execution owner confirms it stopped.
    Space records Stop in its existing dispatch outbox before contacting the
    Worker. Native admission checks that fence before submission and again after
    acknowledgement; late acknowledgements forward cancellation to the exact

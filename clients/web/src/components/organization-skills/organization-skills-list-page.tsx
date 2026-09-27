@@ -13,6 +13,7 @@ import {
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
@@ -281,6 +282,16 @@ function OrganizationSkillsCatalog() {
 			{installOpen && (
 				<InstallSkillDialog
 					finalFocus={addRef}
+					installedSkills={skillsQuery.data?.skills ?? []}
+					onBatchChanged={() => {
+						queryClient
+							.invalidateQueries({
+								queryKey: organizationSkillQueryKeys.list(
+									currentOrganization.id
+								),
+							})
+							.catch(console.error);
+					}}
 					onClose={() => setInstallOpen(false)}
 					onInstalled={openSkill}
 					organizationId={currentOrganization.id}
@@ -303,9 +314,9 @@ function SkillsListContent(input: {
 }) {
 	if (input.query.isPending) {
 		return (
-			<div className="grid gap-3">
+			<div className="grid @min-[760px]/skills:grid-cols-2 gap-3">
 				{[0, 1, 2].map((item) => (
-					<Skeleton className="h-16 w-full" key={item} />
+					<Skeleton className="h-36 w-full rounded-md" key={item} />
 				))}
 			</div>
 		);
@@ -341,55 +352,59 @@ function SkillsListContent(input: {
 		);
 	}
 	return (
-		<ul aria-label="Skills" className="divide-y border-y">
+		<FluidCardGroup
+			aria-label="Skills"
+			className="grid @min-[760px]/skills:grid-cols-2 gap-3"
+			role="list"
+		>
 			{input.filteredSkills.map((skill) => (
-				<li key={skill.id}>
+				<FluidCardItem
+					className="border border-border"
+					itemId={skill.id}
+					key={skill.id}
+					role="listitem"
+				>
 					<Link
-						className="group grid min-h-18 @min-[760px]/skills:grid-cols-[minmax(0,1fr)_7rem_7rem_5rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-2 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+						className="flex h-full min-h-36 flex-col rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
 						to={buildOrganizationSkillPath({
 							orgSlug: input.orgSlug,
 							skillId: skill.id,
 						})}
 					>
-						<div className="flex min-w-0 items-center gap-3">
+						<div className="flex min-w-0 items-start gap-3">
 							<FileTextIcon
 								aria-hidden="true"
-								className="size-5 shrink-0 text-muted-foreground"
+								className="mt-0.5 size-5 shrink-0 text-muted-foreground"
 							/>
-							<div className="min-w-0">
-								<h2 className="truncate font-medium text-sm">{skill.name}</h2>
-								<p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+							<div className="min-w-0 flex-1">
+								<div className="flex min-w-0 items-start justify-between gap-3">
+									<h2 className="min-w-0 truncate font-medium text-sm">
+										{skill.name}
+									</h2>
+									<Badge
+										className="shrink-0"
+										variant={skill.enabled ? "secondary" : "outline"}
+									>
+										{skill.enabled ? "Enabled" : "Disabled"}
+									</Badge>
+								</div>
+								<p className="mt-2 line-clamp-2 text-muted-foreground text-sm">
 									{skill.description}
 								</p>
 							</div>
 						</div>
-						<span className="@min-[760px]/skills:col-auto col-start-1 @min-[760px]/skills:pl-0 pl-8 text-muted-foreground text-xs">
+						<span className="mt-auto pt-4 pl-8 text-muted-foreground text-xs">
 							{skill.source.kind === "github" ? "GitHub" : "OpenMeld"}
-							<span className="@min-[760px]/skills:hidden">
-								{" "}
-								·{" "}
+							{" · "}
+							<time dateTime={skill.updatedAt}>
 								{new Intl.DateTimeFormat("en-US", {
 									dateStyle: "medium",
 								}).format(new Date(skill.updatedAt))}
-							</span>
+							</time>
 						</span>
-						<time
-							className="@min-[760px]/skills:block hidden text-muted-foreground text-xs"
-							dateTime={skill.updatedAt}
-						>
-							{new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(
-								new Date(skill.updatedAt)
-							)}
-						</time>
-						<Badge
-							className="@min-[760px]/skills:col-auto col-start-2 @min-[760px]/skills:row-auto row-start-1"
-							variant={skill.enabled ? "secondary" : "outline"}
-						>
-							{skill.enabled ? "Enabled" : "Disabled"}
-						</Badge>
 					</Link>
-				</li>
+				</FluidCardItem>
 			))}
-		</ul>
+		</FluidCardGroup>
 	);
 }

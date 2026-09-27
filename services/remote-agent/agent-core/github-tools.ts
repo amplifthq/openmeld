@@ -1645,7 +1645,7 @@ function githubCatalogToolDefinitions(
   return [
     {
       name: "github_execute_action",
-      description: `${GITHUB_ACTOR_GUIDANCE} Execute an exact GitHub action from github_list_actions using its upstream input schema. Returns provider data and its execution-owned outputSchema, plus the existing operation receipt. Reuse operationId only to recover the same execution with unchanged input; use a new ID for a fresh read. Ordinary writes require the verified request; destructive or unspecified effects use the existing exact-action confirmation, and are unavailable to Routines. No missing action is emulated. Existing named GitHub tools remain available, including segmented file reads. A completed action is not proof that a workflow or user task finished.`,
+      description: `${GITHUB_ACTOR_GUIDANCE} Execute an exact GitHub action from github_list_actions using its upstream input schema. Returns provider data and the action catalog's outputSchema, plus the existing operation receipt. Reuse operationId only to recover the same execution with unchanged input; use a new ID for a fresh read. Ordinary writes require the verified request; destructive or unspecified effects use the existing exact-action confirmation, and are unavailable to Routines. No missing action is emulated. Existing named GitHub tools remain available, including segmented file reads. A completed action is not proof that a workflow or user task finished.`,
       input: executeInput,
       execute: async (payload) => {
         const request = parse(executeInput, payload);
@@ -1766,9 +1766,13 @@ export async function resolveGitHubActionContext(input: {
       "Your GitHub requires a linked OpenMeld identity. Use githubActor = organization for this Organization's shared GitHub access."
     );
   }
-  if (requesterKind !== "interactive" && input.githubActor === "requester") {
+  if (
+    requesterKind !== "interactive" &&
+    requesterKind !== "continuation" &&
+    input.githubActor === "requester"
+  ) {
     throw new Error(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
     );
   }
   const connectionPreference =
@@ -2083,9 +2087,13 @@ async function executeIdempotentGitHubAction(input: {
   const { requesterKind, requesterUserId } = resolveGitHubTurnRequester(
     input.toolContext.turnEnvelope
   );
-  if (requesterKind !== "interactive" && input.githubActor === "requester") {
+  if (
+    requesterKind !== "interactive" &&
+    requesterKind !== "continuation" &&
+    input.githubActor === "requester"
+  ) {
     throw new Error(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
     );
   }
   const existingOperation = await readConnectorActionOperation({
@@ -2203,6 +2211,7 @@ async function executeIdempotentGitHubAction(input: {
       organizationId: input.toolContext.context.activeOrganizationId,
       requestId: input.toolContext.context.actorContext.requestId,
       requesterUserId,
+      turnSource: input.toolContext.turnEnvelope?.trigger.source,
       selection,
       service: "github",
     });
@@ -2218,13 +2227,14 @@ async function executeIdempotentGitHubAction(input: {
     organizationId: input.toolContext.context.activeOrganizationId,
     requestId: input.toolContext.context.actorContext.requestId,
     requesterUserId,
+    turnSource: input.toolContext.turnEnvelope?.trigger.source,
     selection,
     service: "github",
   });
   const result = {
     attribution,
     data: run.data,
-    ...(input.useRuntimeCatalog ? { outputSchema: run.outputSchema } : {}),
+    ...(action?.action ? { outputSchema: action.action.outputSchema } : {}),
     operationId: input.operationId,
     providerExecutionId: run.providerExecutionId,
     replayed: claim.replayed,
@@ -3303,7 +3313,11 @@ function requireGitHubWriteOperationId(value: unknown): string {
 function resolveGitHubTurnRequester(
   turnEnvelope: RemoteAgentTurnEnvelope | undefined
 ): {
-  requesterKind: "interactive" | "routine" | "shared_unattended";
+  requesterKind:
+    | "interactive"
+    | "continuation"
+    | "routine"
+    | "shared_unattended";
   requesterUserId: string | null;
 } {
   if (turnEnvelope?.trigger.source === "member_research") {
@@ -3314,13 +3328,13 @@ function resolveGitHubTurnRequester(
     turnEnvelope?.trigger.source === "task_continuation" ||
     turnEnvelope?.trigger.source === "task_watch_continuation"
   ) {
-    if (!speaker) {
+    if (turnEnvelope.sender.kind !== "member" || !speaker) {
       throw new Error(
         "Unattended GitHub work requires a verified Organization member context."
       );
     }
     return {
-      requesterKind: "shared_unattended",
+      requesterKind: "continuation",
       requesterUserId: speaker.userId,
     };
   }

@@ -39,12 +39,16 @@ import {
 	resolveOrganizationDocumentErrorMessage,
 	updateCurrentOrganizationDocument,
 } from "#/lib/organizations/organization-documents";
-import { buildOrganizationDocumentsPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
+} from "#/lib/organizations/organization-routes";
 import { invalidateInboxFacts } from "#/query/organizations/inbox";
 import {
 	organizationDocumentQueryKeys,
 	organizationDocumentQueryOptions,
 } from "#/query/organizations/organization-documents";
+import { organizationDocumentDisplayTitle } from "./organization-document-browser-model";
 import {
 	ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS,
 	OrganizationDocumentMarkdownEditor,
@@ -156,8 +160,8 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 				queryKey: organizationDocumentQueryKeys.list(currentOrganization.id),
 			});
 			await navigate({
-				search: documentFolderSearch,
-				to: buildOrganizationDocumentsPath(currentOrganization.slug),
+				search: { ...documentFolderSearch, view: "knowledge" },
+				to: buildOrganizationFilesPath(currentOrganization.slug),
 			});
 		},
 	});
@@ -191,7 +195,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 			<div className="grid justify-items-start gap-3 rounded-md border border-destructive/50 bg-destructive/5 p-6">
 				<h1 className="font-medium text-xl">Could not load document</h1>
 				<p className="text-muted-foreground text-sm">
-					OpenMeld could not load this Organization document. Try again.
+					Unable to load this knowledge file. Try again.
 				</p>
 				<Button onClick={() => documentQuery.refetch()} variant="outline">
 					<ArrowClockwiseIcon aria-hidden="true" /> Retry
@@ -211,7 +215,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 					className={buttonVariants({ variant: "outline" })}
 					to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 				>
-					<ArrowLeftIcon aria-hidden="true" /> All Documents
+					<ArrowLeftIcon aria-hidden="true" /> All knowledge
 				</Link>
 			</div>
 		);
@@ -221,10 +225,10 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 		<div className="grid gap-6">
 			<Link
 				className={APP_INLINE_BACK_LINK_CLASS_NAME}
-				search={documentFolderSearch}
-				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
+				search={{ ...documentFolderSearch, view: "knowledge" }}
+				to={buildOrganizationFilesPath(currentOrganization.slug)}
 			>
-				<ArrowLeftIcon aria-hidden="true" /> Back to Documents
+				<ArrowLeftIcon aria-hidden="true" /> Back to Team Knowledge
 			</Link>
 			<header className="flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">
@@ -238,7 +242,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 						/>
 					</div>
 					<h1 className="mt-1 break-words font-medium text-2xl">
-						{document.title}
+						{organizationDocumentDisplayTitle(document)}
 					</h1>
 				</div>
 				{document.canManage ? (
@@ -603,7 +607,7 @@ function organizationDocumentKindLabel(
 ): string {
 	switch (kind) {
 		case "brief":
-			return "Organization Brief";
+			return "Team Brief";
 		case "member_profile":
 			return "Profile Report";
 		default:

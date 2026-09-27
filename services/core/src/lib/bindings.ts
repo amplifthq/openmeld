@@ -34,6 +34,7 @@ import type {
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
 import type { AccountInvalidationHub } from "../account-invalidation/account-invalidation-hub";
+import type { OrganizationFileRoot } from "../files/organization-file-root";
 import type { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
 import type { LarkChannelConnector } from "../remote-agent/transport/lark/lark-channel-connector";
 import type { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
@@ -186,6 +187,7 @@ export type CoreBindings = {
   OPENMELD_ACCOUNT_INVALIDATIONS?: DurableObjectNamespace<AccountInvalidationHub>;
   OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
+  OPENMELD_FILE_ROOTS?: DurableObjectNamespace<OrganizationFileRoot>;
   OPENMELD_RUNTIME_TRANSPORT?: DurableObjectNamespace<RuntimeTransportHub>;
   OPENMELD_PREPARE_SESSION_HUB?: DurableObjectNamespace<PrepareSessionHub>;
   OPENMELD_DB?: D1Database;
@@ -203,6 +205,7 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_WORKER?: RemoteAgentWorkerBindingRpc;
   OPENMELD_SPACE_ATTACHMENTS?: R2Bucket;
   OPENMELD_ORGANIZATION_SKILLS?: R2Bucket;
+  OPENMELD_SKILL_FILE_BACKED_WRITES?: string;
   OPENMELD_ROUTINE_RUN_WORKFLOW?: Workflow<{ runId: string }>;
   OPENMELD_ROUTINE_ENGINE_DEFAULT?: string;
   OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED?: string;

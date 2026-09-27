@@ -30,7 +30,8 @@ export function OrganizationSkillDocument(input: {
 	}, [hash]);
 	const tabsId = useId();
 	const hasFiles = input.bundle.files.length > 0;
-	const showFiles = hasFiles && view === 1;
+	const showFilesTab = hasFiles || input.skill.permissions.canEdit;
+	const showFiles = showFilesTab && view === 1;
 	return (
 		<>
 			<OrganizationSkillDocumentTitle
@@ -49,7 +50,7 @@ export function OrganizationSkillDocument(input: {
 						: "Created in OpenMeld"}
 				</span>
 			</div>
-			{hasFiles && (
+			{showFilesTab && (
 				<TabsSubtle
 					aria-label="Skill content"
 					className="gap-5 border-b"
@@ -72,14 +73,14 @@ export function OrganizationSkillDocument(input: {
 			)}
 			<section
 				aria-labelledby={
-					hasFiles ? `${tabsId}-tab-0` : "skill-instructions-heading"
+					showFilesTab ? `${tabsId}-tab-0` : "skill-instructions-heading"
 				}
 				hidden={showFiles}
 				id={`${tabsId}-panel-0`}
-				role={hasFiles ? "tabpanel" : undefined}
+				role={showFilesTab ? "tabpanel" : undefined}
 			>
 				<h2
-					className={hasFiles ? "sr-only" : "mb-2 font-medium text-sm"}
+					className={showFilesTab ? "sr-only" : "mb-2 font-medium text-sm"}
 					id="skill-instructions-heading"
 				>
 					Instructions
@@ -97,7 +98,7 @@ export function OrganizationSkillDocument(input: {
 					value={input.bundle.instructions}
 				/>
 			</section>
-			{hasFiles && (
+			{showFilesTab && (
 				<div
 					aria-labelledby={`${tabsId}-tab-1`}
 					hidden={!showFiles}
@@ -108,6 +109,12 @@ export function OrganizationSkillDocument(input: {
 						canEdit={input.skill.permissions.canEdit}
 						contentGeneration={input.contentGeneration}
 						files={input.bundle.files}
+						onAdd={(file) =>
+							input.onChange((current) => ({
+								...current,
+								files: [...current.files, file],
+							}))
+						}
 						onChange={(file) =>
 							input.onChange((current) => ({
 								...current,
@@ -116,6 +123,12 @@ export function OrganizationSkillDocument(input: {
 										? { ...existing, content: file.content, size: file.size }
 										: existing
 								),
+							}))
+						}
+						onRemove={(path) =>
+							input.onChange((current) => ({
+								...current,
+								files: current.files.filter((file) => file.path !== path),
 							}))
 						}
 						saving={input.saving}

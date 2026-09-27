@@ -153,7 +153,12 @@ describe("Remote Agent GitHub tools", () => {
         },
       });
     }
-    const action = { ...JOB_LOG_ACTION, id: "github.catalog_action", effect };
+    const action = {
+      ...JOB_LOG_ACTION,
+      effect: undefined,
+      id: "github.catalog_action",
+      operationType: effect,
+    };
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({ success: true, message: "OK", data: [action], meta: {} })
     );
@@ -228,16 +233,22 @@ describe("Remote Agent GitHub tools", () => {
   });
 
   it("filters read-only discovery and refuses catalog writes before claiming an operation", async () => {
+    const readAction = {
+      ...JOB_LOG_ACTION,
+      effect: undefined,
+      operationType: "read",
+    };
     const action = {
       ...JOB_LOG_ACTION,
+      effect: undefined,
       id: "github.catalog_write",
-      effect: "write",
+      operationType: "write",
     };
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
         success: true,
         message: "OK",
-        data: [action, JOB_LOG_ACTION],
+        data: [action, readAction],
         meta: {},
       })
     );
@@ -336,13 +347,12 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_execute_action", request)
     ).resolves.toMatchObject({ status: "completed", replayed: false });
-    await expect(
-      executeTool(tools, "github_execute_action", request)
-    ).resolves.toMatchObject({
+    const replay = await executeTool(tools, "github_execute_action", request);
+    expect(replay).toMatchObject({
       status: "completed",
       replayed: true,
-      outputSchema: action.outputSchema,
     });
+    expect(replay).not.toHaveProperty("outputSchema");
     await expect(
       executeTool(tools, "github_execute_action", {
         ...request,
@@ -2084,6 +2094,28 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects requester GitHub access for a Routine's delegated member", async () => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: createRoutineTurnEnvelope(),
+    });
+    const resolveConnection = vi.fn(async () =>
+      connectionSelection({ ownerDisplayName: "Felix", userId: "user_1" })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      coreWorker: { centerAgentResolveConnectorConnection: resolveConnection },
+      storage: await createStorage(request),
+    });
+
+    await expect(
+      executeTool(tools, "github_get_current_user", {
+        githubActor: "requester",
+      })
+    ).rejects.toThrow(
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
+    );
+    expect(resolveConnection).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       name: "task continuation",
@@ -2125,7 +2157,7 @@ describe("Remote Agent GitHub tools", () => {
         watchId: "watch_task_watch_continuation_1",
       },
     },
-  ] as const)("rejects requester GitHub access for an unattended $name", async ({
+  ] as const)("uses the verified requester connection for a $name", async ({
     trigger,
   }) => {
     const baseRequest = createSubmitTurnRequest();
@@ -2141,7 +2173,19 @@ describe("Remote Agent GitHub tools", () => {
         userId: "user_1",
       })
     );
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.get_current_user",
+        data: { login: "felix" },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
     const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
       coreWorker: { centerAgentResolveConnectorConnection },
       storage: await createStorage(request),
     });
@@ -2150,10 +2194,139 @@ describe("Remote Agent GitHub tools", () => {
       executeTool(tools, "github_get_current_user", {
         githubActor: "requester",
       })
-    ).rejects.toThrow(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+    ).resolves.toMatchObject({
+      attribution: { selection: "requester" },
+      status: "completed",
+    });
+    expect(centerAgentResolveConnectorConnection).toHaveBeenCalledWith({
+      connectionPreference: "requester",
+      context: expect.any(Object),
+      requesterUserId: "user_1",
+      service: "github",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows an ordinary continuation write, but still previews a destructive action", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          delegationId: "delegation_write",
+          outcome: {
+            errorCode: null,
+            eventId: "event_write",
+            occurredAtMs: TEST_NOW_MS,
+            publishedSignalId: "signal_write",
+            status: "completed",
+          },
+          source: "task_continuation",
+          subscriptionId: "subscription_write",
+          watchedTask: {
+            deliveryId: "delivery_write",
+            kind: "native_delivery",
+            v: 1,
+          },
+        },
+      },
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue_comment",
+        data: { id: 99 },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
-    expect(centerAgentResolveConnectorConnection).not.toHaveBeenCalled();
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Felix", userId: "user_1" })
+        ),
+      },
+      storage: await createStorage(request),
+    });
+
+    await expect(
+      executeTool(tools, "github_create_issue_comment", {
+        body: "Continuation result",
+        githubActor: "requester",
+        issueNumber: 12,
+        owner: "openmeld",
+        repo: "app",
+      })
+    ).resolves.toMatchObject({
+      attribution: { connectionOwner: { userId: "user_1" } },
+      status: "completed",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await expect(
+      executeTool(tools, "github_delete_file", {
+        githubActor: "requester",
+        message: "Remove file",
+        owner: "openmeld",
+        path: "old.txt",
+        repo: "app",
+        sha: "abc123",
+      })
+    ).resolves.toMatchObject({ status: "destructive_action_preview" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a continuation requester loses membership or GitHub access", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          delegationId: "delegation_disconnected",
+          outcome: {
+            errorCode: null,
+            eventId: "event_disconnected",
+            occurredAtMs: TEST_NOW_MS,
+            publishedSignalId: "signal_disconnected",
+            status: "completed",
+          },
+          source: "task_continuation",
+          subscriptionId: "subscription_disconnected",
+          watchedTask: {
+            deliveryId: "delivery_disconnected",
+            kind: "native_delivery",
+            v: 1,
+          },
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const missingMembership = vi.fn(() =>
+      Promise.reject(new Error("connector.requester_org_mismatch"))
+    );
+    const disconnected = vi.fn(() =>
+      Promise.resolve({ connection: null, selection: null })
+    );
+
+    for (const resolveConnection of [missingMembership, disconnected]) {
+      const tools = getRemoteAgentGitHubToolDefinitions({
+        coreWorker: {
+          centerAgentResolveConnectorConnection: resolveConnection,
+        },
+        storage,
+      });
+      await expect(
+        executeTool(tools, "github_get_current_user", {
+          githubActor: "requester",
+        })
+      ).rejects.toThrow();
+      expect(resolveConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ requesterUserId: "user_1" })
+      );
+    }
   });
 
   it("executes an authorized issue batch during a Routine", async () => {
@@ -3623,7 +3796,10 @@ describe("Remote Agent GitHub tools", () => {
     ).toEqual(["attempted", "outcome_unknown"]);
   });
 
-  it("replays the same provider execution after a GitHub write response is lost", async () => {
+  it.each([
+    "response_lost",
+    "malformed_success",
+  ] as const)("recovers the same provider execution after a GitHub write %s", async (failureMode) => {
     const storage = await createStorage(createSubmitTurnRequest());
     const providerExecutions = new Map<
       string,
@@ -3657,7 +3833,22 @@ describe("Remote Agent GitHub tools", () => {
         providerExecutions.set(idempotencyKey, execution);
       }
       if (transportAttemptCount === 1) {
-        throw new Error("response lost after provider mutation");
+        if (failureMode === "response_lost") {
+          throw new Error("response lost after provider mutation");
+        }
+        return Promise.resolve(
+          Response.json({
+            data: execution.data,
+            message: "OK",
+            meta: {
+              actionId: "github.create_issue",
+              auditPersisted: true,
+              executionId: execution.executionId,
+            },
+            success: true,
+            unexpected: "not in the pinned execution contract",
+          })
+        );
       }
       return Promise.resolve(
         testOpenConnectorSuccessResponse({
@@ -3674,6 +3865,12 @@ describe("Remote Agent GitHub tools", () => {
         userId: "user_mira",
       })
     );
+    const operationLedger = withTestConnectorOperationLedger({
+      centerAgentResolveConnectorConnection,
+    });
+    const recordOperation = vi.fn(
+      operationLedger.centerAgentRecordConnectorActionOperation
+    );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
         baseUrl: "https://connectors.example.test",
@@ -3681,7 +3878,8 @@ describe("Remote Agent GitHub tools", () => {
         runtimeToken: "test-runtime-token",
       },
       coreWorker: {
-        centerAgentResolveConnectorConnection,
+        ...operationLedger,
+        centerAgentRecordConnectorActionOperation: recordOperation,
       },
       storage,
     });
@@ -3694,7 +3892,11 @@ describe("Remote Agent GitHub tools", () => {
 
     await expect(
       executeTool(tools, "github_create_issue", input)
-    ).rejects.toThrow("did not return a response");
+    ).rejects.toThrow(
+      failureMode === "response_lost"
+        ? "did not return a response"
+        : "invalid successful execution response"
+    );
     await expect(
       executeTool(tools, "github_create_issue", input)
     ).resolves.toMatchObject({
@@ -3712,6 +3914,12 @@ describe("Remote Agent GitHub tools", () => {
       status: "completed",
     });
     expect(providerMutationCount).toBe(1);
+    expect(recordOperation.mock.calls.map(([entry]) => entry.outcome)).toEqual([
+      "attempted",
+      "outcome_unknown",
+      "attempted",
+      "completed",
+    ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(centerAgentResolveConnectorConnection).toHaveBeenCalledTimes(1);
     const providerIdempotencyKeys = fetchMock.mock.calls.map(([, init]) =>
@@ -4139,7 +4347,6 @@ function testOpenConnectorSuccessResponse(input: {
         auditPersisted: true,
         executionId: input.executionId ?? `test-provider:${input.actionId}`,
       },
-      outputSchema: input.outputSchema,
       success: true,
     })
   );

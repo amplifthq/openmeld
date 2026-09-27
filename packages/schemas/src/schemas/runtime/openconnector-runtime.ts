@@ -59,6 +59,7 @@ export const openConnectorRuntimeActionSchema = z.strictObject({
   id: nonEmptyStringSchema,
   inputSchema: jsonSchemaObjectSchema,
   name: nonEmptyStringSchema,
+  operationType: openConnectorRuntimeActionEffectSchema.optional(),
   outputSchema: jsonSchemaObjectSchema,
   providerPermissions: z.array(nonEmptyStringSchema),
   requiredScopes: z.array(nonEmptyStringSchema),
@@ -76,6 +77,7 @@ export const openConnectorRuntimeActionSearchResultSchema = z.strictObject({
   id: nonEmptyStringSchema,
   inputSchema: jsonSchemaObjectSchema,
   name: nonEmptyStringSchema,
+  operationType: openConnectorRuntimeActionEffectSchema.optional(),
   outputSchema: jsonSchemaObjectSchema,
   service: nonEmptyStringSchema,
 });
@@ -91,9 +93,8 @@ export const openConnectorRuntimeActionOperationMetaSchema = z.strictObject({
 });
 
 export const openConnectorRuntimeActionSuccessEnvelopeSchema = z.strictObject({
-  data: z.unknown(),
+  data: z.json(),
   message: z.literal("OK"),
   meta: openConnectorRuntimeActionOperationMetaSchema,
-  outputSchema: jsonSchemaObjectSchema,
   success: z.literal(true),
 });

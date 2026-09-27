@@ -133,6 +133,19 @@ describe("SpaceFileRepository", () => {
       const next = save(2, 1);
       repository.commitWrite(next);
       repository.commitWrite(next);
+      expect(
+        repository.resolveCommittedWrite(
+          next.write.clientMutationId,
+          fileId,
+          next.write
+        )?.latestRevision.revision
+      ).toBe(2);
+      expect(() =>
+        repository.resolveCommittedWrite(next.write.clientMutationId, fileId, {
+          ...next.write,
+          revisionId: `${fixture.prefix}-different-content`,
+        })
+      ).toThrowError(expect.objectContaining({ code: "space_file.conflict" }));
       expect(updates.pending(fixture.nowMs + 100)).toHaveLength(1);
       expect(() => repository.commitWrite(save(3, 1))).toThrow();
       expect(updates.pending(fixture.nowMs + 100)).toHaveLength(1);
@@ -589,7 +602,7 @@ describe("SpaceFileRepository", () => {
     });
   });
 
-  it("prevents duplicate folder names, folder cycles, and trashing non-empty folders", async () => {
+  it("numbers duplicate folder names while preventing folder cycles and trashing non-empty folders", async () => {
     const fixture = createFixture();
 
     await withRepository(fixture.spaceId, (repository) => {
@@ -623,24 +636,37 @@ describe("SpaceFileRepository", () => {
         spaceId: fixture.spaceId,
       });
 
-      expect(() =>
+      const duplicate = repository.createFolder({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-duplicate-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-duplicate`,
+        }),
+        clientMutationId: `${fixture.prefix}-duplicate`,
+        folderId: `${fixture.prefix}-duplicate-folder`,
+        name: "product",
+        nowMs: fixture.nowMs + 2,
+        spaceId: fixture.spaceId,
+      });
+      expect(duplicate.name).toBe("product (2)");
+      expect(
         repository.createFolder({
           actor,
           auditEvent: createAuditEvent({
-            entryId: `${fixture.prefix}-duplicate-folder`,
+            entryId: `${fixture.prefix}-third-folder`,
             fixture,
             operation: "folder_create",
-            operationId: `${fixture.prefix}-duplicate`,
+            operationId: `${fixture.prefix}-third`,
           }),
-          clientMutationId: `${fixture.prefix}-duplicate`,
-          folderId: `${fixture.prefix}-duplicate-folder`,
-          name: "product",
-          nowMs: fixture.nowMs + 2,
+          clientMutationId: `${fixture.prefix}-third`,
+          folderId: `${fixture.prefix}-third-folder`,
+          name: "Product",
+          nowMs: fixture.nowMs + 3,
           spaceId: fixture.spaceId,
-        })
-      ).toThrowError(
-        expect.objectContaining({ code: "space_file.name_conflict" })
-      );
+        }).name
+      ).toBe("Product (3)");
       expect(() =>
         repository.updateEntry({
           actor,
@@ -676,6 +702,40 @@ describe("SpaceFileRepository", () => {
       ).toThrowError(
         expect.objectContaining({ code: "space_file.folder_not_empty" })
       );
+      repository.trashEntry({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: child.id,
+          fixture,
+          operation: "entry_trash",
+          operationId: `${fixture.prefix}-trash-child`,
+        }),
+        clientMutationId: `${fixture.prefix}-trash-child`,
+        entryId: child.id,
+        nowMs: fixture.nowMs + 5,
+      });
+      repository.trashEntry({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: parent.id,
+          fixture,
+          operation: "entry_trash",
+          operationId: `${fixture.prefix}-trash-parent-after-child`,
+        }),
+        clientMutationId: `${fixture.prefix}-trash-parent-after-child`,
+        entryId: parent.id,
+        nowMs: fixture.nowMs + 6,
+      });
+      expect(
+        repository.list({
+          spaceId: fixture.spaceId,
+          view: "trash",
+          canWrite: true,
+        }).entries
+      ).toMatchObject([
+        { id: parent.id, path: "/Product" },
+        { id: child.id, path: "/Product/Specs" },
+      ]);
     });
   });
 

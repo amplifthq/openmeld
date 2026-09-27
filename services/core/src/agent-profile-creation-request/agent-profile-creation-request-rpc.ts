@@ -60,6 +60,10 @@ import {
 import { scheduleAgentProfileCreation } from "./agent-profile-creation-execution";
 import { evaluateAgentProfileCreationModelGuard } from "./agent-profile-creation-model-guard";
 import { runAgentProfileCreationPostBindingFollowUps } from "./agent-profile-creation-post-binding-follow-ups";
+import {
+  checkpointAgentProfileCreationPostBindingStep,
+  readAgentProfileCreationPostBindingProgress,
+} from "./agent-profile-creation-post-binding-progress";
 import { createD1AgentProfileCreationRequestInboxProjectionService } from "./agent-profile-creation-request-inbox-projection";
 import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
 import {
@@ -954,7 +958,22 @@ async function connectRequestedAgentProfile(input: {
       `OpenMeld couldn't connect the selected local agent: ${binding.reasonCodes.join(", ") || "unknown reason"}.`
     );
   }
+  const progress = await readAgentProfileCreationPostBindingProgress({
+    agentProfileId: input.agentProfileId,
+    db: requireDb(input.env),
+    profileCreationAttempt: input.request.profileCreationAttempt,
+    requestId: input.request.id,
+  });
   await runAgentProfileCreationPostBindingFollowUps({
+    checkpoint: async (step) =>
+      await checkpointAgentProfileCreationPostBindingStep({
+        agentProfileId: input.agentProfileId,
+        db: requireDb(input.env),
+        profileCreationAttempt: input.request.profileCreationAttempt,
+        requestId: input.request.id,
+        step,
+      }),
+    completed: progress,
     setWorkspace: async () =>
       await rpcSetCurrentAgentProfileWorkspace(input.env, {
         agentProfileId: input.agentProfileId,

@@ -54,6 +54,21 @@ describe("fixed GitHub working-copy proxy adapter", () => {
       endpoint: "/repos/acme/private",
       method: "GET",
     });
+    // Workers fetch rejects redirect: "error"; manual keeps redirects unfollowed.
+    expect(options?.redirect).toBe("manual");
+  });
+  it("fails closed instead of following a redirect from the connection runtime", async () => {
+    const f = fixture({});
+    f.fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://elsewhere.example/steal" },
+      })
+    );
+    await expect(f.provider.repository()).rejects.toThrow(
+      "github.checkout.unexpected_redirect"
+    );
+    expect(f.fetchMock.mock.calls).toHaveLength(1);
   });
   it("rejects incomplete trees instead of presenting a partial repository as ready", async () => {
     const f = fixture({ sha: SHA, truncated: true, tree: [] });

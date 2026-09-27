@@ -364,6 +364,22 @@ export async function insertCenterAgentAuditJournalEntry(
   };
 }
 
+/** Exact, Core-written provenance for one Center Agent-authored Space Wake. */
+export async function readCenterAgentWakeAuditAttribution(input: {
+  clientMessageId: string;
+  db: D1Database;
+}): Promise<CenterAgentAuditJournalEntryRecord | null> {
+  const row = await input.db
+    .prepare(
+      `SELECT * FROM center_agent_audit_journal
+       WHERE id = ? AND action = 'wake_agent_profiles_in_space'
+       LIMIT 1`
+    )
+    .bind(`center-agent-wake:${input.clientMessageId}`)
+    .first<CenterAgentAuditJournalRow>();
+  return row ? mapAuditJournalRow(row) : null;
+}
+
 export async function insertCenterAgentAuditJournalEntryIfMissing(
   input: CenterAgentAuditJournalEntryInput
 ): Promise<void> {

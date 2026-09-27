@@ -196,7 +196,11 @@ describe("local service owner snapshot", () => {
     );
   });
 
-  it("classifies a system-managed local service as a single system_service owner", () => {
+  it.each([
+    "stable_launcher",
+    "cli_direct",
+    "unknown",
+  ] as const)("classifies a verified system-managed PID as one owner with %s path classification", (ownership) => {
     const snapshot = buildDaemonOwnerSnapshot({
       context: {
         ...baseContext,
@@ -241,7 +245,7 @@ describe("local service owner snapshot", () => {
           parentPid: 1,
           command: "daemon-service-launcher.mjs service run --mode background",
           mode: "background",
-          ownership: "stable_launcher",
+          ownership,
         },
       ],
     });
@@ -253,7 +257,10 @@ describe("local service owner snapshot", () => {
     });
   });
 
-  it("detects multiple owners when system_service and cli_direct are both active", () => {
+  it.each([
+    false,
+    true,
+  ])("detects another direct owner alongside a running manager (managed lease: %s)", (managedBySystemService) => {
     const snapshot = buildDaemonOwnerSnapshot({
       context: {
         ...baseContext,
@@ -287,8 +294,8 @@ describe("local service owner snapshot", () => {
           pid: 301,
           startedAt: "2026-04-21T00:00:00.000Z",
           updatedAt: "2026-04-21T00:00:00.000Z",
-          managedBySystemService: false,
-          serviceController: "unknown",
+          managedBySystemService,
+          serviceController: managedBySystemService ? "launchd" : "unknown",
           autoStart: false,
         },
       },

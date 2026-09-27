@@ -278,7 +278,7 @@ describe("remote agent callback context", () => {
       failureCode: "remote_agent.turn_not_completed",
       failureDetail: "provider 504",
       failureMessage:
-        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+        "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
       idempotencyKey: request.idempotencyKey,
       organizationId: request.organizationId,
       spaceId: request.spaceId,
@@ -689,7 +689,7 @@ describe("remote agent callback context", () => {
       expect.objectContaining({
         failureCode: "remote_agent.turn_not_completed",
         failureMessage:
-          "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+          "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
         idempotencyKey: request.idempotencyKey,
         status: "failed",
         submissionId: ACK.submissionId,

@@ -129,13 +129,18 @@ import type {
   CreateCenterAgentRoutineResponse,
   DeleteCenterAgentRoutineResponse,
   ListCenterAgentRoutinesResponse,
+  ListFileRootResponse,
   ModelCatalog,
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
+  OrganizationSkillRuntimeCatalogResponse,
   OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
   PauseCenterAgentRoutineResponse,
+  ReadOrganizationSkillRuntimeCatalogRpcInput,
+  ReadOrganizationSkillRuntimeResourceResponse,
+  ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   RecordCenterAgentMemberResearchComputerFileResponse,
   RecordCenterAgentMemberResearchComputerFileRpcInput,
@@ -144,7 +149,12 @@ import type {
   RemoteAgentCoreCallbackBody,
   RemoteAgentCoreCallbackEvent,
   RemoteAgentCoreCallbackResponse,
+  RemoteAgentListTeamFilesRpcInput,
+  RemoteAgentReadTeamFileResponse,
+  RemoteAgentReadTeamFileRpcInput,
   RemoteAgentRuntimeEvidenceOutcomeReasonCode,
+  RemoteAgentSaveTeamFileResponse,
+  RemoteAgentSaveTeamFileRpcInput,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
   RemoteAgentTurnEnvelope,
@@ -543,6 +553,15 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentListSpaceFiles?(
     input: CenterAgentListSpaceFilesRpcInput
   ): Promise<CenterAgentListSpaceFilesResponse>;
+  remoteAgentListTeamFiles?(
+    input: RemoteAgentListTeamFilesRpcInput
+  ): Promise<ListFileRootResponse>;
+  remoteAgentReadTeamFile?(
+    input: RemoteAgentReadTeamFileRpcInput
+  ): Promise<RemoteAgentReadTeamFileResponse>;
+  remoteAgentSaveTeamFile?(
+    input: RemoteAgentSaveTeamFileRpcInput
+  ): Promise<RemoteAgentSaveTeamFileResponse>;
   centerAgentReadSpaceFile?(
     input: CenterAgentReadSpaceFileRpcInput
   ): Promise<CenterAgentReadSpaceFileResponse>;
@@ -573,6 +592,7 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadDispatchHistory?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
+  centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
   centerAgentRecordConnectorActionAudit?(
     input: CenterAgentRecordConnectorActionAuditBody & {
       context: OpenMeldRequestContext;
@@ -656,6 +676,12 @@ export type RemoteAgentCoreWorkerBinding = {
   readOrganizationSkillRuntimeSnapshot?(
     input: ReadOrganizationSkillRuntimeSnapshotRpcInput
   ): Promise<OrganizationSkillRuntimeSnapshotResponse>;
+  readOrganizationSkillRuntimeCatalog?(
+    input: ReadOrganizationSkillRuntimeCatalogRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse>;
+  readOrganizationSkillRuntimeResource?(
+    input: ReadOrganizationSkillRuntimeResourceRpcInput
+  ): Promise<ReadOrganizationSkillRuntimeResourceResponse>;
   recordOrganizationSkillActivation?(
     input: RecordOrganizationSkillActivationRpcInput
   ): Promise<RecordOrganizationSkillActivationResponse>;

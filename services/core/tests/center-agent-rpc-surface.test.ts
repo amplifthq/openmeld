@@ -28,9 +28,10 @@ const PROJECT_RPC_METHODS = [
   "centerAgentRemoveProject",
 ] as const;
 
-const WAKE_PROGRESS_RPC_METHODS = [
+const WAKE_CONTROL_RPC_METHODS = [
   "centerAgentListActiveSpaceWakes",
   "centerAgentReadSpaceWakeProgress",
+  "centerAgentStopSpaceWake",
 ] as const;
 
 describe("Private Center Agent RPC surface", () => {
@@ -133,7 +134,7 @@ describe("Private Center Agent RPC surface", () => {
     }
   });
 
-  it("exposes Wake progress reads only on the private Center Agent entrypoint", () => {
+  it("exposes Wake controls only on the private Center Agent entrypoint", () => {
     const centerAgentMethods = Object.getOwnPropertyNames(
       CenterAgentRpcEntrypoint.prototype
     );
@@ -141,7 +142,7 @@ describe("Private Center Agent RPC surface", () => {
       GatewayRpcEntrypoint.prototype
     );
 
-    for (const method of WAKE_PROGRESS_RPC_METHODS) {
+    for (const method of WAKE_CONTROL_RPC_METHODS) {
       expect(centerAgentMethods).toContain(method);
       expect(gatewayMethods).not.toContain(method);
     }

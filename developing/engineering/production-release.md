@@ -281,13 +281,15 @@ operation key, attempt and exact applied identity. Database receipts retain
 Use current-main release tooling; old control checkouts are not certified to
 interpret version 3.
 
-`release:status` pages relevant workflows and all job attempts rather than
-filtering an all-workflow 250-run window. It compares actual job completion
-times, never workflow creation order. A missing source, invalid completion time,
-ambiguous tie, API failure or safety-bound truncation remains explicit evidence
-uncertainty; it cannot silently make the affected component current. A known
-later deployment can supersede an older unreadable-source event, but the
-historical limitation remains in the report. Historical planner failures are
+`release:status` pages relevant workflows and job attempts rather than
+filtering an all-workflow 250-run window. It reads newer runs first and stops
+opening older jobs once every scope has a successful receipt newer than those
+runs' last update. Active runs and runs without a valid update time are always read. It compares
+actual job completion times, never workflow creation order. A missing source,
+invalid completion time, ambiguous tie, API failure, or safety-bound truncation
+in the inspected range remains explicit uncertainty; it cannot silently make
+the affected component current. The report does not claim to audit jobs older
+than every scope's selected deployment. Historical planner failures are
 contained in per-component `unknown` results; a genuine current-change planning
 conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
@@ -420,6 +422,15 @@ contract direction and use explicitly ordered single-side stages. This prevents
 request-only recovery fields from being mistaken for response-only changes;
 adding the bidirectional service to a request allowlist would reverse the bug
 for response changes.
+
+The reviewed addition of only `remote_agent.provider.connection_missing` to
+the worker-response reason codes is a narrow exception to that ambiguity. It
+does not change a request envelope or Core request producer. When this is the
+exact schema diff, the planner retains the response-reader dependency and
+deploys Core before Remote Agent. A second schema edit or a changed request
+producer remains blocked for separate direction review. The Center Agent's
+Organization Skills catalog RPC in the same release also has a Core receiver,
+so it follows that Core-first order.
 
 The strict version-4 Center Agent conversation contract is such a request-side
 change. Apply its D1 generation-pointer migration first, deploy Remote Agent so
@@ -1430,12 +1441,12 @@ the packaged CLI, then records its Service hash and verifies the result. It
 rejects source drift and restores its metadata changes on failure. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
 stamp after any merge, rebase, or later local-component change. Land the stamp
-through a versioned `codex/release-X.Y.Z-<baseSHA>` PR from a clean worktree;
-never push `main` directly. A normal release PR changes only the CLI package and
-local-components manifest. If `main` already declares the same not-yet-published
-version, a later restamp may change only the manifest. Ordinary feature branches
-must keep both release files unchanged, which the pre-push gate enforces through
-deferred-release verification against the PR base.
+through a PR from a clean worktree; never push `main` directly. The package and
+manifest may land with the source and compatibility floor they describe when
+that candidate is stable. Otherwise stamp in a separate release PR after the
+feature merges. A later source change requires a restamp. Final Candidate
+selects strict artifact verification from the actual manifest diff,
+independent of the branch name.
 
 At publication time, `pnpm run release:deploy:local -- --scope cli` rechecks the
 committed package and manifest through the guarded local production lane. It
