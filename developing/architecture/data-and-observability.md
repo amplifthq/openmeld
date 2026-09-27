@@ -1264,6 +1264,17 @@ attribution. Its SQLite tables are canonical business state, not a D1
 projection. No Resources, Organization Documents, Center Agent Computer, or
 Space Index table mirrors this tree.
 
+Team and member-private Files use one independent `OrganizationFileRoot`
+Durable Object per Organization Team root or Organization member root. Its
+SQLite database owns that root's file metadata and reuses the Space File
+repository behavior where the file contract matches; its identity row fixes
+the exact root before any mutation. Space roots remain in their existing Space
+Durable Objects. Core checks current Organization membership, active Profile
+ownership, and member-private ownership before each Team/member root operation.
+The initial Team/member endpoint covers metadata and folders only; immutable
+content transport and Agent audience authorization require separate completion
+before this is a user-facing Files location.
+
 The same Space owns `space_file_update_settings` and
 `space_file_update_outbox`. The file revision transaction enqueues notification
 intent only when a human has configured recipients; the deterministic identity

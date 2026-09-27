@@ -96,7 +96,7 @@ describe("OrganizationDocumentsPage", () => {
 		renderPage(undefined, queryClient);
 
 		expect(
-			await screen.findByRole("list", { name: "Documents and folders" })
+			await screen.findByRole("list", { name: "Knowledge files and folders" })
 		).toBeTruthy();
 		await act(async () => {
 			await queryClient.invalidateQueries({ queryKey });
@@ -104,11 +104,11 @@ describe("OrganizationDocumentsPage", () => {
 
 		expect(
 			await screen.findByText(
-				"Couldn't refresh Documents. Showing the last saved view from this browser."
+				"Couldn't refresh knowledge files. Showing the last saved view from this browser."
 			)
 		).toBeTruthy();
 		expect(
-			screen.getByRole("list", { name: "Documents and folders" })
+			screen.getByRole("list", { name: "Knowledge files and folders" })
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 	});
@@ -127,12 +127,18 @@ describe("OrganizationDocumentsPage", () => {
 		renderPage();
 
 		const heading = await screen.findByRole("heading", {
-			name: "No documents yet",
+			name: "No knowledge files yet",
 		});
 		const emptyState = heading.closest("section");
 		expect(emptyState?.className).toContain("rounded-md");
 		expect(emptyState?.className).toContain("bg-card/25");
 		expect(emptyState?.querySelector(".rounded-md")).toBeTruthy();
+		const createHref = screen
+			.getByRole("link", { name: "Create a document" })
+			.getAttribute("href");
+		expect(createHref?.split("?")).toHaveLength(2);
+		expect(createHref).toContain("view=knowledge");
+		expect(createHref).toContain("create=");
 	});
 
 	it("renders files in the shared icon-card grid with the brief first, member attribution, and draft state", async () => {
@@ -178,13 +184,11 @@ describe("OrganizationDocumentsPage", () => {
 		renderPage();
 
 		const list = await screen.findByRole("list", {
-			name: "Documents and folders",
+			name: "Knowledge files and folders",
 		});
 		const rows = within(list).getAllByRole("listitem");
 		expect(rows).toHaveLength(3);
-		expect(
-			within(rows[0] as HTMLElement).getByText("Organization Brief")
-		).toBeTruthy();
+		expect(within(rows[0] as HTMLElement).getByText("Team Brief")).toBeTruthy();
 		expect(within(rows[0] as HTMLElement).getByText("Brief")).toBeTruthy();
 		expect(within(rows[0] as HTMLElement).getByText("Draft")).toBeTruthy();
 		expect(
@@ -216,7 +220,7 @@ describe("OrganizationDocumentsPage", () => {
 		renderPage();
 
 		const rootItems = await screen.findByRole("list", {
-			name: "Documents and folders",
+			name: "Knowledge files and folders",
 		});
 		expect(within(rootItems).getByText("Runbooks")).toBeTruthy();
 		expect(within(rootItems).getByText("2 items")).toBeTruthy();
@@ -227,7 +231,7 @@ describe("OrganizationDocumentsPage", () => {
 		cleanup();
 		renderPage("folder-1");
 		const folderView = await screen.findByRole("list", {
-			name: "Documents and folders",
+			name: "Knowledge files and folders",
 		});
 		expect(within(folderView).getByText("Production")).toBeTruthy();
 		expect(within(folderView).getByText("Folder doc")).toBeTruthy();
@@ -236,12 +240,12 @@ describe("OrganizationDocumentsPage", () => {
 		cleanup();
 		renderPage("folder-2");
 		const nestedView = await screen.findByRole("list", {
-			name: "Documents and folders",
+			name: "Knowledge files and folders",
 		});
 		expect(within(nestedView).getByText("Nested doc")).toBeTruthy();
 		const breadcrumb = screen.getByRole("navigation", { name: "Folder path" });
 		expect(
-			within(breadcrumb).getByRole("link", { name: "Documents" })
+			within(breadcrumb).getByRole("link", { name: "Knowledge" })
 		).toBeTruthy();
 		expect(
 			within(breadcrumb).getByRole("link", { name: "Runbooks" })
@@ -299,7 +303,7 @@ describe("OrganizationDocumentsPage", () => {
 		});
 		renderPage();
 
-		await screen.findByRole("list", { name: "Documents and folders" });
+		await screen.findByRole("list", { name: "Knowledge files and folders" });
 		expect(
 			screen.queryByRole("button", { name: NEW_FOLDER_BUTTON_NAME })
 		).toBeNull();

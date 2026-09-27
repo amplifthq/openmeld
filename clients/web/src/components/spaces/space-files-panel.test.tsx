@@ -140,7 +140,7 @@ describe("SpaceFilesPanel", () => {
 		expect(screen.queryByRole("button", { name: "New" })).toBeNull();
 		expect(
 			screen.getByText(
-				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
+				"Files in this Space. Files sent in chat are hidden by default."
 			)
 		).toBeTruthy();
 	});
@@ -179,7 +179,7 @@ describe("SpaceFilesPanel", () => {
 	it("opens Markdown files in the shared WYSIWYG editor", async () => {
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.doubleClick(await screen.findByText("launch-notes.md"));
 
 		const editor = await screen.findByLabelText("File contents");
 		expect(editor.getAttribute("contenteditable")).toBe("true");
@@ -352,6 +352,33 @@ describe("SpaceFilesPanel", () => {
 		expect(screen.getByRole("toolbar")).toBeTruthy();
 	});
 
+	it("creates a CSV file with text content through the Space Files upload path", async () => {
+		spaceApiMocks.uploadFile.mockResolvedValue({
+			...FILE,
+			name: "untitled.csv",
+			latestRevision: { ...FILE.latestRevision, mimeType: "text/csv" },
+		});
+		renderPanel();
+
+		fireEvent.click(await screen.findByRole("button", { name: "New" }));
+		fireEvent.click(await screen.findByText("CSV file"));
+		fireEvent.change(screen.getByLabelText("File contents"), {
+			target: { value: "Name,Count\nAlpha,2" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Create file" }));
+
+		await waitFor(() =>
+			expect(spaceApiMocks.uploadFile).toHaveBeenCalledOnce()
+		);
+		expect(spaceApiMocks.uploadFile).toHaveBeenCalledWith(
+			expect.objectContaining({
+				name: "untitled.csv",
+				mimeType: "text/csv",
+				bytes: new TextEncoder().encode("Name,Count\nAlpha,2"),
+			})
+		);
+	});
+
 	it("infers Markdown uploads through the shared file contract", async () => {
 		spaceApiMocks.uploadFile.mockResolvedValue(FILE);
 		const view = renderPanel();
@@ -408,11 +435,11 @@ describe("SpaceFilesPanel", () => {
 		);
 		expect(
 			screen.getByText(
-				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
+				"Files in this Space. Files sent in chat are hidden by default."
 			)
 		).toBeTruthy();
 
-		fireEvent.click(screen.getByRole("button", { name: "Show chat uploads" }));
+		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
 
 		await waitFor(() =>
 			expect(spaceApiMocks.listFiles).toHaveBeenCalledWith(
@@ -422,13 +449,39 @@ describe("SpaceFilesPanel", () => {
 			)
 		);
 		expect(
-			screen.getByRole("button", { name: "Hide chat uploads" })
+			screen.getByRole("button", { name: "Hide chat files" })
 		).toBeTruthy();
 		expect(
-			screen.getByText(
-				"Shared with the people and agents in this Space, including files shared in chat."
-			)
+			screen.getByText("Files in this Space, including files sent in chat.")
 		).toBeTruthy();
+	});
+
+	it("keeps the chat files toggle available if that file listing fails", async () => {
+		const files = {
+			spaceId: "space-1",
+			parentId: null,
+			view: "active" as const,
+			breadcrumbs: [{ id: null, name: "Files" }],
+			entries: [FILE],
+			capabilities: { canRead: true, canWrite: true },
+		};
+		spaceApiMocks.listFiles.mockImplementation(
+			({ query }: { query: { origin?: string } }) => {
+				if (query.origin === "all") {
+					throw Object.assign(new Error("The file listing is unavailable"), {
+						code: "gateway.invalid_response",
+					});
+				}
+				return Promise.resolve(files);
+			}
+		);
+		renderPanel();
+
+		await screen.findByText("launch-notes.md");
+		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
+		expect(await screen.findByText("Files couldn’t be loaded")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Show regular files" }));
+		expect(await screen.findByText("launch-notes.md")).toBeTruthy();
 	});
 
 	it("badges only explicit chat uploads, never an unclassified file, once shown", async () => {
@@ -456,14 +509,18 @@ describe("SpaceFilesPanel", () => {
 		renderPanel();
 
 		await screen.findByText("launch-notes.md");
-		fireEvent.click(screen.getByRole("button", { name: "Show chat uploads" }));
+		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
 
 		expect(await screen.findByText("screenshot.png")).toBeTruthy();
 		expect(screen.getByText("legacy.txt")).toBeTruthy();
 		expect(screen.getAllByText("Chat upload")).toHaveLength(1);
-		const chatUploadRow = screen.getByText("screenshot.png").closest("li");
+		const chatUploadRow = screen
+			.getByText("screenshot.png")
+			.closest('[role="option"]');
 		expect(chatUploadRow?.textContent).toContain("Chat upload");
-		const unclassifiedRow = screen.getByText("legacy.txt").closest("li");
+		const unclassifiedRow = screen
+			.getByText("legacy.txt")
+			.closest('[role="option"]');
 		expect(unclassifiedRow?.textContent).not.toContain("Chat upload");
 	});
 
@@ -494,15 +551,15 @@ describe("SpaceFilesPanel", () => {
 		renderPanel();
 
 		await screen.findByText("launch-notes.md");
-		fireEvent.click(screen.getByRole("button", { name: "Show chat uploads" }));
+		fireEvent.click(screen.getByRole("button", { name: "Include chat files" }));
 		expect(
-			await screen.findByRole("button", { name: "Hide chat uploads" })
+			await screen.findByRole("button", { name: "Hide chat files" })
 		).toBeTruthy();
 
 		fireEvent.click(await screen.findByRole("button", { name: "Trash" }));
 		await screen.findByText("Trash is empty");
 		expect(
-			screen.queryByRole("button", { name: "Hide chat uploads" })
+			screen.queryByRole("button", { name: "Hide chat files" })
 		).toBeNull();
 
 		fireEvent.click(screen.getByRole("button", { name: "Back to Files" }));
@@ -511,10 +568,10 @@ describe("SpaceFilesPanel", () => {
 		// starts back at the default artifact-only state instead of silently
 		// restoring the "show chat uploads" filter Trash never displayed.
 		expect(
-			await screen.findByRole("button", { name: "Show chat uploads" })
+			await screen.findByRole("button", { name: "Include chat files" })
 		).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: "Hide chat uploads" })
+			screen.queryByRole("button", { name: "Hide chat files" })
 		).toBeNull();
 	});
 
@@ -608,7 +665,7 @@ describe("SpaceFilesPanel", () => {
 		});
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.doubleClick(await screen.findByText("launch-notes.md"));
 		fireEvent.click(await screen.findByRole("button", { name: "History" }));
 		expect(
 			await screen.findByRole("heading", { name: "Version history" })
@@ -707,7 +764,7 @@ describe("SpaceFilesPanel", () => {
 		);
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.doubleClick(await screen.findByText("launch-notes.md"));
 		const editor = await screen.findByLabelText("File contents");
 		fireEvent.change(editor, { target: { value: "My unsaved revision" } });
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -731,7 +788,7 @@ describe("SpaceFilesPanel", () => {
 		});
 		renderPanel();
 
-		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.doubleClick(await screen.findByText("launch-notes.md"));
 		fireEvent.change(await screen.findByLabelText("File contents"), {
 			target: { value: "Keep this draft" },
 		});
@@ -747,7 +804,7 @@ describe("SpaceFilesPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 		expect(
 			await screen.findByText(
-				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
+				"Files in this Space. Files sent in chat are hidden by default."
 			)
 		).toBeTruthy();
 	});
@@ -770,8 +827,9 @@ describe("SpaceFilesPanel", () => {
 		});
 		renderPanel();
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Actions for launch-notes.md" })
+		fireEvent.contextMenu(
+			(await screen.findByText("launch-notes.md")).closest('[role="option"]') ??
+				screen.getByText("launch-notes.md")
 		);
 		fireEvent.click(screen.getByRole("menuitem", { name: "Move to folder…" }));
 		const destination = await screen.findByLabelText("Destination folder");

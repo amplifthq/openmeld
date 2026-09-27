@@ -6,16 +6,22 @@ import {
 } from "@openmeld/api-client";
 import { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "@openmeld/schemas";
 import type {
+	BeginOrganizationSkillImportBatchBody,
+	BeginOrganizationSkillImportBatchResponse,
 	CreateOrganizationSkillBody,
 	CreateOrganizationSkillResponse,
 	DeleteOrganizationSkillBody,
 	DeleteOrganizationSkillResponse,
+	GetOrganizationSkillImportBatchResponse,
 	GetOrganizationSkillResponse,
 	ImportOrganizationSkillFromGitHubBody,
 	ImportOrganizationSkillFromGitHubResponse,
+	ListOrganizationSkillImportBatchesResponse,
 	ListOrganizationSkillsResponse,
 	PreviewOrganizationSkillFromGitHubBody,
 	PreviewOrganizationSkillFromGitHubResponse,
+	PreviewOrganizationSkillRepositoryBody,
+	PreviewOrganizationSkillRepositoryResponse,
 	SetOrganizationSkillEnabledBody,
 	SetOrganizationSkillEnabledResponse,
 	SetOrganizationSkillMaintainersBody,
@@ -91,11 +97,59 @@ export async function importCurrentOrganizationSkillFromGitHub(
 	return response;
 }
 
+export async function beginCurrentOrganizationSkillImportBatch(
+	input: OrganizationSkillRequestInput & BeginOrganizationSkillImportBatchBody
+): Promise<BeginOrganizationSkillImportBatchResponse> {
+	const response = await runMutation(input.expectedOrganizationId, (api) =>
+		api.beginImportBatch(input)
+	);
+	assertOrganizationId(
+		response.batch.organizationId,
+		input.expectedOrganizationId
+	);
+	return response;
+}
+
+export async function getCurrentOrganizationSkillImportBatch(input: {
+	batchId: string;
+	organizationId: string;
+}): Promise<GetOrganizationSkillImportBatchResponse> {
+	const response = await runMutation(input.organizationId, (api) =>
+		api.getImportBatch({ batchId: input.batchId })
+	);
+	assertOrganizationId(response.batch.organizationId, input.organizationId);
+	return response;
+}
+
+export async function listCurrentOrganizationSkillImportBatches(input: {
+	organizationId: string;
+}): Promise<ListOrganizationSkillImportBatchesResponse> {
+	try {
+		const response = await createWebOrganizationSkillsApi(
+			input.organizationId
+		).listImportBatches();
+		assertOrganizationId(response.organizationId, input.organizationId);
+		return response;
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
 export async function previewCurrentOrganizationSkillFromGitHub(
 	input: OrganizationSkillRequestInput & PreviewOrganizationSkillFromGitHubBody
 ): Promise<PreviewOrganizationSkillFromGitHubResponse> {
 	const response = await runMutation(input.expectedOrganizationId, (api) =>
 		api.previewFromGitHub(input)
+	);
+	assertOrganizationId(response.organizationId, input.expectedOrganizationId);
+	return response;
+}
+
+export async function previewCurrentOrganizationSkillRepository(
+	input: OrganizationSkillRequestInput & PreviewOrganizationSkillRepositoryBody
+): Promise<PreviewOrganizationSkillRepositoryResponse> {
+	const response = await runMutation(input.expectedOrganizationId, (api) =>
+		api.previewRepositoryFromGitHub(input)
 	);
 	assertOrganizationId(response.organizationId, input.expectedOrganizationId);
 	return response;

@@ -195,3 +195,31 @@ describe("Space Files origin migration (real SQLite)", () => {
     });
   });
 });
+
+describe("Space Files copy request schema (real SQLite)", () => {
+  it("adds copy reservations to a Space whose prior schema migration is complete", async () => {
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.getByName(
+      `space-copy-schema-${crypto.randomUUID()}`
+    );
+    await runInDurableObject(stub, (_instance, state) => {
+      const sql = state.storage.sql;
+      ensureSpaceSqlSchema(sql);
+      sql.exec("DROP TABLE file_root_copy_requests");
+      ensureSpaceSqlSchema(sql);
+      sql.exec(
+        "INSERT INTO file_root_copy_requests (client_mutation_id, request_json) VALUES (?, ?)",
+        "copy-request",
+        "{}"
+      );
+      expect(
+        sql
+          .exec<{ request_json: string }>(
+            "SELECT request_json FROM file_root_copy_requests WHERE client_mutation_id = ?",
+            "copy-request"
+          )
+          .toArray()
+      ).toEqual([{ request_json: "{}" }]);
+    });
+  });
+});

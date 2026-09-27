@@ -4,28 +4,53 @@ import type { OrganizationSkillFile } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import { CaretDownIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
+import {
+	CaretDownIcon,
+	DownloadSimpleIcon,
+	PlusIcon,
+	TrashIcon,
+} from "@phosphor-icons/react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
+import { OrganizationSkillAddFileDialog } from "./organization-skill-add-file-dialog";
 import { isEditableSkillReference } from "./organization-skill-validation";
 
 export function OrganizationSkillFiles(input: {
 	canEdit: boolean;
 	contentGeneration: number;
 	files: OrganizationSkillFile[];
+	onAdd: (file: OrganizationSkillFile) => void;
 	onChange: (file: OrganizationSkillFile) => void;
+	onRemove: (path: string) => void;
 	saving: boolean;
 }) {
 	const [expandedPath, setExpandedPath] = useState<string | null>(null);
+	const [addOpen, setAddOpen] = useState(false);
 	return (
 		<section aria-labelledby="skill-files-heading" className="grid gap-3">
 			<h2 className="sr-only" id="skill-files-heading">
 				Files
 			</h2>
-			<p className="text-muted-foreground text-sm">
-				Supporting files for this skill. Reference edits are saved with the
-				skill.
-			</p>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<p className="text-muted-foreground text-sm">
+					Supporting files are saved with the next Skill version.
+				</p>
+				{input.canEdit && (
+					<Button
+						disabled={input.saving}
+						onClick={() => setAddOpen(true)}
+						size="sm"
+						variant="outline"
+					>
+						<PlusIcon aria-hidden="true" /> Add file
+					</Button>
+				)}
+			</div>
+			{input.files.length === 0 && (
+				<p className="text-muted-foreground text-sm">
+					No supporting files yet.
+				</p>
+			)}
 			<ul className="divide-y border-y">
 				{input.files.map((file) => (
 					<SkillFile
@@ -35,6 +60,7 @@ export function OrganizationSkillFiles(input: {
 						file={file}
 						key={file.path}
 						onChange={input.onChange}
+						onRemove={() => input.onRemove(file.path)}
 						onToggle={() =>
 							setExpandedPath(expandedPath === file.path ? null : file.path)
 						}
@@ -42,6 +68,12 @@ export function OrganizationSkillFiles(input: {
 					/>
 				))}
 			</ul>
+			<OrganizationSkillAddFileDialog
+				existingPaths={input.files.map((file) => file.path)}
+				onAdd={input.onAdd}
+				onOpenChange={setAddOpen}
+				open={addOpen}
+			/>
 		</section>
 	);
 }
@@ -52,6 +84,7 @@ function SkillFile(input: {
 	expanded: boolean;
 	file: OrganizationSkillFile;
 	onChange: (file: OrganizationSkillFile) => void;
+	onRemove: () => void;
 	onToggle: () => void;
 	saving: boolean;
 }) {
@@ -91,6 +124,18 @@ function SkillFile(input: {
 			</button>
 			{(input.expanded || visited) && (
 				<div className="min-w-0 pb-4" hidden={!input.expanded} id={id}>
+					{input.canEdit && (
+						<div className="flex justify-end pb-2">
+							<Button
+								disabled={input.saving}
+								onClick={input.onRemove}
+								size="sm"
+								variant="ghost"
+							>
+								<TrashIcon aria-hidden="true" /> Remove file
+							</Button>
+						</div>
+					)}
 					<SkillFileContent
 						canEdit={input.canEdit}
 						file={input.file}

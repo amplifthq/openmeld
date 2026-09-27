@@ -1,8 +1,16 @@
 import { createCoreRpcHttpError } from "../rpc/errors";
 
-const CENTER_AGENT_ORGANIZATION_SKILL_OPERATION_LEASE_MS = 5 * 60_000;
+const ORGANIZATION_SKILL_OPERATION_LEASE_MS = 5 * 60_000;
 
-export type CenterAgentOrganizationSkillOperationRecord = {
+export type OrganizationSkillOperationKind = "center_agent" | "human_import";
+
+function operationTable(kind: OrganizationSkillOperationKind): string {
+  return kind === "center_agent"
+    ? "center_agent_organization_skill_operations"
+    : "organization_skill_import_operations";
+}
+
+export type OrganizationSkillOperationRecord = {
   completedAt: number | null;
   createdAt: number;
   operationKey: string;
@@ -11,8 +19,8 @@ export type CenterAgentOrganizationSkillOperationRecord = {
   responseJson: string | null;
 };
 
-export type BeginCenterAgentOrganizationSkillOperationResult = {
-  operation: CenterAgentOrganizationSkillOperationRecord;
+export type BeginOrganizationSkillOperationResult = {
+  operation: OrganizationSkillOperationRecord;
   outcome: "claimed" | "completed_replay" | "pending_in_progress";
 };
 
@@ -35,23 +43,34 @@ export async function buildCenterAgentOrganizationSkillOperationKey(input: {
   return `center_agent_org_skill_${await sha256Hex(stableJson(input))}`;
 }
 
-export async function buildCenterAgentOrganizationSkillRequestSignature(
+export async function buildHumanOrganizationSkillImportOperationKey(input: {
+  actorProfileId: string;
+  operationId: string;
+  organizationId: string;
+  userId: string;
+}): Promise<string> {
+  return `human_org_skill_import_${await sha256Hex(stableJson(input))}`;
+}
+
+export async function buildOrganizationSkillRequestSignature(
   value: unknown
 ): Promise<string> {
   return await sha256Hex(stableJson(value));
 }
 
-export async function beginCenterAgentOrganizationSkillOperation(input: {
+export async function beginOrganizationSkillOperation(input: {
   db: D1Database;
+  kind: OrganizationSkillOperationKind;
   nowMs: number;
   operationKey: string;
   organizationId: string;
   requestSignature: string;
-}): Promise<BeginCenterAgentOrganizationSkillOperationResult> {
+}): Promise<BeginOrganizationSkillOperationResult> {
+  const table = operationTable(input.kind);
   const insert = await input.db
     .prepare(
       `
-        INSERT OR IGNORE INTO center_agent_organization_skill_operations (
+        INSERT OR IGNORE INTO ${table} (
           completed_at,
           created_at,
           operation_id,
@@ -70,6 +89,7 @@ export async function beginCenterAgentOrganizationSkillOperation(input: {
     .run();
   const operation = await requireOperation({
     db: input.db,
+    kind: input.kind,
     operationKey: input.operationKey,
     organizationId: input.organizationId,
   });
@@ -83,7 +103,7 @@ export async function beginCenterAgentOrganizationSkillOperation(input: {
   const takeover = await input.db
     .prepare(
       `
-        UPDATE center_agent_organization_skill_operations
+        UPDATE ${table}
         SET created_at = ?
         WHERE organization_id = ?
           AND operation_id = ?
@@ -97,7 +117,7 @@ export async function beginCenterAgentOrganizationSkillOperation(input: {
       input.organizationId,
       input.operationKey,
       input.requestSignature,
-      input.nowMs - CENTER_AGENT_ORGANIZATION_SKILL_OPERATION_LEASE_MS
+      input.nowMs - ORGANIZATION_SKILL_OPERATION_LEASE_MS
     )
     .run();
   if (Number(takeover.meta.changes ?? 0) !== 1) {
@@ -106,6 +126,7 @@ export async function beginCenterAgentOrganizationSkillOperation(input: {
   return {
     operation: await requireOperation({
       db: input.db,
+      kind: input.kind,
       operationKey: input.operationKey,
       organizationId: input.organizationId,
     }),
@@ -113,21 +134,23 @@ export async function beginCenterAgentOrganizationSkillOperation(input: {
   };
 }
 
-export function prepareCompleteCenterAgentOrganizationSkillOperationStatement(input: {
+export function prepareCompleteOrganizationSkillOperationStatement(input: {
   db: D1Database;
+  kind: OrganizationSkillOperationKind;
   nowMs: number;
-  operation: CenterAgentOrganizationSkillOperationRecord;
+  operation: OrganizationSkillOperationRecord;
   responseJson: string;
 }): D1PreparedStatement {
   return input.db
     .prepare(
       `
-        UPDATE center_agent_organization_skill_operations
+        UPDATE ${operationTable(input.kind)}
         SET completed_at = ?, response_json = ?
         WHERE organization_id = ?
           AND operation_id = ?
           AND request_signature = ?
           AND completed_at IS NULL
+          AND created_at = ?
       `
     )
     .bind(
@@ -135,42 +158,47 @@ export function prepareCompleteCenterAgentOrganizationSkillOperationStatement(in
       input.responseJson,
       input.operation.organizationId,
       input.operation.operationKey,
-      input.operation.requestSignature
+      input.operation.requestSignature,
+      input.operation.createdAt
     );
 }
 
-export async function deletePendingCenterAgentOrganizationSkillOperation(input: {
+export async function deletePendingOrganizationSkillOperation(input: {
   db: D1Database;
-  operation: CenterAgentOrganizationSkillOperationRecord;
+  kind: OrganizationSkillOperationKind;
+  operation: OrganizationSkillOperationRecord;
 }): Promise<void> {
   await input.db
     .prepare(
       `
-        DELETE FROM center_agent_organization_skill_operations
+        DELETE FROM ${operationTable(input.kind)}
         WHERE organization_id = ?
           AND operation_id = ?
           AND request_signature = ?
           AND completed_at IS NULL
+          AND created_at = ?
       `
     )
     .bind(
       input.operation.organizationId,
       input.operation.operationKey,
-      input.operation.requestSignature
+      input.operation.requestSignature,
+      input.operation.createdAt
     )
     .run();
 }
 
-export async function readCenterAgentOrganizationSkillOperation(input: {
+export async function readOrganizationSkillOperation(input: {
   db: D1Database;
+  kind: OrganizationSkillOperationKind;
   operationKey: string;
   organizationId: string;
-}): Promise<CenterAgentOrganizationSkillOperationRecord | null> {
+}): Promise<OrganizationSkillOperationRecord | null> {
   const row = await input.db
     .prepare(
       `
         SELECT *
-        FROM center_agent_organization_skill_operations
+        FROM ${operationTable(input.kind)}
         WHERE organization_id = ? AND operation_id = ?
         LIMIT 1
       `
@@ -180,8 +208,8 @@ export async function readCenterAgentOrganizationSkillOperation(input: {
   return row ? fromRow(row) : null;
 }
 
-export function requireCenterAgentOrganizationSkillRequestMatch(
-  operation: CenterAgentOrganizationSkillOperationRecord,
+export function requireOrganizationSkillRequestMatch(
+  operation: OrganizationSkillOperationRecord,
   requestSignature: string
 ): void {
   requireRequestMatch(operation, requestSignature);
@@ -189,18 +217,19 @@ export function requireCenterAgentOrganizationSkillRequestMatch(
 
 async function requireOperation(input: {
   db: D1Database;
+  kind: OrganizationSkillOperationKind;
   operationKey: string;
   organizationId: string;
-}): Promise<CenterAgentOrganizationSkillOperationRecord> {
-  const operation = await readCenterAgentOrganizationSkillOperation(input);
+}): Promise<OrganizationSkillOperationRecord> {
+  const operation = await readOrganizationSkillOperation(input);
   if (!operation) {
-    throw new Error("Center Agent Organization Skill operation is missing.");
+    throw new Error("Organization Skill operation is missing.");
   }
   return operation;
 }
 
 function requireRequestMatch(
-  operation: CenterAgentOrganizationSkillOperationRecord,
+  operation: OrganizationSkillOperationRecord,
   requestSignature: string
 ): void {
   if (operation.requestSignature === requestSignature) {
@@ -214,9 +243,7 @@ function requireRequestMatch(
   });
 }
 
-function fromRow(
-  row: OperationRow
-): CenterAgentOrganizationSkillOperationRecord {
+function fromRow(row: OperationRow): OrganizationSkillOperationRecord {
   return {
     completedAt: row.completed_at,
     createdAt: row.created_at,

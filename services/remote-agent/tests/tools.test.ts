@@ -6439,6 +6439,49 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         parentId: null,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: { parentId: null },
+      response: listTeamFilesResponse(),
+      rpcName: "remoteAgentListTeamFiles",
+      toolName: "openmeld_list_team_files",
+    },
+    {
+      expectedPayload: {
+        fileId: "file-1",
+        revision: 1,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: { fileId: "file-1", revision: 1 },
+      response: readTeamFileResponse(),
+      rpcName: "remoteAgentReadTeamFile",
+      toolName: "openmeld_read_team_file",
+    },
+    {
+      expectedPayload: {
+        action: "update",
+        baseRevision: 1,
+        clientMutationId: "save-team-note-r2",
+        content: "Updated team note",
+        fileId: "file-1",
+        mimeType: "text/markdown",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        action: "update",
+        baseRevision: 1,
+        clientMutationId: "save-team-note-r2",
+        content: "Updated team note",
+        fileId: "file-1",
+        mimeType: "text/markdown",
+      },
+      response: { file: teamFileDescriptor() },
+      rpcName: "remoteAgentSaveTeamFile",
+      toolName: "openmeld_save_team_file",
+    },
+    {
+      expectedPayload: {
+        parentId: null,
         requestedOriginModel: "origin_aware",
         spaceId: SPACE_ID,
       },
@@ -7540,6 +7583,34 @@ function listSpaceFilesResponse() {
 
 function readSpaceFileResponse() {
   const file = spaceFileDescriptor();
+  return {
+    content: "# Release brief\n\nDraft.",
+    file,
+    revision: file.latestRevision,
+  };
+}
+
+function teamFileDescriptor() {
+  const { spaceId: _spaceId, ...file } = spaceFileDescriptor();
+  return {
+    ...file,
+    root: { kind: "team" as const, organizationId: "org_123" },
+  };
+}
+
+function listTeamFilesResponse() {
+  return {
+    root: { kind: "team" as const, organizationId: "org_123" },
+    breadcrumbs: [{ id: null, name: "Files" }],
+    capabilities: { canRead: true as const, canWrite: true },
+    entries: [teamFileDescriptor()],
+    parentId: null,
+    view: "active" as const,
+  };
+}
+
+function readTeamFileResponse() {
+  const file = teamFileDescriptor();
   return {
     content: "# Release brief\n\nDraft.",
     file,
