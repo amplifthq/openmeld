@@ -7,7 +7,10 @@ import {
   requestRemoteAgentExecutionFailure,
 } from "../agent-core/execution-state";
 import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
-import { stopRemoteAgentComputerCommands } from "./computer-command";
+import {
+  ConfirmedLostComputerCommandsError,
+  stopRemoteAgentComputerCommands,
+} from "./computer-command";
 
 /** Shared observer/recovery gate: a stop request is not a completed cleanup. */
 export async function finishRemoteAgentComputerCommands(input: {
@@ -19,12 +22,24 @@ export async function finishRemoteAgentComputerCommands(input: {
     return;
   }
   try {
-    const unfinished = await stopRemoteAgentComputerCommands({
+    const cleanup = await stopRemoteAgentComputerCommands({
       context: input.context,
       env: input.env ?? {},
       storage: input.storage,
     });
-    if (unfinished > 0) {
+    // The command marker can survive a crash before the failure request was
+    // stored. Repair that ordering before a recovered completed output can win.
+    if (cleanup.lostDuringCleanup) {
+      await requestRemoteAgentExecutionFailure({
+        identity: buildRemoteAgentExecutionIdentity(input.context),
+        failure: createRemoteAgentTerminalFailureFact({
+          status: "failed",
+          error: new ConfirmedLostComputerCommandsError([]),
+        }),
+        storage: input.storage,
+      });
+    }
+    if (cleanup.unfinished > 0) {
       throw new Error(
         "Computer command cleanup is pending: Stop was requested but termination is not yet confirmed."
       );
