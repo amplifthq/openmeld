@@ -81,7 +81,7 @@ function footerLayout(iconOnly: boolean, isDrawer: boolean) {
 	return {
 		actionClass: cn(
 			"shrink-0 justify-center p-0 text-sidebar-foreground/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground",
-			iconOnly ? "size-9" : "size-7",
+			iconOnly ? "size-9 [&_svg]:size-[18px]" : "size-7",
 			isDrawer && "h-11 w-full justify-start gap-3 px-3"
 		),
 		actionsClassName: cn(

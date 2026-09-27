@@ -480,11 +480,13 @@ export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,
   WEB_APPLICATION_ERROR_PATH,
+  WEB_APPLICATION_REACT_UPDATE_TRACE_MAX_EVENTS,
   type WebApplicationErrorBoundary,
   type WebApplicationErrorQueryCategory,
   type WebApplicationErrorQueryDiagnostic,
   type WebApplicationErrorReport,
   type WebApplicationErrorSource,
+  type WebApplicationReactUpdateEvent,
   webApplicationErrorBoundarySchema,
   webApplicationErrorQueryCategorySchema,
   webApplicationErrorQueryCodeSchema,
@@ -493,6 +495,7 @@ export {
   webApplicationErrorRouteIdSchema,
   webApplicationErrorSourceSchema,
   webApplicationErrorSummarySchema,
+  webApplicationReactUpdateEventSchema,
 } from "./web-application-error";
 export {
   WEB_PERFORMANCE_PATH,

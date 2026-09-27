@@ -327,11 +327,23 @@ html:root [data-slot="message"] [data-slot="bubble"]:has([data-slot="space-attac
   inline-size: 100%;
 }
 
+/* Match the attachment-to-caption gap to the spacing between grouped messages.
+   The attachment rail already contributes its own 4px inset. */
+html:root [data-slot="message"] [data-slot="bubble-content"]:has(> [data-slot="space-attachment-strip"]) {
+  row-gap: 1px;
+}
+
 /* The same Appearance preference aligns text and attachments, not only their
    outer message. A short caption must not stay on the opposite side. */
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"] :is([data-slot="space-message-text-surface"], [data-slot="space-message-edited"]) {
   align-self: flex-start;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"] [data-slot="space-attachment-strip"] {
+  margin-inline-start: 0;
+  margin-inline-end: auto;
 }
 
 html[data-space-self-message-alignment="left"]
