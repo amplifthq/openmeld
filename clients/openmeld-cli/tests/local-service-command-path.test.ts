@@ -7,6 +7,28 @@ import { extractDaemonCommandEntryPath } from "../src/local-service/lifecycle/da
 
 describe("local service command path parsing", () => {
   it.each([
+    "/",
+    "\\",
+  ])("extracts a native Service bundle path using %s separators", (separator) => {
+    const entryPath = [
+      "C:",
+      "Users",
+      "fixture",
+      ".openmeld",
+      "runtime",
+      "daemon",
+      "bundles",
+      "0.3.226-fixture",
+      "openmeld.exe",
+    ].join(separator);
+    expect(
+      extractDaemonCommandEntryPath(
+        `"${entryPath}" service run --mode foreground`
+      )
+    ).toBe(entryPath);
+  });
+
+  it.each([
     "openmeld",
     "openmeld.exe",
   ])("extracts the managed %s version path before service run", (binaryName) => {
