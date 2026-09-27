@@ -3483,12 +3483,42 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				agentExecutionReadinessPendingProfileIds: new Set([AGENT_PROFILE_ID]),
 			},
 			null,
-			{ presentation: "detail" }
+			{
+				agentControllerRefByProfileId: new Map([
+					[AGENT_PROFILE_ID, "builtin:codex"],
+				]),
+				presentation: "detail",
+			}
 		);
 		expect(screen.getAllByLabelText("Loading model")).toHaveLength(2);
 		expect(
 			screen.queryByText("Codex · GPT-5.6 Sol · model default")
 		).toBeNull();
+	});
+
+	it("does not show a catalog default when the saved model cannot be confirmed", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			primaryBinding: undefined,
+			publicProfileConfiguration: undefined,
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+			},
+			null,
+			{
+				agentControllerRefByProfileId: new Map([
+					[AGENT_PROFILE_ID, "builtin:codex"],
+				]),
+				presentation: "detail",
+			}
+		);
+		expect(screen.getAllByText("Model unavailable").length).toBeGreaterThan(0);
+		expect(screen.queryByText("GPT-5.6 Sol")).toBeNull();
 	});
 
 	it("keeps self-healing readiness active without rendering controller UI", async () => {

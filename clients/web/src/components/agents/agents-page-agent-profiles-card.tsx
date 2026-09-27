@@ -3697,24 +3697,13 @@ function AgentProfileWorkspacePresentation(input: {
 		(parsedControllerRef
 			? formatLocalAgentDisplayName(parsedControllerRef.id)
 			: null);
-	const ownerControllerModelSummary =
-		resolveAgentProfileControllerModelDetail({
-			agentControllerRef: input.input.primaryAgentControllerRef,
-			controllerDisplayName,
-			modelCatalog: input.input.modelCatalog,
-			modelSelection: input.input.editState?.modelSelection
-				? {
-						modelId: input.input.editState.modelSelection.modelId,
-						reasoningLevel:
-							input.input.editState.modelSelection.reasoningLevel || undefined,
-					}
-				: (input.input.publicProfileConfiguration?.modelSelection ?? null),
-		}) ?? "No Controller connected";
+	const modelPresentation = resolveWorkspaceModelPresentation(
+		input.input,
+		controllerDisplayName
+	);
+	const ownerControllerModelSummary = modelPresentation.summary;
 	const controllerModelSummary = ownerControllerModelSummary;
-	const modelIsLoading =
-		input.input.readinessIsPending &&
-		!input.input.editState &&
-		!input.input.publicProfileConfiguration;
+	const modelIsLoading = modelPresentation.isLoading;
 	const wakeAvailabilityRecoveryActions =
 		input.input.readinessIsMissing &&
 		input.input.readinessErrorMessage ? null : (
@@ -3901,6 +3890,36 @@ function AgentProfileWorkspacePresentation(input: {
 			/>
 		</>
 	);
+}
+
+function resolveWorkspaceModelPresentation(
+	input: AgentProfileRowMoreMenuProps,
+	controllerDisplayName: string | null
+): { isLoading: boolean; summary: string } {
+	const configurationKnown =
+		input.editState !== null || input.publicProfileConfiguration !== null;
+	if (!configurationKnown && input.primaryAgentControllerRef) {
+		return {
+			isLoading: input.readinessIsPending,
+			summary: "Model unavailable",
+		};
+	}
+	return {
+		isLoading: input.readinessIsPending && !configurationKnown,
+		summary:
+			resolveAgentProfileControllerModelDetail({
+				agentControllerRef: input.primaryAgentControllerRef,
+				controllerDisplayName,
+				modelCatalog: input.modelCatalog,
+				modelSelection: input.editState?.modelSelection
+					? {
+							modelId: input.editState.modelSelection.modelId,
+							reasoningLevel:
+								input.editState.modelSelection.reasoningLevel || undefined,
+						}
+					: (input.publicProfileConfiguration?.modelSelection ?? null),
+			}) ?? "No Controller connected",
+	};
 }
 
 type AgentProfileConfigurationOverviewProps = {
