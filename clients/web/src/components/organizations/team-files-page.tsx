@@ -547,11 +547,12 @@ function TeamFilesBrowser(input: {
 			) : null}
 		</div>
 	);
-	const browserTitle =
-		view === "trash"
-			? "Trash"
-			: (files.data?.breadcrumbs.at(-1)?.name ??
-				(location === "my" ? "My files" : "Team files"));
+	let browserTitle = location === "my" ? "My files" : "Team files";
+	if (view === "trash") {
+		browserTitle = "Trash";
+	} else if (parentId) {
+		browserTitle = files.data?.breadcrumbs.at(-1)?.name ?? "Folder";
+	}
 	return (
 		// biome-ignore lint/a11y/noNoninteractiveElementInteractions: the Files surface accepts OS file drops; the New menu and empty state provide keyboard upload controls.
 		<section
@@ -642,7 +643,7 @@ function TeamFilesBrowser(input: {
 									view === "active" ? (
 										<div className="grid size-full place-items-center px-4 py-8">
 											<button
-												className="flex min-h-48 w-full max-w-lg flex-col items-center justify-center rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-8 text-center transition-colors hover:border-foreground/25 hover:bg-card/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+												className="flex min-h-48 w-full max-w-lg flex-col items-center justify-center rounded-md border border-border border-dashed bg-card/25 px-6 py-8 text-center transition-colors hover:border-foreground/40 hover:bg-card/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
 												disabled={busy}
 												onClick={() => inputRef.current?.click()}
 												type="button"
@@ -652,10 +653,13 @@ function TeamFilesBrowser(input: {
 													className="size-7 text-muted-foreground"
 												/>
 												<span className="mt-3 font-medium text-sm">
-													Drop files here or browse
+													Drop files here
 												</span>
 												<span className="mt-1 text-muted-foreground text-xs">
 													Add files to {browserTitle}.
+												</span>
+												<span className="mt-4 rounded-md border border-border bg-background px-3 py-1.5 font-medium text-xs">
+													Browse files
 												</span>
 											</button>
 										</div>
