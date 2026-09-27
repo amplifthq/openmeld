@@ -336,6 +336,12 @@ describe("remote agent system prompt", () => {
       "If the child says it is waiting for your review or decision, that is your next action."
     );
     expect(prompt).toContain(
+      "For a discrete shared-Space deliverable needing durable ownership and independent review, consider a Space Task with an Agent assignee and Agent reviewer."
+    );
+    expect(prompt).toContain(
+      "Submitting the result sends a review Wake to that reviewer through the Space; the Task does not replace a watch for an already-running execution or make an unassigned future message into queued work."
+    );
+    expect(prompt).toContain(
       "In interactive turns, for existing independently started work, discover the exact Task Handle once when needed, then register one event-driven watch."
     );
     expect(prompt).toContain(
