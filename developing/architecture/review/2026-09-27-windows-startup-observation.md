@@ -8,7 +8,7 @@
 - Do not use this for: Readiness policy, release authorization, or a claim of completed setup.
 - Source of truth: Native observer records for evidence; the local Service owner document for lifecycle rules.
 
-Status: In progress; native candidate and published Web acceptance remain pending.
+Status: Native candidate passed; published Web connection acceptance remains pending.
 
 Remove this report after the fix passes published Windows acceptance and its
 evidence and remaining limitations are retained in the closed PR and release record.
@@ -116,5 +116,24 @@ Wakeability or Web setup completion.
   the modified inventory code. This existing signing-fixture failure is not
   hidden, relaxed, or treated as passing.
 
+## Native candidate validation
+
+[Windows compatibility run 36329442890, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/36329442890)
+passed both `native-artifacts` and `native-contracts` at
+`e3d783ec55c06a55b3a4758a9240495d1c830685`. The only later changes are evidence
+documentation. The run covers the new lease transitions, native owner/path
+classification, compiled SQLite/SDK/Codex paths, the actual background Service
+and Host channel, direct GUI tasks, maintenance handoff, Windows PowerShell
+setup, and updater/signature contracts.
+
+[Native evidence and unsigned executables](https://github.com/amplifthq/openmeld/actions/runs/36329442890/artifacts/10935576562)
+are retained by GitHub for 14 days; the exact run and source identity remain
+recorded here. Local `verify:pr -- --feedback` also passed after the required
+document lifecycle metadata was added. That plan selects the unit diagnostic
+suite; integration checks were run separately as listed above.
+
 Native candidate verification and a new published-version Windows Web connection
-remain separate acceptance steps. No production success is claimed here.
+are separate acceptance steps. No production success is claimed here. After
+guarded publication, the Windows task should execute one observed public Web
+setup and verify connection persistence after closing its terminal. Only then
+test Desktop reuse. Repeating the old 0.3.227 install cannot validate this fix.
