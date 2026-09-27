@@ -8,7 +8,10 @@ import {
 } from "@flue/runtime";
 import {
   maxLength,
+  maxValue,
   minLength,
+  minValue,
+  number,
   parse,
   pipe,
   strictObject,
@@ -20,8 +23,20 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import { callCoreRpc } from "../agent-core/core-rpc";
+import { requireRemoteAgentExecutionAccess } from "../agent-core/execution-access";
+import {
+  type RemoteAgentImagePreparer,
+  understandRemoteAgentImages,
+} from "../agent-core/image-understanding";
+import type { RemoteAgentModelEnv } from "../agent-core/model";
+import {
+  mergeRemoteAgentResultSources,
+  readRemoteAgentResultSources,
+  tagRemoteAgentResultSources,
+} from "../agent-core/result-access";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import {
   type AgentComputerNamespace,
   type AgentComputerWorkspaceAccess,
@@ -33,11 +48,14 @@ import {
   materializeAgentComputerWorkspace,
 } from "./agent-computer-workspace-access";
 import { createComputerCommandTool } from "./computer-command";
+import { readComputerDataSources } from "./computer-data-sources";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { getComputerSpaceFileTools } from "./computer-space-files";
+import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
 import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
+import { getGitHubWorkingCopyTools } from "./github-working-copy-tools";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import { getOrganizationDocumentComputerToolDefinitions } from "./organization-document-computer-tools";
 import {
@@ -74,13 +92,17 @@ export function isRemoteAgentComputerEnabled(env: {
  * Both hosted roles share the same tools; computer identity sets file scope.
  */
 export async function createRemoteAgentComputerCapability(input: {
+  connectorExecution?: ConnectorExecutionConfig;
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
-  env: ComputerObservabilityEnv & {
-    AGENT_COMPUTER?: unknown;
-    BROWSER?: unknown;
-  };
+  env: ComputerObservabilityEnv &
+    RemoteAgentModelEnv & {
+      AGENT_COMPUTER?: unknown;
+      AI?: Ai;
+      BROWSER?: unknown;
+    };
   includeOrganizationDocuments: boolean;
+  prepareImage?: RemoteAgentImagePreparer;
   storage?: RemoteAgentStorage;
 }): Promise<{
   definitions: RemoteAgentToolDefinition[];
@@ -90,13 +112,30 @@ export async function createRemoteAgentComputerCapability(input: {
   >;
   sandbox: SandboxFactory;
 }> {
+  if (input.context.computerIsolationVersion !== 2) {
+    throw new Error(
+      "remote_agent.computer_scope_upgrade_required: Start a new request to use an isolated Computer. Existing commands retain their original cleanup address."
+    );
+  }
+  await requireRemoteAgentExecutionAccess(input);
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   const computerId = namespace.idFromName(
     resolveRemoteAgentComputerName(input.context)
   );
+  const dataSources = namespace.get(
+    computerId
+  ) as DurableObjectStub<AgentComputer>;
+  const readSources = () => readComputerDataSources({ dataSources });
+  const authorize = async () =>
+    await requireRemoteAgentExecutionAccess({
+      ...input,
+      sources: await readSources(),
+    });
+  await authorize();
   const workspaceAccess = createAgentComputerWorkspaceAccess({
     computerId,
     namespace,
+    authorize,
   });
   const organizationDocumentsSnapshot = input.includeOrganizationDocuments
     ? await callCoreRpc(
@@ -130,8 +169,9 @@ export async function createRemoteAgentComputerCapability(input: {
         workingDirectory: baseWorkingDirectory,
       })
     : baseWorkingDirectory;
+  const nativeApi = new AgentComputerSandboxApi(workspaceAccess);
   const api = instrumentRemoteAgentComputerSandboxApi({
-    api: new AgentComputerSandboxApi(workspaceAccess),
+    api: nativeApi,
     context: input.context,
     env: input.env,
   });
@@ -162,10 +202,34 @@ export async function createRemoteAgentComputerCapability(input: {
       input: browserInput,
       execute: async (rawInput) => {
         const { code } = parse(browserInput, rawInput);
-        return await browser.executeBrowser({ spaceId, code });
+        await authorize();
+        const result = await browser.executeBrowser({ spaceId, code });
+        await authorize();
+        return result;
+      },
+    });
+    const previewInput = strictObject({
+      port: pipe(number(), minValue(1024), maxValue(65_535)),
+      path: pipe(string(), minLength(1), maxLength(2048)),
+      expectedText: pipe(string(), minLength(1), maxLength(500)),
+    });
+    browserDefinitions.push({
+      name: "computer_preview",
+      description:
+        "Open a development server already running in this Computer's Linux container with a private one-shot browser. Provide its port, page path, and text expected after JavaScript renders. Returns the rendered text, assertion result, page status, console errors, and failed network requests. Start the server with computer_command first; no public preview URL is created.",
+      input: previewInput,
+      execute: async (rawInput) => {
+        const preview = parse(previewInput, rawInput);
+        await authorize();
+        const result = await browser.inspectPreview(preview);
+        await authorize();
+        return result;
       },
     });
   }
+  const prepareImage = input.prepareImage;
+  const videoModel = input.context.modelRoute?.imageUnderstandingModel;
+  const transcriptionAi = input.env.AI;
   return {
     definitions: [
       ...getRemoteAgentSandboxToolDefinitions({
@@ -176,6 +240,17 @@ export async function createRemoteAgentComputerCapability(input: {
       }),
       ...organizationDocumentDefinitions,
       ...browserDefinitions,
+      ...(input.storage && input.connectorExecution
+        ? getGitHubWorkingCopyTools({
+            context: input.context,
+            coreWorker: input.coreWorker,
+            connectorExecution: input.connectorExecution,
+            storage: input.storage,
+            computer: nativeApi,
+            dataSources,
+            workingDirectory,
+          })
+        : []),
       ...(input.storage
         ? [
             ...getComputerSpaceFileTools({
@@ -185,6 +260,38 @@ export async function createRemoteAgentComputerCapability(input: {
               workspaceAccess,
               workingDirectory,
             }),
+            ...(prepareImage && videoModel && transcriptionAi
+              ? [
+                  getComputerVideoInspectionTool({
+                    computerExec: (command, options) =>
+                      api.exec(command, options),
+                    understandFrames: async (frames) =>
+                      await understandRemoteAgentImages({
+                        env: input.env,
+                        images: frames,
+                        model: videoModel,
+                        organizationId: input.context.organizationId,
+                        prepareImage,
+                      }),
+                    transcribeAudio: async (bytes) => {
+                      const result = await transcriptionAi.run(
+                        "@cf/openai/whisper-large-v3-turbo",
+                        { audio: Buffer.from(bytes).toString("base64") }
+                      );
+                      if (typeof result.text !== "string") {
+                        throw new Error(
+                          "Audio transcription returned no text."
+                        );
+                      }
+                      return result.text.slice(0, 12_000);
+                    },
+                    storage: input.storage,
+                    submissionId: input.context.submissionId,
+                    workspaceAccess,
+                    workingDirectory,
+                  }),
+                ]
+              : []),
             createComputerCommandTool({
               context: input.context,
               storage: input.storage,
@@ -193,7 +300,24 @@ export async function createRemoteAgentComputerCapability(input: {
             }),
           ]
         : []),
-    ],
+    ].map((definition) => ({
+      ...definition,
+      execute: async (value, options) => {
+        const before = await readSources();
+        const result = await definition.execute(value, options);
+        const sources = mergeRemoteAgentResultSources(
+          before,
+          await readSources(),
+          readRemoteAgentResultSources(result)
+        );
+        await requireRemoteAgentExecutionAccess({ ...input, sources });
+        const tagged =
+          sources.length && (result === null || typeof result !== "object")
+            ? { result }
+            : result;
+        return tagRemoteAgentResultSources(tagged, sources);
+      },
+    })),
     fileHandoff: createReacquiringAgentComputerFileHandoff({
       workspaceAccess,
       workingDirectory,
@@ -221,25 +345,42 @@ export class AgentComputerSandboxApi implements SandboxApi {
         : createFixedAgentComputerWorkspaceAccess(workspaceOrAccess);
   }
 
-  async readFile(path: string): Promise<string> {
+  async readFile(path: string, maxBytes?: number): Promise<string> {
+    if (maxBytes !== undefined) {
+      return new TextDecoder().decode(
+        await this.readFileBuffer(path, maxBytes)
+      );
+    }
     return await this.workspaceAccess.withWorkspace(
       async (workspace) => await workspace.fs.readFile(path, "utf8")
     );
   }
 
-  async readFileBuffer(path: string): Promise<Uint8Array> {
+  async readFileBuffer(
+    path: string,
+    maxBytes = Number.POSITIVE_INFINITY
+  ): Promise<Uint8Array> {
     return await this.workspaceAccess.withWorkspace(async (workspace) => {
       const stream = await workspace.fs.readFile(path);
       const chunks: Uint8Array[] = [];
       const reader = stream.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
+      let total = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          total += value.byteLength;
+          if (total > maxBytes) {
+            await reader.cancel();
+            throw new Error("remote_agent.computer_file_too_large");
+          }
+          chunks.push(value);
         }
-        chunks.push(value);
+      } finally {
+        reader.releaseLock();
       }
-      const total = chunks.reduce((size, chunk) => size + chunk.byteLength, 0);
       const merged = new Uint8Array(total);
       let offset = 0;
       for (const chunk of chunks) {

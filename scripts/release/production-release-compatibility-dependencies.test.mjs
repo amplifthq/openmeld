@@ -355,6 +355,86 @@ test("requires every strict worker-response reader before the Remote producer", 
   );
 });
 
+test("does not invent a worker-response change for the reviewed hosted progress bridge", () => {
+  const before = [
+    "export const reasons = {",
+    '  TURN_FAILED: "remote_agent.turn.failed",',
+    "};",
+    "export const callbacks = z.union([",
+    '  z.strictObject({ kind: z.literal("text") }),',
+    "]);",
+    "",
+  ].join("\n");
+  const after = before
+    .replace(
+      '  TURN_FAILED: "remote_agent.turn.failed",\n',
+      '  TURN_OUTPUT_LIMIT_EXCEEDED: "remote_agent.turn.output_limit_exceeded",\n  TURN_FAILED: "remote_agent.turn.failed",\n'
+    )
+    .replace(
+      '  z.strictObject({ kind: z.literal("text") }),\n',
+      [
+        '  z.strictObject({ kind: z.literal("text") }),',
+        "  z.strictObject({",
+        "    ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,",
+        '    kind: z.literal("progress"),',
+        '    source: z.literal("hosted.public_progress"),',
+        "  }),",
+        "",
+      ].join("\n")
+    );
+  const changedPaths = [
+    "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+    "services/core/src/remote-agent/application/native-delivery-service.ts",
+    "services/remote-agent/.flue/agents/center-agent.ts",
+    "services/remote-agent/.flue/cloudflare.ts",
+    "services/remote-agent/flue-adapter/streaming.ts",
+  ];
+  const streamSource = [
+    'response.reasonCode === "agent_stream.invalid"',
+    "state.sequence = previousSequence",
+    "transientState.progressUnsupported = true",
+  ].join("\n");
+  const planWith = (schemaAfter, streamAfter = streamSource) =>
+    buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "b".repeat(40),
+      changedPaths,
+      readGitFile: (ref, path) => {
+        if (path.endsWith("streaming.ts")) {
+          return streamAfter;
+        }
+        return ref === "b".repeat(40) ? before : schemaAfter;
+      },
+      scope: "core,remote-agent",
+      sourceSha: "a".repeat(40),
+    });
+
+  const bridge = planWith(after);
+  assert.equal(bridge.deployOrderProfile, "remote-agent-receiver-first");
+  assert.deepEqual(bridge.deployScopeOrder, ["remote-agent", "core"]);
+  assert.deepEqual(bridge.compatibilityDependencies, [
+    ["remote-agent", "core"],
+  ]);
+  assert.equal(bridge.changedPaths.includes(changedPaths[0]), true);
+
+  const responseChange = planWith(`${after}export const newResponse = true;\n`);
+  assert.equal(
+    responseChange.compatibilityDependencies.some(
+      ([receiver, producer]) =>
+        receiver === "core" && producer === "remote-agent"
+    ),
+    true
+  );
+  const missingBridge = planWith(after, "no compatibility bridge");
+  assert.equal(
+    missingBridge.compatibilityDependencies.some(
+      ([receiver, producer]) =>
+        receiver === "core" && producer === "remote-agent"
+    ),
+    true
+  );
+});
+
 test("preserves proven retirement direction instead of reclassifying its schema", () => {
   const paths = [
     "packages/schemas/src/schemas/http/inbox.ts",

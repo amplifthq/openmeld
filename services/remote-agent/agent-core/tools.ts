@@ -33,6 +33,7 @@ import {
   CHANGELOG_ENTRY_KINDS,
   CHANGELOG_QUERY_MAX_LIMIT,
   CHANGELOG_QUERY_MAX_OFFSET,
+  CONNECTOR_SERVICES,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceResponseSchema,
   centerAgentAuthorizeAnonymousMemberToolResponseSchema,
@@ -1227,12 +1228,19 @@ const removeProjectToolInputSchema = strictObject({
   operationId: projectOperationIdToolSchema,
 });
 // Flue requires a top-level object; the shared target schema enforces the exact variant at execution.
+const pluginConnectionNavigationInputSchema = strictObject({
+  kind: literal("plugin_connection"),
+  service: picklist(CONNECTOR_SERVICES),
+  scope: picklist(["member", "shared", "choose"]),
+});
+
 const navigationActionToolInputSchema = strictObject({
   connectToUserId: optional(trimmedNonEmptyStringSchema),
   connectedComputerId: optional(trimmedNonEmptyStringSchema),
   kind: picklist([
     "computer_setup",
     "organization_app",
+    "plugin_connection",
     "project",
     "projects",
     "message_channel_identity_link",
@@ -1242,7 +1250,8 @@ const navigationActionToolInputSchema = strictObject({
   mode: optional(picklist(["reconnect", "setup", "update_service"])),
   purpose: optional(picklist(["continue_request", "optional_setup"])),
   projectId: optional(trimmedNonEmptyStringSchema),
-  service: optional(picklist(["github"])),
+  service: optional(picklist(CONNECTOR_SERVICES)),
+  scope: optional(picklist(["member", "shared", "choose"])),
   spaceId: optional(trimmedNonEmptyStringSchema),
 });
 const identityRequiredActionToolInputSchema = strictObject({
@@ -1984,6 +1993,7 @@ async function mutateSpaceTaskFromTool(input: {
 
 type RemoteAgentOpenMeldToolDefinitionsInput = {
   agentActivityReadEnabled?: boolean;
+  personalAgent?: boolean;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;
   connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
@@ -2001,6 +2011,9 @@ type RemoteAgentOpenMeldToolDefinitionsInput = {
 export function getRemoteAgentOpenMeldToolDefinitions(
   input: RemoteAgentOpenMeldToolDefinitionsInput
 ): RemoteAgentOpenMeldToolDefinition[] {
+  const navigationInput = input.personalAgent
+    ? pluginConnectionNavigationInputSchema
+    : navigationActionToolInputSchema;
   const organizationMemberSpeaker =
     resolveOrganizationMemberTurnEnvelopeSpeaker(
       input.turnEnvelope ?? undefined
@@ -2107,9 +2120,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     }),
     toolDefinition({
       name: "openmeld_get_navigation_action",
-      description:
-        "Record and return one trusted OpenMeld action for the final reply. Call this only when the user explicitly asked to open the exact destination or opening it is the one concrete next step required to advance the current request. Reading, listing, or changing a routable resource is not by itself a reason to present an action. Use this for computer setup or recovery, GitHub access, the Projects page, one Project, or one Space. For a connected Slack, Lark, or Feishu member whose requested action is blocked on personal OpenMeld access, first call openmeld_require_identity_for_action, then read the Organization directory. If the current provider name and available email clearly identify exactly one member, copy that directory userId into connectToUserId; otherwise omit it. Then use kind message_channel_identity_link with purpose continue_request. Use purpose optional_setup only when the participant explicitly asks to connect this provider account, never as an unsolicited suggestion after successful work. The action connects or sets up the account and continues the same request, so never tell the member to find an admin, request an invite link, mention the Center Agent again, or repeat the request. Never invent a userId or construct an OpenMeld link.",
-      input: navigationActionToolInputSchema,
+      description: input.personalAgent
+        ? "Offer the existing Plugin connection form when the member requests setup or a needed connection blocks the current task. Use the exact supported service and preserve the requested member/shared identity; choose is only for setup without an identity requirement. The member authorizes through the existing Web form. This action grants no provider or Agent access, starts no authorization, and does not automatically resume work. Never provide credentials or construct an authorization URL."
+        : "Record and return one trusted OpenMeld action for the final reply. Call this only when the user explicitly asked to open the exact destination or opening it is the one concrete next step required to advance the current request. Reading, listing, or changing a routable resource is not by itself a reason to present an action. Use this for computer setup or recovery, Plugin connection, the Projects page, one Project, or one Space. For a Plugin, use kind plugin_connection, an exact supported service, and scope member, shared, or choose. Preserve an explicit personal or organization identity; choose is only for setup without an identity requirement. The member opens the existing connection form in the conversation; the current account and server decide its permitted options. This action does not authorize a provider, grant Agent access, or automatically resume work. Never put credentials or an authorization URL in the input. For a connected Slack, Lark, or Feishu member whose requested action is blocked on personal OpenMeld access, first call openmeld_require_identity_for_action, then read the Organization directory. If the current provider name and available email clearly identify exactly one member, copy that directory userId into connectToUserId; otherwise omit it. Then use kind message_channel_identity_link with purpose continue_request. Use purpose optional_setup only when the participant explicitly asks to connect this provider account, never as an unsolicited suggestion after successful work. That identity-link action connects or sets up the account and continues the same request, so never tell the member to find an admin, request an invite link, mention the Center Agent again, or repeat the request. Never invent a userId or construct an OpenMeld link.",
+      input: navigationInput,
       execute: async (payload) => {
         const toolContext = await buildRemoteAgentToolContext({
           storage: input.storage,
@@ -2118,7 +2132,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         });
         const { turnEnvelope } = toolContext;
         const parsedTarget = openMeldNavigationTargetSchema.parse(
-          parseValibot(navigationActionToolInputSchema, payload)
+          parseValibot(navigationInput, payload)
         );
         if (
           parsedTarget.kind === "slack_identity_link" ||
@@ -2133,6 +2147,29 @@ export function getRemoteAgentOpenMeldToolDefinitions(
               toolContext,
             });
           return navigation;
+        }
+        if (
+          parsedTarget.kind === "plugin_connection" &&
+          turnEnvelope?.sender.kind === "member" &&
+          !turnEnvelope.sender.verified &&
+          turnEnvelope.sender.messageChannelIdentity
+        ) {
+          await recordRemoteAgentAnonymousIdentityBoundary({
+            requestedAction: `Connect ${parsedTarget.service} and continue this request`,
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_get_navigation_action",
+          });
+          return await executeMessageChannelIdentityNavigationAction({
+            coreWorker: input.coreWorker,
+            parsedTarget: {
+              kind: "message_channel_identity_link",
+              purpose: "continue_request",
+            },
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolContext,
+          });
         }
         const organizationWebUrl = turnEnvelope?.organization.webUrl;
         if (!organizationWebUrl) {

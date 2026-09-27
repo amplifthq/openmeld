@@ -1,3 +1,4 @@
+import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import type {
   RuntimeTransportDeliverDispatchRequest,
   SpaceMessageAttachment,
@@ -324,7 +325,7 @@ describe("parseDispatchTask", () => {
       revision: 1,
       name: `screen-${index + 1}.png`,
       mimeType: "image/png",
-      sizeBytes: 250 * 1024 * 1024,
+      sizeBytes: SPACE_FILE_MAX_SIZE_BYTES,
     }));
     const parsed = parseDispatchTask({
       deliverRequest: createDeliverRequest({

@@ -148,12 +148,18 @@ async function prepareCenterAgentRender() {
     createSandbox: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
+      executionContext.computerIsolationVersion === 2 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
+            connectorExecution: {
+              baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+              runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+            },
             context: executionContext,
             coreWorker,
             env,
             storage,
+            prepareImage: prepareImageForContext,
             includeOrganizationDocuments:
               runtimeContextPlan.includeOrganizationDocuments,
           })
@@ -649,6 +655,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         const request = remoteAgentWorkerCancellationRequestSchema.parse(input);
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const cancellation = await cancelFlueRemoteAgentExecution({
+          scheduleReconciliation: () => this.armRemoteAgentCallbackRetry(),
           abortSubmission: async () => {
             const abort = await abortFlueCenterAgentSubmission({
               conversationId: buildRemoteAgentName(request),
@@ -684,7 +691,6 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
             submissionId: request.submissionId,
           });
         }
-        await this.armRemoteAgentCallbackRetry();
         return cancellation.response;
       }
 

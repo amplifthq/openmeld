@@ -467,13 +467,17 @@ function useDirectoryMembersOverviewModel(
 		});
 	const messageChannelsStatus =
 		resolveDirectoryProjectionStatus(messageChannelsQuery);
-	const computerGroups = resolveOrganizationComputerGroups({
-		currentComputerServiceState: currentComputerServiceProjection.serviceState,
-		currentUserId: input.currentUserId,
-		directory: input.directoryQuery.data ?? null,
-		organizationComputers,
-		ownedComputers: input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
-	});
+	const { computerGroups, strictComputerGroups } =
+		resolveDirectoryComputerGroups({
+			currentComputerServiceState:
+				currentComputerServiceProjection.serviceState,
+			currentUserId: input.currentUserId,
+			directory: input.directoryQuery.data ?? null,
+			organizationComputers: computersQuery.data ?? null,
+			ownedComputers:
+				input.recovery.localRuntimesQuery.data?.localRuntimes ?? [],
+			strictOrganizationComputers: organizationComputers,
+		});
 	const memberRows = isPersonalWorkspace
 		? buildPersonalHumanProfileRows({
 				agentProfileSummaries: buildDirectoryAgentProfilesByOwner({
@@ -495,7 +499,7 @@ function useDirectoryMembersOverviewModel(
 				agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 				canManageConnectedAccounts,
 				canManageMessageChannels,
-				computerGroups,
+				computerGroups: strictComputerGroups,
 				computersStatus,
 				currentUserComputersStatus: currentComputerServiceProjection.status,
 				currentUserId: input.currentUserId,
@@ -582,6 +586,7 @@ function useDirectoryMembersOverviewModel(
 			researchErrorMessage: researchErrors.section,
 			selectedProfileId,
 			state: profilesViewState,
+			strictComputerGroups,
 		};
 	return {
 		invitationAccess: resolveDirectoryInvitationAccess({
@@ -595,6 +600,26 @@ function useDirectoryMembersOverviewModel(
 		organization: input.currentOrganization,
 		workspaceProps,
 	};
+}
+
+function resolveDirectoryComputerGroups(
+	input: Parameters<typeof resolveOrganizationComputerGroups>[0] & {
+		strictOrganizationComputers: ReturnType<
+			typeof resolveCurrentOrganizationComputersProjection
+		>["data"];
+	}
+) {
+	// Read-only Agent logos retain the last success; status and detail actions
+	// use only the current projection when the latest request fails.
+	const computerGroups = resolveOrganizationComputerGroups(input);
+	const strictComputerGroups =
+		input.organizationComputers === input.strictOrganizationComputers
+			? computerGroups
+			: resolveOrganizationComputerGroups({
+					...input,
+					organizationComputers: input.strictOrganizationComputers,
+				});
+	return { computerGroups, strictComputerGroups };
 }
 
 function DirectoryMembersOverviewView(input: {

@@ -267,8 +267,8 @@ test("only deleting ordinary non-main branches skips release verification", () =
   );
 });
 
-test("empty or malformed hook input fails safe to strict verification", () => {
-  assert.equal(resolvePrePushReleaseMode(""), "strict");
+test("empty pushes skip verification while malformed hook input fails safe", () => {
+  assert.equal(resolvePrePushReleaseMode(""), "skip");
   assert.equal(resolvePrePushReleaseMode("not a push ref line"), "strict");
 });
 

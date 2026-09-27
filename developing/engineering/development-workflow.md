@@ -412,12 +412,20 @@ commands when multiple worktrees need live localhost stacks at the same time:
 | `pnpm dev:isolated --test-scheduled` | Legacy isolated stack that also prints its loopback-only Routine scheduler trigger. |
 | `pnpm dev:web:isolated` | Legacy low-level Web attachment for checkouts that still use local environment files. |
 
-For isolated Plugin UI acceptance, `OPENMELD_DEV_PLUGIN_FIXTURE_URL` can point
-Gateway at a compatible local provider simulator. It accepts only an
-`http://127.0.0.1` origin and uses the fixed non-secret `local-plugin-fixture`
-token, never the real OpenConnector administration credential. Keep simulator
-state disposable and make simulated authorization explicit. This option does
-not simulate Remote Agent tool execution or establish a real provider connection.
+For isolated Plugin acceptance, set `OPENMELD_DEV_PLUGIN_FIXTURE_URL` in the
+same worktree lane to a compatible disposable provider simulator. The launcher
+routes both Gateway and Remote Agent to that exact `http://127.0.0.1` origin,
+with the non-secret `local-plugin-fixture` administration/runtime token in both
+build/child environments and explicit Wrangler runtime overrides. A present but
+empty, non-loopback or non-origin value stops startup; it never falls back to
+production. An absent switch preserves ordinary approved development behavior.
+
+The simulator must implement the API/runtime actions being tested; the switch
+only isolates connector routing, not the model gateway or all external network
+access. Check the running Gateway and Remote Agent settings before any Plugin
+action, keep simulator state disposable and label simulated authorization as
+such. This does not establish a real provider connection or replace approved
+GitHub/Slack/Feishu/Lark resources for actual end-to-end acceptance.
 
 For normal localhost development, use two terminals in the same worktree:
 
@@ -859,8 +867,8 @@ Canonical command families:
 - repository gates: `verify:pre-push:checks`, `verify:release-ready`,
   `verify:pr`, and `verify:pr:full`.
 
-Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.43.0;
-`@flue/vite@2.0.3` requires Vite 8. Web and Desktop retain their independently
+Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.54.6;
+`@flue/vite@2.1.0` requires Vite 8. Web and Desktop retain their independently
 validated Vite 7 builds. Root Sherif configuration allows only those exact
 Remote Agent build dependency versions to differ; it does not disable the
 dependency rule or exempt a package. Reassess these version-specific entries
@@ -1172,6 +1180,31 @@ transport; it adds no cloud-to-Service frame or shared schema field.
 - Rollback removes the local live-update capability and returns to the previous
   future-work-only behavior. It must not rewrite Binding state, active Wake
   state, or pending Agent Interactions.
+
+### Local Installation Recovery Contract Impact Audit
+
+- Boundaries: Codex host-app discovery and persisted launch reconciliation,
+  additive optional ACI `launch.failureReason`, and Web installation controls.
+  The raw message/path privacy boundary remains unchanged. Setup, Wake frames,
+  Space actions, status, trace, and self-rescue commands retain their contracts.
+- Publish schema consumers before the Service emits the optional reason. Old
+  Services omit it; new Web retains generic repair guidance. Old cloud uses a
+  strict snapshot schema and must be upgraded before the new producer. Rollback
+  must retain the additive schema reader while new Services remain connected.
+- The Service contract advances to
+  `openmeld-service-contract-2026-09-local-install-recovery-v1`. The release
+  owner must stamp Service **required**: old carriers retain a disappeared Codex
+  App executable and cannot recover the affected Wake path. Use the existing
+  required-update floor and automatic updater, preserving accepted work and
+  self-rescue. Do not invent a separate connection reset or rollout mechanism.
+- CLI commands remain compatible; stamp CLI **available** unless another change
+  in the release requires a higher floor. Feature branches leave release version
+  and manifest untouched. The clean release PR stamps the exact post-merge
+  artifact and publishes CLI/Service before Core advertises its required floor.
+- Cursor keeps its provider-owned relocation rule. Other providers share stable
+  entrypoint preservation, typed file-failure diagnostics, and owner selection
+  even with one alternative. Node-version or package-channel changes do not
+  authorize silently adopting a different installation.
 
 ### Safe Local Agent Installation Selection Contract Impact Audit
 

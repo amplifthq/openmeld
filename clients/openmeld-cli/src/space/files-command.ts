@@ -6,6 +6,7 @@ import {
   isSpaceFileTextEditable,
   resolveSpaceFileMimeType,
   SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
 } from "@openmeld/schemas";
 import type {
   ListSpaceFilesResponse,
@@ -660,7 +661,9 @@ function normalizeFolderId(value: string | undefined): string | null {
 async function readLocalFile(path: string): Promise<Blob> {
   const bytes = await openAsBlob(path);
   if (bytes.size > SPACE_FILE_MAX_SIZE_BYTES) {
-    throw new Error("Space files must be 250 MiB or smaller.");
+    throw new Error(
+      `Space files must be ${SPACE_FILE_MAX_SIZE_BYTES / (1024 * 1024)} MiB or smaller.`
+    );
   }
   return bytes;
 }
@@ -683,8 +686,10 @@ async function resolveContentBytes(input: {
   for await (const chunk of process.stdin) {
     const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
     total += bytes.byteLength;
-    if (total > SPACE_FILE_MAX_SIZE_BYTES) {
-      throw new Error("Space files must be 250 MiB or smaller.");
+    if (total > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
+      throw new Error(
+        `Standard input is limited to ${SPACE_FILE_RAW_UPLOAD_MAX_BYTES / (1024 * 1024)} MiB. Use --file for larger files.`
+      );
     }
     chunks.push(bytes);
   }

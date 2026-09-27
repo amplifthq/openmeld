@@ -196,7 +196,38 @@ describe("remote agent callback context", () => {
     });
   });
 
-  it("shortens oversized assistant text explicitly at the callback boundary", () => {
+  it("publishes Plugin setup to old Core as text rather than an unknown navigation discriminator", () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    if (!context.turnEnvelope) {
+      throw new Error("fixture requires a turn envelope");
+    }
+    context.turnEnvelope.organization.webUrl =
+      "https://openmeld.example/o/acme";
+    context.pluginConnectionTarget = {
+      kind: "plugin_connection",
+      service: "github",
+      scope: "shared",
+    };
+    const callback = buildRemoteAgentCoreCallbackBody({
+      context,
+      text: "Organization access is required.",
+    });
+    expect(callback).not.toHaveProperty("navigationTarget");
+    if (!("text" in callback)) {
+      throw new Error("Expected a successful reply callback");
+    }
+    expect(callback.text).toBe(
+      "Organization access is required.\n\n[Open Plugin connection](https://openmeld.example/o/acme/plugins/github?scope=organization#openmeld-plugin-connection)"
+    );
+    expect(callback.triggerMessageId).toBe(request.triggerMessageId);
+  });
+
+  it("preserves the explicit oversized assistant text marker at the callback boundary", () => {
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
       ack: ACK,

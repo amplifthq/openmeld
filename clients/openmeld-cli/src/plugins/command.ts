@@ -78,6 +78,11 @@ export async function runPluginCommand(input: {
 }
 
 function renderPluginResponse(response: PluginActionResponse) {
+  if (response.kind === "connection_guidance") {
+    outLine(response.replyText);
+    outLine(response.message);
+    return;
+  }
   if (response.kind === "connections") {
     if (response.connections.length === 0) {
       outLine(
@@ -109,6 +114,12 @@ function renderPluginResponse(response: PluginActionResponse) {
     );
     return;
   }
+  renderPluginExecution(response);
+}
+
+function renderPluginExecution(
+  response: Extract<PluginActionResponse, { kind: "execution" }>
+) {
   outLine(
     `${response.status}${response.replayed ? " (previously recorded; not executed again)" : ""} · ${response.operationId}`
   );

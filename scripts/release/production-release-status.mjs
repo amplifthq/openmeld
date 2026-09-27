@@ -10,7 +10,10 @@ import {
   buildTrustedGitHubRepositoryUrl,
   createTrustedGitEnvironment,
 } from "../ci/trusted-git-network.mjs";
-import { buildProductionReleasePlan } from "./production-release.mjs";
+import {
+  buildProductionReleasePlan,
+  resolveAutomaticReleaseScopes,
+} from "./production-release.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
 import {
   RELEASE_SCOPES,
@@ -25,7 +28,7 @@ const execFileAsync = promisify(execFile);
 const CHECKOUT_SOURCE_REGEX =
   /git log -1 --format=%H[^\r\n]*\r?\n[^\r\n]*\b([0-9a-f]{40})\b/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
-const RELEASE_JOB_BATCH_SIZE = 6;
+const RELEASE_JOB_BATCH_SIZE = 16;
 const RELEASE_TITLE_SOURCE_REGEX = /@ ([0-9a-f]{40})$/u;
 const SCOPED_RELEASE_WORKFLOW_REGEX = /Scoped Production Release/u;
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
@@ -450,6 +453,13 @@ function describeReleaseComponent(input) {
     }
     plansByBase.set(releaseSource.sha, entry);
   }
+  entry = resolveDatabaseHistoricalPlan({
+    adapters,
+    entry,
+    releaseSource,
+    scope,
+    sourceSha,
+  });
   if (entry.error) {
     return unknown(
       `${entry.error} Current release contracts rejected this historical baseline. Use current-main guarded tooling for an evidence-backed forward fix, or the documented same-source recovery path when its retained receipt qualifies; never run older release guards or bypass the receipt.`
@@ -469,6 +479,26 @@ function describeReleaseComponent(input) {
     scope,
     state: entry.plan.scopes.includes(scope) ? "pending" : "current",
   };
+}
+
+function resolveDatabaseHistoricalPlan(input) {
+  if (!(input.entry.error && input.scope === "db")) {
+    return input.entry;
+  }
+  try {
+    // A successful Database receipt does not depend on whether unrelated
+    // historical Worker contracts can still compose into one release plan.
+    return {
+      plan: input.adapters.buildDatabaseStatusPlan({
+        base: input.releaseSource.sha,
+        sourceSha: input.sourceSha,
+      }),
+    };
+  } catch {
+    // Preserve the original historical planning error when even the
+    // Database-specific diff cannot be established.
+    return input.entry;
+  }
 }
 
 function resolveCompatibilityReceiverWitnessEvidence(input) {
@@ -965,6 +995,20 @@ function defaultAdapters() {
         scope: "auto",
         sourceSha,
       }),
+    buildDatabaseStatusPlan: ({ base, sourceSha }) => {
+      const changedPaths = splitLines(
+        runGit(["diff", "--name-only", `${base}...${sourceSha}`])
+      );
+      return {
+        changedPaths,
+        compatibilityDependencies: [],
+        compatibilityReceiverWitnesses: [],
+        scopes: resolveAutomaticReleaseScopes({
+          affectedPackages: [],
+          changedPaths,
+        }).filter((scope) => scope === "db"),
+      };
+    },
     compareGitPathContents,
     readPushChecks: async (repo, sourceSha) =>
       (

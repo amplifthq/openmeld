@@ -44,15 +44,16 @@ export function resolveCurrentOrganizationComputersProjection(input: {
 	data: OrganizationComputersResponse | undefined;
 	isError: boolean;
 	isPending: boolean;
-	isStale: boolean;
 }): {
 	data: OrganizationComputersResponse | null;
 	status: DirectoryProjectionStatus;
 } {
 	let status: DirectoryProjectionStatus = "ready";
+	// Query staleness starts a refresh; the last successful read remains the
+	// display projection until a newer read or an actual request failure arrives.
 	if (input.isPending) {
 		status = "loading";
-	} else if (input.isError || input.isStale) {
+	} else if (input.isError) {
 		status = "failed";
 	}
 	return {

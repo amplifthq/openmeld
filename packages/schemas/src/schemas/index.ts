@@ -51,9 +51,11 @@ export {
   spaceFileStreamOptionsSchema,
 } from "./http/space-file-stream";
 export {
+  SPACE_FILE_UPLOAD_MAX_PARTS,
   SPACE_FILE_UPLOAD_PART_BYTES,
   SPACE_FILE_UPLOAD_TTL_MS,
   spaceFileUploadCommandSchema,
+  spaceFileUploadIdForMutation,
   spaceFileUploadMetadataSchema,
   spaceFileUploadPartSchema,
   spaceFileUploadResponseSchema,
@@ -68,6 +70,7 @@ export {
   generateCenterAgentSessionTitleInputSchema,
   generateCenterAgentSessionTitleResponseSchema,
 } from "./runtime/center-agent-session-title";
+export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-history";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
@@ -2503,6 +2506,8 @@ export {
   postSpaceWakeStopBodySchema,
   postSpaceWakeStopInputSchema,
   postSpaceWakeStopResponseSchema,
+  spaceWakeStopIntentQuerySchema,
+  spaceWakeStopIntentResponseSchema,
   spaceWakeStopSelectorSchema,
 } from "./http/space-wake-stop";
 export {
@@ -2828,7 +2833,11 @@ export {
   wakeDeviceWaitSchema,
   wakeDeviceWaitTargetSchema,
 } from "./protocol/wake-device-wait";
-export { agentComputerBrowserRequestSchema } from "./runtime/agent-computer-browser";
+export {
+  agentComputerBrowserRequestSchema,
+  agentComputerPreviewRequestSchema,
+  agentComputerPreviewRoutePropsSchema,
+} from "./runtime/agent-computer-browser";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,

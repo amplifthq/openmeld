@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
@@ -44,6 +45,8 @@ export type OpenMeldVersionStateV1 = {
   // (`openmeld.minRequiredCliVersion` on the npm `latest` manifest). Cached so the
   // forced-update gate can read it without a network probe on every command.
   required_floor?: string | null;
+  // Cache identity only; the managed installation owns channel selection.
+  release_source?: string;
   updated_at: string;
 };
 
@@ -86,15 +89,28 @@ export async function readVersionState(): Promise<OpenMeldVersionStateV1 | null>
         ? null
         : toNonEmptyString(parsed.dismissed_version);
     const requiredFloor = parseStoredRequiredFloor(parsed.required_floor);
+    const releaseSource = toNonEmptyString(parsed.release_source);
+    const selectedSource = currentReleaseSource();
+    const sourceMatches = releaseSource
+      ? releaseSource === selectedSource
+      : selectedSource === "npm" ||
+        selectedSource === binaryReleaseSource(DEFAULT_CLI_BINARY_MANIFEST_URL);
     const next: OpenMeldVersionStateV1 = {
       v: 1,
       ...(lastVersion ? { last_version: lastVersion } : {}),
-      ...(latestVersion ? { latest_version: latestVersion } : {}),
-      ...(lastCheckedAt ? { last_checked_at: lastCheckedAt } : {}),
-      ...(dismissedVersion === undefined
+      ...(sourceMatches && latestVersion
+        ? { latest_version: latestVersion }
+        : {}),
+      ...(sourceMatches && lastCheckedAt
+        ? { last_checked_at: lastCheckedAt }
+        : {}),
+      ...(!sourceMatches || dismissedVersion === undefined
         ? {}
         : { dismissed_version: dismissedVersion }),
-      ...(requiredFloor === undefined ? {} : { required_floor: requiredFloor }),
+      ...(sourceMatches && requiredFloor !== undefined
+        ? { required_floor: requiredFloor }
+        : {}),
+      ...(releaseSource ? { release_source: releaseSource } : {}),
       updated_at: parsed.updated_at,
     };
     return next;
@@ -121,6 +137,7 @@ export function createInitialVersionState(input: {
     latest_version: input.currentVersion,
     last_checked_at: checkedAt,
     dismissed_version: null,
+    release_source: currentReleaseSource(),
     updated_at: checkedAt,
   };
 }
@@ -184,6 +201,7 @@ export function buildNextVersionState(input: {
     dismissed_version:
       input.dismissedVersion ?? input.previous?.dismissed_version ?? null,
     ...(requiredFloor ? { required_floor: requiredFloor } : {}),
+    release_source: currentReleaseSource(),
     updated_at: checkedAt,
   };
 }
@@ -352,9 +370,22 @@ async function requestLatestPackageInfo(
 // registry. The gate logic (floorBreached) is unchanged; only the data source
 // differs. The URL is a production Web route; override with
 // OPENMELD_CLI_BINARY_MANIFEST_URL for non-prod lanes.
+const DEFAULT_CLI_BINARY_MANIFEST_URL = "https://openmeld.ai/cli/manifest.json";
 const CLI_BINARY_MANIFEST_URL =
   toNonEmptyString(process.env.OPENMELD_CLI_BINARY_MANIFEST_URL) ??
-  "https://openmeld.ai/cli/manifest.json";
+  DEFAULT_CLI_BINARY_MANIFEST_URL;
+
+function currentReleaseSource(): string {
+  return isBinaryDistribution()
+    ? binaryReleaseSource(CLI_BINARY_MANIFEST_URL)
+    : "npm";
+}
+
+function binaryReleaseSource(url: string): string {
+  // Cache keys must distinguish channels without persisting custom URLs that
+  // might contain credentials in a development environment.
+  return `binary:${createHash("sha256").update(url).digest("hex")}`;
+}
 
 async function requestLatestPackageInfoFromCliManifest(): Promise<PackageLatestInfo> {
   const manifest = await requestCliBinaryManifest();

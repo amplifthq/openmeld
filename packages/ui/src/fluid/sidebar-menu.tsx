@@ -56,6 +56,8 @@ type MenuAppearance = {
   activeIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
   focusIndicatorClassName?: string;
+  /** Keep the full row interactive while drawing its indicators around a child. */
+  indicatorTargetSelector?: string;
 };
 
 type MenuScopeValue = {
@@ -197,6 +199,7 @@ function useMenuScope(
     activeIndicatorClassName,
     hoverIndicatorClassName,
     focusIndicatorClassName,
+    indicatorTargetSelector,
   }: MenuAppearance = {}
 ): MenuScope {
   const reduceMotion = useReducedMotion();
@@ -332,12 +335,28 @@ function useMenuScope(
       if (!rect) {
         return null;
       }
+      if (indicatorTargetSelector) {
+        const button = rowButton(row);
+        const target = button?.querySelector<HTMLElement>(
+          indicatorTargetSelector
+        );
+        if (button && target) {
+          const buttonBounds = button.getBoundingClientRect();
+          const targetBounds = target.getBoundingClientRect();
+          return {
+            left: rect.left + targetBounds.left - buttonBounds.left,
+            top: rect.top + targetBounds.top - buttonBounds.top,
+            width: targetBounds.width,
+            height: targetBounds.height,
+          };
+        }
+      }
       const height = row.hasAttribute("data-fluid-nav-value")
         ? rect.height
         : Math.min(rect.height, rowButton(row)?.offsetHeight ?? 48);
       return { ...rect, height };
     },
-    [itemRects, rowButton]
+    [indicatorTargetSelector, itemRects, rowButton]
   );
 
   // While a popup anchored in the sidebar is open (a row action's or the
@@ -702,6 +721,7 @@ const SidebarMenu = forwardRef<HTMLUListElement, SidebarMenuProps>(
       activeIndicatorClassName,
       hoverIndicatorClassName,
       focusIndicatorClassName,
+      indicatorTargetSelector,
       ...props
     },
     ref
@@ -714,6 +734,7 @@ const SidebarMenu = forwardRef<HTMLUListElement, SidebarMenuProps>(
         activeIndicatorClassName,
         hoverIndicatorClassName,
         focusIndicatorClassName,
+        indicatorTargetSelector,
       }
     );
 

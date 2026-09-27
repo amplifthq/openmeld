@@ -381,6 +381,9 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     triggerMessageId: text("trigger_message_id").notNull(),
     sourceClientMessageId: text("source_client_message_id"),
     triggerText: text("trigger_text"),
+    // Private source proof / selected account for Plugin continuation. The
+    // native delivery retains sole ownership of execution and retention.
+    pluginConnectionMetadataJson: text("plugin_connection_metadata_json"),
     routineRunId: text("routine_run_id"),
     routineNameSnapshot: text("routine_name_snapshot"),
     workerSubmitRequestJson: text("worker_submit_request_json"),
@@ -418,6 +421,9 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
       "provider_progress_claim_expires_at_ms"
     ),
     providerProgressCardId: text("provider_progress_card_id"),
+    providerProgressCardHistoryJson: text(
+      "provider_progress_card_history_json"
+    ),
     providerProgressMessageId: text("provider_progress_message_id"),
     providerProgressPublicationIdempotencyKey: text(
       "provider_progress_publication_idempotency_key"

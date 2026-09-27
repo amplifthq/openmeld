@@ -3,18 +3,47 @@ import {
   fauxProvider,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { defineTool, setProvider, useModel, useTool } from "@flue/runtime";
 import {
+  defineTool,
+  observe,
+  setProvider,
+  useModel,
+  useTool,
+} from "@flue/runtime";
+import {
+  agentStreamPath,
   createCloudflareAgentRuntime,
   createFlueContext,
   resolveModel,
 } from "@flue/runtime/internal";
 import { sqlite } from "@flue/runtime/node";
 import { object } from "valibot";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createRemoteAgentCallbackContext,
+  listRemoteAgentUsageRecords,
+  putRemoteAgentCallbackContext,
+  readRemoteAgentCallbackContext,
+} from "../agent-core/callback-context";
+import { initializeRemoteAgentExecutionState } from "../agent-core/execution-state";
+import { normalizeFluePromptUsage } from "../agent-core/usage";
+import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
+import { createSubmitTurnRequest } from "./fixtures";
+import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("Flue Cloudflare execution boundary", () => {
   it("recovers interrupted model work without repeating a recorded external action", async () => {
+    let recordedUsage: unknown;
+    const unsubscribe = observe((event) => {
+      if (
+        event.type === "operation" &&
+        event.operationKind === "prompt" &&
+        !event.isError &&
+        event.submissionId === "running"
+      ) {
+        recordedUsage = event.usage;
+      }
+    });
     const provider = fauxProvider({
       provider: "cf-recovery",
       tokensPerSecond: Number.POSITIVE_INFINITY,
@@ -106,6 +135,9 @@ describe("Flue Cloudflare execution boundary", () => {
       expect(
         await stores.submissionStore.getSubmission("running")
       ).toMatchObject({ status: "running" });
+      expect(
+        await runtime.readSubmission(first.instance, "running")
+      ).not.toHaveProperty("completedOutput");
       provider.setResponses([
         (context) => {
           expect(JSON.stringify(context.messages)).toContain("receipt-1");
@@ -124,16 +156,104 @@ describe("Flue Cloudflare execution boundary", () => {
       ).toBeUndefined();
       expect(actionCount).toBe(1);
       const settled = await stores.submissionStore.getSubmission("running");
+      const streamPath = agentStreamPath("center-agent-v2", "session");
+      const streamBeforeRead =
+        await stores.conversationStreamStore.getMeta(streamPath);
+      const projection = await runtime.readSubmission(
+        replacement.instance,
+        "running"
+      );
+      expect(projection?.completedOutput).toMatchObject({
+        submissionId: "running",
+        text: "The action is recorded as receipt-1.",
+        model: { id: model.id, provider: model.provider },
+        usage: recordedUsage,
+      });
+      expect(recordedUsage).toBeDefined();
+      expect(await stores.conversationStreamStore.getMeta(streamPath)).toEqual(
+        streamBeforeRead
+      );
+      expect(
+        await runtime.readSubmission(replacement.instance, "missing")
+      ).toBeNull();
+
+      // No application completion observer ran. Simulate its durable
+      // admission records surviving a crash after canonical Flue completion.
+      const storage = new InMemoryDurableObjectStorage();
+      const request = createSubmitTurnRequest();
+      const identity = {
+        idempotencyKey: request.idempotencyKey,
+        organizationId: request.organizationId,
+        spaceId: request.spaceId,
+        submissionId: "running",
+        v: 1 as const,
+      };
+      await initializeRemoteAgentExecutionState({
+        identity,
+        acceptedAtMs: Date.now(),
+        storage,
+      });
+      await putRemoteAgentCallbackContext(
+        storage,
+        createRemoteAgentCallbackContext({
+          request,
+          nowMs: Date.now(),
+          ack: {
+            accepted: true,
+            createdAt: Date.now(),
+            idempotencyKey: request.idempotencyKey,
+            requestId: "running",
+            submissionId: "running",
+            status: "pending",
+          },
+        })
+      );
+      const completeRemoteAgentSubmission = vi.fn().mockResolvedValue({
+        status: "accepted",
+        publishedSignalId: "recovered-canonical-answer",
+      });
+      for (let repeat = 0; repeat < 3; repeat += 1) {
+        await expect(
+          reconcileRemoteAgentExecution({
+            identity,
+            storage,
+            coreWorker: { completeRemoteAgentSubmission },
+            readSubmission: (id) =>
+              runtime.readSubmission(replacement.instance, id),
+          })
+        ).resolves.toMatchObject({
+          status: "found",
+          execution: { status: "completed" },
+        });
+      }
+      expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+      expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: "The action is recorded as receipt-1.",
+          submissionId: "running",
+        })
+      );
+      expect(
+        await readRemoteAgentCallbackContext(storage, "running")
+      ).toMatchObject({
+        modelId: `${model.provider}/${model.id}`,
+        lastUsage: normalizeFluePromptUsage(recordedUsage),
+      });
+      expect(await listRemoteAgentUsageRecords(storage)).toHaveLength(1);
       releaseOldModel.resolve(fauxAssistantMessage("Late obsolete response."));
       await Promise.allSettled(first.fibers);
       expect(await stores.submissionStore.getSubmission("running")).toEqual(
         settled
       );
       expect(actionCount).toBe(1);
+      expect(
+        await runtime.readSubmission(replacement.instance, "running")
+      ).toEqual(projection);
     } finally {
       releaseOldModel.resolve(fauxAssistantMessage("Late obsolete response."));
       await Promise.allSettled(first.fibers);
       await database.close?.();
+      unsubscribe();
     }
   });
   it("acknowledges durably before model execution and continues the same conversation on a replacement owner", async () => {

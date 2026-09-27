@@ -36,8 +36,11 @@ const REPOSITORY_LOCAL_GIT_ENV_VARS = [
 
 export function resolvePrePushReleaseMode(input) {
   const updates = parsePushUpdates(input);
-  if (!updates || updates.length === 0) {
+  if (!updates) {
     return "strict";
+  }
+  if (updates.length === 0) {
+    return "skip";
   }
 
   if (

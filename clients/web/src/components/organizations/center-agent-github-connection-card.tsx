@@ -64,7 +64,10 @@ type WaitingAuthorization = {
 	scope: AuthorizationScope;
 };
 type GitHubConnectionCardMode = "all" | "member" | "shared";
-type GitHubConnectionCardPresentation = "management" | "onboarding";
+type GitHubConnectionCardPresentation =
+	| "management"
+	| "onboarding"
+	| "conversation";
 
 export function CenterAgentGitHubConnectionCard(input: {
 	organizationName?: string;

@@ -11,8 +11,11 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
+import {
+  projectMessageChannelCardRevision,
+  revisePreviousMessageChannelCards,
+} from "./message-channel-card-revision";
 import { advanceRemoteAgentMessageChannelCardRollover } from "./message-channel-card-rollover-service";
-import { splitMessageChannelCardSegment } from "./message-channel-card-segmentation";
 import { resolveMessageChannelPublicationTarget } from "./message-channel-publication-target";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 
@@ -46,6 +49,12 @@ export async function publishRemoteAgentMessageChannelCardStreamDelta(input: {
     });
   }
   let delivery = input.delivery;
+  if (
+    delivery.providerProgressState === "sent" &&
+    (delivery.providerProgressSequence ?? 0) >= input.sequence
+  ) {
+    return resolveUnclaimedCardUpdate(input.sequence, delivery);
+  }
   let rolledOver = false;
   while (requiresCardRollover(delivery, input.textSnapshot)) {
     const target = await resolveMessageChannelPublicationTarget({
@@ -80,10 +89,11 @@ export async function publishRemoteAgentMessageChannelCardStreamDelta(input: {
       status: rolledOver ? "accepted" : "duplicate_accepted",
     });
   }
-  const activeSegment = splitMessageChannelCardSegment({
-    sourceOffset: delivery.providerProgressSourceOffset,
-    text: input.textSnapshot,
-  });
+  const revision = projectMessageChannelCardRevision(
+    delivery,
+    input.textSnapshot
+  );
+  const activeSegment = revision.active;
   if (activeSegment.tail) {
     throw new Error(
       "Message Channel stream still exceeds its card after rollover"
@@ -99,6 +109,7 @@ export async function publishRemoteAgentMessageChannelCardStreamDelta(input: {
       ),
     });
   const claim = await claimRemoteAgentMessageChannelProviderCardUpdate({
+    cardHistory: { ...revision.history, pendingSnapshot: input.textSnapshot },
     claimExpiresAtMs: input.nowMs + MESSAGE_CHANNEL_CARD_UPDATE_CLAIM_LEASE_MS,
     claimId: providerPublicationIdempotencyKey,
     db: input.evidenceDb,
@@ -116,7 +127,7 @@ export async function publishRemoteAgentMessageChannelCardStreamDelta(input: {
     claimedDelivery: claim.delivery,
     delivery,
     providerPublicationIdempotencyKey,
-    textSnapshot: activeSegment.head,
+    textSnapshot: input.textSnapshot,
   });
 }
 
@@ -170,17 +181,41 @@ async function publishClaimedCardUpdate(input: {
       status: "retryable",
     });
   }
-  const result = await target.target.adapter.updateWorkingCard({
-    cardId,
-    connection: target.target.connection,
-    locator: target.target.locator,
-    providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
+  const revision = projectMessageChannelCardRevision(
+    input.claimedDelivery,
+    input.claimedDelivery.providerProgressCardHistory?.pendingSnapshot ??
+      input.textSnapshot
+  );
+  const previous = await revisePreviousMessageChannelCards({
+    delivery: input.claimedDelivery,
+    revision,
+    target: target.target,
     sequence: input.sequence,
-    text: input.textSnapshot,
+    providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
   });
+  let result = previous.result;
+  if (result.status === "published") {
+    result = await target.target.adapter.updateWorkingCard({
+      cardId,
+      connection: target.target.connection,
+      locator: target.target.locator,
+      providerPublicationIdempotencyKey:
+        input.providerPublicationIdempotencyKey,
+      sequence: input.sequence,
+      text: revision.active.head,
+    });
+  }
+  // Keep provider backoff even when cross-retry recovery must retain the claim.
+  const retryAfterMs =
+    result.status === "failed" ? result.retryAfterMs : undefined;
+  if (previous.revised && result.status === "failed") {
+    result = { status: "outcome_unknown", reasonCode: result.reasonCode };
+  }
   if (result.status === "published") {
     const published =
       await markRemoteAgentMessageChannelProviderCardUpdatePublished({
+        cardHistory: previous.history,
+        sourceOffset: revision.sourceOffset,
         claimId: input.claimId,
         db: input.evidenceDb,
         idempotencyKey: input.delivery.idempotencyKey,
@@ -235,9 +270,7 @@ async function publishClaimedCardUpdate(input: {
   return remoteAgentStreamDeltaCallbackResponseSchema.parse({
     lastSequence: input.delivery.providerProgressSequence ?? 0,
     reasonCode: result.reasonCode,
-    ...(result.status !== "failed" || result.retryAfterMs === undefined
-      ? {}
-      : { retryAfterMs: result.retryAfterMs }),
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     status: "retryable",
   });
 }
@@ -289,10 +322,8 @@ function requiresCardRollover(
     return false;
   }
   return (
-    splitMessageChannelCardSegment({
-      sourceOffset: delivery.providerProgressSourceOffset,
-      text: textSnapshot,
-    }).tail.length > 0
+    projectMessageChannelCardRevision(delivery, textSnapshot).active.tail
+      .length > 0
   );
 }
 

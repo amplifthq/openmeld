@@ -300,7 +300,39 @@ describe("unconfirmed Wake presentation diagnostics", () => {
 			fromRestoredPresentation: true,
 			fromCachedSpaceSummary: true,
 			fromCachedOwnSummary: true,
+			fromHistoricalSignal: false,
 		});
+	});
+
+	it("identifies a displayed progress item reconstructed from a previous page's signal", () => {
+		const historicalSignal: SignalEnvelope = {
+			v: 1,
+			id: "activity-old",
+			ts: 100,
+			spaceId: "space-123",
+			type: "signal.text",
+			profile: { kind: "agent", profileId: AGENT_PROFILE_ID },
+			data: {
+				text: "Working",
+				meta: {
+					transient: true,
+					purpose: AGENT_REPLYING_PURPOSE,
+					dispatchId: "dispatch-old",
+					targetProfileId: AGENT_PROFILE_ID,
+				},
+			},
+		};
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				confirmedItems: [],
+				presentedItems: [item],
+				restoredItems: [],
+				historicalSignals: [historicalSignal],
+				presentationCreatedAtMs: 200,
+				spaceSummaryFetchedAfterMount: true,
+				ownSummaryFetchedAfterMount: true,
+			})
+		).toMatchObject({ item, fromHistoricalSignal: true });
 	});
 
 	it("does not report current Core confirmation or a new local Wake", () => {
@@ -1039,6 +1071,20 @@ describe("createStatusAndMembersRefreshDedupe", () => {
 });
 
 describe("resolveComposerWakeProgressTargetProfileIds", () => {
+	it("does not turn a Direct Message reference back into an implicit Wake or progress item", () => {
+		expect(
+			resolveComposerWakeProgressTargetProfileIds({
+				explicitActivationTargets: [],
+				explicitReferenceTargets: [AGENT_PROFILE_ID],
+				membersSnapshot: createMembersSnapshot(),
+				senderProfileId: HUMAN_PROFILE_ID,
+				status: createStatus({
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				}),
+			})
+		).toEqual([]);
+	});
+
 	it("exposes the implicit offline Direct Message target without inventing one for a group Space", () => {
 		const agentProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const humanProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

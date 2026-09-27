@@ -1369,7 +1369,7 @@ function LocalAgentInstallationControl(input: {
 						Used for new {input.displayName} work on this computer.
 					</p>
 				</div>
-				<div className="w-full min-w-0 sm:w-72">
+				<div className="w-fit min-w-0 max-w-full sm:max-w-72">
 					{renderLocalAgentInstallationField({
 						currentInstallation,
 						disabled: pendingInstallationId !== null || selectionBlocked,
@@ -1503,7 +1503,7 @@ function renderLocalAgentInstallationField(input: {
 		>
 			<SelectTrigger
 				aria-label={`${input.displayName} installation`}
-				className="h-10 w-full px-3 text-sm"
+				className="w-fit min-w-0 text-sm"
 				displayValue={input.selectedDisplay}
 				placeholder="Choose an installation"
 			/>
@@ -1725,9 +1725,7 @@ function buildLocalAgentCatalogRow(
 		? resolveLocalAgentSetupSummaryStatus(input.entry)
 		: null;
 	const canChangeInstallation = Boolean(
-		input.canManageInstallations &&
-			input.entry.enabled &&
-			(agentControllerInterface?.launch.installChoiceCount ?? 0) > 1
+		input.canManageInstallations && input.entry.enabled
 	);
 	const switchDisabled =
 		input.pending ||
@@ -1748,7 +1746,7 @@ function buildLocalAgentCatalogRow(
 				snapshot: agentControllerInterface,
 			})
 		: display.description;
-	if (setupDescription) {
+	if (setupDescription && !agentControllerInterface?.launch.failureReason) {
 		description = setupDescription;
 	}
 	const controllerStatus =
@@ -2191,7 +2189,7 @@ function shouldOfferAgentControllerCheckAgain(
 function shouldRenderAgentControllerIssueRow(
 	snapshot: AgentControllerInterfaceSnapshot
 ): boolean {
-	if (!snapshot.message) {
+	if (!snapshot.message && snapshot.launch.status !== "needs_repair") {
 		return false;
 	}
 	return (
@@ -2575,7 +2573,7 @@ function resolveLocalAgentCatalogAvailabilityDisplay(input: {
 	if (input.entry.launchStatus === "needs_repair") {
 		return {
 			badgeVariant: "destructive",
-			description: `OpenMeld found ${input.entry.displayName}, but can’t start it. Open Details to review the installation.`,
+			description: `The selected ${input.entry.displayName} installation can’t start. Check the installation or choose another one.`,
 			label: null,
 		};
 	}
