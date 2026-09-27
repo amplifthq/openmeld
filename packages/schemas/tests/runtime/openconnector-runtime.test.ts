@@ -33,6 +33,12 @@ describe("OpenConnector runtime action contract", () => {
         effect: "destructive",
       })
     ).toMatchObject({ effect: "destructive" });
+    expect(
+      openConnectorRuntimeActionSchema.parse({
+        ...ACTION,
+        operationType: "destructive",
+      })
+    ).toMatchObject({ operationType: "destructive" });
   });
 
   it("keeps the effect vocabulary closed", () => {
@@ -40,6 +46,19 @@ describe("OpenConnector runtime action contract", () => {
       openConnectorRuntimeActionSchema.safeParse({
         ...ACTION,
         effect: "dangerous",
+      }).success
+    ).toBe(false);
+    expect(
+      openConnectorRuntimeActionSchema.safeParse({
+        ...ACTION,
+        operationType: "dangerous",
+      }).success
+    ).toBe(false);
+    expect(
+      openConnectorRuntimeActionSchema.safeParse({
+        ...ACTION,
+        operationType: "read",
+        unexpectedPolicy: true,
       }).success
     ).toBe(false);
   });
@@ -61,6 +80,25 @@ describe("OpenConnector runtime action contract", () => {
       id: "gmail.fetch_emails",
       service: "gmail",
     });
+    const forkSearchResult = {
+      authenticated: true,
+      description: "List Gmail messages.",
+      id: "gmail.fetch_emails",
+      inputSchema: { type: "object" },
+      name: "fetch_emails",
+      operationType: "read",
+      outputSchema: { type: "object" },
+      service: "gmail",
+    };
+    expect(
+      openConnectorRuntimeActionSearchResultSchema.parse(forkSearchResult)
+    ).toMatchObject({ operationType: "read" });
+    expect(
+      openConnectorRuntimeActionSearchResultSchema.safeParse({
+        ...forkSearchResult,
+        unexpectedPolicy: true,
+      }).success
+    ).toBe(false);
   });
 
   it("accepts the provider execution envelope and rejects extra fields", () => {

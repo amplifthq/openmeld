@@ -58,7 +58,7 @@ describe("shared plugin runtime", () => {
     }
     const action = {
       ...capturedAction,
-      effect: "write",
+      operationType: "write",
       id: "github.create_issue_comment",
       outputSchema: { type: "object" },
       service: "github",

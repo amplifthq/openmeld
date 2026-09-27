@@ -153,7 +153,12 @@ describe("Remote Agent GitHub tools", () => {
         },
       });
     }
-    const action = { ...JOB_LOG_ACTION, id: "github.catalog_action", effect };
+    const action = {
+      ...JOB_LOG_ACTION,
+      effect: undefined,
+      id: "github.catalog_action",
+      operationType: effect,
+    };
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({ success: true, message: "OK", data: [action], meta: {} })
     );
@@ -228,16 +233,22 @@ describe("Remote Agent GitHub tools", () => {
   });
 
   it("filters read-only discovery and refuses catalog writes before claiming an operation", async () => {
+    const readAction = {
+      ...JOB_LOG_ACTION,
+      effect: undefined,
+      operationType: "read",
+    };
     const action = {
       ...JOB_LOG_ACTION,
+      effect: undefined,
       id: "github.catalog_write",
-      effect: "write",
+      operationType: "write",
     };
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
         success: true,
         message: "OK",
-        data: [action, JOB_LOG_ACTION],
+        data: [action, readAction],
         meta: {},
       })
     );

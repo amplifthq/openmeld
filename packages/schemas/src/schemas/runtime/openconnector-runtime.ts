@@ -59,6 +59,7 @@ export const openConnectorRuntimeActionSchema = z.strictObject({
   id: nonEmptyStringSchema,
   inputSchema: jsonSchemaObjectSchema,
   name: nonEmptyStringSchema,
+  operationType: openConnectorRuntimeActionEffectSchema.optional(),
   outputSchema: jsonSchemaObjectSchema,
   providerPermissions: z.array(nonEmptyStringSchema),
   requiredScopes: z.array(nonEmptyStringSchema),
@@ -76,6 +77,7 @@ export const openConnectorRuntimeActionSearchResultSchema = z.strictObject({
   id: nonEmptyStringSchema,
   inputSchema: jsonSchemaObjectSchema,
   name: nonEmptyStringSchema,
+  operationType: openConnectorRuntimeActionEffectSchema.optional(),
   outputSchema: jsonSchemaObjectSchema,
   service: nonEmptyStringSchema,
 });

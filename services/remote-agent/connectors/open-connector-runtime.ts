@@ -7,6 +7,7 @@ import {
 import type {
   ConnectorService,
   OpenConnectorRuntimeAction,
+  OpenConnectorRuntimeActionEffect,
 } from "@openmeld/schemas/types";
 export type ConnectorExecutionConfig = {
   baseUrl?: string;
@@ -43,14 +44,19 @@ export async function listOpenConnectorActions(input: {
       `OpenConnector returned an invalid action catalog: ${parsedActions.error.issues[0]?.message ?? "unknown contract error"}`
     );
   }
-  return parsedActions.data.filter((action) => {
-    if (action.service !== input.service) {
-      throw new Error(
-        `OpenConnector returned action ${action.id} for an unexpected service.`
-      );
-    }
-    return action.execution.locallyExecutable;
-  });
+  return parsedActions.data
+    .map((action) => ({
+      ...action,
+      effect: resolveOpenConnectorActionEffect(action),
+    }))
+    .filter((action) => {
+      if (action.service !== input.service) {
+        throw new Error(
+          `OpenConnector returned action ${action.id} for an unexpected service.`
+        );
+      }
+      return action.execution.locallyExecutable;
+    });
 }
 
 export async function searchOpenConnectorActions(input: {
@@ -91,6 +97,7 @@ export async function searchOpenConnectorActions(input: {
     input.actions.map((action) => [action.id, action])
   );
   return parsedResults.data.flatMap((result) => {
+    resolveOpenConnectorActionEffect(result);
     if (result.service !== input.service) {
       throw new Error(
         `OpenConnector returned action ${result.id} for an unexpected service.`
@@ -99,6 +106,23 @@ export async function searchOpenConnectorActions(input: {
     const action = actionsById.get(result.id);
     return action ? [action] : [];
   });
+}
+
+function resolveOpenConnectorActionEffect(action: {
+  effect?: OpenConnectorRuntimeActionEffect;
+  id: string;
+  operationType?: OpenConnectorRuntimeActionEffect;
+}): OpenConnectorRuntimeActionEffect | undefined {
+  if (
+    action.effect !== undefined &&
+    action.operationType !== undefined &&
+    action.effect !== action.operationType
+  ) {
+    throw new Error(
+      `OpenConnector action ${action.id} has conflicting effect metadata.`
+    );
+  }
+  return action.operationType ?? action.effect;
 }
 
 export async function requireOpenConnectorAction(input: {

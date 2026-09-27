@@ -5497,7 +5497,9 @@ pinned runtime validator for OpenConnector action metadata. It mirrors the
 OpenConnector `/v1/actions?service=` serializer and the bounded
 `/v1/actions/search` projection, including required schemas, provider
 permissions, the executor-owned `execution` projection, and optional
-first-class `effect = read | write | destructive` metadata. Remote Agent must
+`operationType = read | write | destructive` metadata. Remote Agent normalizes
+this field to its internal `effect` policy field, accepts legacy `effect`, and
+rejects entries where both fields disagree. Remote Agent must
 fail closed on a malformed entry and may expose only
 `execution.locallyExecutable = true` actions to the model. Catalog-only entries
 are provider documentation, not executable Center Agent capability. The same
