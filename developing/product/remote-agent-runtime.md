@@ -2661,10 +2661,11 @@ source of truth for whether the request is a replay. If provider
 execution succeeds but Core finalization is interrupted, the next exact retry
 reads the Core operation metadata first, rebuilds and verifies the same
 signature with its frozen connection, replays OpenConnector's stored result,
-including the output schema that describes that result, and finishes the same
-operation instead of creating a second provider mutation. The Remote Agent
-interprets the returned data through this execution-owned schema rather than
-reconstructing it from a possibly newer catalog. Current membership, connection
+and finishes the same operation instead of creating a second provider mutation.
+The execution response contains data and metadata, but no output schema. New
+operations return the schema from the verified action catalog; an exact replay
+may omit it when the current catalog is unavailable, rather than misreporting
+the recovered provider result as a failed write. Current membership, connection
 availability, and provider catalog state gate only a new claim; they cannot
 erase or redefine a provider execution that Core already claimed.
 
