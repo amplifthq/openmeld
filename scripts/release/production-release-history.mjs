@@ -156,6 +156,8 @@ export async function readGithubReleaseRuns(repo, readJson, options = {}) {
         databaseId: run.id,
         headSha: run.head_sha,
         createdAt: run.created_at,
+        updatedAt: run.updated_at,
+        status: run.status,
         workflowName: workflow.name,
         displayTitle: run.display_title,
         url: run.html_url,
