@@ -2094,6 +2094,28 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects requester GitHub access for a Routine's delegated member", async () => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: createRoutineTurnEnvelope(),
+    });
+    const resolveConnection = vi.fn(async () =>
+      connectionSelection({ ownerDisplayName: "Felix", userId: "user_1" })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      coreWorker: { centerAgentResolveConnectorConnection: resolveConnection },
+      storage: await createStorage(request),
+    });
+
+    await expect(
+      executeTool(tools, "github_get_current_user", {
+        githubActor: "requester",
+      })
+    ).rejects.toThrow(
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
+    );
+    expect(resolveConnection).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       name: "task continuation",
@@ -2135,7 +2157,7 @@ describe("Remote Agent GitHub tools", () => {
         watchId: "watch_task_watch_continuation_1",
       },
     },
-  ] as const)("rejects requester GitHub access for an unattended $name", async ({
+  ] as const)("uses the verified requester connection for a $name", async ({
     trigger,
   }) => {
     const baseRequest = createSubmitTurnRequest();
@@ -2151,7 +2173,19 @@ describe("Remote Agent GitHub tools", () => {
         userId: "user_1",
       })
     );
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.get_current_user",
+        data: { login: "felix" },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
     const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
       coreWorker: { centerAgentResolveConnectorConnection },
       storage: await createStorage(request),
     });
@@ -2160,10 +2194,139 @@ describe("Remote Agent GitHub tools", () => {
       executeTool(tools, "github_get_current_user", {
         githubActor: "requester",
       })
-    ).rejects.toThrow(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+    ).resolves.toMatchObject({
+      attribution: { selection: "requester" },
+      status: "completed",
+    });
+    expect(centerAgentResolveConnectorConnection).toHaveBeenCalledWith({
+      connectionPreference: "requester",
+      context: expect.any(Object),
+      requesterUserId: "user_1",
+      service: "github",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows an ordinary continuation write, but still previews a destructive action", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          delegationId: "delegation_write",
+          outcome: {
+            errorCode: null,
+            eventId: "event_write",
+            occurredAtMs: TEST_NOW_MS,
+            publishedSignalId: "signal_write",
+            status: "completed",
+          },
+          source: "task_continuation",
+          subscriptionId: "subscription_write",
+          watchedTask: {
+            deliveryId: "delivery_write",
+            kind: "native_delivery",
+            v: 1,
+          },
+        },
+      },
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue_comment",
+        data: { id: 99 },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
-    expect(centerAgentResolveConnectorConnection).not.toHaveBeenCalled();
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Felix", userId: "user_1" })
+        ),
+      },
+      storage: await createStorage(request),
+    });
+
+    await expect(
+      executeTool(tools, "github_create_issue_comment", {
+        body: "Continuation result",
+        githubActor: "requester",
+        issueNumber: 12,
+        owner: "openmeld",
+        repo: "app",
+      })
+    ).resolves.toMatchObject({
+      attribution: { connectionOwner: { userId: "user_1" } },
+      status: "completed",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await expect(
+      executeTool(tools, "github_delete_file", {
+        githubActor: "requester",
+        message: "Remove file",
+        owner: "openmeld",
+        path: "old.txt",
+        repo: "app",
+        sha: "abc123",
+      })
+    ).resolves.toMatchObject({ status: "destructive_action_preview" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a continuation requester loses membership or GitHub access", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          delegationId: "delegation_disconnected",
+          outcome: {
+            errorCode: null,
+            eventId: "event_disconnected",
+            occurredAtMs: TEST_NOW_MS,
+            publishedSignalId: "signal_disconnected",
+            status: "completed",
+          },
+          source: "task_continuation",
+          subscriptionId: "subscription_disconnected",
+          watchedTask: {
+            deliveryId: "delivery_disconnected",
+            kind: "native_delivery",
+            v: 1,
+          },
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const missingMembership = vi.fn(() =>
+      Promise.reject(new Error("connector.requester_org_mismatch"))
+    );
+    const disconnected = vi.fn(() =>
+      Promise.resolve({ connection: null, selection: null })
+    );
+
+    for (const resolveConnection of [missingMembership, disconnected]) {
+      const tools = getRemoteAgentGitHubToolDefinitions({
+        coreWorker: {
+          centerAgentResolveConnectorConnection: resolveConnection,
+        },
+        storage,
+      });
+      await expect(
+        executeTool(tools, "github_get_current_user", {
+          githubActor: "requester",
+        })
+      ).rejects.toThrow();
+      expect(resolveConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ requesterUserId: "user_1" })
+      );
+    }
   });
 
   it("executes an authorized issue batch during a Routine", async () => {

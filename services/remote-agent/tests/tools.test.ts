@@ -3424,6 +3424,12 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
       "verified represented member only"
     );
+    expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
+      "Default Project alone does not set that folder"
+    );
+    expect(
+      descriptions.get("openmeld_update_agent_profile_runtime_settings")
+    ).toContain("use workspacePath to correct a folder");
     expect(
       [...descriptions.keys()].includes(
         "openmeld_create_configured_agent_profile"

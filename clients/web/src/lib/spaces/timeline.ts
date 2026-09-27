@@ -925,6 +925,10 @@ function compareSignalEnvelopeOrder(
 	left: SignalEnvelope,
 	right: SignalEnvelope
 ): number {
+	const localOrder = compareLocalSubmissionOrder(left.id, right.id);
+	if (localOrder !== 0) {
+		return localOrder;
+	}
 	if (left.ts !== right.ts) {
 		return left.ts - right.ts;
 	}
@@ -935,10 +939,22 @@ function compareSpaceTimelineItemOrder(
 	left: SpaceTimelineItem,
 	right: SpaceTimelineItem
 ): number {
+	const localOrder = compareLocalSubmissionOrder(left.id, right.id);
+	if (localOrder !== 0) {
+		return localOrder;
+	}
 	if (left.createdAtMs !== right.createdAtMs) {
 		return left.createdAtMs - right.createdAtMs;
 	}
 	return left.id.localeCompare(right.id);
+}
+
+function compareLocalSubmissionOrder(leftId: string, rightId: string): number {
+	const leftLocal =
+		leftId.startsWith("pending:") || leftId.startsWith("failed:");
+	const rightLocal =
+		rightId.startsWith("pending:") || rightId.startsWith("failed:");
+	return Number(leftLocal) - Number(rightLocal);
 }
 
 function resolveActorName(
