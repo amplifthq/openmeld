@@ -608,6 +608,8 @@ operation. A client that loses its connection can query the batch by ID and
 continue pending or failed items without recreating completed releases. The Web
 install dialog lists the initiating member's recent unfinished batches after
 closing or reloading the page. Completed batches no longer appear in that list.
+The saved selection remains authoritative when a batch moves between Web and
+CLI: unselected candidates are never installed or counted as failures.
 The batch freezes the member's selected Skill paths; retries cannot install paths
 that were not selected. It is scoped to its initiating member and current Team
 authority. This does

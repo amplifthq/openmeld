@@ -245,7 +245,11 @@ async function installRepositoryBatch(
   }
   for (const [index, item] of started.batch.preview.skills.entries()) {
     const prior = started.batch.results[index];
-    if (prior?.status === "installed" || prior?.status === "skipped") {
+    if (
+      prior?.selected === false ||
+      prior?.status === "installed" ||
+      prior?.status === "skipped"
+    ) {
       continue;
     }
     const result = await installRepositorySkill(
@@ -281,11 +285,12 @@ async function installRepositoryBatch(
     results,
   });
   if (
-    results.some(
+    saved.batch.results.some(
       (result) =>
-        result.status === "failed" ||
-        result.status === "pending" ||
-        (result.status === "skipped" && result.error !== "Already in Team")
+        result.selected &&
+        (result.status === "failed" ||
+          result.status === "pending" ||
+          (result.status === "skipped" && result.error !== "Already in Team"))
     )
   ) {
     process.exitCode = 1;
@@ -322,7 +327,7 @@ function presentRepositoryInstallSummary(
   ).length;
   context.presenter.line({
     code: "skills.add.all.summary",
-    text: `${installedCount} of ${payload.results.length} Skills installed from commit ${payload.commitSha.slice(0, 12)}. Retry with: openmeld skills add ${payload.retrySource} --all --operation-id ${payload.operationId}`,
+    text: `${installedCount} ${installedCount === 1 ? "Skill" : "Skills"} installed from commit ${payload.commitSha.slice(0, 12)}. Retry with: openmeld skills add ${payload.retrySource} --all --operation-id ${payload.operationId}`,
   });
 }
 

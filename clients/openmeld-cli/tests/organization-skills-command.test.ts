@@ -326,6 +326,88 @@ describe("Organization Skills CLI", () => {
     });
   });
 
+  it("resumes only the Skills selected in a saved Web batch", async () => {
+    await withTempHome(async () => {
+      const previousExitCode = process.exitCode;
+      process.exitCode = undefined;
+      try {
+        const commitSha = "a".repeat(40);
+        const repository = "https://github.com/example/skills";
+        const selectedUrl = `${repository}/tree/${commitSha}/selected`;
+        const unselectedUrl = `${repository}/tree/${commitSha}/unselected`;
+        const batchId = "web-batch";
+        const preview = {
+          catalogLimitBytes: 1024,
+          commitSha,
+          repository,
+          skills: [selectedUrl, unselectedUrl].map((url) => ({
+            blocker: null,
+            fileCount: 1,
+            path: url.split("/").at(-1) ?? "",
+            totalBytes: 100,
+            url,
+            warnings: [],
+          })),
+          totalDeclaredBytes: 200,
+          warnings: [],
+        };
+        const results = [
+          { path: "selected", selected: true, status: "pending" },
+          {
+            error: "Not selected",
+            path: "unselected",
+            selected: false,
+            status: "skipped",
+          },
+        ];
+        const savedBatch = () => ({
+          batchId,
+          createdAt: "2026-07-26T00:00:00.000Z",
+          organizationId: organization.id,
+          preview,
+          results,
+          sourceUrl: repository,
+        });
+        const importFromGitHub = vi.fn(() => {
+          results[0] = {
+            path: "selected",
+            selected: true,
+            status: "installed",
+          };
+          return Promise.resolve({ skill });
+        });
+        const { dependencies } = createDependencies();
+        const resolveApi = async () =>
+          ({
+            beginImportBatch: async () => ({ batch: savedBatch() }),
+            getImportBatch: async () => ({ batch: savedBatch() }),
+            importFromGitHub,
+          }) as unknown as OrganizationSkillsApi;
+        const { plainStdout } = await withCapturedStdio(() =>
+          runOrganizationSkillsAddAll(
+            {
+              json: true,
+              operationId: batchId,
+              source: `${repository}/tree/${commitSha}`,
+            },
+            { ...dependencies, resolveApi }
+          )
+        );
+        expect(importFromGitHub).toHaveBeenCalledTimes(1);
+        expect(importFromGitHub).toHaveBeenCalledWith(
+          expect.objectContaining({ url: selectedUrl })
+        );
+        expect(JSON.parse(plainStdout).results).toMatchObject([
+          { path: "selected", status: "installed" },
+          { path: "unselected", status: "skipped" },
+        ]);
+        expect(process.exitCode).toBeUndefined();
+      } finally {
+        process.exitCode = previousExitCode;
+      }
+    });
+  });
+
   it("reports a pinned repository inventory to a Local Agent without installing anything", async () => {
     await withTempHome(async () => {
       const commitSha = "a".repeat(40);
