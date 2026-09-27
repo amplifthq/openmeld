@@ -66,6 +66,9 @@ describe("Organization Skill Flue adapter", () => {
     expect(tools.tools.map((registered) => registered.name)).toContain(
       "openmeld_read_skill_resource"
     );
+    if (request.turnEnvelope.sender.kind !== "member") {
+      throw new Error("This test requires a member turn.");
+    }
     const unverifiedTools = await getRemoteAgentFlueTools({
       coreWorker: { readOrganizationSkillRuntimeResource },
       storage: new InMemoryDurableObjectStorage(),
