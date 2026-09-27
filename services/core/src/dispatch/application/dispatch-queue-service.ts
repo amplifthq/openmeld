@@ -52,6 +52,7 @@ import {
   type SpaceBootstrapTimingMetric,
 } from "../../space/application/space-bootstrap-timing";
 import { readSpaceFinalOutcomeClaim } from "../../space/application/space-final-outcome-claim-reader";
+import { EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS } from "../../strategy-constants";
 import {
   claimDispatchAttempt,
   correlateDuplicateDispatchDeliveryAttempt,
@@ -1394,6 +1395,29 @@ const settleFreshHeadAdmissionWithoutDelivery = async (input: {
   nowMs: number;
 }): Promise<DispatchQueueMessageExecutionResult | null> => {
   if (input.headAcceptance.status === "retry") {
+    if (
+      input.headAcceptance.reasonCode ===
+        "runtime_coordinator.execution_target_mutation_in_progress" &&
+      input.nowMs - input.dispatchMessage.enqueuedAtMs >=
+        EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS
+    ) {
+      return {
+        controllerWaitPromise: null,
+        shouldAck: await settleVisiblePreHeadFailure({
+          db: input.db,
+          dispatchMessage: input.dispatchMessage,
+          env: input.env,
+          errorCode:
+            "runtime_coordinator.execution_target_mutation_wait_expired",
+          errorMessage:
+            "The Agent's execution settings stayed busy. Try this Wake again after the settings change finishes.",
+          executionAttemptId: input.executionAttemptId,
+          finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+          message: input.message,
+          nowMs: input.nowMs,
+        }),
+      };
+    }
     retryQueueMessageWithBackoff(
       input.message,
       input.executionAttemptNo,

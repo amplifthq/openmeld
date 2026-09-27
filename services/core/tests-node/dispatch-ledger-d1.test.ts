@@ -1741,6 +1741,70 @@ describe("claimDispatchAttempt", () => {
     expect(readAttempt("attempt-2")).toBeUndefined();
   });
 
+  it("retries head admission after a mutation lease rejects a Wake before execution", async () => {
+    const { db, readAttempt, readRow, seedRow, seedAttemptRow } =
+      createDispatchLedgerFixture();
+    const message = buildDispatchMessage();
+    const first = await claimDispatchAttempt({
+      db,
+      message,
+      attempt: 1,
+      nowMs: 1000,
+    });
+    if (first.status !== "claimed") {
+      throw new Error("expected first claim");
+    }
+    const ledger = readRow(message.idempotencyKey);
+    const attempt = readAttempt(first.attemptId);
+    if (!(ledger && attempt)) {
+      throw new Error("expected first attempt in the ledger");
+    }
+    ledger.status = "failed_retryable";
+    seedRow(ledger);
+    attempt.status = "failed_retryable";
+    attempt.errorCode =
+      "runtime_coordinator.execution_target_mutation_in_progress";
+    seedAttemptRow(attempt);
+
+    const redrive = await claimDispatchAttempt({
+      db,
+      message,
+      attempt: 2,
+      nowMs: 2000,
+    });
+
+    expect(redrive).toMatchObject({ status: "claimed", attemptNo: 2 });
+    if (redrive.status !== "claimed") {
+      throw new Error("expected redrive to claim head admission");
+    }
+    expect(readRow(message.idempotencyKey)).toMatchObject({
+      latestAttemptId: redrive.attemptId,
+      attemptCount: 2,
+    });
+    expect(readAttempt(redrive.attemptId)?.status).toBe("dispatching");
+
+    await markDispatchStatus({
+      attemptId: redrive.attemptId,
+      attemptStatus: "succeeded",
+      db,
+      idempotencyKey: message.idempotencyKey,
+      nowMs: 3000,
+      status: "succeeded",
+    });
+    const replay = await claimDispatchAttempt({
+      db,
+      message,
+      attempt: 3,
+      nowMs: 4000,
+    });
+    expect(replay.status).toBe("deduped");
+    expect(readRow(message.idempotencyKey)).toMatchObject({
+      attemptCount: 2,
+      latestAttemptId: redrive.attemptId,
+      status: "succeeded",
+    });
+  });
+
   it.each([
     ["daemon.profile.offline", 2000],
     ["daemon.service.draining", 2000],
