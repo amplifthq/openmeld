@@ -830,8 +830,8 @@ through a separate no-tool model request. This work is never awaited by message
 publication, Wake admission, or the Center Agent execution loop. It cannot alter
 conversation context, steering, tools, replies, or the selected Agent model.
 
-The fixed model is `z-ai/glm-5.3-flash` through the existing OpenRouter
-AI Gateway connection, with temperature zero, low reasoning, structured
+The fixed model is `openai/gpt-6-luna` through the existing OpenRouter
+AI Gateway connection, with low reasoning, structured
 JSON, a 15-second request deadline, and bounded input/output. Titles use the
 message's language, capture the action and subject, preserve meaningful names
 and identifiers, and contain at most 64 characters. Output is validated rather

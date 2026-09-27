@@ -14,7 +14,7 @@ import {
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "./openrouter-provider-routing";
 
 // A fixed, low-cost model; independent of the conversation's selected model.
-export const CENTER_AGENT_SESSION_TITLE_MODEL = "z-ai/glm-5.3-flash";
+export const CENTER_AGENT_SESSION_TITLE_MODEL = "openai/gpt-6-luna";
 const MAX_RESPONSE_BYTES = 16 * 1024;
 const completionSchema = z.object({
   choices: z
@@ -61,7 +61,6 @@ export async function generateCenterAgentSessionTitle(input: {
       signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({
         model: CENTER_AGENT_SESSION_TITLE_MODEL,
-        temperature: 0,
         reasoning: { effort: "low", exclude: true },
         max_tokens: 512,
         stream: false,
