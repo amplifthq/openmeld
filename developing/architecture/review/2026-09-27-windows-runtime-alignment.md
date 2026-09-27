@@ -1,5 +1,16 @@
 # Windows Service runtime alignment follow-up
 
+## Agent Context
+
+- Purpose: Preserve the Windows 0.3.226 failure evidence and the bounded alignment repair.
+- Read this when: Validating PR #1350 or coordinating its real-machine acceptance.
+- Update this when: Native validation, publication, or production acceptance changes the evidence.
+- Do not use this for: Claiming a healthy production connection from unit tests or CI alone.
+- Source of truth: The linked native run, exact source commits, and observed Windows product behavior.
+
+Status: Native validation passed; publication and real-machine acceptance are pending.
+Remove this report after production acceptance and remaining limitations are preserved in the PR and stable owner documentation.
+
 ## Production evidence
 
 The manually initiated public Windows 0.3.226 setup on September 27 did not
@@ -41,6 +52,14 @@ The three focused command-path, owner-snapshot and process-inventory suites pass
 (50 cases) on macOS after the fixes. This proves deterministic logic only.
 The existing Windows compatibility workflow now runs those suites natively too.
 The misleading macOS-specific startup progress text is made platform-neutral.
+
+[Windows compatibility run 36308599160, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/36308599160)
+passed both native jobs on `6b01bcb7f248b785087d0be12834ce81363343be`.
+The run preserves native evidence and unsigned artifacts. The preceding run
+36308149951 passed the new regressions but exposed an existing pointer-path
+fixture assuming the POSIX executable name; it now selects `openmeld.exe` on
+Windows. Its superseded job is not a pass. CLI typecheck and deferred
+release-ready verification also passed locally.
 
 No HTTP, WebSocket, schema, persisted-state format, authentication, credential,
 or update-channel contract changes. Existing CLI, Service, Core, Gateway and Web
