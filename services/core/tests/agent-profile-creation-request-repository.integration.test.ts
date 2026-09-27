@@ -1,6 +1,11 @@
 import { env } from "cloudflare:test";
 import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { runAgentProfileCreationPostBindingFollowUps } from "../src/agent-profile-creation-request/agent-profile-creation-post-binding-follow-ups";
+import {
+  checkpointAgentProfileCreationPostBindingStep,
+  readAgentProfileCreationPostBindingProgress,
+} from "../src/agent-profile-creation-request/agent-profile-creation-post-binding-progress";
 import { createD1AgentProfileCreationRequestRepository } from "../src/agent-profile-creation-request/agent-profile-creation-request-repository";
 import {
   AGENT_PROFILE_CREATION_STALE_AFTER_MS,
@@ -9,6 +14,106 @@ import {
 } from "../src/agent-profile-creation-request/agent-profile-creation-request-service";
 
 describe("Agent Profile creation request repository", () => {
+  it("retains completed setup steps across a failed request and retry", async () => {
+    const suffix = crypto.randomUUID();
+    const organizationId = `org-apcr-${suffix}`;
+    const requesterUserId = `user-requester-${suffix}`;
+    const targetOwnerUserId = `user-target-${suffix}`;
+    await seedIdentity({ organizationId, requesterUserId, targetOwnerUserId });
+    const repository = createD1AgentProfileCreationRequestRepository(
+      env.OPENMELD_DB
+    );
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    const request = {
+      ...buildRequestRecord({
+        organizationId,
+        requesterUserId,
+        suffix,
+        targetOwnerUserId,
+      }),
+      createdAgentProfileId: agentProfileId,
+      profileCreationAttempt: 1,
+      status: "approved" as const,
+      statusReason: "profile_created" as const,
+    };
+    await repository.insert(request);
+    try {
+      const setWorkspace = vi.fn(() => Promise.resolve());
+      const updateDefaultProject = vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(
+          new Error("Default Project temporarily unavailable")
+        )
+        .mockResolvedValueOnce();
+      const run = async (profileCreationAttempt: number) =>
+        await runAgentProfileCreationPostBindingFollowUps({
+          checkpoint: async (step) =>
+            await checkpointAgentProfileCreationPostBindingStep({
+              agentProfileId,
+              db: env.OPENMELD_DB,
+              profileCreationAttempt,
+              requestId: request.id,
+              step,
+            }),
+          completed: await readAgentProfileCreationPostBindingProgress({
+            agentProfileId,
+            db: env.OPENMELD_DB,
+            profileCreationAttempt,
+            requestId: request.id,
+          }),
+          setWorkspace,
+          updateDefaultProject,
+        });
+
+      await expect(run(1)).rejects.toThrow("temporarily unavailable");
+      const failed = await repository.transition({
+        expectedProfileCreationAttempt: 1,
+        expectedStatuses: ["approved"],
+        expectedUpdatedAtMs: request.updatedAtMs,
+        requestId: request.id,
+        update: {
+          failureMessage: "Default Project temporarily unavailable",
+          status: "failed",
+          updatedAtMs: request.updatedAtMs + 1,
+        },
+      });
+      const approved = await repository.transition({
+        expectedStatuses: ["failed"],
+        expectedUpdatedAtMs: failed?.updatedAtMs ?? 0,
+        requestId: request.id,
+        update: {
+          failureMessage: null,
+          status: "approved",
+          updatedAtMs: request.updatedAtMs + 2,
+        },
+      });
+      const retried = await repository.claimProfileCreation({
+        expectedProfileCreationStartedAtMs: null,
+        expectedUpdatedAtMs: approved?.updatedAtMs ?? 0,
+        requestId: request.id,
+        startedAtMs: request.updatedAtMs + 3,
+      });
+      expect(retried?.profileCreationAttempt).toBe(2);
+      await run(2);
+      expect(setWorkspace).toHaveBeenCalledOnce();
+      expect(updateDefaultProject).toHaveBeenCalledTimes(2);
+      await expect(
+        readAgentProfileCreationPostBindingProgress({
+          agentProfileId,
+          db: env.OPENMELD_DB,
+          profileCreationAttempt: 2,
+          requestId: request.id,
+        })
+      ).resolves.toEqual({ workspace: true, defaultProject: true });
+    } finally {
+      await env.OPENMELD_DB.prepare(
+        "DELETE FROM agent_profile_creation_requests WHERE id = ?"
+      )
+        .bind(request.id)
+        .run();
+    }
+  });
+
   it("persists participant visibility, idempotency, transitions, and preferences", async () => {
     const suffix = crypto.randomUUID();
     const organizationId = `org-apcr-${suffix}`;
@@ -221,9 +326,9 @@ describe("Agent Profile creation request repository", () => {
       },
     });
     expect(declined?.status).toBe("declined");
-    await expect(repository.synchronizeInboxProjectionIntents()).resolves.toBe(
-      1
-    );
+    await expect(
+      repository.synchronizeInboxProjectionIntents({ requestId: record.id })
+    ).resolves.toBe(1);
     await expect(
       repository.getInboxProjectionByRequestId(record.id)
     ).resolves.toMatchObject({

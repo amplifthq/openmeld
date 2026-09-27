@@ -28,6 +28,8 @@ describe("Agent Profile creation post-Binding follow-ups", () => {
     });
 
     const completion = runAgentProfileCreationPostBindingFollowUps({
+      completed: { workspace: false, defaultProject: false },
+      checkpoint: vi.fn(() => Promise.resolve()),
       setWorkspace,
       updateDefaultProject,
     });
@@ -44,11 +46,45 @@ describe("Agent Profile creation post-Binding follow-ups", () => {
     const updateDefaultProject = vi.fn();
     await expect(
       runAgentProfileCreationPostBindingFollowUps({
+        completed: { workspace: false, defaultProject: false },
+        checkpoint: vi.fn(() => Promise.resolve()),
         setWorkspace: () =>
           Promise.reject(new Error("workspace outcome unknown")),
         updateDefaultProject,
       })
     ).rejects.toThrow("workspace outcome unknown");
     expect(updateDefaultProject).not.toHaveBeenCalled();
+  });
+
+  it("resumes a failed creation without repeating a checkpointed workspace update", async () => {
+    const completed = { workspace: false, defaultProject: false };
+    const setWorkspace = vi.fn(() => Promise.resolve());
+    const updateDefaultProject = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(
+        new Error("Default Project temporarily unavailable")
+      )
+      .mockResolvedValueOnce();
+    const checkpoint = vi.fn((step: "workspace" | "defaultProject") => {
+      completed[step] = true;
+      return Promise.resolve();
+    });
+    const followUps = () =>
+      runAgentProfileCreationPostBindingFollowUps({
+        completed,
+        checkpoint,
+        setWorkspace,
+        updateDefaultProject,
+      });
+
+    await expect(followUps()).rejects.toThrow("temporarily unavailable");
+    expect(completed).toEqual({ workspace: true, defaultProject: false });
+    await followUps();
+    expect(setWorkspace).toHaveBeenCalledOnce();
+    expect(updateDefaultProject).toHaveBeenCalledTimes(2);
+    expect(checkpoint.mock.calls.map(([step]) => step)).toEqual([
+      "workspace",
+      "defaultProject",
+    ]);
   });
 });
