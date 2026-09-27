@@ -1,12 +1,14 @@
 # Files
 
-> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser and Office viewers, Team/member metadata and content routes, resumable Team/member uploads, a basic Team Files page, Local Agent CLI access and exact-revision copy between Team, My, and Space locations, and Hosted Agent Team file list/read/text-save tools are implemented. New Skill releases store resources as separate immutable R2 objects, while legacy inline releases remain readable. Hosted Agents fetch individual Skill resources on demand; authenticated members can read a release catalog without loading resource bodies. The public bundle limits still apply. Existing approved knowledge appears as a protected Team Knowledge folder inside Team files and uses the shared browser, while its original writer and review rules remain in force. The knowledge content has not yet moved onto the shared file root. Team → Skills remains the single Skills product entry point. A member can read one exact release resource through an authenticated, integrity-checked content route. Hosted Agent private-file access remains acceptance work.
-
 ## Agent Context
 
 - Purpose: Define the shared Files product across Team, member-private, and Space locations.
 - Read this when: Changing file ownership, audience, human or Agent access, file versions, copy, or managed content presentation.
+- Update this when: Files ownership, authorization, managed content, or Agent access rules change.
+- Do not use this for: Space membership, Skill release validation, or private Computer isolation rules.
 - Source of truth: This document owns Files product semantics. Space collaboration owns Space membership; Organization Skills owns Skill identity and release rules.
+
+> Target contract for the Files work in Draft PR #1318. Existing Space Files, the shared browser and Office viewers, Team/member metadata and content routes, resumable Team/member uploads, the Team Files page, Local Agent CLI access and exact-revision copy between Team, My, and Space locations, and Hosted Agent Team file list/read/text-save tools are implemented. New Skill releases store resources as separate immutable R2 objects, while legacy inline releases remain readable. Hosted Agents fetch individual Skill resources on demand; authenticated members can read a release catalog without loading resource bodies. Existing approved knowledge appears as a protected Team Knowledge folder inside Team files and uses the shared browser, while its original writer and review rules remain in force. The knowledge content has not moved onto the shared file root. Team → Skills remains the single Skills product entry point. A member can read one exact release resource through an authenticated, integrity-checked content route. Hosted Agent private-file access depends on private Computer isolation.
 
 ## Product model
 
