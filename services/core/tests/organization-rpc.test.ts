@@ -60,12 +60,14 @@ import {
   rpcCenterAgentReadSlackWorkspaceDirectory,
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
+  rpcCenterAgentReadSpaceWakeProgress,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRemoveAgentProfilesFromSpace,
   rpcCenterAgentRequestOpenMeldToolsUpdate,
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
+  rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
   rpcClearSpacePassword,
@@ -11058,6 +11060,202 @@ describe("organization Core RPC", () => {
       alreadyMemberIds: [],
     });
     expect(spaceStub.rpcPostMembers).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Center Agent Wake Stop delegation", () => {
+  const stopBody = {
+    target: {
+      by: "source_signal" as const,
+      sourceSignalId: "signal-center-wake",
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    },
+  };
+  const centerContext = (submissionId?: string) =>
+    buildCenterAgentContext({
+      activeOrganizationId: "org-a",
+      ...(submissionId ? { agentControllerConversationId: submissionId } : {}),
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+  const setup = (withDelivery: boolean) => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "member")],
+      nativeDeliveries: withDelivery
+        ? [
+            nativeDeliveryLedgerRow({
+              deliveryId: "delivery-center-stop",
+              submissionId: "submission-center-stop",
+            }),
+          ]
+        : [],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PUBLIC_SPACE_ID,
+          spaceName: "Stop test",
+          visibility: "public",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const stop = vi.fn((input: { context: OpenMeldRequestContext }) => {
+      if (input.context.actorContext.profileKind === "agent") {
+        return Promise.reject(
+          Object.assign(new Error("Only the requester can stop this Wake"), {
+            status: 403,
+          })
+        );
+      }
+      return Promise.resolve({
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+          status: "cancelled" as const,
+        },
+        ok: true as const,
+        runtimeCoordinatorExecutionId: null,
+        status: "cancelled" as const,
+        stopMode: "openmeld_owned_pre_agent" as const,
+        targetProfileId: SECOND_AGENT_PROFILE_ID,
+      });
+    });
+    Object.assign(spaceStub, { rpcPostWakeStop: stop });
+    return { env: buildEnv({ db, spaceStub }), spaceStub, stop };
+  };
+
+  it("uses the same Space Stop RPC for a verified current requester", async () => {
+    const { env, stop } = setup(true);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(
+      stop.mock.calls.map(([request]) => request.context.actorContext)
+    ).toEqual([
+      expect.objectContaining({
+        openMeldProfileId: AGENT_PROFILE_ID,
+        profileKind: "agent",
+      }),
+      expect.objectContaining({
+        openMeldProfileId: HUMAN_PROFILE_ID,
+        ownerUserId: "user-a",
+        profileKind: "human",
+      }),
+    ]);
+  });
+
+  it("does not turn membership alone into Stop authority", async () => {
+    const { env, stop } = setup(false);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext(),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(stop.mock.calls[0]?.[0].context.actorContext.profileKind).toBe(
+      "agent"
+    );
+  });
+
+  it("does not call Space Stop across Organizations", async () => {
+    const { env, stop } = setup(true);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext("submission-center-stop"),
+        spaceId: OTHER_ORG_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).rejects.toMatchObject({ status: 404 });
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps Center progress available when the requester cannot read that Space", async () => {
+    const { env, spaceStub } = setup(true);
+    const progress = {
+      items: [
+        {
+          clientMessageId: "client-1",
+          dispatchId: "dispatch-1",
+          sourceSignalId: "signal-center-wake",
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+          wakeStopEligibility: { status: "eligible" as const },
+        },
+      ],
+    };
+    const read = vi.fn((input: { context: OpenMeldRequestContext }) => {
+      if (input.context.actorContext.profileKind === "human") {
+        return Promise.reject(
+          Object.assign(new Error("Space access denied"), { status: 403 })
+        );
+      }
+      return Promise.resolve(progress);
+    });
+    Object.assign(spaceStub, { rpcGetActiveWakeProgress: read });
+    await expect(
+      rpcCenterAgentReadSpaceWakeProgress(env, {
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).resolves.toBe(progress);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a verified requester's Stop eligibility on the exact Wake", async () => {
+    const { env, spaceStub } = setup(true);
+    const wake = {
+      clientMessageId: "client-1",
+      dispatchId: "dispatch-1",
+      sourceSignalId: "signal-center-wake",
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    };
+    const eligible = {
+      controlMode: "cancel" as const,
+      reasonCode: null,
+      reliability: "native_cancel" as const,
+      status: "eligible" as const,
+    };
+    Object.assign(spaceStub, {
+      rpcGetActiveWakeProgress: vi.fn(
+        (input: { context: OpenMeldRequestContext }) =>
+          Promise.resolve({
+            items: [
+              {
+                ...wake,
+                wakeStopEligibility:
+                  input.context.actorContext.profileKind === "human"
+                    ? eligible
+                    : null,
+              },
+            ],
+          })
+      ),
+    });
+    const response = await rpcCenterAgentReadSpaceWakeProgress(env, {
+      context: centerContext("submission-center-stop"),
+      spaceId: JOINED_PUBLIC_SPACE_ID,
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+    });
+    expect(response.items[0]?.wakeStopEligibility).toEqual(eligible);
   });
 });
 

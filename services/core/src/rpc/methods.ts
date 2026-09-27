@@ -3716,6 +3716,12 @@ export type CenterAgentReadSpaceWakeProgressInput =
     targetProfileId?: string;
   };
 
+export type CenterAgentStopSpaceWakeInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput & {
+    body: PostSpaceWakeStopBody;
+    spaceId: string;
+  };
+
 export type OpenCenterAgentDirectMessageSpaceInput = {
   context?: CoreRpcContextInput;
   sessionCreationId?: string;
@@ -14465,8 +14471,7 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     env,
     spaceId: parsed.data.spaceId,
   });
-  const response = await rpcGetActiveSpaceWakeProgress(env, {
-    context: authorization.context,
+  const progressInput = {
     includeDeviceWait: true,
     includePageInfo: true,
     includeWakeStopEligibility: true,
@@ -14480,7 +14485,57 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     ...(parsed.data.targetProfileId
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),
+  } as const;
+  const response = await rpcGetActiveSpaceWakeProgress(env, {
+    ...progressInput,
+    context: authorization.context,
   });
+  const representedContext = prepared.representedContext;
+  let represented: GetActiveSpaceWakeProgressResponse | null = null;
+  if (representedContext) {
+    try {
+      represented = await rpcGetActiveSpaceWakeProgress(env, {
+        ...progressInput,
+        context: representedContext,
+      });
+    } catch (error) {
+      // A verified requester may not have access to every Space the Center
+      // Agent can read. Keep the Center Agent's authorized progress projection.
+      if (readCoreRpcHttpStatus(error) !== 403) {
+        throw error;
+      }
+    }
+  }
+  const representedEligibility = new Map(
+    represented?.items.map((item) => [
+      JSON.stringify([
+        item.dispatchId,
+        item.sourceSignalId,
+        item.clientMessageId,
+        item.targetProfileId,
+      ]),
+      item.wakeStopEligibility,
+    ]) ?? []
+  );
+  const viewerResponse = represented
+    ? {
+        ...response,
+        items: response.items.map((item) => ({
+          ...item,
+          wakeStopEligibility:
+            item.wakeStopEligibility ??
+            representedEligibility.get(
+              JSON.stringify([
+                item.dispatchId,
+                item.sourceSignalId,
+                item.clientMessageId,
+                item.targetProfileId,
+              ])
+            ) ??
+            null,
+        })),
+      }
+    : response;
   await writeCenterAgentAuditEntry({
     action: "read_space_context",
     authorization,
@@ -14488,7 +14543,35 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     resource: { type: "space", id: parsed.data.spaceId },
     sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
   });
-  return response;
+  return viewerResponse;
+}
+
+export async function rpcCenterAgentStopSpaceWake(
+  env: CoreBindings,
+  input: CenterAgentStopSpaceWakeInput
+): Promise<PostSpaceWakeStopResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization: prepared.authorization,
+    env,
+    spaceId: input.spaceId,
+  });
+  try {
+    return await rpcPostSpaceWakeStop(env, {
+      body: input.body,
+      context: prepared.authorization.context,
+      spaceId: input.spaceId,
+    });
+  } catch (error) {
+    if (readCoreRpcHttpStatus(error) !== 403 || !prepared.representedContext) {
+      throw error;
+    }
+    return await rpcPostSpaceWakeStop(env, {
+      body: input.body,
+      context: prepared.representedContext,
+      spaceId: input.spaceId,
+    });
+  }
 }
 
 async function prepareCenterAgentOrganizationMemberRead(
@@ -14499,6 +14582,7 @@ async function prepareCenterAgentOrganizationMemberRead(
   }
 ): Promise<{
   authorization: CurrentDesignatedCenterAgentAuthorization;
+  representedContext: OpenMeldRequestContext | null;
   sourceNativeDeliveryId: string | null;
 }> {
   const context = requireRpcContext(input.context);
@@ -14520,6 +14604,24 @@ async function prepareCenterAgentOrganizationMemberRead(
     );
     return {
       authorization: prepared.authorization,
+      representedContext:
+        prepared.member.sourceNativeDeliveryId &&
+        prepared.member.userId &&
+        prepared.member.profileId
+          ? {
+              activeOrganizationId:
+                prepared.authorization.activeOrganization.organizationId,
+              actorContext: {
+                callerPrincipalId: prepared.member.userId,
+                ownerUserId: prepared.member.userId,
+                openMeldProfileId: prepared.member.profileId,
+                profileKind: "human",
+                profileName: prepared.member.displayName,
+                requestId:
+                  prepared.authorization.context.actorContext.requestId,
+              },
+            }
+          : null,
       sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
     };
   }
@@ -14528,6 +14630,7 @@ async function prepareCenterAgentOrganizationMemberRead(
       context,
       env,
     }),
+    representedContext: null,
     sourceNativeDeliveryId: null,
   };
 }

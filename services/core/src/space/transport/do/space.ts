@@ -283,6 +283,7 @@ import {
   readCenterAgentDesignationRecord,
   readResolvedOrganizationOwnerHumanSpaceMember,
 } from "../../../center-agent/center-agent-repository";
+import { requireCurrentDesignatedCenterAgentCaller } from "../../../center-agent/current-designated-center-agent";
 import { projectSpaceDiagnosticReportPointers } from "../../../diagnostics/application/space-diagnostic-report-pointer";
 import { writeSpaceDiagnosticReport } from "../../../diagnostics/infrastructure/d1/space-diagnostic-report-repo";
 import {
@@ -13015,7 +13016,7 @@ export class Space extends DurableObject<CoreBindings> {
         status: 403,
         code: "space.wake_stop.forbidden",
         reason:
-          "Only the person who started this Wake or the agent's owner can stop it.",
+          "Only the requester, the target Agent's owner, or the Center Agent that sent this Wake can stop it.",
       });
     }
 
@@ -13043,12 +13044,20 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<boolean> {
     const actor = input.context.actorContext;
     const ownerUserId = normalizeOptionalText(actor.ownerUserId);
-    if (!ownerUserId || actor.profileKind === "system") {
-      return false;
-    }
     const source = input.sourceSignalId
       ? this.readSignalById(input.sourceSignalId)
       : null;
+    if (
+      !ownerUserId &&
+      actor.profileKind === "agent" &&
+      source?.profile.kind === "agent" &&
+      source.profile.profileId === actor.openMeldProfileId
+    ) {
+      return await this.isCurrentDesignatedCenterAgentCaller(input.context);
+    }
+    if (!ownerUserId || actor.profileKind === "system") {
+      return false;
+    }
     if (source?.profile.profileId === actor.openMeldProfileId) {
       return true;
     }
@@ -13081,6 +13090,20 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
     return false;
+  }
+
+  private async isCurrentDesignatedCenterAgentCaller(
+    context: OpenMeldRequestContext
+  ): Promise<boolean> {
+    try {
+      await requireCurrentDesignatedCenterAgentCaller({
+        context,
+        env: this.bindings,
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async projectWakeStopEligibilityForViewer<

@@ -622,6 +622,7 @@ import {
   type CenterAgentSearchSlackMessagesInput,
   type CenterAgentSelectLocalAgentInstallationInput,
   type CenterAgentSetOpenMeldToolsMaintenanceInput,
+  type CenterAgentStopSpaceWakeInput,
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
   type CenterAgentWakeAgentProfilesInSpaceInput,
@@ -845,6 +846,7 @@ import {
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
   rpcCenterAgentStartSelfMemberResearch,
+  rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
@@ -3523,6 +3525,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
   }
 
+  centerAgentStopSpaceWake(
+    input: CenterAgentStopSpaceWakeInput
+  ): Promise<PostSpaceWakeStopResponse> {
+    return rpcCenterAgentStopSpaceWake(this.env, input);
+  }
+
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
@@ -5914,6 +5922,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentReadSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
     return rpcCenterAgentReadSpaceWakeProgress(this.env, input);
+  }
+
+  centerAgentStopSpaceWake(
+    input: CenterAgentStopSpaceWakeInput
+  ): Promise<PostSpaceWakeStopResponse> {
+    return rpcCenterAgentStopSpaceWake(this.env, input);
   }
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
