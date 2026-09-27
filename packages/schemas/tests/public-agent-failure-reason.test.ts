@@ -257,6 +257,15 @@ describe("public agent failure reason mapping", () => {
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
+        agentLabel: "PR1293 Hosted Smoke",
+        failureCode: "remote_agent.provider.connection_missing",
+        failureMessage: "Private provider configuration detail",
+      })
+    ).toBe(
+      "PR1293 Hosted Smoke couldn't connect to its model provider. Ask your OpenMeld admin to check the provider connection, then wake the agent again."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
         failureCode: "remote_agent.provider.rate_limited",
         failureMessage: "Raw provider throttling detail.",
       })

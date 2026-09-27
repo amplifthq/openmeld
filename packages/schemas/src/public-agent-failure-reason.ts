@@ -84,7 +84,7 @@ const HTML_ERROR_BODY_RE = /^\s*</;
 export const DISPATCH_ERROR_SUMMARY_MAX_LENGTH = 512;
 const PUBLIC_FAILURE_DETAIL_CODE_RE = /^[a-z0-9._-]+$/u;
 const HOSTED_CALLBACK_MAPPED_CODE_RE =
-  /^(?:remote_agent\.requester_membership_revoked$|remote_agent\.provider\.(?:authentication_failed|rate_limited|unavailable)|auth\.|credential\.|login\.|permission\.|provider\.(?:rate_limited|rate_limit|unavailable|authentication_failed)|connection\.)/u;
+  /^(?:remote_agent\.requester_membership_revoked$|remote_agent\.provider\.(?:authentication_failed|connection_missing|rate_limited|unavailable)|auth\.|credential\.|login\.|permission\.|provider\.(?:rate_limited|rate_limit|unavailable|authentication_failed)|connection\.)/u;
 const CENTER_AGENT_CALLBACK_COPY_BY_CODE: Readonly<Record<string, string>> = {
   "remote_agent.empty_assistant_response": CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
   "remote_agent.turn.output_limit_exceeded":
@@ -576,6 +576,14 @@ const buildMissingAgentReplyIdentityCopy = (targetName: string): string =>
 
 const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMapping[] =
   [
+    {
+      body: (targetName) =>
+        `${targetName} couldn't connect to its model provider. Ask your OpenMeld admin to check the provider connection, then wake the agent again.`,
+      kind: "account_access",
+      patterns: ["=remote_agent.provider.connection_missing"],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
+    },
     {
       body: (targetName) =>
         `OpenMeld could not confirm the requester's current access to this Space, so ${targetName} stopped. Check the requester's Space membership, then wake ${targetName} again.`,
