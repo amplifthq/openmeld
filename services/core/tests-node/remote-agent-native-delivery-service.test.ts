@@ -5,12 +5,12 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_FAILURE_PURPOSE,
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
-  REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
   remoteAgentNativeDeliveryDeadlineProbeQueueMessageSchema,
@@ -63,6 +63,7 @@ import { stopRemoteAgentNativeDelivery } from "../src/remote-agent/application/n
 import {
   completeRemoteAgentNativeDelivery,
   processRemoteAgentNativeDeliveryDeadlineProbe,
+  publishRemoteAgentFailureNotice,
   reconcileRemoteAgentRetainedResultPublication,
   retryMissingRemoteAgentAcceptedDeliveryProbes,
   submitRemoteAgentExecutionRecoveryTurn,
@@ -648,6 +649,108 @@ describe("Remote Agent native delivery callback service", () => {
       harness.close();
     }
   });
+  it("admits a personal Agent Wake authored by the designated Center Agent", async () => {
+    const centerAgentProfileId = "agt_33333333-3333-4333-8333-333333333333";
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    harness.run({
+      sql: "ALTER TABLE openmeld_profiles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0",
+    });
+    harness.run({
+      sql: "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = 'user_1' WHERE profile_id = ?",
+      params: [AGENT_PROFILE_ID],
+    });
+    harness.run({
+      sql: "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, organization_id, owner_user_id, managed_role, status) VALUES (?, 'Center Agent', 'org-center-agent', 'agent', 'org_1', NULL, 'center_agent', 'active')",
+      params: [centerAgentProfileId],
+    });
+    harness.run({
+      sql: "UPDATE center_agent_designations SET agent_profile_id = ? WHERE organization_id = 'org_1'",
+      params: [centerAgentProfileId],
+    });
+    harness.run({
+      sql: "UPDATE openMeldDaemon_agent_profile_bindings SET owner_kind = 'owner_account', owner_id = 'user_1', runtime_kind = 'hosted_remote_agent', agent_controller_ref = 'hosted:remote-agent', openmeld_service_runtime_id = 'hosted:remote-agent', hosted_runtime_identity_json = ? WHERE binding_id = 'binding_1'",
+      params: [JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY)],
+    });
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 2100,
+        requestId: "personal-request",
+        status: "pending" as const,
+        submissionId: "personal-submission",
+      })
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const directory = spaceMemberDirectorySchema.parse({
+      spaceId: SPACE_ID,
+      generatedAt: new Date().toISOString(),
+      members: [AGENT_PROFILE_ID, centerAgentProfileId, HUMAN_PROFILE_ID].map(
+        (profileId) => ({
+          profileId,
+          profileKind: profileId === HUMAN_PROFILE_ID ? "human" : "agent",
+          displayName: profileId,
+          primaryMentionLabel: profileId,
+          mentionLabels: [profileId],
+          mentionAlias: null,
+          labelSource: "profile_id",
+          lookupTokens: [profileId],
+          preferredLookupToken: profileId,
+          profileIdShort: profileId.slice(0, 8),
+          allowedRelations: {
+            wake: profileId === AGENT_PROFILE_ID,
+            reference: false,
+            mention: profileId === HUMAN_PROFILE_ID,
+          },
+          ownerUserId: profileId === centerAgentProfileId ? null : "user_1",
+          ownerName: profileId === centerAgentProfileId ? null : "Ari",
+          agentCard: null,
+          spaceRole: null,
+        })
+      ),
+    });
+    Object.assign(env.__spaceStub, {
+      rpcGetMemberDirectory: vi.fn(async () => directory),
+    });
+    try {
+      const result = await submitRemoteAgentNativeDelivery({
+        binding: { ...createBinding(), personalAgent: true },
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        memoryService: null,
+        message: createDispatchMessage({
+          sourceProfileNameSnapshot: "Center Agent",
+          sourceSignalSnapshot: {
+            profileId: centerAgentProfileId,
+            profileKind: "agent",
+            text: "Please review this pull request.",
+          },
+        }),
+        nowMs: 1000,
+      });
+      expect(result.status).toBe("submitted");
+      await expect(
+        requirePersonalRemoteAgentExecution(env, "personal-submission")
+      ).resolves.toMatchObject({
+        request: { author: { profileId: centerAgentProfileId } },
+      });
+
+      // Only the Organization's current designated Center Agent is an
+      // ownerless requester; a replaced designation no longer authorizes it.
+      harness.run({
+        sql: "UPDATE center_agent_designations SET agent_profile_id = ? WHERE organization_id = 'org_1'",
+        params: [AGENT_PROFILE_ID],
+      });
+      await expect(
+        requirePersonalRemoteAgentExecution(env, "personal-submission")
+      ).rejects.toThrow("requester_membership_revoked");
+    } finally {
+      harness.close();
+    }
+  });
   it("continues the same delivery after a tool-budget checkpoint and publishes only the later final result", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -843,7 +946,7 @@ describe("Remote Agent native delivery callback service", () => {
       expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
       expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
         expect.objectContaining({
-          text: REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
+          text: "Codex kept working but could not finish this request within the safe execution limit. Review the results and open Diagnostics in OpenMeld before starting more work.",
         })
       );
 
@@ -8186,7 +8289,7 @@ describe("Remote Agent native delivery callback service", () => {
               "Cloudflare AI binding request failed with 502 Bad Gateway.",
             purpose: REMOTE_AGENT_FAILURE_PURPOSE,
           }),
-          text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+          text: "Codex couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
           threadContext: THREAD_CONTEXT,
         })
       );
@@ -8197,7 +8300,7 @@ describe("Remote Agent native delivery callback service", () => {
           kind: "failed",
           reasonCode: "remote_agent.turn_not_completed",
           noticeText:
-            "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+            "Codex couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
         },
       });
       await expect(
@@ -8214,6 +8317,211 @@ describe("Remote Agent native delivery callback service", () => {
         publishedSignalId: "signal_failure_1",
         status: "failed",
       });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("attributes a personal Agent callback failure to its admitted controller", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    harness.run({
+      sql: "ALTER TABLE openmeld_profiles ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0",
+    });
+    harness.run({
+      sql: "UPDATE openmeld_profiles SET is_default = 1 WHERE profile_id = ?",
+      params: [HUMAN_PROFILE_ID],
+    });
+    harness.run({
+      sql: "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = 'user_1' WHERE profile_id = ?",
+      params: [AGENT_PROFILE_ID],
+    });
+    harness.run({ sql: "DELETE FROM center_agent_designations" });
+    harness.run({
+      sql: "UPDATE openMeldDaemon_agent_profile_bindings SET owner_kind = 'owner_account', owner_id = 'user_1', runtime_kind = 'hosted_remote_agent', agent_controller_ref = 'hosted:remote-agent', openmeld_service_runtime_id = 'hosted:remote-agent', hosted_runtime_identity_json = ? WHERE binding_id = 'binding_1'",
+      params: [JSON.stringify(HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY)],
+    });
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1001,
+        requestId: "request_personal_failure",
+        status: "pending" as const,
+        submissionId: "submission_personal_failure",
+      })
+    );
+    const env = buildEnv(harness.db, {
+      postSignalId: "signal_personal_failure",
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    try {
+      await submitRemoteAgentNativeDelivery({
+        binding: { ...createBinding(), personalAgent: true },
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        memoryService: null,
+        message: createDispatchMessage(),
+        nowMs: 1000,
+      });
+      expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
+        v: 4,
+        conversationIdentity: { kind: "personal_agent" },
+      });
+      await completeRemoteAgentNativeDelivery(env, {
+        submissionId: "submission_personal_failure",
+        idempotencyKey: "idem_1",
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        triggerMessageId: "signal_1",
+        dispatchId: "dispatch_1",
+        status: "failed",
+        failureCode: "remote_agent.turn_not_completed",
+        failureDetail: "remote_agent.requester_membership_revoked",
+        failureMessage: "Internal callback failure",
+      });
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          profile: expect.objectContaining({
+            agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+            profileName: "Codex",
+          }),
+          text: expect.stringContaining("Codex stopped"),
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("names the failed personal Agent in a Slack callback", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({ ok: true, ts: "1700000000.000999" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const conversationId = "slack:T123:C123:1700000000.000001";
+    try {
+      await createAcceptedDelivery({
+        conversationKind: "slack",
+        db: harness.db,
+        idempotencyKey: "idem_1",
+        personalAgent: true,
+        slackChannelId: "C123",
+        slackTeamId: "T123",
+        slackThreadTs: "1700000000.000001",
+        spaceId: conversationId,
+        submissionId: "sub_slack_personal_failure",
+      });
+      await completeRemoteAgentNativeDelivery(
+        buildEnv(harness.db, { slackBotToken: "xoxb-test" }),
+        {
+          ...createFailedCallbackBody({
+            callbackAttempt: 1,
+            submissionId: "sub_slack_personal_failure",
+          }),
+          spaceId: conversationId,
+          failureDetail: "remote_agent.requester_membership_revoked",
+        }
+      );
+      expect(
+        JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+      ).toMatchObject({
+        text: expect.stringContaining("Codex stopped"),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      harness.close();
+    }
+  });
+
+  it("attributes a personal Agent Routine failure to its controller", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    applyRoutineContinuationMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_1",
+        personalAgent: true,
+        routineRunId: "run_personal_failure",
+        routineNameSnapshot: "Daily review",
+        spaceId: SPACE_ID,
+        submissionId: "sub_routine_personal_failure",
+      });
+      harness.run({
+        params: ["run_personal_failure"],
+        sql: `
+          INSERT INTO routine_runs (
+            id, routine_id, organization_id, scheduled_for, status,
+            routine_name_snapshot, target_space_id_snapshot,
+            destination_kind_snapshot, execution_engine, started_at_ms
+          ) VALUES (?, 'routine-1', 'org_1', 900, 'submitted',
+            'Daily review', '${SPACE_ID}', 'space', 'legacy', 900)
+        `,
+      });
+      const env = buildEnv(harness.db);
+      const routineOutcome = await completeRemoteAgentNativeDelivery(env, {
+        ...createFailedCallbackBody({
+          callbackAttempt: 1,
+          submissionId: "sub_routine_personal_failure",
+        }),
+        spaceId: SPACE_ID,
+        failureDetail: "remote_agent.requester_membership_revoked",
+      });
+      expect(routineOutcome).toMatchObject({ status: "accepted" });
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({
+            actorContext: expect.objectContaining({
+              agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+            }),
+          }),
+          text: expect.stringContaining("Codex stopped"),
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("attributes a personal Agent pre-execution failure to its dispatch controller", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      const env = buildEnv(harness.db);
+      await publishRemoteAgentFailureNotice({
+        env,
+        message: createDispatchMessage({
+          controllerSnapshot: {
+            agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+            targetBindingEnabled: true,
+            targetBindingState: "bound",
+          },
+        }),
+        errorCode: "remote_agent.requester_membership_revoked",
+        text: "Center Agent couldn't start this request.",
+      });
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({
+            actorContext: expect.objectContaining({
+              agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+              profileName: "Codex",
+            }),
+          }),
+          data: expect.objectContaining({
+            actorName: "Codex",
+            text: expect.stringContaining("Codex stopped"),
+          }),
+        })
+      );
     } finally {
       harness.close();
     }
@@ -8565,7 +8873,7 @@ describe("Remote Agent native delivery callback service", () => {
           meta: expect.objectContaining({
             errorCode: "remote_agent.execution_identity_mismatch",
           }),
-          text: "OpenMeld stopped this request because it could not confirm that the reply came from your Center Agent. Send the request again. If it keeps happening, open diagnostics in OpenMeld.",
+          text: "OpenMeld stopped this request because it could not confirm that the reply came from Codex. Open Diagnostics in OpenMeld for details.",
         })
       );
     } finally {
@@ -8719,7 +9027,7 @@ describe("Remote Agent native delivery callback service", () => {
             errorCode: "remote_agent.callback_publish_failed",
             purpose: REMOTE_AGENT_FAILURE_PURPOSE,
           }),
-          text: "Center Agent finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+          text: "Codex finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open Diagnostics in OpenMeld.",
         })
       );
       await expect(
@@ -10644,6 +10952,9 @@ function createFailedCallbackBody(input: {
 async function createAcceptedDelivery(input: {
   db: D1Database;
   conversationKind?: "message_channel" | "space" | "slack";
+  personalAgent?: boolean;
+  routineRunId?: string;
+  routineNameSnapshot?: string;
   deliveryId?: string;
   dispatchId?: string;
   idempotencyKey: string;
@@ -10670,6 +10981,17 @@ async function createAcceptedDelivery(input: {
     nowMs: 1000,
     organizationId: "org_1",
     conversationKind: input.conversationKind,
+    ...(input.personalAgent
+      ? {
+          controllerNormalizationSnapshot: {
+            bindingUpdatedAtMs: 1000,
+            storedAgentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+            storedAgentControllerRefStatus: "canonical" as const,
+          },
+        }
+      : {}),
+    routineRunId: input.routineRunId,
+    routineNameSnapshot: input.routineNameSnapshot,
     spaceId: input.spaceId ?? "space_1",
     profileId: AGENT_PROFILE_ID,
     bindingId: "binding_1",

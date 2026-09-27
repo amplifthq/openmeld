@@ -1,3 +1,5 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { webApplicationErrorReportSchema } from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
 	createSpaceMemberHumanSnapshot,
@@ -3167,13 +3169,24 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("keeps catch-up retryable after reaching latest when the read write fails", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+		);
+		const writeError = new OpenMeldApiClientHttpError({
+			code: "auth.unauthenticated",
+			message: "private response body",
+			rawBody: "private response body",
+			requestId: "req-catch-up-write",
+			status: 401,
+		});
 		const consoleError = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
 		renderSpaceConversationPanel({
 			onPrepareCatchUpUnread: vi.fn(async () => ({
 				abandon: vi.fn(),
-				commit: () => Promise.reject(new Error("offline")),
+				commit: () => Promise.reject(writeError),
 			})),
 			timelineItems: [createTimelineItem({ text: "Unread short message" })],
 			unreadCount: 1,
@@ -3203,6 +3216,24 @@ describe("SpaceConversationPanel", () => {
 				name: "Try again to mark the latest messages as read",
 			})
 		).toBeTruthy();
+		const reports = vi
+			.mocked(fetch)
+			.mock.calls.filter(
+				([url]) => url === "/v1/observability/application-errors"
+			)
+			.map(([, options]) =>
+				webApplicationErrorReportSchema.parse(JSON.parse(String(options?.body)))
+			);
+		expect(reports).toHaveLength(1);
+		expect(reports[0]?.query).toEqual({
+			category: "inbox",
+			stage: "persist",
+			failure: {
+				code: "auth.unauthenticated",
+				requestId: "req-catch-up-write",
+				status: 401,
+			},
+		});
 		consoleError.mockRestore();
 	});
 

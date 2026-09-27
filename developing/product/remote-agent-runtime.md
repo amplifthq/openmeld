@@ -1338,6 +1338,12 @@ the primary turn. The original bytes, their base64 encoding, and the transient
 derivative never enter the persistent Flue conversation, even when the selected
 primary model can accept images directly. Other binary formats remain explicit
 file references rather than being presented as content the model understood.
+For an older JPEG or PNG revision, the Center Agent can call
+`openmeld_describe_space_image` with the exact Space, file id, and revision.
+Core checks Space access again and streams that immutable revision; the same
+auxiliary route returns only a text observation to the primary model. The tool
+rejects sources over 8 MiB and reports auxiliary failures instead of claiming
+the image was understood.
 
 `web_dm` is used for the Center Agent DM, `space_wake` for ordinary Space Wake
 delivery to the hosted Center Agent, `slack` for the legacy Slack channel

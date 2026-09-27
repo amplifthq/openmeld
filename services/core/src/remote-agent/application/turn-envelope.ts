@@ -820,9 +820,7 @@ async function readSenderEnvelopeFacts(input: {
     ...(kind === "member" && row?.owner_user_id
       ? { ownerUserId: row.owner_user_id }
       : {}),
-    ...(kind === "member" && row?.profile_id
-      ? { profileId: row.profile_id }
-      : {}),
+    ...(row?.profile_id ? { profileId: row.profile_id } : {}),
     ...(kind === "member" && role ? { role } : {}),
     verified: kind === "member" ? Boolean(row?.member_id) : Boolean(row),
   };

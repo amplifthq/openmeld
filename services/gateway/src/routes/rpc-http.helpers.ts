@@ -23,6 +23,7 @@ import {
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_FILE_ERROR_CODES,
   SPACE_TASK_ERROR_CODES,
+  sanitizeDispatchErrorSummary,
   toLegacySpaceAddressingWireValue,
   toLegacySpaceFilesOriginWireValue,
   toLegacySpaceImageGeometryWireValue,
@@ -592,6 +593,12 @@ function mapCoreRpcError(input: CoreRpcErrorInput): Response {
       status: parsed.status,
       latencyMs: Date.now() - startedAt,
       ...(spaceId ? { spaceId } : {}),
+      errorCode: parsed.code ?? `upstream_http_${parsed.status}`,
+      reason: formatAuditValue(
+        sanitizeDispatchErrorSummary(parsed.message) ??
+          "Unknown upstream error",
+        320
+      ),
       ...contextAuditFields(context),
     });
 
@@ -612,6 +619,11 @@ function mapCoreRpcError(input: CoreRpcErrorInput): Response {
     latencyMs: Date.now() - startedAt,
     ...(spaceId ? { spaceId } : {}),
     errorCode: "upstream_unreachable",
+    reason: formatAuditValue(
+      sanitizeDispatchErrorSummary(toErrorMessage(err)) ??
+        "Unknown upstream error",
+      320
+    ),
     ...contextAuditFields(context),
   });
 

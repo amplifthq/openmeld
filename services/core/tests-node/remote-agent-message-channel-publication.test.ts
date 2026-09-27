@@ -1570,7 +1570,7 @@ describe("Remote Agent Message Channel publication", () => {
         expect.objectContaining({
           failureCode: "provider.some_new_failure",
           locator: createLocator(),
-          text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+          text: "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.",
         })
       );
       await expect(

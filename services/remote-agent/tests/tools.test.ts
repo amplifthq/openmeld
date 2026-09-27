@@ -1176,6 +1176,108 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentReadChannelFile).toHaveBeenCalledOnce();
   });
 
+  it("describes an exact historical Space image without returning its bytes to the primary model", async () => {
+    const request = createSubmitTurnRequest();
+    const imageBytes = new TextEncoder().encode("png");
+    const file = {
+      ...spaceFileDescriptor(2),
+      name: "status.png",
+      origin: "artifact" as const,
+      trashedAt: null,
+      trashedBy: null,
+    };
+    const revision = {
+      ...file.latestRevision,
+      id: "revision-1",
+      mimeType: "image/png",
+      revision: 1,
+      sizeBytes: imageBytes.byteLength,
+    };
+    const streamSpaceFileContent = vi.fn(async () => ({
+      bytes: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(imageBytes);
+          controller.close();
+        },
+      }),
+      file,
+      objectKey:
+        "org/org_123/space/space_created/files/file-1/revisions/revision-1",
+      organizationId: request.organizationId,
+      revision,
+    }));
+    const imageFetch = vi.fn(async () =>
+      Response.json({
+        choices: [{ message: { content: "A green status card." } }],
+      })
+    );
+    const prepareImage = vi.fn(async (image) => ({
+      data: image.data,
+      filename: image.filename,
+      mimeType: "image/webp" as const,
+      sizeBytes: imageBytes.byteLength,
+      type: "image" as const,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { streamSpaceFileContent },
+      env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+      fetch: imageFetch,
+      modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+      prepareImage,
+      storage: await createStorageWithPendingContext(request),
+    });
+    const result = await executeTool(tools, "openmeld_describe_space_image", {
+      fileId: "file-1",
+      revision: 1,
+      spaceId: SPACE_ID,
+    });
+    expect(streamSpaceFileContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: { fileId: "file-1", revision: 1, spaceId: SPACE_ID },
+        context: expect.any(Object),
+        spaceId: SPACE_ID,
+      }),
+      "1"
+    );
+    expect(prepareImage).toHaveBeenCalledWith({
+      data: "cG5n",
+      filename: "status.png",
+      mimeType: "image/png",
+      type: "image",
+    });
+    expect(result).toMatchObject({
+      fileId: "file-1",
+      imageDescription: "A green status card.",
+      revision: 1,
+    });
+    expect(result).not.toHaveProperty("bytes");
+    expect(result).not.toHaveProperty("objectKey");
+    imageFetch.mockRejectedValueOnce(new Error("auxiliary unavailable"));
+    await expect(
+      executeTool(tools, "openmeld_describe_space_image", {
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      })
+    ).rejects.toThrow("auxiliary unavailable");
+    streamSpaceFileContent.mockResolvedValueOnce({
+      bytes: new ReadableStream<Uint8Array>(),
+      file,
+      objectKey:
+        "org/org_123/space/space_created/files/file-1/revisions/revision-1",
+      organizationId: request.organizationId,
+      revision: { ...revision, sizeBytes: 8 * 1024 * 1024 + 1 },
+    });
+    await expect(
+      executeTool(tools, "openmeld_describe_space_image", {
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      })
+    ).rejects.toThrow("exceeds the 8 MiB description limit");
+    expect(imageFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("reads only a Slack file ID observed in channel history and keeps private bytes out of the model result", async () => {
     const request = createSubmitTurnRequest();
     const bytes = new TextEncoder().encode("release notes");

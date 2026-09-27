@@ -21,7 +21,7 @@ export type ProjectLocalConnectionFailureReasonCode =
 export const CODEX_UPGRADE_REQUIRED_REASON =
   "Codex on this computer can't use the selected model. Update Codex or choose another Codex installation, then try again.";
 export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
-  "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.";
+  "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
   "Center Agent couldn't generate a reply. Your message is saved.";
 export const CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY =
@@ -82,48 +82,101 @@ const INTERACTION_UNSUPPORTED_PUBLIC_COPY =
 const HTML_ERROR_BODY_RE = /^\s*</;
 
 export const DISPATCH_ERROR_SUMMARY_MAX_LENGTH = 512;
+const PUBLIC_FAILURE_DETAIL_CODE_RE = /^[a-z0-9._-]+$/u;
+const HOSTED_CALLBACK_MAPPED_CODE_RE =
+  /^(?:remote_agent\.requester_membership_revoked$|remote_agent\.provider\.(?:authentication_failed|connection_missing|rate_limited|unavailable)|auth\.|credential\.|login\.|permission\.|provider\.(?:rate_limited|rate_limit|unavailable|authentication_failed)|connection\.)/u;
+const CENTER_AGENT_CALLBACK_COPY_BY_CODE: Readonly<Record<string, string>> = {
+  "remote_agent.empty_assistant_response": CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
+  "remote_agent.turn.output_limit_exceeded":
+    CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY,
+  "remote_agent.turn.context_window_exceeded":
+    CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
+  "remote_agent.execution_identity_mismatch":
+    CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
+  "remote_agent.callback_publish_failed":
+    CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
+  "remote_agent.turn.timeout": CENTER_AGENT_TURN_TIMEOUT_PUBLIC_COPY,
+  [REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE]:
+    REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
+  [REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE]:
+    REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
+  [REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE]:
+    REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
+};
+
+/** Generic hosted-Agent failure copy that names the Agent that actually failed. */
+export function buildHostedAgentRequestFailedPublicCopy(agentLabel: string) {
+  const label = agentLabel.trim() || "Center Agent";
+  return `${label} couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.`;
+}
 
 export function resolveCenterAgentCallbackFailureMessage(input: {
+  /** Display name of the hosted Agent that failed; defaults to Center Agent. */
+  agentLabel?: string;
   failureCode: string;
+  failureDetail?: string | null;
   failureMessage: string;
 }): string {
+  const agentLabel = input.agentLabel ?? "Center Agent";
+  const requestFailed = buildHostedAgentRequestFailedPublicCopy(agentLabel);
+  const mapped = resolveHostedCallbackMappedFailure(input, agentLabel);
+  if (mapped) {
+    return mapped;
+  }
+  const centerCopy =
+    agentLabel === "Center Agent"
+      ? CENTER_AGENT_CALLBACK_COPY_BY_CODE[input.failureCode]
+      : null;
+  if (centerCopy) {
+    return centerCopy;
+  }
   switch (input.failureCode) {
     case "remote_agent.empty_assistant_response":
-      return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+      return `${agentLabel} couldn't generate a reply. Your message is saved.`;
     case "remote_agent.turn.output_limit_exceeded":
-      return CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY;
+      return `${agentLabel} reached the model's response limit before it could reply. Completed actions were not undone. Check the results, then send a shorter follow-up asking it to continue.`;
     case "remote_agent.execution_cancelled":
       return CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY;
     case "remote_agent.turn.context_window_exceeded":
-      return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
+      return `This conversation has grown too long for ${agentLabel} to continue in one request. Try again; OpenMeld will shorten older messages before continuing.`;
     case "remote_agent.execution_identity_mismatch":
-      return CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY;
+      return `OpenMeld stopped this request because it could not confirm that the reply came from ${agentLabel}. Open Diagnostics in OpenMeld for details.`;
     case "remote_agent.callback_publish_failed":
-      return CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY;
-    case "remote_agent.provider.authentication_failed":
-    case "remote_agent.provider.rate_limited":
-    case "remote_agent.provider.unavailable":
-      return (
-        resolveMappedPublicAgentFailureReason(
-          input.failureCode,
-          "Center Agent"
-        ) ?? CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY
-      );
+      return `${agentLabel} finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open Diagnostics in OpenMeld.`;
     case "remote_agent.turn.timeout":
-      return CENTER_AGENT_TURN_TIMEOUT_PUBLIC_COPY;
+      return `${agentLabel} took too long to finish this request. Try again. If it keeps happening, open Diagnostics in OpenMeld.`;
     case REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE:
-      return REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY;
+      return `${agentLabel} could not continue this conversation automatically. Open Diagnostics in OpenMeld for details.`;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
-      return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+      return `${agentLabel} tried to process too much data at once. Try again; it will read large files in smaller sections. If this keeps happening, open Diagnostics in OpenMeld.`;
     case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
       return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE:
-      return REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY;
-    case "remote_agent.turn_not_completed":
-      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+      return `${agentLabel} kept working but could not finish this request within the safe execution limit. Review the results and open Diagnostics in OpenMeld before starting more work.`;
     default:
-      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+      return requestFailed;
   }
+}
+
+function resolveHostedCallbackMappedFailure(
+  input: { failureCode: string; failureDetail?: string | null },
+  agentLabel: string
+): string | null {
+  // Older workers report a broad callback code and keep the actual reason in
+  // failureDetail. Only resolve a known code; never publish raw worker detail.
+  const detailCode = input.failureDetail?.trim();
+  const mappedDetail =
+    input.failureCode === "remote_agent.turn_not_completed" &&
+    detailCode &&
+    PUBLIC_FAILURE_DETAIL_CODE_RE.test(detailCode)
+      ? resolveMappedPublicAgentFailureReason(detailCode, agentLabel)
+      : null;
+  if (mappedDetail) {
+    return mappedDetail;
+  }
+  return HOSTED_CALLBACK_MAPPED_CODE_RE.test(input.failureCode)
+    ? resolveMappedPublicAgentFailureReason(input.failureCode, agentLabel)
+    : null;
 }
 
 const DISPATCH_ERROR_REDACTION_REPLACEMENTS: readonly [RegExp, string][] = [
@@ -523,6 +576,22 @@ const buildMissingAgentReplyIdentityCopy = (targetName: string): string =>
 
 const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMapping[] =
   [
+    {
+      body: (targetName) =>
+        `${targetName} couldn't connect to its model provider. Ask your OpenMeld admin to check the provider connection, then wake the agent again.`,
+      kind: "account_access",
+      patterns: ["=remote_agent.provider.connection_missing"],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
+    },
+    {
+      body: (targetName) =>
+        `OpenMeld could not confirm the requester's current access to this Space, so ${targetName} stopped. Check the requester's Space membership, then wake ${targetName} again.`,
+      kind: "account_access",
+      patterns: ["=remote_agent.requester_membership_revoked"],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
+    },
     {
       body: (targetName) => {
         const subject = targetName === "This agent" ? "The agent" : targetName;

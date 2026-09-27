@@ -232,6 +232,7 @@ export {
   readPluginConnectionReplyLink,
 } from "./plugin-connection-reply";
 export {
+  buildHostedAgentRequestFailedPublicCopy,
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,

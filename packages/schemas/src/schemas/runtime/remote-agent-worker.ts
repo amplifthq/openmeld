@@ -256,6 +256,7 @@ export const REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES = {
   ADMISSION_CONVERSATION_BUSY: "remote_agent.admission.conversation_busy",
   ADMISSION_NOT_ACCEPTED: "remote_agent.admission.not_accepted",
   PROVIDER_AUTHENTICATION_FAILED: "remote_agent.provider.authentication_failed",
+  PROVIDER_CONNECTION_MISSING: "remote_agent.provider.connection_missing",
   PROVIDER_FAILED: "remote_agent.provider.failed",
   PROVIDER_RATE_LIMITED: "remote_agent.provider.rate_limited",
   PROVIDER_UNAVAILABLE: "remote_agent.provider.unavailable",
