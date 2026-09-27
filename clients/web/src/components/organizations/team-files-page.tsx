@@ -90,6 +90,7 @@ import {
 	downloadContent,
 	formatFileDateTime,
 	formatFileSize,
+	resolveSpaceFileErrorMessage,
 	utf8ByteLength,
 } from "#/components/spaces/space-file-utils";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -541,6 +542,7 @@ function TeamFilesBrowser(input: {
 		percent: number;
 	} | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
+	const [dialogError, setDialogError] = useState<string | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const objectUrls = useRef(new Map<string, string>());
@@ -611,21 +613,24 @@ function TeamFilesBrowser(input: {
 		});
 	};
 	const runAction = async (
-		action: () => Promise<unknown>
+		action: () => Promise<unknown>,
+		errorPlacement: "page" | "dialog" = "page"
 	): Promise<boolean> => {
 		setBusy(true);
 		setActionError(null);
+		setDialogError(null);
 		setSelectedId(null);
 		try {
 			await action();
 			await refresh();
 			return true;
 		} catch (error) {
-			setActionError(
-				error instanceof Error
-					? error.message
-					: "Files couldn't save that change."
-			);
+			const message = resolveSpaceFileErrorMessage(error);
+			if (errorPlacement === "dialog") {
+				setDialogError(message);
+			} else {
+				setActionError(message);
+			}
 			return false;
 		} finally {
 			setBusy(false);
@@ -1000,18 +1005,31 @@ function TeamFilesBrowser(input: {
 				</ContextMenu>
 			</div>
 			<FolderNameDialog
-				onOpenChange={setFolderDialogOpen}
+				error={dialogError}
+				onOpenChange={(open) => {
+					setFolderDialogOpen(open);
+					if (!open) {
+						setDialogError(null);
+					}
+				}}
 				onSubmit={async (name) => {
-					const created = await runAction(() =>
-						api.createFolder({
+					let savedName: string | null = null;
+					const created = await runAction(async () => {
+						const folder = await api.createFolder({
 							location,
 							name,
 							parentId,
 							clientMutationId: crypto.randomUUID(),
-						})
-					);
+						});
+						savedName = folder.name;
+					}, "dialog");
 					if (created) {
 						setFolderDialogOpen(false);
+						if (savedName && savedName !== name) {
+							toast.message(
+								`Created “${savedName}” because “${name}” is already here.`
+							);
+						}
 					}
 				}}
 				open={folderDialogOpen}
@@ -1019,24 +1037,28 @@ function TeamFilesBrowser(input: {
 			/>
 			{newTextFileKind ? (
 				<NewTextFileDialog
+					error={dialogError}
 					kind={newTextFileKind}
 					onOpenChange={(open) => {
 						if (!open) {
 							setNewTextFileKind(null);
+							setDialogError(null);
 						}
 					}}
 					onSubmit={async ({ content, name }) => {
-						const created = await runAction(() =>
-							api.upload({
-								location,
-								bytes: new Blob([content], {
-									type: NEW_TEXT_FILE_MIME_TYPES[newTextFileKind],
+						const created = await runAction(
+							() =>
+								api.upload({
+									location,
+									bytes: new Blob([content], {
+										type: NEW_TEXT_FILE_MIME_TYPES[newTextFileKind],
+									}),
+									mimeType: NEW_TEXT_FILE_MIME_TYPES[newTextFileKind],
+									name,
+									parentId,
+									clientMutationId: crypto.randomUUID(),
 								}),
-								mimeType: NEW_TEXT_FILE_MIME_TYPES[newTextFileKind],
-								name,
-								parentId,
-								clientMutationId: crypto.randomUUID(),
-							})
+							"dialog"
 						);
 						if (created) {
 							setNewTextFileKind(null);
@@ -1067,19 +1089,23 @@ function TeamFilesBrowser(input: {
 			) : null}
 			<RenameEntryDialog
 				entry={renamingEntry}
+				error={dialogError}
 				onOpenChange={(open) => {
 					if (!open) {
 						setRenamingEntry(null);
+						setDialogError(null);
 					}
 				}}
 				onSubmit={async (entry, name) => {
-					const updated = await runAction(() =>
-						api.updateEntry({
-							location,
-							entryId: entry.id,
-							name,
-							clientMutationId: crypto.randomUUID(),
-						})
+					const updated = await runAction(
+						() =>
+							api.updateEntry({
+								location,
+								entryId: entry.id,
+								name,
+								clientMutationId: crypto.randomUUID(),
+							}),
+						"dialog"
 					);
 					if (updated) {
 						setRenamingEntry(null);
@@ -1089,22 +1115,26 @@ function TeamFilesBrowser(input: {
 			/>
 			<MoveEntryDialog
 				entry={movingEntry}
+				error={dialogError}
 				loadDestinations={(excludedFolderId) =>
 					loadFileRootMoveDestinations({ api, excludedFolderId, location })
 				}
 				onOpenChange={(open) => {
 					if (!open) {
 						setMovingEntry(null);
+						setDialogError(null);
 					}
 				}}
 				onSubmit={async (entry, destinationId) => {
-					const updated = await runAction(() =>
-						api.updateEntry({
-							location,
-							entryId: entry.id,
-							parentId: destinationId,
-							clientMutationId: crypto.randomUUID(),
-						})
+					const updated = await runAction(
+						() =>
+							api.updateEntry({
+								location,
+								entryId: entry.id,
+								parentId: destinationId,
+								clientMutationId: crypto.randomUUID(),
+							}),
+						"dialog"
 					);
 					if (updated) {
 						setMovingEntry(null);

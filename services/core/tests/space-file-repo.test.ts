@@ -602,7 +602,7 @@ describe("SpaceFileRepository", () => {
     });
   });
 
-  it("prevents duplicate folder names, folder cycles, and trashing non-empty folders", async () => {
+  it("numbers duplicate folder names while preventing folder cycles and trashing non-empty folders", async () => {
     const fixture = createFixture();
 
     await withRepository(fixture.spaceId, (repository) => {
@@ -636,24 +636,37 @@ describe("SpaceFileRepository", () => {
         spaceId: fixture.spaceId,
       });
 
-      expect(() =>
+      const duplicate = repository.createFolder({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-duplicate-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-duplicate`,
+        }),
+        clientMutationId: `${fixture.prefix}-duplicate`,
+        folderId: `${fixture.prefix}-duplicate-folder`,
+        name: "product",
+        nowMs: fixture.nowMs + 2,
+        spaceId: fixture.spaceId,
+      });
+      expect(duplicate.name).toBe("product (2)");
+      expect(
         repository.createFolder({
           actor,
           auditEvent: createAuditEvent({
-            entryId: `${fixture.prefix}-duplicate-folder`,
+            entryId: `${fixture.prefix}-third-folder`,
             fixture,
             operation: "folder_create",
-            operationId: `${fixture.prefix}-duplicate`,
+            operationId: `${fixture.prefix}-third`,
           }),
-          clientMutationId: `${fixture.prefix}-duplicate`,
-          folderId: `${fixture.prefix}-duplicate-folder`,
-          name: "product",
-          nowMs: fixture.nowMs + 2,
+          clientMutationId: `${fixture.prefix}-third`,
+          folderId: `${fixture.prefix}-third-folder`,
+          name: "Product",
+          nowMs: fixture.nowMs + 3,
           spaceId: fixture.spaceId,
-        })
-      ).toThrowError(
-        expect.objectContaining({ code: "space_file.name_conflict" })
-      );
+        }).name
+      ).toBe("Product (3)");
       expect(() =>
         repository.updateEntry({
           actor,

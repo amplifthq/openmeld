@@ -325,7 +325,11 @@ export class SpaceFileRepository {
       }
       const parentId = input.parentId ?? null;
       this.requireValidParent(parentId);
-      this.requireNameAvailable({ parentId, name: input.name });
+      const name = this.resolveAvailableName({
+        kind: "folder",
+        name: input.name,
+        parentId,
+      });
       const actorJson = JSON.stringify(spaceFileActorSchema.parse(input.actor));
       this.sql.exec(
         `
@@ -349,8 +353,8 @@ export class SpaceFileRepository {
         input.spaceId,
         parentId,
         parentKey(parentId),
-        input.name,
-        nameKey(input.name),
+        name,
+        nameKey(name),
         input.nowMs,
         input.nowMs,
         actorJson,
@@ -585,7 +589,8 @@ export class SpaceFileRepository {
       if (input.write.baseRevision === null) {
         revision = 1;
         const parentId = input.write.parentId ?? null;
-        const name = this.resolveAvailableFileName({
+        const name = this.resolveAvailableName({
+          kind: "file",
           name: input.write.name ?? "",
           parentId,
         });
@@ -901,7 +906,8 @@ export class SpaceFileRepository {
     }
   }
 
-  private resolveAvailableFileName(input: {
+  private resolveAvailableName(input: {
+    kind: "file" | "folder";
     name: string;
     parentId: string | null;
   }): string {
@@ -922,7 +928,10 @@ export class SpaceFileRepository {
       return input.name;
     }
 
-    const { extension, stem } = splitFileName(input.name);
+    const { extension, stem } =
+      input.kind === "file"
+        ? splitFileName(input.name)
+        : { extension: "", stem: input.name };
     const numberedStem = NUMBERED_FILE_STEM_PATTERN.exec(stem);
     const baseStem = numberedStem?.[1] ?? stem;
     const parsedOrdinal = Number(numberedStem?.[2] ?? 1);

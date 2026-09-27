@@ -29,6 +29,7 @@ The user must always see the current location and audience before adding content
 - Content revisions are immutable. Writes state the expected current revision; a conflicting write fails visibly. An exact revision can be read again if current authorization still permits access.
 - Upload sessions, chunks, checksums, resumability, and retry handling use the shared file transport. A completed upload is not reported before its metadata revision is committed.
 - Folders, file names, metadata, history, Trash, restore, and audit use the same behavior where Team, My, and Space semantics match. Deletion is recoverable until a separate retention policy says otherwise.
+- Creating a file or folder with an occupied sibling name keeps both items by assigning the new item the next available numbered name in the owning root. The committed response shows that name. Explicit rename and move still report a collision rather than silently renaming an existing item.
 - Ordinary Team members may contribute ordinary files to Team files. My files require the owning member. Space writes continue to use Space policy. Server-side authorization owns every operation; hiding a UI control does not grant or revoke authority.
 - File content and metadata are read through an authenticated, bounded endpoint. A stored object key is never an access token.
 - The small-content route accepts at most 10 MiB per upload or revision. Larger files use the shared resumable multipart transport, with per-part checksums, recovery, and a final metadata commit after the stored object is complete.

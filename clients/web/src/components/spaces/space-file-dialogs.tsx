@@ -104,6 +104,7 @@ export function SpaceFileEntryDialogs(input: {
 }
 
 export function FolderNameDialog(input: {
+	error?: string | null;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (name: string) => Promise<void>;
 	open: boolean;
@@ -134,6 +135,11 @@ export function FolderNameDialog(input: {
 							placeholder="Project files"
 							value={name}
 						/>
+						{input.error ? (
+							<p className="text-destructive text-sm" role="alert">
+								{input.error}
+							</p>
+						) : null}
 					</div>
 					<DialogFooter>
 						<Button
@@ -158,6 +164,7 @@ export function FolderNameDialog(input: {
 }
 
 export function NewTextFileDialog(input: {
+	error?: string | null;
 	kind: "markdown" | "text" | "csv";
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (input: { content: string; name: string }) => Promise<void>;
@@ -200,6 +207,11 @@ export function NewTextFileDialog(input: {
 								onChange={(event) => setName(event.currentTarget.value)}
 								value={name}
 							/>
+							{input.error ? (
+								<p className="text-destructive text-sm" role="alert">
+									{input.error}
+								</p>
+							) : null}
 						</div>
 						<div className="grid gap-2">
 							<Label>Contents</Label>
@@ -254,6 +266,7 @@ export function RenameEntryDialog<
 	Entry extends { kind: "file" | "folder"; name: string },
 >(input: {
 	entry: Entry | null;
+	error?: string | null;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (entry: Entry, name: string) => Promise<void>;
 	pending: boolean;
@@ -283,6 +296,11 @@ export function RenameEntryDialog<
 							onChange={(event) => setName(event.currentTarget.value)}
 							value={name}
 						/>
+						{input.error ? (
+							<p className="text-destructive text-sm" role="alert">
+								{input.error}
+							</p>
+						) : null}
 					</div>
 					<DialogFooter>
 						<Button
@@ -318,6 +336,7 @@ export function MoveEntryDialog<
 	},
 >(input: {
 	entry: Entry | null;
+	error?: string | null;
 	loadDestinations: (
 		excludedFolderId?: string
 	) => Promise<readonly { id: string; path: string }[]>;
@@ -392,6 +411,11 @@ export function MoveEntryDialog<
 								</option>
 							))}
 						</select>
+						{input.error ? (
+							<p className="text-destructive text-sm" role="alert">
+								{input.error}
+							</p>
+						) : null}
 						{loading ? (
 							<p className="text-muted-foreground text-xs">Loading folders…</p>
 						) : null}
