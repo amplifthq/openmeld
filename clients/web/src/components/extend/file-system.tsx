@@ -255,6 +255,23 @@ function fileExtension(name: string) {
   const dotIndex = name.lastIndexOf(".")
   return dotIndex === -1 ? "" : name.slice(dotIndex + 1).toLowerCase()
 }
+const MIME_FILE_EXTENSIONS: Record<string, string> = {
+  "application/pdf": "pdf",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "text/csv": "csv",
+  "text/markdown": "md",
+  "text/plain": "txt",
+}
+function fileDisplayExtension(file: FileEntry) {
+  return (
+    fileExtension(file.name) ||
+    fileExtension(pathName(file.path)) ||
+    MIME_FILE_EXTENSIONS[file.contentType ?? ""] ||
+    ""
+  )
+}
 const FILE_KIND_LABELS: Record<string, string> = {
   css: "CSS Stylesheet",
   csv: "CSV Document",
@@ -290,7 +307,7 @@ const FILE_KIND_LABELS: Record<string, string> = {
   zip: "ZIP Archive",
 }
 function fileKindLabel(file: FileEntry) {
-  const byExtension = FILE_KIND_LABELS[fileExtension(file.name)]
+  const byExtension = FILE_KIND_LABELS[fileDisplayExtension(file)]
   if (byExtension) return byExtension
   if (file.contentType?.startsWith("image/")) return "Image"
   return file.contentType ?? "Document"
@@ -957,13 +974,16 @@ function FileTypeIcon({
   )
 }
 function FileGenericPreview({ file }: { file: FileEntry }) {
-  const extension = fileExtension(file.name)
+  const extension = fileDisplayExtension(file)
   return (
     <div
       data-file-system-on-light=""
       className="flex size-full flex-col items-center justify-center gap-1.5 bg-white text-neutral-400 dark:bg-neutral-100"
     >
-      <FileTypeIcon fileName={file.name} className="size-1/3 min-h-4 min-w-4" />
+      <FileTypeIcon
+        fileName={extension ? `file.${extension}` : file.name}
+        className="size-1/3 min-h-4 min-w-4"
+      />
       {extension ? (
         <span className="text-[min(0.625rem,18cqw)] font-semibold tracking-wide uppercase">
           {extension}
@@ -3323,6 +3343,12 @@ function FileSystemIconsView({
         >
           {visibleEntries.map((entry) => {
             const isSelected = entry.path === selectedPath
+            const previewAspectRatio =
+              entry.kind === "file" &&
+              entry.previewAspectRatio &&
+              entry.previewAspectRatio > 0
+                ? entry.previewAspectRatio
+                : 0.78
             return (
               <button
                 key={entry.path}
@@ -3354,19 +3380,14 @@ function FileSystemIconsView({
                   {entry.kind === "folder" ? (
                     <FileSystemFolderGlyph className="h-12 w-auto drop-shadow-sm" />
                   ) : (
-                    <FileVisual
-                      file={entry}
-                      className={cn(
-                        "rounded-sm shadow-xs",
-                        // Landscape thumbnails get extra width so they fill
-                        // the tile instead of rendering as a short sliver.
-                        (entry.previewAspectRatio ?? 0.78) > 1.2
-                          ? "w-[4.75rem]"
-                          : "w-12"
-                      )}
-                      previewAspectRatio={0.78}
-                      renderFilePreview={renderFilePreview}
-                    />
+                    <div style={{ width: Math.min(76, 48 * previewAspectRatio) }}>
+                      <FileVisual
+                        file={entry}
+                        className="w-full rounded-sm shadow-xs"
+                        previewAspectRatio={0.78}
+                        renderFilePreview={renderFilePreview}
+                      />
+                    </div>
                   )}
                 </span>
                 <span
