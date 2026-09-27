@@ -197,8 +197,9 @@ export function getRemoteAgentSandboxToolDefinitions(input: {
           : await input.env.exec(request.command, execOptions);
         return {
           exitCode: result.exitCode,
-          stderr: truncateTail(result.stderr),
-          stdout: truncateTail(result.stdout),
+          // Preserve received output for the shared bounded retention owner.
+          stderr: result.stderr,
+          stdout: result.stdout,
         };
       },
     },
@@ -413,17 +414,6 @@ function countOccurrences(value: string, search: string): number {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function truncateTail(value: string): string {
-  if (value.length <= MAX_READ_CHARS) {
-    const lines = value.split("\n");
-    return lines.length <= MAX_READ_LINES
-      ? value
-      : lines.slice(-MAX_READ_LINES).join("\n");
-  }
-  const tail = value.slice(-MAX_READ_CHARS);
-  return tail.split("\n").slice(-MAX_READ_LINES).join("\n");
 }
 
 function utf8ByteLength(value: string): number {

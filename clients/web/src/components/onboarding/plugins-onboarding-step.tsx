@@ -24,12 +24,11 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useMemo, useState } from "react";
 import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
-import { CenterAgentGitHubConnectionCard } from "#/components/organizations/center-agent-github-connection-card";
 import {
 	findPluginDefinition,
 	PLUGINS,
 } from "#/components/organizations/plugin-catalog";
-import { PluginConnectionCard } from "#/components/organizations/plugin-connection-card";
+import { PluginConnectionSurface } from "#/components/organizations/plugin-connection-surface";
 import { createCurrentOrganizationConnectorAppRequest } from "#/lib/organizations/connector-connections";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
@@ -350,23 +349,14 @@ function AvailableAppConnectionPanel(input: {
 						: "Connect your own account. Organization connections stay visible but read-only."}
 				</p>
 			</div>
-			{input.provider.service === "github" ? (
-				<CenterAgentGitHubConnectionCard
-					canManage={input.canManageSharedPlugins}
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					mode={mode}
-					organizationId={input.organizationId}
-					presentation="onboarding"
-				/>
-			) : (
-				<PluginConnectionCard
-					canManage={input.canManageSharedPlugins}
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					mode={mode}
-					organizationId={input.organizationId}
-					plugin={input.app}
-				/>
-			)}
+			<PluginConnectionSurface
+				canManage={input.canManageSharedPlugins}
+				isPersonalWorkspace={input.isPersonalWorkspace}
+				mode={mode}
+				organizationId={input.organizationId}
+				plugin={input.app}
+				presentation="onboarding"
+			/>
 		</Card>
 	);
 }

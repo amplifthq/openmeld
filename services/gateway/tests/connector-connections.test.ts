@@ -43,6 +43,68 @@ afterEach(() => {
 });
 
 describe("Gateway connector connection routes", () => {
+  it("scopes a private channel request to the authenticated organization and keeps preview separate from explicit continuation", async () => {
+    const previewPluginChannelConnection = vi.fn(async () => ({
+      requestId: "request",
+      service: "github",
+      scope: "choose",
+      provider: "slack",
+      targetProfileName: "Agent",
+      expiresAtMs: 1000,
+      selection: null,
+    }));
+    const continuePluginChannelConnection = vi.fn(async () => ({
+      status: "requested",
+      requestId: "request",
+      targetProfileId: "agent",
+      provider: "slack",
+    }));
+    const env = makeEnv({
+      previewPluginChannelConnection,
+      continuePluginChannelConnection,
+    });
+    const invoke = (kind: string, body: unknown) =>
+      app.fetch(
+        new Request(
+          `http://local/v1/organizations/current/plugins/connection-requests/${kind}?expectedOrganizationId=org-1`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+    expect((await invoke("preview", { requestId: "request" })).status).toBe(
+      200
+    );
+    expect(continuePluginChannelConnection).not.toHaveBeenCalled();
+    expect(
+      (await invoke("continue", { requestId: "request", scope: "shared" }))
+        .status
+    ).toBe(200);
+    expect(continuePluginChannelConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        requestId: "request",
+        scope: "shared",
+        context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+      })
+    );
+    expect(
+      (
+        await invoke("continue", {
+          requestId: "request",
+          scope: "member",
+          targetProfileId: "attacker",
+          text: "different task",
+        })
+      ).status
+    ).toBe(400);
+    expect(continuePluginChannelConnection).toHaveBeenCalledOnce();
+  });
+
   it("lists the live OpenConnector provider catalog after verifying membership", async () => {
     const listCurrentOrganizationConnectorAppRequests = vi.fn(async () => ({
       currentUserId: "user-1",

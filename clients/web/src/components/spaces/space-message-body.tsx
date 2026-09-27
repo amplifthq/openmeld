@@ -6,9 +6,11 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { useReducedMotionConfig } from "framer-motion";
 import {
 	type ComponentProps,
+	lazy,
 	memo,
 	type ReactNode,
 	type Ref,
+	Suspense,
 	useCallback,
 	useLayoutEffect,
 	useMemo,
@@ -54,7 +56,15 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
+
+const PluginConnectionMessageCard = lazy(async () => {
+	const module = await import(
+		"#/components/organizations/plugin-connection-message-card"
+	);
+	return { default: module.PluginConnectionMessageCard };
+});
 
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
@@ -108,12 +118,19 @@ type SpaceMessageBodyProps = {
 
 function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
+	const pluginReply = usePluginConnectionReply({
+		final:
+			input.item.isAgentFinalReply === true &&
+			input.item.agentStreamState?.status !== "streaming",
+		organizationSlug: input.orgSlug,
+		text: input.item.text,
+	});
 	const shouldReduceMotion = useReducedMotionConfig();
 	const isStreaming = input.item.agentStreamState?.status === "streaming";
 	const displayedText = useSpaceStreamDisplayText({
 		enabled: isStreaming && shouldReduceMotion !== true,
 		streamId: input.item.agentStreamState?.streamId ?? null,
-		text: input.item.text,
+		text: pluginReply?.text ?? input.item.text,
 	});
 	const textProjection = useMemo(
 		() => splitServerTruncationMarker(displayedText),
@@ -139,6 +156,7 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	return {
 		isExpanded,
 		isStreaming,
+		pluginAction: pluginReply?.action,
 		renderedText,
 		setIsExpanded,
 		shouldCollapse,
@@ -373,10 +391,13 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		input.item.isAgentFinalReply === true;
 	const navigationAction =
 		input.item.isAgentFinalReply === true
-			? input.item.navigationAction
+			? (input.item.navigationAction ?? text.pluginAction)
 			: undefined;
 	const navigationActionContent = renderSpaceMessageNavigationAction({
 		action: navigationAction,
+		sourceSignalId: input.item.id,
+		spaceId: input.item.spaceId,
+		organizationSlug: input.orgSlug,
 		computerSetupContext: input.computerSetupContext,
 		computerSetupSourceSignalId: input.computerSetupSourceSignalId,
 	});
@@ -634,11 +655,35 @@ function renderSpaceMessageTextContent(input: {
 
 function renderSpaceMessageNavigationAction(input: {
 	action: NavigationAction | null | undefined;
+	sourceSignalId: string | undefined;
+	spaceId: string | undefined;
+	organizationSlug: string | undefined;
 	computerSetupContext: CenterAgentComputerSetupContext | undefined;
 	computerSetupSourceSignalId: string | undefined;
 }): ReactNode {
 	if (!input.action) {
 		return null;
+	}
+	if (input.action.target.kind === "plugin_connection") {
+		return (
+			<Suspense
+				fallback={
+					<DesktopAwareLink href={input.action.url}>
+						{input.action.label}
+					</DesktopAwareLink>
+				}
+			>
+				<PluginConnectionMessageCard
+					action={{ ...input.action, target: input.action.target }}
+					continuation={
+						input.sourceSignalId && input.spaceId
+							? { sourceSignalId: input.sourceSignalId, spaceId: input.spaceId }
+							: undefined
+					}
+					organizationSlug={input.organizationSlug}
+				/>
+			</Suspense>
+		);
 	}
 	if (
 		input.computerSetupContext &&

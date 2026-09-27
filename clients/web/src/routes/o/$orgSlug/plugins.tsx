@@ -8,8 +8,13 @@ import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 export const Route = createFileRoute("/o/$orgSlug/plugins")({
 	validateSearch: (
 		search: Record<string, unknown>
-	): { scope: "personal" | "organization" } => ({
+	): { scope: "personal" | "organization"; request?: string } => ({
 		scope: search.scope === "personal" ? "personal" : "organization",
+		...(typeof search.request === "string" &&
+		search.request.trim().length > 0 &&
+		search.request.length <= 512
+			? { request: search.request.trim() }
+			: {}),
 	}),
 	staticData: appShellStaticData.plugins,
 	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),

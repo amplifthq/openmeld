@@ -2035,9 +2035,26 @@ of a personal registration does not grant use of its credentials. Connections
 remain scoped to one Organization; personal ownership does not imply cross-Org
 credential reuse.
 
-An absent policy preserves historical Center access and shared personal-Remote
-access, while Local access and personal-Remote access to a member connection
-start disabled. Moving navigation alone never expands existing authority.
+New personal and shared registrations persist explicit `none` for every Agent
+consumer before provider authorization. Provider consent/activation is not an
+Agent grant. The connection owner must explicitly save Agent permissions through
+the existing revisioned, audited access editor. The same editor follows the
+connection form in Plugins, Onboarding and conversation setup.
+
+Historical registrations with an absent policy retain their shipped Center and
+shared personal-Remote access; Local access and personal-Remote access to a member
+connection remain disabled. New inserts must not reuse this legacy null-policy
+compatibility rule. Reauthorization of the same Organization/scope/owner/service
+registration preserves its existing policy but advances its access revision so
+an earlier permission draft cannot overwrite the new authorization. Access may
+only be saved while the connection is active, fenced in the same audit/write
+transaction. Access revisions are monotonic fences, not a count of grant events.
+A different member or Organization has a different registration and starts with
+no access. Shared setup attribution may change between authorized administrators;
+the Organization remains the credential-policy owner, not the last installer.
+These connection-level grants do not attest a provider account identity beyond
+what the existing connector verification proves. Moving navigation alone never
+expands existing authority.
 Read-only access requires trusted action metadata declaring a read. Unknown and
 destructive effects require write permission and exact-action confirmation.
 Personal Remote Agents may use their owner's connection only for a verified
@@ -2079,11 +2096,10 @@ Management location follows the owner instead of repeating mutation controls:
   visibly separate, has no disconnect
   or repair controls, and accepts success only from the owning Core projection.
   Center Agent remains the ongoing management home.
-- The Center Agent Chat page has no Channels or Plugins mutation copy. It may show
-  a read-only status shortcut and compact handoff dialog when context makes the
-  canonical Center Agent destination useful, but the dialog must only
-  deep-link; it must not install, move, disconnect, or otherwise manage the
-  integration.
+- The Center Agent Chat page does not duplicate Channels or Plugins settings.
+  A Plugin connection message may open the same authorized connection and access
+  surface in a compact dialog; it does not implement separate management logic
+  or permissions. Other status shortcuts use the canonical management page.
 - When the Center Agent tells a user to complete or repair App access, it uses a
   structured Navigation Action for the current Organization's canonical App
   page. The reply gives the outcome, one concrete next step, and that direct

@@ -29,6 +29,12 @@ import {
   selectPluginConnection,
 } from "./plugin-access";
 import { preparePluginActionConfirmation } from "./plugin-action-confirmation";
+import {
+  assertBoundPluginConnection,
+  boundPluginConnectionPreference,
+  readSpacePluginConnectionBinding,
+} from "./plugin-connection-execution-binding";
+import { localPluginConnectionGuidance } from "./plugin-connection-guidance";
 import { requireLocalPluginCaller } from "./plugin-local-caller";
 
 type Caller = Awaited<ReturnType<typeof requireLocalPluginCaller>>;
@@ -56,6 +62,9 @@ export async function rpcPluginAction(
   const input = parsed.data;
   const caller = await requireLocalPluginCaller(env, input);
   const action = input.request.action;
+  if (action.operation === "connect") {
+    return await localPluginConnectionGuidance(env, caller, action);
+  }
   if (action.operation === "list") {
     return await listAvailableConnections(env, caller);
   }
@@ -71,13 +80,23 @@ export async function rpcPluginAction(
       "Your personal connection cannot be used for someone else’s Wake."
     );
   }
+  const binding = await readLocalContinuationBinding(
+    env,
+    caller,
+    action.service
+  );
+  const preference = boundPluginConnectionPreference(
+    binding,
+    action.service,
+    action.account === "personal" ? "requester" : "shared"
+  );
   const selected = await selectPluginConnection({
     db: caller.db,
     organizationId: caller.organizationId,
     requesterUserId: caller.ownerUserId,
     consumer: "local_agent",
     service: action.service,
-    preference: action.account === "personal" ? "requester" : "shared",
+    preference,
   });
   if (!selected) {
     throw failure(
@@ -85,6 +104,7 @@ export async function rpcPluginAction(
       "No connection grants this Local Agent access. Review the account in Plugins."
     );
   }
+  assertBoundPluginConnection(binding, action.service, selected.connection);
   const connection = await presentConnection(env, caller, selected.connection);
   const catalog = await callRuntime(env, {
     operation: "list",
@@ -162,6 +182,27 @@ export async function rpcPluginAction(
     connection,
     signature,
     effect
+  );
+}
+
+async function readLocalContinuationBinding(
+  env: CoreBindings,
+  caller: Caller,
+  service: string
+) {
+  if (!(caller.sourceSpaceId && caller.sourceSignalId)) {
+    return null;
+  }
+  return await readSpacePluginConnectionBinding(
+    env,
+    {
+      organizationId: caller.organizationId,
+      spaceId: caller.sourceSpaceId,
+      signalId: caller.sourceSignalId,
+      targetProfileId: caller.actorProfileId,
+      requesterUserId: caller.representedUserId,
+    },
+    service
   );
 }
 

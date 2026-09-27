@@ -3729,6 +3729,144 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it.each([
+    "metadata",
+    "token_preparation",
+    "not_published",
+    "unknown",
+  ] as const)("classifies private Plugin guidance %s without rerunning the task or public reply", async (mode) => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: 1_710_000_001,
+      requestId: "req_slack_1",
+      status: "pending" as const,
+      submissionId: "sub_slack_1",
+    }));
+    const fetchMock = stubSlackFetch({ email: "wrong@example.test" });
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload()
+        )
+      ).resolves.toEqual({ status: "processed" });
+      let preparationFailures = 0;
+      let privateAttempts = 0;
+      const faultDb = createFaultInjectingD1Database({
+        db: harness.db,
+        matches: (sql, operation) => {
+          if (
+            mode !== "metadata" ||
+            operation !== "first" ||
+            !sql.includes("SELECT plugin_connection_metadata_json FROM")
+          ) {
+            return false;
+          }
+          preparationFailures += 1;
+          return true;
+        },
+      });
+      const env = buildEnv(faultDb);
+      vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+        const body =
+          typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        if (
+          String(url).includes("/chat.postMessage") &&
+          body?.channel === "U123"
+        ) {
+          privateAttempts += 1;
+          if (mode === "unknown") {
+            throw new Error("response lost after request");
+          }
+          if (mode === "not_published") {
+            return Response.json(
+              { ok: false, error: "ratelimited" },
+              { status: 429, headers: { "retry-after": "2" } }
+            );
+          }
+        }
+        const response = await fetchMock(url, init);
+        if (
+          mode === "token_preparation" &&
+          String(url).includes("/chat.postMessage") &&
+          body?.channel === "C123"
+        ) {
+          env.SLACK_OPENMELD_BOT_TOKEN = undefined;
+        }
+        return response;
+      });
+      const body = {
+        ...createCompletedCallbackBody(),
+        navigationTarget: {
+          kind: "plugin_connection" as const,
+          service: "github" as const,
+          scope: "choose" as const,
+        },
+        text: "Connect GitHub to continue.",
+        triggerMessageId: "1710000000.000100",
+      };
+      const result = await completeRemoteAgentNativeDelivery(env, body);
+      const posts = readSlackPostBodies(fetchMock) as { channel?: string }[];
+      expect(posts.filter((post) => post.channel === "C123")).toHaveLength(1);
+      expect(posts.filter((post) => post.channel === "U123")).toHaveLength(0);
+      expect(preparationFailures).toBe(mode === "metadata" ? 1 : 0);
+      expect(privateAttempts).toBe(
+        mode === "unknown" || mode === "not_published" ? 1 : 0
+      );
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      if (mode === "unknown") {
+        // The callback settles the public result, explicitly not private delivery;
+        // it must not schedule a blind resend of a possibly published message.
+        expect(result).toMatchObject({
+          status: "accepted",
+          reasonCode: "slack.private_navigation_outcome_unknown",
+        });
+        expect(result.retryAfterMs).toBeUndefined();
+      } else {
+        expect(result).toMatchObject({
+          status: "retryable",
+          reasonCode:
+            mode === "not_published"
+              ? "slack.private_navigation_ratelimited"
+              : "slack.private_navigation_preparation_failed",
+        });
+        if (mode === "not_published") {
+          expect(result.retryAfterMs).toBe(2000);
+        }
+        vi.stubGlobal("fetch", fetchMock);
+        env.SLACK_OPENMELD_BOT_TOKEN = "xoxb-test";
+        await expect(
+          completeRemoteAgentNativeDelivery(env, body)
+        ).resolves.toMatchObject({
+          status: "duplicate_rejected",
+          publishedSignalId: "1710000001.000200",
+        });
+        const recovered = readSlackPostBodies(fetchMock) as {
+          channel?: string;
+        }[];
+        expect(
+          recovered.filter((post) => post.channel === "C123")
+        ).toHaveLength(1);
+        expect(
+          recovered.filter((post) => post.channel === "U123")
+        ).toHaveLength(1);
+        expect(workerSubmit).toHaveBeenCalledOnce();
+      }
+    } finally {
+      harness.close();
+    }
+  });
+
   it("privately gives the verified Slack requester the exact computer setup action", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);

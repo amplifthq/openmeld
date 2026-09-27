@@ -148,8 +148,13 @@ async function prepareCenterAgentRender() {
     createSandbox: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
+      executionContext.computerIsolationVersion === 2 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
+            connectorExecution: {
+              baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+              runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+            },
             context: executionContext,
             coreWorker,
             env,

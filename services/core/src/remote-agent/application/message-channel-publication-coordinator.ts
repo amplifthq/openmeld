@@ -345,6 +345,8 @@ async function resolvePublicationConflictWithPostResultGuidance(input: {
   return privateNavigationPublication ?? conflict;
 }
 
+import { preparePluginChannelNavigation } from "../../connectors/plugin-channel-navigation";
+
 export async function publishRemoteAgentMessageChannelPrivateNavigationAfterResult(input: {
   body: RemoteAgentCoreCallbackBody;
   db: D1Database;
@@ -356,7 +358,8 @@ export async function publishRemoteAgentMessageChannelPrivateNavigationAfterResu
 > | null> {
   if (
     input.body.status === "failed" ||
-    input.body.navigationTarget?.kind !== "computer_setup"
+    (input.body.navigationTarget?.kind !== "computer_setup" &&
+      input.body.navigationTarget?.kind !== "plugin_connection")
   ) {
     return null;
   }
@@ -398,9 +401,13 @@ export async function publishRemoteAgentMessageChannelPrivateNavigationAfterResu
       status: "retryable",
     };
   }
-  const action = buildOpenMeldNavigationAction({
-    organizationWebUrl,
-    target: input.body.navigationTarget,
+  const action = await preparePluginChannelNavigation({
+    db: input.db,
+    delivery: input.delivery,
+    action: buildOpenMeldNavigationAction({
+      organizationWebUrl,
+      target: input.body.navigationTarget,
+    }),
   });
   const publication =
     await targetResolution.target.adapter.publishPrivateNavigationGuidance({
@@ -413,7 +420,10 @@ export async function publishRemoteAgentMessageChannelPrivateNavigationAfterResu
           publicationKind: "private_navigation",
         }),
       providerUserId: identity.providerUserId,
-      text: buildComputerSetupGuidanceText(action),
+      text:
+        action.target.kind === "plugin_connection"
+          ? "Connect or review this Plugin in OpenMeld, then explicitly continue the original task. Setup does not start work or grant Agent access."
+          : buildComputerSetupGuidanceText(action),
     });
   if (publication.status === "published") {
     return null;

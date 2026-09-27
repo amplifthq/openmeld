@@ -1,4 +1,8 @@
 import type { Profile, SignalEnvelope, SpaceMeta } from "@openmeld/protocol";
+import type {
+  PluginChannelSelection,
+  PluginChannelSourceProof,
+} from "@openmeld/schemas";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
   buildAgentTaskKey,
@@ -90,6 +94,7 @@ import { createCoreCenterAgentMemoryService } from "../../center-agent-memory/co
 import { resolveCenterAgentMemoryFrozenTurnContext } from "../../center-agent-memory/frozen-turn-context";
 import type { CenterAgentMemoryService } from "../../center-agent-memory/memory-service";
 import { readModelCatalog } from "../../config/model-catalog";
+import { preparePluginChannelNavigation } from "../../connectors/plugin-channel-navigation";
 import { buildDispatchReplyTargetProfile } from "../../dispatch/application/dispatch-reply-foundation";
 import {
   markDispatchStatus,
@@ -217,6 +222,10 @@ import {
   suppressLinkedSlackNativeDeliveryInboxProjectionIfRecipientMissing,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
+import {
+  readPluginChannelMetadata,
+  recordPluginChannelAdmission,
+} from "../infrastructure/d1/plugin-channel-metadata-repo";
 import {
   advanceSlackIdentityContinuationAttempt,
   expireSlackIdentityLinkToken,
@@ -439,6 +448,8 @@ type NativeDeliveryPublishRecord = Pick<
 };
 
 type RemoteAgentSlackNativeDeliveryInputBase = {
+  pluginSourceProof?: PluginChannelSourceProof;
+  pluginSelection?: PluginChannelSelection;
   agentProfileId: string;
   agentProfileOwnerUserId: string | null;
   author: RemoteAgentWorkerAuthorContext;
@@ -1446,7 +1457,12 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
   nowMs: number;
   request: RemoteAgentSlackNativeDeliveryInput;
 }): Promise<{ shouldAck: boolean; status: "submitted" | "failed" }> {
-  await admitRemoteAgentSlackNativeDelivery(input);
+  const admitted = await admitRemoteAgentSlackNativeDelivery(input);
+  await recordPluginChannelAdmission(
+    input.db,
+    admitted.deliveryId,
+    input.request
+  );
   const existingDelivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
     db: input.db,
     idempotencyKey: input.request.idempotencyKey,
@@ -1817,7 +1833,12 @@ export async function continueSlackIdentityOnboardingRequest(input: {
       identity: continuationIdentity,
     });
   }
+  const pluginMetadata = await readPluginChannelMetadata(
+    input.db,
+    sourceDelivery.deliveryId
+  );
   const continuationRequest: RemoteAgentSlackNativeDeliveryInput = {
+    ...(pluginMetadata ? { pluginSourceProof: pluginMetadata.proof } : {}),
     agentProfileId: sourceDelivery.profileId,
     agentProfileOwnerUserId: originalRequest.agentProfileOwnerUserId,
     author: {
@@ -8091,6 +8112,13 @@ async function resolveRemoteAgentSettledCallbackReplay(input: {
     });
     const postResultGuidanceRetry =
       await retryRemoteAgentRequiredPostResultGuidance(input);
+    if (postResultGuidanceRetry?.status === "outcome_unknown") {
+      return remoteAgentCoreCallbackResponseSchema.parse({
+        status: "duplicate_rejected",
+        publishedSignalId: finalPublicationResultId,
+        reasonCode: postResultGuidanceRetry.reasonCode,
+      });
+    }
     if (postResultGuidanceRetry) {
       return remoteAgentCoreCallbackResponseSchema.parse({
         reasonCode: postResultGuidanceRetry.reasonCode,
@@ -8145,6 +8173,14 @@ async function resolveRemoteAgentSettledCallbackReplay(input: {
   });
 }
 
+// This outcome describes only private guidance, never the already-published
+// task result. Unknown provider delivery must not request a blind automatic resend.
+type RemoteAgentPostResultGuidance = {
+  status: "retryable" | "outcome_unknown";
+  reasonCode: string;
+  retryAfterMs?: number;
+};
+
 async function retryRemoteAgentRequiredPostResultGuidance(input: {
   body: RemoteAgentCoreCallbackBody;
   db: D1Database;
@@ -8152,15 +8188,13 @@ async function retryRemoteAgentRequiredPostResultGuidance(input: {
   env: CoreBindings;
   nowMs: number;
   options: CenterAgentMemoryRuntimeOptions;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   if (
     input.delivery.status !== "completed" ||
     input.body.status === "failed" ||
     (input.body.navigationTarget?.kind !== "slack_identity_link" &&
       input.body.navigationTarget?.kind !== "computer_setup" &&
+      input.body.navigationTarget?.kind !== "plugin_connection" &&
       !(
         input.body.navigationTarget?.kind === "message_channel_identity_link" &&
         input.body.navigationTarget.purpose === "continue_request"
@@ -8182,7 +8216,10 @@ async function retryRemoteAgentRequiredPostResultGuidance(input: {
       status: "retryable",
     };
   }
-  if (input.body.navigationTarget?.kind === "computer_setup") {
+  if (
+    input.body.navigationTarget?.kind === "computer_setup" ||
+    input.body.navigationTarget?.kind === "plugin_connection"
+  ) {
     return await publishRemoteAgentMessageChannelPrivateNavigationAfterResult({
       body: input.body,
       db: input.db,
@@ -9056,6 +9093,13 @@ async function completeRemoteAgentSlackCompletedCallback(input: {
       env,
       nowMs,
     });
+  if (postResultGuidanceRetry?.status === "outcome_unknown") {
+    return remoteAgentCoreCallbackResponseSchema.parse({
+      status: "accepted",
+      publishedSignalId,
+      reasonCode: postResultGuidanceRetry.reasonCode,
+    });
+  }
   if (postResultGuidanceRetry) {
     return remoteAgentCoreCallbackResponseSchema.parse({
       reasonCode: postResultGuidanceRetry.reasonCode,
@@ -12069,10 +12113,7 @@ async function publishRemoteAgentSlackPostResultGuidance(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   const identityGuidance =
     await publishRemoteAgentSlackIdentityGuidanceAfterResult(input);
   if (identityGuidance) {
@@ -12086,13 +12127,11 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
-}): Promise<Extract<
-  RemoteAgentMessageChannelPublicationOutcome,
-  { status: "retryable" }
-> | null> {
+}): Promise<RemoteAgentPostResultGuidance | null> {
   if (
     input.body.status === "failed" ||
-    input.body.navigationTarget?.kind !== "computer_setup"
+    (input.body.navigationTarget?.kind !== "computer_setup" &&
+      input.body.navigationTarget?.kind !== "plugin_connection")
   ) {
     return null;
   }
@@ -12125,49 +12164,93 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
       status: "retryable",
     };
   }
-  const action = await resolveRemoteAgentCallbackNavigationAction({
-    body: input.body,
-    delivery: input.delivery,
-    env: input.env,
-  });
-  if (!action) {
-    return {
-      reasonCode: "slack.private_navigation_action_unavailable",
-      status: "retryable",
-    };
-  }
   try {
+    const action = await resolveRemoteAgentCallbackNavigationAction({
+      body: input.body,
+      delivery: input.delivery,
+      env: input.env,
+    });
+    if (!action) {
+      return {
+        reasonCode: "slack.private_navigation_action_unavailable",
+        status: "retryable",
+      };
+    }
+    const db = wakeEvidenceDb(input.env);
+    if (!db) {
+      throw new Error("plugin.channel.state_unavailable");
+    }
+    const navigationAction = await preparePluginChannelNavigation({
+      db,
+      delivery: input.delivery,
+      action,
+    });
     await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
       env: input.env,
-      navigationAction: action,
+      navigationAction,
       privateRecipientUserId: identity.providerUserId,
       signal: AbortSignal.timeout(
         REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS
       ),
-      text: buildComputerSetupGuidanceText(action),
+      text:
+        action.target.kind === "plugin_connection"
+          ? "Connect or review this Plugin in OpenMeld. Only you can explicitly continue the original task after setup; connecting does not grant Agent access or start work."
+          : buildComputerSetupGuidanceText(action),
     });
     return null;
   } catch (error) {
-    if (!(error instanceof SlackApiError)) {
-      console.warn(
-        "[core.remote_agent.slack_private_navigation_outcome_unknown]",
-        {
-          error: toErrorMessage(error),
-          event: CORE_LOG_EVENTS.coreInternalError,
-          submissionId: input.body.submissionId,
-        }
-      );
-      return null;
-    }
+    return classifySlackPrivateNavigationFailure(
+      error,
+      input.body.submissionId
+    );
+  }
+}
+
+function classifySlackPrivateNavigationFailure(
+  error: unknown,
+  submissionId: string
+): RemoteAgentPostResultGuidance {
+  // The actual HTTP client classifies all send/read-response failures. A
+  // generic error here (including token or presentation preparation) precedes
+  // that boundary; calling the high-level publisher is not a provider attempt.
+  if (
+    error instanceof SlackMessagePublicationError &&
+    error.publicationOutcome === "unknown"
+  ) {
+    console.warn(
+      "[core.remote_agent.slack_private_navigation_outcome_unknown]",
+      {
+        error: toErrorMessage(error),
+        event: CORE_LOG_EVENTS.coreInternalError,
+        submissionId,
+      }
+    );
     return {
-      reasonCode: `slack.private_navigation_${error.errorCode}`,
-      ...(error.retryAfterSeconds === null
-        ? { retryAfterMs: 1 }
-        : { retryAfterMs: Math.max(1, error.retryAfterSeconds * 1000) }),
-      status: "retryable",
+      status: "outcome_unknown",
+      reasonCode: "slack.private_navigation_outcome_unknown",
     };
   }
+  const providerError =
+    error instanceof SlackMessagePublicationError ||
+    error instanceof SlackApiError
+      ? error
+      : null;
+  console.warn("[core.remote_agent.slack_private_navigation_not_published]", {
+    event: CORE_LOG_EVENTS.coreInternalError,
+    submissionId,
+    error: toErrorMessage(error),
+  });
+  return {
+    reasonCode: providerError?.errorCode
+      ? `slack.private_navigation_${providerError.errorCode}`
+      : "slack.private_navigation_preparation_failed",
+    retryAfterMs:
+      providerError?.retryAfterSeconds == null
+        ? 1000
+        : Math.max(1, providerError.retryAfterSeconds * 1000),
+    status: "retryable",
+  };
 }
 
 function buildSlackIdentityGuidanceText(input: {

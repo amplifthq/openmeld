@@ -30,6 +30,233 @@
   pinned Flue package before changing worker interfaces; method names are not
   strategic contract.
 
+## Plugin connection action boundary
+
+The existing navigation action capability can offer `plugin_connection` with
+one supported service and `member`, `shared`, or `choose` setup intent. An
+explicit identity requirement is preserved; `choose` requests a permitted Web
+setup choice and never authorizes automatic execution-account fallback.
+The final action is still owned by the current native delivery. It contains no
+credential or provider authorization URL and starts no authorization itself.
+
+Personal Hosted Agents expose only Plugin setup through this navigation
+capability, not Center Agent computer administration or Message Channel identity
+linking. Their normal per-call execution authorization remains in force.
+Ordinary Center navigation and existing legacy GitHub actions remain readable.
+
+New connection setup starts with an explicit all-denied Agent policy; provider
+authorization does not grant Agent access, prove repository permission, or
+resume a task. The existing human-managed policy editor grants access separately.
+Historical null policies and explicit grants on the same registration retain
+compatibility; reauthorization advances the permission revision without widening
+access. A separate explicit human continuation reuses existing Message,
+Wake, native-delivery and operation owners after current authorization. It does
+not replay a provider callback or let an administrator impersonate the original
+requester. Publication retains the setup target privately and appends an
+ordinary canonical Markdown link instead of sending a new strict-union variant
+to old Signal readers. The current Web reader enhances that link only for the
+trusted origin and current Organization.
+
+The explicit continuation uses a distinct internal Core-to-Space receiver so an
+older receiver cannot silently ignore its account constraint. Space binds the
+existing idempotent Message to the selected service, account and connection
+version in private SQL metadata, not public Signal metadata. Core re-reads that
+binding from the admitted trigger before selecting or claiming a new App action.
+Neither a model argument nor a personal-first automatic selector can replace it;
+existing operation replays retain the original operation identity. Generic App
+tools also accept an explicit requester/shared preference for normal requests.
+
+Plugin binding, Computer/result access and personal Hosted tools accept both
+`accepted` and `retry_observed` native-delivery phases. A replay ACK can confirm
+work already running after an earlier ACK was lost; it is not an identity change.
+The shared phase predicate grants no permission: exact submission, Organization,
+Profile, Binding, membership and source account/version checks remain mandatory.
+Submitted or terminal work is not authorized by this predicate; the separate
+read-only pre-ACK Skill preparation contract is unchanged.
+
+Space verifies the original human request and the Agent reply at the actual
+message-insertion transaction, using accepted outbox content, current revision,
+a canonical fingerprint and each message's own Thread placement. Main requests
+may receive threaded Agent replies without becoming a different original
+request. A pending retry cannot refresh away its source fence; an accepted retry
+returns the original Message without creating another Wake. Edits to a continued
+Message invalidate its execution binding. This metadata is not a new task,
+permission store or scheduler.
+
+### Local and external conversation carriers
+
+Local Agent setup uses `openmeld plugins connect <service>` through the existing
+permission-bearing Plugin CLI/RPC path. It returns the same compatible final
+reply suffix; it is not a second OAuth or execution implementation. Native
+continuation first reads the authoritative RuntimeCoordinator published-reply
+trace and enabled Local Binding, then shares the same original-human, revision,
+Thread, receipt and Space-transaction gates as Hosted requests. A known invalid
+Hosted delivery never falls back to Local admission. Local execution still
+uses the existing Local Agent access policy, not Hosted/Center permissions.
+
+Slack, Feishu and Lark Plugin guidance is private to the provider requester.
+Unlinked users first use the existing identity-link workflow. The native delivery
+retains a private original-message proof (full received text, immutable resource
+IDs, provider author and edit revision), a bounded setup intent and the explicit
+account choice in `plugin_connection_metadata_json`. This is additive nullable
+metadata in the same delivery row, with the same retention; it is not another
+scheduler, permission store or operation ledger. No credentials enter it.
+
+A channel setup URL contains only an opaque request locator. Both preview and
+Continue require the original signed-in human and current Organization/provider
+identity. Continue rechecks the channel, current designated Agent/Binding,
+existing Plugin access and previous operation outcomes, and re-reads the exact
+original provider message. Edited, recalled, missing, relinked or unavailable
+sources are refused. A provider read and Core's acceptance are not a distributed
+atomic transaction; do not claim instantaneous revocation of already executing
+work. Native Space message acceptance retains its stronger same-transaction
+revision fence.
+
+Only the explicit human action selects the account and submits one stable
+idempotent continuation through the existing Slack or Message Channel native
+owner. The binding is stored before worker admission; duplicate clicks reuse
+that delivery, while changed account/version/target cannot rebind it. Reply
+placement stays in the original provider conversation. The native worker wire
+is unchanged: Core derives account constraints from admitted private metadata,
+not from prompt text or a model-selected argument. Success says requested,
+never completed. An OAuth callback cannot start this work.
+
+Successive setups retain each earlier Plugin identity through a bounded,
+authenticated continuation ancestry (at most 32 hops). They do not set a global
+conversation preference. A missing, cyclic or wrong-owner ancestor fails closed;
+a separate ordinary request remains unbound. Legacy deliveries without original
+source proof keep a useful setup link, not fabricated resumability. Standalone
+CLI calls and non-message provider control events are not mislabeled as editable
+human-message continuations; those retain their existing explicit control flows.
+
+Apply the additive database migration before new Core receivers/producers, then
+update Remote Agent, Web and CLI. Distinct new HTTP/CLI operations fail visibly
+against older receivers. No new secret/binding, provider scope expansion,
+production migration or connection mutation is implied by this implementation.
+
+Slack private setup guidance distinguishes preparation failure and explicit
+`not_published` provider responses from actual transport/response uncertainty.
+Known failures retry only the guidance through the existing completion callback,
+with provider backoff when available; the public result and task are not replayed.
+Uncertain private delivery is reported with `slack.private_navigation_outcome_unknown`
+and no automatic resend request. The existing callback acknowledgement still
+settles only the published public result, not a claim that private guidance arrived.
+This is not a new private-message exactly-once ledger; manual investigation must
+not blindly replay an uncertain provider write.
+
+### Admitted Computer audience
+
+New Computer identities include Organization, Agent, Binding, conversation,
+Space and the admitted member/Agent/Routine principal. Different audiences use
+different durable Computers, not merely different working directories. Core
+derives the scope from the accepted native delivery and rechecks enabled
+Binding, requester membership, current Space participation and source Plugin
+permissions. Workspace reads and browser operations authorize before and after
+the operation; a revoked read must not release its output. No raw provider
+credentials are introduced by this boundary.
+
+New admissions use the audience-v2 Computer address. Its host-only SQL metadata
+owns the imported source set for the lifetime of that Computer, independently
+of runtime Agent generations. A missing row after initialization fails closed.
+The source set is registered before imported bytes are exposed, and final
+Computer tool results carry that provenance through direct and Code Mode paths.
+Previously admitted v1 or unversioned contexts cannot acquire the new Computer
+tools. Their old name remains available only for existing cleanup; neither
+legacy shared nor unproven v1 files are copied into a new audience. Real container,
+process termination and cross-audience export acceptance remain required.
+
+### Retained large tool results
+
+The 128 KiB presentation boundary remains. A received JSON result up to 8 MiB
+may retain immutable chunks in the existing execution storage for one hour,
+with at most 16 snapshots per execution reserved atomically. The result returns
+a bounded summary and an actual continuation reference. The common
+`openmeld_read_tool_result` capability reads at most 12,000 UTF-16 code units or
+20 literal search hits with context. Direct tools and Code Mode share this path;
+reading a result never reruns the original operation.
+
+References require the same execution/audience plus current source connection
+access and version before and after reading. Sources are host-owned metadata,
+not provider JSON. Authorization is checked before releasing source-tagged results of any size,
+including results too large to retain, and again after storage work. Denied or
+unverifiable access withholds all provider fields and excerpts, not just the
+continuation. An authorized storage/size failure may still show bounded output;
+a completed write remains completed in its existing operation ledger. Bash
+stdout/stderr and Code Mode console logs reach this owner before display-only
+truncation. Expiry yields no continuation.
+Provider-side truncation is not repaired by retaining its returned data. Cleanup
+uses the existing submission sweep; private logs never become Team Files just
+to support paging. Normal connection-status reconciliation does not advance an
+unchanged active connection's version; an actual pending/reconnect transition
+does.
+
+### Private Git working copies
+
+The isolated Computer offers `github_checkout_repository` and
+`github_publish_checkout`. They compose with existing Computer edit/command
+tools and the existing Draft PR action; they are not a mandatory coding plan.
+The chosen personal/Organization GitHub identity is frozen with the repository
+ID, source commit/tree, admitted audience and connection version. Current Core
+permissions are checked around every provider operation. Publishing requires
+write permission and retains Routine/member-research restrictions.
+
+Checkout imports immutable Git objects in bounded batches through the existing
+connection service. It verifies binary blob hashes, modes, symlinks and the
+complete native tree before exposing a directory. A retry does not reset edits.
+This is an exact **snapshot working copy**, not a full history clone. The host
+independently resolves and pins the authenticated repository's default branch,
+imports and verifies its complete tree, and exposes it at `origin/<default>`.
+The synthetic candidate has that synthetic baseline as its comparison parent;
+this supports content-diff and trusted-file checks without pretending to have
+upstream ancestry. Both real remote commit/tree identities are retained. The
+model-selected candidate is never substituted for the default-branch baseline.
+OpenMeld's existing CLI Skill signature/history check remains unchanged; missing
+or replaced baseline refs and removed trusted releases must fail, not bypass it.
+
+Git history, LFS payloads and submodule repositories are not downloaded. Each
+manifest is limited to 30,000 entries and 8 MiB, each blob to 8 MiB, the combined
+source/baseline unique content to 256 MiB, and downloads to 32 blobs per call.
+A preparing result requires another identical call, not an invented ready
+state. Truncated provider trees fail closed. Version-2 checkout identities use
+fresh directories instead of adopting a previous baseline-free working copy.
+
+The Agent commits and tests with the ordinary Computer tools. Publication reads
+an exact immutable local commit, verifies the created GitHub tree, and updates
+only the host-issued `openmeld/work-<id>` branch with no force push. It takes the
+expected previous remote commit and rejects a changed destination. The remote
+commit may differ from the synthetic local history; the exact tree is the
+content proof. Publication never attests tests it did not run. At most 200 new
+blobs may be published per operation; larger changes need a different supported
+environment rather than silently partial publication. The read-only upload plan
+and known blob-count rejection run before an operation is marked attempted, so
+a 201-blob proposal cannot leave a pending write without any provider effect.
+Later transport failures keep their actual uncertainty; they are not all
+collapsed into a known-safe failure.
+
+Core's existing operation ledger owns the outcome. A small expiring transport
+record remembers the candidate commit and whether its reference update was
+attempted. Duplicate calls cannot issue that update twice. An uncertain response
+is reconciled against the fixed branch; a different head stays outcome-unknown,
+not automatically retried under another operation ID. No repository credential,
+Git remote credential, or raw provider authorization enters the Computer.
+
+Imported private repository provenance stays with the durable Computer beyond
+the 24-hour Git operation lifetime. Ordinary Computer access rechecks these
+source grants too; expiry never unlocks previously imported bytes. A revoked or
+replaced source blocks further access to that Computer. Start a fresh
+conversation for a new authorized working context; do not silently migrate the
+old bytes. Provenance is not a second permission owner: Core still authorizes.
+
+The deployed connector keeps general HTTP/MCP proxy access blocked. A narrow
+OpenMeld working-copy ingress accepts only the required Git object operations
+and generated task branches, then delegates authentication to the pinned
+upstream GitHub proxy. Runtime token grants and provider repository grants are
+still required. See `docs/cloudflare-workers-env.md` for the reviewed overlay
+and rollout ordering; adding code never changes an existing credential grant.
+
+These are implementation contracts, not production-availability claims. See
+`design-plans/1254-composable-plugin-workflow.md` for outstanding acceptance.
+
 ## North Star
 
 A remote agent is **not a new species of identity**. It is the same Agent

@@ -32,9 +32,10 @@ import {
 } from "./code-mode";
 import { createHostedPublicProgressTool } from "./public-progress";
 import {
-  executeRemoteAgentToolDefinition,
-  toBoundedRemoteAgentToolResult,
-} from "./tool-execution";
+  createRemoteAgentReadToolResultDefinition,
+  prepareRemoteAgentToolResult,
+} from "./retained-tool-results";
+import { executeRemoteAgentToolDefinition } from "./tool-execution";
 import { isRemoteAgentNativeCapability } from "./tool-presentation";
 
 export async function getRemoteAgentFlueTools(input: {
@@ -69,6 +70,9 @@ export async function getRemoteAgentFlueTools(input: {
     !input.turnEnvelope.sender.verified;
   const availableDefinitions = [
     createHostedPublicProgressTool(input),
+    ...(unverifiedMember
+      ? []
+      : [createRemoteAgentReadToolResultDefinition(input)]),
     ...(input.personalAgent
       ? [
           ...getPersonalRemoteAgentTools(input),
@@ -128,6 +132,7 @@ export async function getRemoteAgentFlueTools(input: {
   ].map((definition) =>
     toFlueTool({
       callLimit,
+      coreWorker: input.coreWorker,
       definition,
       storage: input.storage,
       submissionId: input.submissionId,
@@ -155,6 +160,7 @@ export async function getRemoteAgentFlueTools(input: {
 
 function toFlueTool(input: {
   callLimit?: number;
+  coreWorker: RemoteAgentCoreWorkerBinding;
   definition: RemoteAgentToolDefinition;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -166,7 +172,10 @@ function toFlueTool(input: {
     input: definition.input as GenericSchema<Record<string, unknown>, unknown>,
     run: async ({ data: toolInput, signal }) => {
       return {
-        output: toBoundedRemoteAgentToolResult({
+        output: await prepareRemoteAgentToolResult({
+          coreWorker: input.coreWorker,
+          storage: input.storage,
+          submissionId: input.submissionId,
           toolName: definition.name,
           value: await executeRemoteAgentToolDefinition({
             callLimit: input.callLimit,
