@@ -24,6 +24,8 @@ const MODULE_ERROR =
 const PROPERTY_ERROR = /cannot read properties of (undefined|null)/;
 const HYDRATION_ERROR =
 	/hydration|hydrating|react error #418|react error #423|react error #425/;
+const REACT_UPDATE_DEPTH_ERROR =
+	/max(?:imum)? update depth exceeded|react error #185/i;
 const ASSET_FRAME =
 	/(?:assets\/[A-Za-z0-9_$.-]+\.(?:js|css)|\bserver\.js)(?::\d{1,9}:\d{1,9})?/g;
 
@@ -51,6 +53,8 @@ export function summarizeApplicationError(
 		code = "not_callable";
 	} else if (HYDRATION_ERROR.test(text)) {
 		code = "hydration_failed";
+	} else if (REACT_UPDATE_DEPTH_ERROR.test(message)) {
+		code = "react_update_depth";
 	}
 	const locations = [
 		error instanceof Error ? (error.stack ?? "").slice(0, 16_000) : "",
