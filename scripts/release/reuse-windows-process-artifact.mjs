@@ -68,17 +68,22 @@ function ghJson(args) {
 
 export function reuseWindowsProcessArtifact(env = process.env) {
   const runId = env.WINDOWS_ARTIFACT_RUN_ID?.trim() ?? "";
-  const releaseSha = env.RELEASE_SHA?.trim() ?? "";
-  const repository = env.GITHUB_REPOSITORY?.trim() ?? "";
-  if (!(RUN_ID.test(runId) && EXACT_SHA.test(releaseSha) && repository)) {
-    throw new Error(
-      "Windows helper reuse requires a run ID, release SHA, and repository."
-    );
+  if (!RUN_ID.test(runId)) {
+    throw new Error("Windows helper reuse requires a numeric run ID.");
   }
   const checkoutSha = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: ROOT,
     encoding: "utf8",
   }).trim();
+  const releaseSha = env.RELEASE_SHA?.trim() || checkoutSha;
+  const repository =
+    env.GITHUB_REPOSITORY?.trim() ||
+    ghJson(["repo", "view", "--json", "nameWithOwner"]).nameWithOwner;
+  if (!(EXACT_SHA.test(releaseSha) && repository)) {
+    throw new Error(
+      "Windows helper reuse requires a release SHA and repository."
+    );
+  }
   if (checkoutSha !== releaseSha) {
     throw new Error(
       "Windows helper reuse requires the exact release checkout."
@@ -130,5 +135,9 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 ) {
-  reuseWindowsProcessArtifact();
+  reuseWindowsProcessArtifact(
+    process.argv[2]
+      ? { ...process.env, WINDOWS_ARTIFACT_RUN_ID: process.argv[2] }
+      : process.env
+  );
 }

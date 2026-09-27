@@ -48,6 +48,47 @@ describe("buildOpenMeldNavigationAction", () => {
     });
   });
 
+  it.each([
+    ["github", "shared", "organization"],
+    ["notion", "member", "personal"],
+    ["cloudflare_r2", "choose", null],
+  ] as const)("keeps %s connection intent and its fallback route aligned", (service, scope, routeScope) => {
+    const action = buildOpenMeldNavigationAction({
+      organizationWebUrl: "https://openmeld.ai/o/amplift/?old=true#old",
+      target: { kind: "plugin_connection", service, scope },
+    });
+    expect(action.target).toEqual({
+      kind: "plugin_connection",
+      service,
+      scope,
+    });
+    expect(action.url).toBe(
+      `https://openmeld.ai/o/amplift/plugins/${service}${routeScope ? `?scope=${routeScope}` : ""}`
+    );
+  });
+
+  it("does not accept credentials, guessed providers, or ambiguous connection scope in a message action", () => {
+    const target = {
+      kind: "plugin_connection",
+      service: "github",
+      scope: "member",
+    };
+    expect(
+      openMeldNavigationTargetSchema.safeParse({ ...target, token: "secret" })
+        .success
+    ).toBe(false);
+    expect(
+      openMeldNavigationTargetSchema.safeParse({
+        ...target,
+        service: "unshipped_plugin",
+      }).success
+    ).toBe(false);
+    expect(
+      openMeldNavigationTargetSchema.safeParse({ ...target, scope: undefined })
+        .success
+    ).toBe(false);
+  });
+
   it("builds an absolute link for a Space returned by an OpenMeld tool", () => {
     const spaceId = "a".repeat(64);
 

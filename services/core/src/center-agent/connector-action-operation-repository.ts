@@ -98,6 +98,50 @@ export function buildCenterAgentConnectorActionOperationScope(input: {
   };
 }
 
+/** Bounded evidence for continuation, never a new operation or execution owner. */
+export async function listConnectorOperationReceiptsForContinuation(input: {
+  db: D1Database;
+  organizationId: string;
+  actorProfileId: string;
+  representedUserId: string;
+  sourceSpaceId: string;
+  fromMs: number;
+  throughMs: number;
+}): Promise<
+  {
+    operationId: string;
+    actionId: string;
+    status: CenterAgentConnectorActionOperationStatus;
+  }[]
+> {
+  const rows = await input.db
+    .prepare(`
+    SELECT operation.operation_id AS operationId,
+      operation.action_id AS actionId, operation.status AS status
+    FROM center_agent_connector_action_operations operation
+    JOIN center_agent_audit_journal audit ON audit.id = operation.id || ':attempted'
+    WHERE operation.organization_id = ? AND operation.actor_profile_id = ?
+      AND operation.represented_user_id = ? AND audit.source_space_id = ?
+      AND operation.created_at_ms >= ? AND operation.created_at_ms <= ?
+    ORDER BY operation.created_at_ms, operation.id
+    LIMIT 101
+  `)
+    .bind(
+      input.organizationId,
+      input.actorProfileId,
+      input.representedUserId,
+      input.sourceSpaceId,
+      input.fromMs,
+      input.throughMs
+    )
+    .all<{
+      operationId: string;
+      actionId: string;
+      status: CenterAgentConnectorActionOperationStatus;
+    }>();
+  return rows.results;
+}
+
 export async function readCenterAgentConnectorActionOperationForRecovery(input: {
   actionId: string;
   db: D1Database;

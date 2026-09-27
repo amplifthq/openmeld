@@ -178,6 +178,9 @@ export const agentControllerInterfaceCapabilitiesSchema = z.strictObject({
 });
 
 export const agentControllerInterfaceLaunchSnapshotSchema = z.strictObject({
+  failureReason: z
+    .enum(["installation_missing", "installation_access_denied"])
+    .optional(),
   argsPrefix: z.array(ACI_BOUNDED_TEXT_SCHEMA).max(64),
   commandPath: ACI_COMMAND_PATH_SCHEMA.nullable(),
   installChoiceCount: z.number().int().nonnegative(),

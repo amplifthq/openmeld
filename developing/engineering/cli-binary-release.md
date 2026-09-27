@@ -72,6 +72,12 @@ node scripts/release/build-cli-binary.mjs
   Service retention is independent of CLI rollback selection.
 - The Windows managed layout uses immutable `versions/<version>/openmeld.exe`
   plus its process helper, and one `bin/cli-installation.json` selection record.
+  When the exact production Windows internal-preview manifest and explicit
+  preview opt-in installed that version, this record also retains the preview
+  channel. Only the selected managed CLI restores that choice for later update
+  checks, upgrades, and Service registration; a temporary bootstrap or unrelated
+  executable does not inherit it. Version metadata caches are scoped to their
+  release source so a stable minimum version cannot gate a preview installation.
   `bin/openmeld.exe` is a thin native console launcher built from the same helper
   artifact; it forwards argv, inherited streams, and exit status to that selected
   CLI. It has no account, connection, or update authority. Windows never creates

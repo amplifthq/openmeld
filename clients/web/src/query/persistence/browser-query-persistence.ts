@@ -4,6 +4,7 @@ import {
 	listSpaceThreadsResponseSchema,
 	organizationSpaceDirectoryWithMemberCountsResponseSchema,
 	signalEnvelopeSchema,
+	spaceHistoryNavigationSchema,
 } from "@openmeld/schemas";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import {
@@ -500,7 +501,13 @@ export function createBrowserQueryPersistenceController(
 		// the saved segment on every warm revisit delays the route and repeats the
 		// same work again when the mounted Space activates its save subscription.
 		// Activation still checks disk for newer cross-window data.
-		if (readOnly && hasDisplay) {
+		if (
+			readOnly &&
+			hasDisplay &&
+			queryClient.getQueryData(
+				spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId)
+			)
+		) {
 			return Promise.resolve();
 		}
 		const operation = runExclusive(async () => {
@@ -528,6 +535,7 @@ export function createBrowserQueryPersistenceController(
 					spaceQueryKeys.history(spaceId, openMeldProfileId),
 					spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
 					spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
+					spaceQueryKeys.historyNavigation(spaceId, openMeldProfileId),
 				],
 			});
 		});
@@ -1121,6 +1129,10 @@ function resolvePersistedDataSerializer(scopeKind: QueryCacheScopeKind): {
 }
 
 function serializeSpacePersistedDisplayData(data: unknown): unknown {
+	const historyNavigation = spaceHistoryNavigationSchema.safeParse(data);
+	if (historyNavigation.success) {
+		return historyNavigation.data;
+	}
 	const directory = spaceMemberDirectoryDisplaySchema.safeParse(data);
 	if (directory.success) {
 		return directory.data;
@@ -1192,6 +1204,9 @@ function isApprovedSuccessfulQuery(
 		case "organization":
 			return true;
 		case "space":
+			if (targetQueryKey[3] === "history-navigation") {
+				return spaceHistoryNavigationSchema.safeParse(query.state.data).success;
+			}
 			if (targetQueryKey[1] === "history") {
 				return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
 			}

@@ -5,7 +5,10 @@ import {
   personalRemoteAgentSpaceToolResponseSchema,
 } from "@openmeld/schemas";
 import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
-import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
+import {
+  isCenterAgentDesignationActive,
+  readCenterAgentDesignationRecord,
+} from "../../center-agent/center-agent-repository";
 import {
   type CoreBindings,
   identityDb,
@@ -27,6 +30,7 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
 } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 
@@ -61,7 +65,7 @@ export async function requirePersonalRemoteAgentExecution(
   if (
     !delivery ||
     (!preparingSkills &&
-      (delivery.status !== "accepted" ||
+      (!isNativeDeliveryExecutingStatus(delivery.status) ||
         delivery.submissionId !== submissionId))
   ) {
     throw new Error("remote_agent.execution_not_active");
@@ -114,7 +118,7 @@ export async function requirePersonalRemoteAgentExecution(
     throw new Error("remote_agent.space_membership_revoked");
   }
   if (
-    !(await isActiveRequesterProfile({
+    !(await isActiveRemoteAgentRequesterProfile({
       db,
       organizationId: delivery.organizationId,
       profileId: request.author.profileId,
@@ -140,7 +144,7 @@ export async function requirePersonalRemoteAgentExecution(
  * no owner: it delegates on behalf of the verified member who asked it to, and
  * Core already authorized that delegation before publishing the Wake.
  */
-async function isActiveRequesterProfile(input: {
+export async function isActiveRemoteAgentRequesterProfile(input: {
   db: D1Database;
   organizationId: string;
   profileId: string | null;
@@ -161,14 +165,18 @@ async function isActiveRequesterProfile(input: {
     db: input.db,
     organizationId: input.organizationId,
   });
-  if (designation?.agentProfileId !== input.profileId) {
+  if (
+    !designation ||
+    designation.agentProfileId !== input.profileId ||
+    !isCenterAgentDesignationActive(designation)
+  ) {
     return false;
   }
   const centerAgentProfile = await input.db
     .prepare(
-      `SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND status = 'active' LIMIT 1`
+      `SELECT profile_id FROM openmeld_profiles WHERE profile_id = ? AND organization_id = ? AND status = 'active' AND profile_kind = 'agent' AND managed_role = 'center_agent' AND owner_user_id IS NULL LIMIT 1`
     )
-    .bind(input.profileId)
+    .bind(input.profileId, input.organizationId)
     .first();
   return Boolean(centerAgentProfile);
 }

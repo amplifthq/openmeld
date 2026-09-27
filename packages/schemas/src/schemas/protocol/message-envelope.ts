@@ -160,12 +160,19 @@ const validateDistinctTargetLists = (
   }
 };
 
+// Plugin intent is internal. Publish its ordinary canonical link so supported
+// older readers never encounter an unknown navigation discriminant in history.
+const publishedNavigationActionSchema = navigationActionSchema.refine(
+  (action) => action.target.kind !== "plugin_connection",
+  "Publish Plugin setup as a canonical reply link, not a new navigation type."
+);
+
 const currentMessageEnvelopeSchema = z
   .strictObject({
     activationTargets: activationTargetsSchema,
     referenceTargets: referenceTargetsSchema,
     mentionTargets: mentionTargetsSchema.optional(),
-    navigationAction: navigationActionSchema.optional(),
+    navigationAction: publishedNavigationActionSchema.optional(),
     replyToSignalId: replyToSignalIdSchema.optional(),
     text: z.preprocess(
       trimmedStringFromUnknown,
@@ -179,7 +186,7 @@ const currentMessageEnvelopeInputSchema = z
     activationTargets: activationTargetsSchema.optional(),
     referenceTargets: referenceTargetsSchema.optional(),
     mentionTargets: mentionTargetsSchema.optional(),
-    navigationAction: navigationActionSchema.optional(),
+    navigationAction: publishedNavigationActionSchema.optional(),
     replyToSignalId: replyToSignalIdSchema.optional(),
     text: z.preprocess(
       trimmedStringFromUnknown,

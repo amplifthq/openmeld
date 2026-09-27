@@ -1279,8 +1279,10 @@ session before changing local auth. A cross-account switch requires explicit
 interactive confirmation. That confirmation is bound to the stable identity of
 the exact committed session the user reviewed and is compared again inside the
 auth mutation lock; a changed session fails closed and requires fresh review.
-The Web bootstrap runs from a downloaded temporary file and may reopen the controlling
-terminal for the managed CLI. Any prompt reachable from that bootstrap must use
+The Web bootstrap is piped to `sh` and may reopen the controlling terminal
+for the managed CLI. Its entire install body must be one top-level shell
+compound that cannot execute before the closing `fi` arrives. Any prompt
+reachable from that bootstrap must use
 the CLI's binary-safe interactive prompt primitive, which reads the reopened
 terminal synchronously in the compiled binary. It must not bypass that owner
 with an asynchronous third-party prompt. If no controlling terminal is usable,
@@ -1994,7 +1996,7 @@ Use scoped owner documents for deeper rules:
   `developing/engineering/development-workflow.md`.
 ## Plugins
 
-`openmeld plugins list`, `plugins actions <service>`, and
+`openmeld plugins list`, `plugins connect <service>`, `plugins actions <service>`, and
 `plugins call <service> <action-id>` use the current Organization's connected
 accounts through Core. Calls require a Local Agent owned by the signed-in
 account and an enabled workstation Binding; `--profile` selects that Agent.
@@ -2004,6 +2006,17 @@ owner's private account for another member's request. A direct CLI invocation
 uses the signed-in account's authority. The local account and its Service are
 the trust boundary; a dispatch ID is provenance, not a RuntimeCoordinator token
 or a sandbox protecting the account from arbitrary local programs.
+
+`plugins connect <service> --account personal|shared|choose` returns the shared
+secure setup URL and an exact final-reply suffix. `choose` is only for unspecified
+intent, not permission to substitute accounts during execution. In a Wake, put
+`replyText` unchanged in the final reply: Web/Desktop uses the same lazy setup
+surface as Hosted Agent messages. Only the original human can continue, and Core
+checks the actual RuntimeCoordinator published reply, current Local Binding,
+original source/revision, Thread and Local Agent Plugin permission. A connection
+callback never resumes work. Subsequent Local Plugin actions enforce the private
+Space account binding, including across successive Plugin setups. Standalone
+CLI invocation has no conversation to resume and returns setup guidance only.
 
 Action discovery and execution explicitly select `--account personal|shared`.
 There is no fallback between these identities. `--view agent` returns the shared

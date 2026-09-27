@@ -8,6 +8,7 @@ const NATIVE_CAPABILITY_NAMES = new Set<string>([
   ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
   ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
   "openmeld_report_progress",
+  "openmeld_read_tool_result",
   "openmeld_list_organization_members",
   "read",
   "write",

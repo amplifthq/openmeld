@@ -42,9 +42,6 @@ describe("agent-execution-readiness-service", () => {
         "agent_profile.identity_lookup_unavailable",
         "agent_profile_binding.store_unavailable",
         "agent_profile.organization_context_missing",
-        "runtime.projection_missing",
-        "agent_execution.route_unavailable",
-        "not_requested",
       ])
     );
     expect(readiness.agentExecutionReadiness.displayState).toBe("unknown");
@@ -187,6 +184,35 @@ describe("agent-execution-readiness-service", () => {
     });
 
     expect(readiness).toEqual({ reasonCodes: [], status: "accepted" });
+  });
+
+  it.each([
+    "missing",
+    "failed",
+  ] as const)("does not reinterpret a Hosted binding %s read as a Local Service problem", async (bindingRead) => {
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      activeOrganizationId: "org-acme",
+      env: createHostedCenterAgentReadinessEnv({
+        profileOrganizationId: "org-acme",
+        bindingRead,
+      }),
+      generatedAt: "2026-05-10T00:00:00.000Z",
+      profileId: "agt_readiness_without_snapshot",
+    });
+    expect(readiness.agentExecutionReadiness).toMatchObject({
+      primaryAction: "check_status",
+      facts: {
+        localService: { source: "not_checked", reasonCodes: [] },
+        runtime: { source: "not_checked", reasonCodes: [] },
+        route: { source: "not_checked" },
+      },
+    });
+    expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
+      "runtime.projection_missing"
+    );
+    expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
+      "local_service.not_connected_for_account"
+    );
   });
 
   it("shows an Organization's hosted Center Agent as ready only after canonical Organization verification", async () => {
@@ -479,6 +505,7 @@ function createAuthorizationEnv(
 }
 
 function createHostedCenterAgentReadinessEnv(input: {
+  bindingRead?: "missing" | "failed";
   modelId?: string;
   profileOrganizationId: string;
   remoteAgentWorkerAvailable?: boolean;
@@ -495,6 +522,12 @@ function createHostedCenterAgentReadinessEnv(input: {
                 "from openmelddaemon_agent_profile_bindings"
               )
             ) {
+              if (input.bindingRead === "failed") {
+                throw new Error("Binding read unavailable");
+              }
+              if (input.bindingRead === "missing") {
+                return null;
+              }
               return {
                 agent_controller_collaboration_mode: null,
                 agent_controller_conversation_id: null,

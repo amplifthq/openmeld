@@ -163,7 +163,7 @@ describe("SpaceMessageProgressStatus", () => {
 	it.each([
 		["without tools", createStreamingItem],
 		["beside tool activity", createStreamingToolActivityItem],
-	] as const)("shows hosted progress inside the work panel %s", (_case, createItem) => {
+	] as const)("shows hosted progress inside the work panel %s", (caseName, createItem) => {
 		const item = createItem();
 		if (!item.agentStreamState) {
 			throw new Error("Expected a live Agent stream fixture.");
@@ -171,7 +171,6 @@ describe("SpaceMessageProgressStatus", () => {
 		item.agentStreamState = {
 			...item.agentStreamState,
 			progress: "Checking the current Space context.",
-			progressActive: true,
 		};
 		render(
 			<SpaceMessageProgressStatus
@@ -184,7 +183,10 @@ describe("SpaceMessageProgressStatus", () => {
 				.getByTestId("space-agent-tool-activity")
 				.getAttribute("aria-expanded")
 		).toBe("true");
-		expect(screen.getByText("Progress updates")).toBeTruthy();
+		const updateLabel = within(
+			screen.getByRole("list", { name: "Work steps and updates" })
+		).queryByText("Agent updates");
+		expect(Boolean(updateLabel)).toBe(caseName === "beside tool activity");
 		expect(
 			screen.getByRole("list", { name: "Work steps and updates" }).textContent
 		).toContain("Checking the current Space context.");

@@ -54,6 +54,15 @@ export function resolveIsolatedWorkerDevPlan(input) {
     "OPENMELD_DEV_WRANGLER_STATE_DIR"
   );
   const commonArgs = ["--persist-to", persistTo];
+  const pluginFixture = resolveLocalPluginFixtureEnvironment(
+    env.OPENMELD_DEV_PLUGIN_FIXTURE_URL
+  );
+  const pluginFixtureArgs = Object.entries(pluginFixture ?? {}).flatMap(
+    ([name, value]) => ["--var", `${name}:${value}`]
+  );
+  const pluginFixtureEnv = pluginFixture
+    ? { ...env, ...pluginFixture }
+    : undefined;
 
   switch (input.service) {
     case "auth":
@@ -97,6 +106,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
       };
     case "gateway":
       return {
+        env: pluginFixtureEnv,
         args: [
           "exec",
           "wrangler",
@@ -110,7 +120,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
           `OPENMELD_GATEWAY_URL:${requireEnvironmentValue(env, "OPENMELD_GATEWAY_URL")}`,
           "--var",
           `WEB_APP_URL:${requireEnvironmentValue(env, "WEB_APP_URL")}`,
-          ...localPluginFixtureArgs(env.OPENMELD_DEV_PLUGIN_FIXTURE_URL),
+          ...pluginFixtureArgs,
           ...(env.OPENMELD_SLACK_OAUTH_REDIRECT_URL
             ? [
                 "--var",
@@ -125,6 +135,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
       const sandboxEnabled =
         env.OPENMELD_DEV_REMOTE_AGENT_SANDBOX_ENABLED !== "false";
       return {
+        env: pluginFixtureEnv,
         args: [
           "exec",
           "wrangler",
@@ -142,6 +153,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
           requirePort(env, "OPENMELD_DEV_REMOTE_AGENT_INSPECTOR_PORT"),
           "--var",
           `OPENMELD_FEEDBACK_SUBMIT_BASE_URL:${requireEnvironmentValue(env, "OPENMELD_GATEWAY_URL")}`,
+          ...pluginFixtureArgs,
         ],
         command: "pnpm",
         preCommands: [{ args: ["run", "build"], command: "pnpm" }],
@@ -152,11 +164,18 @@ export function resolveIsolatedWorkerDevPlan(input) {
   }
 }
 
-function localPluginFixtureArgs(value) {
-  if (!value) {
-    return [];
+function resolveLocalPluginFixtureEnvironment(value) {
+  if (value === undefined) {
+    return null;
   }
-  const url = new URL(value);
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(
+      "Plugin fixtures must use an http://127.0.0.1 loopback origin."
+    );
+  }
   if (
     url.protocol !== "http:" ||
     url.hostname !== "127.0.0.1" ||
@@ -170,12 +189,14 @@ function localPluginFixtureArgs(value) {
       "Plugin fixtures must use an http://127.0.0.1 loopback origin."
     );
   }
-  return [
-    "--var",
-    `OPENMELD_CONNECTORS_BASE_URL:${url.origin}`,
-    "--var",
-    "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN:local-plugin-fixture",
-  ];
+  // Explicit fixture mode replaces both credential roles before build/start.
+  // Runtime --var overrides also prevent loaded .dev.vars/config from routing
+  // either client back to the real connector. These strings grant no live access.
+  return {
+    OPENMELD_CONNECTORS_BASE_URL: url.origin,
+    OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "local-plugin-fixture",
+    OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "local-plugin-fixture",
+  };
 }
 
 export function resolveIsolatedWorkerDopplerCommand(
@@ -270,6 +291,7 @@ export async function runIsolatedWorker(service) {
 
   for (const preCommand of plan.preCommands) {
     const exitCode = await runCommand(preCommand.command, preCommand.args, {
+      env: plan.env,
       forwardSignals: true,
     });
     if (exitCode !== 0) {

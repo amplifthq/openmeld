@@ -452,6 +452,9 @@ function resolveLaunchSnapshot(
       ? resolveLaunchContractCommandPath(state.launchContract)
       : null,
     installChoiceCount: state.installChoices.length,
+    ...(state.launchFailureReason
+      ? { failureReason: state.launchFailureReason }
+      : {}),
     status: state.launchStatus,
   };
 }

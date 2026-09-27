@@ -46,6 +46,45 @@ release then replaces those placeholders with the real Workers.
    are not integrated until the owning `wrangler.jsonc`, this document, and
    generated Worker types are updated.
 
+## Git working-copy connector ingress
+
+Both OpenConnector configurations keep `OOMOL_CONNECT_BLOCKED_PROXIES = "*"`.
+Their entrypoint is the small `.openmeld-working-copy-worker.mjs` overlay,
+copied by the existing `scripts/cloudflare/deploy-openconnector.mjs` deployer
+alongside `github-working-copy-policy.mjs`. The deployer requires reviewed
+upstream commit `c6f45596a8e018285d2799ccd08e6a251444c25d`, refuses existing
+overlay files, and removes only its own temporary copies. No binding, resource,
+secret name, general proxy allowlist or second credential store is added.
+
+Only `POST /v1/openmeld/github-working-copy` can enter the fixed Git request
+validator. It permits repository/commit/tree/blob reads, immutable Git object
+creation and non-force updates of host-issued task branches. It does not permit
+arbitrary headers, provider hosts, branch names, releases, merge or delete.
+Valid requests retain their bearer and exact connection-alias header and pass
+to the upstream `/v1/proxy/github` handler. A request-local policy enables only
+GitHub for that call. The pinned upstream's app cache includes both allowed and
+blocked proxy policy; normal HTTP proxy and MCP requests use the unchanged
+blocked policy. Re-review that cache contract before advancing the upstream pin.
+
+A separately scoped runtime token must already grant the selected connection
+and GitHub proxy. The overlay does not mint, replace or widen a runtime token.
+A missing grant fails explicitly. Use disposable, explicitly authorized local
+or staging connections to test the flow. Never fix this by removing the general
+proxy block or copying an administration token into Remote Agent or Computer.
+
+Deployment ordering is the reviewed connector overlay, Core execution-access
+and continuation receivers, Remote Agent producers, then Web enhancement. Old
+public message readers remain on plain Markdown links. Existing old admitted
+Computer work keeps its cleanup identity and does not inherit new credentials.
+Rollback must not re-enable legacy shared Computer access to new private work.
+The changed external entrypoint reuses upstream's existing environment types;
+OpenMeld Worker bindings and generated environment interfaces are unchanged.
+
+References: the pinned upstream `docs/runtime-api.md`,
+`src/server/cloudflare.ts`, and `src/providers/github/executors.ts`;
+[Cloudflare Fetch Handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/fetch/);
+[GitHub reference updates](https://docs.github.com/en/rest/git/refs#update-a-reference).
+
 ## Internal Staging Topology
 
 Each Worker has an explicit `env.stg` block. Staging uses the same binding names

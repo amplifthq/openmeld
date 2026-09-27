@@ -120,6 +120,48 @@ async function start(name = "demo.mp4") {
 }
 
 describe("Space video preview", () => {
+	it("keeps a compact poster in its rail, plays only in the dialog, and revokes both", async () => {
+		const client = createClient();
+		const view = render(
+			<QueryClientProvider client={client}>
+				{preview({ compact: true })}
+			</QueryClientProvider>
+		);
+		const poster = view.container.querySelector<HTMLVideoElement>(
+			"video[aria-hidden='true']"
+		);
+		expect(poster).not.toBeNull();
+		fireEvent.loadedData(poster as HTMLVideoElement);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(view.container.querySelector("video:not([aria-hidden])")).toBeNull();
+		const video = await start();
+		expect(screen.getByRole("dialog").contains(video)).toBe(true);
+		expect(view.container.querySelector("video")).toBeNull();
+		act(() => clearSpaceFileMedia(client, "space-1", "video-1"));
+		expect(video.getAttribute("src")).toBeNull();
+		expect(view.container.querySelector("video")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Play demo.mp4" })
+		).toHaveProperty("disabled", true);
+	});
+
+	it("revokes a compact native poster before its playback module has loaded", () => {
+		const client = createClient();
+		const view = render(
+			<QueryClientProvider client={client}>
+				{preview({ compact: true })}
+			</QueryClientProvider>
+		);
+		const poster = view.container.querySelector("video");
+		expect(poster?.getAttribute("src")).toContain("revision=2");
+		act(() => clearSpaceFileMedia(client, "space-1", "video-1"));
+		expect(poster?.getAttribute("src")).toBeNull();
+		expect(view.container.querySelector("video")).toBeNull();
+		expect(playerRender).not.toHaveBeenCalled();
+	});
+
 	it("pauses and releases the decoder when a cached Space hides, without autoplay on return", async () => {
 		const tree = (mode: "visible" | "hidden") => (
 			<Activity mode={mode}>{preview()}</Activity>

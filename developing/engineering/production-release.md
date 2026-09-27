@@ -281,13 +281,15 @@ operation key, attempt and exact applied identity. Database receipts retain
 Use current-main release tooling; old control checkouts are not certified to
 interpret version 3.
 
-`release:status` pages relevant workflows and all job attempts rather than
-filtering an all-workflow 250-run window. It compares actual job completion
-times, never workflow creation order. A missing source, invalid completion time,
-ambiguous tie, API failure or safety-bound truncation remains explicit evidence
-uncertainty; it cannot silently make the affected component current. A known
-later deployment can supersede an older unreadable-source event, but the
-historical limitation remains in the report. Historical planner failures are
+`release:status` pages relevant workflows and job attempts rather than
+filtering an all-workflow 250-run window. It reads newer runs first and stops
+opening older jobs once every scope has a successful receipt newer than those
+runs' last update. Active runs and runs without a valid update time are always read. It compares
+actual job completion times, never workflow creation order. A missing source,
+invalid completion time, ambiguous tie, API failure, or safety-bound truncation
+in the inspected range remains explicit uncertainty; it cannot silently make
+the affected component current. The report does not claim to audit jobs older
+than every scope's selected deployment. Historical planner failures are
 contained in per-component `unknown` results; a genuine current-change planning
 conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
@@ -1409,17 +1411,33 @@ approved that exact version; `--version` and `--next` are mutually exclusive.
 - Required is sometimes the least harmful user choice, but it is not the
   default and must not be applied to every release.
 
+Before stamping a Service hash that reuses Windows helper bytes, prepare them
+in the clean release worktree with the same source check used by publication:
+
+```sh
+node scripts/release/reuse-windows-process-artifact.mjs <trusted-main-run-id>
+```
+
+This checks the run's repository, `main` branch, official CLI workflow and
+successful Windows job before downloading anything; it then verifies ancestry,
+native source, and artifact bytes before importing the helper. A PR Windows
+compatibility artifact is not a release source even if its source fingerprint
+matches. Pin this exact run ID for publication. If no matching trusted run
+exists, dispatch `.github/workflows/cli-release.yml` on `main` with
+`helper_only=true` and `production_train_scopes=cli`, then use that successful
+Windows helper run. This preparation publishes neither CLI nor Core.
+
 The stamp command writes the version and required-update floor before building
 the packaged CLI, then records its Service hash and verifies the result. It
 rejects source drift and restores its metadata changes on failure. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
 stamp after any merge, rebase, or later local-component change. Land the stamp
-through a versioned `codex/release-X.Y.Z-<baseSHA>` PR from a clean worktree;
-never push `main` directly. A normal release PR changes only the CLI package and
-local-components manifest. If `main` already declares the same not-yet-published
-version, a later restamp may change only the manifest. Ordinary feature branches
-must keep both release files unchanged, which the pre-push gate enforces through
-deferred-release verification against the PR base.
+through a PR from a clean worktree; never push `main` directly. The package and
+manifest may land with the source and compatibility floor they describe when
+that candidate is stable. Otherwise stamp in a separate release PR after the
+feature merges. A later source change requires a restamp. Final Candidate
+selects strict artifact verification from the actual manifest diff,
+independent of the branch name.
 
 At publication time, `pnpm run release:deploy:local -- --scope cli` rechecks the
 committed package and manifest through the guarded local production lane. It
@@ -1436,14 +1454,9 @@ For GitHub, use `.github/workflows/cli-release.yml`:
    requires database or cloud fleet changes.
 
 Windows Native AOT helper bytes can differ across builds of identical source.
-When a committed Service hash was stamped with a helper from an earlier trusted
-`main` CLI workflow run, set `windows_artifact_run_id` to that run instead of
-rebuilding the helper. The macOS publisher checks the producer workflow,
-branch, repository, and successful helper job, then verifies the downloaded
-helper's source fingerprint and bytes. This reuse path skips the Windows build
-job entirely. Use the run whose helper bytes were used for the stamp, not merely
-a run with the same source. A fresh Windows build can prepare a new candidate;
-stamp from its downloaded artifact and pin that run for publication.
+Set `windows_artifact_run_id` to the run used above when publishing the stamped
+manifest. The publisher rechecks its provenance and bytes and skips a second
+Windows build. A different run with the same source is not interchangeable.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.

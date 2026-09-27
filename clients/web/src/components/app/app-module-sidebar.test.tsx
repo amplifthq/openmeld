@@ -1,5 +1,11 @@
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { rememberClientSidebarState } from "#/lib/sidebar-width-cookie";
@@ -40,6 +46,7 @@ function mount(scope = "org:profile:conversations", onMount = vi.fn()) {
 			<AppModuleSidebarProvider available preferenceKey="conversations">
 				<aside aria-label="Applications">Spaces · Team</aside>
 				<AppModuleSidebar label="Spaces" scrollKey={scope}>
+					<AppModuleSidebarToggle placement="sidebar" />
 					<a href="/conversation">Existing conversation</a>
 				</AppModuleSidebar>
 				<main>
@@ -55,10 +62,20 @@ it("collapses only the middle list, retaining application navigation and the mou
 	mount(undefined, mounted);
 	const draft = screen.getByRole("textbox", { name: "Draft" });
 	fireEvent.change(draft, { target: { value: "Unsent work" } });
-	fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+	const sidebar = screen.getByTestId("app-module-sidebar");
 	expect(
-		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
-	).toBe("hidden");
+		within(sidebar).getByRole("button", { name: "Hide sidebar" })
+	).toBeTruthy();
+	expect(screen.queryByRole("button", { name: "Show sidebar" })).toBeNull();
+	fireEvent.click(
+		within(sidebar).getByRole("button", { name: "Hide sidebar" })
+	);
+	expect(sidebar.getAttribute("data-state")).toBe("hidden");
+	expect(
+		within(screen.getByRole("main")).getByRole("button", {
+			name: "Show sidebar",
+		})
+	).toBeTruthy();
 	expect(
 		screen.getByRole("complementary", { name: "Applications" })
 	).toBeTruthy();
@@ -68,7 +85,12 @@ it("collapses only the middle list, retaining application navigation and the mou
 	expect(
 		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
 	).toBe("hidden");
-	fireEvent.click(screen.getByText("Expand sidebar"));
+	fireEvent.click(
+		within(
+			sidebar.querySelector('[data-sidebar="panel"]') as HTMLElement
+		).getByRole("button", { name: "Show sidebar" })
+	);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
 	expect(
 		screen.getByRole("link", { name: "Existing conversation" })
 	).toBeTruthy();

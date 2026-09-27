@@ -6,6 +6,7 @@ import {
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  spaceFileAuditEventSchema,
   spaceFileRevisionSchema,
 } from "@openmeld/schemas";
 import type {
@@ -195,6 +196,56 @@ function makeEnv(input?: {
 }
 
 describe("Core Space file content RPC", () => {
+  it("gives two file reads in one request distinct audit identities while preserving the request correlation", async () => {
+    const { env, stub } = makeEnv();
+    const events: SpaceFileAuditEvent[] = [];
+    stub.rpcRecordSpaceFileAuditEvent.mockImplementation(
+      (...args: unknown[]) => {
+        const event = spaceFileAuditEventSchema.parse(
+          (args[0] as { event: unknown }).event
+        );
+        if (events.some((previous) => previous.eventId === event.eventId)) {
+          return Promise.reject(new Error("duplicate audit event"));
+        }
+        events.push(event);
+        return Promise.resolve(undefined);
+      }
+    );
+    for (const fileId of [FILE_ID, "second-file"]) {
+      const revision = { ...REVISION, fileId };
+      stub.rpcResolveSpaceFileContent.mockResolvedValueOnce({
+        organizationId: ORGANIZATION_ID,
+        objectKey: buildSpaceFileObjectKey({
+          organizationId: ORGANIZATION_ID,
+          spaceId: SPACE_ID,
+          fileId,
+          revisionId: REVISION_ID,
+        }),
+        file: { ...FILE, id: fileId, latestRevision: revision },
+        revision,
+      });
+      const result = await rpcStreamSpaceFileContent(env, {
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        content: { spaceId: SPACE_ID, fileId, revision: 1 },
+      });
+      expect(await new Response(result.bytes).text()).toBe(
+        "Shared launch notes\n"
+      );
+    }
+    expect(events).toHaveLength(2);
+    expect(new Set(events.map((event) => event.eventId)).size).toBe(2);
+    expect(new Set(events.map((event) => event.operationId)).size).toBe(2);
+    expect(events.map((event) => event.requestId)).toEqual([
+      CONTEXT.actorContext.requestId,
+      CONTEXT.actorContext.requestId,
+    ]);
+    expect(events.map((event) => event.entryId)).toEqual([
+      FILE_ID,
+      "second-file",
+    ]);
+  });
+
   it("keeps the buffered write path capped when the Space file limit grows", async () => {
     const { env, stub } = makeEnv();
     await expect(
@@ -521,62 +572,6 @@ describe("Core Space file content RPC", () => {
         spaceId: SPACE_ID,
       }),
     });
-  });
-
-  it("records a distinct audit event for each file read within one request", async () => {
-    const { env, stub } = makeEnv();
-    const secondFileId = "file-files-test-second";
-    const secondRevisionId = "revision-files-test-second";
-    const secondRevision = {
-      ...REVISION,
-      id: secondRevisionId,
-      fileId: secondFileId,
-    };
-    stub.rpcResolveSpaceFileContent
-      .mockResolvedValueOnce({
-        organizationId: ORGANIZATION_ID,
-        objectKey: OBJECT_KEY,
-        file: FILE,
-        revision: REVISION,
-      })
-      .mockResolvedValueOnce({
-        organizationId: ORGANIZATION_ID,
-        objectKey: buildSpaceFileObjectKey({
-          organizationId: ORGANIZATION_ID,
-          spaceId: SPACE_ID,
-          fileId: secondFileId,
-          revisionId: secondRevisionId,
-        }),
-        file: { ...FILE, id: secondFileId, latestRevision: secondRevision },
-        revision: secondRevision,
-      });
-
-    await rpcReadSpaceFileContent(env, {
-      content: { spaceId: SPACE_ID, fileId: FILE_ID },
-      context: CONTEXT,
-      spaceId: SPACE_ID,
-    });
-    await rpcReadSpaceFileContent(env, {
-      content: { spaceId: SPACE_ID, fileId: secondFileId },
-      context: CONTEXT,
-      spaceId: SPACE_ID,
-    });
-
-    const events = (
-      stub.rpcRecordSpaceFileAuditEvent.mock.calls as unknown as Array<
-        [{ event: SpaceFileAuditEvent }]
-      >
-    ).map(([call]) => call.event);
-    expect(events.map((event) => event.entryId)).toEqual([
-      FILE_ID,
-      secondFileId,
-    ]);
-    expect(events.map((event) => event.requestId)).toEqual([
-      CONTEXT.actorContext.requestId,
-      CONTEXT.actorContext.requestId,
-    ]);
-    expect(new Set(events.map((event) => event.eventId)).size).toBe(2);
-    expect(new Set(events.map((event) => event.operationId)).size).toBe(2);
   });
 
   it("audits a failed R2 read before returning the storage failure", async () => {

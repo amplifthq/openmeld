@@ -21,12 +21,14 @@ import {
   readCommandSlice,
   stopRemoteAgentComputerCommands,
 } from "../flue-adapter/computer-command";
+import { resolveRemoteAgentComputerName } from "../flue-adapter/computer-identity";
 import { createRemoteAgentComputerCapability } from "../flue-adapter/computer-sandbox";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
 import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
 import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
 import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
+import { executionAccessFixture } from "./execution-access-fixture";
 import {
   createSubmitTurnRequest,
   createSubmitTurnRequestV2,
@@ -154,9 +156,7 @@ describe("retained Computer commands", () => {
       storage: f.storage,
       acceptedAtMs: TEST_NOW_MS,
     });
-    const expectedName = personal
-      ? `agent-computer:${JSON.stringify([executionContext.agentProfileId, executionContext.spaceId])}`
-      : `agent-computer:${executionContext.agentProfileId}`;
+    const expectedName = resolveRemoteAgentComputerName(executionContext);
     cleanupAccess.mockImplementation(({ computerId }) => {
       if (computerId !== expectedName) {
         throw new Error(`Accessed another Computer: ${computerId}`);
@@ -164,10 +164,18 @@ describe("retained Computer commands", () => {
       return f.workspaceAccess;
     });
     const idFromName = vi.fn((name: string) => name);
-    const env = { AGENT_COMPUTER: { idFromName } };
+    const env = {
+      AGENT_COMPUTER: {
+        idFromName,
+        get: vi.fn(() => ({ readDataSources: async () => [] })),
+      },
+    };
     const capability = await createRemoteAgentComputerCapability({
       context: executionContext,
-      coreWorker: {},
+      coreWorker: {
+        authorizeRemoteAgentExecutionAccess:
+          executionAccessFixture(executionContext),
+      },
       env,
       storage: f.storage,
       includeOrganizationDocuments: false,
@@ -221,6 +229,7 @@ describe("retained Computer commands", () => {
     if (cancel) {
       await expect(
         cancelFlueRemoteAgentExecution({
+          scheduleReconciliation: vi.fn(async () => undefined),
           identity,
           storage: f.storage,
           nowMs: TEST_NOW_MS + 1,
@@ -326,6 +335,36 @@ describe("retained Computer commands", () => {
     ).rejects.toThrow();
     expect(f.killExec.mock.calls.map(([id]) => id)).toEqual(ids);
   });
+  it("recognizes execution loss confirmed by Stop after output inspection fails", async () => {
+    const f = fixture();
+    const started = (await f.tool().execute({
+      action: "start",
+      key: "lost",
+      command: "sleep 300",
+    })) as { id: string };
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    f.getExec.mockRejectedValue(new TypeError("Output transport failed"));
+    f.killExec.mockRejectedValue(
+      Object.assign(new Error("Computer runtime replaced"), {
+        name: "WorkspaceExecutionLostError",
+        code: "EEXEC_LOST",
+      })
+    );
+    const input = {
+      context: context("execution-a"),
+      env: { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } },
+      storage: f.storage,
+    };
+    await expect(stopRemoteAgentComputerCommands(input)).rejects.toThrow(
+      "a retained execution was confirmed lost"
+    );
+    await expect(stopRemoteAgentComputerCommands(input)).resolves.toEqual({
+      unfinished: 0,
+      lostDuringCleanup: true,
+    });
+    expect(f.killExec).toHaveBeenCalledOnce();
+    expect(f.killExec.mock.calls[0]?.[0]).toBe(started.id);
+  });
   it("keeps reported lost commands from failing recovered work during cleanup", async () => {
     const f = fixture();
     const started = await f
@@ -347,10 +386,177 @@ describe("retained Computer commands", () => {
         storage: f.storage,
         env: { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } },
       })
-    ).resolves.toBe(0);
+    ).resolves.toMatchObject({ unfinished: 0 });
     expect(f.killExec).not.toHaveBeenCalled();
     expect(f.exec).toHaveBeenCalledTimes(1);
     expect(started).toMatchObject({ key: "lost", status: "running" });
+  });
+
+  it.each([
+    { personal: false, commandCount: 1, cancel: false },
+    { personal: true, commandCount: 4, cancel: true },
+  ])("settles $commandCount commands first lost during cleanup (personal=$personal, Stop=$cancel)", async ({
+    personal,
+    commandCount,
+    cancel,
+  }) => {
+    const f = fixture();
+    const executionContext = context("execution-a", personal);
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    for (let index = 0; index < commandCount; index += 1) {
+      await f.tool("execution-a", personal).execute({
+        action: "start",
+        key: `long-${index}`,
+        command: "sleep 300",
+      });
+    }
+    const lost = Object.assign(new Error("Computer runtime replaced"), {
+      name: "WorkspaceExecutionLostError",
+      code: "EEXEC_LOST",
+    });
+    f.getExec.mockRejectedValue(lost);
+    f.killExec.mockRejectedValue(lost);
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const env = { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } };
+    if (cancel) {
+      await expect(
+        cancelFlueRemoteAgentExecution({
+          scheduleReconciliation: vi.fn(async () => undefined),
+          abortSubmission: async () => {
+            await stopRemoteAgentComputerCommands({
+              context: executionContext,
+              env,
+              storage: f.storage,
+            });
+            return { aborted: true };
+          },
+          identity,
+          nowMs: TEST_NOW_MS + 1,
+          reason: "Stopped by the user.",
+          storage: f.storage,
+        })
+      ).resolves.toMatchObject({
+        response: { status: "cancellation_requested" },
+      });
+    } else {
+      // Simulate a restart after command loss was saved but before the
+      // execution failure was recorded. Reconciliation must not publish Done.
+      await expect(
+        stopRemoteAgentComputerCommands({
+          context: executionContext,
+          env,
+          storage: f.storage,
+        })
+      ).rejects.toThrow("a retained execution was confirmed lost");
+    }
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      status: "accepted" as const,
+    }));
+    const reconcile = () =>
+      reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        env,
+        identity,
+        readSubmission: async () => ({
+          status: "settled" as const,
+          ...(cancel
+            ? {}
+            : {
+                completedOutput: { submissionId: "execution-a", text: "Done" },
+              }),
+        }),
+        storage: f.storage,
+      });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: cancel ? "aborted" : "failed" },
+    });
+    await reconcile();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: cancel
+          ? "remote_agent.execution_cancelled"
+          : "remote_agent.turn_not_completed",
+      })
+    );
+    expect(f.exec).toHaveBeenCalledTimes(commandCount);
+    expect(f.getExec).toHaveBeenCalledTimes(commandCount);
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
+
+  it("waits for other owned work after one command is confirmed lost", async () => {
+    const f = fixture();
+    const executionContext = context("execution-a");
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    const lostCommand = (await f.tool().execute({
+      action: "start",
+      key: "lost",
+      command: "sleep 300",
+    })) as { id: string };
+    const liveCommand = (await f.tool().execute({
+      action: "start",
+      key: "live",
+      command: "sleep 300",
+    })) as { id: string };
+    const otherCommand = (await f.tool("other-execution").execute({
+      action: "start",
+      key: "other",
+      command: "sleep 300",
+    })) as { id: string };
+    const lost = Object.assign(new Error("Computer runtime replaced"), {
+      name: "WorkspaceExecutionLostError",
+      code: "EEXEC_LOST",
+    });
+    f.getExec.mockImplementation((id) =>
+      id === lostCommand.id ? Promise.reject(lost) : Promise.resolve(handle(id))
+    );
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      status: "accepted" as const,
+    }));
+    const reconcile = () =>
+      reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        env: { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } },
+        identity,
+        readSubmission: async () => ({
+          status: "settled" as const,
+          completedOutput: { submissionId: "execution-a", text: "Done" },
+        }),
+        storage: f.storage,
+      });
+    await expect(reconcile()).rejects.toThrow(
+      "Computer command cleanup failed"
+    );
+    await expect(
+      readRemoteAgentExecutionState({ identity, storage: f.storage })
+    ).resolves.toMatchObject({ execution: { status: "pending" } });
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    expect(f.killExec.mock.calls.map(([id]) => id)).toEqual([liveCommand.id]);
+    expect(f.killExec).not.toHaveBeenCalledWith(
+      otherCommand.id,
+      expect.anything()
+    );
+    f.getExec.mockImplementation(async (id) =>
+      handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true)
+    );
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "failed" },
+    });
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -407,7 +613,7 @@ describe("retained Computer commands", () => {
         env,
         storage: f.storage,
       })
-    ).rejects.toThrow("a retained process record was missing");
+    ).rejects.toThrow("a retained execution was confirmed lost");
     const completeRemoteAgentSubmission = vi.fn(async () => ({
       status: "accepted" as const,
     }));
@@ -431,7 +637,7 @@ describe("retained Computer commands", () => {
         status: "failed",
         submissionId: "execution-a",
         failureDetail: expect.stringContaining(
-          "a retained process record was missing"
+          "a retained execution was confirmed lost"
         ),
       })
     );
@@ -471,6 +677,7 @@ describe("retained Computer commands", () => {
 
     await expect(
       cancelFlueRemoteAgentExecution({
+        scheduleReconciliation: vi.fn(async () => undefined),
         abortSubmission,
         identity,
         nowMs: TEST_NOW_MS + 1,
@@ -533,7 +740,7 @@ describe("retained Computer commands", () => {
         env,
         storage: f.storage,
       })
-    ).resolves.toBe(0);
+    ).resolves.toMatchObject({ unfinished: 0 });
     expect(f.getExec).toHaveBeenCalledTimes(2);
   });
 

@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnAgentControllerProcess } from "../../runtime/adapters/core/dist/index.js";
 import { pruneWindowsBinaryBundle } from "../../runtime/adapters/core/dist/windows-system.js";
+import { runOwnedCommand } from "../dev/owned-command.mjs";
 import {
   buildBunCompileArgs,
   collectCliBinaryMetadata,
@@ -146,6 +147,18 @@ assert.equal(
   commandPath.status,
   0,
   `Native user PATH acceptance failed: ${commandPath.stdout ?? ""}${commandPath.stderr ?? ""}`
+);
+assert.equal(
+  await runOwnedCommand(binaries.cli.path, ["--version"], {
+    cwd: workspace,
+    env,
+    windowsJob: true,
+  }),
+  0,
+  "Windows build commands must exit with their owned process Job drained"
+);
+console.log(
+  JSON.stringify({ stage: "windows_owned_command_job", status: "passed" })
 );
 await exerciseManagedLauncher();
 await exerciseManagedInstallation();

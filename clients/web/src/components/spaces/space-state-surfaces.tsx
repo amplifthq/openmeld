@@ -62,7 +62,10 @@ export function SpaceLandingLoadingShell(
 				className="relative flex min-h-0 flex-1 overflow-hidden"
 				data-space-inline-panels=""
 			>
-				<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+				<section
+					className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden"
+					data-space-history-rail="true"
+				>
 					<div aria-busy="true" className="min-h-0 flex-1 overflow-hidden">
 						<output className="sr-only">Loading messages…</output>
 						<div className="py-4" data-space-conversation-content-width="">
