@@ -32,7 +32,7 @@ export function AppMobileNavigationDrawer(input: {
 				showCloseButton={false}
 				side={input.side}
 			>
-				<div className="flex min-h-0 w-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+				<div className="flex h-full min-h-0 w-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
 					<div className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-border border-b px-3">
 						<SheetTitle className="truncate">{input.title}</SheetTitle>
 						<SheetClose

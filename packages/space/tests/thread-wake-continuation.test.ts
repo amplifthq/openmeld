@@ -46,11 +46,27 @@ describe("thread Wake continuation", () => {
       "hello\n@Beta"
     );
   });
-  it("leaves explicit targets and group messages unchanged", () => {
-    const explicit = signal("human", ["C"]);
+  it.each([
+    "wake",
+    "reference",
+    "mention",
+  ])("leaves explicit %s targets and group messages unchanged", (relation) => {
+    const explicit = signal("human", relation === "wake" ? ["C"] : []);
+    if (explicit.type !== "signal.text" || !explicit.data.messageEnvelope) {
+      throw new Error("Missing message fixture");
+    }
+    if (relation === "reference") {
+      explicit.data.messageEnvelope.referenceTargets = ["C"];
+    }
+    if (relation === "mention") {
+      explicit.data.messageEnvelope.mentionTargets = ["C"];
+    }
     applyAutomaticThreadWake(explicit, () => {
       throw new Error("Explicit recipient wins");
     });
+    expect(explicit.data.messageEnvelope.activationTargets).toEqual(
+      relation === "wake" ? ["C"] : []
+    );
     const group = signal("human");
     applyAutomaticThreadWake(group, () => null);
     expect(group.type === "signal.text" && group.data.text).toBe("hello");

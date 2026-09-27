@@ -1,6 +1,7 @@
 import { WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL } from "@openmeld/schemas";
 import { afterEach, describe, expect, it } from "vitest";
 import { daemonRuntimeRootPath } from "../src/config/daemon-state";
+import { resolveOpenMeldRootDir } from "../src/config/paths";
 import {
   daemonServiceBinaryExecutablePath,
   daemonServiceExecutableWrapperPath,
@@ -132,6 +133,17 @@ describe("local service system service command spec", () => {
       expect(spec.env).not.toHaveProperty("Path");
       expect(spec.env).not.toHaveProperty("PRIVATE_SECRET");
       expect(spec.executable).toBe(process.execPath);
+
+      // The public Windows setup command clears this override. The registered
+      // action must still carry its default root for ownership and execution.
+      Reflect.deleteProperty(process.env, "OPENMELD_HOME");
+      const defaultSpec = buildDaemonSystemServiceCommandSpec({
+        controller: "windows-service",
+        distribution: "binary",
+        binaryExecutablePath:
+          "C:\\Users\\Test\\.openmeld\\runtime\\daemon\\bundles\\active\\openmeld.exe",
+      });
+      expect(defaultSpec.env.OPENMELD_HOME).toBe(resolveOpenMeldRootDir());
     } finally {
       process.env = originalEnv;
       if (originalPlatform) {

@@ -2021,7 +2021,9 @@ describe("SpaceConversationPanel", () => {
 					(child) => child.textContent === longMessage
 				)
 		);
-		const messageBubble = messageText.closest("[data-signal-id]");
+		const messageBubble = messageText.closest(
+			"[data-slot='space-message-text-surface']"
+		);
 
 		expect(messageBubble?.className).not.toContain("min-w-[16rem]");
 		expect(messageBubble?.className).toContain("max-w-full");
@@ -2049,10 +2051,10 @@ describe("SpaceConversationPanel", () => {
 
 		const agentBubble = screen
 			.getByText("Agent reply")
-			.closest("[data-signal-id]");
+			.closest("[data-slot='space-message-text-surface']");
 		const selfBubble = screen
 			.getByText("Self message")
-			.closest("[data-signal-id]");
+			.closest("[data-slot='space-message-text-surface']");
 		expect(agentBubble?.classList.contains("border")).toBe(true);
 		expect(agentBubble?.classList.contains("border-transparent")).toBe(true);
 		expect(agentBubble?.classList.contains("bg-muted/35")).toBe(true);
@@ -2404,12 +2406,17 @@ describe("SpaceConversationPanel", () => {
 		expect(onAddPeopleOrAgents).toHaveBeenCalledOnce();
 	});
 
-	it("opens a conversation file in the same Space Files view", () => {
+	it.each([
+		false,
+		true,
+	])("keeps attachment-only messages outside the text bubble and opens the exact file (DM=%s)", (isDirectMessage) => {
 		const onOpenSpaceFile = vi.fn();
 		renderSpaceConversationPanel({
+			isDirectMessage,
 			onOpenSpaceFile,
 			timelineItems: [
 				createTimelineItem({
+					editedAt: Date.UTC(2026, 8, 26),
 					files: [
 						{
 							fileId: "file-1",
@@ -2427,6 +2434,20 @@ describe("SpaceConversationPanel", () => {
 
 		const fileButton = screen.getByText("launch-brief.pdf").closest("button");
 		expect(fileButton).not.toBeNull();
+		expect(
+			fileButton?.closest("[data-slot='space-message-text-surface']")
+		).toBeNull();
+		const message = fileButton?.closest("[data-slot='bubble-content']");
+		expect(
+			message?.querySelector("[data-slot='space-message-edited']")?.textContent
+		).toBe("(edited)");
+		expect(
+			message?.querySelectorAll("[data-slot='space-attachment-strip']")
+		).toHaveLength(1);
+		expect(
+			message?.querySelector("[data-slot='space-message-text-surface']")
+				?.childElementCount
+		).toBe(0);
 		expect(
 			fileButton?.closest("[data-slot='bubble']")?.className
 		).not.toContain("hidden");
@@ -3752,14 +3773,19 @@ describe("SpaceConversationPanel", () => {
 		).toContain("runner is working");
 	});
 
-	it("renders completed Agent Activity once inside its durable reply", () => {
+	it.each([
+		["Center Agent", "hosted:center-agent"],
+		["Remote Agent", "hosted:remote-agent"],
+		["Local Agent", "codex"],
+	] as const)("puts completed %s work before its durable reply", (name, controller) => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
-					actorName: "Center Agent",
+					actorAgentControllerRef: controller,
+					actorName: name,
 					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
-					actorProfileName: "Center Agent",
+					actorProfileName: name,
 					agentActivity: {
 						v: 1,
 						steps: [
@@ -3788,7 +3814,7 @@ describe("SpaceConversationPanel", () => {
 
 		const bubbleContent = screen
 			.getByText("Here is the Space summary.")
-			.closest("[data-slot='bubble-content']");
+			.closest("[data-slot='space-message-text-surface']");
 		expect(bubbleContent?.contains(activityTriggers[0] ?? null)).toBe(true);
 		const answerElement = screen.getByText("Here is the Space summary.");
 		const directChildren = Array.from(bubbleContent?.children ?? []);
@@ -3798,8 +3824,8 @@ describe("SpaceConversationPanel", () => {
 		const activitySection = directChildren.find((child) =>
 			child.contains(activityTriggers[0] ?? null)
 		);
-		expect(directChildren.indexOf(answerSection as Element)).toBeLessThan(
-			directChildren.indexOf(activitySection as Element)
+		expect(directChildren.indexOf(activitySection as Element)).toBeLessThan(
+			directChildren.indexOf(answerSection as Element)
 		);
 	});
 

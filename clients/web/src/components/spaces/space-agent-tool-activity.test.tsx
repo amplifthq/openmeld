@@ -112,7 +112,7 @@ describe("SpaceAgentToolActivity", () => {
 			/>
 		);
 		const completedTrigger = screen.getByRole("button", {
-			name: "Work summary: Progress updates",
+			name: "Work summary: Agent updates",
 		});
 		expect(completedTrigger.getAttribute("aria-expanded")).toBe("false");
 		fireEvent.click(completedTrigger);

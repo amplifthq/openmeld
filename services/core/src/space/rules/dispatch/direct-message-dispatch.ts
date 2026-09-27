@@ -48,6 +48,15 @@ export function buildDirectMessageDispatchReadyDecisions(input: {
   if (input.senderProfileId !== humanMember.profileId) {
     return [];
   }
+  // Explicit Reference is the member's opt-out from the default DM Wake.
+  if (
+    input.signal.type === "signal.text" &&
+    input.signal.data.messageEnvelope?.referenceTargets.includes(
+      agentMember.profileId
+    )
+  ) {
+    return [];
+  }
 
   const sourceEventId = String(input.signal.id ?? "").trim();
   if (!sourceEventId) {

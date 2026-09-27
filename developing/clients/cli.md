@@ -1279,8 +1279,10 @@ session before changing local auth. A cross-account switch requires explicit
 interactive confirmation. That confirmation is bound to the stable identity of
 the exact committed session the user reviewed and is compared again inside the
 auth mutation lock; a changed session fails closed and requires fresh review.
-The Web bootstrap runs from a downloaded temporary file and may reopen the controlling
-terminal for the managed CLI. Any prompt reachable from that bootstrap must use
+The Web bootstrap is piped to `sh` and may reopen the controlling terminal
+for the managed CLI. Its entire install body must be one top-level shell
+compound that cannot execute before the closing `fi` arrives. Any prompt
+reachable from that bootstrap must use
 the CLI's binary-safe interactive prompt primitive, which reads the reopened
 terminal synchronously in the compiled binary. It must not bypass that owner
 with an asynchronous third-party prompt. If no controlling terminal is usable,

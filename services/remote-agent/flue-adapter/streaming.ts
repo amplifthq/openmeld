@@ -44,6 +44,7 @@ type RemoteAgentStreamState = {
 type RemoteAgentTransientStreamState = {
   pendingKindOrder: RemoteAgentStreamDeltaKind[];
   pendingProgress: string;
+  progressUnsupported: boolean;
   replaceTextSnapshotOnNextText: boolean;
   progressSnapshot: string;
 };
@@ -240,6 +241,7 @@ export function createRemoteAgentStreamPublisher(
     const transientState: RemoteAgentTransientStreamState = {
       pendingKindOrder: state.pendingText.length > 0 ? ["text"] : [],
       pendingProgress: "",
+      progressUnsupported: false,
       replaceTextSnapshotOnNextText:
         state.textSnapshot.length > 0 || state.pendingText.length > 0,
       progressSnapshot: "",
@@ -303,6 +305,7 @@ export function createRemoteAgentStreamPublisher(
     transientState.pendingKindOrder = transientState.pendingKindOrder.filter(
       (pendingKind) => pendingKind !== kind
     );
+    const previousSequence = state.sequence;
     state.sequence += 1;
     state.lastFlushedAtMs = input.observedAtMs;
     await persistRemoteAgentStreamState(input.storage, state);
@@ -327,6 +330,28 @@ export function createRemoteAgentStreamPublisher(
         status: "dropped",
         sequence: state.sequence,
         streamId: state.streamId,
+      };
+    }
+
+    if (
+      kind === "progress" &&
+      response.status === "rejected" &&
+      response.reasonCode === "agent_stream.invalid"
+    ) {
+      // An older Core rejects this new callback kind before touching its
+      // stream cursor. Keep the last accepted sequence and the text preview.
+      state.sequence = previousSequence;
+      transientState.pendingProgress = "";
+      transientState.progressSnapshot = "";
+      transientState.progressUnsupported = true;
+      await persistRemoteAgentStreamState(input.storage, state);
+      return {
+        contentKind: kind,
+        deltaLength: pendingDelta.length,
+        status: "dropped",
+        sequence: state.sequence,
+        streamId: state.streamId,
+        response,
       };
     }
 
@@ -399,6 +424,14 @@ export function createRemoteAgentStreamPublisher(
           input.context.submissionId,
           state
         );
+        if (input.kind === "progress" && transientState.progressUnsupported) {
+          return {
+            contentKind: "progress",
+            status: "dropped",
+            sequence: state.sequence,
+            streamId: state.streamId,
+          };
+        }
         if (state.disabled || input.delta.length === 0) {
           return {
             status: state.disabled ? "disabled" : "buffered",
@@ -407,25 +440,11 @@ export function createRemoteAgentStreamPublisher(
           };
         }
 
-        const replacementPrefix =
-          input.kind === "text" ? input.replaceTextPrefix : undefined;
-        const replacingFailedText = replacementPrefix !== undefined;
-        if (replacementPrefix !== undefined) {
-          // Flue supplies the official visible-text projection, not a guessed
-          // string prefix. Drop buffered failed text too, keep the existing
-          // stream identity/sequence, and retain legitimate earlier narration.
-          state.pendingText = "";
-          state.textSnapshot = replacementPrefix;
-          transientState.replaceTextSnapshotOnNextText = false;
-          transientState.pendingKindOrder =
-            transientState.pendingKindOrder.filter((kind) => kind !== "text");
-        } else {
-          replaceRecoveredRemoteAgentTextSnapshotIfNeeded({
-            kind: input.kind,
-            state,
-            transientState,
-          });
-        }
+        const replacingFailedText = prepareRemoteAgentStreamPush({
+          input,
+          state,
+          transientState,
+        });
         appendPendingRemoteAgentStreamDelta({
           delta: input.delta,
           kind: input.kind,
@@ -446,15 +465,13 @@ export function createRemoteAgentStreamPublisher(
           transientState,
         });
         if (
-          !(
-            replacingFailedText ||
-            shouldFlushRemoteAgentStream(
-              state,
-              input.observedAtMs,
-              pendingDelta,
-              input.context
-            )
-          )
+          !shouldPublishRemoteAgentStreamPush({
+            context: input.context,
+            observedAtMs: input.observedAtMs,
+            pendingDelta,
+            replacingFailedText,
+            state,
+          })
         ) {
           return {
             status: "buffered",
@@ -517,6 +534,31 @@ export function createRemoteAgentStreamPublisher(
         };
       }),
   };
+}
+
+function prepareRemoteAgentStreamPush(input: {
+  input: RemoteAgentStreamPushInput;
+  state: RemoteAgentStreamState;
+  transientState: RemoteAgentTransientStreamState;
+}): boolean {
+  const replacementPrefix =
+    input.input.kind === "text" ? input.input.replaceTextPrefix : undefined;
+  if (replacementPrefix === undefined) {
+    replaceRecoveredRemoteAgentTextSnapshotIfNeeded({
+      kind: input.input.kind,
+      state: input.state,
+      transientState: input.transientState,
+    });
+    return false;
+  }
+  // Flue supplies the official visible-text projection, not a guessed string
+  // prefix. Drop buffered failed text and retain legitimate earlier narration.
+  input.state.pendingText = "";
+  input.state.textSnapshot = replacementPrefix;
+  input.transientState.replaceTextSnapshotOnNextText = false;
+  input.transientState.pendingKindOrder =
+    input.transientState.pendingKindOrder.filter((kind) => kind !== "text");
+  return true;
 }
 
 function replaceRecoveredRemoteAgentTextSnapshotIfNeeded(input: {
@@ -671,6 +713,24 @@ function shouldFlushRemoteAgentStream(
     pendingDelta.length >= STREAM_CHUNK_TARGET_CHARS ||
     (elapsedMs >= STREAM_SENTENCE_BOUNDARY_MIN_MS &&
       SENTENCE_BOUNDARY_PATTERN.test(pendingDelta))
+  );
+}
+
+function shouldPublishRemoteAgentStreamPush(input: {
+  context: RemoteAgentCallbackContext;
+  observedAtMs: number;
+  pendingDelta: string;
+  replacingFailedText: boolean;
+  state: RemoteAgentStreamState;
+}): boolean {
+  return (
+    input.replacingFailedText ||
+    shouldFlushRemoteAgentStream(
+      input.state,
+      input.observedAtMs,
+      input.pendingDelta,
+      input.context
+    )
   );
 }
 

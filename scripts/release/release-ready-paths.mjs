@@ -5,12 +5,17 @@ const PRE_PUSH_RELEASE_GATE_CONTROL_PATHS = new Set([
   "services/core/src/local-components/update-projection.ts",
 ]);
 const PRE_PUSH_RELEASE_GATE_CONTROL_PATH_PREFIXES = ["scripts/release/"];
-const CLI_AND_SERVICE_RELEASE_PATH_PREFIXES = ["packages/agent-runtime/src/"];
+const CLI_AND_SERVICE_RELEASE_PATH_PREFIXES = [
+  "packages/agent-runtime/src/",
+  "packages/start/src/",
+];
 const CLI_RELEASE_PATH_PREFIXES = [
   "clients/openmeld-cli/native/",
   "clients/openmeld-cli/src/",
 ];
 const CLI_RELEASE_PATHS = new Set([
+  "packages/start/package.json",
+  "packages/start/tsdown.config.ts",
   "clients/openmeld-cli/package.json",
   "clients/openmeld-cli/tsdown.config.ts",
   "scripts/release/build-cli-binary.mjs",
@@ -39,6 +44,8 @@ const ENGINEERING_ONLY_SCHEMA_PATH_PREFIXES = [
   "packages/schemas/src/schemas/release/",
 ];
 const SERVICE_RELEASE_PATHS = new Set([
+  "packages/start/package.json",
+  "packages/start/tsdown.config.ts",
   "clients/openmeld-cli/tsdown.config.ts",
   "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs",
   "pnpm-lock.yaml",

@@ -1042,6 +1042,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const selected = new Set(scopes);
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
+  const compatibilityChangedPaths =
+    input.compatibilityChangedPaths ?? changedPaths;
   assertCenterAgentEvidenceReleaseScopes(scopes, changedPaths);
   assertSpaceMessageSearchReleaseScopes(scopes, changedPaths);
   assertConnectComputerReleaseScopes(scopes, changedPaths);
@@ -1055,7 +1057,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
   assertSpaceTaskReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(
-    changedPaths,
+    compatibilityChangedPaths,
     input.taskInboxRetired
   );
   if (
@@ -1078,7 +1080,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   }
   const orderedScopes = resolveProductionDeployScopeOrder(
     scopes,
-    changedPaths,
+    compatibilityChangedPaths,
     input.taskInboxRetired
   );
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
@@ -2028,8 +2030,76 @@ function isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) {
   );
 }
 
+function isReviewedHostedProgressCompatibilityBridge(input) {
+  if (
+    !(
+      input.base &&
+      input.sourceSha &&
+      [
+        REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH,
+        "services/remote-agent/flue-adapter/streaming.ts",
+      ].every((path) => input.changedPaths.includes(path))
+    )
+  ) {
+    return false;
+  }
+  const readGitFile =
+    input.readGitFile ?? ((ref, path) => runGit(["show", `${ref}:${path}`]));
+  try {
+    const before = readGitFile(
+      input.base,
+      REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH
+    );
+    const after = readGitFile(
+      input.sourceSha,
+      REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH
+    );
+    const reasonAddition =
+      '  TURN_OUTPUT_LIMIT_EXCEEDED: "remote_agent.turn.output_limit_exceeded",\n';
+    const progressAddition = [
+      "  z.strictObject({",
+      "    ...typedRemoteAgentStreamDeltaCallbackIdentitySchema,",
+      '    kind: z.literal("progress"),',
+      '    source: z.literal("hosted.public_progress"),',
+      "  }),",
+      "",
+    ].join("\n");
+    if (
+      !(after.includes(reasonAddition) && after.includes(progressAddition)) ||
+      after.replace(reasonAddition, "").replace(progressAddition, "") !== before
+    ) {
+      return false;
+    }
+    const streamSource = readGitFile(
+      input.sourceSha,
+      "services/remote-agent/flue-adapter/streaming.ts"
+    );
+    return [
+      'response.reasonCode === "agent_stream.invalid"',
+      "state.sequence = previousSequence",
+      "transientState.progressUnsupported = true",
+    ].every((evidence) => streamSource.includes(evidence));
+  } catch {
+    // Missing historical content must never waive a compatibility dependency.
+    return false;
+  }
+}
+
 export function buildProductionReleasePlan(input) {
   const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
+  const sourceSha = input.sourceSha ?? readHeadSha();
+  const compatibilityChangedPaths = isReviewedHostedProgressCompatibilityBridge(
+    {
+      base: input.base,
+      changedPaths,
+      readGitFile: input.readGitFile,
+      sourceSha,
+    }
+  )
+    ? changedPaths.filter(
+        (path) => path !== REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH
+      )
+    : changedPaths;
   const taskInboxRetired = inspectTaskInboxRetirement({
     base: input.base,
     changedPaths,
@@ -2051,10 +2121,14 @@ export function buildProductionReleasePlan(input) {
     changedPaths.includes(
       "services/core/src/remote-agent/application/native-delivery-service.ts"
     ) &&
-    changedPaths.includes(REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH) &&
-    changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
-    !isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) &&
-    !changedPaths.some((file) =>
+    compatibilityChangedPaths.includes(
+      REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH
+    ) &&
+    compatibilityChangedPaths.includes(
+      REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH
+    ) &&
+    !isRemoteAgentWorkerRequestReceiverFirstDiff(compatibilityChangedPaths) &&
+    !compatibilityChangedPaths.some((file) =>
       REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS.has(file)
     )
   ) {
@@ -2062,14 +2136,13 @@ export function buildProductionReleasePlan(input) {
       "Native delivery changes both sides of the Remote Agent contract without an unambiguous request owner. Split Core/CLI and Remote Agent into explicitly ordered releases after reviewing request and response compatibility."
     );
   }
-  const sourceSha = input.sourceSha ?? readHeadSha();
   const deployOrderProfile = resolveProductionDeployOrderProfile(
-    changedPaths,
+    compatibilityChangedPaths,
     taskInboxRetired
   );
   const deployScopeOrder = resolveProductionDeployScopeOrder(
     scopes,
-    changedPaths,
+    compatibilityChangedPaths,
     taskInboxRetired
   );
   return {
@@ -2078,16 +2151,19 @@ export function buildProductionReleasePlan(input) {
     changedPaths,
     coreProjectionFromCli: scopes.includes("cli"),
     compatibilityDependencies: resolveProductionCompatibilityDependencies(
-      changedPaths,
+      compatibilityChangedPaths,
       taskInboxRetired,
       { base: input.base, sourceSha }
     ),
     compatibilityReceiverWitnesses:
-      resolveProductionCompatibilityReceiverWitnesses(changedPaths),
+      resolveProductionCompatibilityReceiverWitnesses(
+        compatibilityChangedPaths
+      ),
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
       changedPaths,
+      compatibilityChangedPaths,
       taskInboxRetired,
       releaseSha: sourceSha,
     }),

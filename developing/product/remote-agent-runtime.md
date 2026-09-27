@@ -1852,11 +1852,11 @@ final-outcome authority.
 - Core validates every stream callback against the active native-delivery
   record before Space accepts it. Space owns the short-lived stream cursor,
   text projection, and companion text snapshot read model used for reconnect
-  recovery. Space retains only the privacy-bounded tool lifecycle summary
-  for a successfully published final reply, keyed by that Signal ID for 14 days
-  and readable only through Message details. The retained projection includes
-  only admitted semantic work; wrapper and legacy parts without it are not
-  exposed.
+  recovery. Space retains privacy-bounded tool working details keyed by the
+  published Signal ID for 14 days for Message details. It also attaches the
+  admitted semantic work summary to a successfully published final Signal for
+  the conversation's Work summary. Wrapper and legacy parts without admitted
+  work meaning are not exposed.
   Public progress is kept as a bounded active tail for live replay and as a
   short-lived Space draft until the terminal outcome. A successfully published
   final Signal may retain its last 8,192 characters of explicit public updates
@@ -1871,10 +1871,13 @@ final-outcome authority.
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
 stream callback. Text WebSocket frames keep their legacy shape. Web renders
-explicit hosted public progress inside the transient Work summary disclosure,
-alongside tool steps when present. Local Agent reasoning uses the same
-disclosure and Markdown viewport without changing its transient privacy
-boundary. The stream kinds keep distinct privacy boundaries.
+explicit hosted public Agent updates and admitted tool steps in one work
+disclosure above the streaming answer. The same placement and disclosure are
+used for Center Agent, personal Remote Agent, and Local Agent replies in main
+conversations and Threads. Public updates are milestone explanations, not
+execution heartbeats. Local Agent reasoning uses the same disclosure and
+Markdown viewport without changing its transient privacy boundary. The stream
+kinds keep distinct privacy boundaries.
 Rollback removes the Remote Agent producer before Core or Web
 consumers.
 
@@ -2886,8 +2889,43 @@ but not trigger.
    completion, and cancellation transitions use atomic compare-and-set; once
    cancellation is recorded, later progress cannot overwrite it and completion
    settles as aborted. Every tool call rechecks that state before side effects.
-   Space Stop targets exactly one submission; it must not abort unrelated
-   queued work in the same conversation.
+   Space Stop targets one logical Wake, including its automatic work-loop
+   submissions; it must not abort unrelated queued work in the conversation.
+   Space records Stop in its existing dispatch outbox before contacting the
+   Worker. Native admission checks that fence before submission and again after
+   acknowledgement; late acknowledgements forward cancellation to the exact
+   admitted identity. A work-loop checkpoint and its next admission obey the
+   same fence. Hosted Stop never asks the user's Local Service or a workstation
+   head to decide cancellation.
+   A newly staged Wake that has never been exposed to native admission can be
+   withdrawn and receive one durable stopped notice immediately. An exposed or
+   historical Wake instead remains cancellation-requested until the native
+   owner confirms completion/cancellation. Missing Worker state is not proof of
+   termination. The existing admission watchdog and accepted-delivery probe
+   retry cancellation without resubmitting stopped work. A confirmed terminal
+   Stop publishes a `wake_stopped` notice in the existing final-outcome slot;
+   notice publication failure is repaired on redelivery without replaying work.
+   Space's durable alarm owns every pending Hosted Stop, including legacy-NULL
+   records with no native delivery yet. It retries bounded, fairly rotated
+   batches and follows late native evidence without resubmitting work; a
+   permanently unknown identity is not fabricated into a stopped execution.
+   Unadmitted withdrawals need only their missing final notice repaired.
+   Once the Stop fence is saved, Worker/probe/publication errors leave an honest
+   cancellation-requested acknowledgement and automatic recovery, not a false
+   request rejection. A Worker already finished but not yet published can still
+   have its answer suppressed by that winning fence; an already-persisted final
+   answer is never replaced. Ordinary handoff-payload cleanup does not
+   disable replies, continuation, or Stop: a retired payload is resolved against
+   its exact native delivery, while a cancelled control record is retained.
+   A Stop that suppresses submission never becomes a DLQ failure. It remains
+   pending when prior execution exposure is unknown, or projects the stopped
+   outcome once its withdrawal is confirmed.
+   Stop is checked before daily admission accounting and again at the actual
+   submission boundary. Already-stopped requests spend no admission; a concurrent
+   Stop after admission does not refund an admission already granted.
+   The Worker arms reconciliation after persisting cancellation intent and
+   before external abort/Computer cleanup, so a cleanup exception cannot skip
+   the retry schedule. Request acknowledgement is not terminal evidence.
    Interactive Space delivery persists its Space outbox record first. Core may
    then attempt direct native admission only when the current Binding preflight
    still resolves the target as `hosted_center_agent`. Any ineligible,

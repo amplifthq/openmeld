@@ -49,6 +49,7 @@ import {
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import { useHistorySliderPreference } from "#/lib/spaces/history-slider-preference";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
 	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
@@ -87,7 +88,7 @@ import {
 import { CenterAgentDirectMessageIntro } from "./center-agent-direct-message-intro";
 import { formatDirectMessageTime } from "./direct-message-preview";
 import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
-import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
+import { Bubble, BubbleGroup } from "./primitives/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { Message, MessageContent, MessageHeader } from "./primitives/message";
 import {
@@ -111,7 +112,6 @@ import {
 	type SpaceAgentInteractionPlacement,
 } from "./space-agent-interaction-placement";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
-import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import {
 	buildSpaceCollaborationProfilePresentations,
 	buildSpaceMemberDirectoryEntryByProfileId,
@@ -157,13 +157,15 @@ import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
+import {
+	hasSpaceMessageAttachments,
+	SpaceMessageAttachments,
+} from "./space-message-attachments";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageRowLayoutClassName,
-	SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
-	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
@@ -207,7 +209,9 @@ import {
 	resolveSpaceMessageStateTuningVisibility,
 	useSpaceMessageStateTuningPreviewItems,
 } from "./space-message-state-tuning-preview";
+import { SpaceMessageSurface } from "./space-message-surface";
 import { SpaceMessageTime } from "./space-message-time";
+import { SpaceMessageWork } from "./space-message-work";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -720,7 +724,9 @@ function SpaceConversationPanelContent(
 		[readingHeader, registerConversationScrollElement]
 	);
 	const supportsHistoryRail = useMediaQuery("(min-width: 640px)");
+	const historySlider = useHistorySliderPreference();
 	const showHistoryRail =
+		historySlider.enabled &&
 		supportsHistoryRail &&
 		(input.historyNavigation?.directory?.total ?? 0) >
 			SPACE_INITIAL_HISTORY_MAX_MESSAGES;
@@ -754,7 +760,7 @@ function SpaceConversationPanelContent(
 				"flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
 				input.className
 			)}
-			data-space-history-rail={showHistoryRail ? "true" : undefined}
+			data-space-history-rail="true"
 		>
 			{input.historyActionErrorMessage || input.historyErrorMessage ? (
 				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
@@ -825,7 +831,7 @@ function SpaceConversationPanelContent(
 							scrollElement={conversationScrollElement}
 						/>
 						<MessageScroller className="relative min-h-0 flex-1">
-							{input.historyNavigation && showHistoryRail && (
+							{input.historyNavigation && (
 								<SpaceHistoryRail
 									controller={input.historyNavigation}
 									items={mainTimelineItems}
@@ -2869,14 +2875,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 										>
 											<Bubble
 												align={messageAlign}
-												className={messageBubbleVisibilityClassName}
-												data-video-message={
-													item.files?.some((file) =>
-														file.mimeType.startsWith("video/")
-													)
-														? "true"
-														: undefined
-												}
+												className={cn(
+													messageBubbleVisibilityClassName,
+													hasSpaceMessageAttachments(item) && "w-full"
+												)}
 											>
 												<ConversationBubbleContent
 													agentInteractionItems={agentInteractionItems}
@@ -2978,19 +2980,27 @@ function ConversationBubbleContent(input: {
 }) {
 	const parent = input.parent;
 	return (
-		<BubbleContent
-			className={cn(
-				"group/message relative flex min-w-0 flex-col gap-2 transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
-				SPACE_MESSAGE_CONTENT_PADDING_CLASS,
-				SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
-				input.item.files?.some((file) => file.mimeType.startsWith("video/")) &&
-					"w-full",
+		<SpaceMessageSurface
+			attachments={
+				<SpaceMessageAttachments
+					align={input.messageAlign}
+					item={input.item}
+					onOpenSpaceFile={parent.onOpenSpaceFile}
+					openMeldProfileId={parent.selfProfileId}
+					organizationSlug={parent.orgSlug}
+					spaceId={input.item.spaceId}
+				/>
+			}
+			bubbleClassName={cn(
+				"transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
 				input.selfMessageContentLayoutClassName,
 				input.bubblePresentationClass
 			)}
+			className="group/message relative"
 			data-highlighted={input.isHighlighted ? "true" : undefined}
 			data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 			data-signal-id={input.item.id}
+			edited={Boolean(input.item.editedAt) && !input.item.recalledAt}
 			ref={(element) => {
 				parent.registerMessageElement(input.item.id, element);
 			}}
@@ -3007,10 +3017,17 @@ function ConversationBubbleContent(input: {
 				)}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
+			{input.item.actorProfileKind === "agent" ? (
+				<SpaceMessageWork
+					item={input.item}
+					status={input.answerProgressStatus}
+				/>
+			) : null}
 			<SpaceMessageBody
 				computerSetupContext={input.computerSetupContext}
 				computerSetupSourceSignalId={input.item.id}
 				containerClassName={input.selfMessageContentLayoutClassName}
+				includeAttachments={false}
 				item={input.item}
 				onOpenSpaceFile={parent.onOpenSpaceFile}
 				openMeldProfileId={parent.selfProfileId}
@@ -3021,7 +3038,9 @@ function ConversationBubbleContent(input: {
 				}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
-			{input.answerProgressStatus}
+			{input.item.actorProfileKind !== "agent"
+				? input.answerProgressStatus
+				: null}
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>
@@ -3037,7 +3056,6 @@ function ConversationBubbleContent(input: {
 					/>
 				)
 			)}
-			{renderDurableAgentActivity(input.item)}
 			<ReplyStalenessMarker align={input.messageAlign} item={input.item} />
 			{renderAnchoredSpaceOutcomeRows({
 				notices: input.anchoredOutcomeNotices,
@@ -3078,7 +3096,7 @@ function ConversationBubbleContent(input: {
 					).length
 				}
 			/>
-		</BubbleContent>
+		</SpaceMessageSurface>
 	);
 }
 
@@ -3339,13 +3357,6 @@ function getOpenMessageDetailsHandler(input: {
 	return () => input.onOpenMessageDetails(input.item);
 }
 
-function renderDurableAgentActivity(item: SpaceTimelineItem) {
-	if (!(item.agentActivity || item.agentPublicProgress)) {
-		return null;
-	}
-	return <SpaceAgentToolActivity item={item} placement="message" />;
-}
-
 function resolveConversationMessageFooterThreadAction(input: {
 	isCreatingThread: boolean;
 	item: SpaceTimelineItem;
@@ -3421,7 +3432,6 @@ function renderConversationMessageFooter(input: {
 		<SpaceMessageFooter
 			addressingTargets={addressingTargets}
 			align={input.messageAlign}
-			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={
 				messageDetailsItem
 					? {
@@ -3437,12 +3447,15 @@ function renderConversationMessageFooter(input: {
 			failureSummary={failureSummary}
 			isDirectMessage={input.isDirectMessage}
 			item={input.item}
-			onCopy={() =>
-				copySpaceTimelineItemWithFeedback({
-					item: input.item,
-					openMeldProfileId: input.selfProfileId,
-					organizationSlug: input.orgSlug,
-				})
+			onCopy={
+				input.item.text.trim() && !isSpaceMessageCopyPending(input.item)
+					? () =>
+							copySpaceTimelineItemWithFeedback({
+								item: input.item,
+								openMeldProfileId: input.selfProfileId,
+								organizationSlug: input.orgSlug,
+							})
+					: undefined
 			}
 			reply={
 				canUseCollaborationActions || awaitingDelivery

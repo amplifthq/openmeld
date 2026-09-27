@@ -10,6 +10,79 @@ import { createSubmitTurnRequest } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("remote agent execution cancellation", () => {
+  it("persists intent and arms reconciliation before a failing external abort", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const identity = createIdentity();
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+    const scheduleReconciliation = vi.fn(async () => {
+      expect(
+        await readRemoteAgentExecutionState({ identity, storage })
+      ).toMatchObject({
+        execution: { status: "cancellation_requested", completedAtMs: null },
+      });
+    });
+    const abortSubmission = vi.fn(() => {
+      expect(scheduleReconciliation).toHaveBeenCalledOnce();
+      return Promise.reject(new Error("Computer cleanup unavailable"));
+    });
+    await expect(
+      cancelFlueRemoteAgentExecution({
+        identity,
+        storage,
+        nowMs: 200,
+        scheduleReconciliation,
+        abortSubmission,
+      })
+    ).rejects.toThrow("Computer cleanup unavailable");
+    expect(scheduleReconciliation).toHaveBeenCalledOnce();
+    expect(
+      await readRemoteAgentExecutionState({ identity, storage })
+    ).toMatchObject({
+      execution: { status: "cancellation_requested", completedAtMs: null },
+    });
+  });
+
+  it("does not start external abort without recovery scheduling and retains intent for retry", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const identity = createIdentity();
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+    const abortSubmission = vi.fn(async () => ({ aborted: true }));
+    const scheduleReconciliation = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Alarm write failed"))
+      .mockResolvedValue(undefined);
+    await expect(
+      cancelFlueRemoteAgentExecution({
+        identity,
+        storage,
+        nowMs: 200,
+        scheduleReconciliation,
+        abortSubmission,
+      })
+    ).rejects.toThrow("Alarm write failed");
+    expect(abortSubmission).not.toHaveBeenCalled();
+    await expect(
+      cancelFlueRemoteAgentExecution({
+        identity,
+        storage,
+        nowMs: 300,
+        scheduleReconciliation,
+        abortSubmission,
+      })
+    ).resolves.toMatchObject({
+      response: { status: "cancellation_requested" },
+    });
+    expect(abortSubmission).toHaveBeenCalledOnce();
+  });
+
   it.each([
     false,
     true,
@@ -25,6 +98,7 @@ describe("remote agent execution cancellation", () => {
 
     await expect(
       cancelFlueRemoteAgentExecution({
+        scheduleReconciliation: vi.fn(async () => undefined),
         abortSubmission,
         identity,
         nowMs: 200,
@@ -62,6 +136,7 @@ describe("remote agent execution cancellation", () => {
 
     await expect(
       cancelFlueRemoteAgentExecution({
+        scheduleReconciliation: vi.fn(async () => undefined),
         abortSubmission,
         identity,
         nowMs: 300,
@@ -90,6 +165,7 @@ describe("remote agent execution cancellation", () => {
       storage,
     });
     await cancelFlueRemoteAgentExecution({
+      scheduleReconciliation: vi.fn(async () => undefined),
       abortSubmission,
       identity,
       nowMs: 200,
@@ -103,6 +179,7 @@ describe("remote agent execution cancellation", () => {
     });
     await expect(
       cancelFlueRemoteAgentExecution({
+        scheduleReconciliation: vi.fn(async () => undefined),
         abortSubmission,
         identity,
         nowMs: 400,
@@ -129,6 +206,7 @@ describe("remote agent execution cancellation", () => {
 
     await expect(
       cancelFlueRemoteAgentExecution({
+        scheduleReconciliation: vi.fn(async () => undefined),
         abortSubmission: () =>
           Promise.reject(new Error("Flue abort unavailable")),
         identity,

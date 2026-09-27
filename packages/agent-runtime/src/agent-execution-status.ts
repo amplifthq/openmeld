@@ -115,7 +115,7 @@ export type AgentExecutionStatusInput = {
   agentProfileId: string;
   binding?: AgentExecutionBindingEvidence | null;
   claimDiagnostics?: AgentExecutionClaimDiagnosticEvidence | null;
-  executionFamily?: "native" | "workstation";
+  executionFamily?: "native" | "workstation" | "unknown";
   localService?: AgentExecutionLocalServiceEvidence | null;
   profile?: AgentExecutionProfileEvidence | null;
   providerAccount?: AgentExecutionProviderAccountEvidence | null;
@@ -237,12 +237,26 @@ export function resolveAgentExecutionStatus(
     input.providerConversation
   );
   const readinessImpact = resolveReadinessImpactFact(input.readinessImpact);
-  const route = resolveRouteFact(input.route);
+  const route = resolveRouteFact(
+    executionFamily === "unknown"
+      ? { status: "unavailable", source: "not_checked", reasonCodes: [] }
+      : input.route
+  );
   const localService = resolveLocalServiceFact({
-    localService: input.localService,
-    routeOnline: route.online,
+    localService: executionFamily === "workstation" ? input.localService : null,
+    routeOnline: executionFamily === "workstation" && route.online,
   });
-  const service = resolveServiceFact(input.service);
+  const service = resolveServiceFact(
+    executionFamily === "workstation"
+      ? input.service
+      : {
+          executionCompatible: true,
+          expectedEpoch: input.service?.expectedEpoch ?? "",
+          observedEpoch: null,
+          reasonCodes: [],
+          source: "not_checked",
+        }
+  );
   const runtime = resolveRuntimeFact({
     executionFamily,
     runtimeReadiness: input.runtimeReadiness,
@@ -529,11 +543,14 @@ function isUnavailableBindingEvidence(
 }
 
 function resolveRuntimeFact(input: {
-  executionFamily: "native" | "workstation";
+  executionFamily: "native" | "workstation" | "unknown";
   runtimeReadiness: PrepareReadinessSummary | null | undefined;
   service: AgentExecutionStatusProjection["facts"]["service"];
 }): AgentExecutionStatusProjection["facts"]["runtime"] {
   const { executionFamily, runtimeReadiness, service } = input;
+  if (executionFamily === "unknown") {
+    return { ready: false, reasonCodes: [], source: "not_checked" };
+  }
   if (!runtimeReadiness) {
     if (executionFamily === "native") {
       return {
@@ -628,7 +645,7 @@ function resolveDisplayState(input: {
   bindingBlocked: boolean;
   bindingRoutable: boolean;
   claimBlocked: boolean;
-  executionFamily: "native" | "workstation";
+  executionFamily: "native" | "workstation" | "unknown";
   localServiceReachable: boolean;
   profile: AgentExecutionStatusProjection["facts"]["profile"];
   routeOnline: boolean;
@@ -650,6 +667,9 @@ function resolveDisplayState(input: {
   if (input.claimBlocked) {
     return "blocked";
   }
+  if (input.executionFamily === "unknown") {
+    return "unknown";
+  }
   if (
     input.bindingRoutable &&
     (input.executionFamily === "native" || input.localServiceReachable) &&
@@ -666,7 +686,7 @@ function resolvePrimaryAction(input: {
   binding: AgentExecutionStatusProjection["facts"]["binding"];
   claim: AgentExecutionStatusProjection["facts"]["claim"];
   displayState: AgentExecutionDisplayState;
-  executionFamily: "native" | "workstation";
+  executionFamily: "native" | "workstation" | "unknown";
   localService: AgentExecutionStatusProjection["facts"]["localService"];
   profile: AgentExecutionStatusProjection["facts"]["profile"];
   providerAccount: AgentExecutionStatusProjection["facts"]["providerAccount"];
@@ -682,14 +702,16 @@ function resolvePrimaryAction(input: {
   if (!input.profile.active || input.profile.source === "unavailable") {
     return "check_status";
   }
+  // An unreadable target is not a workstation. Native binding failures also
+  // cannot be repaired by connecting a local Service.
+  if (input.executionFamily !== "workstation") {
+    return "check_status";
+  }
   if (!input.binding.routable) {
     return input.binding.source === "unavailable" ||
       input.binding.source === "not_checked"
       ? "check_status"
       : "reconnect_binding";
-  }
-  if (input.executionFamily === "native") {
-    return "check_status";
   }
   const serviceAction = resolveServicePrimaryAction(input);
   if (serviceAction) {

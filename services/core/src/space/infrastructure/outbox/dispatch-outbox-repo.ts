@@ -404,9 +404,10 @@ export const insertDispatchOutboxRecord = (
         payload_json,
         status,
         created_at_ms,
-        queued_at_ms
+        queued_at_ms,
+        native_admission_started_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     record.dispatchId,
     record.spaceId,
@@ -416,7 +417,8 @@ export const insertDispatchOutboxRecord = (
     record.payloadJson,
     toPersistedOpenMeldDaemonOutboxStatus(record.status),
     record.createdAtMs,
-    record.handedOffAtMs
+    record.handedOffAtMs,
+    record.status === OPENMELD_DAEMON_OUTBOX_STATUS_PENDING ? 0 : null
   );
   return Number(result.rowsWritten ?? 0) > 0;
 };
@@ -1079,8 +1081,10 @@ export const deleteDispatchOutboxRecord = (
     `
       DELETE FROM openMeldDaemon_outbox
       WHERE dispatch_id = ?
+        AND status <> ?
     `,
-    input.dispatchId
+    input.dispatchId,
+    OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED
   );
 };
 

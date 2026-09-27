@@ -77,7 +77,7 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 					mode={mode}
 				/>
 				<div
-					className="min-h-0 flex-1 overflow-y-auto px-1"
+					className="min-h-0 flex-1 overflow-y-auto px-1 pt-1.5"
 					data-slot="main-sidebar-navigation"
 				>
 					{buildAppRailGroups({

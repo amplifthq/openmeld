@@ -14,6 +14,76 @@ describe("agent execution status projection", () => {
     status: "online" as const,
   };
 
+  it.each([
+    false,
+    true,
+  ])("keeps Hosted readiness independent of local Service reachability %s", (reachable) => {
+    const projection = resolveAgentExecutionStatus({
+      agentProfileId: "hosted-agent",
+      executionFamily: "native",
+      binding: createAgentProfileBindingDisplayProjection({
+        agentProfileId: "hosted-agent",
+        bindingId: "hosted-binding",
+        bindingState: "enabled_primary",
+        executionTarget: {
+          agentControllerRef: "hosted:remote-agent",
+          openMeldServiceRuntimeId: "hosted:remote-agent",
+        },
+      }),
+      localService: {
+        reachable,
+        refreshable: true,
+        reasonCodes: ["service.not_running"],
+        source: "runtime_transport",
+      },
+      service: {
+        executionCompatible: false,
+        expectedEpoch: "current",
+        observedEpoch: "old",
+        reasonCodes: ["service.update_required"],
+        source: "runtime_transport",
+      },
+      route: {
+        status: "online",
+        source: "hosted_route",
+        reasonCodes: ["remote_agent.available"],
+      },
+      runtimeReadiness: { ready: true, displayState: "ready", reasonCodes: [] },
+    });
+    expect(projection).toMatchObject({
+      displayState: "ready",
+      primaryAction: "none",
+      facts: {
+        localService: { source: "not_checked" },
+        service: { source: "not_checked" },
+      },
+    });
+    expect(projection.reasonCodes).not.toContain("service.not_running");
+    expect(projection.reasonCodes).not.toContain("service.update_required");
+  });
+
+  it("does not invent a workstation or setup action when the execution family is unknown", () => {
+    const projection = resolveAgentExecutionStatus({
+      agentProfileId: "unresolved-agent",
+      executionFamily: "unknown",
+      binding: {
+        status: "unavailable",
+        reasonCodes: ["agent_profile_binding.read_unavailable"],
+      },
+    });
+    expect(projection).toMatchObject({
+      displayState: "unknown",
+      primaryAction: "check_status",
+      facts: {
+        runtime: { source: "not_checked", reasonCodes: [] },
+        route: { source: "not_checked" },
+      },
+    });
+    expect(projection.reasonCodes).toEqual([
+      "agent_profile_binding.read_unavailable",
+    ]);
+  });
+
   it("shows ready only when Binding truth, Runtime readiness, and route are ready", () => {
     const projection = resolveAgentExecutionStatus({
       agentProfileId: "agt_11111111-1111-4111-8111-111111111111",

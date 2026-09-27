@@ -5,7 +5,7 @@ import {
 	type KeyboardEvent,
 	type ReactNode,
 } from "react";
-import { reportClientApplicationError } from "#/lib/observability/application-error-client";
+import { reportCaughtComponentError } from "#/lib/observability/application-error-client";
 import type { SpaceComposerEditorChange } from "./space-composer-editor";
 
 type Props = {
@@ -32,7 +32,7 @@ export class SpaceComposerEditorBoundary extends Component<
 	}
 
 	componentDidCatch(error: Error) {
-		reportClientApplicationError(error, "react_caught");
+		reportCaughtComponentError(error, "space_composer_editor");
 		this.props.onFailure();
 	}
 

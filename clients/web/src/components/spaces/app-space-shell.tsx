@@ -90,6 +90,7 @@ export function AppSpaceShell(input: AppSpaceShellProps) {
 						<ConversationsSidebar
 							currentProfileId={input.currentProfileId}
 							currentSpaceId={input.currentSpaceId}
+							hideAccountSpacesFailure={input.browseSpacesActive}
 						/>
 					)
 				}
