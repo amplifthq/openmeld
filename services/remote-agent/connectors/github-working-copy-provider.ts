@@ -142,6 +142,23 @@ export class GitHubWorkingCopyProvider {
     }
   }
 
+  async createSingleFileTree(baseTree: string, path: string, blob: string) {
+    const result = asRecord(
+      await this.request("/git/trees", "POST", {
+        base_tree: remoteAgentGitShaSchema.parse(baseTree),
+        tree: [
+          {
+            path,
+            mode: "100644",
+            type: "blob",
+            sha: remoteAgentGitShaSchema.parse(blob),
+          },
+        ],
+      })
+    );
+    return remoteAgentGitShaSchema.parse(result.sha);
+  }
+
   async createCommit(input: { tree: string; parent: string; message: string }) {
     return remoteAgentGitCommitSchema.parse(
       await this.request("/git/commits", "POST", {

@@ -168,4 +168,31 @@ describe("fixed GitHub working-copy proxy adapter", () => {
     );
     expect(f.fetchMock.mock.calls).toHaveLength(1);
   });
+  it("adds exactly one file on the authenticated base tree", async () => {
+    const f = fixture({ sha: SHA });
+    expect(
+      await f.provider.createSingleFileTree(
+        SHA,
+        "openmeld/attachments/image.png",
+        SHA
+      )
+    ).toBe(SHA);
+    expect(
+      JSON.parse(f.fetchMock.mock.calls[0]?.[1]?.body as string)
+    ).toMatchObject({
+      endpoint: "/repos/acme/private/git/trees",
+      method: "POST",
+      body: {
+        base_tree: SHA,
+        tree: [
+          {
+            path: "openmeld/attachments/image.png",
+            mode: "100644",
+            type: "blob",
+            sha: SHA,
+          },
+        ],
+      },
+    });
+  });
 });

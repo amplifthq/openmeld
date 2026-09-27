@@ -240,6 +240,16 @@ is reconciled against the fixed branch; a different head stays outcome-unknown,
 not automatically retried under another operation ID. No repository credential,
 Git remote credential, or raw provider authorization enters the Computer.
 
+For one image already downloaded to the Computer, `github_publish_computer_file`
+avoids a full repository checkout. It accepts only a regular PNG or JPEG of at
+most 8 MiB, uses the selected GitHub connection and current Core write policy,
+and adds one file under `openmeld/attachments/` with a `base_tree` commit on a
+new fixed `openmeld/work-*` side branch. It never writes the default branch.
+The returned `blob/...?...raw=true` URL is usable in GitHub issue and PR Markdown
+by viewers with repository access. The side branch must remain while the image
+is referenced. The operation ledger and fixed branch reconcile uncertain writes;
+the image bytes never enter the model response.
+
 Imported private repository provenance stays with the durable Computer beyond
 the 24-hour Git operation lifetime. Ordinary Computer access rechecks these
 source grants too; expiry never unlocks previously imported bytes. A revoked or
