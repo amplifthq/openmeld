@@ -135,7 +135,6 @@ export function createFinalCandidatePlan(input) {
     repositoryControlChange: changedPaths.some(isRepositoryControlPath),
     strictRelease:
       candidateKind === "merge-group" ||
-      changedPaths.includes("clients/openmeld-cli/package.json") ||
       changedPaths.includes("release/local-components.json"),
   };
   const selectedChecks = [

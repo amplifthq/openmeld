@@ -17,7 +17,11 @@ export function isReleaseBranchRef(value) {
 }
 
 export function assertStampedReleaseFacts(input) {
-  if (input.packageVersion !== input.manifestVersion) {
+  if (
+    typeof input.packageVersion !== "string" ||
+    !input.packageVersion.trim() ||
+    input.packageVersion !== input.manifestVersion
+  ) {
     throw new Error(
       `The CLI package version ${String(input.packageVersion)} does not match the release manifest version ${String(input.manifestVersion)}.`
     );
@@ -25,11 +29,7 @@ export function assertStampedReleaseFacts(input) {
 }
 
 export function resolvePullRequestReleaseMode(input) {
-  if (
-    !(input.changedPaths ?? []).some((path) =>
-      [CLI_PACKAGE_PATH, LOCAL_COMPONENTS_MANIFEST_PATH].includes(path)
-    )
-  ) {
+  if (!(input.changedPaths ?? []).includes(LOCAL_COMPONENTS_MANIFEST_PATH)) {
     assertDeferredReleaseBranchFacts(input);
     return "deferred";
   }
@@ -54,7 +54,7 @@ export function assertDeferredReleaseBranchFacts(input) {
     throw new Error(
       [
         ...errors,
-        "Include the changed package or manifest in the candidate diff so release-ready verification checks the stamped artifact.",
+        "Stamp the release manifest with the matching CLI version so release-ready verification checks the built candidate.",
       ].join("\n")
     );
   }

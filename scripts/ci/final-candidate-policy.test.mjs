@@ -185,6 +185,15 @@ test("a stamped candidate uses strict release-ready verification on any branch",
   );
 });
 
+test("CLI package metadata alone does not force a release stamp", () => {
+  const plan = createPlan(["clients/openmeld-cli/package.json"]);
+  assert.ok(
+    plan.selectedChecks
+      .find((check) => check.id === "local-components-release-ready")
+      .command.includes("--defer-release")
+  );
+});
+
 test("delivery infrastructure relies on focused owner tests before Ready", () => {
   const plan = createPlan([
     ".github/workflows/final-candidate.yml",

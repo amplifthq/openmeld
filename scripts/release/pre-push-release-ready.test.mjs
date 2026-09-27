@@ -11,7 +11,6 @@ import {
   assertPushedObjectsMatchHead,
   assertReleaseVerificationWorktreeClean,
   resolvePrePushReleaseMode,
-  resolvePushedReleaseBranchName,
 } from "./pre-push-release-ready.mjs";
 import {
   assertDeferredReleaseBranchFacts,
@@ -83,12 +82,6 @@ test("release branch pushes select strict artifact verification regardless of th
     ),
     "strict"
   );
-  assert.equal(
-    resolvePushedReleaseBranchName(
-      `refs/heads/codex/release-0.3.221-routine ${SHA} refs/heads/codex/release-0.3.221-routine ${REMOTE_SHA}\n`
-    ),
-    "codex/release-0.3.221-routine"
-  );
 });
 
 test("a stamped PR validates version consistency without requiring a second PR", () => {
@@ -123,6 +116,24 @@ test("a stamped PR validates version consistency without requiring a second PR",
     }),
     "strict"
   );
+});
+
+test("package metadata changes stay deferred but an unstamped version bump is rejected", () => {
+  const facts = {
+    changedPaths: ["clients/openmeld-cli/package.json"],
+    basePackageVersion: "0.3.35",
+    currentPackageVersion: "0.3.35",
+    baseManifest: { version: "0.3.35" },
+    currentManifest: { version: "0.3.35" },
+  };
+  assert.equal(resolvePullRequestReleaseMode(facts), "deferred");
+  assert.throws(() =>
+    resolvePullRequestReleaseMode({
+      ...facts,
+      currentPackageVersion: "0.3.36",
+    })
+  );
+  assert.throws(() => assertStampedReleaseFacts({}));
 });
 
 test("a manifest-only restamp uses strict artifact verification", () => {

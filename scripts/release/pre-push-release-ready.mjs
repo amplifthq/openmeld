@@ -205,27 +205,6 @@ function run() {
   process.exitCode = result.status ?? 1;
 }
 
-export function resolvePushedReleaseBranchName(input) {
-  const updates = parsePushUpdates(input) ?? [];
-  const branchNames = [
-    ...new Set(
-      updates
-        .filter(
-          (update) =>
-            !ZERO_SHA_PATTERN.test(update.localSha) &&
-            isReleaseBranchRef(update.remoteRef)
-        )
-        .map((update) => update.remoteRef.slice(BRANCH_REF_PREFIX.length))
-    ),
-  ];
-  if (branchNames.length > 1) {
-    throw new Error(
-      "A single push cannot designate more than one release branch."
-    );
-  }
-  return branchNames[0] ?? null;
-}
-
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href

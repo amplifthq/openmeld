@@ -651,9 +651,9 @@ function describeComponentEvidence(releaseSource) {
 
 export async function readLatestSuccessfulReleaseSources(input) {
   const sources = new Map();
-  // A run cannot contain a job completed after the run's last update. Read
-  // newer runs first, then stop once every scope has a newer receipt. Runs
-  // without a trustworthy update time still need their jobs inspected.
+  // Completed runs are ordered by their last update. Active runs and runs
+  // without a trustworthy update time must always have their jobs inspected:
+  // an active run can finish a deployment after the history snapshot was read.
   const runsByUpdate = [...input.runs].sort((left, right) => {
     const leftTime = runUpdateTime(left);
     const rightTime = runUpdateTime(right);
@@ -715,6 +715,9 @@ export async function readLatestSuccessfulReleaseSources(input) {
 }
 
 function runUpdateTime(run) {
+  if (run.status !== "completed") {
+    return Number.POSITIVE_INFINITY;
+  }
   const value = Date.parse(run.updatedAt);
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 }

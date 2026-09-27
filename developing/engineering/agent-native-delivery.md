@@ -33,7 +33,7 @@ branches used.
    Resolve Core/Service version-floor changes and the
    [Windows helper source](production-release.md#cli-release) before paying for
    the final candidate or stamping a release manifest.
-   Branch names do not grant release permission; the actual package and
+   Branch names do not grant release permission; the actual
    manifest diff selects strict artifact verification.
 2. [Merge](#merge) against current `main`. If a merge command fails or returns
    an uncertain result, read the remote PR's `state` and `mergeCommit` before
@@ -186,7 +186,7 @@ FC certifies one exact `head SHA + base SHA + tree SHA`. Standard FC retains:
 - trusted control entrypoints and complete, matching results;
 - static contracts for changed owners and control-code quality when control changes;
 - database checks when database owner paths change; and
-- deferred or strict local-component release readiness, selected by branch/path.
+- deferred or strict local-component release readiness, selected by the manifest diff.
 
 Standard FC does not repeat broad workspace unit or integration tests. This
 keeps final merge latency separate from development feedback. Full confidence

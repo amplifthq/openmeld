@@ -11,7 +11,7 @@ import { assertEvidenceMatchesExecution } from "./final-candidate-publisher.mjs"
 import { runFinalCandidateReleasePolicy } from "./final-candidate-release-policy.mjs";
 
 const PREMATURE_RELEASE_STAMP_PATTERN =
-  /does not match the release manifest version/u;
+  /CLI package version changed without a stamped candidate diff/u;
 const PUBLISHER_FAILURE_PATTERN = /Candidate job concluded failure/u;
 
 test("a mismatched release stamp fails early with canonical exact evidence and a command log", async () => {

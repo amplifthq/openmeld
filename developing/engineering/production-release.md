@@ -284,7 +284,7 @@ interpret version 3.
 `release:status` pages relevant workflows and job attempts rather than
 filtering an all-workflow 250-run window. It reads newer runs first and stops
 opening older jobs once every scope has a successful receipt newer than those
-runs' last update. Runs without a valid update time are still read. It compares
+runs' last update. Active runs and runs without a valid update time are always read. It compares
 actual job completion times, never workflow creation order. A missing source,
 invalid completion time, ambiguous tie, API failure, or safety-bound truncation
 in the inspected range remains explicit uncertainty; it cannot silently make
@@ -1436,7 +1436,7 @@ through a PR from a clean worktree; never push `main` directly. The package and
 manifest may land with the source and compatibility floor they describe when
 that candidate is stable. Otherwise stamp in a separate release PR after the
 feature merges. A later source change requires a restamp. Final Candidate
-selects strict artifact verification from the actual package or manifest diff,
+selects strict artifact verification from the actual manifest diff,
 independent of the branch name.
 
 At publication time, `pnpm run release:deploy:local -- --scope cli` rechecks the
