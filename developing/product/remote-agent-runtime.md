@@ -245,7 +245,7 @@ avoids a full repository checkout. It accepts only a regular PNG or JPEG of at
 most 8 MiB, uses the selected GitHub connection and current Core write policy,
 and adds one file under `openmeld/attachments/` with a `base_tree` commit on a
 new fixed `openmeld/work-*` side branch. It never writes the default branch.
-The returned `blob/...?...raw=true` URL is usable in GitHub issue and PR Markdown
+The returned commit-pinned `blob/...?...raw=true` URL is usable in GitHub issue and PR Markdown
 by viewers with repository access. The side branch must remain while the image
 is referenced. The operation ledger and fixed branch reconcile uncertain writes;
 the image bytes never enter the model response.

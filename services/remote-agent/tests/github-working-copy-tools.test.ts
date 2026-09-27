@@ -549,13 +549,14 @@ describe("bounded Git publication and receipts", () => {
       status: "completed",
       branch: expect.stringMatching(TASK_BRANCH_PREFIX_PATTERN),
       path: `openmeld/attachments/${imageBlob}.png`,
-      url: expect.stringContaining("/blob/openmeld/work-"),
+      url: `https://github.com/acme/private/blob/${REMOTE_COMMIT}/openmeld/attachments/${imageBlob}.png?raw=true`,
       replayed: false,
     });
     expect(f.state.writes).toBe(1);
     expect(await publishComputerFile(deps, request)).toMatchObject({
       status: "completed",
       replayed: true,
+      url: `https://github.com/acme/private/blob/${REMOTE_COMMIT}/openmeld/attachments/${imageBlob}.png?raw=true`,
     });
     expect(f.state.writes).toBe(1);
     const treeCall = f.fetchMock.mock.calls
