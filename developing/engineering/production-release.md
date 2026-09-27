@@ -285,11 +285,11 @@ interpret version 3.
 filtering an all-workflow 250-run window. It reads newer runs first and stops
 opening older jobs once every scope has a successful receipt newer than those
 runs' last update. Runs without a valid update time are still read. It compares
-actual job completion times, never workflow creation order. A missing source, invalid completion time,
-ambiguous tie, API failure or safety-bound truncation remains explicit evidence
-uncertainty; it cannot silently make the affected component current. A known
-later deployment can supersede an older unreadable-source event, but the
-historical limitation remains in the report. Historical planner failures are
+actual job completion times, never workflow creation order. A missing source,
+invalid completion time, ambiguous tie, API failure, or safety-bound truncation
+in the inspected range remains explicit uncertainty; it cannot silently make
+the affected component current. The report does not claim to audit jobs older
+than every scope's selected deployment. Historical planner failures are
 contained in per-component `unknown` results; a genuine current-change planning
 conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
