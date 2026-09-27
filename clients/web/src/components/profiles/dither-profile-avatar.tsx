@@ -37,11 +37,12 @@ export function DitherProfileAvatar({
 }: DitherProfileAvatarProps) {
 	const seed = buildDitherProfileAvatarSeed({ profileId, profileKind });
 
+	// Confine the image/fallback z-indexes so sibling status dots stay above them.
 	return (
 		<Avatar
 			{...props}
 			aria-hidden="true"
-			className={cn("after:border-0", className)}
+			className={cn("isolate after:border-0", className)}
 			data-profile-kind={profileKind}
 			style={{ height: size, width: size }}
 		>
