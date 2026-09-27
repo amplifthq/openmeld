@@ -64,6 +64,7 @@ import {
 	UploadSimpleIcon,
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { FileSystemItem } from "#/components/extend/file-system";
@@ -71,6 +72,7 @@ import {
 	UnsavedChangesDialog,
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
+import { OrganizationDocumentsPage } from "#/components/organization-documents/organization-documents-page";
 import {
 	FolderNameDialog,
 	MoveEntryDialog,
@@ -85,6 +87,7 @@ import {
 } from "#/components/spaces/space-file-utils";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildOrganizationFilesPath } from "#/lib/organizations/organization-routes";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 
@@ -105,13 +108,48 @@ const NEW_TEXT_FILE_CONTEXT_LABELS = {
 	csv: "New CSV file",
 } as const;
 
-export function TeamFilesPage() {
+export function TeamFilesPage(
+	input: { initialLocation?: FileRootLocation } = {}
+) {
 	const { currentOrganization } = useAppOrganization();
 	return (
 		<TeamFilesBrowser
 			currentOrganization={currentOrganization}
-			key={currentOrganization.id}
+			initialLocation={input.initialLocation ?? "team"}
+			key={`${currentOrganization.id}:${input.initialLocation ?? "team"}`}
 		/>
+	);
+}
+
+export function TeamKnowledgeFilesPage(input: { folderId?: string }) {
+	const { currentOrganization } = useAppOrganization();
+	const navigate = useNavigate();
+	return (
+		<section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+			<Tabs
+				className="shrink-0 border-b px-5 py-2"
+				onValueChange={(value) => {
+					if (value === "team" || value === "my") {
+						navigate({
+							to: buildOrganizationFilesPath(currentOrganization.slug),
+							search: value === "my" ? { view: "my" } : {},
+						}).catch(console.error);
+					}
+				}}
+				value="knowledge"
+			>
+				<TabsList className="w-fit">
+					<TabItem label="Team files" value="team" />
+					{currentOrganization.isPersonal ? null : (
+						<TabItem label="My files" value="my" />
+					)}
+					<TabItem label="Knowledge" value="knowledge" />
+				</TabsList>
+			</Tabs>
+			<div className="min-h-0 flex-1 overflow-auto p-5">
+				<OrganizationDocumentsPage folderId={input.folderId} />
+			</div>
+		</section>
 	);
 }
 
@@ -120,9 +158,13 @@ function TeamFilesBrowser(input: {
 	currentOrganization: ReturnType<
 		typeof useAppOrganization
 	>["currentOrganization"];
+	initialLocation: FileRootLocation;
 }) {
 	const { currentOrganization } = input;
-	const [location, setLocation] = useState<FileRootLocation>("team");
+	const navigate = useNavigate();
+	const [location, setLocation] = useState<FileRootLocation>(
+		input.initialLocation
+	);
 	const [parentId, setParentId] = useState<string | null>(null);
 	const [view, setView] = useState<"active" | "trash">("active");
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
@@ -389,22 +431,29 @@ function TeamFilesBrowser(input: {
 			aria-label="Team files"
 			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
 		>
-			{currentOrganization.isPersonal ? null : (
-				<Tabs
-					className="shrink-0 border-b px-5 py-2"
-					onValueChange={(value) => {
-						if (value === "team" || value === "my") {
-							changeLocation(value);
-						}
-					}}
-					value={location}
-				>
-					<TabsList className="w-fit">
-						<TabItem label="Team files" value="team" />
+			<Tabs
+				className="shrink-0 border-b px-5 py-2"
+				onValueChange={(value) => {
+					if (value === "knowledge") {
+						navigate({
+							to: buildOrganizationFilesPath(currentOrganization.slug),
+							search: { view: "knowledge" },
+						}).catch(console.error);
+					}
+					if (value === "team" || value === "my") {
+						changeLocation(value);
+					}
+				}}
+				value={location}
+			>
+				<TabsList className="w-fit">
+					<TabItem label="Team files" value="team" />
+					{currentOrganization.isPersonal ? null : (
 						<TabItem label="My files" value="my" />
-					</TabsList>
-				</Tabs>
-			)}
+					)}
+					<TabItem label="Knowledge" value="knowledge" />
+				</TabsList>
+			</Tabs>
 			{actionError ? (
 				<p
 					className="border-destructive/30 border-b px-5 py-2 text-destructive text-sm"

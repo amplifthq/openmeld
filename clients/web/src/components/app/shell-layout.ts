@@ -56,7 +56,7 @@ export const appShellStaticData = {
 	computers: { appShellSection: "people" },
 	connect: { appShellSection: "connect" },
 	directMessages: { appShellSection: "directMessages" },
-	documents: { appShellSection: "documents" },
+	documents: { appShellSection: "files" },
 	home: { appShellSection: "home" },
 	inbox: { appShellSection: "inbox" },
 	onboarding: { appShellSection: "onboarding" },

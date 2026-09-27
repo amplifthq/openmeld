@@ -191,7 +191,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 			<div className="grid justify-items-start gap-3 rounded-md border border-destructive/50 bg-destructive/5 p-6">
 				<h1 className="font-medium text-xl">Could not load document</h1>
 				<p className="text-muted-foreground text-sm">
-					OpenMeld could not load this Organization document. Try again.
+					Unable to load this knowledge file. Try again.
 				</p>
 				<Button onClick={() => documentQuery.refetch()} variant="outline">
 					<ArrowClockwiseIcon aria-hidden="true" /> Retry
@@ -211,7 +211,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 					className={buttonVariants({ variant: "outline" })}
 					to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 				>
-					<ArrowLeftIcon aria-hidden="true" /> All Documents
+					<ArrowLeftIcon aria-hidden="true" /> All knowledge
 				</Link>
 			</div>
 		);
@@ -224,7 +224,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 				search={documentFolderSearch}
 				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 			>
-				<ArrowLeftIcon aria-hidden="true" /> Back to Documents
+				<ArrowLeftIcon aria-hidden="true" /> Back to knowledge
 			</Link>
 			<header className="flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">

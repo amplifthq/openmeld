@@ -96,7 +96,7 @@ describe("OrganizationDocumentsPage", () => {
 		renderPage(undefined, queryClient);
 
 		expect(
-			await screen.findByRole("list", { name: "Documents and folders" })
+			await screen.findByRole("list", { name: "Knowledge files and folders" })
 		).toBeTruthy();
 		await act(async () => {
 			await queryClient.invalidateQueries({ queryKey });
@@ -104,11 +104,11 @@ describe("OrganizationDocumentsPage", () => {
 
 		expect(
 			await screen.findByText(
-				"Couldn't refresh Documents. Showing the last saved view from this browser."
+				"Couldn't refresh knowledge files. Showing the last saved view from this browser."
 			)
 		).toBeTruthy();
 		expect(
-			screen.getByRole("list", { name: "Documents and folders" })
+			screen.getByRole("list", { name: "Knowledge files and folders" })
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 	});
@@ -127,7 +127,7 @@ describe("OrganizationDocumentsPage", () => {
 		renderPage();
 
 		const heading = await screen.findByRole("heading", {
-			name: "No documents yet",
+			name: "No knowledge files yet",
 		});
 		const emptyState = heading.closest("section");
 		expect(emptyState?.className).toContain("rounded-md");
@@ -178,7 +178,7 @@ describe("OrganizationDocumentsPage", () => {
 		renderPage();
 
 		const list = await screen.findByRole("list", {
-			name: "Documents and folders",
+			name: "Knowledge files and folders",
 		});
 		const rows = within(list).getAllByRole("listitem");
 		expect(rows).toHaveLength(3);
@@ -216,7 +216,7 @@ describe("OrganizationDocumentsPage", () => {
 		renderPage();
 
 		const rootItems = await screen.findByRole("list", {
-			name: "Documents and folders",
+			name: "Knowledge files and folders",
 		});
 		expect(within(rootItems).getByText("Runbooks")).toBeTruthy();
 		expect(within(rootItems).getByText("2 items")).toBeTruthy();
@@ -227,7 +227,7 @@ describe("OrganizationDocumentsPage", () => {
 		cleanup();
 		renderPage("folder-1");
 		const folderView = await screen.findByRole("list", {
-			name: "Documents and folders",
+			name: "Knowledge files and folders",
 		});
 		expect(within(folderView).getByText("Production")).toBeTruthy();
 		expect(within(folderView).getByText("Folder doc")).toBeTruthy();
@@ -236,12 +236,12 @@ describe("OrganizationDocumentsPage", () => {
 		cleanup();
 		renderPage("folder-2");
 		const nestedView = await screen.findByRole("list", {
-			name: "Documents and folders",
+			name: "Knowledge files and folders",
 		});
 		expect(within(nestedView).getByText("Nested doc")).toBeTruthy();
 		const breadcrumb = screen.getByRole("navigation", { name: "Folder path" });
 		expect(
-			within(breadcrumb).getByRole("link", { name: "Documents" })
+			within(breadcrumb).getByRole("link", { name: "Knowledge" })
 		).toBeTruthy();
 		expect(
 			within(breadcrumb).getByRole("link", { name: "Runbooks" })
@@ -299,7 +299,7 @@ describe("OrganizationDocumentsPage", () => {
 		});
 		renderPage();
 
-		await screen.findByRole("list", { name: "Documents and folders" });
+		await screen.findByRole("list", { name: "Knowledge files and folders" });
 		expect(
 			screen.queryByRole("button", { name: NEW_FOLDER_BUTTON_NAME })
 		).toBeNull();

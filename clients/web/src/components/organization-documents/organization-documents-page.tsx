@@ -170,8 +170,8 @@ export function OrganizationDocumentsPage(input: { folderId?: string }) {
 			{documentsQuery.isRefetchError && documentsQuery.data ? (
 				<output className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-card/35 px-4 py-3">
 					<p className="text-muted-foreground text-sm">
-						Couldn't refresh Documents. Showing the last saved view from this
-						browser.
+						Couldn't refresh knowledge files. Showing the last saved view from
+						this browser.
 					</p>
 					<Button
 						disabled={documentsQuery.isFetching}
@@ -247,7 +247,7 @@ function DocumentsComputerBridge() {
 						Shared with Center Agent
 					</h2>
 					<p className="mt-0.5 max-w-3xl text-muted-foreground text-sm leading-5">
-						Approved Documents are available on its Computer. Proposed changes
+						Approved knowledge is available on its Computer. Proposed changes
 						come back here as drafts, so your team reviews them before anything
 						is replaced.
 					</p>
@@ -283,7 +283,7 @@ function DocumentsPageContent(input: {
 		return (
 			<output
 				aria-busy="true"
-				aria-label="Loading documents"
+				aria-label="Loading knowledge"
 				className={CARD_PICKER_GRID_CLASS_NAME}
 			>
 				<Skeleton className="h-40 w-full rounded-md" />
@@ -299,7 +299,7 @@ function DocumentsPageContent(input: {
 				role="alert"
 			>
 				<p className="text-destructive text-sm">
-					OpenMeld could not load Organization documents. Try again.
+					Unable to load knowledge files. Try again.
 				</p>
 				<Button onClick={input.onRetry} size="sm" variant="outline">
 					<ArrowClockwiseIcon aria-hidden="true" /> Retry
@@ -320,7 +320,7 @@ function DocumentsPageContent(input: {
 					className={buttonVariants({ variant: "outline" })}
 					to={buildOrganizationDocumentsPath(input.orgSlug)}
 				>
-					Back to Documents
+					Back to knowledge
 				</Link>
 			</div>
 		);
@@ -347,7 +347,7 @@ function DocumentsPageContent(input: {
 	return (
 		<FluidCardGroup>
 			<ul
-				aria-label="Documents and folders"
+				aria-label="Knowledge files and folders"
 				className={CARD_PICKER_GRID_CLASS_NAME}
 			>
 				{input.visibleFolders.map((folder) => (
@@ -425,12 +425,12 @@ function DocumentsEmptyState(input: {
 					)}
 				</span>
 				<h2 className="mt-3 font-medium text-lg">
-					{inFolder ? "This folder is empty" : "No documents yet"}
+					{inFolder ? "This folder is empty" : "No knowledge files yet"}
 				</h2>
 				<p className="mt-1 text-muted-foreground text-sm">
 					{inFolder
-						? "Create a folder or document here to build out this workspace."
-						: "Start with an Organization Brief or add shared knowledge."}
+						? "Create a folder or document here."
+						: "Start with a Team Brief or add shared knowledge."}
 				</p>
 				{input.canManage ? (
 					<Link
@@ -543,9 +543,9 @@ function DocumentsPageHeader(input: {
 					<FolderBreadcrumb {...input} />
 				) : (
 					<>
-						<h1 className="font-medium text-2xl">Documents</h1>
+						<h1 className="font-medium text-2xl">Knowledge</h1>
 						<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
-							Your Organization’s shared source of truth for people and agents.
+							Approved team knowledge for people and agents.
 						</p>
 					</>
 				)}
@@ -581,7 +581,7 @@ function FolderBreadcrumb(input: {
 			<h1 className="flex min-w-0 flex-wrap items-center gap-1.5 font-medium text-2xl">
 				<BreadcrumbLink
 					canManage={input.canManage}
-					label="Documents"
+					label="Knowledge"
 					onDropDocument={(documentId) =>
 						input.onMoveDocument(documentId, null)
 					}
@@ -669,7 +669,7 @@ function DeleteFolderDialog(input: {
 	const destination = parentId
 		? (input.folders.find((folder) => folder.id === parentId)?.name ??
 			"its parent folder")
-		: "Documents";
+		: "Knowledge";
 	return (
 		<AlertDialog
 			onOpenChange={(open) => {

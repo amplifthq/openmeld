@@ -112,10 +112,10 @@ export function OrganizationDocumentNewPage(input: {
 				search={folderSearch}
 				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
 			>
-				<ArrowLeftIcon aria-hidden="true" /> Back to Documents
+				<ArrowLeftIcon aria-hidden="true" /> Back to knowledge
 			</Link>
 			<header>
-				<p className="font-medium text-muted-foreground text-xs">Documents</p>
+				<p className="font-medium text-muted-foreground text-xs">Knowledge</p>
 				<h1 className="font-medium text-2xl">New document</h1>
 				<p className="mt-1 text-muted-foreground text-sm">
 					Create approved Markdown content. Center Agent proposals will appear

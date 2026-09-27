@@ -309,7 +309,7 @@ describe("OrganizationDocumentDetailPage", () => {
 		renderPage();
 
 		const backLink = await screen.findByRole("link", {
-			name: "Back to Documents",
+			name: "Back to knowledge",
 		});
 		expect(backLink.getAttribute("href")).toContain("folder=folder-1");
 		expect(backLink.className).toContain("max-lg:min-h-11");
