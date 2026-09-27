@@ -3699,6 +3699,10 @@ function AgentProfileWorkspacePresentation(input: {
 				: (input.input.publicProfileConfiguration?.modelSelection ?? null),
 		}) ?? "No Controller connected";
 	const controllerModelSummary = ownerControllerModelSummary;
+	const modelIsLoading =
+		input.input.readinessIsPending &&
+		!input.input.editState &&
+		!input.input.publicProfileConfiguration;
 	const wakeAvailabilityRecoveryActions =
 		input.input.readinessIsMissing &&
 		input.input.readinessErrorMessage ? null : (
@@ -3762,9 +3766,7 @@ function AgentProfileWorkspacePresentation(input: {
 								input.input.pendingState.disablePrimaryBinding
 							}
 							editState={input.input.editState}
-							isLoading={
-								input.input.readinessIsPending && !input.input.editState
-							}
+							isLoading={modelIsLoading}
 							modelCatalog={input.input.modelCatalog}
 							modelCompatibilityContext={input.input.modelCompatibilityContext}
 							onControllerChange={input.input.onControllerChange}
@@ -3814,6 +3816,7 @@ function AgentProfileWorkspacePresentation(input: {
 				headerRecoveryActions={wakeAvailabilityRecoveryActions}
 				isDirectMessagePending={input.input.pendingState.directMessage}
 				isRecoveryActionPending={input.input.pendingState.recoveryAction}
+				modelIsLoading={modelIsLoading}
 				onOpenDirectMessage={() => {
 					input.input.onOpenDirectMessage().catch((error) => {
 						console.error("Direct Message action failed.", error);

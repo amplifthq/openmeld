@@ -3448,6 +3448,29 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.queryByText("Checking")).toBeNull();
 	});
 
+	it("keeps the model hidden while the Agent configuration is still loading", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			primaryBinding: undefined,
+			publicProfileConfiguration: undefined,
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+				agentExecutionReadinessPendingProfileIds: new Set([AGENT_PROFILE_ID]),
+			},
+			null,
+			{ presentation: "detail" }
+		);
+		expect(screen.getAllByLabelText("Loading model")).toHaveLength(2);
+		expect(
+			screen.queryByText("Codex · GPT-5.6 Sol · model default")
+		).toBeNull();
+	});
+
 	it("keeps self-healing readiness active without rendering controller UI", async () => {
 		const { container, queryClient } = renderAgentProfilesCard(
 			{
