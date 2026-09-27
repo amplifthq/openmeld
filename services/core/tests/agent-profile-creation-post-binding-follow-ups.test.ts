@@ -10,11 +10,22 @@ function deferred() {
 }
 
 describe("Agent Profile creation post-Binding follow-ups", () => {
-  it("starts independent workspace and Project updates together", async () => {
+  it("releases the workspace mutation lease before saving Default Project", async () => {
     const workspace = deferred();
-    const defaultProject = deferred();
-    const setWorkspace = vi.fn(() => workspace.promise);
-    const updateDefaultProject = vi.fn(() => defaultProject.promise);
+    let mutationLeaseHeld = false;
+    const setWorkspace = vi.fn(async () => {
+      mutationLeaseHeld = true;
+      await workspace.promise;
+      mutationLeaseHeld = false;
+    });
+    const updateDefaultProject = vi.fn(() => {
+      if (mutationLeaseHeld) {
+        return Promise.reject(
+          new Error("profile.default_project_unavailable: lease occupied")
+        );
+      }
+      return Promise.resolve();
+    });
 
     const completion = runAgentProfileCreationPostBindingFollowUps({
       setWorkspace,
@@ -22,10 +33,22 @@ describe("Agent Profile creation post-Binding follow-ups", () => {
     });
 
     expect(setWorkspace).toHaveBeenCalledOnce();
-    expect(updateDefaultProject).toHaveBeenCalledOnce();
+    expect(updateDefaultProject).not.toHaveBeenCalled();
 
     workspace.resolve();
-    defaultProject.resolve();
     await completion;
+    expect(updateDefaultProject).toHaveBeenCalledOnce();
+  });
+
+  it("does not set Default Project when the workspace outcome is unknown", async () => {
+    const updateDefaultProject = vi.fn();
+    await expect(
+      runAgentProfileCreationPostBindingFollowUps({
+        setWorkspace: () =>
+          Promise.reject(new Error("workspace outcome unknown")),
+        updateDefaultProject,
+      })
+    ).rejects.toThrow("workspace outcome unknown");
+    expect(updateDefaultProject).not.toHaveBeenCalled();
   });
 });
