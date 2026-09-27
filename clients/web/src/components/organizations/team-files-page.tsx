@@ -723,6 +723,7 @@ function TeamFilesBrowser(input: {
 										item ? (entriesByPath.get(item.path)?.id ?? null) : null
 									);
 								}}
+								reserveBreadcrumbSpace
 								title={browserTitle}
 								toolbarActions={toolbarActions}
 								toolbarStart={

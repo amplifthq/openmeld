@@ -182,6 +182,8 @@ export type FileSystemProps = {
   toolbarActions?: React.ReactNode
   /** Current location path, shown beneath the toolbar. */
   breadcrumb?: React.ReactNode
+  /** Keep the breadcrumb row's height when the current location has no trail. */
+  reserveBreadcrumbSpace?: boolean
   isLoading?: boolean
   /** Keep the shared toolbar available when the owning file service fails. */
   errorContent?: React.ReactNode
@@ -831,7 +833,7 @@ function folderHasChildren(index: FileSystemIndex, folder: FolderEntry) {
 }
 // A single SVG source so the same glyph renders as a React element, inside the
 // @pierre/trees shadow DOM (via CSS url()), and stays pixel-identical in both.
-const folderGlyphSvg = (emblem?: FileSystemFolderItem["emblem"]) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 50" width="64" height="50"><defs><linearGradient id="fs-folder-back" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3dabf5"/><stop offset="1" stop-color="#1d84dd"/></linearGradient><linearGradient id="fs-folder-front" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#7accfb"/><stop offset="1" stop-color="#37a0ef"/></linearGradient></defs><path d="M5 10c0-3.31 2.69-6 6-6h10.9c1.6 0 3.13.7 4.18 1.9l1.5 1.73a3.5 3.5 0 0 0 2.64 1.22H54c2.76 0 5 2.24 5 5V40c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V10Z" fill="url(#fs-folder-back)"/><path d="M5 15.5h54V40c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V15.5Z" fill="url(#fs-folder-front)"/>${emblem === "knowledge" ? '<path d="M32 23.5c-2.8-1.7-6-1.9-9.5-1.2v11.5c3.7-.7 6.8-.3 9.5 1.4 2.7-1.7 5.8-2.1 9.5-1.4V22.3c-3.5-.7-6.7-.5-9.5 1.2Zm0 0v11.7" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>' : ""}</svg>`
+const folderGlyphSvg = (emblem?: FileSystemFolderItem["emblem"]) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 50" width="64" height="50"><defs><linearGradient id="fs-folder-back" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3dabf5"/><stop offset="1" stop-color="#1d84dd"/></linearGradient><linearGradient id="fs-folder-front" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#7accfb"/><stop offset="1" stop-color="#37a0ef"/></linearGradient></defs><path d="M5 10c0-3.31 2.69-6 6-6h10.9c1.6 0 3.13.7 4.18 1.9l1.5 1.73a3.5 3.5 0 0 0 2.64 1.22H54c2.76 0 5 2.24 5 5V40c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V10Z" fill="url(#fs-folder-back)"/><path d="M5 15.5h54V40c0 3.87-3.13 7-7 7H12c-3.87 0-7-3.13-7-7V15.5Z" fill="url(#fs-folder-front)"/>${emblem === "knowledge" ? '<path d="M32 23.5c-2.8-1.7-6-1.9-9.5-1.2v11.5c3.7-.7 6.8-.3 9.5 1.4 2.7-1.7 5.8-2.1 9.5-1.4V22.3c-3.5-.7-6.7-.5-9.5 1.2Zm0 0v11.7" fill="none" stroke="#c8eaff" stroke-opacity=".75" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>' : ""}</svg>`
 const FOLDER_GLYPH_DATA_URL = `data:image/svg+xml,${encodeURIComponent(folderGlyphSvg())}`
 const KNOWLEDGE_FOLDER_GLYPH_DATA_URL = `data:image/svg+xml,${encodeURIComponent(folderGlyphSvg("knowledge"))}`
 function FileSystemFolderGlyph({ className, emblem }: { className?: string; emblem?: FileSystemFolderItem["emblem"] }) {
@@ -1267,6 +1269,7 @@ export function FileSystem({
   toolbarStart,
   toolbarActions,
   breadcrumb,
+  reserveBreadcrumbSpace = false,
   isLoading = false,
   errorContent,
   title = "Files",
@@ -2034,10 +2037,10 @@ export function FileSystem({
         </div>
         </div>
       </div>
-      {breadcrumb ? (
-        <nav aria-label="File location" className="flex min-h-9 shrink-0 items-center gap-1 px-2 text-sm">
-          {breadcrumb}
-        </nav>
+      {breadcrumb || reserveBreadcrumbSpace ? (
+        <div className="flex min-h-9 shrink-0 items-center gap-1 px-2 text-sm">
+          {breadcrumb ? <nav aria-label="File location">{breadcrumb}</nav> : null}
+        </div>
       ) : null}
       {hasActiveFilters ? (
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground">
