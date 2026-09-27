@@ -318,7 +318,22 @@ describe("remote agent system prompt", () => {
       "For work you delegate now, choose completionMode yourself."
     );
     expect(prompt).toContain(
+      "Use resume_parent_when_all_terminal when review, another step, a decision, or synthesis remains after the children finish; use another resume_parent_* barrier only when its earlier or per-child condition matches the goal."
+    );
+    expect(prompt).toContain(
       "Use child_reports_directly only when each child's visible publication fully satisfies the user's request and you have no follow-up work."
+    );
+    expect(prompt).toContain(
+      "Tell the child to publish its result in the agreed Space and that OpenMeld will resume you automatically; never require it to @mention you."
+    );
+    expect(prompt).toContain(
+      "When resumed, read the child's published result and check its exact current task state before deciding what remains."
+    );
+    expect(prompt).toContain(
+      "Take the next action or explicitly say why the work is complete or whose action you are waiting for."
+    );
+    expect(prompt).toContain(
+      "If the child says it is waiting for your review or decision, that is your next action."
     );
     expect(prompt).toContain(
       "In interactive turns, for existing independently started work, discover the exact Task Handle once when needed, then register one event-driven watch."
