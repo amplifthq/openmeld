@@ -28,6 +28,7 @@ import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   importOrganizationSkillBundleFromGitHub,
   parseOrganizationSkillBundleFromFiles,
+  previewOrganizationSkillFromGitHub,
   previewOrganizationSkillRepositoryFromGitHub,
 } from "./organization-skill-import";
 
@@ -374,26 +375,11 @@ export function createOrganizationSkillService(
       url: string
     ): Promise<OrganizationSkillGitHubPreview> {
       requireManager(actor);
-      const imported = await importOrganizationSkillBundleFromGitHub({
+      return await previewOrganizationSkillFromGitHub({
         fetch: dependencies.fetch,
         githubToken: dependencies.githubToken,
         url,
       });
-      const { warnings } = describeOrganizationSkillBundleLimitations(
-        imported.bundle
-      );
-      return {
-        files: imported.bundle.files.map((file) => ({
-          encoding: file.encoding,
-          mediaType: file.mediaType,
-          path: file.path,
-          size: file.size,
-        })),
-        instructionsCharacters: imported.bundle.instructions.length,
-        portable: imported.bundle.portable,
-        source: imported.source,
-        warnings,
-      };
     },
 
     async previewRepositoryFromGitHub(

@@ -207,8 +207,9 @@ Skill, client response, or model-visible context. Import:
 
 1. resolves the repository, ref, and directory;
 2. resolves the ref to an immutable commit SHA;
-3. reads the bounded bundle;
-4. validates and previews metadata, files, scripts, license, and warnings;
+3. previews the directory from the pinned tree and validated `SKILL.md`,
+   without fetching supporting resource bytes;
+4. reads and validates the complete bounded bundle when installation begins;
 5. creates the stable Skill and first immutable OpenMeld release; and
 6. records repository, directory, commit SHA, and digest.
 

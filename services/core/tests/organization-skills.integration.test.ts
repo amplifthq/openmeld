@@ -1620,8 +1620,6 @@ describe("Organization Skills", () => {
     ).resolves.toMatchObject({
       files: [
         {
-          encoding: "utf8",
-          mediaType: "text/markdown",
           path: "references/checklist.md",
           size: 11,
         },
@@ -1636,6 +1634,13 @@ describe("Organization Skills", () => {
         "The allowed-tools field is preserved but does not grant OpenMeld permissions.",
       ],
     });
+    expect(
+      fetchMock.mock.calls.some(([request]) =>
+        String(request).endsWith(
+          `/${commitSha}/release/references/checklist.md`
+        )
+      )
+    ).toBe(false);
     await expect(
       service.previewFromGitHub(
         fixture.member,

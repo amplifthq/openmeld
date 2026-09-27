@@ -326,12 +326,15 @@ export const previewOrganizationSkillRepositoryBodySchema =
   previewOrganizationSkillFromGitHubBodySchema;
 export const organizationSkillGitHubPreviewSchema = z.strictObject({
   files: z.array(
-    organizationSkillFileSchema.pick({
-      encoding: true,
-      mediaType: true,
-      path: true,
-      size: true,
-    })
+    organizationSkillFileSchema
+      .pick({
+        path: true,
+        size: true,
+      })
+      .extend({
+        encoding: organizationSkillFileSchema.shape.encoding.optional(),
+        mediaType: organizationSkillFileSchema.shape.mediaType.optional(),
+      })
   ),
   instructionsCharacters: z.number().int().nonnegative(),
   portable: organizationSkillPortableMetadataSchema,
@@ -339,7 +342,16 @@ export const organizationSkillGitHubPreviewSchema = z.strictObject({
   warnings: z.array(z.string().trim().min(1).max(1024)),
 });
 export const organizationSkillFilesPreviewSchema =
-  organizationSkillGitHubPreviewSchema.omit({ source: true });
+  organizationSkillGitHubPreviewSchema.omit({ source: true }).extend({
+    files: z.array(
+      organizationSkillFileSchema.pick({
+        encoding: true,
+        mediaType: true,
+        path: true,
+        size: true,
+      })
+    ),
+  });
 export const organizationSkillGitHubRepositoryPreviewSchema = z.strictObject({
   catalogLimitBytes: z.number().int().positive(),
   commitSha: z.string().regex(/^[a-f0-9]{40}$/),

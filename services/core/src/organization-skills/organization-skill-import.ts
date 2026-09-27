@@ -104,57 +104,17 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
   bundle: OrganizationSkillBundle;
   source: OrganizationSkillGitHubSource;
 }> {
-  const fetchImpl = input.fetch ?? fetch;
-  const githubToken = input.githubToken?.trim() || undefined;
-  const location = parseGitHubLocation(input.url);
-  const ref =
-    location.ref ?? (await readDefaultBranch(fetchImpl, location, githubToken));
-  const commitSha = await resolveCommitSha(
-    fetchImpl,
-    location,
-    ref,
-    githubToken
-  );
-  if (
-    input.expectedCommitSha !== undefined &&
-    input.expectedCommitSha !== commitSha
-  ) {
-    throw skillImportError(
-      "organization_skill.github_source_changed",
-      "The GitHub source changed after it was previewed. Review the latest version before installing."
-    );
-  }
-  const tree = await readGitTree(fetchImpl, location, commitSha, githubToken);
-  const skillMarkdownPath = selectSkillMarkdownPath(tree, location.path);
-  const skillDirectory = parentPath(skillMarkdownPath);
-  const files = filesInSkillDirectory(
-    tree,
-    skillDirectory,
-    skillDirectories(tree)
-  );
-  requireSafeGitHubFileDeclarations(files);
-
-  const skillMarkdownFile = files.find(
-    (item) => item.path === skillMarkdownPath
-  );
-  if (!skillMarkdownFile) {
-    throw skillImportError(
-      "organization_skill.skill_markdown_missing",
-      "The selected GitHub directory does not contain SKILL.md."
-    );
-  }
-  const skillMarkdownBytes = await readRawFile(
-    fetchImpl,
-    location,
+  const selected = await readSelectedGitHubSkill(input);
+  const {
     commitSha,
+    files,
+    location,
+    parsed,
+    skillDirectory,
+    skillMarkdownBytes,
     skillMarkdownPath,
-    skillMarkdownFile.size as number
-  );
-  const { parse: parseYaml } = await loadYamlRuntime();
-  const parsed = parseSkillMarkdown(
-    decodeRequiredUtf8(skillMarkdownBytes, skillMarkdownPath),
-    parseYaml
-  );
+  } = selected;
+  const fetchImpl = input.fetch ?? fetch;
 
   let totalBytes = skillMarkdownBytes.byteLength;
   const bundleFiles: OrganizationSkillBundle["files"] = [];
@@ -204,6 +164,123 @@ export async function importOrganizationSkillBundleFromGitHub(input: {
   }
   return {
     bundle: bundle.data,
+    source: selected.source,
+  };
+}
+
+export async function previewOrganizationSkillFromGitHub(input: {
+  fetch?: typeof fetch;
+  githubToken?: string;
+  url: string;
+}): Promise<{
+  files: Array<{ path: string; size: number }>;
+  instructionsCharacters: number;
+  portable: OrganizationSkillBundle["portable"];
+  source: OrganizationSkillGitHubSource;
+  warnings: string[];
+}> {
+  const selected = await readSelectedGitHubSkill(input);
+  const files = selected.files
+    .filter((item) => item.path !== selected.skillMarkdownPath)
+    .map((item) => ({
+      path: selected.skillDirectory
+        ? requireTreePath(item).slice(selected.skillDirectory.length + 1)
+        : requireTreePath(item),
+      size: item.size as number,
+    }));
+  return {
+    files,
+    instructionsCharacters: selected.parsed.instructions.length,
+    portable: selected.parsed.portable,
+    source: selected.source,
+    warnings: [
+      ...(files.some((file) => file.path.startsWith("scripts/"))
+        ? [
+            "Scripts are stored for portability but are not executable in OpenMeld Phase 1.",
+          ]
+        : []),
+      ...(selected.parsed.portable.allowedTools !== null
+        ? [
+            "The allowed-tools field is preserved but does not grant OpenMeld permissions.",
+          ]
+        : []),
+    ],
+  };
+}
+
+async function readSelectedGitHubSkill(input: {
+  expectedCommitSha?: string;
+  fetch?: typeof fetch;
+  githubToken?: string;
+  url: string;
+}): Promise<{
+  commitSha: string;
+  files: GitHubTreeItem[];
+  location: GitHubLocation;
+  parsed: {
+    instructions: string;
+    portable: OrganizationSkillBundle["portable"];
+  };
+  skillDirectory: string;
+  skillMarkdownBytes: Uint8Array;
+  skillMarkdownPath: string;
+  source: OrganizationSkillGitHubSource;
+}> {
+  const fetchImpl = input.fetch ?? fetch;
+  const githubToken = input.githubToken?.trim() || undefined;
+  const location = parseGitHubLocation(input.url);
+  const ref =
+    location.ref ?? (await readDefaultBranch(fetchImpl, location, githubToken));
+  const commitSha = await resolveCommitSha(
+    fetchImpl,
+    location,
+    ref,
+    githubToken
+  );
+  if (input.expectedCommitSha && input.expectedCommitSha !== commitSha) {
+    throw skillImportError(
+      "organization_skill.github_source_changed",
+      "The GitHub source changed after it was previewed. Review the latest version before installing."
+    );
+  }
+  const tree = await readGitTree(fetchImpl, location, commitSha, githubToken);
+  const skillMarkdownPath = selectSkillMarkdownPath(tree, location.path);
+  const skillDirectory = parentPath(skillMarkdownPath);
+  const files = filesInSkillDirectory(
+    tree,
+    skillDirectory,
+    skillDirectories(tree)
+  );
+  requireSafeGitHubFileDeclarations(files);
+  const skillMarkdownFile = files.find(
+    (item) => item.path === skillMarkdownPath
+  );
+  if (!skillMarkdownFile) {
+    throw skillImportError(
+      "organization_skill.skill_markdown_missing",
+      "The selected GitHub directory does not contain SKILL.md."
+    );
+  }
+  const skillMarkdownBytes = await readRawFile(
+    fetchImpl,
+    location,
+    commitSha,
+    skillMarkdownPath,
+    skillMarkdownFile.size as number
+  );
+  const { parse: parseYaml } = await loadYamlRuntime();
+  const parsed = parseSkillMarkdown(
+    decodeRequiredUtf8(skillMarkdownBytes, skillMarkdownPath),
+    parseYaml
+  );
+  return {
+    commitSha,
+    files,
+    location,
+    parsed,
+    skillDirectory,
+    skillMarkdownBytes,
+    skillMarkdownPath,
     source: {
       commitSha,
       kind: "github",
