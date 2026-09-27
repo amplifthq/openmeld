@@ -250,7 +250,7 @@ test("Production and Deep Confidence share an explicit heap within available run
     assert.equal(workflowEnv.NODE_OPTIONS, undefined);
     assert.equal(
       workflowEnv.OPENMELD_RENDERER_NODE_HEAP_MB,
-      trainAdmission ? "4608" : undefined
+      trainAdmission ? "5120" : undefined
     );
     for (const scope of ["web", "desktop"]) {
       const env = productionBuildEnvironment(
@@ -261,9 +261,9 @@ test("Production and Deep Confidence share an explicit heap within available run
       );
       assert.equal(
         env.NODE_OPTIONS,
-        `--max-old-space-size=${trainAdmission ? 4608 : 4096}`
+        `--max-old-space-size=${trainAdmission ? 5120 : 4096}`
       );
-      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, trainAdmission ? "5.5" : "5");
+      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, trainAdmission ? "6" : "5");
       assert.equal(
         env.OPENMELD_DESKTOP_TARGET,
         scope === "desktop" ? "production" : undefined
