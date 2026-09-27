@@ -8,6 +8,7 @@ import {
 	useState,
 } from "react";
 import { getAppScrollRestorationKey } from "#/lib/app-scroll-restoration";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import {
 	readSpaceConversationPosition,
 	type SpaceConversationPosition,
@@ -135,6 +136,7 @@ export function useSpaceConversationPosition(input: {
 		if (isNewViewport || restoration.key !== positionKey) {
 			const status = protectedAnchor ? "restoring" : "ready";
 			restorationReadyKeyRef.current = status === "ready" ? positionKey : null;
+			recordReactUpdate("conversation_position_restore");
 			setRestoration({ key: positionKey, status });
 		}
 		const markReady = () => {
@@ -142,6 +144,7 @@ export function useSpaceConversationPosition(input: {
 				return;
 			}
 			restorationReadyKeyRef.current = positionKey;
+			recordReactUpdate("conversation_position_ready");
 			setRestoration({ key: positionKey, status: "ready" });
 		};
 		const save = () => {
@@ -262,6 +265,7 @@ export function useSpaceConversationPosition(input: {
 				releasedKeyRef.current === positionKey &&
 				viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 12
 			) {
+				recordReactUpdate("conversation_position_follow");
 				setFollowingViewport(viewport);
 			}
 		},
@@ -278,6 +282,7 @@ export function useSpaceConversationPosition(input: {
 	);
 	const followLatest = useCallback(() => {
 		releaseRef.current();
+		recordReactUpdate("conversation_position_follow");
 		setFollowingViewport(input.viewport);
 	}, [input.viewport]);
 	const releaseReadingPosition = useCallback(() => releaseRef.current(), []);
