@@ -8,6 +8,7 @@ import type {
 	ConnectorService,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -17,10 +18,12 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
+import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import { PluginAgentAccess } from "./plugin-agent-access";
 import type { PluginConnectionContinuationContext } from "./plugin-connection-continuation";
 import { PluginConnectionMessageCard } from "./plugin-connection-message-card";
 
@@ -108,6 +111,25 @@ function connection(
 		userId: "user-alex",
 	});
 }
+const NO_AGENT_ACCESS = {
+	center_agent: "none",
+	local_agent: "none",
+	remote_agent: "none",
+} as const;
+function accessConnection(
+	service: ConnectorService,
+	scope: "member" | "shared" = "member",
+	canManage = true
+) {
+	return {
+		connectionName: `${service}-${scope}`,
+		scope,
+		canManage,
+		revision: 0,
+		policy: { center_agent: "read", local_agent: "none", remote_agent: "none" },
+	};
+}
+
 function directory(role: string) {
 	return organizationProfileDirectoryResponseSchema.parse({
 		organizationId: "org-acme",
@@ -243,6 +265,13 @@ describe("Plugin connection in a conversation", () => {
 				connection("github", "shared"),
 			],
 		});
+		api.access.mockResolvedValue({
+			organizationId: "org-acme",
+			connections: [
+				accessConnection("github", "member"),
+				accessConnection("github", "shared", role !== "member"),
+			],
+		});
 		api.request.mockRejectedValueOnce(
 			new Error("Submission could not be confirmed. Retry the same request.")
 		);
@@ -261,8 +290,17 @@ describe("Plugin connection in a conversation", () => {
 		expect((choose as HTMLButtonElement).disabled).toBe(false);
 		expect(api.request).not.toHaveBeenCalled();
 		fireEvent.click(choose);
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Continue original task",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false)
+		);
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Continue original task" })
+			screen.getByRole("button", { name: "Continue original task" })
 		);
 		await screen.findByRole("alert");
 		fireEvent.click(
@@ -349,25 +387,133 @@ describe("Plugin connection in a conversation", () => {
 		).toBeNull();
 	});
 
-	it("loads Agent access only when expanded and never grants access just by opening setup", async () => {
-		renderCard({ scope: "member" });
+	it("shows explicit permissions after credential setup and does not continue on an unsaved or failed grant", async () => {
+		const item = {
+			...accessConnection("posthog"),
+			policy: { ...NO_AGENT_ACCESS } as {
+				center_agent: "none" | "read" | "write";
+				local_agent: "none";
+				remote_agent: "none";
+			},
+		};
+		api.access.mockImplementation(async () => ({
+			organizationId: "org-acme",
+			connections: [{ ...item }],
+		}));
+		api.credential.mockImplementation(() => {
+			api.list.mockResolvedValue({
+				organizationId: "org-acme",
+				currentUserId: "user-alex",
+				connections: [connection("posthog")],
+			});
+			return Promise.resolve({ connection: connection("posthog") });
+		});
+		api.updateAccess.mockRejectedValueOnce(
+			new Error("Permission save failed.")
+		);
+		api.updateAccess.mockImplementationOnce(({ body }) => {
+			item.policy = body.policy;
+			item.revision += 1;
+			return Promise.resolve(item);
+		});
+		api.request.mockResolvedValue({ status: "requested" });
+		renderCard({
+			service: "posthog",
+			scope: "member",
+			continuation: { spaceId: "space-1", sourceSignalId: "reply-1" },
+		});
+		expect(api.access).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Connect or review PostHog" })
+		);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "Use a personal API key instead",
+			})
+		);
+		fireEvent.change(screen.getByLabelText("PostHog URL"), {
+			target: { value: "https://posthog.example" },
+		});
+		fireEvent.change(await screen.findByLabelText("Personal API key"), {
+			target: { value: "fictional-key" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Connect PostHog" }));
+		expect(await screen.findByText("No Agent has access yet.")).toBeTruthy();
+		expect(
+			screen.queryByText("Agent access", { selector: "summary" })
+		).toBeNull();
+		expect(api.updateAccess).not.toHaveBeenCalled();
+		expect(api.request).not.toHaveBeenCalled();
+		const continueButton = () =>
+			screen.getByRole("button", {
+				name: "Continue original task",
+			}) as HTMLButtonElement;
+		expect(continueButton().disabled).toBe(true);
+		fireEvent.click(screen.getByLabelText("Center Agent"));
+		fireEvent.click(await screen.findByRole("option", { name: "Read only" }));
+		expect(continueButton().disabled).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Save access" }));
+		expect(await screen.findByText("Permission save failed.")).toBeTruthy();
+		expect(continueButton().disabled).toBe(true);
+		expect(api.request).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Save access" }));
+		await waitFor(() => expect(continueButton().disabled).toBe(false));
+		expect(api.updateAccess).toHaveBeenLastCalledWith({
+			organizationId: "org-acme",
+			service: "posthog",
+			body: {
+				connectionName: "posthog-member",
+				expectedRevision: 0,
+				policy: { ...NO_AGENT_ACCESS, center_agent: "read" },
+			},
+		});
+		expect(api.request).not.toHaveBeenCalled();
+		fireEvent.click(continueButton());
+		await waitFor(() => expect(api.request).toHaveBeenCalledOnce());
+		expect(JSON.parse(api.request.mock.calls[0][0].body)).toMatchObject({
+			scope: "member",
+			service: "posthog",
+			sourceSignalId: "reply-1",
+		});
+	});
+
+	it("shows a non-manager the actual shared policy without offering to save or continue with no access", async () => {
+		api.list.mockResolvedValue({
+			organizationId: "org-acme",
+			currentUserId: "user-alex",
+			connections: [connection("github", "shared")],
+		});
+		api.access.mockResolvedValue({
+			organizationId: "org-acme",
+			connections: [
+				{
+					...accessConnection("github", "shared", false),
+					policy: NO_AGENT_ACCESS,
+				},
+			],
+		});
+		renderCard({
+			scope: "shared",
+			continuation: { channelRequestId: "request-1" },
+		});
 		fireEvent.click(
 			screen.getByRole("button", { name: "Connect or review GitHub" })
 		);
-		const summary = await screen.findByText("Agent access", {
-			selector: "summary",
-		});
-		expect(api.access).not.toHaveBeenCalled();
-		fireEvent.click(summary);
-		await waitFor(() => expect(api.access).toHaveBeenCalledOnce());
-		expect(api.access).toHaveBeenCalledWith(
-			expect.objectContaining({
-				organizationId: "org-acme",
-				service: "github",
-				scope: "member",
-			})
-		);
+		expect(
+			await screen.findByText(
+				"An organization owner or admin manages this access."
+			)
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Save access" })).toBeNull();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Continue original task",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
 		expect(api.updateAccess).not.toHaveBeenCalled();
+		expect(api.request).not.toHaveBeenCalled();
 	});
 
 	it("never substitutes personal access for an organization-only task", async () => {
@@ -385,6 +531,99 @@ describe("Plugin connection in a conversation", () => {
 		).toBeNull();
 		expect(api.githubMember).not.toHaveBeenCalled();
 		expect(api.githubShared).not.toHaveBeenCalled();
+	});
+
+	it("refreshes every setup view after saving and discards an old draft after reauthorization", async () => {
+		const client = createTestQueryClient();
+		const member = accessConnection("linear");
+		member.policy = { ...NO_AGENT_ACCESS };
+		const shared = {
+			...accessConnection("linear", "shared"),
+			policy: { ...NO_AGENT_ACCESS },
+		};
+		const connected = {
+			organizationId: "org-acme",
+			currentUserId: "user-alex",
+			connections: [connection("linear"), connection("linear", "shared")],
+		};
+		api.list.mockResolvedValue(connected);
+		api.access.mockImplementation(async () => ({
+			organizationId: "org-acme",
+			connections: [{ ...member }, { ...shared }],
+		}));
+		api.updateAccess.mockImplementation(({ body }) => {
+			member.policy = body.policy;
+			member.revision += 1;
+			return Promise.resolve({ ...member });
+		});
+		render(
+			<TestQueryClientProvider queryClient={client}>
+				<div data-testid="all-scopes">
+					<PluginAgentAccess
+						organizationId="org-acme"
+						organizationName="Acme"
+						scope="all"
+						service="linear"
+					/>
+				</div>
+				<div data-testid="member-scope">
+					<PluginAgentAccess
+						organizationId="org-acme"
+						organizationName="Acme"
+						scope="member"
+						service="linear"
+					/>
+				</div>
+			</TestQueryClientProvider>
+		);
+		const all = within(screen.getByTestId("all-scopes"));
+		const single = within(screen.getByTestId("member-scope"));
+		await single.findByText("No Agent has access yet.");
+		const allMember = within(
+			await all.findByRole("group", { name: "Agents using your account" })
+		);
+		fireEvent.click(allMember.getByLabelText("Center Agent"));
+		fireEvent.click(await screen.findByRole("option", { name: "Read only" }));
+		fireEvent.click(allMember.getByRole("button", { name: "Save access" }));
+		await waitFor(() =>
+			expect(single.getByLabelText("Center Agent").textContent).toContain(
+				"Read only"
+			)
+		);
+		expect(api.updateAccess).toHaveBeenCalledOnce();
+		fireEvent.click(single.getByLabelText("Center Agent"));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "Read and write" })
+		);
+		expect(
+			(single.getByRole("button", { name: "Save access" }) as HTMLButtonElement)
+				.disabled
+		).toBe(false);
+		const next = {
+			...connected,
+			connections: connected.connections.map((item) => ({
+				...item,
+				updatedAtMs: 2,
+			})),
+		};
+		api.list.mockResolvedValue(next);
+		await act(async () => {
+			client.setQueryData(
+				organizationPluginConnectionQueryKeys.service("org-acme", "linear"),
+				next
+			);
+			await Promise.resolve();
+		});
+		await waitFor(() =>
+			expect(single.getByLabelText("Center Agent").textContent).toContain(
+				"Read only"
+			)
+		);
+		expect(
+			(single.getByRole("button", { name: "Save access" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		expect(api.updateAccess).toHaveBeenCalledOnce();
 	});
 
 	it("reuses an existing connection without another authorization", async () => {

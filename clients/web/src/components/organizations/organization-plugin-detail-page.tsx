@@ -5,7 +5,6 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
 import { AppLogo } from "./app-logo";
-import { PluginAgentAccess } from "./plugin-agent-access";
 import type { PluginDefinition } from "./plugin-catalog";
 import { PluginConnectionSurface } from "./plugin-connection-surface";
 import { PluginScopeTabs, usePluginScope } from "./plugin-scope-tabs";
@@ -81,8 +80,8 @@ export function OrganizationPluginDetailPage(input: {
 						</h2>
 						<p className="mt-1 max-w-2xl text-muted-foreground text-xs leading-5">
 							{scope === "member"
-								? "Connect your account for your own requests."
-								: `Shared with everyone in ${input.organizationName}.`}
+								? "Connect your account, then choose which Agents may use it."
+								: "Connect an organization account, then choose Agent access below."}
 						</p>
 						{scope === "shared" && !input.canManageSharedPlugins ? (
 							<p className="mt-1 text-muted-foreground text-xs">
@@ -98,12 +97,6 @@ export function OrganizationPluginDetailPage(input: {
 						organizationId={input.organizationId}
 						organizationName={input.organizationName}
 						plugin={input.plugin}
-					/>
-					<PluginAgentAccess
-						organizationId={input.organizationId}
-						organizationName={input.organizationName}
-						scope={scope}
-						service={input.plugin.service}
 					/>
 				</section>
 			) : (

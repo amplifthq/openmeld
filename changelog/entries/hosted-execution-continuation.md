@@ -13,6 +13,12 @@ link instead of receiving an unsupported message action. The selected account is
 kept throughout execution, and edited or recalled original requests cannot
 silently resume through an old connection card.
 
+New personal and organization connections start with no Agent access. The same
+permission editor appears after connecting in Plugins, Onboarding and chat;
+choose read-only or read/write access and save before continuing. Existing
+connection policies remain compatible, and reauthorization rejects stale
+permission drafts rather than overwriting a newer choice.
+
 Local Agent replies can now offer the same connection card through
 `plugins connect`. Slack, Feishu and Lark can privately guide the original
 requester to the same secure setup and explicitly continue in the original

@@ -1,6 +1,6 @@
 # #1254 — Composable Plugin setup and execution
 
-Status: Draft implementation completion and self-review, 2026-09-26. F1–F8 corrections plus Local and Slack/Feishu/Lark message carriers are implemented. Exact tests/builds and handoff belong to the PR; the owner's Codex performs final independent overall review and authenticated smoke.
+Status: Draft corrective implementation and self-review, 2026-09-27. F1–F8, R1–R3 and the Local/Slack/Feishu/Lark carriers remain implemented. The subsequent localhost finding on implicit new-connection grants is corrected in the shared creation and access UI owners. Exact candidate, tests/builds and remaining independent smoke belong to PR #1340; this plan is not acceptance approval.
 Discussion: https://github.com/amplifthq/openmeld/pull/1254
 
 ## Agent context
@@ -64,8 +64,11 @@ page remains in place, not that the Agent bypasses provider consent.
   A missing repository grant must not be described as an absent connection.
 - Credentials use the existing private form or external authorization window;
   no secret, authorization URL, or credential is stored in the message action.
-- Agent access is an explicit, lazily opened existing editor. Connecting never
-  enables all Agents or changes read/write permissions automatically.
+- New registrations explicitly start with no Agent access, rather than inheriting
+  the historical null-policy fallback. The existing editor appears after an
+  active connection in every shared setup surface; only Save access grants
+  permission and only Continue resumes work. Saved legacy policies on the same
+  registration remain compatible. Reauthorization fences stale permission drafts.
 
 ## Implemented first slice
 
@@ -75,7 +78,7 @@ page remains in place, not that the Agent bypasses provider consent.
 - `plugin_connection` navigation target with an exact supported service and
   explicit `member`, `shared`, or `choose` setup intent.
 - Conversation identity and role checks, existing-connection reuse, private
-  credential handling, provider flow cancellation/expiry, and lazy Agent access.
+  credential handling, provider flow cancellation/expiry, and explicit Agent access.
 - Center Agent action creation and missing-GitHub-connection recovery use that
   target. Personal Hosted Agent navigation exposes only Plugin setup, not the
   Center Agent's other navigation/identity-link capabilities.

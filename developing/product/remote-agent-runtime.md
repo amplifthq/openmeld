@@ -44,8 +44,12 @@ capability, not Center Agent computer administration or Message Channel identity
 linking. Their normal per-call execution authorization remains in force.
 Ordinary Center navigation and existing legacy GitHub actions remain readable.
 
-Connection setup does not grant Agent access, prove repository permission, or
-resume a task. A separate explicit human continuation reuses existing Message,
+New connection setup starts with an explicit all-denied Agent policy; provider
+authorization does not grant Agent access, prove repository permission, or
+resume a task. The existing human-managed policy editor grants access separately.
+Historical null policies and explicit grants on the same registration retain
+compatibility; reauthorization advances the permission revision without widening
+access. A separate explicit human continuation reuses existing Message,
 Wake, native-delivery and operation owners after current authorization. It does
 not replay a provider callback or let an administrator impersonate the original
 requester. Publication retains the setup target privately and appends an

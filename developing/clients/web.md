@@ -50,8 +50,22 @@ get personal setup and eligible owners/admins can choose. Personal Workspaces
 omit this team choice. A choice does not connect or run anything; explicit
 Continue submits that scope and Core freezes the exact authorized account.
 Connection refreshes and transport retries must not silently change it. The
-server rechecks every mutation. The Agent access editor is loaded
-only when expanded and never saves permissions automatically.
+server rechecks every mutation. Once an active connection is present, the
+existing Agent access editor is visible directly below its form, shared by
+Plugins, Onboarding and the conversation dialog. New registrations show no Agent
+access; only an explicit Save access action changes permissions. Historical
+connection policies are preserved, not silently reset. Opening historical
+messages does not query access before the user opens setup.
+
+Access queries use the current viewer and connection authorization snapshot,
+filter to that viewer's personal and the selected shared registration, and
+refresh all scoped editor views after a save. Reauthorization and revision
+changes discard stale permission drafts. The conversation Continue control is
+disabled while permissions are unavailable, all consumers are denied, or edits
+remain unsaved. Enabling it is not an execution grant: Core still checks the
+original Agent's specific consumer permission and each action's effect. Shared
+read-only viewers retain the Continue control outside the management fieldset;
+only an owner/admin may change shared policy. A save never resumes work.
 
 Closing the dialog keeps the conversation in place and unmounts the existing
 authorization view. A disconnected, expired or provider-denied connection is

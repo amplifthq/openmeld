@@ -22,7 +22,6 @@ import { canManageOrganizationArea } from "#/lib/organizations/organization-perm
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 import { organizationPluginServiceConnectionsQueryOptions } from "#/query/organizations/plugin-connections";
-import { PluginAgentAccess } from "./plugin-agent-access";
 import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
 import {
 	PluginConnectionContinuation,
@@ -206,7 +205,6 @@ function PluginConnectionSetup(input: {
 		}
 		return "member";
 	});
-	const [showAgentAccess, setShowAgentAccess] = useState(false);
 	if (!scope) {
 		return (
 			<div className="space-y-3 py-4">
@@ -256,39 +254,25 @@ function PluginConnectionSetup(input: {
 				organizationName={input.organization.name}
 				plugin={input.plugin}
 				presentation="conversation"
-			/>
-			<details
-				className="border-border/70 border-t py-3"
-				onToggle={(event) => setShowAgentAccess(event.currentTarget.open)}
 			>
-				<summary className="cursor-pointer text-sm">Agent access</summary>
-				<p className="pt-2 text-muted-foreground text-xs">
-					A connected account does not automatically grant every Agent access.
-					Repository and provider permissions still apply.
-				</p>
-				{showAgentAccess ? (
-					<PluginAgentAccess
-						organizationId={input.organization.id}
-						organizationName={input.organization.name}
-						scope={scope}
-						service={input.plugin.service}
-					/>
-				) : null}
-			</details>
-			{input.continuation ? (
-				<PluginConnectionContinuation
-					{...input.continuation}
-					connected={
-						scope === "member"
-							? input.hasMemberConnection
-							: input.hasSharedConnection
-					}
-					key={`${"channelRequestId" in input.continuation ? input.continuation.channelRequestId : input.continuation.sourceSignalId}:${scope}`}
-					organizationId={input.organization.id}
-					scope={scope}
-					service={input.plugin.service}
-				/>
-			) : null}
+				{(hasSavedAccess) =>
+					input.continuation ? (
+						<PluginConnectionContinuation
+							{...input.continuation}
+							connected={
+								hasSavedAccess &&
+								(scope === "member"
+									? input.hasMemberConnection
+									: input.hasSharedConnection)
+							}
+							key={`${"channelRequestId" in input.continuation ? input.continuation.channelRequestId : input.continuation.sourceSignalId}:${scope}`}
+							organizationId={input.organization.id}
+							scope={scope}
+							service={input.plugin.service}
+						/>
+					) : null
+				}
+			</PluginConnectionSurface>
 		</>
 	);
 }
