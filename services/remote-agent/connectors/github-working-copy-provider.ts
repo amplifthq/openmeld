@@ -209,7 +209,9 @@ export class GitHubWorkingCopyProvider {
       `${runtime.baseUrl.replace(TRAILING_SLASH_PATTERN, "")}/v1/openmeld/github-working-copy`,
       {
         method: "POST",
-        redirect: "error",
+        // Workers reject redirect: "error"; use manual and fail closed below so
+        // an authenticated proxy request is never followed to another origin.
+        redirect: "manual",
         signal,
         headers: {
           authorization: `Bearer ${runtime.runtimeToken}`,
@@ -224,6 +226,16 @@ export class GitHubWorkingCopyProvider {
         }),
       }
     );
+    if (
+      response.type === "opaqueredirect" ||
+      (response.status >= 300 && response.status < 400)
+    ) {
+      await response.body?.cancel();
+      throw new GitHubWorkingCopyProviderError(
+        response.status,
+        `github.checkout.unexpected_redirect: The connection runtime returned HTTP ${response.status} instead of a GitHub result; the redirect was not followed.`
+      );
+    }
     const envelope = parseProviderEnvelope(
       await readBounded(response, REMOTE_AGENT_GIT_MAX_TREE_BYTES * 2)
     );

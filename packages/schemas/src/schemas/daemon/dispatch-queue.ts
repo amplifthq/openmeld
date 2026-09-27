@@ -210,6 +210,8 @@ export const openMeldDaemonDispatchQueueMessageSchema = z
     deliveryRecoveryReason:
       openMeldDaemonDispatchQueueRecoveryReasonSchema.optional(),
     idempotencyKey: z.string().min(1),
+    // Stable age of the Space outbox item; enqueuedAtMs tracks the latest handoff.
+    outboxCreatedAtMs: z.number().int().nonnegative().optional(),
     enqueuedAtMs: z.number().int().nonnegative(),
   })
   .superRefine((value, context) => {

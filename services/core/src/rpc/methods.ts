@@ -885,8 +885,10 @@ import {
 import {
   type CenterAgentDesignationRecord,
   insertCenterAgentAuditJournalEntry,
+  insertCenterAgentAuditJournalEntryIfMissing,
   listCenterAgentAuditJournalEntries,
   readCenterAgentDesignationRecord,
+  readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationDirectorySpaceMember,
   readResolvedOrganizationOwnerHumanSpaceMember,
   readResolvedOrganizationSpaceMember,
@@ -3714,6 +3716,12 @@ export type CenterAgentReadSpaceWakeProgressInput =
     sourceProfileId?: string;
     spaceId: string;
     targetProfileId?: string;
+  };
+
+export type CenterAgentStopSpaceWakeInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput & {
+    body: PostSpaceWakeStopBody;
+    spaceId: string;
   };
 
 export type OpenCenterAgentDirectMessageSpaceInput = {
@@ -14465,8 +14473,7 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     env,
     spaceId: parsed.data.spaceId,
   });
-  const response = await rpcGetActiveSpaceWakeProgress(env, {
-    context: authorization.context,
+  const progressInput = {
     includeDeviceWait: true,
     includePageInfo: true,
     includeWakeStopEligibility: true,
@@ -14480,7 +14487,53 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     ...(parsed.data.targetProfileId
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),
+  } as const;
+  const response = await rpcGetActiveSpaceWakeProgress(env, {
+    ...progressInput,
+    context: authorization.context,
   });
+  const representedContext = prepared.representedContext;
+  let represented: GetActiveSpaceWakeProgressResponse | null = null;
+  if (representedContext) {
+    try {
+      represented = await rpcGetActiveSpaceWakeProgress(env, {
+        ...progressInput,
+        context: representedContext,
+      });
+    } catch (error) {
+      // A verified requester may not have access to every Space the Center
+      // Agent can read. Keep the Center Agent's authorized progress projection.
+      if (readCoreRpcHttpStatus(error) !== 403) {
+        throw error;
+      }
+    }
+  }
+  const representedEligibility = new Map(
+    represented?.items.map((item) => [
+      JSON.stringify([
+        item.dispatchId,
+        item.sourceSignalId,
+        item.clientMessageId,
+        item.targetProfileId,
+      ]),
+      item.wakeStopEligibility,
+    ]) ?? []
+  );
+  const viewerResponse = {
+    ...response,
+    items: response.items.map((item) => ({
+      ...item,
+      wakeStopEligibility:
+        representedEligibility.get(
+          JSON.stringify([
+            item.dispatchId,
+            item.sourceSignalId,
+            item.clientMessageId,
+            item.targetProfileId,
+          ])
+        ) ?? null,
+    })),
+  };
   await writeCenterAgentAuditEntry({
     action: "read_space_context",
     authorization,
@@ -14488,7 +14541,32 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
     resource: { type: "space", id: parsed.data.spaceId },
     sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
   });
-  return response;
+  return viewerResponse;
+}
+
+export async function rpcCenterAgentStopSpaceWake(
+  env: CoreBindings,
+  input: CenterAgentStopSpaceWakeInput
+): Promise<PostSpaceWakeStopResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization: prepared.authorization,
+    env,
+    spaceId: input.spaceId,
+  });
+  if (!prepared.representedContext) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.wake_stop_requester_required",
+      reason:
+        "You can't stop this Wake from this request. Ask its requester or the target Agent's owner to stop it in OpenMeld Web.",
+      status: 403,
+    });
+  }
+  return await rpcPostSpaceWakeStop(env, {
+    body: input.body,
+    context: prepared.representedContext,
+    spaceId: input.spaceId,
+  });
 }
 
 async function prepareCenterAgentOrganizationMemberRead(
@@ -14499,6 +14577,7 @@ async function prepareCenterAgentOrganizationMemberRead(
   }
 ): Promise<{
   authorization: CurrentDesignatedCenterAgentAuthorization;
+  representedContext: OpenMeldRequestContext | null;
   sourceNativeDeliveryId: string | null;
 }> {
   const context = requireRpcContext(input.context);
@@ -14520,6 +14599,24 @@ async function prepareCenterAgentOrganizationMemberRead(
     );
     return {
       authorization: prepared.authorization,
+      representedContext:
+        prepared.member.sourceNativeDeliveryId &&
+        prepared.member.userId &&
+        prepared.member.profileId
+          ? {
+              activeOrganizationId:
+                prepared.authorization.activeOrganization.organizationId,
+              actorContext: {
+                callerPrincipalId: prepared.member.userId,
+                ownerUserId: prepared.member.userId,
+                openMeldProfileId: prepared.member.profileId,
+                profileKind: "human",
+                profileName: prepared.member.displayName,
+                requestId:
+                  prepared.authorization.context.actorContext.requestId,
+              },
+            }
+          : null,
       sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
     };
   }
@@ -14528,6 +14625,7 @@ async function prepareCenterAgentOrganizationMemberRead(
       context,
       env,
     }),
+    representedContext: null,
     sourceNativeDeliveryId: null,
   };
 }
@@ -16165,6 +16263,12 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
             retryAfterSeconds: delegatedWake.retryAfterSeconds,
           };
   } else {
+    attribution = await recordCenterAgentDirectWakeAttribution({
+      authorization,
+      clientMessageId,
+      onBehalfOfProfileId: parsed.onBehalfOf?.profileId ?? null,
+      spaceId: parsed.spaceId,
+    });
     const postedSignal = await rpcPostSignalOnceByClientMessageId(env, {
       authoringPolicy: "user_authored",
       clientMessageId,
@@ -16191,12 +16295,6 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
     publication = {
       signal: postedSignal,
     };
-    attribution = await writeCenterAgentAuditEntry({
-      action: "wake_agent_profiles_in_space",
-      authorization,
-      onBehalfOfProfileId: parsed.onBehalfOf?.profileId ?? null,
-      resource: { type: "space", id: parsed.spaceId },
-    });
   }
   const response = buildCenterAgentWakeAgentProfilesInSpaceResponse({
     agentProfileIds: targetProfileIds,
@@ -16216,6 +16314,47 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       signal: response.signal,
     }),
   };
+}
+
+async function recordCenterAgentDirectWakeAttribution(input: {
+  authorization: CurrentDesignatedCenterAgentAuthorization;
+  clientMessageId: string;
+  onBehalfOfProfileId: string | null;
+  spaceId: string;
+}): Promise<CenterAgentWakeAgentProfilesInSpaceResponse["attribution"]> {
+  // Write before the idempotent Space post, so a crash cannot leave an
+  // accepted Wake without requester provenance. Replays preserve the row.
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization: input.authorization,
+    onBehalfOfProfileId: input.onBehalfOfProfileId,
+  });
+  await insertCenterAgentAuditJournalEntryIfMissing({
+    action: "wake_agent_profiles_in_space",
+    actorProfileId: input.authorization.actorProfileId,
+    attribution,
+    db: input.authorization.db,
+    id: `center-agent-wake:${input.clientMessageId}`,
+    nowMs: Date.now(),
+    organizationId: input.authorization.activeOrganization.organizationId,
+    resource: { type: "space", id: input.spaceId },
+  });
+  const recorded = await readCenterAgentWakeAuditAttribution({
+    clientMessageId: input.clientMessageId,
+    db: input.authorization.db,
+  });
+  if (
+    recorded?.organizationId !==
+      input.authorization.activeOrganization.organizationId ||
+    recorded.actorProfileId !== input.authorization.actorProfileId ||
+    recorded.resourceType !== "space" ||
+    recorded.resourceId !== input.spaceId ||
+    recorded.onBehalfOfProfileId !==
+      (attribution.onBehalfOf?.profileId ?? null) ||
+    recorded.onBehalfOfUserId !== (attribution.onBehalfOf?.userId ?? null)
+  ) {
+    throw new Error("Center Agent Wake requester provenance conflicted");
+  }
+  return attribution;
 }
 
 function buildCenterAgentWakeAgentProfilesInSpaceResponse(input: {

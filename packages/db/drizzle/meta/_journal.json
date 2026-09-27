@@ -1296,6 +1296,13 @@
       "when": 1790485312805,
       "tag": "0184_lethal_ultimates",
       "breakpoints": true
+    },
+    {
+      "idx": 185,
+      "version": "6",
+      "when": 1790507988646,
+      "tag": "0185_stiff_ultron",
+      "breakpoints": true
     }
   ]
 }

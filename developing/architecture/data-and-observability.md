@@ -744,10 +744,10 @@ requests. It does not reinterpret an existing operation as
 provider-attributed.
 
 OpenConnector receives that operation ID as its idempotency key and owns the
-provider execution ID plus durable result replay. Every successful provider
-response carries the exact output schema that describes its data, and
-OpenConnector persists and replays both together. Core stores only the provider
-execution ID and `pending`, `completed`, `failed`, or `outcome_unknown` status;
+provider execution ID plus durable result replay. The action catalog carries
+the output schema; a successful execution response carries data and execution
+metadata without a schema. Core stores only the provider execution ID and
+`pending`, `completed`, `failed`, or `outcome_unknown` status;
 it does not copy provider output, its output schema, credentials, or action
 input. A later provider replay may reconcile `outcome_unknown` to `completed`
 or `failed`. Audit history may therefore show the earlier uncertainty and later
@@ -1948,6 +1948,14 @@ not copy `spaceId`, source signal, thread context, or provider locator into the
 continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
+
+An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
+`center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
+attribution before a direct Space publication; delegated publication writes
+the same deterministic row during accepted settlement. Space compares that
+row's Organization, actor, Space, and represented member to the persisted
+source Signal when authorizing Stop. Older direct Wakes without an exact row
+do not gain this special Stop authority.
 
 `center_agent_wake_publications` is the durable publication outbox for the
 initial Space message that starts delegated child work. It stores the exact

@@ -364,6 +364,12 @@ Core checkpoints the committed ID on the fenced `approved` request immediately
 after Auth returns and before starting Space, Binding, working-folder, or
 Default Project setup. A stale-attempt recovery therefore cannot relabel a
 known committed identity as a creation failure.
+After Binding, Core completes the working-folder mutation and releases its
+execution-target mutation lease before setting Default Project. The two
+operations must not compete for the same lease. The request checkpoints each
+completed post-Binding step so a retry of the same committed Profile skips that
+step. If the working-folder outcome is unknown, Core does not advance to Default
+Project; the lease and request failure remain visible for safe recovery.
 
 Before Auth creates the Agent Profile identity, Core revalidates the selected
 local-agent candidate against the target member's current Computer projection.
