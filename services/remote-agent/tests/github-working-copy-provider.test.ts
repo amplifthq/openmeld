@@ -60,10 +60,7 @@ describe("fixed GitHub working-copy proxy adapter", () => {
   it("fails closed instead of following a redirect from the connection runtime", async () => {
     const f = fixture({});
     f.fetchMock.mockResolvedValueOnce(
-      new Response(null, {
-        status: 302,
-        headers: { location: "https://elsewhere.example/steal" },
-      })
+      Response.redirect("https://elsewhere.example/steal", 302)
     );
     await expect(f.provider.repository()).rejects.toThrow(
       "github.checkout.unexpected_redirect"
