@@ -425,6 +425,7 @@ type NativeDeliveryPublishRecord = Pick<
   | "anonymousMemberSpeaker"
   | "bindingId"
   | "conversationKind"
+  | "controllerNormalizationSnapshot"
   | "deliveryId"
   | "dispatchId"
   | "executionRecoverySubmitRequest"
@@ -3015,16 +3016,28 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
     env: input.env,
     profileId: input.delivery.profileId,
   });
+  const personalAgent = isPersonalHostedDelivery(input.delivery);
   const profileName =
-    normalizeOptionalText(targetProfile.profileName) ?? "Center Agent";
+    normalizeOptionalText(targetProfile.profileName) ??
+    (personalAgent ? "Agent" : "Center Agent");
   const profile = buildDispatchReplyTargetProfile({
     agentControllerConversationId: null,
-    agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    agentControllerRef: personalAgent
+      ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      : HOSTED_CENTER_AGENT_CONTROLLER_REF,
     ownerUserId: targetProfile.ownerUserId,
     profileHandle: targetProfile.profileHandle,
     targetProfileId: input.delivery.profileId,
     targetProfileName: profileName,
   });
+  const failureText = personalAgent
+    ? resolveCenterAgentCallbackFailureMessage({
+        agentLabel: profileName,
+        failureCode: input.failureCode,
+        failureDetail: input.delivery.failureDetail,
+        failureMessage: input.failureMessage,
+      })
+    : input.failureMessage;
   const requestId = `task-continuation-failure:${input.delivery.deliveryId}`;
   const context: OpenMeldRequestContext = {
     activeOrganizationId: input.delivery.organizationId,
@@ -3048,7 +3061,7 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
       activationTargets: [],
       referenceTargets: [],
       replyToSignalId: input.delivery.triggerMessageId,
-      text: input.failureMessage,
+      text: failureText,
     },
     meta: {
       clientMessageId: requestId,
@@ -3067,7 +3080,7 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
       targetProfileId: input.delivery.profileId,
     }),
     spaceId: input.delivery.spaceId,
-    text: input.failureMessage,
+    text: failureText,
     ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
   });
 }
@@ -6429,7 +6442,7 @@ async function publishRetriedRoutineFailure(input: {
   env: CoreBindings;
   run: Awaited<ReturnType<typeof listUnpublishedFailedRoutineRuns>>[number];
 }): Promise<{ id?: string | null } | null> {
-  const runUrl = isPersonalRoutineDelivery(input.delivery)
+  const runUrl = isPersonalHostedDelivery(input.delivery)
     ? undefined
     : await resolveRoutineRunUrl({
         env: input.env,
@@ -6468,7 +6481,7 @@ async function publishRetriedRoutineFailure(input: {
     : null;
   return await publishRemoteAgentRoutineText({
     clientMessageId: input.run.runId,
-    personalAgent: isPersonalRoutineDelivery(input.delivery),
+    personalAgent: isPersonalHostedDelivery(input.delivery),
     delivery: {
       dispatchId: input.run.runId,
       organizationId: input.run.organizationId,
@@ -6591,12 +6604,18 @@ function buildRoutinePublisherProfileOwner(input: {
   return { owner: input.ownerUserId };
 }
 
-function isPersonalRoutineDelivery(
+function isPersonalHostedDelivery(
   delivery: NativeDeliveryPublishRecord | null
 ): boolean {
-  const request = delivery?.workerSubmitRequest;
+  const request =
+    delivery?.executionRecoverySubmitRequest ?? delivery?.workerSubmitRequest;
+  const normalizationSnapshot = delivery?.controllerNormalizationSnapshot;
   return (
-    request?.v === 4 && request.conversationIdentity?.kind === "personal_agent"
+    (request?.v === 4 &&
+      request.conversationIdentity?.kind === "personal_agent") ||
+    (normalizationSnapshot?.storedAgentControllerRefStatus === "canonical" &&
+      normalizationSnapshot.storedAgentControllerRef ===
+        HOSTED_REMOTE_AGENT_CONTROLLER_REF)
   );
 }
 
@@ -11363,6 +11382,15 @@ export async function publishRemoteAgentFailureNotice(input: {
     env: input.env,
     message: input.message,
   });
+  const failureText =
+    input.message.controllerSnapshot.agentControllerRef ===
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      ? resolveCenterAgentCallbackFailureMessage({
+          agentLabel: failureTarget.profileName ?? "Agent",
+          failureCode: input.errorCode,
+          failureMessage: input.text,
+        })
+      : input.text;
   const context = buildRemoteAgentFailureContext({
     message: input.message,
     profile: failureTarget.profile,
@@ -11390,7 +11418,7 @@ export async function publishRemoteAgentFailureNotice(input: {
       reason: input.errorCode,
       reasonCode: input.errorCode,
       failureStage: "execution",
-      text: input.text,
+      text: failureText,
       coreReadinessFactsChanged: {
         agentProfileId: input.message.targetProfileId,
         kind: CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -11521,24 +11549,25 @@ async function publishRemoteAgentCallbackFailureText(input: {
     );
   }
   if (input.delivery.conversationKind === "slack") {
+    const { profileName } =
+      await resolveRemoteAgentCallbackFailureProfile(input);
     return await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
       env: input.env,
-      text: resolveCenterAgentCallbackFailureMessage(input.body),
+      text: resolveCenterAgentCallbackFailureMessage({
+        ...input.body,
+        agentLabel: profileName,
+      }),
     });
   }
 
   if (input.delivery.routineRunId) {
     const runUrl = await resolveCallbackRoutineRunUrl(input);
-    const targetProfile = await resolveRemoteAgentTargetProfile({
-      env: input.env,
-      profileId: input.delivery.profileId,
-    });
-    const profileName =
-      normalizeOptionalText(targetProfile.profileName) ?? "Center Agent";
+    const { personalAgent, profileName, targetProfile } =
+      await resolveRemoteAgentCallbackFailureProfile(input);
     return await publishRemoteAgentRoutineText({
       clientMessageId: input.delivery.routineRunId,
-      personalAgent: isPersonalRoutineDelivery(input.delivery),
+      personalAgent,
       delivery: {
         dispatchId: input.delivery.dispatchId,
         organizationId: input.delivery.organizationId,
@@ -11552,7 +11581,10 @@ async function publishRemoteAgentCallbackFailureText(input: {
       purpose: REMOTE_AGENT_FAILURE_PURPOSE,
       text: buildRoutineFailureText({
         failureCode: input.body.failureCode,
-        failureReason: resolveCenterAgentCallbackFailureMessage(input.body),
+        failureReason: resolveCenterAgentCallbackFailureMessage({
+          ...input.body,
+          agentLabel: profileName,
+        }),
         routineName:
           normalizeOptionalText(input.delivery.routineNameSnapshot) ??
           "Scheduled Routine",
@@ -11718,7 +11750,7 @@ async function resolveRemoteAgentCallbackFailureProfile(
   input: Parameters<typeof publishRemoteAgentCallbackFailureText>[0]
 ) {
   const targetProfile = await resolveRemoteAgentCallbackFailureTarget(input);
-  const personalAgent = isPersonalRoutineDelivery(input.delivery);
+  const personalAgent = isPersonalHostedDelivery(input.delivery);
   const profileName =
     normalizeOptionalText(targetProfile.profileName) ??
     (personalAgent ? "Agent" : "Center Agent");
@@ -11731,7 +11763,7 @@ async function resolveCallbackRoutineRunUrl(input: {
 }): Promise<string | undefined> {
   const db = routineDb(input.env);
   const runId = input.delivery.routineRunId;
-  if (!(db && runId) || isPersonalRoutineDelivery(input.delivery)) {
+  if (!(db && runId) || isPersonalHostedDelivery(input.delivery)) {
     return undefined;
   }
   let run: Awaited<ReturnType<typeof readRoutineRunRecord>>;
@@ -11791,7 +11823,11 @@ async function resolveRemoteAgentFailureTarget(input: {
       profileHandle: targetProfile.profileHandle,
       targetProfileName: profileName,
       ownerUserId: targetProfile.ownerUserId,
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        input.message.controllerSnapshot.agentControllerRef ===
+        HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
       agentControllerConversationId: null,
     }),
   };
@@ -11837,7 +11873,7 @@ async function publishRemoteAgentCallbackReply(input: {
     return await publishRemoteAgentRoutineText({
       agentStreamId: buildRemoteAgentStreamId(input.body.submissionId),
       mentionTargets: input.body.mentionTargets,
-      personalAgent: isPersonalRoutineDelivery(input.delivery),
+      personalAgent: isPersonalHostedDelivery(input.delivery),
       ...(input.body.attachments?.length
         ? { attachments: input.body.attachments }
         : {}),
@@ -12567,7 +12603,11 @@ function buildRemoteAgentFailureContext(input: {
       profileKind: "agent",
       ...(profileName ? { profileName } : {}),
       ...(ownerUserId ? { ownerUserId } : {}),
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        input.profile.kind === "agent" &&
+        input.profile.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
       dispatchChainId: input.message.dispatchChainId,
       autoRelayDepth: input.message.autoRelayDepth,
       visitedProfileIds: input.message.visitedProfileIds,
@@ -12596,7 +12636,11 @@ function buildRemoteAgentCallbackContext(input: {
             ownerUserId: input.profile.owner,
           }
         : {}),
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerRef:
+        input.profile.kind === "agent" &&
+        input.profile.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
+          : HOSTED_CENTER_AGENT_CONTROLLER_REF,
     },
     agentControllerConversationId: input.submissionId,
   };

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildHostedAgentRequestFailedPublicCopy,
+  CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
   DISPATCH_ERROR_SUMMARY_MAX_LENGTH,
   isAgentExecutionReadinessImpactReasonCode,
   isProjectLocalConnectionFailureReasonCode,
@@ -161,6 +163,9 @@ describe("public agent failure reason mapping", () => {
     );
   });
   it("names the hosted Agent that failed instead of the Center Agent", () => {
+    expect(buildHostedAgentRequestFailedPublicCopy("Center Agent")).toBe(
+      CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY
+    );
     expect(
       resolveCenterAgentCallbackFailureMessage({
         agentLabel: "PR Review GPT-6 Sol High",
@@ -168,7 +173,7 @@ describe("public agent failure reason mapping", () => {
         failureMessage: "Remote Agent could not finish this request.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so PR Review GPT-6 Sol High couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
+      "PR Review GPT-6 Sol High couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team."
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -177,8 +182,28 @@ describe("public agent failure reason mapping", () => {
         failureMessage: "Remote Agent could not finish this request.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
+      "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team."
     );
+  });
+  it("explains a revoked requester without publishing raw callback details", () => {
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        agentLabel: "Codex",
+        failureCode: "remote_agent.turn_not_completed",
+        failureDetail: "remote_agent.requester_membership_revoked",
+        failureMessage: "Internal callback failure",
+      })
+    ).toBe(
+      "OpenMeld could not confirm the requester's current access to this Space, so Codex stopped. Check the requester's Space membership, then wake Codex again."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        agentLabel: "Codex",
+        failureCode: "remote_agent.turn_not_completed",
+        failureDetail: "provider key: secret",
+        failureMessage: "Internal callback failure",
+      })
+    ).toBe(buildHostedAgentRequestFailedPublicCopy("Codex"));
   });
   it("canonicalizes mixed-version Center Agent callback failures before publication", () => {
     expect(
@@ -188,7 +213,7 @@ describe("public agent failure reason mapping", () => {
           "Remote Agent could not finish this request. Please try again or open diagnostics.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
+      "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team."
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -212,7 +237,7 @@ describe("public agent failure reason mapping", () => {
         failureMessage: "Remote Agent runtime failed unexpectedly.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
+      "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team."
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -220,7 +245,7 @@ describe("public agent failure reason mapping", () => {
         failureMessage: "The model provider is busy. Try again in a moment.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
+      "The model provider rate-limited this request. Wait a moment, then wake the agent again."
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -257,7 +282,7 @@ describe("public agent failure reason mapping", () => {
           "This turn's active tool catalog does not include Space management tools.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
+      "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team."
     );
   });
 
