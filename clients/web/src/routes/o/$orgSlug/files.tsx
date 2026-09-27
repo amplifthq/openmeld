@@ -18,6 +18,8 @@ export const Route = createFileRoute("/o/$orgSlug/files")({
 		view:
 			search.view === "knowledge" ||
 			search.view === "my" ||
+			search.view === "trash" ||
+			search.view === "trash-my" ||
 			search.view === "skills"
 				? search.view
 				: undefined,
@@ -52,7 +54,10 @@ function TeamFilesRoute() {
 	const { view, folder, create, document, kind, subjectUserId } =
 		Route.useSearch();
 	let content = (
-		<TeamFilesPage initialLocation={view === "my" ? "my" : "team"} />
+		<TeamFilesPage
+			initialLocation={view === "my" || view === "trash-my" ? "my" : "team"}
+			initialView={view === "trash" || view === "trash-my" ? "trash" : "active"}
+		/>
 	);
 	if (view === "knowledge") {
 		content = (

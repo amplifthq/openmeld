@@ -68,7 +68,15 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+	lazy,
+	type ReactNode,
+	Suspense,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import type { FileSystemItem } from "#/components/extend/file-system";
 import {
@@ -115,14 +123,18 @@ const NEW_TEXT_FILE_CONTEXT_LABELS = {
 } as const;
 
 export function TeamFilesPage(
-	input: { initialLocation?: FileRootLocation } = {}
+	input: {
+		initialLocation?: FileRootLocation;
+		initialView?: "active" | "trash";
+	} = {}
 ) {
 	const { currentOrganization } = useAppOrganization();
 	return (
 		<TeamFilesBrowser
 			currentOrganization={currentOrganization}
 			initialLocation={input.initialLocation ?? "team"}
-			key={`${currentOrganization.id}:${input.initialLocation ?? "team"}`}
+			initialView={input.initialView ?? "active"}
+			key={`${currentOrganization.id}:${input.initialLocation ?? "team"}:${input.initialView ?? "active"}`}
 		/>
 	);
 }
@@ -144,6 +156,12 @@ export function TeamKnowledgeFilesPage(input: {
 					: "shrink-0"
 			}
 			onValueChange={(value) => {
+				if (value === "trash") {
+					navigate({
+						to: buildOrganizationFilesPath(currentOrganization.slug),
+						search: { view: "trash" },
+					}).catch(console.error);
+				}
 				if (value === "team" || value === "my") {
 					navigate({
 						to: buildOrganizationFilesPath(currentOrganization.slug),
@@ -158,6 +176,7 @@ export function TeamKnowledgeFilesPage(input: {
 				{currentOrganization.isPersonal ? null : (
 					<TabItem label="My files" value="my" />
 				)}
+				<TabItem label="Trash" value="trash" />
 			</TabsList>
 		</Tabs>
 	);
@@ -198,6 +217,7 @@ function TeamFilesBrowser(input: {
 		typeof useAppOrganization
 	>["currentOrganization"];
 	initialLocation: FileRootLocation;
+	initialView: "active" | "trash";
 }) {
 	const { currentOrganization } = input;
 	const navigate = useNavigate();
@@ -205,7 +225,7 @@ function TeamFilesBrowser(input: {
 		input.initialLocation
 	);
 	const [parentId, setParentId] = useState<string | null>(null);
-	const [view, setView] = useState<"active" | "trash">("active");
+	const [view, setView] = useState<"active" | "trash">(input.initialView);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [newTextFileKind, setNewTextFileKind] = useState<
 		"markdown" | "text" | "csv" | null
@@ -345,15 +365,49 @@ function TeamFilesBrowser(input: {
 			setBusy(false);
 		}
 	};
-	const changeLocation = (next: FileRootLocation) => {
-		setLocation(next);
+	const changeView = (
+		nextLocation: FileRootLocation,
+		nextView: "active" | "trash"
+	) => {
+		setLocation(nextLocation);
 		setParentId(null);
-		setView("active");
+		setView(nextView);
 		setActionError(null);
+		setSelectedId(null);
+		setSelectedKnowledgeFolder(false);
+		let search: { view?: "my" | "trash" | "trash-my" } = {};
+		if (nextView === "trash") {
+			search = { view: nextLocation === "my" ? "trash-my" : "trash" };
+		} else if (nextLocation === "my") {
+			search = { view: "my" };
+		}
+		navigate({
+			to: buildOrganizationFilesPath(currentOrganization.slug),
+			search,
+		}).catch(console.error);
 	};
 	const copyDestination: FileRootLocation = location === "team" ? "my" : "team";
-	const breadcrumb =
-		parentId && view === "active" ? (
+	let breadcrumb: ReactNode = null;
+	if (view === "trash") {
+		breadcrumb = (
+			<div className="flex min-w-0 items-center gap-1 text-sm">
+				<Button
+					onClick={() => changeView(location, "active")}
+					size="sm"
+					type="button"
+					variant="ghost"
+				>
+					{location === "my" ? "My files" : "Team files"}
+				</Button>
+				<CaretRightIcon
+					aria-hidden="true"
+					className="size-3.5 text-muted-foreground"
+				/>
+				<span className="font-medium">Trash</span>
+			</div>
+		);
+	} else if (parentId) {
+		breadcrumb = (
 			<div className="flex min-w-0 items-center gap-1 text-sm">
 				{files.data?.breadcrumbs.map((crumb, index) => (
 					<span
@@ -381,7 +435,8 @@ function TeamFilesBrowser(input: {
 					</span>
 				))}
 			</div>
-		) : null;
+		);
+	}
 	const toolbarActions = (
 		<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 			{view === "active" ? (
@@ -454,33 +509,40 @@ function TeamFilesBrowser(input: {
 							</FluidDropdownMenuItem>
 						</FluidDropdownMenuContent>
 					</DropdownMenu>
-					<Button
-						onClick={() => {
-							setParentId(null);
-							setView("trash");
-						}}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						<TrashIcon aria-hidden="true" /> Trash
-					</Button>
 				</>
-			) : (
-				<Button
-					onClick={() => setView("active")}
-					size="sm"
-					type="button"
-					variant="outline"
+			) : null}
+			{view === "trash" && !currentOrganization.isPersonal ? (
+				<Select
+					onValueChange={(value) =>
+						changeView(value as FileRootLocation, "trash")
+					}
+					value={location}
 				>
-					<ArrowCounterClockwiseIcon aria-hidden="true" /> Back to files
-				</Button>
-			)}
+					<SelectTrigger
+						aria-label="Trash location"
+						className="h-8 min-w-32"
+						displayValue={location === "my" ? "My files" : "Team files"}
+					/>
+					<SelectContent>
+						<SelectItem index={0} value="team">
+							Team files
+						</SelectItem>
+						<SelectItem index={1} value="my">
+							My files
+						</SelectItem>
+					</SelectContent>
+				</Select>
+			) : null}
 		</div>
 	);
+	const browserTitle =
+		view === "trash"
+			? "Trash"
+			: (files.data?.breadcrumbs.at(-1)?.name ??
+				(location === "my" ? "My files" : "Team files"));
 	return (
 		<section
-			aria-label="Team files"
+			aria-label={browserTitle}
 			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
 		>
 			{actionError ? (
@@ -575,25 +637,26 @@ function TeamFilesBrowser(input: {
 										item ? (entriesByPath.get(item.path)?.id ?? null) : null
 									);
 								}}
-								title={
-									files.data?.breadcrumbs.at(-1)?.name ??
-									(location === "my" ? "My files" : "Team files")
-								}
+								title={browserTitle}
 								toolbarActions={toolbarActions}
 								toolbarStart={
 									<Tabs
 										onValueChange={(value) => {
+											if (value === "trash") {
+												changeView(location, "trash");
+											}
 											if (value === "team" || value === "my") {
-												changeLocation(value);
+												changeView(value, "active");
 											}
 										}}
-										value={location}
+										value={view === "trash" ? "trash" : location}
 									>
 										<TabsList className="w-fit">
 											<TabItem label="Team files" value="team" />
 											{currentOrganization.isPersonal ? null : (
 												<TabItem label="My files" value="my" />
 											)}
+											<TabItem label="Trash" value="trash" />
 										</TabsList>
 									</Tabs>
 								}
@@ -928,7 +991,7 @@ function TeamFilesBrowser(input: {
 									});
 									await refresh();
 									setCopyingEntry(null);
-									changeLocation(copyDestination);
+									changeView(copyDestination, "active");
 								} catch (cause) {
 									setCopyError(
 										cause instanceof Error
