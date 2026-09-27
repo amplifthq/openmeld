@@ -9,7 +9,6 @@ export type AppShellSection =
 	| "computers"
 	| "connect"
 	| "directMessages"
-	| "documents"
 	| "home"
 	| "inbox"
 	| "onboarding"
@@ -26,13 +25,12 @@ export type AppOuterRailDestination =
 	| "agents"
 	| "computers"
 	| "directMessages"
-	| "documents"
 	| "home"
 	| "people"
 	| "projects"
 	| "settings"
 	| "spaces";
-type AppShellStaticDataKey = AppShellSection;
+type AppShellStaticDataKey = AppShellSection | "documents";
 
 declare module "@tanstack/react-router" {
 	// biome-ignore lint/style/useConsistentTypeDefinitions: TanStack Router staticData uses interface declaration merging.
@@ -117,7 +115,6 @@ export function resolveAppOuterRailDestinationFromMatches(
 		case "agents":
 		case "computers":
 		case "directMessages":
-		case "documents":
 		case "home":
 		case "inbox":
 		case "people":
