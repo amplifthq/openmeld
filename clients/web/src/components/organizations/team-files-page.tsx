@@ -144,7 +144,7 @@ export function TeamKnowledgeFilesPage(input: {
 	return (
 		<section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
 			<Tabs
-				className="shrink-0 border-b px-5 py-2"
+				className="shrink-0 px-[var(--app-page-inline-padding)] py-2"
 				onValueChange={(value) => {
 					if (value === "skills") {
 						navigate({
@@ -170,7 +170,7 @@ export function TeamKnowledgeFilesPage(input: {
 					<TabItem label="Skills" value="skills" />
 				</TabsList>
 			</Tabs>
-			<div className="min-h-0 flex-1 overflow-auto p-5">
+			<div className="min-h-0 flex-1 overflow-auto px-[var(--app-page-inline-padding)] py-5">
 				{input.documentId ? (
 					<OrganizationDocumentDetailPage documentId={input.documentId} />
 				) : null}
@@ -236,7 +236,7 @@ export function TeamSkillFilesPage() {
 			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
 		>
 			<Tabs
-				className="shrink-0 border-b px-5 py-2"
+				className="shrink-0 px-[var(--app-page-inline-padding)] py-2"
 				onValueChange={(value) => {
 					if (value === "team" || value === "my" || value === "knowledge") {
 						navigate({
@@ -256,7 +256,7 @@ export function TeamSkillFilesPage() {
 					<TabItem label="Skills" value="skills" />
 				</TabsList>
 			</Tabs>
-			<div className="min-h-0 flex-1 overflow-auto p-5">
+			<div className="min-h-0 flex-1 overflow-auto px-[var(--app-page-inline-padding)] py-5">
 				<p className="mb-5 text-muted-foreground text-sm">
 					Published Skill instructions and resources are read-only here. Manage
 					installation and versions in Skills.
@@ -697,15 +697,6 @@ function TeamFilesBrowser(input: {
 						ref={inputRef}
 						type="file"
 					/>
-					<Button
-						disabled={busy}
-						onClick={() => inputRef.current?.click()}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						<UploadSimpleIcon aria-hidden="true" /> Upload
-					</Button>
 					<DropdownMenu>
 						<DropdownMenuTrigger render={<Button disabled={busy} size="sm" />}>
 							<PlusIcon aria-hidden="true" /> New
@@ -735,7 +726,7 @@ function TeamFilesBrowser(input: {
 							>
 								<FolderPlusIcon aria-hidden="true" /> Folder
 							</FluidDropdownMenuItem>
-							<DropdownMenuSeparator />
+							<DropdownMenuSeparator className="my-1.5" />
 							<FluidDropdownMenuItem
 								index={4}
 								onClick={() => inputRef.current?.click()}
@@ -774,7 +765,7 @@ function TeamFilesBrowser(input: {
 			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
 		>
 			<Tabs
-				className="shrink-0 border-b px-5 py-2"
+				className="shrink-0 px-[var(--app-page-inline-padding)] py-2"
 				onValueChange={(value) => {
 					if (value === "knowledge") {
 						navigate({
@@ -818,7 +809,7 @@ function TeamFilesBrowser(input: {
 						: `Uploading ${uploadProgress.name} · ${uploadProgress.percent}%`}
 				</output>
 			) : null}
-			<div className="min-h-0 flex-1 p-5">
+			<div className="min-h-0 flex-1 px-[calc(var(--app-page-inline-padding)_-_0.5rem)] py-5">
 				<ContextMenu
 					key={`${currentOrganization.id}:${location}:${parentId ?? "root"}:${view}`}
 				>
