@@ -1805,7 +1805,9 @@ describe("Organization Skills", () => {
             context,
           })
         ).batch.results
-      ).toMatchObject([{ status: "failed" }]);
+      ).toMatchObject([
+        { status: "failed", error: expect.not.stringContaining("HTTP 4") },
+      ]);
       resourceUnavailable = false;
       const installed = await rpcImportOrganizationSkillFromGitHub(
         coreEnv(),

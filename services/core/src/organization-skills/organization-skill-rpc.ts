@@ -344,15 +344,25 @@ async function importGitHubSkillInBatch(input: {
         path: item.path,
         selected: true,
         status: "failed",
-        error: (error instanceof Error ? error.message : String(error)).slice(
-          0,
-          2048
-        ),
+        error: batchFailureMessage(error),
       },
       userId: actor.userId,
     });
     throw error;
   }
+}
+
+function batchFailureMessage(error: unknown): string {
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (
+    cause &&
+    typeof cause === "object" &&
+    "message" in cause &&
+    typeof cause.message === "string"
+  ) {
+    return cause.message.slice(0, 2048);
+  }
+  return "This Skill could not be installed. Try again.";
 }
 
 function requireManagerActor(actor: OrganizationSkillActor): void {
