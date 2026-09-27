@@ -53,6 +53,7 @@ import {
 } from "#/components/editor/ui/inline-combobox";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
@@ -263,6 +264,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			text: input.text,
 		};
 		const wasFocused = editor.api.isFocused();
+		recordReactUpdate("composer_editor_external_value");
 		editor.tf.setValue(
 			createSpaceComposerEditorValue({
 				authoredMentions: input.authoredMentions,
@@ -398,6 +400,15 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				onChange={({ editor: changedEditor }) => {
 					const serialized = serializeSpaceComposerEditorValue(
 						changedEditor.children
+					);
+					recordReactUpdate(
+						serialized.text === input.text &&
+							authoredMentionsEqual(
+								serialized.authoredMentions,
+								input.authoredMentions
+							)
+							? "composer_editor_change_equal"
+							: "composer_editor_change_different"
 					);
 					const pendingExternalValue = pendingExternalValueRef.current;
 					if (

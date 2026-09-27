@@ -13,6 +13,7 @@ import {
 	summarizeApplicationError,
 	WEB_ERROR_BUILD,
 } from "./application-error";
+import { readRecentReactUpdates } from "./react-update-trace";
 import { browserDiagnosticContext } from "./space-open";
 
 const DIAGNOSTIC_REQUEST_ID = /^[A-Za-z0-9_.:-]+$/;
@@ -165,6 +166,9 @@ function createApplicationErrorReport(
 	const elapsedMs = lastNavigation
 		? Math.floor(performance.now() - lastNavigation.startedAt)
 		: -1;
+	const summary = summarizeApplicationError(error, resource);
+	const reactUpdateTrace =
+		summary.code === "react_update_depth" ? readRecentReactUpdates() : [];
 	return {
 		version: 1,
 		id: crypto.randomUUID(),
@@ -182,8 +186,9 @@ function createApplicationErrorReport(
 				}
 			: {}),
 		...(reactBoundary ? { reactBoundary } : {}),
+		...(reactUpdateTrace.length > 0 ? { reactUpdateTrace } : {}),
 		...(query ? { query } : {}),
-		error: summarizeApplicationError(error, resource),
+		error: summary,
 	};
 }
 

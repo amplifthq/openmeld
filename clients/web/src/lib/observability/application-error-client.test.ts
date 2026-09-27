@@ -51,6 +51,37 @@ describe("browser application error reporting", () => {
 		expect(second.reactBoundary).toBe("markdown_editor");
 	});
 
+	it("attaches only recent fixed update labels to a React depth report", async () => {
+		const { recordReactUpdate } = await import("./react-update-trace");
+		const { reportClientApplicationError } = await import(
+			"./application-error-client"
+		);
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(100)
+			.mockReturnValueOnce(110)
+			.mockReturnValue(130);
+		recordReactUpdate("composer_draft_set");
+		recordReactUpdate("composer_editor_external_value");
+		reportClientApplicationError(
+			new Error("Minified React error #185; private token"),
+			"react_caught"
+		);
+		const body = String(vi.mocked(fetch).mock.calls[0]?.[1]?.body);
+		expect(JSON.parse(body)).toMatchObject({
+			error: { code: "react_update_depth" },
+			reactUpdateTrace: [
+				{ event: "composer_draft_set", ageMs: 30 },
+				{ event: "composer_editor_external_value", ageMs: 20 },
+			],
+		});
+		expect(body).not.toMatch(PRIVATE_CONTENT);
+		reportClientApplicationError(new Error("ordinary failure"), "route");
+		expect(
+			JSON.parse(String(vi.mocked(fetch).mock.calls[1]?.[1]?.body))
+				.reactUpdateTrace
+		).toBeUndefined();
+	});
+
 	it("expires the previous route before a later error or manual report", async () => {
 		const { recordApplicationErrorNavigation, submitApplicationErrorReport } =
 			await import("./application-error-client");

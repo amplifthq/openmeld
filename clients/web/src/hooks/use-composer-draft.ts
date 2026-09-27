@@ -12,6 +12,7 @@ import {
 	removeComposerDraft,
 	writeComposerDraft,
 } from "#/lib/composer-draft-storage";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 
 type ComposerDraftState = {
 	draft: ComposerDraftRecord;
@@ -65,6 +66,7 @@ export function useComposerDraft(input: {
 	}, [initialDraft, input.migrateFromScopes, input.scope]);
 
 	useLayoutEffect(() => {
+		recordReactUpdate("composer_draft_restore");
 		setState((current) =>
 			restoreComposerDraftState({
 				current,
@@ -77,6 +79,7 @@ export function useComposerDraft(input: {
 
 	const setDraft = useCallback(
 		(update: SetStateAction<ComposerDraftContent>) => {
+			recordReactUpdate("composer_draft_set");
 			setState((current) => {
 				const updatesCurrentScope = current.storageKey === storageKey;
 				let boundDraft = current.draft;
