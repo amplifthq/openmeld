@@ -582,6 +582,7 @@ function TeamFilesBrowser(input: {
 								breadcrumb={breadcrumb}
 								className="h-full min-h-96"
 								embedded
+								emptyLabel={view === "trash" ? "Trash is empty" : undefined}
 								errorContent={
 									files.isError ? (
 										<div className="grid justify-items-center gap-3 p-8">

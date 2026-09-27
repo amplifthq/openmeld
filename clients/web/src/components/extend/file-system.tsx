@@ -185,6 +185,8 @@ export type FileSystemProps = {
   errorContent?: React.ReactNode
   /** Label for the root folder. */
   title?: string
+  /** Message shown when the current location has no items. */
+  emptyLabel?: string
   defaultView?: FileSystemView
   view?: FileSystemView
   onViewChange?: (view: FileSystemView) => void
@@ -1243,6 +1245,7 @@ export function FileSystem({
   isLoading = false,
   errorContent,
   title = "Files",
+  emptyLabel = "This folder is empty",
   defaultView = "icons",
   view: viewProp,
   onViewChange,
@@ -1845,6 +1848,7 @@ export function FileSystem({
   const viewProps: FileSystemViewProps = {
     attachedStagePaths,
     currentPath,
+    emptyLabel,
     entries: currentEntries,
     fileFilter,
     getFileUrl,
@@ -2079,7 +2083,7 @@ export function FileSystem({
                 ? `No results for “${searchInput.trim()}”`
                 : hasActiveFilters
                   ? "No items match the active filters"
-                  : "This folder is empty"
+                  : emptyLabel
             }
           />
         ) : view === "icons" ? (
@@ -2942,6 +2946,7 @@ function FileSystemDateRangeDialog({
 }
 type FileSystemViewProps = {
   currentPath: string
+  emptyLabel: string
   entries: FileSystemEntry[]
   fileFilter: ((file: FileEntry) => boolean) | null
   getFileUrl?: (file: FileSystemFileItem) => string | Promise<string>
@@ -3421,6 +3426,7 @@ function FileSystemListColumnHeader({
 }
 function FileSystemListView({
   currentPath,
+  emptyLabel,
   fileFilter,
   index,
   onOpen,
@@ -3458,7 +3464,7 @@ function FileSystemListView({
         label={
           fileFilter
             ? "No items match the active filters"
-            : "This folder is empty"
+            : emptyLabel
         }
       />
     )
