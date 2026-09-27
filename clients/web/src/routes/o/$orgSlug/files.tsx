@@ -7,6 +7,7 @@ import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import {
 	TeamFilesPage,
 	TeamKnowledgeFilesPage,
+	TeamSkillFilesPage,
 } from "#/components/organizations/team-files-page";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
@@ -15,7 +16,9 @@ export const Route = createFileRoute("/o/$orgSlug/files")({
 	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),
 	validateSearch: (search: Record<string, unknown>) => ({
 		view:
-			search.view === "knowledge" || search.view === "my"
+			search.view === "knowledge" ||
+			search.view === "my" ||
+			search.view === "skills"
 				? search.view
 				: undefined,
 		folder:
@@ -40,6 +43,22 @@ function TeamFilesRoute() {
 	const { sidebarStates } = Route.useLoaderData();
 	const { view, folder, create, document, kind, subjectUserId } =
 		Route.useSearch();
+	let content = (
+		<TeamFilesPage initialLocation={view === "my" ? "my" : "team"} />
+	);
+	if (view === "knowledge") {
+		content = (
+			<TeamKnowledgeFilesPage
+				create={create === "1"}
+				documentId={document}
+				folderId={folder}
+				kind={kind}
+				subjectUserId={subjectUserId}
+			/>
+		);
+	} else if (view === "skills") {
+		content = <TeamSkillFilesPage />;
+	}
 	return (
 		<AppFullWidthLayout
 			contentLayout="flush"
@@ -49,17 +68,7 @@ function TeamFilesRoute() {
 			scroll={false}
 			showMainHeader
 		>
-			{view === "knowledge" ? (
-				<TeamKnowledgeFilesPage
-					create={create === "1"}
-					documentId={document}
-					folderId={folder}
-					kind={kind}
-					subjectUserId={subjectUserId}
-				/>
-			) : (
-				<TeamFilesPage initialLocation={view === "my" ? "my" : "team"} />
-			)}
+			{content}
 		</AppFullWidthLayout>
 	);
 }
