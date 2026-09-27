@@ -97,13 +97,13 @@ class MissingComputerExecRecordError extends Error {
   }
 }
 
-export class ConfirmedMissingComputerCommandsError extends AggregateError {
+export class ConfirmedLostComputerCommandsError extends AggregateError {
   constructor(errors: unknown[]) {
     super(
       errors,
-      "Computer command cleanup failed: a retained process record was missing during both inspection and Stop."
+      "Computer command cleanup failed: a retained execution was confirmed lost."
     );
-    this.name = "ConfirmedMissingComputerCommandsError";
+    this.name = "ConfirmedLostComputerCommandsError";
   }
 }
 
@@ -486,12 +486,12 @@ export async function stopRemoteAgentComputerCommands(input: {
   context: RemoteAgentCallbackContext;
   env: { AGENT_COMPUTER?: unknown };
   storage: RemoteAgentStorage;
-}): Promise<number> {
+}): Promise<{ unfinished: number; lostDuringCleanup: boolean }> {
   const commands = await input.storage.list<Command>({
     prefix: commandPrefix(input.context.submissionId),
   });
   if (commands.size === 0) {
-    return 0;
+    return { unfinished: 0, lostDuringCleanup: false };
   }
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   const access = createAgentComputerWorkspaceAccess({
@@ -502,10 +502,14 @@ export async function stopRemoteAgentComputerCommands(input: {
   });
   let unfinished = 0;
   let lostDuringCleanup = 0;
+  const previouslyLost = [...commands.values()].some(
+    (command) => command.lostDuringCleanup
+  );
   const failures: unknown[] = [];
   for (const command of commands.values()) {
-    // A reported loss reached the model. A cleanup loss has already requested
-    // a durable execution failure. Neither absent process should be retried.
+    // A reported loss reached the model. A cleanup loss is reconciled through
+    // the execution owner, including after a crash before its failure request.
+    // Neither absent process should be retried.
     if (
       command.lossReported ||
       command.lostDuringCleanup ||
@@ -514,81 +518,119 @@ export async function stopRemoteAgentComputerCommands(input: {
       continue;
     }
     try {
-      await input.storage.putExpiring(
-        `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
-        { ...command, stopRequested: true },
-        Date.now() + 7 * 24 * 60 * 60 * 1000
-      );
-      await access.withWorkspace(async (workspace) => {
-        let completed = false;
-        let execRecordMissing = false;
-        let stopError: unknown;
-        try {
-          const result = await pollComputerCommand(
-            workspace.runtime,
-            command,
-            0,
-            1000
-          );
-          completed = result.status === "completed";
-        } catch (error) {
-          execRecordMissing = error instanceof MissingComputerExecRecordError;
-          throw error;
-        } finally {
-          // Output transport failure must never strand an owned process after
-          // its turn ends. Signal its exact retained identity even when its
-          // output cannot be read; preserve the inspection error for diagnosis.
-          if (!completed) {
-            unfinished++;
-            try {
-              await workspace.runtime.killExec(command.id, {
-                backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-                signal: "SIGTERM",
-              });
-            } catch (error) {
-              // The exact process is absent from both native read and signal
-              // operations. A prior Stop may have removed its retained record;
-              // keep the requested execution failure, then let reconciliation
-              // publish it without replaying this command or retrying forever.
-              if (execRecordMissing && hasErrorCode(error, "ENOENT")) {
-                await input.storage.putExpiring(
-                  `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
-                  { ...command, stopRequested: true, lostDuringCleanup: true },
-                  Date.now() + 7 * 24 * 60 * 60 * 1000
-                );
-                lostDuringCleanup++;
-                console.warn("[remote_agent.computer_command_cleanup_lost]", {
-                  submissionId: input.context.submissionId,
-                  commandId: command.id,
-                  commandKey: command.key,
-                });
-              }
-              stopError = error;
-            }
-          }
-        }
-        if (stopError) {
-          throw stopError;
-        }
+      unfinished += await stopAndRecordComputerCommand({
+        access,
+        command,
+        context: input.context,
+        storage: input.storage,
       });
     } catch (error) {
-      console.warn("[remote_agent.computer_command_cleanup_error]", {
-        submissionId: input.context.submissionId,
-        commandId: command.id,
-        errorName: error instanceof Error ? error.name : "UnknownError",
-        errorCode:
-          error instanceof Error && "code" in error ? error.code : undefined,
-      });
+      if (error instanceof ConfirmedLostComputerCommandsError) {
+        lostDuringCleanup++;
+      }
       failures.push(error);
     }
   }
   if (failures.length > 0) {
     if (lostDuringCleanup === failures.length) {
-      throw new ConfirmedMissingComputerCommandsError(failures);
+      throw new ConfirmedLostComputerCommandsError(failures);
     }
     throw new AggregateError(failures, "Computer command cleanup failed.");
   }
-  return unfinished;
+  return { unfinished, lostDuringCleanup: previouslyLost };
+}
+
+async function stopAndRecordComputerCommand(input: {
+  access: AgentComputerWorkspaceAccess;
+  command: Command;
+  context: RemoteAgentCallbackContext;
+  storage: RemoteAgentStorage;
+}): Promise<number> {
+  const key = `${commandPrefix(input.context.submissionId)}${encodeURIComponent(input.command.key)}`;
+  await input.storage.putExpiring(
+    key,
+    { ...input.command, stopRequested: true },
+    Date.now() + 7 * 24 * 60 * 60 * 1000
+  );
+  try {
+    return await inspectAndStopComputerCommand(input.access, input.command);
+  } catch (error) {
+    if (error instanceof ConfirmedLostComputerCommandsError) {
+      await input.storage.putExpiring(
+        key,
+        { ...input.command, stopRequested: true, lostDuringCleanup: true },
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      );
+      console.warn("[remote_agent.computer_command_cleanup_lost]", {
+        submissionId: input.context.submissionId,
+        commandId: input.command.id,
+        commandKey: input.command.key,
+        errorCode: hasErrorCode(error.errors[0], "EEXEC_LOST")
+          ? "EEXEC_LOST"
+          : "ENOENT",
+      });
+    }
+    console.warn("[remote_agent.computer_command_cleanup_error]", {
+      submissionId: input.context.submissionId,
+      commandId: input.command.id,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorCode:
+        error instanceof Error && "code" in error ? error.code : undefined,
+    });
+    throw error;
+  }
+}
+
+async function inspectAndStopComputerCommand(
+  access: AgentComputerWorkspaceAccess,
+  command: Command
+): Promise<number> {
+  return await access.withWorkspace(async (workspace) => {
+    let completed = false;
+    let recordMissing = false;
+    let runtimeLost = false;
+    let inspectionFailed = false;
+    let inspectionError: unknown;
+    try {
+      const result = await pollComputerCommand(
+        workspace.runtime,
+        command,
+        0,
+        1000
+      );
+      completed = result.status === "completed";
+    } catch (error) {
+      recordMissing = error instanceof MissingComputerExecRecordError;
+      runtimeLost = hasErrorCode(error, "EEXEC_LOST");
+      inspectionFailed = true;
+      inspectionError = error;
+    }
+    // A transport failure can leave a live command behind. A replaced
+    // runtime cannot: the old execution identity is already gone.
+    if (!(completed || runtimeLost)) {
+      try {
+        await workspace.runtime.killExec(command.id, {
+          backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+          signal: "SIGTERM",
+        });
+      } catch (error) {
+        if (
+          hasErrorCode(error, "EEXEC_LOST") ||
+          (recordMissing && hasErrorCode(error, "ENOENT"))
+        ) {
+          throw new ConfirmedLostComputerCommandsError([error]);
+        }
+        throw error;
+      }
+    }
+    if (runtimeLost) {
+      throw new ConfirmedLostComputerCommandsError([inspectionError]);
+    }
+    if (inspectionFailed) {
+      throw inspectionError;
+    }
+    return completed ? 0 : 1;
+  });
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
