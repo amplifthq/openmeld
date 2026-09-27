@@ -81,8 +81,16 @@ type CenterAgentConnectorActionOperationAttributionRow = {
 
 type CenterAgentConnectorActionOperationProvenance = {
   attribution: CenterAgentAttribution;
+  sourceNativeDeliveryId: string | null;
   sourceSpaceId: string | null;
 };
+
+function auditSourceNativeDeliveryId(
+  deliveryId: string | null | undefined,
+  requesterDeliveryId: string | null
+): string | null {
+  return deliveryId ?? requesterDeliveryId;
+}
 
 export function buildCenterAgentConnectorActionOperationScope(input: {
   actorProfileId: string;
@@ -209,6 +217,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   requester: CenterAgentConnectorActionRequester;
   requestSignature: string;
   service: string;
+  sourceNativeDeliveryId?: string | null;
   sourceSpaceId?: string | null;
 }): Promise<{
   attribution: CenterAgentAttribution;
@@ -268,7 +277,10 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         nowMs: input.nowMs,
         organizationId: input.organizationId,
         resource: operationAuditResource(input),
-        sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
+        sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+          input.sourceNativeDeliveryId,
+          scope.sourceNativeDeliveryId
+        ),
         sourceSpaceId: input.sourceSpaceId ?? null,
       }),
     ]);
@@ -322,7 +334,10 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       operationRecordId: existing.id,
       organizationId: input.organizationId,
       resource: operationAuditResource(input),
-      sourceNativeDeliveryId: existing.sourceNativeDeliveryId,
+      sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+        existingProvenance?.sourceNativeDeliveryId,
+        existing.sourceNativeDeliveryId
+      ),
       sourceSpaceId: existingProvenance?.sourceSpaceId ?? null,
     }),
     prepareFinalizeOperationStatement({
@@ -642,11 +657,11 @@ async function requireOperationProvenance(input: {
         actorProfileId: row.actor_profile_id,
         onBehalfOf: null,
       },
+      sourceNativeDeliveryId: row.source_native_delivery_id,
       sourceSpaceId: row.source_space_id,
     };
   }
   if (
-    row.source_native_delivery_id !== null ||
     !row.on_behalf_of_profile_id ||
     row.on_behalf_of_user_id !== input.operation.representedUserId ||
     !row.on_behalf_of_display_name
@@ -664,6 +679,7 @@ async function requireOperationProvenance(input: {
         userId: row.on_behalf_of_user_id,
       },
     },
+    sourceNativeDeliveryId: row.source_native_delivery_id,
     sourceSpaceId: row.source_space_id,
   };
 }

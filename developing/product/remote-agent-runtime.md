@@ -2519,8 +2519,11 @@ Organization's selected-repository GitHub App installation and the OpenMeld bot.
 `requester` means the verified current member's GitHub user authorization. Core
 resolves only the requested identity and never falls back to the other one.
 Interactive turns choose from the concrete repository and authorship need.
-Routine turns and member research reject `requester`; they may use only
-`organization`. Remote Agent strips `githubActor` before calling OpenConnector
+Core-created task continuations may use `requester` only when the original
+requester is a verified, current Organization member with an active GitHub
+connection. The connector action audit records that member and the source
+Native Delivery. Routine turns and member research reject `requester`; they may
+use only `organization`. Remote Agent strips `githubActor` before calling OpenConnector
 because it is OpenMeld authorization input, not a provider action parameter.
 
 Workflow dispatch is a general GitHub capability, not an OpenMeld release

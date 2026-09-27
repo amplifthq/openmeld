@@ -1062,6 +1062,12 @@ describe("remote agent system prompt", () => {
       "createdAgentProfileId is an identity fact, not a canReply fact"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Default Project alone does not set the working folder"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "openmeld_update_agent_profile_runtime_settings with workspacePath"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "Omit requestedSpaceId when no Space is needed"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).not.toContain(

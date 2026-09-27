@@ -29,6 +29,63 @@ import {
 } from "./timeline";
 
 describe("space timeline helpers", () => {
+	it.each([
+		"main",
+		"thread",
+	] as const)("keeps local submissions after confirmed messages in %s", (scopeKind) => {
+		const confirmed = createTextSignal({
+			id: "signal-first",
+			text: "First message",
+			ts: 200,
+		});
+		const pending = createTextSignal({
+			id: "pending:second",
+			text: "Second message",
+			ts: 100,
+		});
+		const failed = createTextSignal({
+			id: "failed:third",
+			text: "Third message",
+			ts: 110,
+		});
+		const envelopes = mergeSpaceTimelineEnvelopes({
+			current: [confirmed],
+			incoming: [failed, pending],
+		});
+		expect(envelopes.map((signal) => signal.id)).toEqual([
+			confirmed.id,
+			pending.id,
+			failed.id,
+		]);
+		const items = buildSpaceTimelineItems({
+			agentStreamScope:
+				scopeKind === "main"
+					? { kind: "main" }
+					: { kind: "thread", rootSignalId: confirmed.id },
+			envelopes,
+			membersSnapshot: createMembersSnapshot(),
+		});
+		expect(items.map((item) => item.id)).toEqual([
+			confirmed.id,
+			pending.id,
+			failed.id,
+		]);
+		const acknowledged = buildSpaceTimelineItems({
+			envelopes: [
+				confirmed,
+				createTextSignal({
+					id: "signal-second",
+					text: "Second message",
+					ts: 210,
+				}),
+			],
+			membersSnapshot: createMembersSnapshot(),
+		});
+		expect(acknowledged.map((item) => item.id)).toEqual([
+			"signal-first",
+			"signal-second",
+		]);
+	});
 	it("keeps message presentation identity across failure, retry, and either acknowledgement transport", () => {
 		const base = createTextSignal({
 			id: "pending:upload-one",
@@ -457,13 +514,13 @@ describe("space timeline helpers", () => {
 		});
 
 		expect(items[0]).toMatchObject({
-			attachments: [{ ...attachment, localPreviewUrl: "blob:diagram-preview" }],
-			deliveryState: "pending",
+			attachments: [{ ...attachment, localPreviewUrl: null }],
+			deliveryState: "sent",
 			spaceId: "space-123",
 		});
 		expect(items[1]).toMatchObject({
-			attachments: [{ ...attachment, localPreviewUrl: null }],
-			deliveryState: "sent",
+			attachments: [{ ...attachment, localPreviewUrl: "blob:diagram-preview" }],
+			deliveryState: "pending",
 			spaceId: "space-123",
 		});
 	});
