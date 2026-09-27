@@ -105,6 +105,7 @@ export function SpaceFileEntryDialogs(input: {
 
 export function FolderNameDialog(input: {
 	error?: string | null;
+	maxLength?: number;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (name: string) => Promise<void>;
 	open: boolean;
@@ -130,7 +131,7 @@ export function FolderNameDialog(input: {
 						<Input
 							autoFocus={true}
 							id="space-folder-name"
-							maxLength={255}
+							maxLength={input.maxLength ?? 255}
 							onChange={(event) => setName(event.currentTarget.value)}
 							placeholder="Project files"
 							value={name}
@@ -166,6 +167,8 @@ export function FolderNameDialog(input: {
 export function NewTextFileDialog(input: {
 	error?: string | null;
 	kind: "markdown" | "text" | "csv";
+	maxContentChars?: number;
+	maxNameLength?: number;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (input: { content: string; name: string }) => Promise<void>;
 	open: boolean;
@@ -174,7 +177,9 @@ export function NewTextFileDialog(input: {
 	const [name, setName] = useState("");
 	const [content, setContent] = useState("");
 	const contentOverLimit =
-		utf8ByteLength(content) > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES;
+		utf8ByteLength(content) > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES ||
+		(input.maxContentChars !== undefined &&
+			content.length > input.maxContentChars);
 	useEffect(() => {
 		if (input.open) {
 			setName(NEW_TEXT_FILE_DETAILS[input.kind].defaultName);
@@ -203,7 +208,7 @@ export function NewTextFileDialog(input: {
 							<Input
 								autoFocus={true}
 								id="space-text-file-name"
-								maxLength={255}
+								maxLength={input.maxNameLength ?? 255}
 								onChange={(event) => setName(event.currentTarget.value)}
 								value={name}
 							/>
@@ -236,6 +241,13 @@ export function NewTextFileDialog(input: {
 									value={content}
 								/>
 							)}
+							{input.maxContentChars !== undefined &&
+							content.length > input.maxContentChars ? (
+								<p className="text-destructive text-sm" role="alert">
+									Keep this file under {input.maxContentChars.toLocaleString()}{" "}
+									characters.
+								</p>
+							) : null}
 						</div>
 					</div>
 					<DialogFooter>

@@ -29,6 +29,7 @@ const PROFILE_REPORTS_COLLISION_ROOT_FOLDER_NAME = "OpenMeld Profile Reports";
 const PROFILE_REPORTS_ROOT_FOLDER_NAME = "Profile Reports";
 const PROFILE_REPORT_TYPE = "work_profile" as const;
 const PROFILE_REPORT_TYPE_LABEL = "Work Profile";
+const NUMBERED_FOLDER_NAME_PATTERN = /^(.*) \((\d+)\)$/u;
 
 export type OrganizationDocumentActor = {
   organizationId: string;
@@ -259,7 +260,7 @@ export function createOrganizationDocumentService(
       input: { name: string; parentFolderId?: string | null }
     ): Promise<OrganizationDocumentFolder> {
       requireManager(actor);
-      const name = validateFolderName(input.name);
+      const requestedName = validateFolderName(input.name);
       const parentFolderId = input.parentFolderId ?? null;
       if (parentFolderId !== null) {
         const parentFolder = await requireFolder(
@@ -271,18 +272,23 @@ export function createOrganizationDocumentService(
           throw managedPlacementError();
         }
       }
-      await requireFolderNameAvailable(
-        dependencies.db,
-        actor.organizationId,
-        name,
-        parentFolderId
-      );
-      const timestamp = now();
-      const folderId = newId();
-      try {
-        const result = await dependencies.db
-          .prepare(
-            `
+      for (
+        let attempt = 0;
+        attempt < ORGANIZATION_DOCUMENT_FOLDER_LIMIT;
+        attempt += 1
+      ) {
+        const name = await resolveAvailableFolderName(
+          dependencies.db,
+          actor.organizationId,
+          requestedName,
+          parentFolderId
+        );
+        const timestamp = now();
+        const folderId = newId();
+        try {
+          const result = await dependencies.db
+            .prepare(
+              `
               INSERT INTO organization_document_folders (
                 id,
                 organization_id,
@@ -298,29 +304,37 @@ export function createOrganizationDocumentService(
                 WHERE organization_id = ?
               ) < ?
             `
-          )
-          .bind(
-            folderId,
+            )
+            .bind(
+              folderId,
+              actor.organizationId,
+              parentFolderId,
+              name,
+              timestamp,
+              timestamp,
+              actor.organizationId,
+              ORGANIZATION_DOCUMENT_FOLDER_LIMIT
+            )
+            .run();
+          if (result.meta.changes !== 1) {
+            throw folderLimitError();
+          }
+          return await requireFolder(
+            dependencies.db,
             actor.organizationId,
-            parentFolderId,
-            name,
-            timestamp,
-            timestamp,
-            actor.organizationId,
-            ORGANIZATION_DOCUMENT_FOLDER_LIMIT
-          )
-          .run();
-        if (result.meta.changes !== 1) {
-          throw folderLimitError();
+            folderId
+          );
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message.includes("UNIQUE constraint failed")
+          ) {
+            continue;
+          }
+          throw mapFolderWriteError(error);
         }
-      } catch (error) {
-        throw mapFolderWriteError(error);
       }
-      return await requireFolder(
-        dependencies.db,
-        actor.organizationId,
-        folderId
-      );
+      throw folderExistsError();
     },
 
     async deleteFolder(
@@ -2264,6 +2278,46 @@ async function requireFolderNameAvailable(
   if (row) {
     throw folderExistsError();
   }
+}
+
+async function resolveAvailableFolderName(
+  db: D1Database,
+  organizationId: string,
+  requestedName: string,
+  parentFolderId: string | null
+): Promise<string> {
+  const rows = await db
+    .prepare(
+      `
+        SELECT name
+        FROM organization_document_folders
+        WHERE organization_id = ?
+          AND ((parent_folder_id IS NULL AND ? IS NULL) OR parent_folder_id = ?)
+      `
+    )
+    .bind(organizationId, parentFolderId, parentFolderId)
+    .all<{ name: string }>();
+  const occupied = new Set(
+    rows.results.map((row) => row.name.toLocaleLowerCase("en-US"))
+  );
+  if (!occupied.has(requestedName.toLocaleLowerCase("en-US"))) {
+    return requestedName;
+  }
+  const numbered = NUMBERED_FOLDER_NAME_PATTERN.exec(requestedName);
+  const base = numbered?.[1] ?? requestedName;
+  const parsedOrdinal = Number(numbered?.[2] ?? 1);
+  let ordinal = Number.isSafeInteger(parsedOrdinal)
+    ? Math.max(2, parsedOrdinal + 1)
+    : 2;
+  while (Number.isSafeInteger(ordinal)) {
+    const suffix = ` (${ordinal})`;
+    const candidate = `${base.slice(0, ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS - suffix.length).trimEnd()}${suffix}`;
+    if (!occupied.has(candidate.toLocaleLowerCase("en-US"))) {
+      return candidate;
+    }
+    ordinal += 1;
+  }
+  throw folderExistsError();
 }
 
 function mapFolderWriteError(error: unknown): Error {

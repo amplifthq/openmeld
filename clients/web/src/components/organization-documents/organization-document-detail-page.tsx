@@ -228,7 +228,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 				search={{ ...documentFolderSearch, view: "knowledge" }}
 				to={buildOrganizationFilesPath(currentOrganization.slug)}
 			>
-				<ArrowLeftIcon aria-hidden="true" /> Back to knowledge
+				<ArrowLeftIcon aria-hidden="true" /> Back to Team Knowledge
 			</Link>
 			<header className="flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">

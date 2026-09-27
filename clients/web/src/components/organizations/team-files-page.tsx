@@ -79,7 +79,7 @@ import {
 } from "#/components/forms/unsaved-changes-guard";
 import { OrganizationDocumentDetailPage } from "#/components/organization-documents/organization-document-detail-page";
 import { OrganizationDocumentNewPage } from "#/components/organization-documents/organization-document-new-page";
-import { OrganizationDocumentsPage } from "#/components/organization-documents/organization-documents-page";
+import { TeamKnowledgeFilesBrowser } from "#/components/organizations/team-knowledge-files-browser";
 import {
 	FolderNameDialog,
 	MoveEntryDialog,
@@ -160,18 +160,23 @@ export function TeamKnowledgeFilesPage(input: {
 						}).catch(console.error);
 					}
 				}}
-				value="knowledge"
+				value="team"
 			>
 				<TabsList className="w-fit">
 					<TabItem label="Team files" value="team" />
 					{currentOrganization.isPersonal ? null : (
 						<TabItem label="My files" value="my" />
 					)}
-					<TabItem label="Knowledge" value="knowledge" />
 					<TabItem label="Skills" value="skills" />
 				</TabsList>
 			</Tabs>
-			<div className="min-h-0 flex-1 overflow-auto px-[var(--app-page-inline-padding)] py-5">
+			<div
+				className={
+					input.documentId || input.create
+						? "min-h-0 flex-1 overflow-auto px-[var(--app-page-inline-padding)] py-5"
+						: "min-h-0 flex-1 overflow-auto px-[calc(var(--app-page-inline-padding)-0.5rem)] py-5"
+				}
+			>
 				{input.documentId ? (
 					<OrganizationDocumentDetailPage documentId={input.documentId} />
 				) : null}
@@ -183,7 +188,7 @@ export function TeamKnowledgeFilesPage(input: {
 					/>
 				) : null}
 				{input.documentId || input.create ? null : (
-					<OrganizationDocumentsPage folderId={input.folderId} />
+					<TeamKnowledgeFilesBrowser folderId={input.folderId} />
 				)}
 			</div>
 		</section>
@@ -239,7 +244,7 @@ export function TeamSkillFilesPage() {
 			<Tabs
 				className="shrink-0 px-[var(--app-page-inline-padding)] py-2"
 				onValueChange={(value) => {
-					if (value === "team" || value === "my" || value === "knowledge") {
+					if (value === "team" || value === "my") {
 						navigate({
 							to: buildOrganizationFilesPath(currentOrganization.slug),
 							search: value === "team" ? {} : { view: value },
@@ -253,7 +258,6 @@ export function TeamSkillFilesPage() {
 					{currentOrganization.isPersonal ? null : (
 						<TabItem label="My files" value="my" />
 					)}
-					<TabItem label="Knowledge" value="knowledge" />
 					<TabItem label="Skills" value="skills" />
 				</TabsList>
 			</Tabs>
@@ -544,6 +548,7 @@ function TeamFilesBrowser(input: {
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [dialogError, setDialogError] = useState<string | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [selectedKnowledgeFolder, setSelectedKnowledgeFolder] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const objectUrls = useRef(new Map<string, string>());
 	const queryClient = useQueryClient();
@@ -578,6 +583,7 @@ function TeamFilesBrowser(input: {
 	});
 	const entries = files.data?.entries ?? [];
 	const selectedEntry = entries.find((entry) => entry.id === selectedId);
+	const knowledgeFolderPath = "__openmeld_team_knowledge__/";
 	const items: FileSystemItem[] = entries.map((entry) =>
 		entry.kind === "folder"
 			? {
@@ -597,8 +603,18 @@ function TeamFilesBrowser(input: {
 					updatedAt: entry.updatedAt,
 				}
 	);
+	if (location === "team" && parentId === null && view === "active") {
+		items.unshift({
+			kind: "folder",
+			name: "Team Knowledge",
+			path: knowledgeFolderPath,
+		});
+	}
 	const entriesByPath = new Map(
-		items.map((item, index) => [item.path, entries[index]])
+		entries.map((entry) => [
+			entry.kind === "folder" ? `${entry.name}/` : entry.name,
+			entry,
+		])
 	);
 	const browserVersionKey = entries
 		.map((entry) =>
@@ -620,6 +636,7 @@ function TeamFilesBrowser(input: {
 		setActionError(null);
 		setDialogError(null);
 		setSelectedId(null);
+		setSelectedKnowledgeFolder(false);
 		try {
 			await action();
 			await refresh();
@@ -772,12 +789,6 @@ function TeamFilesBrowser(input: {
 			<Tabs
 				className="shrink-0 px-[var(--app-page-inline-padding)] py-2"
 				onValueChange={(value) => {
-					if (value === "knowledge") {
-						navigate({
-							to: buildOrganizationFilesPath(currentOrganization.slug),
-							search: { view: "knowledge" },
-						}).catch(console.error);
-					}
 					if (value === "skills") {
 						navigate({
 							to: buildOrganizationFilesPath(currentOrganization.slug),
@@ -795,7 +806,6 @@ function TeamFilesBrowser(input: {
 					{currentOrganization.isPersonal ? null : (
 						<TabItem label="My files" value="my" />
 					)}
-					<TabItem label="Knowledge" value="knowledge" />
 					<TabItem label="Skills" value="skills" />
 				</TabsList>
 			</Tabs>
@@ -823,6 +833,7 @@ function TeamFilesBrowser(input: {
 						onContextMenuCapture={(event) => {
 							if (!(event.target as Element).closest('[role="option"]')) {
 								setSelectedId(null);
+								setSelectedKnowledgeFolder(false);
 							}
 						}}
 					>
@@ -864,20 +875,31 @@ function TeamFilesBrowser(input: {
 								isLoading={files.isPending}
 								items={items}
 								key={`${currentOrganization.id}:${location}:${parentId ?? "root"}:${view}:${browserVersionKey}`}
-								onEntryContextMenu={(item) =>
-									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
-								}
+								onEntryContextMenu={(item) => {
+									setSelectedKnowledgeFolder(item.path === knowledgeFolderPath);
+									setSelectedId(entriesByPath.get(item.path)?.id ?? null);
+								}}
 								onFolderOpen={(folder) => {
+									if (folder.path === knowledgeFolderPath) {
+										navigate({
+											to: buildOrganizationFilesPath(currentOrganization.slug),
+											search: { view: "knowledge" },
+										}).catch(console.error);
+										return;
+									}
 									const entry = entriesByPath.get(folder.path);
 									if (entry?.kind === "folder") {
 										setParentId(entry.id);
 									}
 								}}
-								onSelectionChange={(item) =>
+								onSelectionChange={(item) => {
+									setSelectedKnowledgeFolder(
+										item?.path === knowledgeFolderPath
+									);
 									setSelectedId(
 										item ? (entriesByPath.get(item.path)?.id ?? null) : null
-									)
-								}
+									);
+								}}
 								title={
 									files.data?.breadcrumbs.at(-1)?.name ??
 									(location === "my" ? "My files" : "Team files")
@@ -886,9 +908,21 @@ function TeamFilesBrowser(input: {
 							/>
 						</Suspense>
 					</ContextMenuTrigger>
-					{selectedEntry || view === "active" ? (
+					{selectedEntry || selectedKnowledgeFolder || view === "active" ? (
 						<ContextMenuContent className="min-w-40 p-1">
-							{selectedEntry ? (
+							{selectedKnowledgeFolder ? (
+								<ContextMenuItem
+									onClick={() =>
+										navigate({
+											to: buildOrganizationFilesPath(currentOrganization.slug),
+											search: { view: "knowledge" },
+										}).catch(console.error)
+									}
+								>
+									<FolderOpenIcon aria-hidden="true" /> Open
+								</ContextMenuItem>
+							) : null}
+							{!selectedKnowledgeFolder && selectedEntry ? (
 								<>
 									{view === "active" ? (
 										<ContextMenuItem
@@ -979,7 +1013,8 @@ function TeamFilesBrowser(input: {
 										{view === "trash" ? "Restore" : "Move to Trash"}
 									</ContextMenuItem>
 								</>
-							) : (
+							) : null}
+							{selectedKnowledgeFolder || selectedEntry ? null : (
 								<>
 									<ContextMenuItem onClick={() => setFolderDialogOpen(true)}>
 										<FolderPlusIcon aria-hidden="true" />
