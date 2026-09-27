@@ -941,7 +941,7 @@ export async function rpcRecordOrganizationSkillActivation(
   });
 }
 
-async function prepareHumanRequest(
+export async function prepareHumanRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext,
   allowAgentReleaseRead = false

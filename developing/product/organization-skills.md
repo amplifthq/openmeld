@@ -370,6 +370,14 @@ readable when a resource is temporarily unavailable. Current management detail,
 editing, and CLI export still use the bounded full-bundle response; the catalog
 endpoint does not by itself remove those limits or enable large-package import.
 
+Team Files uses the catalog to browse the active release. Opening one resource
+uses an authenticated exact-release content route, checks current membership
+and the stored digest, and reads only that resource. The first HTTP path is
+bounded to 10 MB per request; larger resources need a streaming read rather
+than an unbounded Worker allocation. The response uses an octet-stream content
+type and `nosniff`, so text can be previewed in Files without executing scripts
+or trusting a resource's declared media type as browser code.
+
 ### Document-first detail
 
 The detail is a readable document, directly editable with the existing authority.

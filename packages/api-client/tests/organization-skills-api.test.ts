@@ -60,6 +60,28 @@ const {
 } = SKILL;
 
 describe("api-client Organization Skills API", () => {
+  it("reads one exact release resource as bytes", async () => {
+    const bytes = Uint8Array.of(0, 1, 2);
+    const transport = vi.fn<OpenMeldApiClientTransport>(
+      async () => new Response(bytes, { headers: { "content-length": "3" } })
+    );
+    const api = createOrganizationSkillsApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect(
+      await api.readResource({
+        skillId: SKILL_ID,
+        releaseId: "release-1",
+        path: "references/My notes.md",
+      })
+    ).toEqual(bytes);
+    expect(transport.mock.calls[0]?.[0].url).toContain(
+      "/releases/release-1/resources?path=references%2FMy%20notes.md"
+    );
+  });
   it("previews a repository catalog through the shared Organization Skill API", async () => {
     const preview = {
       catalogLimitBytes: 1024,

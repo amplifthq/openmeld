@@ -60,6 +60,10 @@ export type OrganizationSkillsApi = {
   getCatalog: (
     input: OrganizationSkillRequestInput & OrganizationSkillMutationTarget
   ) => Promise<OrganizationSkillRuntimeCatalogResponse>;
+  readResource: (
+    input: OrganizationSkillRequestInput &
+      OrganizationSkillMutationTarget & { releaseId: string; path: string }
+  ) => Promise<Uint8Array>;
   create: (
     input: OrganizationSkillRequestInput & CreateOrganizationSkillBody
   ) => Promise<CreateOrganizationSkillResponse>;

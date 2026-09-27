@@ -118,6 +118,7 @@ type RuntimeCatalogUsage = {
 };
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
+const SKILL_RESOURCE_HTTP_MAX_BYTES = 10_000_000;
 
 export async function readEnabledOrganizationSkillReleaseSelection(input: {
   db: D1Database;
@@ -278,6 +279,40 @@ export function createOrganizationSkillService(
           },
         ],
       });
+    },
+
+    async getResourceContent(
+      actor: OrganizationSkillReadActor,
+      skillId: string,
+      releaseId: string,
+      path: string
+    ): Promise<{ bytes: Uint8Array; mediaType: string }> {
+      const skill = await requireSkill(
+        dependencies.db,
+        actor.organizationId,
+        skillId
+      );
+      const release = await dependencies.db
+        .prepare(
+          "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
+        )
+        .bind(actor.organizationId, skillId, releaseId)
+        .first<ReleaseRow>();
+      if (!release) {
+        throw createCoreRpcHttpError({
+          code: "organization_skill.release_missing",
+          reason: "The selected Skill release is unavailable.",
+          status: 404,
+        });
+      }
+      const resource = await readReleaseResourceContent(
+        dependencies.bucket,
+        release,
+        skill.name,
+        path,
+        SKILL_RESOURCE_HTTP_MAX_BYTES
+      );
+      return { bytes: resource.bytes, mediaType: resource.mediaType };
     },
 
     async getEnabledRelease(
@@ -1509,9 +1544,49 @@ async function readReleaseResource(
   name: string,
   path: string
 ): Promise<OrganizationSkillFile> {
+  const resource = await readReleaseResourceContent(
+    bucket,
+    release,
+    name,
+    path
+  );
+  let content: string;
+  try {
+    content =
+      resource.encoding === "utf8"
+        ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+            resource.bytes
+          )
+        : encodeBase64(resource.bytes);
+  } catch {
+    throw invalidReleaseError();
+  }
+  return {
+    content,
+    encoding: resource.encoding,
+    mediaType: resource.mediaType,
+    path,
+    size: resource.bytes.byteLength,
+  };
+}
+
+async function readReleaseResourceContent(
+  bucket: R2Bucket,
+  release: ReleaseRow,
+  name: string,
+  path: string,
+  maxBytes?: number
+): Promise<{
+  bytes: Uint8Array;
+  encoding: "base64" | "utf8";
+  mediaType: string;
+}> {
   const object = await bucket.get(release.object_key);
   if (!object) {
     throw missingReleaseObjectError();
+  }
+  if (object.size > ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES) {
+    throw invalidReleaseError();
   }
   const serialized = await object.text();
   let value: unknown;
@@ -1529,7 +1604,12 @@ async function readReleaseResource(
     if (!file) {
       throw missingSkillResourceError();
     }
-    return file;
+    requireResourceSize(file.size, maxBytes);
+    return {
+      bytes: decodeSkillFileBytes(file),
+      encoding: file.encoding,
+      mediaType: file.mediaType,
+    };
   }
   if (
     (await sha256(serialized)) !==
@@ -1551,7 +1631,23 @@ async function readReleaseResource(
   if (!file) {
     throw missingSkillResourceError();
   }
-  return await readStoredReleaseResource(bucket, release.object_key, file);
+  requireResourceSize(file.size, maxBytes);
+  const bytes = await readStoredReleaseResourceBytes(
+    bucket,
+    release.object_key,
+    file
+  );
+  return { bytes, encoding: file.encoding, mediaType: file.mediaType };
+}
+
+function requireResourceSize(size: number, maxBytes: number | undefined): void {
+  if (maxBytes !== undefined && size > maxBytes) {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.bundle_too_large",
+      reason: "This resource is too large to open in Files.",
+      status: 413,
+    });
+  }
 }
 
 async function readStoredReleaseResource(
@@ -1559,17 +1655,7 @@ async function readStoredReleaseResource(
   objectKey: string,
   file: z.infer<typeof storedSkillReleaseSchema>["files"][number]
 ): Promise<OrganizationSkillFile> {
-  const resource = await bucket.get(releaseResourceKey(objectKey, file.path));
-  if (!resource) {
-    throw missingReleaseObjectError();
-  }
-  const bytes = new Uint8Array(await resource.arrayBuffer());
-  if (
-    bytes.byteLength !== file.size ||
-    (await sha256Bytes(bytes)) !== file.digest
-  ) {
-    throw releaseDigestMismatchError();
-  }
+  const bytes = await readStoredReleaseResourceBytes(bucket, objectKey, file);
   let content: string;
   try {
     content =
@@ -1588,6 +1674,28 @@ async function readStoredReleaseResource(
     path: file.path,
     size: file.size,
   };
+}
+
+async function readStoredReleaseResourceBytes(
+  bucket: R2Bucket,
+  objectKey: string,
+  file: z.infer<typeof storedSkillReleaseSchema>["files"][number]
+): Promise<Uint8Array> {
+  const resource = await bucket.get(releaseResourceKey(objectKey, file.path));
+  if (!resource) {
+    throw missingReleaseObjectError();
+  }
+  if (resource.size !== file.size) {
+    throw releaseDigestMismatchError();
+  }
+  const bytes = new Uint8Array(await resource.arrayBuffer());
+  if (
+    bytes.byteLength !== file.size ||
+    (await sha256Bytes(bytes)) !== file.digest
+  ) {
+    throw releaseDigestMismatchError();
+  }
+  return bytes;
 }
 
 async function readReleaseCatalog(

@@ -10,6 +10,7 @@ import { SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES } from "@openmeld/schemas";
 import type {
 	FileRootEntry,
 	OrganizationDocumentKind,
+	OrganizationSkillRuntimeCatalogResponse,
 } from "@openmeld/schemas/types";
 import {
 	AlertDialog,
@@ -192,6 +193,9 @@ export function TeamSkillFilesPage() {
 	const { currentOrganization } = useAppOrganization();
 	const navigate = useNavigate();
 	const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+	const [selectedResourcePath, setSelectedResourcePath] = useState<
+		string | null
+	>(null);
 	const skills = useQuery(
 		organizationSkillsQueryOptions({
 			organizationId: currentOrganization.id,
@@ -223,6 +227,9 @@ export function TeamSkillFilesPage() {
 			api.getCatalog({ skillId: activeSkillId ?? "", signal }),
 	});
 	const release = catalog.data?.releases[0];
+	const selectedResource = release?.files.find(
+		(file) => file.path === selectedResourcePath
+	);
 	return (
 		<section
 			aria-label="Skill files"
@@ -283,7 +290,10 @@ export function TeamSkillFilesPage() {
 									aria-pressed={activeSkillId === skill.id}
 									className="justify-start"
 									key={skill.id}
-									onClick={() => setSelectedSkillId(skill.id)}
+									onClick={() => {
+										setSelectedSkillId(skill.id);
+										setSelectedResourcePath(null);
+									}}
 									variant={activeSkillId === skill.id ? "secondary" : "ghost"}
 								>
 									{skill.name}
@@ -352,7 +362,13 @@ export function TeamSkillFilesPage() {
 														className="flex flex-wrap justify-between gap-2 px-3 py-2 text-sm"
 														key={file.path}
 													>
-														<span className="break-all">{file.path}</span>
+														<Button
+															className="h-auto p-0 text-left"
+															onClick={() => setSelectedResourcePath(file.path)}
+															variant="link"
+														>
+															{file.path}
+														</Button>
 														<span className="text-muted-foreground">
 															{formatFileSize(file.size)}
 														</span>
@@ -371,7 +387,111 @@ export function TeamSkillFilesPage() {
 					) : null}
 				</div>
 			</div>
+			{selectedResource && release && activeSkillId ? (
+				<TeamSkillResourceDialog
+					api={api}
+					file={selectedResource}
+					onClose={() => setSelectedResourcePath(null)}
+					organizationId={currentOrganization.id}
+					releaseId={release.releaseId}
+					skillId={activeSkillId}
+				/>
+			) : null}
 		</section>
+	);
+}
+
+function TeamSkillResourceDialog(input: {
+	api: ReturnType<typeof createOrganizationSkillsApi>;
+	file: OrganizationSkillRuntimeCatalogResponse["releases"][number]["files"][number];
+	onClose: () => void;
+	organizationId: string;
+	releaseId: string;
+	skillId: string;
+}) {
+	const resource = useQuery({
+		queryKey: [
+			"organization-skills",
+			input.organizationId,
+			"resource",
+			input.skillId,
+			input.releaseId,
+			input.file.path,
+		],
+		queryFn: ({ signal }) =>
+			input.api.readResource({
+				skillId: input.skillId,
+				releaseId: input.releaseId,
+				path: input.file.path,
+				signal,
+			}),
+	});
+	let resourceText: string | null = null;
+	if (input.file.encoding === "utf8" && resource.data) {
+		try {
+			resourceText = new TextDecoder("utf-8", { fatal: true }).decode(
+				resource.data
+			);
+		} catch {
+			resourceText = null;
+		}
+	}
+	return (
+		<Dialog onOpenChange={(open) => !open && input.onClose()} open>
+			<DialogContent className="flex max-h-[85vh] flex-col sm:max-w-3xl">
+				<DialogHeader>
+					<DialogTitle className="break-all">{input.file.path}</DialogTitle>
+					<DialogDescription>
+						Read-only resource from this Skill release.
+					</DialogDescription>
+				</DialogHeader>
+				{resource.isPending ? (
+					<p className="text-muted-foreground text-sm">Loading resource…</p>
+				) : null}
+				{resource.isError ? (
+					<p role="alert">
+						This resource couldn't be loaded.{" "}
+						<Button
+							onClick={() => resource.refetch()}
+							size="sm"
+							variant="outline"
+						>
+							Try again
+						</Button>
+					</p>
+				) : null}
+				{resource.data && resourceText !== null ? (
+					<pre className="min-h-0 overflow-auto whitespace-pre-wrap rounded-lg border p-4 text-sm">
+						{resourceText}
+					</pre>
+				) : null}
+				{resource.data && resourceText === null ? (
+					<p className="text-muted-foreground text-sm">
+						Download this file to open it in a compatible app.
+					</p>
+				) : null}
+				{resource.data ? (
+					<DialogFooter>
+						<Button
+							onClick={() =>
+								downloadContent(
+									input.file.path.split("/").at(-1) ?? input.file.path,
+									{
+										bytes: new Blob([Uint8Array.from(resource.data)], {
+											type: input.file.mediaType,
+										}),
+										mimeType: input.file.mediaType,
+									}
+								)
+							}
+							variant="outline"
+						>
+							<DownloadSimpleIcon aria-hidden="true" /> Download
+						</Button>
+					</DialogFooter>
+				) : null}
+			</DialogContent>
+		</Dialog>
 	);
 }
 

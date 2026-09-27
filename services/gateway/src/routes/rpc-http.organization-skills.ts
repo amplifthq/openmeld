@@ -32,6 +32,7 @@ import {
 import type { Context, Hono } from "hono";
 import type { z } from "zod/v4";
 import type { HonoBindings } from "../lib/bindings";
+import { forwardCoreHttp } from "./rpc-http.forward-core";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
@@ -43,6 +44,7 @@ import type { RpcHttpMethod } from "./rpc-http.types";
 const SKILLS_ROUTE = "/v1/organizations/current/skills";
 const SKILL_ROUTE = `${SKILLS_ROUTE}/:skillId`;
 const SKILL_CATALOG_ROUTE = `${SKILL_ROUTE}/catalog`;
+const SKILL_RESOURCE_ROUTE = `${SKILL_ROUTE}/releases/:releaseId/resources`;
 const SKILL_ENABLED_ROUTE = `${SKILL_ROUTE}/enabled`;
 const SKILL_MAINTAINERS_ROUTE = `${SKILL_ROUTE}/maintainers`;
 const SKILL_GITHUB_IMPORT_ROUTE = `${SKILLS_ROUTE}/import-github`;
@@ -54,6 +56,9 @@ const SKILL_IMPORT_BATCHES_ROUTE = `${SKILLS_ROUTE}/import-github-batches`;
 const SKILL_IMPORT_BATCH_ROUTE = `${SKILL_IMPORT_BATCHES_ROUTE}/:batchId`;
 
 export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
+  app.get(SKILL_RESOURCE_ROUTE, (c) =>
+    forwardCoreHttp(c, SKILL_RESOURCE_ROUTE)
+  );
   app.get(SKILL_IMPORT_BATCHES_ROUTE, (c) =>
     executeRpcRoute({
       c,

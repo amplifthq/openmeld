@@ -1,4 +1,8 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
+import {
+  applyOpenMeldRequestContextHeaders,
+  OPENMELD_EXPECTED_FORWARDED_BY,
+} from "@openmeld/gateway-contract";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   ORGANIZATION_SKILL_BUNDLE_MAX_BYTES,
@@ -7,6 +11,7 @@ import {
   organizationSkillGitHubRepositoryPreviewSchema,
   stringifyOrganizationSkillBundleCanonicalJson,
 } from "@openmeld/schemas";
+import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -40,6 +45,73 @@ const GITHUB_SKILL_MARKDOWN = [
 ].join("\n");
 
 describe("Organization Skills", () => {
+  it("serves one exact resource to a current member and denies it after revocation", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const created = await service.create(fixture.owner, {
+      description: "Review a release before it ships.",
+      instructions: "Read the reference.",
+      name: "resource-access",
+    });
+    const updated = await service.update(fixture.owner, created.id, {
+      bundle: {
+        ...created.bundle,
+        files: [
+          {
+            content: "Exact release resource",
+            encoding: "utf8",
+            mediaType: "text/plain",
+            path: "references/note.txt",
+            size: new TextEncoder().encode("Exact release resource").byteLength,
+          },
+        ],
+      },
+      expectedActiveReleaseId: created.activeRelease.id,
+      expectedVersion: created.version,
+    });
+    const profile = await env.OPENMELD_DB.prepare(
+      "SELECT profile_id FROM openmeld_profiles WHERE owner_user_id = ? AND profile_kind = 'human' LIMIT 1"
+    )
+      .bind(fixture.owner.userId)
+      .first<{ profile_id: string }>();
+    if (!profile) {
+      throw new Error("Human profile fixture is missing.");
+    }
+    const context: OpenMeldRequestContext = {
+      activeOrganizationId: fixture.organizationId,
+      actorContext: {
+        requestId: crypto.randomUUID(),
+        callerPrincipalId: fixture.owner.userId,
+        ownerUserId: fixture.owner.userId,
+        openMeldProfileId: profile.profile_id,
+        profileKind: "human",
+        profileName: "Olivia Owner",
+      },
+    };
+    const headers = applyOpenMeldRequestContextHeaders(
+      new Headers(),
+      { requestContext: context },
+      OPENMELD_EXPECTED_FORWARDED_BY
+    );
+    const resourceBase = `http://localhost/v1/organizations/current/skills/${created.id}/releases/${updated.activeRelease.id}/resources`;
+    const url = `${resourceBase}?path=references%2Fnote.txt`;
+    const first = await SELF.fetch(url, { headers });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("content-type")).toBe("application/octet-stream");
+    expect(first.headers.get("cache-control")).toBe("private, no-store");
+    expect(new TextDecoder().decode(await first.arrayBuffer())).toBe(
+      "Exact release resource"
+    );
+    const missing = await SELF.fetch(`${resourceBase}?path=missing.txt`, {
+      headers,
+    });
+    expect(missing.status).toBe(404);
+    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
+      .bind(fixture.ownerMemberId)
+      .run();
+    const revoked = await SELF.fetch(url, { headers });
+    expect(revoked.status).toBe(403);
+  });
   it("keeps new writes inline while the file-backed writer is disabled", async () => {
     const fixture = await seedFixture();
     const service = createService({ fileBackedWritesEnabled: false });
@@ -283,6 +355,27 @@ describe("Organization Skills", () => {
         "references/checklist.md"
       )
     ).toMatchObject(checklist);
+    expect(
+      await service.getResourceContent(
+        fixture.owner,
+        updated.id,
+        updated.activeRelease.id,
+        "references/checklist.md"
+      )
+    ).toMatchObject({
+      bytes: new TextEncoder().encode("# Checklist"),
+      mediaType: "text/markdown",
+    });
+    await expect(
+      service.getResourceContent(
+        fixture.owner,
+        updated.id,
+        updated.activeRelease.id,
+        "missing.txt"
+      )
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.resource_missing", status: 404 },
+    });
     await expect(
       service.readRuntimeResource(
         fixture.owner.organizationId,

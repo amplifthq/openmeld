@@ -12,6 +12,14 @@ export function buildOrganizationSkillCatalogPath(skillId: string): string {
   return `${buildOrganizationSkillPath(skillId)}/catalog`;
 }
 
+export function buildOrganizationSkillResourcePath(input: {
+  skillId: string;
+  releaseId: string;
+  path: string;
+}): string {
+  return `${buildOrganizationSkillPath(input.skillId)}/releases/${encodeURIComponent(input.releaseId)}/resources?path=${encodeURIComponent(input.path)}`;
+}
+
 export function buildOrganizationSkillGitHubImportPath(): string {
   return `${SKILLS_PATH}/import-github`;
 }

@@ -258,6 +258,7 @@ export {
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
   buildOrganizationSkillRepositoryPreviewPath,
+  buildOrganizationSkillResourcePath,
   buildOrganizationSkillsPath,
 } from "./organization-skills/routes";
 export type {

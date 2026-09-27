@@ -29,6 +29,7 @@ import {
   updateOrganizationSkillResponseSchema,
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { readApiClientTextResponse } from "../errors";
 import {
   buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
@@ -41,6 +42,7 @@ import {
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
   buildOrganizationSkillRepositoryPreviewPath,
+  buildOrganizationSkillResourcePath,
   buildOrganizationSkillsPath,
 } from "./routes";
 import type {
@@ -123,6 +125,35 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       schema: organizationSkillRuntimeCatalogResponseSchema,
       url: buildOrganizationSkillCatalogPath(requireSkillId(input.skillId)),
     }),
+  readResource: async (input) => {
+    const response = await client.requestResponse({
+      ...requestOptions(input),
+      method: "GET",
+      operation: "organization_skill.read_resource",
+      url: buildOrganizationSkillResourcePath({
+        skillId: requireSkillId(input.skillId),
+        releaseId: input.releaseId,
+        path: input.path,
+      }),
+    });
+    if (!response.ok) {
+      await readApiClientTextResponse({ response });
+      throw new Error("Skill resource download failed.");
+    }
+    const declaredSize = Number(response.headers.get("content-length"));
+    if (
+      !Number.isSafeInteger(declaredSize) ||
+      declaredSize < 0 ||
+      declaredSize > 10_000_000
+    ) {
+      throw new Error("Invalid Skill resource size.");
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength !== declaredSize) {
+      throw new Error("Incomplete Skill resource download.");
+    }
+    return bytes;
+  },
   create: async (input) => {
     const body = requireValidInput(
       createOrganizationSkillBodySchema,

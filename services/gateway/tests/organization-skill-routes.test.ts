@@ -77,6 +77,28 @@ const TEST_EXECUTION_CONTEXT = {
 } as unknown as ExecutionContext;
 
 describe("Organization Skill routes", () => {
+  it("forwards one release resource without turning its bytes into JSON", async () => {
+    const { coreRpc, env } = makeEnv();
+    const bytes = Uint8Array.of(0, 1, 2);
+    coreRpc.fetch.mockResolvedValueOnce(
+      new Response(bytes, {
+        headers: {
+          "content-length": "3",
+          "content-type": "application/octet-stream",
+        },
+      })
+    );
+    const route = `http://local/v1/organizations/current/skills/${SKILL_ID}/releases/${RELEASE_ID}/resources?path=assets%2Ftemplate.bin`;
+    const response = await app.fetch(
+      new Request(route),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(coreRpc.fetch).toHaveBeenCalledOnce();
+    expect(coreRpc.fetch.mock.calls[0]?.[0].url).toBe(route);
+  });
   it("forwards the complete management surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
     const route = `http://local/v1/organizations/current/skills/${SKILL_ID}`;
@@ -318,6 +340,9 @@ describe("Organization Skill routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    fetch: vi.fn(
+      async (_request: Request): Promise<Response> => new Response()
+    ),
     createOrganizationSkill: vi.fn(async () => ({ skill: SKILL })),
     deleteOrganizationSkill: vi.fn(async () => ({
       deleted: true,
