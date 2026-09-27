@@ -358,6 +358,22 @@ Missing inventory is unknown evidence, not proof that every catalog model works
 or that none do. Version advisory remains a separate maintenance check; an
 advisory lookup failure must not erase an otherwise proven incompatibility.
 
+Codex discovery supports both the legacy `Contents/Resources/codex` and the
+`Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` layout in
+Codex.app and ChatGPT.app, independently of the Service PATH. When a saved
+bundled executable disappears, registration reconciliation may follow a verified
+replacement inside that same host app. It preserves launch arguments and never
+switches between host apps or from an app to a standalone CLI automatically.
+An unsuccessful replacement probe retains the original selection and failure.
+Other providers retain stable command entrypoints; Cursor additionally repairs
+its historical version-directory selections. A sole alternative installation is
+not evidence of the same identity and requires explicit owner selection.
+
+ACI launch evidence may include the bounded `installation_missing` or
+`installation_access_denied` reason. Cloud reporting preserves these reason
+codes while stripping raw diagnostic text and local paths. Owner-facing clients
+render actionable copy from the reason, independently of computer connectivity.
+
 The selected launch contract remains the install and update identity. When an
 Agent Controller is bundled inside a host application, ACI must treat that host
 application as the update owner. It must not compare the bundled runtime with a
