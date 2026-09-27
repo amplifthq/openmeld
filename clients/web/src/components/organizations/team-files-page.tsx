@@ -418,6 +418,7 @@ function TeamFilesBrowser(input: {
 		}).catch(console.error);
 	};
 	const copyDestination: FileRootLocation = location === "team" ? "my" : "team";
+	const rootLabel = location === "my" ? "My files" : "Team files";
 	let breadcrumb: ReactNode = null;
 	if (view === "trash") {
 		breadcrumb = (
@@ -460,7 +461,7 @@ function TeamFilesBrowser(input: {
 								type="button"
 								variant="ghost"
 							>
-								{crumb.name}
+								{crumb.id === null ? rootLabel : crumb.name}
 							</Button>
 						)}
 					</span>
@@ -547,7 +548,7 @@ function TeamFilesBrowser(input: {
 			) : null}
 		</div>
 	);
-	let browserTitle = location === "my" ? "My files" : "Team files";
+	let browserTitle = rootLabel;
 	if (view === "trash") {
 		browserTitle = "Trash";
 	} else if (parentId) {
