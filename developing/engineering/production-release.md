@@ -423,6 +423,15 @@ request-only recovery fields from being mistaken for response-only changes;
 adding the bidirectional service to a request allowlist would reverse the bug
 for response changes.
 
+The reviewed addition of only `remote_agent.provider.connection_missing` to
+the worker-response reason codes is a narrow exception to that ambiguity. It
+does not change a request envelope or Core request producer. When this is the
+exact schema diff, the planner retains the response-reader dependency and
+deploys Core before Remote Agent. A second schema edit or a changed request
+producer remains blocked for separate direction review. The Center Agent's
+Organization Skills catalog RPC in the same release also has a Core receiver,
+so it follows that Core-first order.
+
 The strict version-4 Center Agent conversation contract is such a request-side
 change. Apply its D1 generation-pointer migration first, deploy Remote Agent so
 it accepts version 4, and deploy Core last so it begins producing version 4.
