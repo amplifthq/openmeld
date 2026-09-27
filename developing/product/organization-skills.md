@@ -336,10 +336,10 @@ Organization's delayed create/install completion cannot navigate the new one.
 The catalog is a compact directory, not a dashboard or marketplace. One **Skills**
 heading and one short explanation precede search, an **All / Enabled / Disabled**
 status filter, and the permission-gated **Add skill** menu (**Create skill** or
-**Install from GitHub**). Rows show the actual portable name, description,
-enabled state, source and update date. They sort by latest update, then name and
-id for stable ties. Narrow layouts reflow the same rows rather than introduce a
-second card view. Empty and no-match states differ; a background read error keeps
+**Install from GitHub**). Individual cards show the actual portable name,
+description, enabled state, source and update date. They sort by latest update,
+then name and id for stable ties. Narrow layouts stack the same cards. Empty
+and no-match states differ; a background read error keeps
 the cached list and an inline retry instead of blanking the catalog.
 
 Search, status and scroll position are transient account/Organization view state,
