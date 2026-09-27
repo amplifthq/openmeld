@@ -91,9 +91,8 @@ export const openConnectorRuntimeActionOperationMetaSchema = z.strictObject({
 });
 
 export const openConnectorRuntimeActionSuccessEnvelopeSchema = z.strictObject({
-  data: z.unknown(),
+  data: z.json(),
   message: z.literal("OK"),
   meta: openConnectorRuntimeActionOperationMetaSchema,
-  outputSchema: jsonSchemaObjectSchema,
   success: z.literal(true),
 });

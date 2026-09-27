@@ -63,7 +63,7 @@ describe("OpenConnector runtime action contract", () => {
     });
   });
 
-  it("requires the execution-owned output schema on successful results", () => {
+  it("accepts the provider execution envelope and rejects extra fields", () => {
     const envelope = {
       data: { messages: [], resultSizeEstimate: 201 },
       message: "OK",
@@ -71,10 +71,6 @@ describe("OpenConnector runtime action contract", () => {
         actionId: "gmail.fetch_emails",
         auditPersisted: true,
         executionId: "provider-execution-1",
-      },
-      outputSchema: {
-        properties: { resultSizeEstimate: { type: "integer" } },
-        type: "object",
       },
       success: true,
     } as const;
@@ -85,7 +81,7 @@ describe("OpenConnector runtime action contract", () => {
     expect(
       openConnectorRuntimeActionSuccessEnvelopeSchema.safeParse({
         ...envelope,
-        outputSchema: undefined,
+        outputSchema: { type: "object" },
       }).success
     ).toBe(false);
   });

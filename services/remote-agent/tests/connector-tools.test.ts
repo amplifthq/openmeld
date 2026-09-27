@@ -425,7 +425,6 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
-            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -632,7 +631,6 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: "provider-identity-test",
           },
-          outputSchema: action.outputSchema,
           success: true,
         })
       );
@@ -727,7 +725,6 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
-          outputSchema: action.outputSchema,
           success: true,
         })
       );
@@ -945,7 +942,6 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
-            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -1004,14 +1000,13 @@ describe("Remote Agent generic App tools", () => {
       submissionId: ACK.submissionId,
     });
 
-    await expect(
-      executeTool(tools, "openmeld_execute_app_action", {
-        actionId: action.id,
-        input: {},
-        operationId,
-        service: "posthog",
-      })
-    ).resolves.toMatchObject({
+    const replay = await executeTool(tools, "openmeld_execute_app_action", {
+      actionId: action.id,
+      input: {},
+      operationId,
+      service: "posthog",
+    });
+    expect(replay).toMatchObject({
       actionId: action.id,
       attribution: {
         connectionName,
@@ -1024,10 +1019,10 @@ describe("Remote Agent generic App tools", () => {
       },
       data: [{ id: 1, name: "OpenMeld" }],
       operationId,
-      outputSchema: action.outputSchema,
       providerExecutionId,
       replayed: true,
     });
+    expect(replay).toHaveProperty("outputSchema", undefined);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(centerAgentReadConnectorActionOperation).toHaveBeenCalledTimes(1);
     expect(centerAgentResolveConnectorConnection).not.toHaveBeenCalled();
@@ -1232,7 +1227,6 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
-            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -1330,7 +1324,6 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
-            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -1437,7 +1430,6 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
-          outputSchema: action.outputSchema,
           success: true,
         })
       )
@@ -1450,7 +1442,6 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
-          outputSchema: action.outputSchema,
           success: true,
         })
       );

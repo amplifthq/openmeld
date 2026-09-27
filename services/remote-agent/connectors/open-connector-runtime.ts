@@ -176,7 +176,6 @@ export async function runOpenConnectorAction(input: {
   });
   return {
     data: successEnvelope.data,
-    outputSchema: successEnvelope.outputSchema,
     providerExecutionId: successEnvelope.meta.executionId,
   };
 }
@@ -233,8 +232,8 @@ async function readRuntimeEnvelope(response: Response): Promise<{
   errorCode?: string;
   message?: string;
   meta?: unknown;
-  outputSchema?: unknown;
   success?: boolean;
+  raw: Record<string, unknown>;
 }> {
   let payload: unknown;
   try {
@@ -255,7 +254,7 @@ async function readRuntimeEnvelope(response: Response): Promise<{
     message:
       typeof recordValue.message === "string" ? recordValue.message : undefined,
     meta: recordValue.meta,
-    outputSchema: recordValue.outputSchema,
+    raw: recordValue,
     success:
       typeof recordValue.success === "boolean"
         ? recordValue.success
@@ -265,7 +264,6 @@ async function readRuntimeEnvelope(response: Response): Promise<{
 
 export type OpenConnectorActionRun = {
   data: unknown;
-  outputSchema: OpenConnectorRuntimeAction["outputSchema"];
   providerExecutionId: string;
 };
 
@@ -273,13 +271,9 @@ function readSuccessfulActionEnvelope(input: {
   actionId: string;
   envelope: Awaited<ReturnType<typeof readRuntimeEnvelope>>;
 }) {
-  const parsed = openConnectorRuntimeActionSuccessEnvelopeSchema.safeParse({
-    data: input.envelope.data,
-    message: input.envelope.message,
-    meta: input.envelope.meta,
-    outputSchema: input.envelope.outputSchema,
-    success: input.envelope.success,
-  });
+  const parsed = openConnectorRuntimeActionSuccessEnvelopeSchema.safeParse(
+    input.envelope.raw
+  );
   if (!parsed.success) {
     throw new Error(
       `OpenConnector action ${input.actionId} returned an invalid successful execution response.`

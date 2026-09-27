@@ -336,13 +336,12 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_execute_action", request)
     ).resolves.toMatchObject({ status: "completed", replayed: false });
-    await expect(
-      executeTool(tools, "github_execute_action", request)
-    ).resolves.toMatchObject({
+    const replay = await executeTool(tools, "github_execute_action", request);
+    expect(replay).toMatchObject({
       status: "completed",
       replayed: true,
-      outputSchema: action.outputSchema,
     });
+    expect(replay).not.toHaveProperty("outputSchema");
     await expect(
       executeTool(tools, "github_execute_action", {
         ...request,
@@ -3623,7 +3622,10 @@ describe("Remote Agent GitHub tools", () => {
     ).toEqual(["attempted", "outcome_unknown"]);
   });
 
-  it("replays the same provider execution after a GitHub write response is lost", async () => {
+  it.each([
+    "response_lost",
+    "malformed_success",
+  ] as const)("recovers the same provider execution after a GitHub write %s", async (failureMode) => {
     const storage = await createStorage(createSubmitTurnRequest());
     const providerExecutions = new Map<
       string,
@@ -3657,7 +3659,22 @@ describe("Remote Agent GitHub tools", () => {
         providerExecutions.set(idempotencyKey, execution);
       }
       if (transportAttemptCount === 1) {
-        throw new Error("response lost after provider mutation");
+        if (failureMode === "response_lost") {
+          throw new Error("response lost after provider mutation");
+        }
+        return Promise.resolve(
+          Response.json({
+            data: execution.data,
+            message: "OK",
+            meta: {
+              actionId: "github.create_issue",
+              auditPersisted: true,
+              executionId: execution.executionId,
+            },
+            success: true,
+            unexpected: "not in the pinned execution contract",
+          })
+        );
       }
       return Promise.resolve(
         testOpenConnectorSuccessResponse({
@@ -3674,6 +3691,12 @@ describe("Remote Agent GitHub tools", () => {
         userId: "user_mira",
       })
     );
+    const operationLedger = withTestConnectorOperationLedger({
+      centerAgentResolveConnectorConnection,
+    });
+    const recordOperation = vi.fn(
+      operationLedger.centerAgentRecordConnectorActionOperation
+    );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
         baseUrl: "https://connectors.example.test",
@@ -3681,7 +3704,8 @@ describe("Remote Agent GitHub tools", () => {
         runtimeToken: "test-runtime-token",
       },
       coreWorker: {
-        centerAgentResolveConnectorConnection,
+        ...operationLedger,
+        centerAgentRecordConnectorActionOperation: recordOperation,
       },
       storage,
     });
@@ -3694,7 +3718,11 @@ describe("Remote Agent GitHub tools", () => {
 
     await expect(
       executeTool(tools, "github_create_issue", input)
-    ).rejects.toThrow("did not return a response");
+    ).rejects.toThrow(
+      failureMode === "response_lost"
+        ? "did not return a response"
+        : "invalid successful execution response"
+    );
     await expect(
       executeTool(tools, "github_create_issue", input)
     ).resolves.toMatchObject({
@@ -3712,6 +3740,12 @@ describe("Remote Agent GitHub tools", () => {
       status: "completed",
     });
     expect(providerMutationCount).toBe(1);
+    expect(recordOperation.mock.calls.map(([entry]) => entry.outcome)).toEqual([
+      "attempted",
+      "outcome_unknown",
+      "attempted",
+      "completed",
+    ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(centerAgentResolveConnectorConnection).toHaveBeenCalledTimes(1);
     const providerIdempotencyKeys = fetchMock.mock.calls.map(([, init]) =>
@@ -4139,7 +4173,6 @@ function testOpenConnectorSuccessResponse(input: {
         auditPersisted: true,
         executionId: input.executionId ?? `test-provider:${input.actionId}`,
       },
-      outputSchema: input.outputSchema,
       success: true,
     })
   );
