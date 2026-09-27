@@ -20,11 +20,21 @@ const entryRequest = vi.hoisted(() =>
 	vi.fn<({ signal }: { signal: AbortSignal }) => Promise<unknown>>()
 );
 const joinRequest = vi.hoisted(() => vi.fn());
+const desktopPlatformMock = vi.hoisted(() => vi.fn());
+const openDesktopWebMock = vi.hoisted(() => vi.fn());
+const rememberProtectedSpaceAccessMock = vi.hoisted(() => vi.fn());
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+	openDesktopWeb: openDesktopWebMock,
+}));
 vi.mock("#/lib/organizations/organization-spaces", () => ({
 	joinOrganizationSpace: joinRequest,
 }));
 beforeEach(() => {
 	joinRequest.mockReset();
+	desktopPlatformMock.mockReset().mockReturnValue(null);
+	openDesktopWebMock.mockReset().mockResolvedValue(undefined);
+	rememberProtectedSpaceAccessMock.mockReset();
 	entryRequest
 		.mockReset()
 		.mockImplementation(() => new Promise(() => undefined));
@@ -38,9 +48,42 @@ vi.mock("#/query/spaces/entry-resolution", () => ({
 		}),
 }));
 vi.mock("#/lib/spaces/protected-space-access", () => ({
-	rememberProtectedSpaceAccess: vi.fn(),
+	rememberProtectedSpaceAccess: rememberProtectedSpaceAccessMock,
 }));
 afterEach(cleanup);
+
+it("opens a protected Space in Web from Desktop without submitting a native password", async () => {
+	desktopPlatformMock.mockReturnValue({});
+	entryRequest.mockResolvedValue({
+		target: { spaceId: "space-123" },
+		view: { state: "password_required" },
+		safeContext: {},
+	});
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	render(
+		<QueryClientProvider client={client}>
+			<SpaceEntryGate
+				renderFrame={(content) => <div>{content}</div>}
+				signInHref="/login"
+				spaceId="space-123"
+			>
+				{() => <p>Protected reply</p>}
+			</SpaceEntryGate>
+		</QueryClientProvider>
+	);
+	const open = await screen.findByRole("button", {
+		name: "Open in OpenMeld Web",
+	});
+	expect(screen.queryByLabelText("Space password")).toBeNull();
+	fireEvent.click(open);
+	await waitFor(() =>
+		expect(openDesktopWebMock).toHaveBeenCalledWith("/spaces/space-123")
+	);
+	expect(rememberProtectedSpaceAccessMock).not.toHaveBeenCalled();
+	client.clear();
+});
 
 it("shows Thread loading while checking access and removes it on rejection without showing messages", async () => {
 	const client = new QueryClient({
