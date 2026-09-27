@@ -116,6 +116,13 @@ export const organizationSkillFileSchema = z.strictObject({
   size: z.number().int().nonnegative().max(ORGANIZATION_SKILL_FILE_MAX_BYTES),
 });
 
+// Catalog entries describe stored resources; inline request limits do not
+// apply to their size or count. The catalog byte budget is enforced separately.
+export const organizationSkillResourceMetadataSchema =
+  organizationSkillFileSchema.omit({ content: true }).safeExtend({
+    size: z.number().int().nonnegative(),
+  });
+
 export const organizationSkillBundleSchema = z
   .strictObject({
     files: z
@@ -327,14 +334,16 @@ export const previewOrganizationSkillRepositoryBodySchema =
   previewOrganizationSkillFromGitHubBodySchema;
 export const organizationSkillGitHubPreviewSchema = z.strictObject({
   files: z.array(
-    organizationSkillFileSchema
+    organizationSkillResourceMetadataSchema
       .pick({
         path: true,
         size: true,
       })
       .extend({
-        encoding: organizationSkillFileSchema.shape.encoding.optional(),
-        mediaType: organizationSkillFileSchema.shape.mediaType.optional(),
+        encoding:
+          organizationSkillResourceMetadataSchema.shape.encoding.optional(),
+        mediaType:
+          organizationSkillResourceMetadataSchema.shape.mediaType.optional(),
       })
   ),
   instructionsCharacters: z.number().int().nonnegative(),
@@ -567,9 +576,7 @@ export const organizationSkillRuntimeCatalogResponseSchema = z.strictObject({
         skillId: identifierSchema,
         instructions: instructionsSchema,
         portable: organizationSkillPortableMetadataSchema,
-        files: z
-          .array(organizationSkillFileSchema.omit({ content: true }))
-          .max(ORGANIZATION_SKILL_FILE_LIMIT),
+        files: z.array(organizationSkillResourceMetadataSchema),
       })
     )
     .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),

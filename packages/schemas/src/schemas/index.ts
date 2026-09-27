@@ -1896,6 +1896,7 @@ export {
   organizationSkillPermissionsSchema,
   organizationSkillPortableMetadataSchema,
   organizationSkillReleaseSummarySchema,
+  organizationSkillResourceMetadataSchema,
   organizationSkillRouteParamsSchema,
   organizationSkillRuntimeCatalogResponseSchema,
   organizationSkillRuntimeReleaseSchema,
