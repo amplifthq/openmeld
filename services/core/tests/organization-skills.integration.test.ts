@@ -220,6 +220,54 @@ describe("Organization Skills", () => {
     ).toMatchObject({ content, size: content.length });
   });
 
+  it("publishes a resource-heavy portable package and reads one exact resource", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const markdown =
+      "---\nname: resource-heavy\ndescription: Read the supporting files when needed.\n---\nUse the references.";
+    const largeContent = "x".repeat(1_203_094);
+    const smallContent = "y".repeat(30_000);
+    const files = [
+      {
+        content: markdown,
+        encoding: "utf8" as const,
+        mediaType: "text/markdown",
+        path: "SKILL.md",
+        size: markdown.length,
+      },
+      {
+        content: largeContent,
+        encoding: "utf8" as const,
+        mediaType: "text/css",
+        path: "references/fonts.css",
+        size: largeContent.length,
+      },
+      ...Array.from({ length: 167 }, (_, index) => ({
+        content: smallContent,
+        encoding: "utf8" as const,
+        mediaType: "text/plain",
+        path: `references/part-${index}.txt`,
+        size: smallContent.length,
+      })),
+    ];
+    const installed = await service.importFromFiles(fixture.owner, files);
+    expect(installed.bundle.files).toHaveLength(168);
+    const resource = await service.readRuntimeResource(
+      fixture.organizationId,
+      {
+        digest: installed.activeRelease.digest,
+        name: installed.name,
+        releaseId: installed.activeRelease.id,
+        skillId: installed.id,
+      },
+      "references/fonts.css"
+    );
+    expect(resource).toMatchObject({
+      content: largeContent,
+      size: largeContent.length,
+    });
+  });
+
   it("reads a stored UTF-8 resource without dropping its BOM", async () => {
     const fixture = await seedFixture();
     const service = createService();
