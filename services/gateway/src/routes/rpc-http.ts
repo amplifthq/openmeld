@@ -22,6 +22,7 @@ import { registerDiagnosticsRoute } from "./rpc-http.diagnostics";
 import { registerDispatchLookupRoutes } from "./rpc-http.dispatch-lookup";
 import { registerDispatchTraceRoutes } from "./rpc-http.dispatch-trace";
 import { registerExecutionRecoveryRoutes } from "./rpc-http.execution-recovery";
+import { registerFileRootRoutes } from "./rpc-http.file-roots";
 import { registerInboxRoutes } from "./rpc-http.inbox";
 import { registerLocalRuntimeExpectedRoutesRoutes } from "./rpc-http.local-runtime-expected-routes";
 import { registerMessageChannelRoutes } from "./rpc-http.message-channels";
@@ -83,6 +84,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerOrganizationUsageRoutes(app);
   registerOrganizationDocumentRoutes(app);
   registerOrganizationSkillRoutes(app);
+  registerFileRootRoutes(app);
   registerOrganizationLogoRoutes(app);
   registerRoutineRoutes(app);
   registerSpaceAccessModeRoute(app);

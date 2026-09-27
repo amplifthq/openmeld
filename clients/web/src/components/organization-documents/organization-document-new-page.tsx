@@ -25,7 +25,7 @@ import {
 } from "#/lib/organizations/organization-documents";
 import {
 	buildOrganizationDocumentPath,
-	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
 } from "#/lib/organizations/organization-routes";
 import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import {
@@ -40,7 +40,7 @@ import {
 const KIND_OPTIONS = [
 	{ label: "Knowledge", value: "knowledge" },
 	{ label: "Profile Report", value: "member_profile" },
-	{ label: "Organization Brief", value: "brief" },
+	{ label: "Team Brief", value: "brief" },
 ] as const;
 
 export function OrganizationDocumentNewPage(input: {
@@ -109,13 +109,13 @@ export function OrganizationDocumentNewPage(input: {
 		<div className="grid gap-6">
 			<Link
 				className={APP_INLINE_BACK_LINK_CLASS_NAME}
-				search={folderSearch}
-				to={buildOrganizationDocumentsPath(currentOrganization.slug)}
+				search={{ ...folderSearch, view: "knowledge" }}
+				to={buildOrganizationFilesPath(currentOrganization.slug)}
 			>
-				<ArrowLeftIcon aria-hidden="true" /> Back to Documents
+				<ArrowLeftIcon aria-hidden="true" /> Back to knowledge
 			</Link>
 			<header>
-				<p className="font-medium text-muted-foreground text-xs">Documents</p>
+				<p className="font-medium text-muted-foreground text-xs">Knowledge</p>
 				<h1 className="font-medium text-2xl">New document</h1>
 				<p className="mt-1 text-muted-foreground text-sm">
 					Create approved Markdown content. Center Agent proposals will appear
@@ -154,8 +154,8 @@ export function OrganizationDocumentNewPage(input: {
 			<div className="flex justify-end gap-2 border-t pt-4">
 				<Link
 					className={buttonVariants({ variant: "outline" })}
-					search={folderSearch}
-					to={buildOrganizationDocumentsPath(currentOrganization.slug)}
+					search={{ ...folderSearch, view: "knowledge" }}
+					to={buildOrganizationFilesPath(currentOrganization.slug)}
 				>
 					Cancel
 				</Link>
@@ -261,7 +261,7 @@ function DocumentTargetFields(input: {
 			) : null}
 			{input.kind === "brief" ? (
 				<div>
-					<p className="font-medium text-sm">Organization Brief</p>
+					<p className="font-medium text-sm">Team Brief</p>
 					<p className="mt-1 text-muted-foreground text-xs">
 						The approved content is added to the Center Agent’s context.
 					</p>

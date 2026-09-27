@@ -394,11 +394,11 @@ export function CenterAgentSettingsContent(input: {
 						/>
 						{documentsQuery.isSuccess ? (
 							<AgentConfigurationCard
-								actionLabel="Open Organization Brief"
+								actionLabel="Open Team Brief"
 								description="Approved context for Center Agent"
 								icon={<FileTextIcon aria-hidden="true" />}
 								itemId="center-agent-brief"
-								label="Organization Brief"
+								label="Team Brief"
 								onClick={() => {
 									navigate({
 										to: brief
@@ -440,22 +440,22 @@ export function CenterAgentSettingsContent(input: {
 									})
 						}
 					>
-						Organization Brief →
+						Team Brief →
 					</Link>
 					<p className="mt-1 text-muted-foreground text-xs">
-						Manage the approved context your Center Agent receives in Documents.
+						Manage the approved knowledge your Center Agent receives in Files.
 					</p>
 				</section>
 			) : null}
 			{documentsQuery.isError ? (
 				<CenterAgentErrorState
-					message="OpenMeld could not load the Organization Brief link."
+					message="Could not load the Team Brief link."
 					onRetry={() => {
 						documentsQuery.refetch().catch((error) => {
-							console.error("Failed to refresh Organization documents.", error);
+							console.error("Failed to refresh Team knowledge.", error);
 						});
 					}}
-					title="Could not load Documents."
+					title="Could not load Team knowledge."
 				/>
 			) : null}
 			{designationQuery.data && !designation ? (

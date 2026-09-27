@@ -6,10 +6,13 @@ import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 export const ORGANIZATION_SKILL_NAME_MAX_CHARS = 64;
 export const ORGANIZATION_SKILL_DESCRIPTION_MAX_CHARS = 1024;
 export const ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS = 100_000;
-export const ORGANIZATION_SKILL_FILE_MAX_BYTES = 256_000;
-export const ORGANIZATION_SKILL_BUNDLE_MAX_BYTES = 2_000_000;
-export const ORGANIZATION_SKILL_FILE_LIMIT = 128;
+export const ORGANIZATION_SKILL_FILE_MAX_BYTES = 2_000_000;
+const ORGANIZATION_SKILL_FILE_MAX_ENCODED_CHARS =
+  4 * Math.ceil(ORGANIZATION_SKILL_FILE_MAX_BYTES / 3);
+export const ORGANIZATION_SKILL_BUNDLE_MAX_BYTES = 8_000_000;
+export const ORGANIZATION_SKILL_FILE_LIMIT = 256;
 export const ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT = 64;
+export const ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT = 256;
 export const ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES = 16_000_000;
 export const ORGANIZATION_SKILL_OPERATION_ID_MAX_CHARS = 256;
 export const ORGANIZATION_SKILL_ERROR_CODES = [
@@ -36,6 +39,7 @@ export const ORGANIZATION_SKILL_ERROR_CODES = [
   "organization_skill.release_invalid",
   "organization_skill.release_missing",
   "organization_skill.release_object_missing",
+  "organization_skill.resource_missing",
   "organization_skill.runtime_catalog_too_large",
   "organization_skill.runtime_release_limit",
   "organization_skill.skill_markdown_invalid",
@@ -100,7 +104,7 @@ export const organizationSkillPortableMetadataSchema = z.strictObject({
 });
 
 export const organizationSkillFileSchema = z.strictObject({
-  content: z.string().max(ORGANIZATION_SKILL_FILE_MAX_BYTES),
+  content: z.string().max(ORGANIZATION_SKILL_FILE_MAX_ENCODED_CHARS),
   encoding: z.enum(["base64", "utf8"]),
   mediaType: z.string().trim().min(1).max(256),
   path: z
@@ -111,6 +115,13 @@ export const organizationSkillFileSchema = z.strictObject({
     .refine(isSafePortableSkillPath, "Skill file path is not safe."),
   size: z.number().int().nonnegative().max(ORGANIZATION_SKILL_FILE_MAX_BYTES),
 });
+
+// Catalog entries describe stored resources; inline request limits do not
+// apply to their size or count. The catalog byte budget is enforced separately.
+export const organizationSkillResourceMetadataSchema =
+  organizationSkillFileSchema.omit({ content: true }).safeExtend({
+    size: z.number().int().nonnegative(),
+  });
 
 export const organizationSkillBundleSchema = z
   .strictObject({
@@ -278,39 +289,165 @@ export const deleteOrganizationSkillResponseSchema = z.strictObject({
   skillId: identifierSchema,
 });
 
-export const importOrganizationSkillFromGitHubBodySchema = z.strictObject({
-  expectedCommitSha: z
-    .string()
-    .regex(/^[a-f0-9]{40}$/)
-    .optional(),
-  expectedOrganizationId: identifierSchema,
-  url: sourceUrlSchema,
-});
+export const importOrganizationSkillFromGitHubBodySchema = z
+  .strictObject({
+    expectedCommitSha: z
+      .string()
+      .regex(/^[a-f0-9]{40}$/)
+      .optional(),
+    expectedOrganizationId: identifierSchema,
+    batchId: operationIdSchema.optional(),
+    operationId: operationIdSchema.optional(),
+    url: sourceUrlSchema,
+  })
+  .refine(
+    (value) =>
+      value.operationId === undefined || value.expectedCommitSha !== undefined,
+    {
+      message: "A pinned commit is required for a retryable Skill import.",
+      path: ["expectedCommitSha"],
+    }
+  );
 export const importOrganizationSkillFromGitHubResponseSchema = z.strictObject({
   skill: organizationSkillSchema,
 });
+
+export const importOrganizationSkillFromFilesBodySchema = z.strictObject({
+  expectedOrganizationId: identifierSchema,
+  files: z
+    .array(organizationSkillFileSchema)
+    .min(1)
+    .max(ORGANIZATION_SKILL_FILE_LIMIT + 1),
+});
+export const importOrganizationSkillFromFilesResponseSchema = z.strictObject({
+  skill: organizationSkillSchema,
+});
+
+export const previewOrganizationSkillFromFilesBodySchema =
+  importOrganizationSkillFromFilesBodySchema;
 
 export const previewOrganizationSkillFromGitHubBodySchema = z.strictObject({
   expectedOrganizationId: identifierSchema,
   url: sourceUrlSchema,
 });
+export const previewOrganizationSkillRepositoryBodySchema =
+  previewOrganizationSkillFromGitHubBodySchema;
 export const organizationSkillGitHubPreviewSchema = z.strictObject({
   files: z.array(
-    organizationSkillFileSchema.pick({
-      encoding: true,
-      mediaType: true,
-      path: true,
-      size: true,
-    })
+    organizationSkillResourceMetadataSchema
+      .pick({
+        path: true,
+        size: true,
+      })
+      .extend({
+        encoding:
+          organizationSkillResourceMetadataSchema.shape.encoding.optional(),
+        mediaType:
+          organizationSkillResourceMetadataSchema.shape.mediaType.optional(),
+      })
   ),
   instructionsCharacters: z.number().int().nonnegative(),
   portable: organizationSkillPortableMetadataSchema,
   source: organizationSkillGitHubSourceSchema,
   warnings: z.array(z.string().trim().min(1).max(1024)),
 });
+export const organizationSkillFilesPreviewSchema =
+  organizationSkillGitHubPreviewSchema.omit({ source: true }).extend({
+    files: z.array(
+      organizationSkillFileSchema.pick({
+        encoding: true,
+        mediaType: true,
+        path: true,
+        size: true,
+      })
+    ),
+  });
+export const organizationSkillGitHubRepositoryPreviewSchema = z.strictObject({
+  catalogLimitBytes: z.number().int().positive(),
+  commitSha: z.string().regex(/^[a-f0-9]{40}$/),
+  repository: sourceUrlSchema,
+  totalDeclaredBytes: z.number().int().nonnegative(),
+  warnings: z.array(z.string().trim().min(1).max(1024)),
+  skills: z
+    .array(
+      z.strictObject({
+        blocker: z
+          .strictObject({
+            code: z.string().trim().min(1),
+            message: z.string().trim().min(1),
+          })
+          .nullable(),
+        fileCount: z.number().int().nonnegative(),
+        path: z.string().max(1024),
+        totalBytes: z.number().int().nonnegative(),
+        url: sourceUrlSchema,
+        warnings: z.array(z.string().trim().min(1).max(1024)),
+      })
+    )
+    .max(ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT),
+});
 export const previewOrganizationSkillFromGitHubResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   preview: organizationSkillGitHubPreviewSchema,
+});
+export const previewOrganizationSkillRepositoryResponseSchema = z.strictObject({
+  organizationId: identifierSchema,
+  preview: organizationSkillGitHubRepositoryPreviewSchema,
+});
+export const beginOrganizationSkillImportBatchBodySchema = z.strictObject({
+  batchId: operationIdSchema,
+  expectedCommitSha: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .optional(),
+  expectedOrganizationId: identifierSchema,
+  selectedPaths: z
+    .array(z.string().max(1024))
+    .max(ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT)
+    .optional(),
+  url: sourceUrlSchema,
+});
+export const organizationSkillImportBatchResultSchema = z.strictObject({
+  error: z.string().max(2048).optional(),
+  path: z.string().max(1024),
+  releaseId: identifierSchema.optional(),
+  selected: z.boolean(),
+  skillId: identifierSchema.optional(),
+  status: z.enum(["pending", "installed", "skipped", "failed"]),
+});
+export const organizationSkillImportBatchSchema = z.strictObject({
+  batchId: operationIdSchema,
+  createdAt: isoDateTimeSchema,
+  organizationId: identifierSchema,
+  preview: organizationSkillGitHubRepositoryPreviewSchema,
+  results: z
+    .array(organizationSkillImportBatchResultSchema)
+    .max(ORGANIZATION_SKILL_REPOSITORY_PREVIEW_LIMIT),
+  sourceUrl: sourceUrlSchema,
+});
+export const beginOrganizationSkillImportBatchResponseSchema = z.strictObject({
+  batch: organizationSkillImportBatchSchema,
+});
+export const getOrganizationSkillImportBatchResponseSchema =
+  beginOrganizationSkillImportBatchResponseSchema;
+export const listOrganizationSkillImportBatchesResponseSchema = z.strictObject({
+  batches: z
+    .array(
+      z.strictObject({
+        batchId: operationIdSchema,
+        createdAt: isoDateTimeSchema,
+        failedCount: z.number().int().nonnegative(),
+        installedCount: z.number().int().nonnegative(),
+        pendingCount: z.number().int().nonnegative(),
+        repository: sourceUrlSchema,
+      })
+    )
+    .max(10),
+  organizationId: identifierSchema,
+});
+export const previewOrganizationSkillFromFilesResponseSchema = z.strictObject({
+  organizationId: identifierSchema,
+  preview: organizationSkillFilesPreviewSchema,
 });
 
 const centerAgentListOrganizationSkillsRpcInputSchema = z.strictObject({
@@ -331,11 +468,19 @@ const centerAgentPreviewOrganizationSkillFromGitHubRpcInputSchema =
     speakerMember: centerAgentToolSpeakerSchema,
     url: sourceUrlSchema,
   });
+const centerAgentPreviewOrganizationSkillRepositoryRpcInputSchema =
+  z.strictObject({
+    action: z.literal("preview_github_repository"),
+    context: openMeldRequestContextSchema,
+    speakerMember: centerAgentToolSpeakerSchema,
+    url: sourceUrlSchema,
+  });
 export const centerAgentReadOrganizationSkillsRpcInputSchema =
   z.discriminatedUnion("action", [
     centerAgentListOrganizationSkillsRpcInputSchema,
     centerAgentGetOrganizationSkillRpcInputSchema,
     centerAgentPreviewOrganizationSkillFromGitHubRpcInputSchema,
+    centerAgentPreviewOrganizationSkillRepositoryRpcInputSchema,
   ]);
 export const centerAgentReadOrganizationSkillsResponseSchema =
   z.discriminatedUnion("action", [
@@ -355,6 +500,11 @@ export const centerAgentReadOrganizationSkillsResponseSchema =
       organizationId: identifierSchema,
       preview: organizationSkillGitHubPreviewSchema,
     }),
+    z.strictObject({
+      action: z.literal("preview_github_repository"),
+      organizationId: identifierSchema,
+      preview: organizationSkillGitHubRepositoryPreviewSchema,
+    }),
   ]);
 
 const centerAgentCreateOrganizationSkillRpcInputSchema = z.strictObject({
@@ -373,10 +523,15 @@ const centerAgentImportOrganizationSkillFromGitHubRpcInputSchema =
     speakerMember: centerAgentToolSpeakerSchema,
     url: sourceUrlSchema,
   });
+const centerAgentImportOrganizationSkillWithReportRpcInputSchema =
+  centerAgentImportOrganizationSkillFromGitHubRpcInputSchema.extend({
+    action: z.literal("import_github_with_report"),
+  });
 export const centerAgentInstallOrganizationSkillRpcInputSchema =
   z.discriminatedUnion("action", [
     centerAgentCreateOrganizationSkillRpcInputSchema,
     centerAgentImportOrganizationSkillFromGitHubRpcInputSchema,
+    centerAgentImportOrganizationSkillWithReportRpcInputSchema,
   ]);
 export const centerAgentInstallOrganizationSkillResponseSchema =
   z.discriminatedUnion("action", [
@@ -390,6 +545,13 @@ export const centerAgentInstallOrganizationSkillResponseSchema =
       organizationId: identifierSchema,
       skill: organizationSkillSummarySchema,
     }),
+    z.strictObject({
+      action: z.literal("import_github_with_report"),
+      organizationId: identifierSchema,
+      skill: organizationSkillSummarySchema,
+      warnings: z.array(z.string().trim().min(1).max(1024)),
+      storedButNotExecutable: z.array(z.string().max(1024)),
+    }),
   ]);
 
 export const organizationSkillRuntimeReleaseSelectionSchema = z.strictObject({
@@ -402,6 +564,21 @@ export const organizationSkillRuntimeSnapshotResponseSchema = z.strictObject({
   organizationId: identifierSchema,
   releases: z
     .array(organizationSkillRuntimeReleaseSchema)
+    .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
+});
+export const organizationSkillRuntimeCatalogResponseSchema = z.strictObject({
+  organizationId: identifierSchema,
+  releases: z
+    .array(
+      z.strictObject({
+        digest: digestSchema,
+        releaseId: identifierSchema,
+        skillId: identifierSchema,
+        instructions: instructionsSchema,
+        portable: organizationSkillPortableMetadataSchema,
+        files: z.array(organizationSkillResourceMetadataSchema),
+      })
+    )
     .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
 });
 
@@ -441,10 +618,33 @@ export const importOrganizationSkillFromGitHubRpcInputSchema =
   importOrganizationSkillFromGitHubBodySchema.extend({
     context: openMeldRequestContextSchema,
   });
+export const importOrganizationSkillFromFilesRpcInputSchema =
+  importOrganizationSkillFromFilesBodySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const previewOrganizationSkillFromFilesRpcInputSchema =
+  previewOrganizationSkillFromFilesBodySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
 export const previewOrganizationSkillFromGitHubRpcInputSchema =
   previewOrganizationSkillFromGitHubBodySchema.extend({
     context: openMeldRequestContextSchema,
   });
+export const previewOrganizationSkillRepositoryRpcInputSchema =
+  previewOrganizationSkillRepositoryBodySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const beginOrganizationSkillImportBatchRpcInputSchema =
+  beginOrganizationSkillImportBatchBodySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const getOrganizationSkillImportBatchRpcInputSchema = z.strictObject({
+  batchId: operationIdSchema,
+  context: openMeldRequestContextSchema,
+});
+export const listOrganizationSkillImportBatchesRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+});
 export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =
   z.strictObject({
     context: openMeldRequestContextSchema,
@@ -452,6 +652,20 @@ export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =
     releases: z
       .array(organizationSkillRuntimeReleaseSelectionSchema)
       .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
+  });
+export const readOrganizationSkillRuntimeCatalogRpcInputSchema =
+  readOrganizationSkillRuntimeSnapshotRpcInputSchema;
+
+export const readOrganizationSkillRuntimeResourceRpcInputSchema =
+  z.strictObject({
+    context: openMeldRequestContextSchema,
+    path: organizationSkillFileSchema.shape.path,
+    preparationIdempotencyKey: z.string().min(1).max(2048).optional(),
+    release: organizationSkillRuntimeReleaseSelectionSchema,
+  });
+export const readOrganizationSkillRuntimeResourceResponseSchema =
+  z.strictObject({
+    file: organizationSkillFileSchema,
   });
 
 export const recordOrganizationSkillActivationRpcInputSchema = z.strictObject({

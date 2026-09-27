@@ -244,7 +244,7 @@ export function resolveOrganizationDocumentErrorMessage(
 		case "organization_document.knowledge_limit_reached":
 			return `This Organization already has ${ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT} knowledge documents.`;
 		case "organization_document.brief_exists":
-			return "This Organization already has an Organization Brief.";
+			return "This Team already has a Team Brief.";
 		case "organization_document.member_profile_exists":
 			return "This member already has a Profile Report.";
 		case "organization_document.write_forbidden":

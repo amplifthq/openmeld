@@ -1,17 +1,33 @@
 import {
+  beginOrganizationSkillImportBatchResponseSchema,
+  beginOrganizationSkillImportBatchRpcInputSchema,
   createOrganizationSkillResponseSchema,
   createOrganizationSkillRpcInputSchema,
   deleteOrganizationSkillResponseSchema,
   deleteOrganizationSkillRpcInputSchema,
+  getOrganizationSkillImportBatchResponseSchema,
+  getOrganizationSkillImportBatchRpcInputSchema,
   getOrganizationSkillResponseSchema,
   getOrganizationSkillRpcInputSchema,
+  importOrganizationSkillFromFilesResponseSchema,
+  importOrganizationSkillFromFilesRpcInputSchema,
   importOrganizationSkillFromGitHubResponseSchema,
   importOrganizationSkillFromGitHubRpcInputSchema,
+  listOrganizationSkillImportBatchesResponseSchema,
+  listOrganizationSkillImportBatchesRpcInputSchema,
   listOrganizationSkillsResponseSchema,
   listOrganizationSkillsRpcInputSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
   organizationSkillRuntimeSnapshotResponseSchema,
+  previewOrganizationSkillFromFilesResponseSchema,
+  previewOrganizationSkillFromFilesRpcInputSchema,
   previewOrganizationSkillFromGitHubResponseSchema,
   previewOrganizationSkillFromGitHubRpcInputSchema,
+  previewOrganizationSkillRepositoryResponseSchema,
+  previewOrganizationSkillRepositoryRpcInputSchema,
+  readOrganizationSkillRuntimeCatalogRpcInputSchema,
+  readOrganizationSkillRuntimeResourceResponseSchema,
+  readOrganizationSkillRuntimeResourceRpcInputSchema,
   readOrganizationSkillRuntimeSnapshotRpcInputSchema,
   recordOrganizationSkillActivationResponseSchema,
   recordOrganizationSkillActivationRpcInputSchema,
@@ -23,20 +39,37 @@ import {
   updateOrganizationSkillRpcInputSchema,
 } from "@openmeld/schemas";
 import type {
+  BeginOrganizationSkillImportBatchResponse,
+  BeginOrganizationSkillImportBatchRpcInput,
   CreateOrganizationSkillResponse,
   CreateOrganizationSkillRpcInput,
   DeleteOrganizationSkillResponse,
   DeleteOrganizationSkillRpcInput,
+  GetOrganizationSkillImportBatchResponse,
+  GetOrganizationSkillImportBatchRpcInput,
   GetOrganizationSkillResponse,
   GetOrganizationSkillRpcInput,
+  ImportOrganizationSkillFromFilesResponse,
+  ImportOrganizationSkillFromFilesRpcInput,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
+  ListOrganizationSkillImportBatchesResponse,
+  ListOrganizationSkillImportBatchesRpcInput,
   ListOrganizationSkillsResponse,
   ListOrganizationSkillsRpcInput,
   OpenMeldRequestContext,
+  OrganizationSkillRuntimeCatalogResponse,
+  OrganizationSkillRuntimeReleaseSelection,
   OrganizationSkillRuntimeSnapshotResponse,
+  PreviewOrganizationSkillFromFilesResponse,
+  PreviewOrganizationSkillFromFilesRpcInput,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
+  PreviewOrganizationSkillRepositoryResponse,
+  PreviewOrganizationSkillRepositoryRpcInput,
+  ReadOrganizationSkillRuntimeCatalogRpcInput,
+  ReadOrganizationSkillRuntimeResourceResponse,
+  ReadOrganizationSkillRuntimeResourceRpcInput,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   RecordOrganizationSkillActivationResponse,
   RecordOrganizationSkillActivationRpcInput,
@@ -53,8 +86,25 @@ import { resolveActiveOrganizationMembership } from "../organizations/organizati
 import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
+  beginOrganizationSkillImportBatch,
+  listOrganizationSkillImportBatches,
+  readOrganizationSkillImportBatch,
+  recordOrganizationSkillImportBatchResult,
+  requireBatchCandidate,
+  selectionMatches,
+} from "./organization-skill-import-batch";
+import {
+  beginOrganizationSkillOperation,
+  buildHumanOrganizationSkillImportOperationKey,
+  buildOrganizationSkillRequestSignature,
+  deletePendingOrganizationSkillOperation,
+  prepareCompleteOrganizationSkillOperationStatement,
+  readOrganizationSkillOperation,
+} from "./organization-skill-operation-repository";
+import {
   createOrganizationSkillService,
   type OrganizationSkillActor,
+  readEnabledOrganizationSkillReleaseSelection,
 } from "./organization-skill-service";
 
 export async function rpcListOrganizationSkills(
@@ -98,6 +148,18 @@ export async function rpcGetOrganizationSkill(
   });
 }
 
+export async function rpcGetOrganizationSkillCatalog(
+  env: CoreBindings,
+  input: GetOrganizationSkillRpcInput
+): Promise<OrganizationSkillRuntimeCatalogResponse> {
+  const request = parseRequest(getOrganizationSkillRpcInputSchema, input);
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  return parseResponse(
+    organizationSkillRuntimeCatalogResponseSchema,
+    await service.getCatalog(actor, request.skillId)
+  );
+}
+
 export async function rpcCreateOrganizationSkill(
   env: CoreBindings,
   input: CreateOrganizationSkillRpcInput
@@ -124,12 +186,434 @@ export async function rpcImportOrganizationSkillFromGitHub(
     actor.organizationId,
     request.expectedOrganizationId
   );
+  if (request.batchId !== undefined) {
+    return await importGitHubSkillInBatch({ actor, env, request });
+  }
+  if (request.operationId !== undefined) {
+    return await importGitHubSkillWithOperation({ actor, env, request });
+  }
   return parseResponse(importOrganizationSkillFromGitHubResponseSchema, {
     skill: await service.importFromGitHub(
       actor,
       request.url,
       request.expectedCommitSha
     ),
+  });
+}
+
+export async function rpcBeginOrganizationSkillImportBatch(
+  env: CoreBindings,
+  input: BeginOrganizationSkillImportBatchRpcInput
+): Promise<BeginOrganizationSkillImportBatchResponse> {
+  const request = parseRequest(
+    beginOrganizationSkillImportBatchRpcInputSchema,
+    input
+  );
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  requireExpectedOrganization(
+    actor.organizationId,
+    request.expectedOrganizationId
+  );
+  requireManagerActor(actor);
+  const { db } = requireStores(env);
+  const existing = await readOrganizationSkillImportBatch({
+    batchId: request.batchId,
+    db,
+    organizationId: actor.organizationId,
+    userId: actor.userId,
+  });
+  if (existing) {
+    if (
+      existing.sourceUrl !== request.url &&
+      `${existing.preview.repository}/tree/${existing.preview.commitSha}` !==
+        request.url
+    ) {
+      throw batchInputConflict();
+    }
+    if (
+      request.expectedCommitSha &&
+      request.expectedCommitSha !== existing.preview.commitSha
+    ) {
+      throw batchInputConflict();
+    }
+    if (!selectionMatches(existing, request.selectedPaths)) {
+      throw batchInputConflict();
+    }
+    return parseResponse(beginOrganizationSkillImportBatchResponseSchema, {
+      batch: existing,
+    });
+  }
+  const preview = await service.previewRepositoryFromGitHub(actor, request.url);
+  if (
+    request.expectedCommitSha &&
+    request.expectedCommitSha !== preview.commitSha
+  ) {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.github_source_changed",
+      reason:
+        "The GitHub source changed after it was previewed. Review it again before installing.",
+      status: 409,
+    });
+  }
+  const batch = await beginOrganizationSkillImportBatch({
+    batchId: request.batchId,
+    db,
+    organizationId: actor.organizationId,
+    preview,
+    selectedPaths: request.selectedPaths,
+    sourceUrl: request.url,
+    userId: actor.userId,
+  });
+  return parseResponse(beginOrganizationSkillImportBatchResponseSchema, {
+    batch,
+  });
+}
+
+export async function rpcGetOrganizationSkillImportBatch(
+  env: CoreBindings,
+  input: GetOrganizationSkillImportBatchRpcInput
+): Promise<GetOrganizationSkillImportBatchResponse> {
+  const request = parseRequest(
+    getOrganizationSkillImportBatchRpcInputSchema,
+    input
+  );
+  const { actor } = await prepareHumanRequest(env, request.context);
+  requireManagerActor(actor);
+  const { db } = requireStores(env);
+  const batch = await readOrganizationSkillImportBatch({
+    batchId: request.batchId,
+    db,
+    organizationId: actor.organizationId,
+    userId: actor.userId,
+  });
+  if (!batch) {
+    throw batchNotFound();
+  }
+  return parseResponse(getOrganizationSkillImportBatchResponseSchema, {
+    batch,
+  });
+}
+
+export async function rpcListOrganizationSkillImportBatches(
+  env: CoreBindings,
+  input: ListOrganizationSkillImportBatchesRpcInput
+): Promise<ListOrganizationSkillImportBatchesResponse> {
+  const request = parseRequest(
+    listOrganizationSkillImportBatchesRpcInputSchema,
+    input
+  );
+  const { actor } = await prepareHumanRequest(env, request.context);
+  requireManagerActor(actor);
+  const { db } = requireStores(env);
+  return parseResponse(listOrganizationSkillImportBatchesResponseSchema, {
+    organizationId: actor.organizationId,
+    batches: await listOrganizationSkillImportBatches({
+      db,
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+    }),
+  });
+}
+
+async function importGitHubSkillInBatch(input: {
+  actor: OrganizationSkillActor;
+  env: CoreBindings;
+  request: ImportOrganizationSkillFromGitHubRpcInput;
+}): Promise<ImportOrganizationSkillFromGitHubResponse> {
+  const { actor, env, request } = input;
+  requireManagerActor(actor);
+  const { db } = requireStores(env);
+  const batch = await readOrganizationSkillImportBatch({
+    batchId: request.batchId as string,
+    db,
+    organizationId: actor.organizationId,
+    userId: actor.userId,
+  });
+  if (!batch) {
+    throw batchNotFound();
+  }
+  const index = requireBatchCandidate({
+    batch,
+    expectedCommitSha: request.expectedCommitSha ?? "",
+    url: request.url,
+  });
+  const item = batch.preview.skills[index];
+  if (!item) {
+    throw batchInputConflict();
+  }
+  const operationId = await buildOrganizationSkillRequestSignature({
+    batchId: batch.batchId,
+    path: item.path,
+  });
+  if (
+    request.operationId !== undefined &&
+    request.operationId !== operationId
+  ) {
+    throw batchInputConflict();
+  }
+  try {
+    const response = await importGitHubSkillWithOperation({
+      actor,
+      env,
+      request: { ...request, operationId },
+    });
+    await recordOrganizationSkillImportBatchResult({
+      batchId: batch.batchId,
+      db,
+      index,
+      organizationId: actor.organizationId,
+      result: {
+        path: item.path,
+        releaseId: response.skill.activeRelease.id,
+        selected: true,
+        skillId: response.skill.id,
+        status: "installed",
+      },
+      userId: actor.userId,
+    });
+    return response;
+  } catch (error) {
+    await recordOrganizationSkillImportBatchResult({
+      batchId: batch.batchId,
+      db,
+      index,
+      organizationId: actor.organizationId,
+      result: {
+        path: item.path,
+        selected: true,
+        status: "failed",
+        error: batchFailureMessage(error),
+      },
+      userId: actor.userId,
+    });
+    throw error;
+  }
+}
+
+function batchFailureMessage(error: unknown): string {
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (
+    cause &&
+    typeof cause === "object" &&
+    "message" in cause &&
+    typeof cause.message === "string"
+  ) {
+    return cause.message.slice(0, 2048);
+  }
+  return "This Skill could not be installed. Try again.";
+}
+
+function requireManagerActor(actor: OrganizationSkillActor): void {
+  if (actor.role !== "owner" && actor.role !== "admin") {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.manage_forbidden",
+      reason: "Only Organization owners and admins can manage Skills.",
+      status: 403,
+    });
+  }
+}
+
+function batchInputConflict(): Error {
+  return createCoreRpcHttpError({
+    code: "organization_skill.batch_conflict",
+    reason: "This batch ID belongs to a different Skill install plan.",
+    status: 409,
+  });
+}
+
+function batchNotFound(): Error {
+  return createCoreRpcHttpError({
+    code: "organization_skill.batch_missing",
+    reason: "This Skill install batch was not found.",
+    status: 404,
+  });
+}
+
+async function importGitHubSkillWithOperation(input: {
+  actor: OrganizationSkillActor;
+  env: CoreBindings;
+  request: ImportOrganizationSkillFromGitHubRpcInput;
+}): Promise<ImportOrganizationSkillFromGitHubResponse> {
+  const { actor, env, request } = input;
+  if (actor.role !== "owner" && actor.role !== "admin") {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.manage_forbidden",
+      reason: "Only Organization owners and admins can manage Skills.",
+      status: 403,
+    });
+  }
+  if (
+    request.operationId === undefined ||
+    request.expectedCommitSha === undefined
+  ) {
+    throw new Error(
+      "A retryable GitHub Skill import needs an operation ID and pinned commit."
+    );
+  }
+  const { bucket, db } = requireStores(env);
+  const operationKey = await buildHumanOrganizationSkillImportOperationKey({
+    actorProfileId: request.context.actorContext.openMeldProfileId,
+    operationId: request.operationId,
+    organizationId: actor.organizationId,
+    userId: actor.userId,
+  });
+  const requestSignature = await buildOrganizationSkillRequestSignature({
+    actorProfileId: request.context.actorContext.openMeldProfileId,
+    expectedCommitSha: request.expectedCommitSha,
+    url: request.url,
+    userId: actor.userId,
+  });
+  const begin = await beginOrganizationSkillOperation({
+    db,
+    kind: "human_import",
+    nowMs: Date.now(),
+    operationKey,
+    organizationId: actor.organizationId,
+    requestSignature,
+  });
+  if (begin.outcome === "completed_replay") {
+    return await readCompletedGitHubImport({
+      actor,
+      env,
+      responseJson: begin.operation.responseJson,
+    });
+  }
+  if (begin.outcome === "pending_in_progress") {
+    throw createCoreRpcHttpError({
+      code: "organization_skill.operation_in_progress",
+      reason:
+        "This Skill installation is still in progress. Retry the same operation ID.",
+      status: 409,
+    });
+  }
+  const idDigest = await buildOrganizationSkillRequestSignature(operationKey);
+  const skillId = `org_skill_${idDigest.slice(0, 32)}`;
+  const releaseId = `org_skill_release_${idDigest.slice(32)}`;
+  const ids = [skillId, releaseId];
+  const service = createOrganizationSkillService({
+    bucket,
+    db,
+    fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
+    githubToken: env.GITHUB_OPENMELD_API_TOKEN,
+    newId: () => {
+      const id = ids.shift();
+      if (!id) {
+        throw new Error("Skill import exhausted its deterministic IDs.");
+      }
+      return id;
+    },
+  });
+  let skill: Awaited<ReturnType<typeof service.importFromGitHub>>;
+  try {
+    skill = await service.importFromGitHub(
+      actor,
+      request.url,
+      request.expectedCommitSha
+    );
+  } catch (error) {
+    const recovered = await service.get(actor, skillId).catch(() => null);
+    if (recovered?.activeRelease.id !== releaseId) {
+      await deletePendingOrganizationSkillOperation({
+        db,
+        kind: "human_import",
+        operation: begin.operation,
+      });
+      throw error;
+    }
+    skill = recovered;
+  }
+  const response = parseResponse(
+    importOrganizationSkillFromGitHubResponseSchema,
+    { skill }
+  );
+  const completed = await prepareCompleteOrganizationSkillOperationStatement({
+    db,
+    kind: "human_import",
+    nowMs: Date.now(),
+    operation: begin.operation,
+    responseJson: JSON.stringify({ skillId, releaseId }),
+  }).run();
+  if (Number(completed.meta.changes ?? 0) === 1) {
+    return response;
+  }
+  const current = await readOrganizationSkillOperation({
+    db,
+    kind: "human_import",
+    operationKey,
+    organizationId: actor.organizationId,
+  });
+  if (current?.completedAt !== null && current?.responseJson) {
+    return await readCompletedGitHubImport({
+      actor,
+      env,
+      responseJson: current.responseJson,
+    });
+  }
+  throw createCoreRpcHttpError({
+    code: "organization_skill.operation_in_progress",
+    reason:
+      "This Skill installation is still in progress. Retry the same operation ID.",
+    status: 409,
+  });
+}
+
+async function readCompletedGitHubImport(input: {
+  actor: OrganizationSkillActor;
+  env: CoreBindings;
+  responseJson: string | null;
+}): Promise<ImportOrganizationSkillFromGitHubResponse> {
+  const result = JSON.parse(input.responseJson ?? "null") as {
+    releaseId?: string;
+    skillId?: string;
+  } | null;
+  if (!(result?.skillId && result.releaseId)) {
+    throw new Error("Completed Skill import is missing its identity.");
+  }
+  const { bucket, db } = requireStores(input.env);
+  const service = createOrganizationSkillService({ bucket, db });
+  const skill = await service.get(input.actor, result.skillId);
+  if (!skill.releases.some((release) => release.id === result.releaseId)) {
+    throw new Error("Completed Skill import is missing its release.");
+  }
+  return parseResponse(importOrganizationSkillFromGitHubResponseSchema, {
+    skill,
+  });
+}
+
+export async function rpcImportOrganizationSkillFromFiles(
+  env: CoreBindings,
+  input: ImportOrganizationSkillFromFilesRpcInput
+): Promise<ImportOrganizationSkillFromFilesResponse> {
+  const request = parseRequest(
+    importOrganizationSkillFromFilesRpcInputSchema,
+    input
+  );
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  requireExpectedOrganization(
+    actor.organizationId,
+    request.expectedOrganizationId
+  );
+  return parseResponse(importOrganizationSkillFromFilesResponseSchema, {
+    skill: await service.importFromFiles(actor, request.files),
+  });
+}
+
+export async function rpcPreviewOrganizationSkillFromFiles(
+  env: CoreBindings,
+  input: PreviewOrganizationSkillFromFilesRpcInput
+): Promise<PreviewOrganizationSkillFromFilesResponse> {
+  const request = parseRequest(
+    previewOrganizationSkillFromFilesRpcInputSchema,
+    input
+  );
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  requireExpectedOrganization(
+    actor.organizationId,
+    request.expectedOrganizationId
+  );
+  return parseResponse(previewOrganizationSkillFromFilesResponseSchema, {
+    organizationId: actor.organizationId,
+    preview: await service.previewFromFiles(actor, request.files),
   });
 }
 
@@ -149,6 +633,25 @@ export async function rpcPreviewOrganizationSkillFromGitHub(
   return parseResponse(previewOrganizationSkillFromGitHubResponseSchema, {
     organizationId: actor.organizationId,
     preview: await service.previewFromGitHub(actor, request.url),
+  });
+}
+
+export async function rpcPreviewOrganizationSkillRepository(
+  env: CoreBindings,
+  input: PreviewOrganizationSkillRepositoryRpcInput
+): Promise<PreviewOrganizationSkillRepositoryResponse> {
+  const request = parseRequest(
+    previewOrganizationSkillRepositoryRpcInputSchema,
+    input
+  );
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  requireExpectedOrganization(
+    actor.organizationId,
+    request.expectedOrganizationId
+  );
+  return parseResponse(previewOrganizationSkillRepositoryResponseSchema, {
+    organizationId: actor.organizationId,
+    preview: await service.previewRepositoryFromGitHub(actor, request.url),
   });
 }
 
@@ -248,6 +751,49 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
     readOrganizationSkillRuntimeSnapshotRpcInputSchema,
     input
   );
+  const authorization = await authorizeRuntimeSelection(env, request);
+  const { db, bucket } = requireStores(env);
+  return parseResponse(
+    organizationSkillRuntimeSnapshotResponseSchema,
+    await createOrganizationSkillService({ bucket, db }).readRuntimeSnapshot(
+      authorization.activeOrganization.organizationId,
+      request.releases
+    )
+  );
+}
+
+export async function rpcReadOrganizationSkillRuntimeCatalog(
+  env: CoreBindings,
+  input: ReadOrganizationSkillRuntimeCatalogRpcInput
+): Promise<OrganizationSkillRuntimeCatalogResponse> {
+  const request = parseRequest(
+    readOrganizationSkillRuntimeCatalogRpcInputSchema,
+    input
+  );
+  const authorization = await authorizeRuntimeSelection(env, request);
+  const { db, bucket } = requireStores(env);
+  await readEnabledOrganizationSkillReleaseSelection({
+    db,
+    organizationId: authorization.activeOrganization.organizationId,
+    selectedReleases: request.releases,
+  });
+  return parseResponse(
+    organizationSkillRuntimeCatalogResponseSchema,
+    await createOrganizationSkillService({ bucket, db }).readRuntimeCatalog(
+      authorization.activeOrganization.organizationId,
+      request.releases
+    )
+  );
+}
+
+async function authorizeRuntimeSelection(
+  env: CoreBindings,
+  request: {
+    context: OpenMeldRequestContext;
+    preparationIdempotencyKey?: string;
+    releases: OrganizationSkillRuntimeReleaseSelection[];
+  }
+) {
   const authorization = await requireRemoteAgentToolCaller({
     context: request.context,
     env,
@@ -272,14 +818,52 @@ export async function rpcReadOrganizationSkillRuntimeSnapshot(
       throw new Error("organization_skill.prepared_release_mismatch");
     }
   }
-  const { db, bucket } = requireStores(env);
-  return parseResponse(
-    organizationSkillRuntimeSnapshotResponseSchema,
-    await createOrganizationSkillService({ bucket, db }).readRuntimeSnapshot(
-      authorization.activeOrganization.organizationId,
-      request.releases
-    )
+  return authorization;
+}
+
+export async function rpcReadOrganizationSkillRuntimeResource(
+  env: CoreBindings,
+  input: ReadOrganizationSkillRuntimeResourceRpcInput
+): Promise<ReadOrganizationSkillRuntimeResourceResponse> {
+  const request = parseRequest(
+    readOrganizationSkillRuntimeResourceRpcInputSchema,
+    input
   );
+  const authorization = await requireRemoteAgentToolCaller({
+    context: request.context,
+    env,
+    skillPreparationKey: request.preparationIdempotencyKey,
+  });
+  if (
+    "personalExecution" in authorization &&
+    !(
+      authorization.personalExecution.request.organizationSkillReleases ?? []
+    ).some(
+      (frozen) =>
+        frozen.skillId === request.release.skillId &&
+        frozen.releaseId === request.release.releaseId &&
+        frozen.digest === request.release.digest &&
+        frozen.name === request.release.name
+    )
+  ) {
+    throw new Error("organization_skill.prepared_release_mismatch");
+  }
+  const { db, bucket } = requireStores(env);
+  await readEnabledOrganizationSkillReleaseSelection({
+    db,
+    organizationId: authorization.activeOrganization.organizationId,
+    selectedReleases: [request.release],
+  });
+  return parseResponse(readOrganizationSkillRuntimeResourceResponseSchema, {
+    file: await createOrganizationSkillService({
+      bucket,
+      db,
+    }).readRuntimeResource(
+      authorization.activeOrganization.organizationId,
+      request.release,
+      request.path
+    ),
+  });
 }
 
 export async function rpcRecordOrganizationSkillActivation(
@@ -357,7 +941,7 @@ export async function rpcRecordOrganizationSkillActivation(
   });
 }
 
-async function prepareHumanRequest(
+export async function prepareHumanRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext,
   allowAgentReleaseRead = false
@@ -420,6 +1004,7 @@ async function prepareHumanRequest(
     service: createOrganizationSkillService({
       bucket,
       db,
+      fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
       githubToken: env.GITHUB_OPENMELD_API_TOKEN,
     }),
   };
