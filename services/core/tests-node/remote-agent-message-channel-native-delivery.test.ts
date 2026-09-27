@@ -1,6 +1,7 @@
 import {
   buildMessageChannelConversationId,
   buildSpaceAttachmentObjectKey,
+  type PluginChannelSelection,
 } from "@openmeld/schemas";
 import type {
   MessageChannelConversationLocator,
@@ -20,10 +21,12 @@ import {
 } from "../src/remote-agent/application/message-channel-native-delivery-service";
 import type { MessageChannelTurnTarget } from "../src/remote-agent/application/message-channel-turn-resolution";
 import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-agent/application/native-delivery-admission-watchdog";
+import { buildPluginChannelSourceProof } from "../src/remote-agent/application/plugin-channel-source-proof";
 import {
   claimRemoteAgentMessageChannelAdmissionFailurePublication,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readPluginChannelMetadata } from "../src/remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
 import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./helpers/center-agent-model-route.test-support";
 import {
   applyDrizzleMigrationForTable,
@@ -36,6 +39,95 @@ const RFC_4122_VERSION_5_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 describe("Remote Agent Message Channel native delivery", () => {
+  it("persists the explicit Plugin binding before the actual worker submission and replays through the existing delivery owner", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelNativeDeliveryMigrations(harness);
+    const proof = await buildPluginChannelSourceProof({
+      provider: "lark",
+      messageId: "message_original",
+      providerUserId: "ou_user_1",
+      text: "Original request",
+      resourceIds: [],
+    });
+    const request = createMessageChannelDeliveryInput({
+      triggerMessageId: "plugin-channel-continue:stable",
+    });
+    const selection: PluginChannelSelection = {
+      sourceDeliveryId: "original-delivery",
+      organizationId: "org_1",
+      requesterUserId: "user_1",
+      requesterProfileId:
+        request.target.participant.kind === "member"
+          ? (request.target.participant.member.humanProfileId ?? "human")
+          : "human",
+      targetProfileId: AGENT_PROFILE_ID,
+      service: "github",
+      scope: "shared",
+      connectionName: "github-team",
+      connectionUpdatedAtMs: 42,
+      continuationTriggerId: request.triggerMessageId,
+    };
+    const workerSubmit = vi.fn(async () => {
+      const rows = harness.queryAll<{ delivery_id: string }>({
+        sql: "SELECT delivery_id FROM openMeldRemoteAgent_native_delivery_ledger",
+      });
+      expect(rows).toHaveLength(1);
+      const recorded = rows[0];
+      if (!recorded) {
+        throw new Error("Expected admitted delivery before worker invocation");
+      }
+      expect(
+        await readPluginChannelMetadata(harness.db, recorded.delivery_id)
+      ).toMatchObject({
+        kind: "continuation",
+        executionSelection: selection,
+        proof,
+      });
+      return {
+        accepted: true,
+        createdAt: 1001,
+        requestId: "request-binding",
+        status: "pending" as const,
+        submissionId: "submission-binding",
+      };
+    });
+    const input = {
+      db: harness.db,
+      env: buildEnv({
+        remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      }),
+      nowMs: 1000,
+      registry: createWorkingCardRegistry(),
+      memoryService: null,
+      request: {
+        ...request,
+        pluginSourceProof: proof,
+        pluginSelection: selection,
+      },
+    };
+    try {
+      expect(
+        await submitRemoteAgentMessageChannelNativeDelivery(input)
+      ).toMatchObject({ status: "submitted" });
+      expect(
+        await submitRemoteAgentMessageChannelNativeDelivery(input)
+      ).toMatchObject({ status: "submitted" });
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      await expect(
+        submitRemoteAgentMessageChannelNativeDelivery({
+          ...input,
+          request: {
+            ...input.request,
+            pluginSelection: { ...selection, connectionName: "wrong-account" },
+          },
+        })
+      ).rejects.toThrow("execution_binding_conflict");
+      expect(workerSubmit).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("publishes one durable receipt before slow input preparation and skips preparation on accepted replay", async () => {
     const harness = createSqliteD1Harness();
     applyMessageChannelNativeDeliveryMigrations(harness);

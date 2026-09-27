@@ -251,6 +251,7 @@ import {
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   ownerComputerDiagnosticsSchema,
+  type PluginConnectionContinuationBinding,
   parseSlackThreadPublicationPermalink,
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
@@ -265,6 +266,8 @@ import {
   prepareReadinessRouteParamsSchema,
   profileSpaceHistoryGatewayHostSchema,
   projectOwnerComputerLocalRuntimes,
+  type ReadPluginConnectionContinuationBindingRequest,
+  readPluginConnectionContinuationBindingResponseSchema,
   recordSpaceAttachmentPayloadSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
@@ -732,7 +735,6 @@ import {
   createDispatchContinuationSpaceAccessContext,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
-  getSpaceAccessRequestId,
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
@@ -955,6 +957,11 @@ import {
   requireRemotePluginConnection,
   selectPluginConnection,
 } from "../connectors/plugin-access";
+import {
+  assertBoundPluginConnection,
+  boundPluginConnectionPreference,
+  readPluginConnectionExecutionBinding,
+} from "../connectors/plugin-connection-execution-binding";
 import {
   type DispatchHistoryEntry,
   listRecentDispatchLedgerEntriesForSpace,
@@ -2353,6 +2360,8 @@ export type PostSignalInput = {
 
 export type PostSignalOnceByClientMessageIdInput = PostSignalInput & {
   clientMessageId: string;
+  /** Internal Core→Space only. Public message metadata is never authority. */
+  pluginContinuation?: PluginConnectionContinuationBinding;
 };
 
 // Transient signals must stay non-persistent; user Wake dispatch must use PostSignalInput with authoringPolicy.
@@ -8246,8 +8255,16 @@ export async function rpcCenterAgentResolveConnectorConnection(
   const personalOwnerRequest =
     personalRequest &&
     representedUserId === personalRequest.agentProfileOwnerUserId;
-  const connectionPreference =
-    personal && !personalOwnerRequest ? "shared" : requestedPreference;
+  const binding = await readPluginConnectionExecutionBinding(
+    env,
+    context,
+    service
+  );
+  const connectionPreference = boundPluginConnectionPreference(
+    binding,
+    service,
+    personal && !personalOwnerRequest ? "shared" : requestedPreference
+  );
   if (service === "github" && connectionPreference === "automatic") {
     throw createCoreRpcHttpError({
       code: "connector.github_identity_required",
@@ -8276,6 +8293,7 @@ export async function rpcCenterAgentResolveConnectorConnection(
     requesterUserId,
     service,
   });
+  assertBoundPluginConnection(binding, service, selected?.connection ?? null);
   const response = await presentPluginSelection(
     env,
     selected,
@@ -15818,6 +15836,15 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
           : undefined,
       effect: parsed.data.effect ?? "unspecified",
     });
+    assertBoundPluginConnection(
+      await readPluginConnectionExecutionBinding(
+        env,
+        requireRpcContext(input.context),
+        parsed.data.service
+      ),
+      parsed.data.service,
+      connection
+    );
     attribution = {
       actorProfileId: authorization.actorProfileId,
       onBehalfOf:
@@ -18751,7 +18778,7 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   });
 
-  return await stub.rpcPostSignalOnceByClientMessageId({
+  const postInput = {
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),
@@ -18780,7 +18807,38 @@ export async function rpcPostSignalOnceByClientMessageId(
       : {}),
     context,
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
-  });
+  };
+  if (input.pluginContinuation) {
+    // An old receiver cannot silently ignore an optional constraint.
+    return await stub.rpcPostPluginConnectionContinuation({
+      ...postInput,
+      pluginContinuation: input.pluginContinuation,
+    });
+  }
+  return await stub.rpcPostSignalOnceByClientMessageId(postInput);
+}
+
+export async function rpcReadPluginConnectionLocalSource(
+  env: CoreBindings,
+  input: import("@openmeld/schemas").PluginConnectionLocalSourceRequest
+) {
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return (
+    await import("@openmeld/schemas")
+  ).pluginConnectionLocalSourceResponseSchema.parse(
+    await stub.rpcReadPluginConnectionLocalSource(input)
+  );
+}
+
+/** Internal admitted execution projection, not a public connection route. */
+export async function rpcReadPluginConnectionContinuationBinding(
+  env: CoreBindings,
+  input: ReadPluginConnectionContinuationBindingRequest
+) {
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return readPluginConnectionContinuationBindingResponseSchema.parse(
+    await stub.rpcReadPluginConnectionContinuationBinding(input)
+  ).binding;
 }
 
 export async function rpcPostStatusSignal(
@@ -20172,7 +20230,10 @@ export async function rpcStreamSpaceFileContent(
   const auditEvent = buildSpaceFileContentAuditEvent({
     entryId: resolved.file.id,
     operation: "content_read",
-    operationId: getSpaceAccessRequestId(spaceAccess),
+    // A read has no client mutation key, and one request may read many files
+    // (for example, one Remote Agent submission). Each read is its own audited
+    // access; the shared request ID stays on the event for correlation.
+    operationId: crypto.randomUUID(),
     organizationId: resolved.organizationId,
     revisionId: resolved.revision.id,
     spaceAccess,

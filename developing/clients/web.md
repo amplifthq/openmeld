@@ -23,6 +23,85 @@
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
 
+## Conversational Plugin setup
+
+A Plugin setup intent opens the current Organization's existing connection
+surface in a Fluid dialog without replacing the conversation route. Hosted
+publication appends a normal Markdown link; the new `plugin_connection` union
+member is not published into the callback or stored message envelope. Older
+readers retain a usable link. Current Web/packaged Desktop readers enhance only
+an exact final-reply suffix on the trusted app origin and current Organization,
+without rewriting stored text. Provider authorization, credentials, current
+status and Agent access remain in their existing owners.
+
+Plugins, Onboarding and conversation setup share `PluginConnectionSurface`.
+It selects the existing GitHub adapter or generic App adapter; it does not
+implement another authorization state machine. GitHub user authorization and
+Organization installation remain distinct, as do OAuth and secure credential
+forms for other supported providers.
+
+The dialog reads the signed-in viewer and current connection options only when
+opened. An explicit personal/shared scope or server-frozen choice wins.
+Unspecified setup reuses a single existing connection, but when both identities
+exist it asks which to use instead of silently preferring personal. Members may
+choose an existing shared connection without receiving its management rights;
+Core still checks its actual Agent access. With no connection, ordinary members
+get personal setup and eligible owners/admins can choose. Personal Workspaces
+omit this team choice. A choice does not connect or run anything; explicit
+Continue submits that scope and Core freezes the exact authorized account.
+Connection refreshes and transport retries must not silently change it. The
+server rechecks every mutation. Once an active connection is present, the
+existing Agent access editor is visible directly below its form, shared by
+Plugins, Onboarding and the conversation dialog. New registrations show no Agent
+access; only an explicit Save access action changes permissions. Historical
+connection policies are preserved, not silently reset. Opening historical
+messages does not query access before the user opens setup.
+
+Access queries use the current viewer and connection authorization snapshot,
+filter to that viewer's personal and the selected shared registration, and
+refresh all scoped editor views after a save. Reauthorization and revision
+changes discard stale permission drafts. The conversation Continue control is
+disabled while permissions are unavailable, all consumers are denied, or edits
+remain unsaved. Enabling it is not an execution grant: Core still checks the
+original Agent's specific consumer permission and each action's effect. Shared
+read-only viewers retain the Continue control outside the management fieldset;
+only an owner/admin may change shared policy. A save never resumes work.
+
+Closing the dialog keeps the conversation in place and unmounts the existing
+authorization view. A disconnected, expired or provider-denied connection is
+not evidence that a task completed. External providers still require their own
+consent/approval. An explicit **Continue original task** button calls the
+Core-owned continuation endpoint with only the original reply, service and
+selected scope. Core verifies the original human, delivered reply, current
+membership and Plugin access; it submits one idempotent Message/Wake in the
+original conversation and Thread. It includes bounded existing operation
+receipts and refuses pending/unknown outcomes. Provider callbacks never trigger
+work. The UI reports "requested", not "completed". Existing execution and
+operation owners still determine the actual result.
+
+Local Agent final replies use the same suffix and dialog. Their continuation
+is admitted against the RuntimeCoordinator's published reply and current Local
+Binding, not a Hosted delivery or a guessed completion status. A shared message
+never authorizes its viewer to continue another person's task.
+
+Slack, Feishu and Lark deliver Plugin setup privately through the existing
+provider navigation publisher. The trusted Plugin detail URL may carry a
+`request` locator. `PluginConnectionRequestPanel` first asks Core to verify the
+signed-in requester, Organization and original provider task, then reuses
+`PluginConnectionSetupPanel` and the existing connection/Agent-access forms.
+The URL cannot choose a target Agent, task body, user, connection or permissions.
+The shared explicit Continue button sends only the request locator and scope;
+the existing provider native-delivery owner resumes in the original conversation.
+Preview, mounting, account setup and OAuth completion do not execute work. An
+unverified, expired or mismatched request shows an error instead of an unbound
+fallback. The read-only preview cache is keyed by Organization/user/request and
+is discarded on unmount. Older clients still see a normal setup page/link; they
+must not be counted as supporting the new continuation interaction.
+
+Independent authenticated browser/installed Desktop acceptance remains in
+`design-plans/1254-composable-plugin-workflow.md`; component tests are not that
+acceptance.
+
 ## Selected Space work
 
 Team → Files contains Team files, member-private My files, and Knowledge. Knowledge

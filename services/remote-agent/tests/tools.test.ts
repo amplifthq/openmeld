@@ -2351,6 +2351,82 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).rejects.toThrow();
   });
 
+  it.each([
+    ["github", "shared", "organization"],
+    ["notion", "member", "personal"],
+    ["cloudflare_r2", "choose", null],
+  ] as const)("offers %s setup through the shared navigation contract, without connecting it", async (service, scope, routeScope) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        organization: {
+          ...base.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service,
+        scope,
+      })
+    ).resolves.toEqual({
+      label: "Open Plugin connection",
+      target: { kind: "plugin_connection", service, scope },
+      url: `https://openmeld.ai/o/amplift/plugins/${service}${routeScope ? `?scope=${routeScope}` : ""}`,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service,
+        scope,
+        token: "must-not-be-accepted",
+      })
+    ).rejects.toThrow();
+  });
+
+  it("limits personal Agent navigation to the same Plugin setup implementation", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        organization: {
+          ...base.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      personalAgent: true,
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service: "notion",
+        scope: "member",
+      })
+    ).resolves.toMatchObject({
+      target: { kind: "plugin_connection", service: "notion", scope: "member" },
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "message_channel_identity_link",
+        purpose: "continue_request",
+      })
+    ).rejects.toThrow();
+  });
+
   it("refuses to guess a navigation URL without Core-owned Web context", async () => {
     const request = createSubmitTurnRequest();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
@@ -2365,6 +2441,62 @@ describe("remote agent OpenMeld tool catalog", () => {
         service: "github",
       })
     ).rejects.toThrow("trusted OpenMeld link is unavailable");
+  });
+
+  it("routes unlinked external Plugin setup through the existing identity boundary before offering account access", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      author: { displayName: "Ari", profileId: null, profileKind: null },
+      onBehalfOf: null,
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          id: "slack:T123:U123",
+          displayName: "Ari",
+          kind: "member",
+          verified: false,
+          messageChannelIdentity: {
+            provider: "slack",
+            connectionId: "T123",
+            providerUserId: "U123",
+          },
+        },
+        trigger: { source: "slack", teamId: "T123" },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const authorize = vi.fn(async () => ({
+      authorized: true as const,
+      messageChannelIdentityLinkSupported: true as const,
+      messageChannelAccountTargetSupported: true as const,
+      sourceNativeDeliveryId: "delivery_123",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentAuthorizeAnonymousMemberTool: authorize },
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    const result = await executeTool(tools, "openmeld_get_navigation_action", {
+      kind: "plugin_connection",
+      service: "github",
+      scope: "choose",
+    });
+    expect(result).toMatchObject({
+      actionWillBeAttached: true,
+      target: {
+        kind: "message_channel_identity_link",
+        purpose: "continue_request",
+      },
+    });
+    expect(result).not.toHaveProperty("url");
+    expect(
+      await readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).toMatchObject({
+      anonymousIdentityBoundary: {
+        requestedAction: "Connect github and continue this request",
+      },
+    });
+    expect(authorize).toHaveBeenCalled();
   });
 
   it("binds a private Message Channel connection action only after the current requester reaches a personal boundary", async () => {

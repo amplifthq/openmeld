@@ -6,11 +6,13 @@ import {
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  spaceFileAuditEventSchema,
   spaceFileRevisionSchema,
 } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   PrepareSpaceFileWriteResponse,
+  SpaceFileAuditEvent,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CenterAgentRpcEntrypoint, GatewayRpcEntrypoint } from "../src/index";
@@ -194,6 +196,56 @@ function makeEnv(input?: {
 }
 
 describe("Core Space file content RPC", () => {
+  it("gives two file reads in one request distinct audit identities while preserving the request correlation", async () => {
+    const { env, stub } = makeEnv();
+    const events: SpaceFileAuditEvent[] = [];
+    stub.rpcRecordSpaceFileAuditEvent.mockImplementation(
+      (...args: unknown[]) => {
+        const event = spaceFileAuditEventSchema.parse(
+          (args[0] as { event: unknown }).event
+        );
+        if (events.some((previous) => previous.eventId === event.eventId)) {
+          return Promise.reject(new Error("duplicate audit event"));
+        }
+        events.push(event);
+        return Promise.resolve(undefined);
+      }
+    );
+    for (const fileId of [FILE_ID, "second-file"]) {
+      const revision = { ...REVISION, fileId };
+      stub.rpcResolveSpaceFileContent.mockResolvedValueOnce({
+        organizationId: ORGANIZATION_ID,
+        objectKey: buildSpaceFileObjectKey({
+          organizationId: ORGANIZATION_ID,
+          spaceId: SPACE_ID,
+          fileId,
+          revisionId: REVISION_ID,
+        }),
+        file: { ...FILE, id: fileId, latestRevision: revision },
+        revision,
+      });
+      const result = await rpcStreamSpaceFileContent(env, {
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        content: { spaceId: SPACE_ID, fileId, revision: 1 },
+      });
+      expect(await new Response(result.bytes).text()).toBe(
+        "Shared launch notes\n"
+      );
+    }
+    expect(events).toHaveLength(2);
+    expect(new Set(events.map((event) => event.eventId)).size).toBe(2);
+    expect(new Set(events.map((event) => event.operationId)).size).toBe(2);
+    expect(events.map((event) => event.requestId)).toEqual([
+      CONTEXT.actorContext.requestId,
+      CONTEXT.actorContext.requestId,
+    ]);
+    expect(events.map((event) => event.entryId)).toEqual([
+      FILE_ID,
+      "second-file",
+    ]);
+  });
+
   it("keeps the buffered write path capped when the Space file limit grows", async () => {
     const { env, stub } = makeEnv();
     await expect(

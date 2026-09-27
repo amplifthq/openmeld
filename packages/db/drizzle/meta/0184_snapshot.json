@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "816e362d-473a-4c12-823d-24f09df69ef0",
-  "prevId": "d85bf40b-beee-4916-a71e-46920f60581a",
+  "id": "39a96c27-e609-409b-96c9-ae52c5a70871",
+  "prevId": "48f4d4bc-fa24-46ba-9200-0f122795f297",
   "tables": {
     "account_sidebar_preferences": {
       "name": "account_sidebar_preferences",
@@ -14258,6 +14258,13 @@
         },
         "trigger_text": {
           "name": "trigger_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "plugin_connection_metadata_json": {
+          "name": "plugin_connection_metadata_json",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

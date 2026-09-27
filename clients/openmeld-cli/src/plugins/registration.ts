@@ -32,6 +32,35 @@ export function registerPluginCommands(
   });
   common(
     plugins
+      .command("connect <service>")
+      .description(
+        "Offer a secure Plugin connection link; the requester authorizes in OpenMeld."
+      )
+  )
+    .addOption(
+      new Option(
+        "--account <scope>",
+        "Preserve an explicit personal/shared identity; choose asks only when necessary."
+      )
+        .choices(["personal", "shared", "choose"])
+        .default("choose")
+    )
+    .action(
+      async (service: string, flags: { profile?: string; account: string }) => {
+        const request = pluginActionRequestSchema.parse({
+          action: { operation: "connect", service, account: flags.account },
+        });
+        await options.run(["plugins", "connect"], () =>
+          runPluginCommand({
+            action: request.action,
+            profile: flags.profile,
+            view: options.view(),
+          })
+        );
+      }
+    );
+  common(
+    plugins
       .command("actions <service>")
       .description("List permitted actions and their input schemas.")
   )

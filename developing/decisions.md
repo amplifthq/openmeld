@@ -17,6 +17,13 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-09-26: Plugin setup should be available from an Agent conversation without
+leaving that OpenMeld page. Reuse the existing provider connection and Agent
+access owners across Plugins, Onboarding and the conversation entry; preserve
+personal versus shared intent and require the current user's provider consent.
+The connection form is not a second authorization or task-completion authority.
+See `clients/web.md` and `product/remote-agent-runtime.md`.
+
 2026-09-24: The Center Agent system default is Claude Opus 5.5 at `medium`
 reasoning. Personal Remote Agents share its hosted model list but have a
 distinct GPT-6 Sol system default at `medium`. An unset Binding follows the

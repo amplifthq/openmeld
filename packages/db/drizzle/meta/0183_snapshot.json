@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d85bf40b-beee-4916-a71e-46920f60581a",
+  "id": "48f4d4bc-fa24-46ba-9200-0f122795f297",
   "prevId": "59010972-1b90-4a7c-a5d0-da41844295e7",
   "tables": {
     "account_sidebar_preferences": {
@@ -14263,6 +14263,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "plugin_connection_metadata_json": {
+          "name": "plugin_connection_metadata_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "routine_run_id": {
           "name": "routine_run_id",
           "type": "text",
@@ -17125,79 +17132,6 @@
         "organization_skill_activations_digest_check": {
           "name": "organization_skill_activations_digest_check",
           "value": "length(\"digest\") = 64 and \"digest\" not glob '*[^a-f0-9]*'"
-        }
-      }
-    },
-    "organization_skill_import_operations": {
-      "name": "organization_skill_import_operations",
-      "columns": {
-        "completed_at": {
-          "name": "completed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "operation_id": {
-          "name": "operation_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "request_signature": {
-          "name": "request_signature",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "response_json": {
-          "name": "response_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "organization_skill_import_operations_organization_id_organizations_id_fk": {
-          "name": "organization_skill_import_operations_organization_id_organizations_id_fk",
-          "tableFrom": "organization_skill_import_operations",
-          "tableTo": "organizations",
-          "columnsFrom": ["organization_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "organization_skill_import_operations_pk": {
-          "columns": ["organization_id", "operation_id"],
-          "name": "organization_skill_import_operations_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "organization_skill_import_operations_completion_check": {
-          "name": "organization_skill_import_operations_completion_check",
-          "value": "(\"completed_at\" is null and \"response_json\" is null) or (\"completed_at\" is not null and \"response_json\" is not null)"
         }
       }
     },

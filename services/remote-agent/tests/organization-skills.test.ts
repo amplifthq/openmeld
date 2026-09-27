@@ -66,6 +66,24 @@ describe("Organization Skill Flue adapter", () => {
     expect(tools.tools.map((registered) => registered.name)).toContain(
       "openmeld_read_skill_resource"
     );
+    const unverifiedTools = await getRemoteAgentFlueTools({
+      coreWorker: { readOrganizationSkillRuntimeResource },
+      storage: new InMemoryDurableObjectStorage(),
+      submissionId: context.submissionId,
+      organizationSkillContext: context,
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        sender: { ...request.turnEnvelope.sender, verified: false },
+      },
+      env: { LOADER: {} as WorkerLoader },
+      codeModeRuntime: {
+        createCodeTool: ({ description }) => ({ description }),
+        createExecutor: () => ({}),
+      },
+    });
+    expect(
+      unverifiedTools.tools.map((registered) => registered.name)
+    ).not.toContain("openmeld_read_skill_resource");
     await expect(
       tool.execute({ skillName: "unknown", path: "references/checklist.md" })
     ).rejects.toThrow("not available");

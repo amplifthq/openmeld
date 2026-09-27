@@ -230,7 +230,7 @@ export async function resolveMessageChannelTurnTarget(input: {
   };
 }
 
-async function resolveMessageChannelCenterAgentTarget(input: {
+export async function resolveMessageChannelCenterAgentTarget(input: {
   db: D1Database;
   organizationId: string;
 }): Promise<

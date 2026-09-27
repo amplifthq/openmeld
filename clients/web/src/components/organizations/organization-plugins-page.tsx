@@ -12,13 +12,16 @@ import {
 	OrganizationPluginNotFoundPage,
 } from "./organization-plugin-detail-page";
 import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
+import { PluginConnectionRequestPanel } from "./plugin-connection-request-panel";
 import { PluginScopeTabs } from "./plugin-scope-tabs";
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 export function OrganizationPluginsPage({
 	selectedService,
+	connectionRequestId,
 }: {
 	selectedService: string | null;
+	connectionRequestId?: string;
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const selectedPlugin = selectedService
@@ -29,6 +32,15 @@ export function OrganizationPluginsPage({
 		return (
 			<OrganizationPluginNotFoundPage
 				organizationSlug={currentOrganization.slug}
+			/>
+		);
+	}
+
+	if (selectedService && connectionRequestId) {
+		return (
+			<PluginConnectionRequestPanel
+				requestId={connectionRequestId}
+				service={selectedService}
 			/>
 		);
 	}

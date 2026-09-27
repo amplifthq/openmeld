@@ -373,7 +373,10 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("admits a personal Agent without Center designation and without Center memory", async () => {
+  it.each([
+    true,
+    false,
+  ])("admits a personal Agent without Center designation or memory with fresh acknowledgement %s", async (accepted) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     harness.run({
@@ -394,7 +397,7 @@ describe("Remote Agent native delivery callback service", () => {
     });
     const workerSubmit = vi.fn(
       async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
-        accepted: true,
+        accepted,
         createdAt: 2100,
         requestId: "personal-request",
         status: "pending" as const,
@@ -487,7 +490,7 @@ describe("Remote Agent native delivery callback service", () => {
         })
       ).rejects.toThrow("prepared_release_mismatch");
       return {
-        accepted: true,
+        accepted,
         createdAt: 2100,
         requestId: "personal-request",
         status: "pending" as const,
@@ -519,6 +522,9 @@ describe("Remote Agent native delivery callback service", () => {
       const execution = await requirePersonalRemoteAgentExecution(
         env,
         "personal-submission"
+      );
+      expect(execution.delivery.status).toBe(
+        accepted ? "accepted" : "retry_observed"
       );
       const sender = execution.request.turnEnvelope.sender;
       if (sender.kind !== "member" || !sender.verified || !sender.ownerUserId) {
