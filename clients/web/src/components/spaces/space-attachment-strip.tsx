@@ -57,7 +57,7 @@ export function SpaceAttachmentStrip(input: {
 		>
 			<ScrollArea
 				contentClassName={cn(
-					"space-attachment-strip-items flex w-max min-w-full flex-nowrap items-start gap-2 p-1",
+					"space-attachment-strip-items flex w-full min-w-max flex-nowrap items-start gap-2 p-1",
 					input.align === "end" && "justify-end"
 				)}
 				orientation="horizontal"

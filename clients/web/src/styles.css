@@ -335,6 +335,12 @@ html[data-space-self-message-alignment="left"]
 }
 
 html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"] [data-slot="space-attachment-strip"] {
+  margin-inline-start: 0;
+  margin-inline-end: auto;
+}
+
+html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"] .space-attachment-strip-items {
   justify-content: flex-start;
 }
