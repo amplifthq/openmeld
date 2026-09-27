@@ -43,7 +43,7 @@ export function SpaceAttachmentStrip(input: {
 				"m-0 w-full min-w-0 max-w-full border-0 p-0",
 				input.size === "composer"
 					? "[--space-attachment-size:4rem]"
-					: "max-w-[calc(100%-2rem)] [--space-attachment-size:6rem]",
+					: "max-w-[calc(100%-2rem)] [--space-attachment-size:6.5rem]",
 				input.align === "end" && input.size !== "composer" && "ml-auto",
 				input.className
 			)}
