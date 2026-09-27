@@ -365,6 +365,15 @@ describe("local component update projection", () => {
       updatePolicy: "available",
       wakeBlocked: false,
     },
+    {
+      installedVersion: "0.3.225",
+      latestVersion: "0.3.226",
+      requiredVersion: "0.3.226",
+      setupAction: "update_service",
+      status: "update_required",
+      updatePolicy: "required",
+      wakeBlocked: true,
+    },
   ] as const)("projects the monotonic Service floor for $installedVersion against available $latestVersion", ({
     installedVersion,
     latestVersion,
