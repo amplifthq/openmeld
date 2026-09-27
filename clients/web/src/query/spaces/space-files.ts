@@ -37,6 +37,17 @@ export const spaceFileQueryKeys = {
 		[...spaceFileQueryKeys.space(spaceId), "revisions", fileId] as const,
 };
 
+const browserPreviewMimeTypes = new Set([
+	"application/pdf",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+export function supportsSpaceFileDocumentPreview(mimeType: string): boolean {
+	return browserPreviewMimeTypes.has(mimeType);
+}
+
 export function spaceFileContentQueryOptions(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	enabled?: boolean;
@@ -87,7 +98,12 @@ export function spaceFileContentQueryOptions(input: {
 					"The image response did not match the requested revision."
 				);
 			}
-			if (!content.mimeType.startsWith("image/")) {
+			if (
+				!(
+					content.mimeType.startsWith("image/") ||
+					supportsSpaceFileDocumentPreview(content.mimeType)
+				)
+			) {
 				return content;
 			}
 			const existing = client.getQueryData<CachedSpaceFileContent>(

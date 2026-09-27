@@ -112,6 +112,9 @@ describe("OrganizationDocumentDetailPage", () => {
 
 		// The pending draft opens read-only in the editor surface while the
 		// approved content stays untouched behind the view toggle.
+		expect(
+			await screen.findByRole("heading", { name: "Team Brief" })
+		).toBeTruthy();
 		const draftEditor = (await screen.findByLabelText(
 			"Center Agent draft content"
 		)) as HTMLTextAreaElement;
@@ -309,7 +312,7 @@ describe("OrganizationDocumentDetailPage", () => {
 		renderPage();
 
 		const backLink = await screen.findByRole("link", {
-			name: "Back to Documents",
+			name: "Back to Team Knowledge",
 		});
 		expect(backLink.getAttribute("href")).toContain("folder=folder-1");
 		expect(backLink.className).toContain("max-lg:min-h-11");

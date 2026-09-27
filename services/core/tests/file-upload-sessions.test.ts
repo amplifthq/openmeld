@@ -1,8 +1,8 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { SPACE_FILE_UPLOAD_PART_BYTES } from "@openmeld/schemas";
 import { expect, it } from "vitest";
+import { FileUploadSessions } from "../src/files/file-upload-sessions";
 import type { CoreBindings } from "../src/lib/bindings";
-import { SpaceFileUploads } from "../src/space/application/space-file-uploads";
 import type { Space } from "../src/space/transport/do/space";
 
 const bindings = env as unknown as CoreBindings & {
@@ -23,7 +23,7 @@ it("resumes persisted parts, verifies original bytes, and completes once", async
     bindings.OPENMELD_SPACES.newUniqueId()
   );
   await runInDurableObject(stub, async (_instance: Space, state) => {
-    const uploads = new SpaceFileUploads(
+    const uploads = new FileUploadSessions(
       state.storage.sql,
       bindings.OPENMELD_SPACE_ATTACHMENTS
     );
@@ -76,7 +76,7 @@ it("resumes persisted parts, verifies original bytes, and completes once", async
       command: { action: "part", partNumber: 1 },
       body: stream(bytes.slice(0, SPACE_FILE_UPLOAD_PART_BYTES)),
     });
-    const resumed = new SpaceFileUploads(
+    const resumed = new FileUploadSessions(
       state.storage.sql,
       bindings.OPENMELD_SPACE_ATTACHMENTS
     );
@@ -114,7 +114,7 @@ it("rejects an incorrect part length and cancels an unfinished upload", async ()
     bindings.OPENMELD_SPACES.newUniqueId()
   );
   await runInDurableObject(stub, async (_instance: Space, state) => {
-    const uploads = new SpaceFileUploads(
+    const uploads = new FileUploadSessions(
       state.storage.sql,
       bindings.OPENMELD_SPACE_ATTACHMENTS
     );

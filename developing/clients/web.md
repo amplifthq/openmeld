@@ -104,6 +104,13 @@ acceptance.
 
 ## Selected Space work
 
+Team → Files contains Team files, member-private My files, and Knowledge. Knowledge
+opens the existing approved-content and draft-review workflow inside the Files
+entry; old Documents list, detail, and creation links redirect into Files while
+preserving their target and selection. This navigation step
+does not make an ordinary Markdown file approved knowledge or add a second
+content writer.
+
 The writable Space Files browser offers **Hand off** for files in the current
 folder. The dialog freezes their displayed revisions, selects one authorized
 Wake target, and collects a goal, completed work, next steps, and optional exact

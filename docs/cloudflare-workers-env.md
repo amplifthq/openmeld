@@ -230,8 +230,13 @@ Workers, and verifies the public entry points. See
   - `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY`
   - `ZEP_OPENMELD_API_KEY`
 - Resource bindings
-  - `OPENMELD_ORGANIZATION_SKILLS` stores private, immutable Organization Skill
+- `OPENMELD_ORGANIZATION_SKILLS` stores private, immutable Organization Skill
     release bundles after Core authorizes the Organization-scoped mutation
+  - `OPENMELD_SKILL_FILE_BACKED_WRITES` controls the Skill release writer format.
+    Local and test use `true`; staging and production start at `false` so a
+    rollback to the older Core can still read newly written inline releases.
+    Enable it only after the new Core reader has been deployed and the rollback
+    window has closed. The reader accepts both formats regardless of this flag.
   - `OPENMELD_SPACE_ATTACHMENTS` stores provider image bytes and immutable
     Space file revision bytes only after Core
     verifies the exact Message Channel connection, conversation, and
@@ -335,6 +340,7 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 | Workflow | `OPENMELD_ROUTINE_RUN_WORKFLOW` | Core Center Agent Routine execution | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Production Workflow `openmeld-routine-run-prod` binds `RoutineRunWorkflow`; D1 remains the Routine and Run product truth. Wrangler creates it with the first Core deployment. |
 | Worker vars | `OPENMELD_ROUTINE_ENGINE_DEFAULT`, `OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS` | Core Center Agent Routine engine selection | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Workflow is the normal default. The global `legacy` value or an Organization override affects only newly claimed Runs; an existing Workflow-owned Run never crosses engines. |
 | Durable Object | `OPENMELD_SPACES` | Core Space domain | `services/core/wrangler.jsonc` | Space truth and message state. |
+| Durable Object | `OPENMELD_FILE_ROOTS` | Core Files domain | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | One SQLite writer per Team or member Files root; Space Files keep their existing Space writer. Migration v7. |
 | Durable Object | `OPENMELD_ACCOUNT_INVALIDATIONS` | Core account refresh hints | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | One hibernating WebSocket group per user and Organization; migration v6. Frames only trigger authorized Inbox and Space Index reads. Missed frames recover on reconnect and bounded polling. |
 | Durable Object | `OPENMELD_RUNTIME_TRANSPORT` | Core runtime transport hub | `services/core/wrangler.jsonc` | Low-latency runtime transport and Wake delivery. |
 | Durable Object | `OPENMELD_LARK_CHANNEL_CONNECTOR` | Core Message Channels | `services/core/wrangler.jsonc` | One persistent Lark/Feishu socket and bounded durable pending-event outbox per connection; migration v5. |

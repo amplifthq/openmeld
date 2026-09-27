@@ -22,6 +22,7 @@
     "hooks": "#/hooks"
   },
   "registries": {
+    "@extend": "https://www.extend.ai/ui/r/{name}.json",
     "@loading-ui": "https://loading-ui.com/r/{name}.json"
   }
 }

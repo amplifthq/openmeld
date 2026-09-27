@@ -1,15 +1,26 @@
 import {
+  beginOrganizationSkillImportBatchBodySchema,
+  beginOrganizationSkillImportBatchResponseSchema,
   createOrganizationSkillBodySchema,
   createOrganizationSkillResponseSchema,
   deleteOrganizationSkillBodySchema,
   deleteOrganizationSkillResponseSchema,
+  getOrganizationSkillImportBatchResponseSchema,
   getOrganizationSkillResponseSchema,
+  importOrganizationSkillFromFilesBodySchema,
+  importOrganizationSkillFromFilesResponseSchema,
   importOrganizationSkillFromGitHubBodySchema,
   importOrganizationSkillFromGitHubResponseSchema,
+  listOrganizationSkillImportBatchesResponseSchema,
   listOrganizationSkillsResponseSchema,
   organizationSkillRouteParamsSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
+  previewOrganizationSkillFromFilesBodySchema,
+  previewOrganizationSkillFromFilesResponseSchema,
   previewOrganizationSkillFromGitHubBodySchema,
   previewOrganizationSkillFromGitHubResponseSchema,
+  previewOrganizationSkillRepositoryBodySchema,
+  previewOrganizationSkillRepositoryResponseSchema,
   setOrganizationSkillEnabledBodySchema,
   setOrganizationSkillEnabledResponseSchema,
   setOrganizationSkillMaintainersBodySchema,
@@ -18,12 +29,20 @@ import {
   updateOrganizationSkillResponseSchema,
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { readApiClientTextResponse } from "../errors";
 import {
+  buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
+  buildOrganizationSkillFilesImportPath,
+  buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
+  buildOrganizationSkillImportBatchesPath,
+  buildOrganizationSkillImportBatchPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
+  buildOrganizationSkillRepositoryPreviewPath,
+  buildOrganizationSkillResourcePath,
   buildOrganizationSkillsPath,
 } from "./routes";
 import type {
@@ -34,6 +53,51 @@ import type {
 export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  beginImportBatch: async (input) => {
+    const body = requireValidInput(
+      beginOrganizationSkillImportBatchBodySchema,
+      {
+        batchId: input.batchId,
+        ...(input.expectedCommitSha === undefined
+          ? {}
+          : { expectedCommitSha: input.expectedCommitSha }),
+        expectedOrganizationId: input.expectedOrganizationId,
+        ...(input.selectedPaths === undefined
+          ? {}
+          : { selectedPaths: input.selectedPaths }),
+        url: input.url,
+      },
+      "Skill batch request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Skill batch response",
+      method: "POST",
+      operation: "organization_skill.begin_import_batch",
+      schema: beginOrganizationSkillImportBatchResponseSchema,
+      url: buildOrganizationSkillImportBatchesPath(),
+    });
+  },
+  getImportBatch: async (input) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Skill batch response",
+      method: "GET",
+      operation: "organization_skill.get_import_batch",
+      schema: getOrganizationSkillImportBatchResponseSchema,
+      url: buildOrganizationSkillImportBatchPath(input.batchId),
+    }),
+  listImportBatches: async (input = {}) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Skill batch list response",
+      method: "GET",
+      operation: "organization_skill.list_import_batches",
+      schema: listOrganizationSkillImportBatchesResponseSchema,
+      url: buildOrganizationSkillImportBatchesPath(),
+    }),
   list: async (input = {}) =>
     await client.requestJson({
       ...requestOptions(input),
@@ -52,6 +116,44 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       schema: getOrganizationSkillResponseSchema,
       url: `${buildOrganizationSkillPath(requireSkillId(input.skillId))}${input.releaseId === undefined ? "" : `?releaseId=${encodeURIComponent(input.releaseId)}`}`,
     }),
+  getCatalog: async (input) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Organization Skill catalog response",
+      method: "GET",
+      operation: "organization_skill.get_catalog",
+      schema: organizationSkillRuntimeCatalogResponseSchema,
+      url: buildOrganizationSkillCatalogPath(requireSkillId(input.skillId)),
+    }),
+  readResource: async (input) => {
+    const response = await client.requestResponse({
+      ...requestOptions(input),
+      method: "GET",
+      operation: "organization_skill.read_resource",
+      url: buildOrganizationSkillResourcePath({
+        skillId: requireSkillId(input.skillId),
+        releaseId: input.releaseId,
+        path: input.path,
+      }),
+    });
+    if (!response.ok) {
+      await readApiClientTextResponse({ response });
+      throw new Error("Skill resource download failed.");
+    }
+    const declaredSize = Number(response.headers.get("content-length"));
+    if (
+      !Number.isSafeInteger(declaredSize) ||
+      declaredSize < 0 ||
+      declaredSize > 10_000_000
+    ) {
+      throw new Error("Invalid Skill resource size.");
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength !== declaredSize) {
+      throw new Error("Incomplete Skill resource download.");
+    }
+    return bytes;
+  },
   create: async (input) => {
     const body = requireValidInput(
       createOrganizationSkillBodySchema,
@@ -82,6 +184,10 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
           ? {}
           : { expectedCommitSha: input.expectedCommitSha }),
         expectedOrganizationId: input.expectedOrganizationId,
+        ...(input.operationId === undefined
+          ? {}
+          : { operationId: input.operationId }),
+        ...(input.batchId === undefined ? {} : { batchId: input.batchId }),
         url: input.url,
       },
       "Organization Skill GitHub import request is invalid."
@@ -95,6 +201,46 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       operation: "organization_skill.import_github",
       schema: importOrganizationSkillFromGitHubResponseSchema,
       url: buildOrganizationSkillGitHubImportPath(),
+    });
+  },
+  importFromFiles: async (input) => {
+    const body = requireValidInput(
+      importOrganizationSkillFromFilesBodySchema,
+      {
+        expectedOrganizationId: input.expectedOrganizationId,
+        files: input.files,
+      },
+      "Organization Skill file import request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Organization Skill file import response",
+      method: "POST",
+      operation: "organization_skill.import_files",
+      schema: importOrganizationSkillFromFilesResponseSchema,
+      url: buildOrganizationSkillFilesImportPath(),
+    });
+  },
+  previewFromFiles: async (input) => {
+    const body = requireValidInput(
+      previewOrganizationSkillFromFilesBodySchema,
+      {
+        expectedOrganizationId: input.expectedOrganizationId,
+        files: input.files,
+      },
+      "Organization Skill file preview request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Organization Skill file preview response",
+      method: "POST",
+      operation: "organization_skill.preview_files",
+      schema: previewOrganizationSkillFromFilesResponseSchema,
+      url: buildOrganizationSkillFilesPreviewPath(),
     });
   },
   previewFromGitHub: async (input) => {
@@ -115,6 +261,26 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       operation: "organization_skill.preview_github",
       schema: previewOrganizationSkillFromGitHubResponseSchema,
       url: buildOrganizationSkillGitHubPreviewPath(),
+    });
+  },
+  previewRepositoryFromGitHub: async (input) => {
+    const body = requireValidInput(
+      previewOrganizationSkillRepositoryBodySchema,
+      {
+        expectedOrganizationId: input.expectedOrganizationId,
+        url: input.url,
+      },
+      "Organization Skill repository preview request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Organization Skill repository preview response",
+      method: "POST",
+      operation: "organization_skill.preview_github_repository",
+      schema: previewOrganizationSkillRepositoryResponseSchema,
+      url: buildOrganizationSkillRepositoryPreviewPath(),
     });
   },
   update: async (input) => {

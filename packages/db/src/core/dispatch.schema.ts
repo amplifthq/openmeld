@@ -116,6 +116,8 @@ import {
 import {
   centerAgentOrganizationSkillOperations,
   organizationSkillActivations,
+  organizationSkillImportBatches,
+  organizationSkillImportOperations,
   organizationSkillMaintainers,
   organizationSkillReleases,
   organizationSkills,
@@ -1722,6 +1724,8 @@ export const coreSchema = {
   organizationSkillMaintainers,
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
+  organizationSkillImportOperations,
+  organizationSkillImportBatches,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
   organizationMemberPresenceSessions,

@@ -6,17 +6,19 @@ import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentsPath,
+	buildOrganizationFilesPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationPluginsPath,
 	buildOrganizationSkillsPath,
 } from "#/lib/organizations/organization-routes";
 
-const TEAM_VIEWS = ["people", "agents", "plugins", "skills"] as const;
+const TEAM_VIEWS = ["people", "agents", "plugins", "skills", "files"] as const;
 const TEAM_DESTINATIONS = [
 	buildOrganizationPeoplePath,
 	buildOrganizationAgentsPath,
 	buildOrganizationPluginsPath,
 	buildOrganizationSkillsPath,
+	buildOrganizationFilesPath,
 ] as const;
 
 export function TeamHeader(input: {
@@ -54,6 +56,7 @@ export function TeamHeader(input: {
 					<TabsSubtleItem index={1} label="Agents" labelClassName="text-sm" />
 					<TabsSubtleItem index={2} label="Plugins" labelClassName="text-sm" />
 					<TabsSubtleItem index={3} label="Skills" labelClassName="text-sm" />
+					<TabsSubtleItem index={4} label="Files" labelClassName="text-sm" />
 				</TabsSubtle>
 			}
 			renderFrame={false}

@@ -110,11 +110,31 @@ automatic updates. This keeps localhost upgrade verification isolated from the
 production release channel.
 
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
-provides `list`, `show`, and `load` with Human View, Agent View, and strict JSON
+provides `list`, `show`, `load`, and `add` for GitHub or a local Skill directory with Human View, Agent View, and strict JSON
 contracts. `load` resolves one enabled exact release from the authenticated
 route Organization, verifies the digest, and writes only to the private
 Organization-scoped OpenMeld cache. It never copies a Skill into a global
 Codex, Claude, Cursor, or `.agents/skills` directory.
+`add <github-url> --preview` shows one importable Skill and the resolved commit;
+without `--preview`, the CLI pins that commit before installing it in the active
+Team. `add <local-directory> [--preview]` previews one complete portable Skill
+package through Core and installs it in one authorized operation unless
+preview-only is requested. Local Agents
+use the same authenticated member authority as the CLI user.
+The current import endpoint still has its bundle limits and does not install a
+whole multi-Skill repository in one call.
+
+`openmeld files` is the terminal entry for Team files and the signed-in
+member's private files in the active Organization. `--location team|my` is
+required so a person or Local Agent chooses the audience explicitly. The
+initial commands list files, read an exact text revision, download a binary
+revision, inspect history, upload local content, copy one exact Team/My revision
+to a stated Team or My destination, copy an exact Team/My revision into a named
+Space with `copy-to-space`, and write a new revision
+against the version previously read. `--view agent` and `--json` expose the same server-authorized results
+without a second local file authority. Existing `openmeld space files`
+commands remain the Space location entry; adding a location to the CLI never
+changes Space membership or file access rules.
 
 The former `openmeld skills ensure|install|uninstall|check|update` commands
 manage OpenMeld-owned setup assets, not Organization Skills. They remain
@@ -122,6 +142,14 @@ deprecated compatibility aliases for one published CLI window, print their
 Setup/Doctor replacement, and preserve existing behavior during that window.
 The old ambiguous local-helper `skills list` spelling is not retained because
 `openmeld skills list` now lists Organization Skills.
+`openmeld skills scan <github-repository-url>` lists one pinned repository's
+Skill directories and their declared blockers without installing anything.
+`--json` and Agent View return the same server-authorized inventory, so a
+Local Agent can select an exact Skill URL before `openmeld skills add`.
+`openmeld skills add <github-repository-url> --all` installs every eligible
+candidate at the scanned commit, reporting each installed, skipped, or failed
+item. The result includes a pinned `retrySource` and an operation ID. A Local
+Agent must pass both to retry without duplicating completed Skills.
 
 CLI must not infer Wake blocking from local component drift by itself. Core owns
 the user-visible local component update projection for Wake eligibility:

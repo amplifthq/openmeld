@@ -42,7 +42,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	buildOrganizationDocumentPath,
-	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
 } from "#/lib/organizations/organization-routes";
 import {
 	browserItemDropProps,
@@ -50,6 +50,7 @@ import {
 	documentKindLabel,
 	FOLDER_DRAG_TYPE,
 	type FolderMoveTarget,
+	organizationDocumentDisplayTitle,
 } from "./organization-document-browser-model";
 import { setBrowserItemDragPreview } from "./organization-document-drag-preview";
 
@@ -88,8 +89,8 @@ export function OrganizationDocumentFolderCard(input: {
 					event.dataTransfer.effectAllowed = "move";
 					setBrowserItemDragPreview(event);
 				}}
-				search={{ folder: input.folder.id }}
-				to={buildOrganizationDocumentsPath(input.orgSlug)}
+				search={{ folder: input.folder.id, view: "knowledge" }}
+				to={buildOrganizationFilesPath(input.orgSlug)}
 			>
 				<span className="grid size-12 place-items-center rounded-md border border-border/70 bg-background/70 text-foreground/75">
 					{dropActive ? (
@@ -184,7 +185,9 @@ export function OrganizationDocumentFileCard(input: {
 				</span>
 				<div className="mt-auto min-w-0 pt-5">
 					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						<h2 className="truncate font-medium text-base">{document.title}</h2>
+						<h2 className="truncate font-medium text-base">
+							{organizationDocumentDisplayTitle(document)}
+						</h2>
 						{document.kind === "brief" ? (
 							<Badge variant="outline">Brief</Badge>
 						) : null}
@@ -200,7 +203,7 @@ export function OrganizationDocumentFileCard(input: {
 			</Link>
 			{input.canManage ? (
 				<DocumentActions
-					documentTitle={document.title}
+					documentTitle={organizationDocumentDisplayTitle(document)}
 					moveTargets={input.canMove ? input.moveTargets : []}
 					onDelete={input.onDelete}
 					onMove={input.onMove}

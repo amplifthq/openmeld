@@ -162,6 +162,7 @@ import type {
   ExecuteExecutionRecoveryResponse,
   ExecutionRecoveryIdentity,
   ExecutionRecoveryProjection,
+  FileRoot,
   GetActiveSpaceWakeProgressResponse,
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
@@ -346,6 +347,8 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
 import { inspectExecutionRecovery } from "../../../execution-recovery/application/execution-recovery-service";
+import { reserveFileCopyRequest } from "../../../files/file-copy-request";
+import { FileUploadSessions } from "../../../files/file-upload-sessions";
 import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbox-agent-owner-access";
 import {
   agentTaskCoordinationDb,
@@ -529,7 +532,6 @@ import { resolveSpaceDispatchConversationContinuityScope } from "../../applicati
 import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
 import { readStoredSpaceFileImageDimensions } from "../../application/space-file-image-metadata";
 import { hashSpaceFileStream } from "../../application/space-file-stream";
-import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
 import { recordSpaceInboxFirstContacts } from "../../application/space-inbox-first-contact";
 import {
@@ -2709,7 +2711,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
     await this.runIsolatedAlarmStep("file_upload_cleanup", async () => {
       if (this.env.OPENMELD_SPACE_ATTACHMENTS) {
-        await new SpaceFileUploads(
+        await new FileUploadSessions(
           this.ctx.storage.sql,
           this.env.OPENMELD_SPACE_ATTACHMENTS
         ).cleanup();
@@ -3226,7 +3228,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (!bucket) {
       throw new Error("Space file storage is unavailable.");
     }
-    const uploads = new SpaceFileUploads(this.ctx.storage.sql, bucket);
+    const uploads = new FileUploadSessions(this.ctx.storage.sql, bucket);
     try {
       return await uploads.execute({
         actorId: actor.profileId,
@@ -3371,10 +3373,19 @@ export class Space extends DurableObject<CoreBindings> {
         }),
       };
     } catch (error) {
-      const committed = this.spaceFileRepository.resolveCommittedWrite(
-        write.clientMutationId,
-        write.fileId
-      );
+      let committed: SpaceFileDescriptor | null;
+      try {
+        committed = this.runSpaceFileRepositoryOperation(() =>
+          this.spaceFileRepository.resolveCommittedWrite(
+            write.clientMutationId,
+            write.fileId,
+            write
+          )
+        );
+      } catch (reconciliationError) {
+        await bucket.delete(prepared.objectKey);
+        throw reconciliationError;
+      }
       if (committed) {
         return { file: committed };
       }
@@ -3407,6 +3418,33 @@ export class Space extends DurableObject<CoreBindings> {
       }),
       ...(committedFile ? { committedFile } : {}),
     };
+  }
+
+  async rpcReserveSpaceFileCopy(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+    clientMutationId: string;
+    sourceRoot: FileRoot;
+    sourceFileId: string;
+    sourceRevisionId: string;
+    name: string;
+    parentId: string | null;
+  }): Promise<void> {
+    this.applySpaceRef(input.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    reserveFileCopyRequest({
+      sql: this.ctx.storage.sql,
+      clientMutationId: spaceFileClientMutationIdSchema.parse(
+        input.clientMutationId
+      ),
+      requestJson: JSON.stringify({
+        sourceRoot: input.sourceRoot,
+        sourceFileId: input.sourceFileId,
+        sourceRevisionId: input.sourceRevisionId,
+        name: input.name,
+        parentId: input.parentId,
+      }),
+    });
   }
 
   async rpcResolveCommittedSpaceFileWrite(input: {
@@ -6886,7 +6924,7 @@ export class Space extends DurableObject<CoreBindings> {
       minNullableTimestamp(
         nextAgentStreamAlarmAtMs,
         this.env.OPENMELD_SPACE_ATTACHMENTS
-          ? new SpaceFileUploads(
+          ? new FileUploadSessions(
               this.ctx.storage.sql,
               this.env.OPENMELD_SPACE_ATTACHMENTS
             ).nextExpiry()

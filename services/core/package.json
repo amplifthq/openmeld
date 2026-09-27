@@ -54,7 +54,8 @@
     "ipaddr.js": "^2.5.0",
     "protobufjs": "7.5.4",
     "slackify-markdown": "5.0.0",
-    "yaml": "2.8.2"
+    "yaml": "2.8.2",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.12.14",

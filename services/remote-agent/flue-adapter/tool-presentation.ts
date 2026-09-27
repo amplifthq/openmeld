@@ -10,6 +10,7 @@ const NATIVE_CAPABILITY_NAMES = new Set<string>([
   "openmeld_report_progress",
   "openmeld_read_tool_result",
   "openmeld_list_organization_members",
+  "openmeld_read_skill_resource",
   "read",
   "write",
   "edit",
