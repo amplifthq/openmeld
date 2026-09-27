@@ -148,6 +148,18 @@ export async function rpcGetOrganizationSkill(
   });
 }
 
+export async function rpcGetOrganizationSkillCatalog(
+  env: CoreBindings,
+  input: GetOrganizationSkillRpcInput
+): Promise<OrganizationSkillRuntimeCatalogResponse> {
+  const request = parseRequest(getOrganizationSkillRpcInputSchema, input);
+  const { actor, service } = await prepareHumanRequest(env, request.context);
+  return parseResponse(
+    organizationSkillRuntimeCatalogResponseSchema,
+    await service.getCatalog(actor, request.skillId)
+  );
+}
+
 export async function rpcCreateOrganizationSkill(
   env: CoreBindings,
   input: CreateOrganizationSkillRpcInput

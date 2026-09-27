@@ -518,6 +518,7 @@ import {
   rpcCreateOrganizationSkill,
   rpcDeleteOrganizationSkill,
   rpcGetOrganizationSkill,
+  rpcGetOrganizationSkillCatalog,
   rpcGetOrganizationSkillImportBatch,
   rpcImportOrganizationSkillFromFiles,
   rpcImportOrganizationSkillFromGitHub,
@@ -1680,6 +1681,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetOrganizationSkillRpcInput
   ): Promise<GetOrganizationSkillResponse> {
     return rpcGetOrganizationSkill(this.env, input);
+  }
+
+  getOrganizationSkillCatalog(
+    input: GetOrganizationSkillRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+    return rpcGetOrganizationSkillCatalog(this.env, input);
   }
 
   createOrganizationSkill(
@@ -4313,6 +4320,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetOrganizationSkillRpcInput
   ): Promise<GetOrganizationSkillResponse> {
     return super.getOrganizationSkill(input);
+  }
+
+  getOrganizationSkillCatalog(
+    input: GetOrganizationSkillRpcInput
+  ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+    return super.getOrganizationSkillCatalog(input);
   }
 
   createOrganizationSkill(

@@ -15,6 +15,7 @@ import {
   listOrganizationSkillsQuerySchema,
   listOrganizationSkillsResponseSchema,
   organizationSkillRouteParamsSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
   previewOrganizationSkillFromFilesBodySchema,
   previewOrganizationSkillFromFilesResponseSchema,
   previewOrganizationSkillFromGitHubBodySchema,
@@ -41,6 +42,7 @@ import type { RpcHttpMethod } from "./rpc-http.types";
 
 const SKILLS_ROUTE = "/v1/organizations/current/skills";
 const SKILL_ROUTE = `${SKILLS_ROUTE}/:skillId`;
+const SKILL_CATALOG_ROUTE = `${SKILL_ROUTE}/catalog`;
 const SKILL_ENABLED_ROUTE = `${SKILL_ROUTE}/enabled`;
 const SKILL_MAINTAINERS_ROUTE = `${SKILL_ROUTE}/maintainers`;
 const SKILL_GITHUB_IMPORT_ROUTE = `${SKILLS_ROUTE}/import-github`;
@@ -278,6 +280,24 @@ export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       responseSchema: getOrganizationSkillResponseSchema,
       route: SKILL_ROUTE,
+    });
+  });
+
+  app.get(SKILL_CATALOG_ROUTE, (c) => {
+    const params = parseParams(c, SKILL_CATALOG_ROUTE, "GET");
+    if (!params.ok) {
+      return params.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getOrganizationSkillCatalog({
+          context: buildCoreRpcContext(c),
+          skillId: params.data.skillId,
+        }),
+      method: "GET",
+      responseSchema: organizationSkillRuntimeCatalogResponseSchema,
+      route: SKILL_CATALOG_ROUTE,
     });
   });
 

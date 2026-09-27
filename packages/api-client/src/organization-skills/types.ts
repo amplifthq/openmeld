@@ -14,6 +14,7 @@ import type {
   ListOrganizationSkillImportBatchesResponse,
   ListOrganizationSkillsResponse,
   OpenMeldRequestContext,
+  OrganizationSkillRuntimeCatalogResponse,
   PreviewOrganizationSkillFromFilesBody,
   PreviewOrganizationSkillFromFilesResponse,
   PreviewOrganizationSkillFromGitHubBody,
@@ -56,6 +57,9 @@ export type OrganizationSkillsApi = {
     input: OrganizationSkillRequestInput &
       OrganizationSkillMutationTarget & { releaseId?: string }
   ) => Promise<GetOrganizationSkillResponse>;
+  getCatalog: (
+    input: OrganizationSkillRequestInput & OrganizationSkillMutationTarget
+  ) => Promise<OrganizationSkillRuntimeCatalogResponse>;
   create: (
     input: OrganizationSkillRequestInput & CreateOrganizationSkillBody
   ) => Promise<CreateOrganizationSkillResponse>;

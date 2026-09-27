@@ -14,6 +14,7 @@ import {
   listOrganizationSkillImportBatchesResponseSchema,
   listOrganizationSkillsResponseSchema,
   organizationSkillRouteParamsSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
   previewOrganizationSkillFromFilesBodySchema,
   previewOrganizationSkillFromFilesResponseSchema,
   previewOrganizationSkillFromGitHubBodySchema,
@@ -29,6 +30,7 @@ import {
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
 import {
+  buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
   buildOrganizationSkillFilesImportPath,
   buildOrganizationSkillFilesPreviewPath,
@@ -111,6 +113,15 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       operation: "organization_skill.get",
       schema: getOrganizationSkillResponseSchema,
       url: `${buildOrganizationSkillPath(requireSkillId(input.skillId))}${input.releaseId === undefined ? "" : `?releaseId=${encodeURIComponent(input.releaseId)}`}`,
+    }),
+  getCatalog: async (input) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Organization Skill catalog response",
+      method: "GET",
+      operation: "organization_skill.get_catalog",
+      schema: organizationSkillRuntimeCatalogResponseSchema,
+      url: buildOrganizationSkillCatalogPath(requireSkillId(input.skillId)),
     }),
   create: async (input) => {
     const body = requireValidInput(

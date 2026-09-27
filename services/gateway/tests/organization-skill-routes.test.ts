@@ -87,6 +87,7 @@ describe("Organization Skill routes", () => {
         TEST_EXECUTION_CONTEXT
       ),
       app.fetch(new Request(route), env, TEST_EXECUTION_CONTEXT),
+      app.fetch(new Request(`${route}/catalog`), env, TEST_EXECUTION_CONTEXT),
       app.fetch(
         jsonRequest("http://local/v1/organizations/current/skills", "POST", {
           description: BUNDLE.portable.description,
@@ -214,12 +215,15 @@ describe("Organization Skill routes", () => {
     ]);
 
     expect(responses.map((response) => response.status)).toEqual([
-      200, 200, 201, 201, 201, 200, 200, 200, 200, 200, 200, 200,
+      200, 200, 200, 201, 201, 201, 200, 200, 200, 200, 200, 200, 200,
     ]);
     expect(coreRpc.listOrganizationSkills).toHaveBeenCalledWith({
       context: expect.objectContaining({ activeOrganizationId: "org-1" }),
     });
     expect(coreRpc.getOrganizationSkill).toHaveBeenCalledWith(
+      expect.objectContaining({ skillId: SKILL_ID })
+    );
+    expect(coreRpc.getOrganizationSkillCatalog).toHaveBeenCalledWith(
       expect.objectContaining({ skillId: SKILL_ID })
     );
     expect(coreRpc.createOrganizationSkill).toHaveBeenCalledWith(
@@ -321,6 +325,19 @@ function makeEnv() {
       skillId: SKILL_ID,
     })),
     getOrganizationSkill: vi.fn(async () => ({ skill: SKILL })),
+    getOrganizationSkillCatalog: vi.fn(async () => ({
+      organizationId: "org-1",
+      releases: [
+        {
+          digest: RELEASE.digest,
+          releaseId: RELEASE_ID,
+          skillId: SKILL_ID,
+          files: [],
+          instructions: BUNDLE.instructions,
+          portable: BUNDLE.portable,
+        },
+      ],
+    })),
     importOrganizationSkillFromGitHub: vi.fn(async () => ({ skill: SKILL })),
     importOrganizationSkillFromFiles: vi.fn(async () => ({ skill: SKILL })),
     listOrganizationSkills: vi.fn(async () => ({

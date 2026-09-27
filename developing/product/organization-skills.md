@@ -363,6 +363,13 @@ Organization Skill model. This is presentation only; it must not introduce a
 separate Personal Skill type, storage scope, permission model, or runtime
 catalog.
 
+An authenticated member can read the active release's instructions and resource
+manifest through the Skill catalog endpoint without fetching resource bodies.
+It uses the same verified release manifest as the Hosted runtime and remains
+readable when a resource is temporarily unavailable. Current management detail,
+editing, and CLI export still use the bounded full-bundle response; the catalog
+endpoint does not by itself remove those limits or enable large-package import.
+
 ### Document-first detail
 
 The detail is a readable document, directly editable with the existing authority.

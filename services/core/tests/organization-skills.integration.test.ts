@@ -252,6 +252,17 @@ describe("Organization Skills", () => {
     await env.OPENMELD_ORGANIZATION_SKILLS.delete(
       `${row.object_key}/files/${encodeURIComponent("assets/template.bin")}`
     );
+    expect(await service.getCatalog(fixture.owner, updated.id)).toMatchObject({
+      releases: [
+        {
+          files: [
+            { path: "references/checklist.md" },
+            { path: "assets/template.bin" },
+          ],
+          instructions: updated.bundle.instructions,
+        },
+      ],
+    });
     expect(
       await service.readRuntimeCatalog(fixture.owner.organizationId, [selected])
     ).toMatchObject({

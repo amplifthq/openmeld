@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
   buildOrganizationSkillFilesImportPath,
   buildOrganizationSkillFilesPreviewPath,
@@ -107,6 +108,9 @@ describe("api-client Organization Skills API", () => {
     expect(buildOrganizationSkillPath(SKILL_ID)).toBe(
       "/v1/organizations/current/skills/skill%2Fwith%20spaces"
     );
+    expect(buildOrganizationSkillCatalogPath(SKILL_ID)).toBe(
+      "/v1/organizations/current/skills/skill%2Fwith%20spaces/catalog"
+    );
     expect(buildOrganizationSkillGitHubImportPath()).toBe(
       "/v1/organizations/current/skills/import-github"
     );
@@ -145,6 +149,23 @@ describe("api-client Organization Skills API", () => {
           }),
       ],
       [`GET ${skillUrl}`, () => jsonResponse({ skill: SKILL })],
+      [
+        `GET ${skillUrl}/catalog`,
+        () =>
+          jsonResponse({
+            organizationId: ORGANIZATION_ID,
+            releases: [
+              {
+                digest: RELEASE.digest,
+                releaseId: RELEASE.id,
+                skillId: SKILL_ID,
+                files: [],
+                instructions: BUNDLE.instructions,
+                portable: BUNDLE.portable,
+              },
+            ],
+          }),
+      ],
       [`POST ${skillsUrl}`, () => jsonResponse({ skill: SKILL }, 201)],
       [
         `POST ${skillsUrl}/import-github`,
@@ -220,6 +241,7 @@ describe("api-client Organization Skills API", () => {
 
     await api.list();
     await api.get({ skillId: SKILL_ID });
+    await api.getCatalog({ skillId: SKILL_ID });
     await api.create({
       description: BUNDLE.portable.description,
       expectedOrganizationId: ORGANIZATION_ID,
@@ -306,6 +328,12 @@ describe("api-client Organization Skills API", () => {
         method: "GET",
         operation: "organization_skill.get",
         url: skillUrl,
+      },
+      {
+        body: undefined,
+        method: "GET",
+        operation: "organization_skill.get_catalog",
+        url: `${skillUrl}/catalog`,
       },
       {
         body: JSON.stringify({

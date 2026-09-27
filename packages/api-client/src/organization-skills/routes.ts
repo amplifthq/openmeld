@@ -8,6 +8,10 @@ export function buildOrganizationSkillPath(skillId: string): string {
   return `${SKILLS_PATH}/${encodeURIComponent(skillId)}`;
 }
 
+export function buildOrganizationSkillCatalogPath(skillId: string): string {
+  return `${buildOrganizationSkillPath(skillId)}/catalog`;
+}
+
 export function buildOrganizationSkillGitHubImportPath(): string {
   return `${SKILLS_PATH}/import-github`;
 }

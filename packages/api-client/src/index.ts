@@ -249,6 +249,7 @@ export type {
 } from "./organization-documents/types";
 export { createOrganizationSkillsApi } from "./organization-skills/api";
 export {
+  buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
   buildOrganizationSkillFilesImportPath,
   buildOrganizationSkillFilesPreviewPath,

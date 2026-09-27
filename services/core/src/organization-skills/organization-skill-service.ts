@@ -256,6 +256,30 @@ export function createOrganizationSkillService(
       });
     },
 
+    async getCatalog(
+      actor: OrganizationSkillReadActor,
+      skillId: string
+    ): Promise<OrganizationSkillRuntimeCatalogResponse> {
+      const skill = await requireSkill(
+        dependencies.db,
+        actor.organizationId,
+        skillId
+      );
+      const release = await requireRelease(dependencies.db, skill);
+      const catalog = await readReleaseCatalog(dependencies.bucket, release);
+      return organizationSkillRuntimeCatalogResponseSchema.parse({
+        organizationId: actor.organizationId,
+        releases: [
+          {
+            ...catalog,
+            digest: release.digest,
+            releaseId: release.id,
+            skillId: skill.id,
+          },
+        ],
+      });
+    },
+
     async getEnabledRelease(
       actor: OrganizationSkillReadActor,
       skillId: string,
