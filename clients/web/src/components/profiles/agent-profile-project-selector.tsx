@@ -175,6 +175,13 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		: resolveLocalFolderPickerDeviceId(controller.computer);
 
 	useEffect(() => {
+		if (localControlsDisabled) {
+			setPendingDefaultConnection(null);
+			setPendingFolderMove(null);
+		}
+	}, [localControlsDisabled]);
+
+	useEffect(() => {
 		const connection =
 			view?.status === "ready"
 				? (view.connections.find(
@@ -194,6 +201,11 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		connection: LocalProjectControlConnection,
 		unavailableMessage: string
 	): Promise<LocalProjectControlConnection> => {
+		if (localControlsDisabled) {
+			throw new Error(
+				"Wait until this task finishes to change a folder on this computer."
+			);
+		}
 		const response = await setCurrentComputerProjectDefaultConnection({
 			target: input.target,
 			clientGeneration: controller.claimMutationGeneration(),
@@ -214,7 +226,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 	};
 
 	const selectConnection = (connection: LocalProjectControlConnection) => {
-		if (connection.status !== "available") {
+		if (localControlsDisabled || connection.status !== "available") {
 			return;
 		}
 		if (connection.isDefault) {
@@ -275,6 +287,9 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		candidate: LocalProjectControlCandidate;
 		moveConfirmationToken?: string;
 	}): Promise<void> => {
+		if (localControlsDisabled) {
+			return;
+		}
 		const candidate =
 			candidateRequest?.candidate ??
 			resolveAgentProfileProjectCandidate(
@@ -331,6 +346,9 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		confirm: boolean,
 		moveConfirmationToken?: string
 	): Promise<void> => {
+		if (localControlsDisabled) {
+			return;
+		}
 		const path = declaredPath;
 		if (path.trim().length === 0 || !isAbsoluteProjectPath(path)) {
 			setErrorMessage("Enter the full folder path on this computer.");
