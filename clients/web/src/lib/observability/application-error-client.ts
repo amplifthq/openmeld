@@ -88,11 +88,13 @@ export function reportCaughtComponentError(
 
 export function reportClientQueryError(
 	error: unknown,
-	category: WebApplicationErrorQueryCategory
+	category: WebApplicationErrorQueryCategory,
+	stage?: WebApplicationErrorQueryDiagnostic["stage"]
 ): void {
 	const failure = toStructuredApiClientFailure(error);
 	reportClientApplicationError(error, "query", undefined, {
 		category,
+		...(stage ? { stage } : {}),
 		failure: {
 			code: failure.code,
 			requestId: normalizeDiagnosticRequestId(failure.requestId),

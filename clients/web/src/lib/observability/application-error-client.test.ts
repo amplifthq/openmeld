@@ -1,3 +1,5 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { webApplicationErrorReportSchema } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const PRIVATE_CONTENT = /token|private|https/;
@@ -61,6 +63,36 @@ describe("browser application error reporting", () => {
 		await submitApplicationErrorReport(new Error("late failure"));
 		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
 		expect(body.navigation).toBeUndefined();
+	});
+
+	it("reports the catch-up stage with API status, code, and request ID", async () => {
+		const { reportClientQueryError } = await import(
+			"./application-error-client"
+		);
+		reportClientQueryError(
+			new OpenMeldApiClientHttpError({
+				code: "auth.unauthenticated",
+				message: "private response body",
+				rawBody: "private response body",
+				requestId: "req-catch-up-401",
+				status: 401,
+			}),
+			"inbox",
+			"persist"
+		);
+		const body = String(vi.mocked(fetch).mock.calls[0]?.[1]?.body);
+		expect(
+			webApplicationErrorReportSchema.parse(JSON.parse(body)).query
+		).toEqual({
+			category: "inbox",
+			stage: "persist",
+			failure: {
+				code: "auth.unauthenticated",
+				requestId: "req-catch-up-401",
+				status: 401,
+			},
+		});
+		expect(body).not.toContain("private response body");
 	});
 
 	it("captures resource and route failures without suppressing the original error", async () => {

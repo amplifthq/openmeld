@@ -40,6 +40,7 @@ export const webApplicationErrorQueryCodeSchema = z.union([
 
 export const webApplicationErrorQueryDiagnosticSchema = z.object({
   category: webApplicationErrorQueryCategorySchema,
+  stage: z.enum(["prepare", "navigate", "persist", "refresh"]).optional(),
   failure: z.object({
     code: webApplicationErrorQueryCodeSchema.nullable(),
     requestId: z

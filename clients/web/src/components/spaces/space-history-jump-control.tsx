@@ -92,6 +92,7 @@ export function SpaceHistoryJumpControl({
 		const isOperationCurrent = () =>
 			sequence === operationSequence.current &&
 			(!historyReservation || historyReservation.isCurrent());
+		let catchUpStage: "prepare" | "navigate" | "persist" = "prepare";
 		try {
 			const preparedCatchUp = await onPrepareCatchUpUnread();
 			if (!preparedCatchUp) {
@@ -101,18 +102,20 @@ export function SpaceHistoryJumpControl({
 				preparedCatchUp.abandon();
 				return;
 			}
+			catchUpStage = "navigate";
 			const reachedLatest = await navigateToLatest(historyReservation);
 			if (!(isOperationCurrent() && reachedLatest)) {
 				preparedCatchUp.abandon();
 				return;
 			}
+			catchUpStage = "persist";
 			await preparedCatchUp.commit();
 		} catch (error) {
 			if (!isOperationCurrent()) {
 				return;
 			}
 			console.error("Failed to catch up the Space read position.", error);
-			reportClientQueryError(error, "inbox");
+			reportClientQueryError(error, "inbox", catchUpStage);
 			setCatchUpError(true);
 		} finally {
 			if (sequence === operationSequence.current) {

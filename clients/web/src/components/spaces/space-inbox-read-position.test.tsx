@@ -7,6 +7,7 @@ const {
 	markCurrentSpaceInboxReadThroughMock,
 	optimisticallyMarkSpaceInboxReadThroughMock,
 	queryClient,
+	reportClientQueryErrorMock,
 	rollbackMock,
 } = vi.hoisted(() => ({
 	invalidateInboxFactsMock: vi.fn(),
@@ -17,7 +18,12 @@ const {
 		fetchQuery: vi.fn(),
 		invalidateQueries: vi.fn(),
 	},
+	reportClientQueryErrorMock: vi.fn(),
 	rollbackMock: vi.fn(),
+}));
+
+vi.mock("#/lib/observability/application-error-client", () => ({
+	reportClientQueryError: reportClientQueryErrorMock,
 }));
 
 vi.mock("@tanstack/react-query", async () => {
@@ -80,6 +86,7 @@ describe("useSpaceInboxReadPosition", () => {
 			.mockReset()
 			.mockResolvedValue(undefined);
 		rollbackMock.mockReset();
+		reportClientQueryErrorMock.mockReset();
 		optimisticallyMarkSpaceInboxReadThroughMock
 			.mockReset()
 			.mockReturnValue({ rollback: rollbackMock });
@@ -121,7 +128,8 @@ describe("useSpaceInboxReadPosition", () => {
 	});
 
 	it("treats a saved read position as success when the Inbox refresh fails", async () => {
-		invalidateInboxFactsMock.mockRejectedValueOnce(new Error("refresh failed"));
+		const refreshError = new Error("refresh failed");
+		invalidateInboxFactsMock.mockRejectedValueOnce(refreshError);
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		const { result } = renderHook(() =>
 			useSpaceInboxReadPosition({
@@ -137,6 +145,11 @@ describe("useSpaceInboxReadPosition", () => {
 		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledOnce();
 		expect(rollbackMock).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledOnce();
+		expect(reportClientQueryErrorMock).toHaveBeenCalledWith(
+			refreshError,
+			"inbox",
+			"refresh"
+		);
 		warn.mockRestore();
 	});
 

@@ -1,6 +1,7 @@
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { reportClientQueryError } from "#/lib/observability/application-error-client";
 import { markCurrentSpaceInboxReadThrough } from "#/lib/organizations/inbox";
 import {
 	inboxQueryKeys,
@@ -85,6 +86,7 @@ export function useSpaceInboxReadPosition(input: {
 						queryClient,
 					});
 				} catch (refreshError) {
+					reportClientQueryError(refreshError, "inbox", "refresh");
 					console.warn(
 						"Failed to refresh Inbox after a read-position write failed.",
 						refreshError
@@ -101,6 +103,7 @@ export function useSpaceInboxReadPosition(input: {
 					queryClient,
 				});
 			} catch (refreshError) {
+				reportClientQueryError(refreshError, "inbox", "refresh");
 				console.warn(
 					"Failed to refresh Inbox after a read-position write.",
 					refreshError
