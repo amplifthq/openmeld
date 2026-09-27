@@ -1283,8 +1283,7 @@ envelope to old cloud code. Deploy Core's source-text preservation before the
 new CLI/Web so literal examples are never stripped from a dispatched prompt.
 No running Wake or historical message is rewritten.
 
-Keep CLI and local-component manifests unchanged on this feature branch and
-use deferred release verification. The final clean-main release must stamp the
+The final release must stamp the
 new CLI/Skill contracts, publish the matching signed Skill channel with the new
 CLI version as its minimum, and preserve the previous signed contract release.
 The CLI and Skills updates are required because their command and Skill contracts
@@ -1351,8 +1350,7 @@ command contract version, or D1 schema changes.
 - No contract constant bump is required because the new strict permission enum
   values are emitted only after their cloud receivers deploy, the controller
   registration is additive, and all execution/result envelopes are unchanged.
-  The feature branch must use deferred release verification; version bump and
-  local-component manifest stamping happen only in the clean release worktree.
+  Prepare the version and local-component manifest once the release source is stable.
 - Rollback removes or disables the Grok local producer before rolling back the
   shared cloud receivers/catalog. Any active Grok Wake must first reach one
   explicit reply, stopped outcome, or failure; rollback must not reinterpret a
@@ -2323,14 +2321,9 @@ closed without writing a guessed version. `--version X.Y.Z` remains the explicit
 operator-approved mode; it skips channel reads and is mutually exclusive with
 `--next`.
 
-CLI version bumps and manifest re-stamps belong to the release that actually
-publishes from `main`. Do not bump the CLI version or commit a release manifest
-re-stamp from a feature branch: perform both in the clean release worktree, or
-the repository records release state that never reached users.
-
-Final Candidate enforces that rule with the explicit
+For local-component changes without a release stamp, Final Candidate uses
 `verify:release-ready -- --defer-release --base <exact-base-sha>` mode on an
-ordinary feature branch. Ordinary development pushes do not repeat this build.
+unstamped candidate. Ordinary development pushes do not repeat this build.
 Deferred verification still rebuilds the packaged CLI and Service facts and
 runs the release-tool tests. It requires the CLI version and
 `release/local-components.json` to remain identical to the base, then reports
@@ -2338,31 +2331,24 @@ source and hash changes as pending work for the final clean-`main` release. It
 does not treat the base manifest hash as release truth for changed feature
 source.
 
-The final operator-approved release commit uses a versioned
-`codex/release-X.Y.Z-<baseSHA>` branch. The version must match the CLI package
-and local-components manifest, and the SHA suffix must match the PR's exact
-base. A normal release PR changes exactly
-`clients/openmeld-cli/package.json` and `release/local-components.json`. If the
-base package and manifest already declare that same release version, a restamp
-after later local-component changes may change only
-`release/local-components.json`; publication preflight must still confirm that
-version is unpublished. That explicit, release-only branch shape selects strict
-release-ready verification in both pre-push and Final Candidate, so the stamped
-manifest can pass the exact candidate gate before merging to PR-only `main`.
-The shared release branch
-policy script owns this classification; ordinary feature branches remain
-deferred and cannot carry a release stamp, while a malformed or mixed-scope
-release branch fails closed.
+The final operator-approved release stamp may share a PR with the exact stable
+local-component source and compatibility floor it describes. If the feature
+already merged, use a separate release PR. The CLI package version must match
+the manifest version, and the manifest must match the built candidate. Any
+subsequent source change requires a restamp. Final Candidate selects strict
+release-ready verification whenever the candidate changes the local-components
+manifest; otherwise local-component source and package metadata changes receive
+deferred verification. Branch spelling and release-only diffs are not release
+authority. Publication preflight still confirms the version is unpublished.
 
 The pre-push release check does not run ordinary development builds or tests.
 Agents select focused checks before Ready. Release checking remains
 strict when a push includes `refs/heads/main`, any `codex/release-*` branch,
-a tag, malformed input, or no input. Malformed release branch names fail at
-pre-push instead of waiting for Final Candidate. A strict push
+a tag, malformed input, or no input. A strict push
 requires every non-deletion object to resolve to checked-out `HEAD` and rejects
 uncommitted release-relevant or gate-control paths. Final Candidate passes the
 pull request's exact base SHA and chooses deferred or strict release readiness
-from the branch contract. Release preflight, publish, Core deploy, and every
+from the candidate diff. Release preflight, publish, Core deploy, and every
 actual release path remain strict.
 
 Inspect the exact local-component changes before choosing an advisory or
