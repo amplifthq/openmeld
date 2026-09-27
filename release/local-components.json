@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-25T18:16:35.706Z",
+  "updatedAt": "2026-09-27T05:05:07.526Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.225",
+      "packageVersion": "0.3.226",
       "updatePolicy": "available",
-      "reason": "The setup command remains compatible with current cloud and existing installations."
+      "reason": "Plugin connection commands and Codex installation recovery are additive; existing CLI commands remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "77d094acc79113d21039f5fcae05f9978a5446c5dac5fab7d61562f3be4d1511",
-      "portableBundleHash": "2933a6e25237205d2a0031ec9b5035522e73da61f074b5ae10adadbf3efaf4cc",
-      "bundleVersion": "0.3.225",
+      "bundleHash": "11fd6688e8f3bad0d67caf8f1b6914bd8517d0fbd5d40d95b10d1d6cf5f22ac1",
+      "portableBundleHash": "67fae3e375c7340b2c08b7598a10a97b0a543f5ed843c44e524170d9124750b9",
+      "bundleVersion": "0.3.226",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-space-files-1gib-v1",
-      "updatePolicy": "available",
-      "reason": "Existing and new Services can continue the same Wake and setup work safely."
+      "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
+      "updatePolicy": "required",
+      "reason": "The strict Agent Controller launch snapshot now includes a failure reason; Core must receive this contract before new Services report it, and older Services must update before new Wake work."
     },
     "skills": {
-      "bundleHash": "d1adf5f61e413418e6c11cf7bab84ea41aed967ae0d118ef1ad84588739249cf",
+      "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Updated guidance uses compatible CLI and Space actions; existing installed skills continue to work."
+      "reason": "The Plugin playbook adds guidance without changing the existing managed Skill contract."
     }
   }
 }
