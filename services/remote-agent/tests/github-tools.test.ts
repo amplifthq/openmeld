@@ -3,6 +3,7 @@ import {
   openConnectorRuntimeActionSuccessEnvelopeSchema,
   spaceTaskSchema,
 } from "@openmeld/schemas";
+import type { ProjectIssueDestination } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { safeParse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
@@ -2516,7 +2517,21 @@ describe("Remote Agent GitHub tools", () => {
           userId: "user_1",
         })
       ),
+      resolveProjectIssueAction: vi.fn(
+        ({
+          proposedDestination,
+        }: {
+          proposedDestination: ProjectIssueDestination;
+        }) =>
+          Promise.resolve({
+            basis: "explicit_request" as const,
+            destination: proposedDestination,
+            projectId: null,
+            projectRevision: null,
+          })
+      ),
     };
+    const coreWorkerWithLedger = withTestConnectorOperationLedger(coreWorker);
     const batchInput = {
       githubActor: "organization",
       issues: [{ externalKey: "finding-1", title: "Review finding 1" }],
@@ -2524,10 +2539,11 @@ describe("Remote Agent GitHub tools", () => {
       owner: "openmeld",
       repo: "app",
     };
-    const firstTurnTools = getRemoteAgentGitHubToolDefinitions({
+    const firstTurnTools = buildRemoteAgentGitHubToolDefinitions({
       connectorExecution,
-      coreWorker,
+      coreWorker: coreWorkerWithLedger,
       storage,
+      submissionId: ACK.submissionId,
     });
     await expect(
       executeTool(firstTurnTools, "github_create_issue_batch", batchInput)
@@ -2561,7 +2577,7 @@ describe("Remote Agent GitHub tools", () => {
     );
     const routineTools = buildRemoteAgentGitHubToolDefinitions({
       connectorExecution,
-      coreWorker,
+      coreWorker: coreWorkerWithLedger,
       storage,
       submissionId: routineSubmissionId,
     });

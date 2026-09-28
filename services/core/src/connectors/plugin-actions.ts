@@ -9,6 +9,7 @@ import type {
   PluginActionResponse,
   PluginActionRpcInput,
   PluginRuntimeRequest,
+  ResolveProjectIssueActionResponse,
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import {
@@ -153,7 +154,7 @@ export async function rpcPluginAction(
       "This connection allows read-only access for Local Agents."
     );
   }
-  await assertLocalPluginIssueDestination({
+  const issueResolution = await assertLocalPluginIssueDestination({
     action,
     actionId: metadata.id,
     caller,
@@ -196,7 +197,8 @@ export async function rpcPluginAction(
     action,
     connection,
     signature,
-    effect
+    effect,
+    issueResolution
   );
 }
 
@@ -207,7 +209,7 @@ async function assertLocalPluginIssueDestination(input: {
   context: PluginActionRpcInput["context"];
   dispatchId: string | null;
   env: CoreBindings;
-}): Promise<void> {
+}): Promise<ResolveProjectIssueActionResponse | null> {
   const { action, actionId, caller, context, dispatchId, env } = input;
   if (
     !(
@@ -215,7 +217,7 @@ async function assertLocalPluginIssueDestination(input: {
       (action.service === "linear" && isLinearIssueCreateAction(actionId))
     )
   ) {
-    return;
+    return null;
   }
   const proposedDestination = projectIssueDestinationSchema.parse(
     action.service === "github"
@@ -232,7 +234,7 @@ async function assertLocalPluginIssueDestination(input: {
             : { projectId: action.input.projectId }),
         }
   );
-  resolveProjectIssueAction({
+  return resolveProjectIssueAction({
     projects: await listProjectIssueRoutingCandidates({
       db: caller.db,
       organizationId: caller.organizationId,
@@ -417,7 +419,8 @@ async function executeAction(
   action: Execution,
   connection: Connection,
   signature: string,
-  effect: "read" | "write" | "destructive" | "unspecified"
+  effect: "read" | "write" | "destructive" | "unspecified",
+  issueResolution: ResolveProjectIssueActionResponse | null
 ): Promise<PluginActionResponse> {
   await requirePluginPermission({
     ...caller,
@@ -452,6 +455,17 @@ async function executeAction(
   };
   const claim = await recordCenterAgentConnectorActionOperation({
     ...operation,
+    ...(issueResolution?.basis === "project_default" &&
+    issueResolution.projectId !== null &&
+    issueResolution.projectRevision !== null
+      ? {
+          issueRoutingDecision: {
+            projectId: issueResolution.projectId,
+            revision: issueResolution.projectRevision,
+            destination: issueResolution.destination,
+          },
+        }
+      : {}),
     outcome: "attempted",
     nowMs: Date.now(),
     providerExecutionId: null,

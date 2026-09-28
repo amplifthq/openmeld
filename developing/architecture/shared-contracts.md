@@ -2122,7 +2122,13 @@ proposed provider target to Core. Core verifies the active delivery, reads the
 admitted request and current Project/Task facts, and returns the resolved
 target, basis, Project ID when known, and configuration revision when a default
 was used. The action owner rejects a provider or target mismatch before its
-operation claim. GitHub PR background context does not create an explicit
+operation claim. A default-based claim carries that Project revision and exact
+destination into the connector-operation owner. Its D1 insert is conditional
+on the current active Project row still matching both; the audit insert is
+conditional on the accepted operation, so a stale claim writes neither an
+operation nor false attempted evidence. GitHub batches claim one frozen batch
+operation before writing their durable manifest. GitHub PR background context
+does not create an explicit
 GitHub override. A replay reads its already accepted operation and retains its
 frozen provider, account, target, and idempotency key rather than re-resolving
 from a later Project edit. The Project rule never substitutes for current

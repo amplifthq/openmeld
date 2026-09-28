@@ -55,6 +55,110 @@ const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
 
 describe("Local Agent plugin admission", () => {
+  it("fences a Project issue default change in the connector operation claim", async () => {
+    const fixture = await seedConnectorFixture();
+    const projectId = `project_${crypto.randomUUID()}`;
+    const destination = {
+      provider: "github" as const,
+      owner: "acme",
+      repo: "payments",
+    };
+    await env.OPENMELD_DB.prepare(
+      `INSERT INTO projects (
+        id, organization_id, name, slug, repository_fingerprint,
+        created_by_user_id, created_at_ms, updated_at_ms, archived_at_ms,
+        issue_destination_json, issue_destination_revision
+      ) VALUES (?, ?, 'Payments', ?, NULL, ?, 1, 1, NULL, ?, 1)`
+    )
+      .bind(
+        projectId,
+        fixture.organizationA,
+        `payments-${crypto.randomUUID()}`,
+        fixture.ownerA,
+        JSON.stringify(destination)
+      )
+      .run();
+    const baseInput = {
+      actionId: "github.create_issue",
+      actorProfileId: fixture.ownerProfileId,
+      attribution: {
+        actorProfileId: fixture.ownerProfileId,
+        onBehalfOf: {
+          displayName: "Connector owner",
+          profileId: fixture.ownerProfileId,
+          userId: fixture.ownerA,
+        },
+      },
+      connectionName: fixture.connectionA,
+      db: env.OPENMELD_DB,
+      executionConnection: {
+        connectionName: fixture.connectionA,
+        ownerDisplayName: fixture.memberA,
+        ownerUserId: fixture.memberA,
+        scope: "member" as const,
+        service: "github",
+      },
+      issueRoutingDecision: { projectId, revision: 1, destination },
+      organizationId: fixture.organizationA,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requester: {
+        kind: "represented_member" as const,
+        representedUserId: fixture.ownerA,
+      },
+      requestSignature: "a".repeat(64),
+      service: "github",
+    } as const;
+    const acceptedOperationId = `accepted-${crypto.randomUUID()}`;
+    await expect(
+      recordCenterAgentConnectorActionOperation({
+        ...baseInput,
+        operationId: acceptedOperationId,
+        nowMs: Date.now(),
+      })
+    ).resolves.toMatchObject({ replayed: false });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE projects SET issue_destination_revision = 2, issue_destination_json = ? WHERE id = ?"
+    )
+      .bind(
+        JSON.stringify({ provider: "github", owner: "acme", repo: "other" }),
+        projectId
+      )
+      .run();
+    const staleOperationId = `stale-${crypto.randomUUID()}`;
+    await expect(
+      recordCenterAgentConnectorActionOperation({
+        ...baseInput,
+        operationId: staleOperationId,
+        nowMs: Date.now(),
+      })
+    ).rejects.toMatchObject({
+      code: "project.issue_destination_changed",
+      status: 409,
+    });
+    const staleRows = await env.OPENMELD_DB.prepare(
+      `SELECT COUNT(*) AS count FROM center_agent_connector_action_operations
+       WHERE organization_id = ? AND operation_id = ?`
+    )
+      .bind(fixture.organizationA, staleOperationId)
+      .first<{ count: number }>();
+    expect(staleRows?.count).toBe(0);
+    const staleAudit = await env.OPENMELD_DB.prepare(
+      `SELECT COUNT(*) AS count FROM center_agent_audit_journal
+       WHERE resource_id = ?`
+    )
+      .bind(`github:github.create_issue:${staleOperationId}`)
+      .first<{ count: number }>();
+    expect(staleAudit?.count).toBe(0);
+    await expect(
+      recordCenterAgentConnectorActionOperation({
+        ...baseInput,
+        operationId: acceptedOperationId,
+        nowMs: Date.now(),
+      })
+    ).resolves.toMatchObject({ replayed: true });
+  });
+
   it("keeps the Agent owner's private account out of another member's Wake", async () => {
     const fixture = await seedLocalPluginFixture("read", "read");
     const privateConnection = await createConnectorConnectionName({

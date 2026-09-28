@@ -71,6 +71,7 @@ import {
 } from "./people-computers";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 import { authProfileViewSchema } from "./profiles";
+import { projectIssueDestinationSchema } from "./projects";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
 import {
   CENTER_AGENT_SLACK_FILE_MAX_BASE64_CHARACTERS,
@@ -306,6 +307,13 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     outcome: centerAgentConnectorActionAuditOutcomeSchema,
     providerExecutionId: nullableTrimmedStringSchema,
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
+    issueRoutingDecision: z
+      .strictObject({
+        projectId: trimmedNonEmptyStringSchema.max(256),
+        revision: z.number().int().nonnegative(),
+        destination: projectIssueDestinationSchema,
+      })
+      .optional(),
     service: connectorServiceSchema,
     speakerMember: centerAgentToolSpeakerSchema,
   })
@@ -316,6 +324,14 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
         message:
           "providerExecutionId must be null while claiming a connector action operation.",
         path: ["providerExecutionId"],
+      });
+    }
+    if (value.outcome !== "attempted" && value.issueRoutingDecision) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "issueRoutingDecision is only accepted with a new operation claim.",
+        path: ["issueRoutingDecision"],
       });
     }
   });

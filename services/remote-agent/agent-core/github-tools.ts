@@ -59,6 +59,7 @@ import {
   buildRemoteAgentExecutionIdentity,
 } from "./execution-state";
 import {
+  issueRoutingDecisionForClaim,
   readGitHubIssueDestination,
   requireProjectIssueActionDestination,
 } from "./project-issue-routing";
@@ -92,6 +93,7 @@ const GITHUB_DESTRUCTIVE_WRITE_ACTION_IDS = new Set<GitHubActionId>([
   "github.merge_pull_request",
 ]);
 const GITHUB_ISSUE_BATCH_PREFIX = "remote-agent:github-issue-batch:";
+const GITHUB_ISSUE_BATCH_ACTION_ID = "openmeld.github.create_issue_batch";
 const GITHUB_FILE_SEGMENT_DEFAULT_UTF16_CODE_UNITS = 24_000;
 const GITHUB_FILE_SEGMENT_MAX_UTF16_CODE_UNITS = 50_000;
 const GITHUB_SEARCH_DEFAULT_PER_PAGE = 10;
@@ -1218,13 +1220,23 @@ async function executeGitHubIssueBatch(input: {
     toolName: "github_create_issue_batch",
   });
   const manifestKey = `${GITHUB_ISSUE_BATCH_PREFIX}${operationId}`;
-  if (!(await input.storage.get<GitHubIssueBatchManifest>(manifestKey))) {
-    await requireProjectIssueActionDestination({
-      coreWorker: input.coreWorker,
-      destination: readGitHubIssueDestination({ owner, repo }),
-      toolContext,
-    });
-  }
+  const existingManifest =
+    await input.storage.get<GitHubIssueBatchManifest>(manifestKey);
+  const existingOperation = await readConnectorActionOperation({
+    actionId: GITHUB_ISSUE_BATCH_ACTION_ID,
+    coreWorker: input.coreWorker,
+    operationId,
+    service: "github",
+    toolContext,
+  });
+  const issueResolution =
+    existingManifest || existingOperation
+      ? null
+      : await requireProjectIssueActionDestination({
+          coreWorker: input.coreWorker,
+          destination: readGitHubIssueDestination({ owner, repo }),
+          toolContext,
+        });
   const { attribution, selection } = await resolveGitHubActionContext({
     coreWorker: input.coreWorker,
     githubActor,
@@ -1239,6 +1251,29 @@ async function executeGitHubIssueBatch(input: {
     owner,
     repo,
   });
+  const batchRequestSignature = await digestCanonicalJson({
+    actionId: GITHUB_ISSUE_BATCH_ACTION_ID,
+    connectionName: selection.connection.connectionName,
+    githubActor,
+    input: { digest, owner, repo },
+    service: "github",
+  });
+  const usesCoreBatchClaim = !existingManifest || Boolean(existingOperation);
+  if (usesCoreBatchClaim) {
+    await recordConnectorActionOperation({
+      actionId: GITHUB_ISSUE_BATCH_ACTION_ID,
+      connectionName: selection.connection.connectionName,
+      coreWorker: input.coreWorker,
+      effect: "write",
+      issueRoutingDecision: issueRoutingDecisionForClaim(issueResolution),
+      operationId,
+      outcome: "attempted",
+      providerExecutionId: null,
+      requestSignature: batchRequestSignature,
+      service: "github",
+      toolContext,
+    });
+  }
   const proposedManifest: GitHubIssueBatchManifest = {
     connectionName: selection.connection.connectionName,
     connectionOwnerUserId: selection.connection.userId,
@@ -1275,7 +1310,7 @@ async function executeGitHubIssueBatch(input: {
     );
   }
 
-  return await executeGitHubIssueBatchManifest({
+  const result = await executeGitHubIssueBatchManifest({
     attribution,
     connectorExecution: input.connectorExecution,
     coreWorker: input.coreWorker,
@@ -1288,6 +1323,20 @@ async function executeGitHubIssueBatch(input: {
     submissionId: input.submissionId,
     toolContext,
   });
+  if (usesCoreBatchClaim && result.status === "completed") {
+    await recordConnectorActionOperation({
+      actionId: GITHUB_ISSUE_BATCH_ACTION_ID,
+      connectionName: selection.connection.connectionName,
+      coreWorker: input.coreWorker,
+      operationId,
+      outcome: "completed",
+      providerExecutionId: null,
+      requestSignature: batchRequestSignature,
+      service: "github",
+      toolContext,
+    });
+  }
+  return result;
 }
 
 async function executeGitHubIssueBatchManifest(input: {
@@ -2114,7 +2163,10 @@ async function executeIdempotentGitHubAction(input: {
     service: "github",
     toolContext: input.toolContext,
   });
-  await assertNewGitHubIssueDestination(input, Boolean(existingOperation));
+  const issueResolution = await assertNewGitHubIssueDestination(
+    input,
+    Boolean(existingOperation)
+  );
   const action = input.useRuntimeCatalog
     ? await resolveGitHubCatalogActionPolicy({
         ...input,
@@ -2156,6 +2208,7 @@ async function executeIdempotentGitHubAction(input: {
     outcome: "attempted",
     providerExecutionId: null,
     requestSignature,
+    issueRoutingDecision: issueRoutingDecisionForClaim(issueResolution),
     service: "github",
     toolContext: input.toolContext,
   });
@@ -2283,11 +2336,13 @@ async function executeIdempotentGitHubAction(input: {
 async function assertNewGitHubIssueDestination(
   input: Parameters<typeof executeIdempotentGitHubAction>[0],
   replayed: boolean
-): Promise<void> {
+): Promise<Awaited<
+  ReturnType<typeof requireProjectIssueActionDestination>
+> | null> {
   if (replayed || input.actionId !== "github.create_issue") {
-    return;
+    return null;
   }
-  await requireProjectIssueActionDestination({
+  return await requireProjectIssueActionDestination({
     coreWorker: input.coreWorker,
     destination: readGitHubIssueDestination(input.actionInput),
     toolContext: input.toolContext,

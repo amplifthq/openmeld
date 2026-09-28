@@ -46,6 +46,7 @@ Removal condition: Remove after this candidate's full accepted behavior, rollout
 - `origin/main` was fetched and the design branch rebased on it before implementation.
 - `pnpm run verify:pr -- --feedback` passed on the uncommitted Draft candidate. Its selected Web (18), API client (63), schema (7), Core Node boundary (5), and Core Worker (42) tests passed, along with the selected dependency builds and Biome check.
 - Focused Remote Agent GitHub/Linear action tests passed separately (120 tests), as did package type checks for Core, Gateway, API client, Remote Agent, and Web and the strict docs lifecycle check.
+- A later focused Core connector-operation run (39 tests) verified that a changed Project default rejects a new issue operation atomically without creating an operation or attempted audit row, while an accepted exact replay still succeeds. Remote Agent GitHub batch and App action regressions passed after the same change.
 - `pnpm run verify:release-ready -- --defer-release --base a49be4ca21f904f0f409a1da9691a27b5de3d5b8` passed without changing the local-component release manifest. These local results do not prove installed CLI, live Service, provider, or deployment behavior.
 
 ## Open Acceptance Gaps
@@ -53,7 +54,7 @@ Removal condition: Remove after this candidate's full accepted behavior, rollout
 - One execution still resolves the Agent Profile's existing Default Project/local folder. The new optional code-repository default and a cross-repository Task do not yet select exact workspaces.
 - The v3 local Project binding store still grants one canonical folder to one Project; duplicate folder association, physical conflict serialization across Project labels, and ambiguous Session attribution are not implemented.
 - Linear receipt parsing is conservative and needs the deployed action catalog or captured provider result. If identifier and URL are absent, the action reports the confirmed issue and a failed Task association without making another issue.
-- Project routing rechecks the current default before a new action claim, but the Project revision is not yet fenced atomically with the connector-operation insert. A concurrent default change across that boundary needs a claim-time revision guard before this can be called complete.
+- Default-based GitHub, Linear, and Local Plugin operation claims now fence the Project revision and exact destination in the connector-operation insert; stale claims write no operation or audit row. GitHub batches claim a frozen operation before creating their manifest. The deployed path still needs provider and user acceptance evidence.
 - Free-text destination intent uses conservative request-side parsing and targeted clarification. An explicit structured requester selection and adversarial quoted-context acceptance evidence are still needed before claiming every natural-language override is reliable.
 - Task-to-Project aggregate views and first-run Project selection during work creation remain narrower than the approved full journey.
 - Issue #1251 is related but not closed by this Draft until the full supported routing and provider acceptance evidence is complete.

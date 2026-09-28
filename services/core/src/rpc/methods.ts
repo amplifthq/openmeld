@@ -15911,6 +15911,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     outcome: input.outcome,
     providerExecutionId: input.providerExecutionId,
     requestSignature: input.requestSignature,
+    issueRoutingDecision: input.issueRoutingDecision,
     service: input.service,
     speakerMember: input.speakerMember,
   });
@@ -16013,6 +16014,9 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     providerExecutionId: parsed.data.providerExecutionId,
     requester,
     requestSignature: parsed.data.requestSignature,
+    ...(parsed.data.issueRoutingDecision
+      ? { issueRoutingDecision: parsed.data.issueRoutingDecision }
+      : {}),
     service: parsed.data.service,
     sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     sourceSpaceId: member.sourceSpaceId,

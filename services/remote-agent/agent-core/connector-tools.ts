@@ -7,6 +7,7 @@ import {
   isLinearIssueCreateAction,
 } from "@openmeld/schemas";
 import type {
+  CenterAgentRecordConnectorActionOperationBody,
   ConnectorService,
   OpenConnectorRuntimeAction,
   RemoteAgentTurnEnvelope,
@@ -54,6 +55,7 @@ import {
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
 import {
+  issueRoutingDecisionForClaim,
   readLinearIssueDestination,
   requireProjectIssueActionDestination,
 } from "./project-issue-routing";
@@ -358,6 +360,7 @@ async function executeAppAction(input: {
     confirmedSelection,
     existingOperation,
     effect: resolveActionEffect(executionAction),
+    issueResolution,
     toolContext,
   });
   const run = await runAndFinalizeConnectorAction({
@@ -559,6 +562,9 @@ async function prepareConnectorActionOperation(input: {
   >;
   dependencies: ConnectorToolDependencies;
   existingOperation: Awaited<ReturnType<typeof readConnectorActionOperation>>;
+  issueResolution: Awaited<
+    ReturnType<typeof requireProjectIssueActionDestination>
+  > | null;
   request: ExecuteAppActionRequest;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }) {
@@ -604,6 +610,7 @@ async function prepareConnectorActionOperation(input: {
     outcome: "attempted",
     providerExecutionId: null,
     requestSignature,
+    issueRoutingDecision: issueRoutingDecisionForClaim(input.issueResolution),
     service: input.request.service,
     toolContext: input.toolContext,
   });
@@ -907,6 +914,7 @@ export async function recordConnectorActionOperation(input: {
   outcome: "attempted" | "completed" | "failed" | "outcome_unknown";
   providerExecutionId: string | null;
   requestSignature: string;
+  issueRoutingDecision?: CenterAgentRecordConnectorActionOperationBody["issueRoutingDecision"];
   service: ConnectorService;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }) {
@@ -924,6 +932,9 @@ export async function recordConnectorActionOperation(input: {
         outcome: input.outcome,
         providerExecutionId: input.providerExecutionId,
         requestSignature: input.requestSignature,
+        ...(input.issueRoutingDecision
+          ? { issueRoutingDecision: input.issueRoutingDecision }
+          : {}),
         service: input.service,
         speakerMember,
       },

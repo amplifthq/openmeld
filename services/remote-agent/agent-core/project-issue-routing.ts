@@ -3,7 +3,10 @@ import {
   projectIssueDestinationSchema,
   resolveProjectIssueActionResponseSchema,
 } from "@openmeld/schemas";
-import type { ProjectIssueDestination } from "@openmeld/schemas/types";
+import type {
+  ProjectIssueDestination,
+  ResolveProjectIssueActionResponse,
+} from "@openmeld/schemas/types";
 import type { RemoteAgentCoreWorkerBinding } from "./callback-context";
 import { callCoreRpc } from "./core-rpc";
 import type { buildRemoteAgentToolContext } from "./tool-context";
@@ -57,6 +60,22 @@ function sameIssueDestination(
     proposed.teamId === resolved.teamId &&
     proposed.projectId === resolved.projectId
   );
+}
+
+export function issueRoutingDecisionForClaim(
+  resolved: ResolveProjectIssueActionResponse | null
+) {
+  if (resolved?.basis !== "project_default") {
+    return undefined;
+  }
+  if (resolved.projectId === null || resolved.projectRevision === null) {
+    throw new Error("project.issue_default_revision_unavailable");
+  }
+  return {
+    projectId: resolved.projectId,
+    revision: resolved.projectRevision,
+    destination: resolved.destination,
+  };
 }
 
 export function readGitHubIssueDestination(

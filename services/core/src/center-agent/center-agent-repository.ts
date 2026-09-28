@@ -287,7 +287,9 @@ export function prepareCenterAgentAuditJournalEntryStatement(
 }
 
 export function prepareCenterAgentAuditJournalEntryIfMissingStatement(
-  input: CenterAgentAuditJournalEntryInput
+  input: CenterAgentAuditJournalEntryInput & {
+    onlyIfConnectorOperationId?: string;
+  }
 ): D1PreparedStatement {
   return prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy({
     ...input,
@@ -296,9 +298,15 @@ export function prepareCenterAgentAuditJournalEntryIfMissingStatement(
 }
 
 function prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy(
-  input: CenterAgentAuditJournalEntryInput & { ignoreConflict: boolean }
+  input: CenterAgentAuditJournalEntryInput & {
+    ignoreConflict: boolean;
+    onlyIfConnectorOperationId?: string;
+  }
 ): D1PreparedStatement {
   const onBehalfOf = input.attribution.onBehalfOf;
+  const connectorOperationCondition = input.onlyIfConnectorOperationId
+    ? "WHERE EXISTS (SELECT 1 FROM center_agent_connector_action_operations WHERE id = ?)"
+    : "";
   return input.db
     .prepare(
       `
@@ -316,7 +324,8 @@ function prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy(
           source_space_id,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ${connectorOperationCondition}
       `
     )
     .bind(
@@ -331,7 +340,10 @@ function prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy(
       input.resource?.id ?? null,
       input.sourceNativeDeliveryId ?? null,
       input.sourceSpaceId ?? null,
-      input.nowMs
+      input.nowMs,
+      ...(input.onlyIfConnectorOperationId
+        ? [input.onlyIfConnectorOperationId]
+        : [])
     );
 }
 

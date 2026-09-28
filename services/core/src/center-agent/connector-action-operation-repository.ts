@@ -3,6 +3,7 @@ import type {
   CenterAgentAttribution,
   CenterAgentConnectorActionExecutionConnection,
   CenterAgentConnectorActionOperationStatus,
+  ProjectIssueDestination,
 } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-agent-repository";
@@ -48,6 +49,12 @@ export type CenterAgentConnectorActionOperationRecord =
     status: CenterAgentConnectorActionOperationStatus;
     updatedAtMs: number;
   };
+
+type ProjectIssueRoutingDecision = {
+  projectId: string;
+  revision: number;
+  destination: ProjectIssueDestination;
+};
 
 type CenterAgentConnectorActionOperationRow = {
   action_id: string;
@@ -216,6 +223,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   providerExecutionId: string | null;
   requester: CenterAgentConnectorActionRequester;
   requestSignature: string;
+  issueRoutingDecision?: ProjectIssueRoutingDecision;
   service: string;
   sourceNativeDeliveryId?: string | null;
   sourceSpaceId?: string | null;
@@ -242,57 +250,13 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   const existingAttribution = existingProvenance?.attribution ?? null;
 
   if (input.outcome === "attempted") {
-    if (existing) {
-      return {
-        attribution: requireExistingAttribution(existingAttribution),
-        operation: existing,
-        replayed: true,
-      };
-    }
-    const attribution = requireNewOperationAttribution({
-      actorProfileId: input.actorProfileId,
-      attribution: input.attribution,
-      representedUserId: scope.representedUserId,
-      sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
+    return await claimConnectorActionOperation({
+      command: input,
+      existing,
+      existingAttribution,
+      recordId,
+      scope,
     });
-    const executionConnection = requireNewOperationExecutionConnection(input);
-    const auditAction = resolveAuditAction(input.outcome);
-    const [insertResult] = await input.db.batch([
-      prepareInsertOperationStatement({
-        ...input,
-        attribution,
-        executionConnection,
-        id: recordId,
-        requesterAttributionKey: scope.requesterAttributionKey,
-        representedUserId: scope.representedUserId,
-        sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
-        status: "pending",
-      }),
-      prepareCenterAgentAuditJournalEntryIfMissingStatement({
-        action: auditAction,
-        actorProfileId: input.actorProfileId,
-        attribution,
-        db: input.db,
-        id: `${recordId}:attempted`,
-        nowMs: input.nowMs,
-        organizationId: input.organizationId,
-        resource: operationAuditResource(input),
-        sourceNativeDeliveryId: auditSourceNativeDeliveryId(
-          input.sourceNativeDeliveryId,
-          scope.sourceNativeDeliveryId
-        ),
-        sourceSpaceId: input.sourceSpaceId ?? null,
-      }),
-    ]);
-    const operation = await requireOperation({ db: input.db, scope });
-    assertSameRequest(operation, input);
-    return {
-      attribution: (
-        await requireOperationProvenance({ db: input.db, operation })
-      ).attribution,
-      operation,
-      replayed: Number(insertResult?.meta.changes ?? 0) !== 1,
-    };
   }
 
   if (!existing) {
@@ -362,6 +326,79 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     attribution: requireExistingAttribution(existingAttribution),
     operation,
     replayed: Number(updateResult?.meta.changes ?? 0) !== 1,
+  };
+}
+
+async function claimConnectorActionOperation(input: {
+  command: Parameters<typeof recordCenterAgentConnectorActionOperation>[0];
+  existing: CenterAgentConnectorActionOperationRecord | null;
+  existingAttribution: CenterAgentAttribution | null;
+  recordId: string;
+  scope: CenterAgentConnectorActionOperationScope;
+}) {
+  const { command, existing, existingAttribution, recordId, scope } = input;
+  if (existing) {
+    return {
+      attribution: requireExistingAttribution(existingAttribution),
+      operation: existing,
+      replayed: true,
+    };
+  }
+  const attribution = requireNewOperationAttribution({
+    actorProfileId: command.actorProfileId,
+    attribution: command.attribution,
+    representedUserId: scope.representedUserId,
+    sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
+  });
+  const executionConnection = requireNewOperationExecutionConnection(command);
+  const [insertResult] = await command.db.batch([
+    prepareInsertOperationStatement({
+      ...command,
+      attribution,
+      executionConnection,
+      id: recordId,
+      requesterAttributionKey: scope.requesterAttributionKey,
+      representedUserId: scope.representedUserId,
+      sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
+      status: "pending",
+    }),
+    prepareCenterAgentAuditJournalEntryIfMissingStatement({
+      action: resolveAuditAction(command.outcome),
+      actorProfileId: command.actorProfileId,
+      attribution,
+      db: command.db,
+      id: `${recordId}:attempted`,
+      nowMs: command.nowMs,
+      organizationId: command.organizationId,
+      resource: operationAuditResource(command),
+      sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+        command.sourceNativeDeliveryId,
+        scope.sourceNativeDeliveryId
+      ),
+      sourceSpaceId: command.sourceSpaceId ?? null,
+      onlyIfConnectorOperationId: recordId,
+    }),
+  ]);
+  if (
+    command.issueRoutingDecision &&
+    Number(insertResult?.meta.changes ?? 0) !== 1 &&
+    !(await readOperation({ db: command.db, scope }))
+  ) {
+    throw createCoreRpcHttpError({
+      code: "project.issue_destination_changed",
+      reason:
+        "The Project issue destination changed before this action was accepted. Read its current target and try again.",
+      status: 409,
+    });
+  }
+  const operation = await requireOperation({ db: command.db, scope });
+  assertSameRequest(operation, command);
+  return {
+    attribution: (
+      await requireOperationProvenance({ db: command.db, operation })
+    ).attribution,
+    operation,
+    replayed: Number(insertResult?.meta.changes ?? 0) !== 1,
   };
 }
 
@@ -485,11 +522,19 @@ function prepareInsertOperationStatement(input: {
   representedUserId: string | null;
   requesterAttributionKey: string;
   requestSignature: string;
+  issueRoutingDecision?: ProjectIssueRoutingDecision;
   service: string;
   sourceNativeDeliveryId: string | null;
   status: CenterAgentConnectorActionOperationStatus;
   attribution: CenterAgentAttribution;
 }): D1PreparedStatement {
+  const routingGuard = input.issueRoutingDecision
+    ? `WHERE EXISTS (
+        SELECT 1 FROM projects WHERE id = ? AND organization_id = ?
+          AND archived_at_ms IS NULL AND issue_destination_revision = ?
+          AND issue_destination_json = ?
+      )`
+    : "";
   return input.db
     .prepare(
       `
@@ -512,7 +557,8 @@ function prepareInsertOperationStatement(input: {
           provider_execution_id,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ${routingGuard}
       `
     )
     .bind(
@@ -533,7 +579,15 @@ function prepareInsertOperationStatement(input: {
       input.status,
       input.providerExecutionId,
       input.nowMs,
-      input.nowMs
+      input.nowMs,
+      ...(input.issueRoutingDecision
+        ? [
+            input.issueRoutingDecision.projectId,
+            input.organizationId,
+            input.issueRoutingDecision.revision,
+            JSON.stringify(input.issueRoutingDecision.destination),
+          ]
+        : [])
     );
 }
 
