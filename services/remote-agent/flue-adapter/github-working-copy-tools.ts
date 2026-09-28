@@ -9,6 +9,7 @@ import {
   remoteAgentExecutionScopeKey,
   remoteAgentGitCheckoutInputSchema,
   remoteAgentGitPublishInputSchema,
+  remoteAgentGitTransferGrantSchema,
 } from "@openmeld/schemas";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { picklist, strictObject, string } from "valibot";
@@ -24,7 +25,10 @@ import {
 import { resolveRemoteAgentRoutineExternalWriteBlock } from "../agent-core/destructive-authorization";
 import { requireRemoteAgentExecutionAccess } from "../agent-core/execution-access";
 import { resolveGitHubActionContext } from "../agent-core/github-tools";
-import { buildRemoteAgentToolContext } from "../agent-core/tool-context";
+import {
+  buildRemoteAgentCoreContext,
+  buildRemoteAgentToolContext,
+} from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   GitHubWorkingCopyProvider,
@@ -42,6 +46,10 @@ import {
   type GitWorkingCopyComputerApi,
   type GitWorkingCopyLocation,
 } from "./github-working-copy-computer";
+import {
+  advanceGitPackTransfer,
+  hasGitPackTransfer,
+} from "./github-working-copy-transfer";
 
 export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
 const GITHUB_REPOSITORY_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]{1,100}$/u;
@@ -531,6 +539,67 @@ async function createCheckout(
   return frozen;
 }
 
+async function prepareCheckoutObjects(input: {
+  dependencies: Dependencies;
+  intent: RemoteAgentGitCheckoutInput;
+  record: Checkout;
+  operationId: string;
+  entries: RemoteAgentGitTreeEntry[];
+  baselineEntries: RemoteAgentGitTreeEntry[];
+  computer: GitWorkingCopyComputer;
+  signal?: AbortSignal;
+}): Promise<Awaited<ReturnType<GitWorkingCopyComputer["prepare"]>>> {
+  const {
+    dependencies,
+    intent,
+    record,
+    operationId,
+    entries,
+    baselineEntries,
+    computer,
+    signal,
+  } = input;
+  if (intent.githubActor === "requester") {
+    const transferInput = {
+      storage: dependencies.storage,
+      workspaceAccess: dependencies.workspaceAccess,
+      operationId,
+      owner: intent.owner,
+      repo: intent.repo,
+      location: record,
+      expiresAtMs: record.expiresAtMs,
+    };
+    if (await hasGitPackTransfer(dependencies.storage, operationId)) {
+      const status = await advanceGitPackTransfer(transferInput);
+      return status === "completed"
+        ? await computer.prepare(record)
+        : { ready: false, remaining: entries.length };
+    }
+    const progress = await computer.prepare(record);
+    if (!progress.ready) {
+      await advanceGitPackTransfer(transferInput);
+    }
+    return progress;
+  }
+  const remote = provider(dependencies, record, signal);
+  let progress = await computer.prepare(record);
+  const allowed = new Set(
+    [...entries, ...baselineEntries]
+      .filter((entry) => entry.type === "blob")
+      .map((entry) => entry.sha)
+  );
+  for (const sha of progress.missing ?? []) {
+    if (!allowed.has(sha)) {
+      throw new Error("github.checkout.unexpected_blob_request");
+    }
+    await computer.writeBlob(record, sha, await remote.blob(sha));
+  }
+  if (!progress.ready) {
+    progress = await computer.prepare(record);
+  }
+  return progress;
+}
+
 export async function checkoutRepository(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
@@ -561,6 +630,58 @@ export async function checkoutRepository(
     throw new Error("github.checkout.manifest_changed");
   }
   const computer = new GitWorkingCopyComputer(input.computer, signal);
+  if (intent.githubActor === "requester") {
+    const register = input.workspaceAccess.registerGitTransferGrant;
+    if (!register) {
+      throw new Error("github.checkout.git_transfer_unavailable");
+    }
+    const toolContext = await buildRemoteAgentToolContext({
+      storage: input.storage,
+      submissionId: input.context.submissionId,
+      toolName: "github_checkout_repository",
+    });
+    const selected = await resolveGitHubActionContext({
+      ...input,
+      submissionId: input.context.submissionId,
+      toolContext,
+      githubActor: "requester",
+      includeAccessPolicy: true,
+    });
+    if (
+      !selected.requesterUserId ||
+      selected.selection.connection.connectionName !== record.connectionName ||
+      selected.selection.connection.updatedAtMs !== record.connectionUpdatedAtMs
+    ) {
+      throw new Error("github.checkout.requester_connection_changed");
+    }
+    await register(
+      remoteAgentGitTransferGrantSchema.parse({
+        operationId: identity.id,
+        organizationId: input.context.organizationId,
+        requesterUserId: selected.requesterUserId,
+        owner: intent.owner,
+        repo: intent.repo,
+        authorization: {
+          context: buildRemoteAgentCoreContext(
+            input.context,
+            `git-transfer:${identity.id}`
+          ),
+          submissionId: input.context.submissionId,
+          effect: "read",
+          sources: [
+            {
+              kind: "plugin_connection",
+              service: "github",
+              connectionName: record.connectionName,
+              connectionUpdatedAtMs: record.connectionUpdatedAtMs,
+            },
+          ],
+        },
+        scopeKey: identity.scopeKey,
+        expiresAtMs: Math.min(record.expiresAtMs, Date.now() + 30 * 60 * 1000),
+      })
+    );
+  }
   await recordComputerDataSource({
     ...input,
     source: {
@@ -571,21 +692,16 @@ export async function checkoutRepository(
     },
   });
   await computer.writeManifest(record, entries, baselineEntries);
-  let progress = await computer.prepare(record);
-  const allowed = new Set(
-    [...entries, ...baselineEntries]
-      .filter((entry) => entry.type === "blob")
-      .map((entry) => entry.sha)
-  );
-  for (const sha of progress.missing ?? []) {
-    if (!allowed.has(sha)) {
-      throw new Error("github.checkout.unexpected_blob_request");
-    }
-    await computer.writeBlob(record, sha, await remote.blob(sha));
-  }
-  if (!progress.ready) {
-    progress = await computer.prepare(record);
-  }
+  const progress = await prepareCheckoutObjects({
+    dependencies: input,
+    intent,
+    record,
+    operationId: identity.id,
+    entries,
+    baselineEntries,
+    computer,
+    signal,
+  });
   await authorizeCheckout(input, record, "read");
   return {
     status: progress.ready ? "ready" : "preparing",
@@ -609,7 +725,7 @@ export async function checkoutRepository(
     credentialsInComputer: false,
     nextAction: progress.ready
       ? "Edit, commit, and test in this directory with the existing Computer tools."
-      : "Call github_checkout_repository again with identical input to transfer the next bounded batch.",
+      : "Call github_checkout_repository again with identical input to check transfer progress.",
   };
 }
 
