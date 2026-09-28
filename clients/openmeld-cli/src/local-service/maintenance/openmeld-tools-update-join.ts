@@ -93,13 +93,31 @@ export async function waitForExternalOpenMeldToolsUpdate(
       operation: OpenMeldToolsUpdateOperation
     ) => Promise<void> | void;
     pollIntervalMs?: number;
+    unclaimedTimeoutMs?: number;
   } = {}
 ): Promise<void> {
   let reportedOperationId: string | null = null;
+  let unclaimedSince: number | null = null;
   while (true) {
     const operation = await resolveExternalOpenMeldToolsUpdate(input);
     if (!operation) {
       return;
+    }
+    if (input.unclaimedTimeoutMs !== undefined) {
+      const pending = await readPendingOpenMeldToolsUpdateAttempt(input);
+      if (
+        pending?.operation.operationId === operation.operationId &&
+        pending.attempts === 0
+      ) {
+        unclaimedSince ??= Date.now();
+        if (Date.now() - unclaimedSince >= input.unclaimedTimeoutMs) {
+          throw new Error(
+            "OpenMeld's background updater did not start. Run openmeld doctor to check the background service, then try setup again."
+          );
+        }
+      } else {
+        unclaimedSince = null;
+      }
     }
     if (reportedOperationId !== operation.operationId) {
       reportedOperationId = operation.operationId;
