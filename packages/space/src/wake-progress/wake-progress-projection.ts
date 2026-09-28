@@ -62,6 +62,7 @@ export type WakeProgressDraft = Omit<
 > & {
   phase: WakeProgressPhase;
   message?: string;
+  runtimeKind?: "hosted" | "workstation";
   runtimeDeviceDisplayName?: string | null;
   terminal?: boolean;
 };
@@ -70,12 +71,14 @@ export function buildWakeProgressMessage(input: {
   phase: WakeProgressPhase;
   targetLabel: string;
   errorCode?: string | null;
+  runtimeKind?: "hosted" | "workstation";
   runtimeDeviceDisplayName?: string | null;
 }): string {
   const targetLabel = formatWakeTargetLabel(input.targetLabel);
-  const runtimeLocation = formatWakeProgressRuntimeLocation(
-    input.runtimeDeviceDisplayName
-  );
+  const runtimeLocation =
+    input.runtimeKind === "hosted"
+      ? ""
+      : ` ${formatWakeProgressRuntimeLocation(input.runtimeDeviceDisplayName)}`;
   switch (input.phase) {
     case "sending":
       return "Sending message...";
@@ -84,9 +87,9 @@ export function buildWakeProgressMessage(input: {
     case "queued":
       return `Wake for ${targetLabel} is queued.`;
     case "connecting":
-      return `Connecting to ${targetLabel} ${runtimeLocation}...`;
+      return `Connecting to ${targetLabel}${runtimeLocation}...`;
     case "running":
-      return `${targetLabel} is working ${runtimeLocation}...`;
+      return `${targetLabel} is working${runtimeLocation}...`;
     case "writing":
       return `${targetLabel} started writing...`;
     case "publishing":
@@ -116,6 +119,7 @@ export function createWakeProgressItem(
   const {
     failureReasonCode,
     message,
+    runtimeKind,
     runtimeDeviceDisplayName,
     terminal: draftTerminal,
     ...itemDraft
@@ -140,6 +144,7 @@ export function createWakeProgressItem(
       message ??
       buildWakeProgressMessage({
         phase: draft.phase,
+        runtimeKind,
         runtimeDeviceDisplayName,
         targetLabel: draft.targetLabel,
       }),

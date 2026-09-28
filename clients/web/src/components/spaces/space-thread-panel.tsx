@@ -117,6 +117,7 @@ import {
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
+import { SpaceMessageAddressingBadges } from "./space-message-addressing-badges";
 import {
 	hasSpaceMessageAttachments,
 	SpaceMessageAttachments,
@@ -1586,6 +1587,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										status={showProgressInAnswerArea ? progressStatus : null}
 									/>
 								) : null}
+								<SpaceMessageAddressingBadges
+									item={input.item}
+									profilePresentationsById={input.profilePresentationsById}
+									wakeProgressItems={input.ephemeralActivityItems}
+								/>
 								<SpaceMessageBody
 									computerSetupContext={computerSetupPresentation.context}
 									computerSetupSourceSignalId={input.item.id}

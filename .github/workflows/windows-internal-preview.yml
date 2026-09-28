@@ -53,6 +53,21 @@ jobs:
           $env:OPENMELD_TEST_CODEX = (Resolve-Path "$vendor/package/vendor/x86_64-pc-windows-msvc/bin/codex.exe").Path
           node scripts/e2e/windows-native-runtime.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Finalize exact-source CLI preview bundle
+        run: node scripts/release/windows-internal-preview.mjs finalize-cli
+      - name: Validate CLI preview handoff without publishing
+        run: node scripts/release/publish-windows-internal-preview.mjs check-cli .
+      - name: Preserve independently verified CLI preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-cli-preview-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dev-tmp/windows-internal-preview/bundle-cli.json
+            cli/dist/openmeld-cli-windows-x64-*.exe
+            cli/dist/openmeld-service-windows-x64-*.exe
+            cli/dist/openmeld-windows-process.exe
+          retention-days: 14
+          if-no-files-found: error
       - name: Build production-account Desktop renderer
         shell: pwsh
         env:

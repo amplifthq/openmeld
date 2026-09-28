@@ -1,4 +1,5 @@
 import {
+  detectSpaceAttachmentMimeType,
   REMOTE_AGENT_GIT_MAX_TOTAL_BYTES,
   REMOTE_AGENT_GIT_MAX_TREE_BYTES,
   REMOTE_AGENT_GIT_TTL_MS,
@@ -25,12 +26,17 @@ import { requireRemoteAgentExecutionAccess } from "../agent-core/execution-acces
 import { resolveGitHubActionContext } from "../agent-core/github-tools";
 import { buildRemoteAgentToolContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
-import { GitHubWorkingCopyProvider } from "../connectors/github-working-copy-provider";
+import {
+  GitHubWorkingCopyProvider,
+  gitBlobSha,
+} from "../connectors/github-working-copy-provider";
 import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
+import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
 import {
   type ComputerDataSourceAccess,
   recordComputerDataSource,
 } from "./computer-data-sources";
+import { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import {
   GitWorkingCopyComputer,
   type GitWorkingCopyComputerApi,
@@ -38,6 +44,8 @@ import {
 } from "./github-working-copy-computer";
 
 export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
+const GITHUB_REPOSITORY_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]{1,100}$/u;
+const GITHUB_OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 type Dependencies = {
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
@@ -46,6 +54,7 @@ type Dependencies = {
   computer: GitWorkingCopyComputerApi;
   dataSources: ComputerDataSourceAccess;
   workingDirectory: string;
+  workspaceAccess: AgentComputerWorkspaceAccess;
 };
 type Checkout = GitWorkingCopyLocation & {
   intent: RemoteAgentGitCheckoutInput;
@@ -58,6 +67,13 @@ type Checkout = GitWorkingCopyLocation & {
   expiresAtMs: number;
 };
 type Publication = { signature: string; commit: string; refAttempted: boolean };
+type FilePublication = Publication & {
+  branch: string;
+  path: string;
+  owner: string;
+  repo: string;
+  githubActor: "requester" | "organization";
+};
 
 export function getGitHubWorkingCopyTools(
   input: Dependencies
@@ -99,7 +115,290 @@ export function getGitHubWorkingCopyTools(
           options?.signal
         ),
     },
+    {
+      name: "github_publish_computer_file",
+      description:
+        "Publish one PNG or JPEG file already downloaded into this Computer to a private GitHub repository. Supply its Computer path, owner/repo, the explicit GitHub identity and a stable operationId. This makes one file commit on an OpenMeld side branch, never main; no repository checkout or model-visible file bytes are needed. Reuse identical inputs and operationId on retries. Returns a commit-pinned GitHub blob?raw=true URL that viewers with repository access can embed in an issue or PR. Keep the side branch so GitHub retains the commit; the link is not public to people without repository access. This does not open a PR or attest tests.",
+      input: strictObject({
+        path: string(),
+        owner: string(),
+        repo: string(),
+        githubActor: picklist(["requester", "organization"]),
+        operationId: string(),
+      }),
+      execute: async (raw, options) =>
+        await publishComputerFile(
+          input,
+          raw as PublishComputerFileInput,
+          options?.signal
+        ),
+    },
   ];
+}
+
+type PublishComputerFileInput = {
+  path: string;
+  owner: string;
+  repo: string;
+  githubActor: "requester" | "organization";
+  operationId: string;
+};
+
+export async function publishComputerFile(
+  input: Dependencies,
+  request: PublishComputerFileInput,
+  signal?: AbortSignal
+) {
+  const scope = await requireRemoteAgentExecutionAccess(input);
+  const scopeKey = remoteAgentExecutionScopeKey(scope);
+  const toolContext = await buildRemoteAgentToolContext({
+    storage: input.storage,
+    submissionId: input.context.submissionId,
+    toolName: "github_publish_computer_file",
+  });
+  const selected = await resolveGitHubActionContext({
+    ...input,
+    submissionId: input.context.submissionId,
+    toolContext,
+    githubActor: request.githubActor,
+    includeAccessPolicy: true,
+  });
+  const connection = selected.selection.connection;
+  const authorize = async (effect: "read" | "write") =>
+    await requireRemoteAgentExecutionAccess({
+      ...input,
+      effect,
+      sources: [
+        {
+          kind: "plugin_connection",
+          connectionName: connection.connectionName,
+          connectionUpdatedAtMs: connection.updatedAtMs,
+          service: "github",
+        },
+      ],
+    });
+  await authorize("write");
+  const block = resolveRemoteAgentRoutineExternalWriteBlock(toolContext);
+  if (block) {
+    return block;
+  }
+  if (toolContext.turnEnvelope?.trigger.source === "member_research") {
+    throw new Error("github.publish.read_only_context");
+  }
+  if (!validComputerFilePublishRequest(request)) {
+    throw new Error("github.publish.invalid_repository_or_operation");
+  }
+  const file = await input.workspaceAccess.withWorkspace(
+    async (workspace) =>
+      await createAgentComputerFileHandoff({
+        workingDirectory: input.workingDirectory,
+        workspace,
+        maxBinaryFileBytes: 8 * 1024 * 1024,
+      }).readBinaryFile(request.path)
+  );
+  const mime = detectSpaceAttachmentMimeType(file.bytes);
+  if (!mime) {
+    throw new Error(
+      "github.publish.image_required: Select a PNG or JPEG file."
+    );
+  }
+  const blob = await gitBlobSha(file.bytes);
+  const signature = await digestCanonicalJson({
+    request,
+    scopeKey,
+    connectionName: connection.connectionName,
+    connectionUpdatedAtMs: connection.updatedAtMs,
+    blob,
+  });
+  const id = await digestCanonicalJson([
+    scopeKey,
+    request.owner,
+    request.repo,
+    request.operationId,
+  ]);
+  const branch = `openmeld/work-${id.slice(0, 32)}`;
+  const path = `openmeld/attachments/${blob}.${mime === "image/png" ? "png" : "jpg"}`;
+  const stateKey = `${REMOTE_AGENT_GIT_STORAGE_PREFIX}file:${id}`;
+  const remote = new GitHubWorkingCopyProvider({
+    runtime: input.connectorExecution,
+    owner: request.owner,
+    repo: request.repo,
+    connectionName: connection.connectionName,
+    authorize,
+    signal,
+  });
+  const operation = {
+    actionId: "github.publish_computer_file",
+    effect: "write" as const,
+    service: "github" as const,
+    connectionName: connection.connectionName,
+    coreWorker: input.coreWorker,
+    operationId: request.operationId,
+    requestSignature: signature,
+    toolContext,
+  };
+  let publication = await input.storage.get<FilePublication>(stateKey);
+  if (publication && publication.signature !== signature) {
+    throw new Error("github.publish.operation_conflict");
+  }
+  const existing = await readConnectorActionOperation(operation);
+  const current = await remote.branch(branch);
+  if (publication?.refAttempted) {
+    if (current === publication.commit) {
+      if (existing?.status !== "completed") {
+        await recordConnectorActionOperation({
+          ...operation,
+          outcome: "completed",
+          providerExecutionId: publication.commit,
+        });
+      }
+      return computerFileReceipt(publication, request.operationId, true);
+    }
+    return {
+      status: "outcome_unknown",
+      operationId: request.operationId,
+      branch,
+      candidateCommit: publication.commit,
+      currentHead: current,
+      nextAction: "Inspect the branch; do not create another write.",
+    };
+  }
+  if (current !== null) {
+    throw new Error(
+      "github.publish.branch_exists: This operation branch is already occupied."
+    );
+  }
+  if (!publication) {
+    const commit = await createComputerFileCommit({
+      remote,
+      operation,
+      bytes: file.bytes,
+      blob,
+      path,
+    });
+    await input.storage.putIfAbsentExpiring(
+      stateKey,
+      {
+        signature,
+        commit: commit.sha,
+        refAttempted: false,
+        branch,
+        path,
+        owner: request.owner,
+        repo: request.repo,
+        githubActor: request.githubActor,
+      } satisfies FilePublication,
+      Date.now() + REMOTE_AGENT_GIT_TTL_MS
+    );
+    publication = await input.storage.get<FilePublication>(stateKey);
+  }
+  if (!publication || publication.signature !== signature) {
+    throw new Error("github.publish.operation_conflict");
+  }
+  const attempted = { ...publication, refAttempted: true };
+  if (
+    !(await input.storage.compareAndSetExpiring(
+      stateKey,
+      publication,
+      attempted,
+      Date.now() + REMOTE_AGENT_GIT_TTL_MS
+    ))
+  ) {
+    return {
+      status: "pending",
+      operationId: request.operationId,
+      nextAction: "Retry this exact operation to reconcile the branch update.",
+    };
+  }
+  signal?.throwIfAborted();
+  await authorize("write");
+  try {
+    await remote.publish(branch, publication.commit, false);
+    await recordConnectorActionOperation({
+      ...operation,
+      outcome: "completed",
+      providerExecutionId: publication.commit,
+    });
+  } catch (error) {
+    await recordConnectorActionOperation({
+      ...operation,
+      outcome: "outcome_unknown",
+      providerExecutionId: publication.commit,
+    });
+    throw new Error(
+      "github.publish.outcome_unknown: Retry this exact operation to reconcile the branch update.",
+      { cause: error }
+    );
+  }
+  return computerFileReceipt(publication, request.operationId, false);
+}
+
+function validComputerFilePublishRequest(request: PublishComputerFileInput) {
+  return (
+    GITHUB_REPOSITORY_SEGMENT_PATTERN.test(request.owner) &&
+    GITHUB_REPOSITORY_SEGMENT_PATTERN.test(request.repo) &&
+    GITHUB_OPERATION_ID_PATTERN.test(request.operationId)
+  );
+}
+
+async function createComputerFileCommit(input: {
+  remote: GitHubWorkingCopyProvider;
+  operation: Omit<
+    Parameters<typeof recordConnectorActionOperation>[0],
+    "outcome" | "providerExecutionId"
+  >;
+  bytes: Uint8Array;
+  blob: string;
+  path: string;
+}) {
+  const repository = await input.remote.repository();
+  const parent = await input.remote.branch(repository.default_branch);
+  if (!parent) {
+    throw new Error("github.publish.default_branch_unavailable");
+  }
+  const base = await input.remote.commit(parent);
+  await recordConnectorActionOperation({
+    ...input.operation,
+    outcome: "attempted",
+    providerExecutionId: null,
+  });
+  await input.remote.createBlob(input.bytes, input.blob);
+  const tree = await input.remote.createSingleFileTree(
+    base.tree.sha,
+    input.path,
+    input.blob
+  );
+  const commit = await input.remote.createCommit({
+    tree,
+    parent,
+    message: `Add Space image ${input.blob.slice(0, 12)}`,
+  });
+  if (commit.tree.sha !== tree) {
+    throw new Error("github.publish.commit_tree_mismatch");
+  }
+  return commit;
+}
+
+function computerFileReceipt(
+  publication: FilePublication,
+  operationId: string,
+  replayed: boolean
+) {
+  const { owner, repo, branch, path, commit, githubActor } = publication;
+  return {
+    status: "completed",
+    operationId,
+    repository: `${owner}/${repo}`,
+    branch,
+    commit,
+    path,
+    githubActor,
+    replayed,
+    url: `https://github.com/${owner}/${repo}/blob/${commit}/${path}?raw=true`,
+    visibility: "repository_members_only",
+    retention:
+      "Keep this side branch while the image is referenced so the commit remains reachable.",
+  };
 }
 
 async function locate(input: Dependencies, key: string) {

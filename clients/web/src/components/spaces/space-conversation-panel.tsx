@@ -157,6 +157,7 @@ import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
+import { SpaceMessageAddressingBadges } from "./space-message-addressing-badges";
 import {
 	hasSpaceMessageAttachments,
 	SpaceMessageAttachments,
@@ -3016,6 +3017,11 @@ function ConversationBubbleContent(input: {
 					(item) => item.id === input.item.replyToSignalId
 				)}
 				spaceReferencesById={parent.spaceReferencesById}
+			/>
+			<SpaceMessageAddressingBadges
+				item={input.item}
+				profilePresentationsById={parent.profilePresentationsById}
+				wakeProgressItems={parent.ephemeralActivityItems}
 			/>
 			{input.item.actorProfileKind === "agent" ? (
 				<SpaceMessageWork

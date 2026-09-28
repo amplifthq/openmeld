@@ -249,6 +249,7 @@ export async function createRemoteAgentComputerCapability(input: {
             computer: nativeApi,
             dataSources,
             workingDirectory,
+            workspaceAccess,
           })
         : []),
       ...(input.storage
