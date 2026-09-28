@@ -278,6 +278,7 @@ import {
   recordRuntimeCoordinatorFailureTaskOutcome,
   recordRuntimeCoordinatorFinalizationTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
+import { readAgentTaskContinuationResultSignals } from "../../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import type { AuthProfileFacts } from "../../../auth/application/profile-facts-reader";
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
@@ -20772,11 +20773,18 @@ export class Space extends DurableObject<CoreBindings> {
     const activeNativeDeliveries = await this.readActiveNativeDeliveryProgress({
       targetProfileId,
     });
+    const continuationResultSignals = await this.readContinuationResultSignals(
+      activeNativeDeliveries
+    );
     const activeNativeDeliveryByTarget = new Map(
       activeNativeDeliveries.map(
         (delivery) => [buildDispatchTargetKey(delivery), delivery] as const
       )
     );
+    const representedDispatchTargetKeys = new Set([
+      ...outboxRecords.map(buildDispatchTargetKey),
+      ...(lookup?.matches ?? []).map(buildDispatchTargetKey),
+    ]);
 
     const items: WakeProgressItem[] = [];
     for (const nextTargetProfileId of targetProfileIds) {
@@ -20873,6 +20881,21 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
 
+    items.push(
+      ...buildUnrepresentedNativeDeliveryProgressItems({
+        activeNativeDeliveries,
+        clientMessageId,
+        continuationResultSignals,
+        includeTiming: input.includeTiming === true,
+        includeWakeStopEligibility: input.includeWakeStopEligibility === true,
+        memberByProfileId,
+        outboxRecords,
+        representedDispatchTargetKeys,
+        sourceSignal,
+        sourceSignalId,
+      })
+    );
+
     const contextualItems =
       input.includeSourceContext === true
         ? this.attachWakeProgressSourceContexts(items)
@@ -20955,6 +20978,18 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
+  private async readContinuationResultSignals(
+    deliveries: readonly ActiveRemoteAgentNativeDeliveryWakeProgressEvidence[]
+  ): Promise<ReadonlyMap<string, string>> {
+    const db = wakeEvidenceDb(this.bindings);
+    return db
+      ? await readAgentTaskContinuationResultSignals({
+          db,
+          dispatchIds: deliveries.map((delivery) => delivery.dispatchId),
+        })
+      : new Map();
+  }
+
   private async readActiveWakeProgressOwnerEvidence(input: {
     db: D1Database;
     includeTiming?: boolean;
@@ -21029,6 +21064,13 @@ export class Space extends DurableObject<CoreBindings> {
         includePageInfo: input.includePageInfo === true,
         sourceProfileId,
         targetProfileId,
+      });
+    const continuationResultSignals =
+      await readAgentTaskContinuationResultSignals({
+        db: input.db,
+        dispatchIds: activeNativeDeliveries.map(
+          (delivery) => delivery.dispatchId
+        ),
       });
     const activeNativeDeliveryByTarget = new Map(
       activeNativeDeliveries.map(
@@ -21146,7 +21188,9 @@ export class Space extends DurableObject<CoreBindings> {
         return [];
       }
       const clientMessageId = normalizeOptionalText(delivery.clientMessageId);
-      const sourceSignalId = normalizeOptionalText(delivery.sourceSignalId);
+      const sourceSignalId =
+        continuationResultSignals.get(delivery.dispatchId) ??
+        normalizeOptionalText(delivery.sourceSignalId);
       if (!(clientMessageId || sourceSignalId)) {
         return [];
       }
@@ -21165,6 +21209,11 @@ export class Space extends DurableObject<CoreBindings> {
           clientMessageId,
           dispatchId: delivery.dispatchId,
           failureReasonCode: delivery.failureReasonCode,
+          message: buildWakeProgressMessage({
+            phase: delivery.phase,
+            targetLabel,
+            runtimeKind: "hosted",
+          }),
           phase: delivery.phase,
           sourceSignalId: sourceSignal?.id ?? sourceSignalId,
           ...(input.includeTiming === true && delivery.startedAtMs !== null
@@ -23213,6 +23262,64 @@ function formatUnknownErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function buildUnrepresentedNativeDeliveryProgressItems(input: {
+  activeNativeDeliveries: readonly ActiveRemoteAgentNativeDeliveryWakeProgressEvidence[];
+  clientMessageId: string | null;
+  continuationResultSignals: ReadonlyMap<string, string>;
+  includeTiming: boolean;
+  includeWakeStopEligibility: boolean;
+  memberByProfileId: ReadonlyMap<string, SpaceMemberRecord>;
+  outboxRecords: readonly OpenMeldDaemonDispatchOutboxRecoveryCandidate[];
+  representedDispatchTargetKeys: ReadonlySet<string>;
+  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null;
+  sourceSignalId: string | null;
+}): WakeProgressItem[] {
+  // A task continuation owns a new native dispatch with no Space outbox row.
+  // Its published child result is the exact visible cause of the new round.
+  return input.activeNativeDeliveries.flatMap((delivery) => {
+    const continuationResultSignalId =
+      input.continuationResultSignals.get(delivery.dispatchId) ?? null;
+    const matchesSource = input.sourceSignalId
+      ? delivery.sourceSignalId === input.sourceSignalId ||
+        continuationResultSignalId === input.sourceSignalId
+      : Boolean(
+          input.clientMessageId &&
+            delivery.clientMessageId === input.clientMessageId
+        );
+    if (
+      !matchesSource ||
+      input.representedDispatchTargetKeys.has(buildDispatchTargetKey(delivery))
+    ) {
+      return [];
+    }
+    const targetLabel = resolveWakeProgressTargetLabel({
+      memberByProfileId: input.memberByProfileId,
+      outboxRecords: input.outboxRecords,
+      sourceSignal: input.sourceSignal,
+      targetProfileId: delivery.targetProfileId,
+    });
+    return [
+      createWakeProgressItem({
+        clientMessageId: delivery.clientMessageId,
+        dispatchId: delivery.dispatchId,
+        failureReasonCode: delivery.failureReasonCode,
+        phase: delivery.phase,
+        runtimeKind: "hosted",
+        sourceSignalId: continuationResultSignalId ?? delivery.sourceSignalId,
+        targetLabel,
+        targetProfileId: delivery.targetProfileId,
+        updatedAtMs: delivery.updatedAtMs,
+        ...(input.includeTiming && delivery.startedAtMs !== null
+          ? { startedAtMs: delivery.startedAtMs }
+          : {}),
+        ...(input.includeWakeStopEligibility
+          ? { wakeStopEligibility: nativeDeliveryWakeStopEligibility(delivery) }
+          : {}),
+      }),
+    ];
+  });
+}
+
 function collectWakeProgressTargetProfileIds(input: {
   lookup: GetSpaceDispatchLookupResponse | null;
   outboxRecords: readonly OpenMeldDaemonDispatchOutboxRecoveryCandidate[];
@@ -23375,6 +23482,7 @@ function buildWakeProgressItemFromOutbox(input: {
     clientMessageId: input.clientMessageId,
     dispatchId: input.outboxRecord.dispatchId,
     failureReasonCode: input.nativeDeliveryEvidence?.failureReasonCode ?? null,
+    runtimeKind: resolveWakeProgressRuntimeKind(input.nativeDeliveryEvidence),
     message:
       phase === "stopped"
         ? buildWakeProgressMessage({
@@ -23412,6 +23520,12 @@ function nativeDeliveryWakeStopEligibility(
         status: "eligible",
       }
     : null;
+}
+
+function resolveWakeProgressRuntimeKind(
+  evidence: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence | undefined
+): "hosted" | "workstation" {
+  return evidence ? "hosted" : "workstation";
 }
 
 function preAgentWakeStopEligible(): WakeProgressItem["wakeStopEligibility"] {
@@ -23536,6 +23650,7 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
         : null,
     phase,
     pendingInteraction: input.pendingInteraction,
+    runtimeKind: resolveWakeProgressRuntimeKind(input.nativeDeliveryEvidence),
     runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
     sourceSignalId:
       input.lookupMatch.sourceSignalId ??

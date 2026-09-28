@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { WorkspaceClient } from "@cloudflare/computer";
 import {
   centerAgentConnectorConnectionSelectionSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
@@ -11,10 +12,12 @@ import {
   putRemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
 } from "../agent-core/callback-context";
+import { gitBlobSha } from "../connectors/github-working-copy-provider";
 import { GitWorkingCopyComputer } from "../flue-adapter/github-working-copy-computer";
 import {
   checkoutRepository,
   publishCheckout,
+  publishComputerFile,
 } from "../flue-adapter/github-working-copy-tools";
 import { executionAccessFixture } from "./execution-access-fixture";
 import {
@@ -56,6 +59,7 @@ const publish = {
   message: "One tested change",
 };
 const CONNECTION_NAME = "org_aaaaaaaaaaaaaaaaaa__shared__github";
+const TASK_BRANCH_PREFIX_PATTERN = /^openmeld\/work-/u;
 
 async function fixture(
   options: {
@@ -266,6 +270,12 @@ async function fixture(
       recordDataSource: () => Promise.resolve(),
     },
     workingDirectory: "/workspace",
+    workspaceAccess: {
+      withWorkspace: () =>
+        Promise.reject(
+          new Error("No Computer workspace in checkout-only tests")
+        ),
+    },
     connectorExecution: {
       baseUrl: "https://connectors.example",
       runtimeToken: "runtime-secret",
@@ -475,5 +485,94 @@ describe("bounded Git publication and receipts", () => {
         CONNECTION_NAME
       );
     }
+  });
+  it("publishes one bounded Computer image on a side branch and replays without another write", async () => {
+    const f = await fixture();
+    const image = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+    const imageBlob = await gitBlobSha(image);
+    const original = f.fetchMock.getMockImplementation();
+    if (!original) {
+      throw new Error("Missing provider fixture");
+    }
+    f.fetchMock.mockImplementation(async (url, init) => {
+      const payload = JSON.parse(String(init?.body));
+      const endpoint = String(payload.endpoint);
+      let response: unknown = null;
+      if (endpoint.endsWith("/git/blobs")) {
+        response = { sha: imageBlob };
+      } else if (endpoint.endsWith("/git/trees")) {
+        response = { sha: TREE };
+      } else if (endpoint.endsWith("/git/commits")) {
+        response = { sha: REMOTE_COMMIT, tree: { sha: TREE } };
+      }
+      if (response) {
+        return Response.json({
+          success: true,
+          data: { status: 200, headers: {}, data: response },
+        });
+      }
+      return await original(url, init);
+    });
+    const workspace = {
+      fs: {
+        lstat: async () => ({
+          isSymbolicLink: false,
+          isFile: true,
+          size: image.byteLength,
+        }),
+        readFile: async () =>
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(image);
+              controller.close();
+            },
+          }),
+      },
+    } as unknown as WorkspaceClient;
+    const deps = {
+      ...f.deps,
+      workspaceAccess: {
+        withWorkspace: async <T>(
+          operation: (workspace: WorkspaceClient) => Promise<T>
+        ) => await operation(workspace),
+      },
+    };
+    const request = {
+      path: "screenshot.png",
+      owner: "acme",
+      repo: "private",
+      githubActor: "organization" as const,
+      operationId: "image-one",
+    };
+    const first = await publishComputerFile(deps, request);
+    expect(first).toMatchObject({
+      status: "completed",
+      branch: expect.stringMatching(TASK_BRANCH_PREFIX_PATTERN),
+      path: `openmeld/attachments/${imageBlob}.png`,
+      url: `https://github.com/acme/private/blob/${REMOTE_COMMIT}/openmeld/attachments/${imageBlob}.png?raw=true`,
+      replayed: false,
+    });
+    expect(f.state.writes).toBe(1);
+    expect(await publishComputerFile(deps, request)).toMatchObject({
+      status: "completed",
+      replayed: true,
+      url: `https://github.com/acme/private/blob/${REMOTE_COMMIT}/openmeld/attachments/${imageBlob}.png?raw=true`,
+    });
+    expect(f.state.writes).toBe(1);
+    const treeCall = f.fetchMock.mock.calls
+      .map(([, init]) => JSON.parse(String(init?.body)))
+      .find(
+        (call) =>
+          call.endpoint === "/repos/acme/private/git/trees" &&
+          call.body?.base_tree
+      );
+    expect(treeCall.body.tree).toEqual([
+      {
+        path: `openmeld/attachments/${imageBlob}.png`,
+        mode: "100644",
+        type: "blob",
+        sha: imageBlob,
+      },
+    ]);
   });
 });
