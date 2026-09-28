@@ -3898,7 +3898,7 @@ function resolveWorkspaceModelPresentation(
 ): { isLoading: boolean; summary: string } {
 	const configurationKnown =
 		input.editState !== null || input.publicProfileConfiguration !== null;
-	if (!configurationKnown && input.primaryAgentControllerRef) {
+	if (!configurationKnown) {
 		return {
 			isLoading: input.readinessIsPending,
 			summary: "Model unavailable",
