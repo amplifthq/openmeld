@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: Compiled native acceptance; assertion failures must fail the job.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { resolveDispatchSpaceActionMcpServer } from "../../../../runtime/adapters/core/src/dispatch-space-action-mcp";
@@ -36,6 +36,16 @@ const runtimeEnv = buildDispatchOwnedRuntimeEnv({
   env: { OPENMELD_HOME: home, PATH: process.env.PATH },
   spaceActionContextPath: contextPath,
 });
+const toolPath = runtimeEnv.OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH ?? "";
+console.log(
+  JSON.stringify({
+    stage: "windows_dispatch_mcp_path",
+    command: runtimeEnv.OPENMELD_USER_FACING_CLI_COMMAND,
+    path: toolPath,
+    basename: basename(toolPath),
+    isAbsolute: isAbsolute(toolPath),
+  })
+);
 const config = resolveDispatchSpaceActionMcpServer(runtimeEnv);
 assert.ok(config);
 assert.equal(config.commandPath, managedCli);
