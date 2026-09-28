@@ -23,15 +23,19 @@ import type { RemoteAgentResultSource } from "@openmeld/schemas";
 import {
   agentComputerBrowserRequestSchema,
   agentComputerPreviewRequestSchema,
+  type RemoteAgentGitTransferGrant,
+  remoteAgentGitTransferGrantSchema,
 } from "@openmeld/schemas";
 import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
+import type { RemoteAgentCoreWorkerBinding } from "../agent-core/callback-context";
 import { ComputerDataSourceStore } from "./computer-data-sources";
 import {
   inspectComputerPreview,
   type PreviewBrowserBinding,
   validateComputerPreviewPort,
 } from "./computer-preview";
+import { authorizeGitTransfer } from "./git-transfer-authorization";
 
 /**
  * The hosted Agent's computer: an identity-scoped durable workspace backed by
@@ -67,7 +71,64 @@ export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
 type AgentComputerEnv = {
   LOADER: WorkerLoader;
   BROWSER?: BrowserBinding;
+  OPENMELD_CORE_WORKER: RemoteAgentCoreWorkerBinding;
+  OPENMELD_CONNECTORS_BASE_URL: string;
+  OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: string;
 };
+
+const GIT_EGRESS_HOST = "git.openmeld.invalid";
+const GIT_TRANSFER_GRANT_PREFIX = "openmeld:git-transfer-grant:";
+const GIT_EGRESS_PATH =
+  /^\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})\.git\/(info\/refs|git-upload-pack)$/u;
+
+function parseGitEgressRoute(request: Request):
+  | {
+      operationId: string;
+      owner: string;
+      repo: string;
+      endpoint: string;
+      search: string;
+    }
+  | Response {
+  const target = new URL(request.url);
+  const match = GIT_EGRESS_PATH.exec(target.pathname);
+  if (!match) {
+    return new Response("Git transfer path is unavailable.", { status: 404 });
+  }
+  const [, operationId, owner, repo, endpoint] = match;
+  if (
+    !(operationId && owner && repo && endpoint) ||
+    (endpoint === "info/refs" && request.method !== "GET") ||
+    (endpoint === "git-upload-pack" && request.method !== "POST")
+  ) {
+    return new Response("Git transfer method is unavailable.", { status: 405 });
+  }
+  return { operationId, owner, repo, endpoint, search: target.search };
+}
+
+function observeGitStream(
+  stream: ReadableStream<Uint8Array>,
+  input: { operationId: string; direction: "upload" | "download" }
+): ReadableStream<Uint8Array> {
+  const startedAtMs = Date.now();
+  let bytes = 0;
+  return stream.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+      flush() {
+        console.info("[remote_agent.git_transfer_stream]", {
+          operationId: input.operationId,
+          direction: input.direction,
+          bytes,
+          durationMs: Date.now() - startedAtMs,
+        });
+      },
+    })
+  );
+}
 
 class AgentComputerBase extends DurableObject<AgentComputerEnv> {}
 
@@ -78,6 +139,136 @@ function workspaceRef(ctx: DurableObjectState) {
 export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   // Created before Workspace and never exposed by Workspace.stub().
   readonly #dataSources = new ComputerDataSourceStore(this.ctx.storage);
+
+  async registerGitTransferGrant(value: unknown): Promise<void> {
+    const grant = remoteAgentGitTransferGrantSchema.parse(value);
+    if (
+      grant.expiresAtMs <= Date.now() ||
+      grant.expiresAtMs > Date.now() + 30 * 60 * 1000 ||
+      grant.authorization.effect !== "read" ||
+      grant.authorization.sources?.length !== 1 ||
+      grant.authorization.sources[0]?.kind !== "plugin_connection" ||
+      grant.authorization.sources[0].service !== "github"
+    ) {
+      throw new Error("github.checkout.invalid_transfer_grant");
+    }
+    await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
+    const key = `${GIT_TRANSFER_GRANT_PREFIX}${grant.operationId}`;
+    const previous =
+      await this.ctx.storage.get<RemoteAgentGitTransferGrant>(key);
+    if (
+      previous &&
+      (previous.organizationId !== grant.organizationId ||
+        previous.requesterUserId !== grant.requesterUserId ||
+        previous.owner !== grant.owner ||
+        previous.repo !== grant.repo ||
+        previous.scopeKey !== grant.scopeKey ||
+        previous.authorization.submissionId !==
+          grant.authorization.submissionId ||
+        previous.authorization.sources?.[0]?.connectionName !==
+          grant.authorization.sources[0].connectionName ||
+        previous.authorization.sources?.[0]?.connectionUpdatedAtMs !==
+          grant.authorization.sources[0].connectionUpdatedAtMs)
+    ) {
+      throw new Error("github.checkout.transfer_grant_conflict");
+    }
+    await this.ctx.storage.put(key, grant);
+  }
+
+  readonly #gitEgressGateway = {
+    fetch: async (request: Request) =>
+      await this.forwardComputerEgress(request),
+  } as Fetcher;
+
+  private async forwardComputerEgress(request: Request): Promise<Response> {
+    const target = new URL(request.url);
+    if (target.hostname !== GIT_EGRESS_HOST) {
+      // Preserve the Computer's existing public network capability.
+      return await fetch(request);
+    }
+    const route = parseGitEgressRoute(request);
+    if (route instanceof Response) {
+      return route;
+    }
+    const { operationId, owner, repo, endpoint } = route;
+    const grant = await this.ctx.storage.get<RemoteAgentGitTransferGrant>(
+      `${GIT_TRANSFER_GRANT_PREFIX}${operationId}`
+    );
+    if (
+      !grant ||
+      grant.expiresAtMs <= Date.now() ||
+      grant.owner !== owner ||
+      grant.repo !== repo
+    ) {
+      return new Response("Git transfer grant is unavailable.", {
+        status: 403,
+      });
+    }
+    try {
+      await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
+    } catch {
+      return new Response("Git transfer authorization expired.", {
+        status: 403,
+      });
+    }
+    const base = this.env.OPENMELD_CONNECTORS_BASE_URL;
+    const token = this.env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN;
+    if (!(base && token)) {
+      return new Response("Git transfer runtime is unavailable.", {
+        status: 503,
+      });
+    }
+    const connectorUrl = new URL(
+      `/v1/openmeld/git/${owner}/${repo}/${endpoint}`,
+      base
+    );
+    if (endpoint === "info/refs") {
+      connectorUrl.search = route.search;
+    }
+    const headers = new Headers({
+      authorization: `Bearer ${token}`,
+      "x-openmeld-organization-id": grant.organizationId,
+      "x-openmeld-requester-user-id": grant.requesterUserId,
+      "x-openmeld-operation-id": operationId,
+      "x-openmeld-repository": `${owner}/${repo}`,
+    });
+    const gitProtocol = request.headers.get("git-protocol");
+    if (gitProtocol) {
+      headers.set("git-protocol", gitProtocol);
+    }
+    if (request.method === "POST") {
+      headers.set("content-type", "application/x-git-upload-pack-request");
+    }
+    const uploadBody =
+      request.method === "POST" && request.body
+        ? observeGitStream(request.body, { operationId, direction: "upload" })
+        : undefined;
+    const response = await fetch(connectorUrl, {
+      method: request.method,
+      headers,
+      body: uploadBody,
+      redirect: "manual",
+      signal: request.signal,
+      ...(request.method === "POST" ? { duplex: "half" } : {}),
+    } as RequestInit);
+    if (!(response.ok && response.body)) {
+      await response.body?.cancel();
+      return new Response("Git transfer failed.", {
+        status: response.status === 403 ? 403 : 502,
+      });
+    }
+    return new Response(
+      observeGitStream(response.body, { operationId, direction: "download" }),
+      {
+        status: response.status,
+        headers: {
+          "content-type":
+            response.headers.get("content-type") ?? "application/octet-stream",
+          "cache-control": "no-store",
+        },
+      }
+    );
+  }
 
   readDataSources(): Promise<RemoteAgentResultSource[]> {
     return Promise.resolve(this.#dataSources.read());
@@ -148,7 +339,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   readonly #containerBackend = new CloudflareContainerBackend({
     container: () => this,
     // Preserve the native Computer's existing public-network capability.
-    egress: { mode: "direct" },
+    egress: { mode: "http-gateway", gateway: this.#gitEgressGateway },
     // The backend defaults MOUNT_POINT to /workspace; our tree lives
     // under /computer, so pin the FUSE mount there for same-path
     // fidelity between the isolate and the container.

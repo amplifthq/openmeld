@@ -1,5 +1,6 @@
 import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
+import { remoteAgentExecutionAccessRequestSchema } from "./remote-agent-execution-access";
 
 export const REMOTE_AGENT_GIT_MAX_FILES = 30_000;
 export const REMOTE_AGENT_GIT_MAX_BLOB_BYTES = 8 * 1024 * 1024;
@@ -74,6 +75,17 @@ export const remoteAgentGitPublishInputSchema = z.strictObject({
   operationId: remoteAgentGitKeySchema,
   message: z.string().trim().min(1).max(4000),
 });
+/** Internal Computer RPC grant. The model and Computer shell cannot create it. */
+export const remoteAgentGitTransferGrantSchema = z.strictObject({
+  operationId: remoteAgentGitKeySchema,
+  organizationId: z.string().min(1).max(512),
+  requesterUserId: z.string().min(1).max(512),
+  owner: segment,
+  repo: segment,
+  authorization: remoteAgentExecutionAccessRequestSchema,
+  scopeKey: z.string().min(1).max(2048),
+  expiresAtMs: z.number().int().positive(),
+});
 export const remoteAgentGitNativeResultSchema = z.object({
   ready: z.boolean().optional(),
   remaining: z.number().int().nonnegative().optional(),
@@ -112,6 +124,9 @@ export type RemoteAgentGitTreeEntry = zod.infer<
 >;
 export type RemoteAgentGitCheckoutInput = zod.infer<
   typeof remoteAgentGitCheckoutInputSchema
+>;
+export type RemoteAgentGitTransferGrant = zod.infer<
+  typeof remoteAgentGitTransferGrantSchema
 >;
 export type RemoteAgentGitPublishInput = zod.infer<
   typeof remoteAgentGitPublishInputSchema

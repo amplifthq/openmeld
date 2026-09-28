@@ -369,6 +369,7 @@ export {
   type RemoteAgentGitCheckoutInput,
   type RemoteAgentGitNativeResult,
   type RemoteAgentGitPublishInput,
+  type RemoteAgentGitTransferGrant,
   type RemoteAgentGitTreeEntry,
   remoteAgentGitBlobSchema,
   remoteAgentGitCheckoutInputSchema,
@@ -380,6 +381,7 @@ export {
   remoteAgentGitRefSchema,
   remoteAgentGitRepositorySchema,
   remoteAgentGitShaSchema,
+  remoteAgentGitTransferGrantSchema,
   remoteAgentGitTreeEntrySchema,
   remoteAgentGitTreeSchema,
 } from "./schemas/runtime/remote-agent-git";

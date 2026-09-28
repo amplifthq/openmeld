@@ -1,4 +1,5 @@
 import { getWorkspace, type WorkspaceClient } from "@cloudflare/computer";
+import type { RemoteAgentGitTransferGrant } from "@openmeld/schemas";
 import type { CenterAgentOrganizationDocumentsComputerSnapshotResponse } from "@openmeld/schemas/types";
 import type { RemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { createAgentComputerFileHandoff } from "./computer-file-handoff";
@@ -25,6 +26,7 @@ export type AgentComputerWorkspaceAccess = {
   withWorkspace<T>(
     operation: (workspace: WorkspaceClient) => Promise<T>
   ): Promise<T>;
+  registerGitTransferGrant?(grant: RemoteAgentGitTransferGrant): Promise<void>;
 };
 
 /**
@@ -38,6 +40,14 @@ export function createAgentComputerWorkspaceAccess(input: {
   authorize?: () => Promise<unknown>;
 }): AgentComputerWorkspaceAccess {
   return {
+    async registerGitTransferGrant(grant) {
+      await input.authorize?.();
+      const stub = input.namespace.get(input.computerId) as DurableObjectStub<
+        import("./computer-workspace").AgentComputer
+      >;
+      await stub.registerGitTransferGrant(grant);
+      await input.authorize?.();
+    },
     async withWorkspace(operation) {
       await input.authorize?.();
       const stub = input.namespace.get(input.computerId);
