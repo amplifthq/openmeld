@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-28T02:23:29.141Z",
+  "updatedAt": "2026-09-28T15:13:28.885Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.230",
+      "packageVersion": "0.3.231",
       "updatePolicy": "available",
-      "reason": "Existing CLI and cloud requests remain compatible; Windows setup now resumes an unclaimed update instead of waiting indefinitely."
+      "reason": "The Windows MCP launcher fix does not change the shared CLI or cloud command contract; existing macOS CLI and cloud versions remain compatible."
     },
     "service": {
-      "bundleHash": "06d6ffe093bf100f18c950cc990998d649e070e8b84fc0f267d842b0cc3cfed9",
-      "portableBundleHash": "b454136ea6bdeba4ca90a8d1d9fff2a8c655b6c8dafd2c41455ad3fe007fa4c0",
-      "bundleVersion": "0.3.230",
+      "bundleHash": "2ce27b1af85f89e6d16c9a6265d202524728c5d6d087f585a3cd356a8d9fd7aa",
+      "portableBundleHash": "13be241470c7b4aceb86a559ea30e14f5fde82af4060626f9259bf84b63a648c",
+      "bundleVersion": "0.3.231",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Service update handoff and maintenance worker use the same durable operation without changing runtime or Wake contracts."
+      "reason": "The Windows-only MCP launcher fixes Codex Wake execution without changing the Service transport contract; existing macOS Services remain compatible while preview users upgrade."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
