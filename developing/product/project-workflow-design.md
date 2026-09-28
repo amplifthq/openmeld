@@ -334,6 +334,11 @@ repository association and local connection without changing its effective
 repository or owner scope. Preserve configured behavior for existing Profile
 defaults; do not infer new repository URLs from legacy fingerprints. Existing
 Tasks remain without Project associations until explicitly associated.
+The new issue destination, Common Agents, and additional repositories are
+optional: an existing Project that leaves them unset still supports work that
+was valid under its former repository connection and Profile defaults. A
+Project-independent request with an exact authorized external target likewise
+continues without creating or selecting a Project.
 
 Deploy shared contract consumers before producers according to each owning
 release contract. An older client or Service unable to represent multiple
