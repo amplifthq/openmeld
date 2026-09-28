@@ -142,6 +142,56 @@ describe("SpaceTasksPanel", () => {
 		expect(screen.queryByRole("button", { name: "Cancel Task" })).toBeNull();
 	});
 
+	it("filters this Space's Tasks by their explicit Project association", () => {
+		const payments = spaceTaskSchema.parse({
+			...task,
+			projectIds: ["project-payments"],
+			title: "Review Payments",
+		});
+		const platform = spaceTaskSchema.parse({
+			...task,
+			projectIds: ["project-platform"],
+			taskId: "tsk_66666666-6666-4666-8666-666666666666",
+			title: "Review Platform",
+		});
+		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			addAndAssignTask: vi.fn(),
+			commonAgentIds: new Set(),
+			outsideCommonAgents: [],
+			projects: [
+				{ id: "project-payments", name: "Payments" },
+				{ id: "project-platform", name: "Platform" },
+			],
+			members: [],
+			mutateTask: vi.fn(async () => true),
+			pendingTaskId: null,
+			detailQuery: {
+				data: null,
+				isError: false,
+				isPending: false,
+				refetch: vi.fn(),
+			},
+			tasksQuery: {
+				data: { tasks: [payments, platform], truncated: false },
+				isError: false,
+				isPending: false,
+				refetch: vi.fn(),
+			},
+		} as unknown as ReturnType<typeof useSpaceTasksPanelController>);
+		render(
+			<SpaceTasksPanel
+				membersSnapshot={null}
+				openMeldProfileId={requester.profileId}
+				spaceId="space-1"
+			/>
+		);
+		fireEvent.change(screen.getByRole("combobox", { name: "Project" }), {
+			target: { value: "project-platform" },
+		});
+		expect(screen.getByText("Review Platform")).toBeTruthy();
+		expect(screen.queryByText("Review Payments")).toBeNull();
+	});
+
 	it("lets a Space owner resume an Agent-requested Task and reach its source message", () => {
 		const ownerTask = spaceTaskSchema.parse({
 			...task,

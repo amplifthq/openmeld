@@ -2369,7 +2369,7 @@ const registerCompatibleRoute = (input: {
 
 const createContextHarness = (
   input?: Parameters<typeof createHarness>[0] & {
-    contextVersion?: 1 | 2 | 3 | null;
+    contextVersion?: 1 | 2 | 3 | 4 | null;
   }
 ) => {
   const harness = createHarness(input);
@@ -4066,6 +4066,57 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).rejects.toThrow("controller_access_unsupported");
     }
+  });
+
+  it("requires a v4 Service and freezes exact Project repository work on admission", async () => {
+    const projectWork = {
+      projectId: "project-payments",
+      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+    };
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: {
+            mode: "new",
+            access: "workspace",
+            workspace: "isolated",
+            projectWork,
+          },
+        },
+      },
+    });
+    const olderService = createContextHarness({ contextVersion: 2 });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          olderService.hub,
+          "/runtime-coordinator/head/accept",
+          request
+        )
+      ).json()
+    ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
+    const currentService = createContextHarness({ contextVersion: 4 });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          currentService.hub,
+          "/runtime-coordinator/head/accept",
+          request
+        )
+      ).json()
+    ).toMatchObject({
+      status: "accepted",
+      executionContext: { projectWork },
+    });
   });
 
   it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {

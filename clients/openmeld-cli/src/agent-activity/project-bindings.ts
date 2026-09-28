@@ -11,7 +11,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { resolveOpenMeldRootDir } from "../config/paths";
 import { touchDaemonCatalogSyncSignal } from "../local-service/state/catalog-sync-signal";
 import {
@@ -25,13 +25,15 @@ import {
 } from "./project-binding-resolution";
 
 const LEGACY_STORE_VERSION = 2 as const;
-export const PROJECT_BINDING_STORE_VERSION = 3 as const;
+const PREVIOUS_STORE_VERSION = 3 as const;
+export const PROJECT_BINDING_STORE_VERSION = 4 as const;
 const REPOSITORY_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 
 export type ProjectBinding = {
   bindingGeneration: string;
   boundAtMs: number;
   organizationId: string;
+  ownerUserId?: string;
   projectId: string;
   projectSlug: string;
   repositoryFingerprint: string | null;
@@ -39,10 +41,10 @@ export type ProjectBinding = {
   isDefault: boolean;
 };
 
-export type ProjectBindingV3 = ProjectBinding;
+export type ProjectBindingV4 = ProjectBinding;
 
-export type ProjectBindingStoreV3 = {
-  bindings: ProjectBindingV3[];
+export type ProjectBindingStoreV4 = {
+  bindings: ProjectBindingV4[];
   version: typeof PROJECT_BINDING_STORE_VERSION;
 };
 
@@ -55,6 +57,7 @@ export type ProjectBindingPathConflict = {
   conflictingProjectSlug: string;
   conflictScope: "another_organization" | "same_organization";
   moveConfirmationToken: string;
+  shareConfirmationToken?: string;
   moveImpact: ProjectBindingMoveImpact;
 };
 
@@ -72,6 +75,7 @@ export class ProjectBindingStoreUpdateRequiredError extends Error {
 export type ProjectBindingOperationErrorCode =
   | "binding_generation_stale"
   | "default_missing_requires_replacement"
+  | "owner_mismatch"
   | "path_conflict"
   | "path_not_directory"
   | "path_not_found"
@@ -102,8 +106,8 @@ export class ProjectBindingOperationError extends Error {
   }
 }
 
-type ProjectBindingStore = ProjectBindingStoreV3 & {
-  sourceVersion: 1 | 2 | 3 | null;
+type ProjectBindingStore = ProjectBindingStoreV4 & {
+  sourceVersion: 1 | 2 | 3 | 4 | null;
 };
 
 type StoreLocationInput = { rootDir?: string };
@@ -140,7 +144,9 @@ export async function bindProject(
   input: StoreLocationInput & {
     boundAtMs?: number;
     moveConfirmationToken?: string;
+    shareConfirmationToken?: string;
     organizationId: string;
+    ownerUserId?: string;
     projectId: string;
     projectSlug: string;
     repositoryFingerprint: string | null;
@@ -159,6 +165,9 @@ export async function bindProject(
           input.organizationId,
           "organizationId"
         );
+        const ownerUserId = input.ownerUserId
+          ? requireText(input.ownerUserId, "ownerUserId")
+          : undefined;
         const projectId = requireText(input.projectId, "projectId");
         const projectSlug = requireText(input.projectSlug, "projectSlug");
         const repositoryFingerprint = normalizeFingerprint(
@@ -169,6 +178,17 @@ export async function bindProject(
             current.organizationId === organizationId &&
             current.projectId === projectId
         );
+        if (
+          existingProjectConnections.some(
+            (current) =>
+              current.ownerUserId && current.ownerUserId !== ownerUserId
+          )
+        ) {
+          throw new ProjectBindingOperationError(
+            "owner_mismatch",
+            "This Project has local connections under another OpenMeld account."
+          );
+        }
         const existingConnection = findExactLocalProjectConnection({
           canonicalPath: repositoryPath,
           connections: store.bindings,
@@ -178,7 +198,8 @@ export async function bindProject(
         if (
           existingConnection &&
           existingConnection.projectSlug === projectSlug &&
-          existingConnection.repositoryFingerprint === repositoryFingerprint
+          existingConnection.repositoryFingerprint === repositoryFingerprint &&
+          existingConnection.ownerUserId === ownerUserId
         ) {
           return existingConnection;
         }
@@ -189,6 +210,7 @@ export async function bindProject(
             existingConnection?.isDefault ??
             existingProjectConnections.length === 0,
           organizationId,
+          ...(ownerUserId ? { ownerUserId } : {}),
           projectId,
           projectSlug,
           repositoryFingerprint,
@@ -200,12 +222,23 @@ export async function bindProject(
             (current.organizationId !== organizationId ||
               current.projectId !== projectId)
         );
+        if (
+          existingConnection?.ownerUserId &&
+          existingConnection.ownerUserId !== ownerUserId
+        ) {
+          throw new ProjectBindingOperationError(
+            "owner_mismatch",
+            "This folder is connected under another OpenMeld account. The current account cannot take over that connection."
+          );
+        }
         const bindings = prepareBindingsForProjectConnection({
           bindings: store.bindings,
           conflictingBinding,
           existingConnection,
           moveConfirmationToken: input.moveConfirmationToken,
+          shareConfirmationToken: input.shareConfirmationToken,
           requestedOrganizationId: organizationId,
+          requestedOwnerUserId: ownerUserId,
           requestedProjectId: projectId,
           requestedRepositoryPath: repositoryPath,
         });
@@ -224,6 +257,7 @@ function buildProjectBindingPathConflict(
   conflictingBinding: ProjectBinding,
   requestedDestination: {
     organizationId: string;
+    ownerUserId?: string;
     projectId: string;
     repositoryPath: string;
   }
@@ -233,6 +267,12 @@ function buildProjectBindingPathConflict(
       (binding) =>
         binding.organizationId === conflictingBinding.organizationId &&
         binding.projectId === conflictingBinding.projectId
+    )
+    .sort(compareProjectBindings);
+  const pathConnections = bindings
+    .filter(
+      (binding) =>
+        binding.repositoryPath === requestedDestination.repositoryPath
     )
     .sort(compareProjectBindings);
   let moveImpact: ProjectBindingMoveImpact = "additional_connection";
@@ -249,6 +289,9 @@ function buildProjectBindingPathConflict(
           isDefault: connection.isDefault,
         })),
         conflictingBindingGeneration: conflictingBinding.bindingGeneration,
+        pathConnections: pathConnections.map(
+          (connection) => connection.bindingGeneration
+        ),
         organizationId: conflictingBinding.organizationId,
         projectId: conflictingBinding.projectId,
         requestedOrganizationId: requestedDestination.organizationId,
@@ -264,6 +307,16 @@ function buildProjectBindingPathConflict(
         ? "same_organization"
         : "another_organization",
     moveConfirmationToken,
+    ...(conflictingBinding.organizationId ===
+      requestedDestination.organizationId &&
+    conflictingBinding.ownerUserId &&
+    conflictingBinding.ownerUserId === requestedDestination.ownerUserId
+      ? {
+          shareConfirmationToken: createHash("sha256")
+            .update(`share:${moveConfirmationToken}`)
+            .digest("hex"),
+        }
+      : {}),
     moveImpact,
   };
 }
@@ -273,7 +326,9 @@ function prepareBindingsForProjectConnection(input: {
   conflictingBinding: ProjectBinding | undefined;
   existingConnection: ProjectBinding | null;
   moveConfirmationToken: string | undefined;
+  shareConfirmationToken: string | undefined;
   requestedOrganizationId: string;
+  requestedOwnerUserId: string | undefined;
   requestedProjectId: string;
   requestedRepositoryPath: string;
 }): ProjectBinding[] {
@@ -282,15 +337,41 @@ function prepareBindingsForProjectConnection(input: {
       (binding) => binding !== input.existingConnection
     );
   }
+  if (
+    input.conflictingBinding.ownerUserId &&
+    input.conflictingBinding.ownerUserId !== input.requestedOwnerUserId
+  ) {
+    throw new ProjectBindingOperationError(
+      "owner_mismatch",
+      "This folder is connected under another OpenMeld account. The current account cannot move or share that connection."
+    );
+  }
   const pathConflict = buildProjectBindingPathConflict(
     input.bindings,
     input.conflictingBinding,
     {
       organizationId: input.requestedOrganizationId,
+      ownerUserId: input.requestedOwnerUserId,
       projectId: input.requestedProjectId,
       repositoryPath: input.requestedRepositoryPath,
     }
   );
+  if (input.shareConfirmationToken) {
+    if (
+      pathConflict.conflictScope !== "same_organization" ||
+      input.shareConfirmationToken !== pathConflict.shareConfirmationToken ||
+      !input.requestedOwnerUserId ||
+      input.conflictingBinding.ownerUserId !== input.requestedOwnerUserId
+    ) {
+      throw new ProjectBindingOperationError(
+        "binding_generation_stale",
+        "The folder connections changed before sharing was confirmed. Check this computer again."
+      );
+    }
+    return input.bindings.filter(
+      (binding) => binding !== input.existingConnection
+    );
+  }
   if (input.moveConfirmationToken !== pathConflict.moveConfirmationToken) {
     if (input.moveConfirmationToken) {
       throw new ProjectBindingOperationError(
@@ -305,6 +386,17 @@ function prepareBindingsForProjectConnection(input: {
     throw new ProjectBindingOperationError(
       "path_conflict",
       `This folder is already connected to ${location}.`,
+      { pathConflict }
+    );
+  }
+  if (
+    input.bindings.filter(
+      (binding) => binding.repositoryPath === input.requestedRepositoryPath
+    ).length > 1
+  ) {
+    throw new ProjectBindingOperationError(
+      "path_conflict",
+      "This shared folder has more than one Project use. Remove its existing connections before moving it.",
       { pathConflict }
     );
   }
@@ -714,6 +806,20 @@ export async function resolveProjectBindingForPath(
   );
 }
 
+export async function hasProjectBindingForPath(
+  input: StoreLocationInput & { path: string }
+): Promise<boolean> {
+  const candidatePath = await canonicalizeLocalProjectPath(input.path);
+  if (candidatePath === null) {
+    return false;
+  }
+  return (await listProjectBindings({ rootDir: input.rootDir })).some(
+    (binding) =>
+      candidatePath === binding.repositoryPath ||
+      candidatePath.startsWith(`${binding.repositoryPath}${sep}`)
+  );
+}
+
 const resolveCanonicalPathBinding = resolveCanonicalLocalProjectConnection;
 
 function storePath(input: StoreLocationInput): string {
@@ -758,9 +864,9 @@ async function readStore(
 
 async function writeStore(
   input: StoreLocationInput,
-  store: ProjectBindingStoreV3
+  store: ProjectBindingStoreV4
 ): Promise<void> {
-  assertProjectBindingStoreV3Invariants(
+  assertProjectBindingStoreV4Invariants(
     store.bindings,
     storePath(input),
     PROJECT_BINDING_STORE_VERSION
@@ -823,7 +929,7 @@ export async function migrateProjectBindingStore(
 export function parseProjectBindingStore(
   value: unknown,
   path: string
-): ProjectBindingStoreV3 {
+): ProjectBindingStoreV4 {
   if (
     isRecord(value) &&
     typeof value.version === "number" &&
@@ -837,6 +943,7 @@ export function parseProjectBindingStore(
       isRecord(value) &&
       (value.version === 1 ||
         value.version === LEGACY_STORE_VERSION ||
+        value.version === PREVIOUS_STORE_VERSION ||
         value.version === PROJECT_BINDING_STORE_VERSION) &&
       Array.isArray(value.bindings)
     )
@@ -853,7 +960,7 @@ export function parseProjectBindingStore(
       storeVersion === 1 ? 1 : LEGACY_STORE_VERSION
     );
     const isDefault =
-      storeVersion === PROJECT_BINDING_STORE_VERSION
+      storeVersion >= PREVIOUS_STORE_VERSION
         ? requireBoolean(
             isRecord(binding) ? binding.isDefault : undefined,
             `${label}.isDefault`
@@ -862,25 +969,36 @@ export function parseProjectBindingStore(
     return { ...parsed, isDefault };
   });
 
-  assertProjectBindingStoreV3Invariants(bindings, path, storeVersion);
+  assertProjectBindingStoreV4Invariants(bindings, path, storeVersion);
   return { bindings, version: PROJECT_BINDING_STORE_VERSION };
 }
 
-function assertProjectBindingStoreV3Invariants(
-  bindings: readonly ProjectBindingV3[],
+function assertProjectBindingStoreV4Invariants(
+  bindings: readonly ProjectBindingV4[],
   path: string,
-  sourceVersion: 1 | 2 | 3
+  sourceVersion: 1 | 2 | 3 | 4
 ): void {
-  const bindingsByProject = new Map<string, ProjectBindingV3[]>();
-  const canonicalPaths = new Set<string>();
+  const bindingsByProject = new Map<string, ProjectBindingV4[]>();
+  const canonicalPaths = new Map<string, ProjectBindingV4[]>();
   const bindingGenerations = new Set<string>();
   for (const binding of bindings) {
-    if (canonicalPaths.has(binding.repositoryPath)) {
+    const pathBindings = canonicalPaths.get(binding.repositoryPath) ?? [];
+    if (
+      pathBindings.some(
+        (existing) =>
+          sourceVersion < PROJECT_BINDING_STORE_VERSION ||
+          existing.organizationId !== binding.organizationId ||
+          !existing.ownerUserId ||
+          existing.ownerUserId !== binding.ownerUserId ||
+          existing.projectId === binding.projectId
+      )
+    ) {
       throw new Error(
-        `Project binding store has a duplicate canonical path: ${path}`
+        `Project binding store has an invalid shared canonical path: ${path}`
       );
     }
-    canonicalPaths.add(binding.repositoryPath);
+    pathBindings.push(binding);
+    canonicalPaths.set(binding.repositoryPath, pathBindings);
     if (bindingGenerations.has(binding.bindingGeneration)) {
       throw new Error(
         `Project binding store has a duplicate binding generation: ${path}`
@@ -894,7 +1012,17 @@ function assertProjectBindingStoreV3Invariants(
   }
 
   for (const projectBindings of bindingsByProject.values()) {
-    if (sourceVersion < PROJECT_BINDING_STORE_VERSION) {
+    const knownOwners = new Set(
+      projectBindings.flatMap((binding) =>
+        binding.ownerUserId ? [binding.ownerUserId] : []
+      )
+    );
+    if (knownOwners.size > 1) {
+      throw new Error(
+        `Project binding store has mixed owners for one Project: ${path}`
+      );
+    }
+    if (sourceVersion < PREVIOUS_STORE_VERSION) {
       if (projectBindings.length !== 1) {
         throw new Error(
           `Legacy Project binding store has multiple connections for one Project: ${path}`
@@ -943,6 +1071,11 @@ function parseBinding(
       value.organizationId,
       `${label}.organizationId`
     ),
+    ...(value.ownerUserId === undefined
+      ? {}
+      : {
+          ownerUserId: requireText(value.ownerUserId, `${label}.ownerUserId`),
+        }),
     projectId: requireText(value.projectId, `${label}.projectId`),
     projectSlug: requireText(value.projectSlug, `${label}.projectSlug`),
     repositoryFingerprint,
@@ -952,12 +1085,13 @@ function parseBinding(
   };
 }
 
-function readProjectBindingStoreVersion(value: unknown): 1 | 2 | 3 {
+function readProjectBindingStoreVersion(value: unknown): 1 | 2 | 3 | 4 {
   if (
     !(
       isRecord(value) &&
       (value.version === 1 ||
         value.version === LEGACY_STORE_VERSION ||
+        value.version === PREVIOUS_STORE_VERSION ||
         value.version === PROJECT_BINDING_STORE_VERSION)
     )
   ) {

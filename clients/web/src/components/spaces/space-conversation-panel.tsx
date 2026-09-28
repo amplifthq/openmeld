@@ -250,6 +250,7 @@ const SpaceGraph = lazy(() =>
 );
 
 type SpaceConversationPanelResolvedProps = {
+	organizationId?: string | null;
 	agentStreams?: readonly import("#/lib/spaces/conversation-stream").SpaceConversationVisibleStreamProjection[];
 	historyNavigation?: SpaceHistoryNavigationController;
 	activeSpaceView: SpaceView;
@@ -2110,6 +2111,7 @@ function SpaceComposerSection(input: {
 					}}
 					key={`${panel.spaceId}:${panel.selfProfileId}`}
 					members={panel.composerMembers}
+					organizationId={panel.organizationId}
 					recovery={{
 						blockedWakeProfileId: panel.composerBlockedWakeProfileId,
 						agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,

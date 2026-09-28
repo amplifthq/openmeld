@@ -557,6 +557,11 @@ function renderDispatchPrompt(input: {
       "Task access: Space context only. This task has no authorized project repository or project code checkout; its local working folder is scratch space, not the Agent Profile's configured working folder. Do not claim to have reviewed code or a PR diff you cannot read. If the request needs repository access, report that limitation through the required Space Action and ask for an authorized code-access Wake or the relevant diff."
     );
   }
+  if (promptInput.projectWork) {
+    sections.push(
+      `Selected OpenMeld Project for this execution: ${promptInput.projectWork.projectId}. This execution uses one verified repository. If you create a Space Task for this work, include this Project ID in projectIds. This selection does not grant additional Space, repository, or App access.`
+    );
+  }
   if (promptInput.shouldInjectBootstrap && isEntryBriefEnabled(promptInput)) {
     sections.push(renderEntryBriefSection(promptInput));
   }

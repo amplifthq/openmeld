@@ -368,6 +368,7 @@ export const centerAgentConnectorActionOperations = sqliteTable(
     connectionScope: text("connection_scope"),
     status: text("status").notNull(),
     providerExecutionId: text("provider_execution_id"),
+    linearIssueReceiptJson: text("linear_issue_receipt_json"),
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
   },

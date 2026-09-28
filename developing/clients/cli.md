@@ -899,9 +899,13 @@ previous successful password entry must not silently authorize this operation.
 ### Agent Activity
 
 `openmeld projects` owns explicit local Project opt-in. `bind` resolves a real,
-readable directory to its canonical path, rejects a path already bound to any
-other Organization or Project, stores only local mode-0600 binding state, and
-uploads at most the Project id plus an optional safe repository fingerprint.
+readable directory to its canonical path and checks the selected repository
+against current Project settings. `--repository <url>` names one associated
+repository when a Project has several. A same-Organization folder already
+connected to another Project requires the owner to see the conflict first and
+repeat `bind` with `--share`; cross-Organization sharing and cross-account
+reuse remain forbidden. The store remains local mode-0600 state and uploads at
+most the Project id plus an optional safe repository fingerprint.
 The same successful `bind` action installs OpenMeld-owned Codex and Claude Code
 hooks, Cursor hooks, and the OpenCode plugin. Grok Build does not add a managed
 hook or become an Agent Activity provider in this phase; its Wake lifecycle

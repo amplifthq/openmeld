@@ -35,8 +35,8 @@ export function CoverageNotice(input: {
 							`${label}${count > 1 ? ` (${String(count)})` : ""}`
 					)
 					.join(" · ")}
-				. Existing Sessions remain visible only when the latest complete
-				inventory is still safe to show.
+				. Sessions with an exact Project attribution may remain visible, but
+				coverage and resume actions need a complete inventory.
 			</p>
 		</output>
 	);
@@ -63,11 +63,18 @@ export function SessionsEmptyMessage(input: {
 		return <AgentActivityEmptySetup setupState="awaiting_first_session" />;
 	}
 	if (input.coverage.some((item) => item.state === "error")) {
+		const sharedFolderAmbiguous = input.coverage.some(
+			(item) => item.problemCode === "project_attribution_ambiguous"
+		);
 		return (
 			<FilterableEmptyMessage
 				clearFilters={input.clearFilters}
 				hasFilters={input.hasFilters}
-				message="OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory."
+				message={
+					sharedFolderAmbiguous
+						? "This folder belongs to several Projects. Choose a Project when starting new work; native Sessions without a clear Project attribution stay hidden."
+						: "OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory."
+				}
 			/>
 		);
 	}

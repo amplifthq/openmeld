@@ -94,6 +94,7 @@ import {
 } from "./space-members";
 import { spaceMetaSchema } from "./space-meta";
 import { spacePasswordSchema } from "./space-password";
+import { linearExternalWorkItemSchema } from "./space-tasks";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -271,10 +272,13 @@ const centerAgentConnectorActionOperationSchema = z
   .strictObject({
     actionId: trimmedNonEmptyStringSchema.max(160),
     connectionName: connectorConnectionNameSchema,
+    createdAtMs: z.number().int().nonnegative().optional(),
     executionConnection: centerAgentConnectorActionExecutionConnectionSchema
       .nullable()
       .optional(),
     operationId: trimmedNonEmptyStringSchema.max(256),
+    linearIssueReceipt: linearExternalWorkItemSchema.nullable().optional(),
+    providerExecutionId: nullableTrimmedStringSchema.optional(),
     service: connectorServiceSchema,
     status: centerAgentConnectorActionOperationStatusSchema,
   })
@@ -306,6 +310,7 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     operationId: trimmedNonEmptyStringSchema.max(256),
     outcome: centerAgentConnectorActionAuditOutcomeSchema,
     providerExecutionId: nullableTrimmedStringSchema,
+    linearIssueReceipt: linearExternalWorkItemSchema.optional(),
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
     issueRoutingDecision: z
       .strictObject({
@@ -332,6 +337,19 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
         message:
           "issueRoutingDecision is only accepted with a new operation claim.",
         path: ["issueRoutingDecision"],
+      });
+    }
+    if (
+      value.linearIssueReceipt &&
+      (value.outcome !== "completed" ||
+        value.service !== "linear" ||
+        value.actionId !== "linear.create_linear_issue")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A Linear issue receipt is accepted only for a completed Linear issue creation.",
+        path: ["linearIssueReceipt"],
       });
     }
   });

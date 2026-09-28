@@ -1178,6 +1178,13 @@ under a reconciliation id and makes no user-readable change until the terminal
 page succeeds. A complete terminal page replaces that source's current set.
 Unsupported, error, and disconnected outcomes are explicit terminal facts,
 not empty arrays with implied success.
+For a folder shared across Projects, `partial` pages may carry only Sessions
+with an exact accepted Project attribution and must carry
+`project_attribution_ambiguous`. Core publishes those rows at the terminal
+page while leaving the source in error coverage, so omitted native Sessions
+cannot masquerade as an empty complete inventory. Old readers already accept
+the existing `error` coverage state; old writers that do not know `partial`
+fail closed rather than flattening this result to `sessions`.
 
 The current-session Profile lookup is a separate narrow HTTP/RPC contract over
 the same Binding identity. Its strict query contains one exact controller ref
@@ -2136,13 +2143,16 @@ connection and actor authorization. Local Plugin calls use their verified
 dispatch source Signal and the same resolver; direct third-party tools outside
 OpenMeld are not covered by this boundary.
 
-Deploy D1 migrations 0186 and 0187 before the Core readers and writers. The
+Deploy D1 migrations 0186, 0187, and 0188 before the Core readers and writers. The
 Core issue-resolution receiver must be available before Remote Agent callers;
 an older Core fails closed on the new RPC. The local Service still resolves its
-existing one-Project connection contract. Additional repository associations
-must not be presented as executable until exact per-work selection and
-mixed-version rejection are implemented. The new Project subroutes remain
-additive to the legacy Project list contract.
+existing route observation, then uses a frozen per-Context Project repository
+selection when one is present. An older Service is rejected at Context
+admission for this selection. Local Project Control accepts an optional
+repository fingerprint only after Core verifies it against the active Project
+association. A same-Organization shared-folder use needs a separate, stale-safe
+share confirmation token; the move token cannot authorize sharing. The new
+Project subroutes remain additive to the legacy Project list contract.
 
 ### Center Agent Project Tool Contracts
 
@@ -5559,6 +5569,19 @@ connection name is constrained to OpenConnector's 64-character
 owner prefix and uses a deterministic hash suffix when a long service name
 would exceed that limit.
 
+The completed `linear.create_linear_issue` write carries one validated,
+provider-typed issue receipt. Core stores this bounded reference in the
+connector operation, and the same requester-scoped read returns it for
+association-only recovery without another provider create. Older operation
+rows have no receipt and must never be replayed as a new Linear create after
+completion. A pending or outcome-unknown operation may use the same provider
+idempotency key only while OpenConnector's 24-hour replay retention is safely
+current; older or undated operations require reconciliation. Apply the
+additive receipt-column migration before the Core reader and writer, then
+deploy Core before a Remote Agent caller sends the receipt. An old Core rejects
+the new completion field, so this order is required before enabling Linear
+issue creation through the new Remote Agent.
+
 `packages/schemas/src/schemas/runtime/openconnector-runtime.ts` is OpenMeld's
 pinned runtime validator for OpenConnector action metadata. It mirrors the
 OpenConnector `/v1/actions?service=` serializer and the bounded
@@ -7190,6 +7213,13 @@ submit only a selection. Core constructs requester/discussion scope and assigns
 the context once. Native conversation IDs and local workspace fingerprints are
 resolved from retained Core context records. Results echo the context ID; native
 history checkpoints are stored per accepted Wake and survive Head retirement.
+A code-work selection may carry `projectWork` with one Project ID and canonical
+repository fingerprint. RuntimeCoordinator freezes that pair in the assigned
+Context; a retained Context cannot change it by editing Project defaults. Core
+verifies the current Project association before delivery. The Service resolves
+only an owner-local matching connection and never receives a cloud-selected
+absolute path. An invalid or removed association fails visibly without
+selecting another repository.
 A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
@@ -7224,6 +7254,11 @@ readiness checks. Claude project contexts additionally require Service adapter
 `executionContextVersion: 3`; older Services receive a visible update-required
 outcome. Version 2 remains sufficient for the legacy association and Codex
 contexts. The shared assignment wire shape remains v1.
+An assignment with `projectWork` requires Service adapter
+`executionContextVersion: 4` for Codex or Claude Code. Older Services receive
+`service.update_required` at admission before an execution token or local
+workspace is used. The optional field leaves legacy assignments readable and
+keeps the assignment wire version at v1.
 
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch

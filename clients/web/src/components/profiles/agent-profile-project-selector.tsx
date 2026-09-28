@@ -272,6 +272,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 	const connectCandidate = async (candidateRequest?: {
 		candidate: LocalProjectControlCandidate;
 		moveConfirmationToken?: string;
+		shareConfirmationToken?: string;
 	}): Promise<void> => {
 		const candidate =
 			candidateRequest?.candidate ??
@@ -298,6 +299,11 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 							moveConfirmationToken: candidateRequest.moveConfirmationToken,
 						}
 					: {}),
+				...(candidateRequest?.shareConfirmationToken
+					? {
+							shareConfirmationToken: candidateRequest.shareConfirmationToken,
+						}
+					: {}),
 				projectId: input.projectId,
 			});
 			if (response.status === "rejected") {
@@ -312,7 +318,8 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 			}
 		} catch (error) {
 			if (
-				candidateRequest?.moveConfirmationToken &&
+				(candidateRequest?.moveConfirmationToken ||
+					candidateRequest?.shareConfirmationToken) &&
 				isLocalProjectControlFailureCode(error, "binding_generation_stale")
 			) {
 				setPendingFolderMove(null);
@@ -327,7 +334,8 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 
 	const connectDeclaredPath = async (
 		confirm: boolean,
-		moveConfirmationToken?: string
+		moveConfirmationToken?: string,
+		shareConfirmationToken?: string
 	): Promise<void> => {
 		const path = declaredPath;
 		if (path.trim().length === 0 || !isAbsoluteProjectPath(path)) {
@@ -345,6 +353,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 				expectedOrganizationId: input.organizationId,
 				idempotencyKey: crypto.randomUUID(),
 				...(moveConfirmationToken ? { moveConfirmationToken } : {}),
+				...(shareConfirmationToken ? { shareConfirmationToken } : {}),
 				projectId: input.projectId,
 			});
 			if (response.status === "rejected") {
@@ -364,7 +373,7 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 			if (isLocalProjectControlFailureCode(error, "needs_confirmation")) {
 				setConfirmNonGit(true);
 			} else if (
-				moveConfirmationToken &&
+				(moveConfirmationToken || shareConfirmationToken) &&
 				isLocalProjectControlFailureCode(error, "binding_generation_stale")
 			) {
 				setPendingFolderMove(null);
@@ -495,6 +504,25 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 					if (!(open || pendingOperation)) {
 						setErrorMessage(null);
 						setPendingFolderMove(null);
+					}
+				}}
+				onShare={() => {
+					const shareConfirmationToken =
+						pendingFolderMove?.conflict.shareConfirmationToken;
+					if (!shareConfirmationToken) {
+						return;
+					}
+					if (pendingFolderMove?.kind === "candidate") {
+						connectCandidate({
+							candidate: pendingFolderMove.candidate,
+							shareConfirmationToken,
+						}).catch(() => undefined);
+					} else if (pendingFolderMove?.kind === "declared_path") {
+						connectDeclaredPath(
+							pendingFolderMove.confirmNonGit,
+							undefined,
+							shareConfirmationToken
+						).catch(() => undefined);
 					}
 				}}
 				open={pendingFolderMove !== null}

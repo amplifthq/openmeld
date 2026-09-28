@@ -491,7 +491,10 @@ export async function acceptAgentActivitySessionReconciliation(input: {
     );
   }
 
-  if (input.reconciliation.result !== "sessions") {
+  if (
+    input.reconciliation.result !== "sessions" &&
+    input.reconciliation.result !== "partial"
+  ) {
     return await acceptTerminalCoverageResult({
       ...input,
       expectedCurrentReconciliationId:
@@ -568,7 +571,9 @@ export async function acceptAgentActivitySessionReconciliation(input: {
   await publishStagedSessions({
     db: input.db,
     nowMs: input.nowMs,
+    problemCode: input.reconciliation.problemCode ?? null,
     reconciliationId: input.reconciliation.reconciliationId,
+    result: input.reconciliation.result,
     sourceScopeKey,
   });
   const publishedSessionCount = await countPublishedSessions({
@@ -698,7 +703,9 @@ async function stageSessionPage(input: {
 async function publishStagedSessions(input: {
   db: D1Database;
   nowMs: number;
+  problemCode: string | null;
   reconciliationId: string;
+  result: "partial" | "sessions";
   sourceScopeKey: string;
 }): Promise<void> {
   await input.db.batch([
@@ -834,7 +841,7 @@ async function publishStagedSessions(input: {
       .prepare(
         `
           UPDATE agent_activity_session_inventory_sources
-          SET state = 'current', problem_code = NULL,
+          SET state = ?, problem_code = ?,
               last_complete_at_ms = ?, updated_at_ms = ?
           WHERE source_scope_key = ?
             AND current_reconciliation_id = ?
@@ -855,6 +862,8 @@ async function publishStagedSessions(input: {
         `
       )
       .bind(
+        input.result === "partial" ? "error" : "current",
+        input.problemCode,
         input.nowMs,
         input.nowMs,
         input.sourceScopeKey,
@@ -912,19 +921,20 @@ async function publishStagedSessions(input: {
   const source = await input.db
     .prepare(
       `
-        SELECT current_reconciliation_id, next_page_index, state
+        SELECT current_reconciliation_id, next_page_index, state, problem_code
         FROM agent_activity_session_inventory_sources
         WHERE source_scope_key = ?
         LIMIT 1
       `
     )
     .bind(input.sourceScopeKey)
-    .first<SourceRow>();
+    .first<SourceRow & { problem_code: string | null }>();
   if (
     source?.current_reconciliation_id !== input.reconciliationId ||
-    source.state !== "current"
+    source.state !== (input.result === "partial" ? "error" : "current") ||
+    source.problem_code !== input.problemCode
   ) {
-    if (source?.state === "error") {
+    if (source?.problem_code === "session_identity_conflict") {
       throw new Error(
         "Agent Activity Session identity is already claimed by another current source."
       );

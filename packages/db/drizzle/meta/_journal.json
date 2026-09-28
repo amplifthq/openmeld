@@ -1317,6 +1317,13 @@
       "when": 1790576959664,
       "tag": "0187_worried_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "6",
+      "when": 1790587503073,
+      "tag": "0188_old_lyja",
+      "breakpoints": true
     }
   ]
 }

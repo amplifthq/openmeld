@@ -2971,6 +2971,14 @@ mutation. If the current Core projection omits `moveConnection`, Web treats it
 as unsupported. If an older Service returns only the legacy conflict, Web uses
 Organization/Project language and asks the user to update OpenMeld Service
 before retrying.
+For a same-owner, same-Organization conflict, an updated Service also offers
+**Connect to both Projects** with a separate share token. The dialog explains
+that the original Project connection remains, current-folder writes share one
+local conflict boundary, and ambiguous Session attribution needs attention.
+Cross-Organization conflicts never offer sharing. Project detail lets the
+owner choose one associated repository when connecting a folder; Core checks
+that selection against current Project settings before the Service verifies
+the local Git fingerprint.
 
 Matching repository and worktree candidates use one controlled picker that
 supports Fluid radio controls for single selection and Fluid checkbox controls
@@ -4241,6 +4249,10 @@ review** as the active columns. Done and Canceled stay in collapsed history
 groups instead of creating a competing list view. Board cards stay compact:
 title, phase, assignee, requester, linked issue identifiers when present,
 and one next-action or attention line.
+The board can filter its already-authorized Space Tasks by an explicitly
+associated Project. This filter does not select a write destination, grant
+Project access, or turn a bounded Task page into a complete cross-Space
+Project index; the existing truncation notice stays visible.
 Opening a card reveals a right-side detail drawer with the brief, completion
 conditions, associated Projects, linked GitHub or Linear issues, current result,
 people, and only the controls
@@ -4917,9 +4929,14 @@ Agent DMs use `Tell Center Agent what you need…`, and Threads use
 
 For Claude Code, leaving the Task menu on automatic selection starts an
 independent Space-only context without requiring a repository or container.
-Selecting a new project task explicitly enables an isolated worktree. The menu
+Selecting **New isolated task** explicitly enables an isolated worktree. The menu
 explains that this choice requires a committed Git repository and a running
 Docker or Podman engine on the Agent's computer before the Wake starts.
+**Choose Project and repository** resolves one Project and its configured
+default, sole, or explicitly selected repository for that new task. The
+selection travels as an accepted Execution Context fact, not as a change to
+the Agent Profile's Default Project. The Service must find the matching local
+connection on the Agent's computer or return a visible failure.
 
 Draft editing and opening the `+` and `@` tools do not require permission to
 send. The `+` menu explains why file selection is unavailable when uploads are

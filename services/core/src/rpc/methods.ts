@@ -15890,8 +15890,11 @@ export async function rpcCenterAgentReadConnectorActionOperation(
       ? {
           actionId: existing.actionId,
           connectionName: existing.connectionName,
+          createdAtMs: existing.createdAtMs,
           executionConnection: existing.executionConnection,
+          linearIssueReceipt: existing.linearIssueReceipt,
           operationId: existing.operationId,
+          providerExecutionId: existing.providerExecutionId,
           service: existing.service,
           status: existing.status,
         }
@@ -15912,6 +15915,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     providerExecutionId: input.providerExecutionId,
     requestSignature: input.requestSignature,
     issueRoutingDecision: input.issueRoutingDecision,
+    linearIssueReceipt: input.linearIssueReceipt,
     service: input.service,
     speakerMember: input.speakerMember,
   });
@@ -16011,6 +16015,9 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     operationId: parsed.data.operationId,
     organizationId: authorization.activeOrganization.organizationId,
     outcome: parsed.data.outcome,
+    ...(parsed.data.linearIssueReceipt
+      ? { linearIssueReceipt: parsed.data.linearIssueReceipt }
+      : {}),
     providerExecutionId: parsed.data.providerExecutionId,
     requester,
     requestSignature: parsed.data.requestSignature,

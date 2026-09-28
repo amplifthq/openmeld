@@ -288,6 +288,9 @@ export type DispatchPromptBootstrapInput = {
   executionContextAccess?: NonNullable<
     ParsedDispatchTask["executionContext"]
   >["access"];
+  projectWork?: NonNullable<
+    ParsedDispatchTask["executionContext"]
+  >["projectWork"];
   callerContext?: ParsedDispatchTask["callerContext"];
   continuitySnapshot?: OpenMeldDaemonDispatchContinuitySnapshot | null;
   dispatchTriggerSource: "activation_targets" | "listen_all";

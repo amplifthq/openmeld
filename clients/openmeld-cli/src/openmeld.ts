@@ -1473,6 +1473,8 @@ registerProjectCommands(program, {
           allowUnverified: opts.allowUnverified,
           path: opts.path,
           projectSlug,
+          repository: opts.repository,
+          share: opts.share,
         });
       },
     });

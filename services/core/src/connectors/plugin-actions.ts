@@ -3,6 +3,7 @@ import {
   pluginActionRpcInputSchema,
   pluginRuntimeResponseSchema,
   projectIssueDestinationSchema,
+  readLinearIssueReference,
 } from "@openmeld/schemas";
 import type {
   PluginActionRequest,
@@ -21,7 +22,7 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../organizations/organization-context";
 import {
-  readLocalProjectIssueRequestText,
+  readLocalProjectIssueRequest,
   resolveProjectIssueAction,
 } from "../projects/project-issue-action-routing";
 import { listProjectIssueRoutingCandidates } from "../projects/project-repository";
@@ -228,26 +229,28 @@ async function assertLocalPluginIssueDestination(input: {
         }
       : {
           provider: "linear",
-          teamId: action.input.teamId,
-          ...(action.input.projectId === undefined
+          teamId: action.input.team_id,
+          ...(action.input.project_id === undefined
             ? {}
-            : { projectId: action.input.projectId }),
+            : { projectId: action.input.project_id }),
         }
   );
+  const request = await readLocalProjectIssueRequest({
+    context,
+    dispatchId,
+    env,
+    sourceSignalId: caller.sourceSignalId,
+    sourceSpaceId: caller.sourceSpaceId,
+    targetProfileId: caller.actorProfileId,
+  });
   return resolveProjectIssueAction({
     projects: await listProjectIssueRoutingCandidates({
       db: caller.db,
       organizationId: caller.organizationId,
     }),
     proposedDestination,
-    requestText: await readLocalProjectIssueRequestText({
-      context,
-      dispatchId,
-      env,
-      sourceSignalId: caller.sourceSignalId,
-      sourceSpaceId: caller.sourceSpaceId,
-      targetProfileId: caller.actorProfileId,
-    }),
+    requestText: request.text,
+    requesterCanOverride: request.requesterCanOverride,
   });
 }
 
@@ -410,6 +413,15 @@ async function recoverOperation(
     replayed: true,
     connection: existing.executionConnection,
     providerExecutionId: existing.providerExecutionId,
+    ...(existing.linearIssueReceipt
+      ? {
+          data: {
+            id: existing.linearIssueReceipt.id,
+            identifier: existing.linearIssueReceipt.identifier,
+            ticket_url: existing.linearIssueReceipt.url,
+          },
+        }
+      : {}),
   };
 }
 
@@ -508,8 +520,18 @@ async function executeAction(
     );
   }
   if (result.status !== "pending") {
+    const linearIssueReceipt =
+      result.status === "completed" &&
+      action.service === "linear" &&
+      isLinearIssueCreateAction(action.actionId)
+        ? readLinearIssueReference({
+            actionInput: action.input,
+            data: result.data,
+          })
+        : null;
     await recordCenterAgentConnectorActionOperation({
       ...operation,
+      ...(linearIssueReceipt ? { linearIssueReceipt } : {}),
       outcome: result.status,
       nowMs: Date.now(),
       providerExecutionId: result.providerExecutionId,

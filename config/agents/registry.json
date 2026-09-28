@@ -170,7 +170,7 @@
             },
             "transportModes": ["local-cli"],
             "capabilityDeclaration": {
-              "executionContextVersion": 3,
+              "executionContextVersion": 4,
               "streamingCapability": "preview_capable",
               "imageInputCapability": "local_file_path",
               "runtimeWorkingDirectoryMode": "spawn_cwd",
@@ -252,7 +252,7 @@
             },
             "transportModes": ["codex-app-server"],
             "capabilityDeclaration": {
-              "executionContextVersion": 2,
+              "executionContextVersion": 4,
               "streamingCapability": "preview_capable",
               "imageInputCapability": "local_file_path",
               "runtimeWorkingDirectoryMode": "spawn_cwd",

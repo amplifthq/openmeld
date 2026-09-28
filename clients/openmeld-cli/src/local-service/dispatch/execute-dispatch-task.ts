@@ -1144,6 +1144,8 @@ export async function handleDispatchDeliverFrame(input: {
         input.deliverRequest.payload,
         "defaultProjectId"
       ),
+      executionContext: parsedTask.executionContext,
+      ownerUserId: input.profileOwnerUserId,
       executionIdentity: parsedTask.executionIdentity,
       onCurrentWorkingFolderFactRejected:
         input.requestCurrentWorkingFolderFactRefresh,
@@ -1569,14 +1571,20 @@ export async function handleDispatchDeliverFrame(input: {
         });
       observedProviderConversationId = agentControllerConversationId;
       observedProviderConversation = agentControllerConversation;
-      if (
-        contextIdForDispatch === null &&
-        recordedOpenMeldCreatedSessionId !== agentControllerConversationId
-      ) {
+      if (recordedOpenMeldCreatedSessionId !== agentControllerConversationId) {
         recordedOpenMeldCreatedSessionId = agentControllerConversationId;
         recordOpenMeldCreatedLocalAgentSession({
           agentControllerRef: parsedTask.agentControllerRef,
           nativeSessionId: agentControllerConversationId,
+          ...(parsedTask.executionContext?.projectWork
+            ? {
+                projectAttribution: {
+                  organizationId:
+                    parsedTask.executionContext.scope.organizationId,
+                  ...parsedTask.executionContext.projectWork,
+                },
+              }
+            : {}),
         }).catch((error) => {
           emitRunLine({
             presenter: input.presenter,
@@ -2863,6 +2871,7 @@ function buildDispatchRuntimePrompt(input: {
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
     executionContextAccess: input.parsedTask.executionContext?.access,
+    projectWork: input.parsedTask.executionContext?.projectWork,
     callerContext: input.parsedTask.callerContext,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:

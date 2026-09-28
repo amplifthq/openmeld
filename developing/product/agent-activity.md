@@ -51,6 +51,11 @@ whose working directory resolves inside a user-confirmed Local Project
 Connection. A discovered candidate is not a connection and cannot report
 Activity. One Project may have multiple connected clones or worktrees; every
 matching connection attributes Activity to the same canonical Project ID.
+When one canonical folder is authorized for several Projects, path matching
+alone never chooses one. OpenMeld-created Sessions may use the exact Project
+and repository accepted with their Execution Context. Native Sessions without
+that attribution remain unassigned; no observation fans out across Projects
+or relabels historical evidence.
 
 Absolute paths remain local owner-self facts. Agent Activity events, sessions,
 digests, snapshots, and Center Agent context never receive them. Removing a
@@ -226,6 +231,13 @@ connection, and the lexical path never constrains the authorization decision.
 - Reconciliation pages are staged privately. Core publishes the new set only
   after the terminal page is accepted, so readers never mistake a partial scan
   for the complete inventory.
+- A shared folder may yield exactly attributed Sessions alongside native
+  Sessions whose Project is ambiguous. The Service sends a `partial` result
+  with the exact Sessions and `project_attribution_ambiguous`; Core publishes
+  those Sessions atomically while keeping source coverage `error`. Readers
+  cannot treat missing Sessions as evidence of absence or resume from that
+  incomplete source. An explicit Project selection for new work resolves its
+  own attribution; it does not rewrite older native Sessions.
 - Page order and retry are stable and idempotent. Core fences current-inventory
   and source-state terminal publication mutations on the source's active
   syncing reconciliation. Two overlapping copies of the same terminal page
@@ -261,9 +273,11 @@ connection, and the lexical path never constrains the authorization decision.
   membership. Historical Activity evidence keeps its separate retention
   policy.
 - A `disconnected` report may revoke the exact previously authorized source
-  after the Project repository fingerprint changes. Other reconciliation
-  outcomes still require the current Project fingerprint, so this revocation
-  exception cannot publish or resume Sessions for the old repository.
+  after the Project repository associations change. Other reconciliation
+  outcomes require a current associated fingerprint when the Project has
+  repositories, so this revocation exception cannot publish or resume
+  Sessions for an old repository. Repositoryless Projects retain their
+  existing non-code rule.
 - When a local Project Connection is rebound, the Service publishes the old
   source's `disconnected` fact before publishing its replacement. A failed
   replacement therefore cannot keep an obsolete authorized source selectable

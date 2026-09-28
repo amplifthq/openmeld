@@ -29,7 +29,9 @@ import type { ProjectBinding } from "./project-bindings";
 import { normalizeSharedSessionTitle } from "./provider-session-titles";
 import {
   readOpenMeldCreatedLocalAgentSessionKeys,
+  readOpenMeldCreatedLocalAgentSessionProjectAttributions,
   resolveLocalAgentSessionOrigin,
+  resolveOpenMeldCreatedLocalAgentSessionProjectAttribution,
 } from "./session-inventory-origin-store";
 
 const PROVIDER_PROBE_TIMEOUT_MS = 5000;
@@ -132,6 +134,8 @@ export async function discoverCodexThreads(input: {
   const pages = await listAllCodexThreads(input.launchContract);
   const openMeldCreatedSessionKeys =
     await readOpenMeldCreatedLocalAgentSessionKeys(input);
+  const projectAttributions =
+    await readOpenMeldCreatedLocalAgentSessionProjectAttributions(input);
   const result: BoundObservedLocalAgentSession[] = [];
   const identityKeys = new Set<string>();
   for (const page of pages) {
@@ -140,6 +144,7 @@ export async function discoverCodexThreads(input: {
         archived: page.archived,
         bindings: input.bindings,
         openMeldCreatedSessionKeys,
+        projectAttributions,
         thread,
       });
       if (!mapped) {
@@ -160,6 +165,9 @@ async function mapCodexThread(input: {
   archived: boolean;
   bindings: readonly ProjectBinding[];
   openMeldCreatedSessionKeys: ReadonlySet<string>;
+  projectAttributions: Awaited<
+    ReturnType<typeof readOpenMeldCreatedLocalAgentSessionProjectAttributions>
+  >;
   thread: Record<string, unknown>;
 }): Promise<BoundObservedLocalAgentSession | null> {
   const nativeSessionId = text(input.thread.id);
@@ -172,7 +180,12 @@ async function mapCodexThread(input: {
   }
   const binding = await resolveObservedAgentActivityBinding(
     cwd,
-    input.bindings
+    input.bindings,
+    resolveOpenMeldCreatedLocalAgentSessionProjectAttribution({
+      agentControllerRef: "builtin:codex",
+      nativeSessionId,
+      projectAttributions: input.projectAttributions,
+    })
   );
   if (!binding) {
     return null;
@@ -456,6 +469,8 @@ export async function discoverClaudeRetainedSessions(input: {
 }): Promise<BoundObservedLocalAgentSession[]> {
   const openMeldCreatedSessionKeys =
     await readOpenMeldCreatedLocalAgentSessionKeys(input);
+  const projectAttributions =
+    await readOpenMeldCreatedLocalAgentSessionProjectAttributions(input);
   const projectsRoot = join(input.configDir, "projects");
   const files = await listFiles(projectsRoot, {
     excludeDirectoryNames: new Set(["subagents"]),
@@ -475,7 +490,12 @@ export async function discoverClaudeRetainedSessions(input: {
     identities.set(metadata.nativeSessionId, path);
     const binding = await resolveObservedAgentActivityBinding(
       metadata.cwd,
-      input.bindings
+      input.bindings,
+      resolveOpenMeldCreatedLocalAgentSessionProjectAttribution({
+        agentControllerRef: "builtin:claude-code",
+        nativeSessionId: metadata.nativeSessionId,
+        projectAttributions,
+      })
     );
     if (!binding) {
       continue;
@@ -514,7 +534,12 @@ export async function discoverClaudeRetainedSessions(input: {
     }
     const binding = await resolveObservedAgentActivityBinding(
       registrySession.cwd,
-      input.bindings
+      input.bindings,
+      resolveOpenMeldCreatedLocalAgentSessionProjectAttribution({
+        agentControllerRef: "builtin:claude-code",
+        nativeSessionId: registrySession.nativeSessionId,
+        projectAttributions,
+      })
     );
     if (!binding) {
       continue;

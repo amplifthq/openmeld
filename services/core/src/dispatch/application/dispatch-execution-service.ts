@@ -64,7 +64,7 @@ import {
 } from "../../center-agent/application/center-agent-model-service";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { readModelCatalog } from "../../config/model-catalog";
-import { type CoreBindings, localStateDb } from "../../lib/bindings";
+import { type CoreBindings, localStateDb, projectDb } from "../../lib/bindings";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { summarizeInformationProtectionError } from "../../organizations/organization-information-protection-observability";
 import { readOrganizationInformationProtectionPolicyForSpace } from "../../organizations/organization-information-protection-repository";
@@ -72,6 +72,7 @@ import {
   readOrganizationWorkingLanguagePreferenceForSpace,
   toWorkingLanguageGuidance,
 } from "../../organizations/organization-working-language-repository";
+import { readProjectRepositorySettingsRecord } from "../../projects/project-repository";
 import { isPersonalRemoteAgentBinding } from "../../remote-agent/application/personal-remote-agent-binding";
 import {
   emitSpaceStatusSignal,
@@ -509,6 +510,56 @@ const resolveLocalStateDbHandleOrThrow = (
   return localStateDbHandle;
 };
 
+async function assertProjectWorkRepositoryAvailable(input: {
+  env: CoreBindings;
+  executionContext: DispatchExecutionContext;
+  message: OpenMeldDaemonDispatchQueueMessage;
+}): Promise<void> {
+  const assignment = input.message.executionContext;
+  const selected = assignment?.projectWork;
+  if (!selected) {
+    return;
+  }
+  const organizationId = assignment.scope.organizationId;
+  if (!organizationId || input.message.organizationId !== organizationId) {
+    throw buildDispatchExecutionValidationError({
+      code: "project.repository_scope_mismatch",
+      message: "The selected Project does not match this work's Organization.",
+      executionContext: input.executionContext,
+    });
+  }
+  const db = projectDb(input.env);
+  if (!db) {
+    throw buildDispatchExecutionValidationError({
+      code: "project.store_unavailable",
+      message: "Project repository selection is unavailable.",
+      executionContext: input.executionContext,
+    });
+  }
+  const settings = await readProjectRepositorySettingsRecord({
+    db,
+    organizationId,
+    projectId: selected.projectId,
+  });
+  if (
+    !(
+      settings &&
+      (settings.legacyDefaultFingerprint === selected.repositoryFingerprint ||
+        settings.repositories.some(
+          (repository) =>
+            repository.repositoryFingerprint === selected.repositoryFingerprint
+        ))
+    )
+  ) {
+    throw buildDispatchExecutionValidationError({
+      code: "project.repository_unavailable",
+      message:
+        "The selected repository is no longer associated with this Project. Choose a current repository before starting work.",
+      executionContext: input.executionContext,
+    });
+  }
+}
+
 export const deliverDispatchMessageToDaemon = async (input: {
   acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
   attemptId: string;
@@ -868,6 +919,11 @@ export const deliverDispatchMessageToDaemon = async (input: {
             return null;
           })
       : null;
+  await assertProjectWorkRepositoryAvailable({
+    env: input.env,
+    executionContext: resolveExecutionContextFromRoute(route),
+    message: input.message,
+  });
   const deliverRequest = await measureDispatchTiming({
     description: "Build the RuntimeTransport delivery request",
     name: "openmeld_dispatch_deliver_request_build",

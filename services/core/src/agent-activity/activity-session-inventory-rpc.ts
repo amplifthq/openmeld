@@ -8,9 +8,12 @@ import type {
   SubmitAgentActivitySessionReconciliationResponse,
   SubmitAgentActivitySessionReconciliationRpcInput,
 } from "@openmeld/schemas/types";
-import { agentActivityDb, type CoreBindings } from "../lib/bindings";
+import { agentActivityDb, type CoreBindings, projectDb } from "../lib/bindings";
 import { resolveOrganizationMembershipById } from "../organizations/organization-context";
-import { readProjectRecord } from "../projects/project-repository";
+import {
+  readProjectRecord,
+  readProjectRepositorySettingsRecord,
+} from "../projects/project-repository";
 import { prepareHumanProjectRequest } from "../projects/project-request-preparation";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { verifyRuntimeReportingAuthority } from "../runtime-reporting/runtime-reporting-authority";
@@ -121,19 +124,13 @@ export async function rpcSubmitAgentActivitySessionReconciliation(
       status: 409,
     });
   }
-  if (
-    !isSessionReconciliationFingerprintCompatible({
-      projectRepositoryFingerprint: project.repositoryFingerprint,
-      reportedRepositoryFingerprint: parsed.data.repositoryFingerprint,
-      result: parsed.data.result,
-    })
-  ) {
-    throw createCoreRpcHttpError({
-      code: "agent_activity.repository_fingerprint_mismatch",
-      reason: "The connected Project repository does not match.",
-      status: 409,
-    });
-  }
+  await assertReconciliationRepositoryAssociated({
+    env,
+    organizationId: parsed.data.organizationId,
+    projectId: parsed.data.projectId,
+    reportedRepositoryFingerprint: parsed.data.repositoryFingerprint,
+    result: parsed.data.result,
+  });
   const connectedComputerId = await readConnectedComputerId({
     db,
     deviceId: runtime.runtime.deviceId,
@@ -187,6 +184,54 @@ export async function rpcSubmitAgentActivitySessionReconciliation(
   }
 }
 
+async function assertReconciliationRepositoryAssociated(input: {
+  env: CoreBindings;
+  organizationId: string;
+  projectId: string;
+  reportedRepositoryFingerprint: string | null;
+  result: SubmitAgentActivitySessionReconciliationRpcInput["result"];
+}): Promise<void> {
+  if (input.result === "disconnected") {
+    return;
+  }
+  const db = projectDb(input.env);
+  const settings = db
+    ? await readProjectRepositorySettingsRecord({
+        db,
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+      })
+    : null;
+  if (!settings) {
+    throw createCoreRpcHttpError({
+      code: "project.store_unavailable",
+      reason: "Project repository settings are unavailable.",
+      status: 503,
+    });
+  }
+  const fingerprints = [
+    ...(settings.legacyDefaultFingerprint
+      ? [settings.legacyDefaultFingerprint]
+      : []),
+    ...settings.repositories.map(
+      (repository) => repository.repositoryFingerprint
+    ),
+  ];
+  if (
+    !isSessionReconciliationFingerprintCompatible({
+      projectRepositoryFingerprints: fingerprints,
+      reportedRepositoryFingerprint: input.reportedRepositoryFingerprint,
+      result: input.result,
+    })
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_activity.repository_fingerprint_mismatch",
+      reason: "The connected Project repository does not match.",
+      status: 409,
+    });
+  }
+}
+
 function canReconcileProject(
   project: Awaited<ReturnType<typeof readProjectRecord>>,
   result: SubmitAgentActivitySessionReconciliationRpcInput["result"]
@@ -197,14 +242,17 @@ function canReconcileProject(
 }
 
 export function isSessionReconciliationFingerprintCompatible(input: {
-  projectRepositoryFingerprint: string | null;
+  projectRepositoryFingerprints: readonly string[];
   reportedRepositoryFingerprint: string | null;
   result: SubmitAgentActivitySessionReconciliationRpcInput["result"];
 }): boolean {
   return (
     input.result === "disconnected" ||
-    input.projectRepositoryFingerprint === null ||
-    input.projectRepositoryFingerprint === input.reportedRepositoryFingerprint
+    input.projectRepositoryFingerprints.length === 0 ||
+    (input.reportedRepositoryFingerprint !== null &&
+      input.projectRepositoryFingerprints.includes(
+        input.reportedRepositoryFingerprint
+      ))
   );
 }
 

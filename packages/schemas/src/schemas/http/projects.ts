@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { linearExternalWorkItemSchema } from "./space-tasks";
 
 export const PROJECT_NAME_MAX_CHARS = 120;
 export const PROJECT_SLUG_MAX_CHARS = 80;
@@ -7,8 +8,7 @@ export const ACTIVE_PROJECT_LIMIT = 500;
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
-const LINEAR_ISSUE_CREATE_ACTION_PATTERN =
-  /(?:^|[._-])(?:create[._-]?issue|issue[._-]?create)(?:$|[._-])/iu;
+const LINEAR_ISSUE_CREATE_ACTION_ID = "linear.create_linear_issue";
 
 export const repositoryFingerprintSchema = z
   .string()
@@ -222,7 +222,48 @@ export const updateProjectCommonAgentsRpcInputSchema = z.strictObject({
 });
 
 export function isLinearIssueCreateAction(actionId: string): boolean {
-  return LINEAR_ISSUE_CREATE_ACTION_PATTERN.test(actionId);
+  return actionId === LINEAR_ISSUE_CREATE_ACTION_ID;
+}
+
+export function readLinearIssueReference(input: {
+  actionInput: Record<string, unknown>;
+  data: unknown;
+}): z.infer<typeof linearExternalWorkItemSchema> | null {
+  const issue =
+    input.data && typeof input.data === "object" && !Array.isArray(input.data)
+      ? (input.data as Record<string, unknown>)
+      : null;
+  if (!issue) {
+    return null;
+  }
+  const parsed = linearExternalWorkItemSchema.safeParse({
+    id: issue.id,
+    identifier: issue.identifier,
+    teamId: input.actionInput.team_id,
+    ...(input.actionInput.project_id === undefined
+      ? {}
+      : { projectId: input.actionInput.project_id }),
+    provider: "linear",
+    url: issue.ticket_url,
+    lastObservedAt: null,
+    lastObservedState: null,
+  });
+  if (!parsed.success) {
+    return null;
+  }
+  try {
+    const url = new URL(parsed.data.url);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "linear.app" ||
+      !url.pathname.split("/").includes(parsed.data.identifier)
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return parsed.data;
 }
 
 export const readProjectIssueRoutingRpcInputSchema = z.strictObject({

@@ -1252,6 +1252,84 @@ describe("Core connector connection ownership", () => {
     );
   });
 
+  it("retains the exact Linear issue receipt for association-only replay", async () => {
+    const fixture = await seedConnectorFixture();
+    const receipt = {
+      id: "73c7947f-5bba-4e67-a668-9392b70cd424",
+      identifier: "PAY-82",
+      teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+      provider: "linear" as const,
+      url: "https://linear.app/acme/issue/PAY-82/fix-payment-retry",
+      lastObservedAt: null,
+      lastObservedState: null,
+    };
+    const command = {
+      actionId: "linear.create_linear_issue",
+      actorProfileId: fixture.ownerProfileId,
+      attribution: {
+        actorProfileId: fixture.ownerProfileId,
+        onBehalfOf: {
+          displayName: "Connector owner",
+          profileId: fixture.ownerProfileId,
+          userId: fixture.ownerA,
+        },
+      },
+      connectionName: "linear-test",
+      db: env.OPENMELD_DB,
+      executionConnection: {
+        connectionName: "linear-test",
+        ownerDisplayName: fixture.memberA,
+        ownerUserId: fixture.memberA,
+        scope: "member" as const,
+        service: "linear" as const,
+      },
+      operationId: `linear-issue-${crypto.randomUUID()}`,
+      organizationId: fixture.organizationA,
+      providerExecutionId: null,
+      requester: {
+        kind: "represented_member" as const,
+        representedUserId: fixture.ownerA,
+      },
+      requestSignature: "c".repeat(64),
+      service: "linear",
+    };
+    await recordCenterAgentConnectorActionOperation({
+      ...command,
+      nowMs: Date.now(),
+      outcome: "attempted",
+    });
+    const completed = await recordCenterAgentConnectorActionOperation({
+      ...command,
+      linearIssueReceipt: receipt,
+      nowMs: Date.now() + 1,
+      outcome: "completed",
+      providerExecutionId: "provider-linear-1",
+    });
+    expect(completed.operation.linearIssueReceipt).toEqual(receipt);
+    const replay = await recordCenterAgentConnectorActionOperation({
+      ...command,
+      linearIssueReceipt: receipt,
+      nowMs: Date.now() + 2,
+      outcome: "completed",
+      providerExecutionId: "provider-linear-1",
+    });
+    expect(replay).toMatchObject({
+      operation: { linearIssueReceipt: receipt },
+      replayed: true,
+    });
+    await expect(
+      recordCenterAgentConnectorActionOperation({
+        ...command,
+        linearIssueReceipt: { ...receipt, identifier: "PAY-83" },
+        nowMs: Date.now() + 3,
+        outcome: "completed",
+        providerExecutionId: "provider-linear-1",
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.connector_action_operation_conflict",
+    });
+  });
+
   it("uses the native delivery as the only requester for a connected Message Channel member", async () => {
     const fixture = await seedConnectorFixture();
     const sharedConnection = await seedSharedConnectorConnection(

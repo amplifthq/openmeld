@@ -643,9 +643,11 @@ function createContext(
 ): ContextRecord {
   const selection = request.selection;
   const preferences: Partial<
-    Pick<ExecutionContextAssignment, "access" | "workspace">
+    Pick<ExecutionContextAssignment, "access" | "projectWork" | "workspace">
   > = selection.mode === "resume" ? {} : selection;
   const forkSource = forkCheckpoint(request, source);
+  const projectWork =
+    preferences.projectWork ?? source?.context.assignment.projectWork;
   return {
     assignment: {
       version: 1,
@@ -655,6 +657,7 @@ function createContext(
         preferences.access ??
         source?.context.assignment.access ??
         "space_context",
+      ...(projectWork ? { projectWork } : {}),
       workspace: preferences.workspace ?? "isolated",
       ...(forkSource ? { forkSource } : {}),
     },
@@ -689,6 +692,11 @@ function assertContextPreferences(
       "execution_context.controller_access_unsupported"
     );
   }
+  if (assignment.projectWork && assignment.access === "space_context") {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_requires_workspace_access"
+    );
+  }
   if (
     assignment.access === "space_context" &&
     assignment.workspace !== "isolated"
@@ -718,6 +726,16 @@ function assertContextPreferences(
   if (selection.workspace && selection.workspace !== assignment.workspace) {
     throw new ExecutionContextSelectionError(
       "execution_context.workspace_changed_requires_new_task"
+    );
+  }
+  if (
+    selection.projectWork &&
+    (selection.projectWork.projectId !== assignment.projectWork?.projectId ||
+      selection.projectWork.repositoryFingerprint !==
+        assignment.projectWork?.repositoryFingerprint)
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_changed_requires_new_task"
     );
   }
 }

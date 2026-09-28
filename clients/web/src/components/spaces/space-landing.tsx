@@ -1915,6 +1915,7 @@ function SpaceLandingReady({
 								currentSpaceControls={currentSpaceControls}
 								input={input}
 								onShowMessageInMain={onShowMessageInMain}
+								organizationId={organizationId}
 								pendingActionSurface={threadPendingActionSurface}
 								prepareSetupHref={prepareSetupHref}
 								state={state}
@@ -2345,6 +2346,7 @@ function SpaceLandingConversation({
 			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
 			onViewedThroughTs={controller.onConversationViewedThroughTs}
 			onWakeStopRequest={controller.onWakeStopRequest}
+			organizationId={organizationId}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
 			prepareSetupHref={prepareSetupHref}
@@ -2789,6 +2791,7 @@ function AgentOwnerDirectMessageJoinDialog(input: {
 }
 
 function SpaceLandingSecondaryPanels({
+	organizationId,
 	agentDirectConversationKind,
 	agentProfileEditContext,
 	composerProfileControl,
@@ -2801,6 +2804,7 @@ function SpaceLandingSecondaryPanels({
 	prepareSetupHref,
 	state,
 }: {
+	organizationId: string | null;
 	agentDirectConversationKind: ReturnType<
 		typeof resolveAgentDirectConversationKind
 	>;
@@ -2974,6 +2978,7 @@ function SpaceLandingSecondaryPanels({
 				}
 				onWakeStopRequest={controller.onWakeStopRequest}
 				open={controller.threadPanelOpen}
+				organizationId={organizationId}
 				orgSlug={input.orgSlug}
 				pendingActionSurface={pendingActionSurface}
 				prepareSetupHref={prepareSetupHref}

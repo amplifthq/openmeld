@@ -350,6 +350,15 @@ its selected access. Every selection is scoped to the exact requester,
 Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
+An explicit Project code-work selection freezes one Project ID and repository
+fingerprint on that Context. RuntimeCoordinator requires a v4-capable local
+adapter before admitting this selection. Core verifies the Project association
+at delivery, while the Service verifies the owner-local matching folder and
+file access. Profile Default Project and a Space's related Projects remain
+suggestions, never alternate execution targets when the selected repository is
+unavailable. The existing exclusive local workspace slot serializes
+current-folder writers across Project labels; isolated Contexts use separate
+worktrees.
 
 Core retains each accepted Wake's context association and completed native
 history checkpoint independently of the in-flight Head lifecycle. Head retirement

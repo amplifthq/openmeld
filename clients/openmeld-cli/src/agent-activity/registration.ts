@@ -10,6 +10,8 @@ export type ProjectArchiveOptions = ProjectOutputOptions & { yes?: boolean };
 export type ProjectBindOptions = ProjectOutputOptions & {
   allowUnverified?: boolean;
   path?: string;
+  repository?: string;
+  share?: boolean;
 };
 export type ProjectUnbindOptions = ProjectOutputOptions & {
   organization?: string;
@@ -258,6 +260,12 @@ export function registerProjectCommands(
     .description("Opt this local repository into one Project.")
     .argument("<project-slug>", "Project slug")
     .option("--path <path>", "Local repository path (defaults to cwd)")
+    .option("--repository <url>", "Project repository URL for this folder")
+    .option(
+      "--share",
+      "Confirm a previously reported same-Organization folder share",
+      false
+    )
     .option(
       "--allow-unverified",
       "Confirm connecting a non-Git folder without automatic matching",

@@ -1,61 +1,13 @@
 import {
   listSpaceTasksResponseSchema,
+  readLinearIssueReference,
   SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
   spaceTaskExternalWorkItemIdentityKey,
-  spaceTaskExternalWorkItemSchema,
   spaceTaskMutationReceiptSchema,
 } from "@openmeld/schemas";
-import type {
-  SpaceTask,
-  SpaceTaskExternalWorkItem,
-} from "@openmeld/schemas/types";
+import type { SpaceTask } from "@openmeld/schemas/types";
 import type { RemoteAgentCoreWorkerBinding } from "./callback-context";
 import type { buildRemoteAgentToolContext } from "./tool-context";
-
-type LinearWorkItem = Extract<
-  SpaceTaskExternalWorkItem,
-  { provider: "linear" }
->;
-
-export function readLinearIssueReference(input: {
-  actionInput: Record<string, unknown>;
-  data: unknown;
-}): LinearWorkItem | null {
-  const outer = asRecord(input.data);
-  const payload = asRecord(outer?.issueCreate) ?? outer;
-  const issue = asRecord(payload?.issue) ?? payload;
-  if (!issue || payload?.success === false) {
-    return null;
-  }
-  const parsed = spaceTaskExternalWorkItemSchema.safeParse({
-    id: issue.id,
-    identifier: issue.identifier,
-    teamId: input.actionInput.teamId,
-    ...(input.actionInput.projectId === undefined
-      ? {}
-      : { projectId: input.actionInput.projectId }),
-    provider: "linear",
-    url: issue.url,
-    lastObservedAt: null,
-    lastObservedState: null,
-  });
-  if (!parsed.success || parsed.data.provider !== "linear") {
-    return null;
-  }
-  try {
-    const url = new URL(parsed.data.url);
-    if (
-      url.protocol !== "https:" ||
-      url.hostname !== "linear.app" ||
-      !url.pathname.split("/").includes(parsed.data.identifier)
-    ) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-  return parsed.data;
-}
 
 export async function attachCreatedLinearIssueToSourceTask(input: {
   actionInput: Record<string, unknown>;
@@ -163,10 +115,4 @@ export async function attachCreatedLinearIssueToSourceTask(input: {
       task: null,
     };
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }

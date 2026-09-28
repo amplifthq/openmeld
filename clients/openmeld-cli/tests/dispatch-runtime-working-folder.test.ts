@@ -1,3 +1,4 @@
+import { executionContextTaskSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaemonProfileRouteConfig } from "../src/local-service/core/types";
 import {
@@ -7,11 +8,16 @@ import {
 } from "../src/local-service/execution/dispatch-runtime-preparation";
 
 const {
+  listProjectConnectionsWithStatus,
   resolveCurrentEffectiveProfileWorkingFolderRuntime,
   resolveEffectiveProfileWorkingFolderRuntime,
 } = vi.hoisted(() => ({
+  listProjectConnectionsWithStatus: vi.fn(),
   resolveCurrentEffectiveProfileWorkingFolderRuntime: vi.fn(),
   resolveEffectiveProfileWorkingFolderRuntime: vi.fn(),
+}));
+vi.mock("../src/agent-activity/project-bindings", () => ({
+  listProjectConnectionsWithStatus,
 }));
 const CURRENT_WORKING_FOLDER_FACT_ERROR_PATTERN =
   /^profile\.working_folder\.current_fact_/u;
@@ -23,6 +29,8 @@ vi.mock("../src/profile-workspace/effective-runtime-resolution", () => ({
 
 describe("dispatch runtime working folder", () => {
   beforeEach(() => {
+    listProjectConnectionsWithStatus.mockReset();
+    listProjectConnectionsWithStatus.mockResolvedValue([]);
     resolveCurrentEffectiveProfileWorkingFolderRuntime.mockReset();
     resolveEffectiveProfileWorkingFolderRuntime.mockReset();
     resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValue(
@@ -263,6 +271,88 @@ describe("dispatch runtime working folder", () => {
     });
   });
 
+  it("uses the exact selected repository connection instead of the Profile default folder", async () => {
+    const selectedFingerprint = `sha256:${"a".repeat(64)}`;
+    listProjectConnectionsWithStatus.mockResolvedValue([
+      {
+        bindingGeneration: "generation-repository-b",
+        boundAtMs: 1,
+        isDefault: false,
+        organizationId: "organization-1",
+        ownerUserId: "user-1",
+        projectId: "project-1",
+        projectSlug: "payments",
+        repositoryFingerprint: selectedFingerprint,
+        repositoryPath: "/tmp/repository-b",
+        status: "available",
+      },
+    ]);
+    const routeConfig = createCurrentRoute();
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: "project-1",
+        defaultProjectIdWasProvided: true,
+        executionContext: createProjectExecutionContext(selectedFingerprint),
+        ownerUserId: "user-1",
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).resolves.toEqual({
+      providerRuntimeWorkingDirectory: "/tmp/repository-b",
+    });
+    expect(listProjectConnectionsWithStatus).toHaveBeenCalledWith({
+      organizationId: "organization-1",
+    });
+  });
+
+  it("blocks selected code work when no local folder matches its Project and repository", async () => {
+    const routeConfig = createCurrentRoute();
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: "project-1",
+        defaultProjectIdWasProvided: true,
+        executionContext: createProjectExecutionContext(
+          `sha256:${"b".repeat(64)}`
+        ),
+        ownerUserId: "user-1",
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).rejects.toMatchObject({ code: "project.local_connection.missing" });
+    listProjectConnectionsWithStatus.mockResolvedValue([
+      {
+        bindingGeneration: "another-owner-binding",
+        boundAtMs: 1,
+        isDefault: true,
+        organizationId: "organization-1",
+        ownerUserId: "user-2",
+        projectId: "project-1",
+        projectSlug: "payments",
+        repositoryFingerprint: `sha256:${"b".repeat(64)}`,
+        repositoryPath: "/tmp/another-owner-repository",
+        status: "available",
+      },
+    ]);
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...createDispatchIdentityInput(routeConfig),
+        defaultProjectId: "project-1",
+        defaultProjectIdWasProvided: true,
+        executionContext: createProjectExecutionContext(
+          `sha256:${"b".repeat(64)}`
+        ),
+        ownerUserId: "user-1",
+        nowMs: 10_000,
+        routeConfig,
+        targetProfileId: "agt-1",
+      })
+    ).rejects.toMatchObject({ code: "project.local_connection.missing" });
+  });
+
   it("rejects a delivered Default Project that disagrees with the current route and requests a refresh", async () => {
     const routeConfig = createCurrentRoute();
     const onCurrentWorkingFolderFactRejected = vi.fn();
@@ -286,6 +376,25 @@ describe("dispatch runtime working folder", () => {
     ).not.toHaveBeenCalled();
   });
 });
+
+function createProjectExecutionContext(repositoryFingerprint: string) {
+  return executionContextTaskSchema.parse({
+    version: 1,
+    id: "11111111-1111-4111-8111-111111111111",
+    scope: {
+      organizationId: "organization-1",
+      requesterProfileId: "human-1",
+      spaceId: "space-1",
+      targetProfileId: "agt-1",
+      threadId: null,
+    },
+    access: "workspace",
+    projectWork: { projectId: "project-1", repositoryFingerprint },
+    workspace: "current",
+    nativeConversationId: null,
+    runtimeWorkspaceFingerprint: null,
+  });
+}
 
 function createCurrentRoute(
   overrides: {

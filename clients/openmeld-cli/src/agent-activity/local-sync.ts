@@ -210,6 +210,7 @@ async function submitDueAgentActivity(
     !(
       auth?.state === "valid" &&
       auth.session &&
+      auth.session.user?.id &&
       canAttachAuthTokenToRequest(auth.session, serviceContract.gatewayUrl)
     )
   ) {
@@ -219,6 +220,28 @@ async function submitDueAgentActivity(
       rootDir: input?.rootDir,
     });
     return unavailable(input, observedCount, "auth_unavailable");
+  }
+  const ownerProjectKeys = new Set(
+    bindings
+      .filter(
+        (binding) =>
+          !binding.ownerUserId || binding.ownerUserId === auth.session.user.id
+      )
+      .map((binding) => `${binding.organizationId}\u0000${binding.projectId}`)
+  );
+  const sendRecords = records.filter((record) =>
+    ownerProjectKeys.has(
+      `${record.event.organizationId}\u0000${record.event.projectId}`
+    )
+  );
+  const withheldRecords = records.filter(
+    (record) => !sendRecords.includes(record)
+  );
+  if (withheldRecords.length > 0) {
+    await deferAgentActivityOutbox({
+      records: withheldRecords,
+      rootDir: input?.rootDir,
+    });
   }
   try {
     const foundation = createCliApiClientFoundation(serviceContract.gatewayUrl);
@@ -234,7 +257,7 @@ async function submitDueAgentActivity(
       )
     ) {
       await deferLocalReportingOutboxes({
-        activityRecords: records,
+        activityRecords: sendRecords,
         controllerTaskEvents,
         rootDir: input?.rootDir,
       });
@@ -259,22 +282,22 @@ async function submitDueAgentActivity(
       ).length;
     }
     const response =
-      records.length === 0
+      sendRecords.length === 0
         ? null
         : await api.submitAgentActivityEvents({
             deviceId: serviceContract.deviceId,
-            events: records.map((record) => record.event),
+            events: sendRecords.map((record) => record.event),
             lane: serviceContract.lane,
             openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
           });
     if (response) {
       await applyAgentActivitySubmissionResults({
-        records,
+        records: sendRecords,
         results: response.events,
         rootDir: input?.rootDir,
       });
       await disableRejectedAgentActivityBindings({
-        records,
+        records: sendRecords,
         results: response.events,
         rootDir: input?.rootDir,
       });
@@ -287,9 +310,9 @@ async function submitDueAgentActivity(
       controllerTaskHealth,
       health,
       observedCount,
-      reason: null,
+      reason: withheldRecords.length > 0 ? "binding_owner_mismatch" : null,
       sessionInventory: idleSessionInventoryResult(),
-      status: "submitted",
+      status: withheldRecords.length > 0 ? "unavailable" : "submitted",
       submittedCount:
         response?.events.filter(
           (event) => event.outcome === "accepted" || event.outcome === "reused"
@@ -297,7 +320,7 @@ async function submitDueAgentActivity(
     };
   } catch (error) {
     await deferLocalReportingOutboxes({
-      activityRecords: records,
+      activityRecords: sendRecords,
       controllerTaskEvents,
       rootDir: input?.rootDir,
     });

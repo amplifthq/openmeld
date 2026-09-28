@@ -10,7 +10,9 @@ import {
   listConnectorActionCatalog,
   REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
   type RemoteAgentConnectorToolName,
+  runAndFinalizeConnectorAction,
 } from "../agent-core/connector-tools";
+import { buildRemoteAgentToolContext } from "../agent-core/tool-context";
 import {
   listOpenConnectorActions,
   searchOpenConnectorActions,
@@ -1110,6 +1112,186 @@ describe("Remote Agent generic App tools", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(centerAgentReadConnectorActionOperation).toHaveBeenCalledTimes(1);
     expect(centerAgentResolveConnectorConnection).not.toHaveBeenCalled();
+  });
+
+  it("reuses a completed Linear issue receipt without invoking OpenConnector again", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        space: {
+          ...base.turnEnvelope.space,
+          kind: "space",
+          isCenterAgentDm: false,
+        },
+        trigger: { source: "space_wake" },
+      },
+    });
+    const operationId = "linear-create-payment-issue";
+    const connectionName =
+      "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__linear";
+    const receipt = {
+      id: "73c7947f-5bba-4e67-a668-9392b70cd424",
+      identifier: "PAY-82",
+      teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+      provider: "linear" as const,
+      url: "https://linear.app/acme/issue/PAY-82/fix-payment-retry",
+      lastObservedAt: null,
+      lastObservedState: null,
+    };
+    const fetchMock = vi.fn<typeof fetch>();
+    const record = vi.fn(async () => ({
+      attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+      operationId,
+      providerExecutionId: "provider-linear-1",
+      recorded: true,
+      replayed: true,
+      status: "completed" as const,
+    }));
+    const completedOperation = {
+      actionId: "linear.create_linear_issue",
+      connectionName,
+      createdAtMs: TEST_NOW_MS - 3 * 24 * 60 * 60 * 1000,
+      executionConnection: {
+        connectionName,
+        ownerDisplayName: "Felix",
+        ownerUserId: "user_1",
+        scope: "member",
+        service: "linear",
+      },
+      linearIssueReceipt: receipt,
+      operationId,
+      providerExecutionId: "provider-linear-1",
+      service: "linear",
+      status: "completed",
+    };
+    const read = vi.fn(async () => ({ operation: completedOperation }));
+    const listSpaceTasks = vi.fn();
+    const mutateSpaceTask = vi.fn();
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation: read as never,
+        centerAgentRecordConnectorActionOperation: record as never,
+        listSpaceTasks,
+        mutateSpaceTask,
+      },
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+    });
+    const result = await executeTool(tools, "openmeld_execute_app_action", {
+      actionId: "linear.create_linear_issue",
+      input: { team_id: receipt.teamId, title: "Fix payment retry" },
+      operationId,
+      service: "linear",
+    });
+    expect(result).toMatchObject({
+      data: {
+        id: receipt.id,
+        identifier: receipt.identifier,
+        ticket_url: receipt.url,
+      },
+      replayed: true,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(listSpaceTasks).not.toHaveBeenCalled();
+    expect(mutateSpaceTask).not.toHaveBeenCalled();
+    expect(record).toHaveBeenCalledOnce();
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "attempted" })
+    );
+    read.mockResolvedValueOnce({
+      operation: {
+        ...completedOperation,
+        createdAtMs: Date.now() - 24 * 60 * 60 * 1000,
+        operationId: "linear-old-pending",
+        status: "pending",
+      },
+    });
+    await expect(
+      executeTool(tools, "openmeld_execute_app_action", {
+        actionId: "linear.create_linear_issue",
+        input: { team_id: receipt.teamId, title: "Fix payment retry" },
+        operationId: "linear-old-pending",
+        service: "linear",
+      })
+    ).rejects.toThrow("linear.issue_outcome_needs_reconciliation");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("saves the exact Linear issue reference with the completed operation", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const issue = {
+      id: "73c7947f-5bba-4e67-a668-9392b70cd424",
+      identifier: "PAY-82",
+      ticket_url: "https://linear.app/acme/issue/PAY-82/fix-payment-retry",
+    };
+    const teamId = "a86813e7-c458-4af2-8cfa-73a796d81201";
+    const record = vi.fn(async () => ({
+      attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+      operationId: "linear-create-payment-issue",
+      providerExecutionId: "provider-linear-1",
+      recorded: true,
+      replayed: false,
+      status: "completed" as const,
+    }));
+    const toolContext = await buildRemoteAgentToolContext({
+      storage,
+      submissionId: ACK.submissionId,
+      toolName: "openmeld_execute_app_action",
+    });
+    await runAndFinalizeConnectorAction({
+      connectionName: "linear-test",
+      dependencies: {
+        connectorExecution: {
+          baseUrl: "https://connectors.example.test",
+          fetch: vi.fn<typeof fetch>(async () =>
+            Response.json({
+              data: issue,
+              message: "OK",
+              meta: {
+                actionId: "linear.create_linear_issue",
+                auditPersisted: true,
+                executionId: "provider-linear-1",
+              },
+              success: true,
+            })
+          ),
+          runtimeToken: "test-runtime-token",
+        },
+        coreWorker: {
+          centerAgentRecordConnectorActionOperation: record as never,
+        },
+        storage,
+        submissionId: ACK.submissionId,
+      },
+      request: {
+        actionId: "linear.create_linear_issue",
+        input: { team_id: teamId, title: "Fix payment retry" },
+        operationId: "linear-create-payment-issue",
+        service: "linear",
+      },
+      requestSignature: "c".repeat(64),
+      toolContext,
+    });
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        linearIssueReceipt: {
+          id: issue.id,
+          identifier: issue.identifier,
+          teamId,
+          provider: "linear",
+          url: issue.ticket_url,
+          lastObservedAt: null,
+          lastObservedState: null,
+        },
+        outcome: "completed",
+      })
+    );
   });
 
   it("requires a separate interactive confirmation before a discovered delete action", async () => {

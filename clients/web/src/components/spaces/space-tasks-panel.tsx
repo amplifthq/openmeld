@@ -48,6 +48,7 @@ const ACTIVE_COLUMNS = [
 
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+	const [selectedProjectId, setSelectedProjectId] = useState("");
 	const [phase, setPhase] = useState<SpaceTaskPhase | undefined>();
 	const {
 		addAndAssignTask,
@@ -60,6 +61,11 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 		projects,
 		tasksQuery,
 	} = useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
+	const effectiveProjectId = projects.some(
+		(project) => project.id === selectedProjectId
+	)
+		? selectedProjectId
+		: "";
 
 	if (tasksQuery.isPending) {
 		return <SpaceTasksSkeleton />;
@@ -85,7 +91,10 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 		);
 	}
 
-	const tasks = tasksQuery.data?.tasks ?? [];
+	const tasks = (tasksQuery.data?.tasks ?? []).filter(
+		(task) =>
+			!effectiveProjectId || task.projectIds.includes(effectiveProjectId)
+	);
 	const selectedTask = resolveSelectedTask(
 		tasks,
 		selectedTaskId,
@@ -105,7 +114,13 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 			<div className="mx-auto max-w-[1600px] p-4 sm:p-6">
 				<TaskBoardHeader
 					onPhaseChange={setPhase}
+					onProjectChange={(projectId) => {
+						setSelectedProjectId(projectId);
+						setSelectedTaskId(null);
+					}}
 					phase={phase}
+					projects={projects}
+					selectedProjectId={effectiveProjectId}
 					tasks={tasks}
 					truncated={tasksQuery.data?.truncated ?? false}
 				/>
@@ -118,30 +133,11 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				) : null}
 
 				{tasks.length === 0 ? (
-					<div className="flex min-h-80 items-center justify-center rounded-lg border border-border border-dashed px-6 text-center">
-						<div className="max-w-md">
-							<CheckCircleIcon
-								aria-hidden="true"
-								className="mx-auto size-8 text-muted-foreground"
-							/>
-							<h3 className="mt-3 font-medium text-sm">
-								{phase
-									? `No ${formatSpaceTaskPhase(phase)} Tasks`
-									: "No Tasks yet"}
-							</h3>
-							<p className="mt-1 text-muted-foreground text-sm leading-6">
-								{phase ? (
-									"Choose another phase to see more work."
-								) : (
-									<>
-										Tasks begin in Messages when someone gives a person or Agent
-										a clear deliverable. Small questions and quick actions stay
-										in the conversation.
-									</>
-								)}
-							</p>
-						</div>
-					</div>
+					<TaskBoardEmptyState
+						phase={phase}
+						selectedProjectId={effectiveProjectId}
+						truncated={tasksQuery.data?.truncated ?? false}
+					/>
 				) : (
 					<>
 						<div className="grid items-start gap-4 md:grid-cols-3">
@@ -275,9 +271,50 @@ function isTaskPending(
 	return task !== null && pendingTaskId === task.taskId;
 }
 
+function TaskBoardEmptyState(input: {
+	phase?: SpaceTaskPhase;
+	selectedProjectId: string;
+	truncated: boolean;
+}) {
+	let title = "No Tasks yet";
+	let description =
+		"Tasks begin in Messages when someone gives a person or Agent a clear deliverable. Small questions and quick actions stay in the conversation.";
+	if (input.phase) {
+		title = `No ${formatSpaceTaskPhase(input.phase)} Tasks`;
+		description = "Choose another phase to see more work.";
+	}
+	if (input.selectedProjectId) {
+		if (!input.phase) {
+			title = input.truncated
+				? "No matching Tasks in this page"
+				: "No Tasks for this Project";
+		}
+		description = input.truncated
+			? "Older Tasks may not be included. Choose a phase or clear the Project filter to inspect more work."
+			: "Choose another Project or clear the filter to see more work in this Space.";
+	}
+	return (
+		<div className="flex min-h-80 items-center justify-center rounded-lg border border-border border-dashed px-6 text-center">
+			<div className="max-w-md">
+				<CheckCircleIcon
+					aria-hidden="true"
+					className="mx-auto size-8 text-muted-foreground"
+				/>
+				<h3 className="mt-3 font-medium text-sm">{title}</h3>
+				<p className="mt-1 text-muted-foreground text-sm leading-6">
+					{description}
+				</p>
+			</div>
+		</div>
+	);
+}
+
 function TaskBoardHeader(input: {
+	onProjectChange: (projectId: string) => void;
 	onPhaseChange: (phase: SpaceTaskPhase | undefined) => void;
 	phase?: SpaceTaskPhase;
+	projects: readonly { id: string; name: string }[];
+	selectedProjectId: string;
 	tasks: readonly SpaceTask[];
 	truncated: boolean;
 }) {
@@ -296,29 +333,48 @@ function TaskBoardHeader(input: {
 				<h2 className="font-semibold text-base">Tasks</h2>
 				<p className="mt-1 text-muted-foreground text-sm">{summary}</p>
 			</div>
-			<label className="text-muted-foreground text-xs">
-				Phase
-				<select
-					className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm"
-					onChange={(event) =>
-						input.onPhaseChange(
-							event.target.value
-								? (event.target.value as SpaceTaskPhase)
-								: undefined
-						)
-					}
-					value={input.phase ?? ""}
-				>
-					<option value="">All phases</option>
-					{(
-						["to_do", "in_progress", "in_review", "done", "canceled"] as const
-					).map((value) => (
-						<option key={value} value={value}>
-							{formatSpaceTaskPhase(value)}
-						</option>
-					))}
-				</select>
-			</label>
+			<div className="flex gap-3">
+				{input.projects.length > 0 ? (
+					<label className="text-muted-foreground text-xs">
+						Project
+						<select
+							className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm"
+							onChange={(event) => input.onProjectChange(event.target.value)}
+							value={input.selectedProjectId}
+						>
+							<option value="">All Projects</option>
+							{input.projects.map((project) => (
+								<option key={project.id} value={project.id}>
+									{project.name}
+								</option>
+							))}
+						</select>
+					</label>
+				) : null}
+				<label className="text-muted-foreground text-xs">
+					Phase
+					<select
+						className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm"
+						onChange={(event) =>
+							input.onPhaseChange(
+								event.target.value
+									? (event.target.value as SpaceTaskPhase)
+									: undefined
+							)
+						}
+						value={input.phase ?? ""}
+					>
+						<option value="">All phases</option>
+						{(
+							["to_do", "in_progress", "in_review", "done", "canceled"] as const
+						).map((value) => (
+							<option key={value} value={value}>
+								{formatSpaceTaskPhase(value)}
+							</option>
+						))}
+					</select>
+				</label>
+			</div>
 		</header>
 	);
 }

@@ -77,12 +77,59 @@ describe("Project issue action routing", () => {
         },
         requestText:
           "Create a GitHub issue in the repo for https://github.com/amplifthq/payments/pull/82",
+        requesterCanOverride: true,
       })
     ).toMatchObject({
       basis: "explicit_request",
       projectId: project.id,
       projectRevision: null,
     });
+  });
+
+  it("does not accept an Agent-authored provider override of a Project default", () => {
+    expect(() =>
+      resolveProjectIssueAction({
+        projects: [project],
+        proposedDestination: {
+          provider: "github",
+          owner: "amplifthq",
+          repo: "payments",
+        },
+        requestText:
+          "Create a GitHub issue in the repo for https://github.com/amplifthq/payments/pull/82",
+        requesterCanOverride: false,
+      })
+    ).toThrow("Only the requester can choose github instead of Linear");
+  });
+
+  it("does not treat negated or quoted issue instructions as a requester override", () => {
+    const requests = [
+      "Do not create a GitHub issue. File an issue about https://github.com/amplifthq/payments/pull/82.",
+      "File an issue about https://github.com/amplifthq/payments/pull/82\n    Create a GitHub issue in amplifthq/payments",
+      "File an issue about https://github.com/amplifthq/payments/pull/82. The old request said `Create a GitHub issue in amplifthq/payments`.",
+      'File an issue about https://github.com/amplifthq/payments/pull/82. The old request said "Create a GitHub issue in amplifthq/payments".',
+      "File an issue about https://github.com/amplifthq/payments/pull/82.\n~~~text\nCreate a GitHub issue in amplifthq/payments\n~~~",
+    ];
+    for (const requestText of requests) {
+      expect(
+        resolveProjectIssueAction({
+          projects: [project],
+          proposedDestination: linearDestination,
+          requestText,
+        })
+      ).toMatchObject({ basis: "project_default", projectId: project.id });
+      expect(() =>
+        resolveProjectIssueAction({
+          projects: [project],
+          proposedDestination: {
+            provider: "github",
+            owner: "amplifthq",
+            repo: "payments",
+          },
+          requestText,
+        })
+      ).toThrow("New issues for Payments go to Linear");
+    }
   });
 
   it("blocks a shared repository when Project attribution would change the destination", () => {
@@ -114,21 +161,31 @@ describe("Project issue action routing", () => {
   });
 
   it("uses an exact request target without requiring a Project", () => {
+    const proposedDestination = {
+      provider: "github" as const,
+      owner: "amplifthq",
+      repo: "openmeld",
+    };
     expect(
       resolveProjectIssueAction({
         projects: [],
-        proposedDestination: {
-          provider: "github",
-          owner: "amplifthq",
-          repo: "openmeld",
-        },
+        proposedDestination,
         requestText: "Create an issue in amplifthq/openmeld for this bug.",
+        requesterCanOverride: true,
       })
     ).toMatchObject({
       basis: "object_context",
       projectId: null,
       projectRevision: null,
     });
+    expect(() =>
+      resolveProjectIssueAction({
+        projects: [],
+        proposedDestination,
+        requestText: "Create an issue in amplifthq/openmeld for this bug.",
+        requesterCanOverride: false,
+      })
+    ).toThrow("The issue destination is not established");
   });
 
   it("keeps a Task's Project default when the cited PR belongs to another Project", () => {

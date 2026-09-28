@@ -12,8 +12,13 @@ import type { ProjectIssueRoutingCandidate } from "./project-repository";
 
 type Candidate = ProjectIssueRoutingCandidate;
 const REQUEST_LINE_BREAK_PATTERN = /\r?\n/gu;
-const CODE_FENCE_PATTERN = /^\s*```/u;
+const CODE_FENCE_PATTERN = /^\s*(?:```|~~~)/u;
 const QUOTED_LINE_PATTERN = /^\s*>/u;
+const INDENTED_CODE_PATTERN = /^(?: {4}|\t)/u;
+const INLINE_CODE_PATTERN = /(`+)([\s\S]*?)\1/gu;
+const QUOTED_INSTRUCTION_PATTERN = /"[^"\n]*"|“[^”\n]*”/gu;
+const NEGATED_ISSUE_ACTION_PATTERN =
+  /(?:\b(?:do\s+not|don't|does\s+not|doesn't|should\s+not|must\s+not|never|avoid|instead\s+of)\s+|不要|别|不能|禁止)\s*$/iu;
 const URL_PATTERN = /https?:\/\/\S+/giu;
 const WORD_CHARACTER_PATTERN = /[a-z0-9]/iu;
 const GITHUB_REPOSITORY_URL_PATTERN =
@@ -25,14 +30,14 @@ const EXPLICIT_ISSUE_PROVIDER_PATTERNS = [
   /(?:\b(?:create|file|open|raise|log|track)\b|创建|新建|提交).{0,45}(?:\b(?:issue|ticket|bug)\b|工单|问题).{0,65}(?:\b(?:in|on|to)\s+(?:(?:the|this|that)\s+)?|在|到)(?:\s|这个|该)*(github|linear)\b/giu,
 ] as const;
 
-export async function readLocalProjectIssueRequestText(input: {
+export async function readLocalProjectIssueRequest(input: {
   context: OpenMeldRequestContext;
   dispatchId: string | null;
   env: CoreBindings;
   sourceSignalId: string | null;
   sourceSpaceId: string | null;
   targetProfileId: string;
-}): Promise<string> {
+}): Promise<{ requesterCanOverride: boolean; text: string }> {
   if (!(input.dispatchId && input.sourceSignalId && input.sourceSpaceId)) {
     throw routingError(
       "project.issue_request_unavailable",
@@ -91,13 +96,17 @@ export async function readLocalProjectIssueRequestText(input: {
       "The original issue request is unavailable."
     );
   }
-  return signal.data.text;
+  return {
+    requesterCanOverride: signal.profile.kind === "human",
+    text: signal.data.text,
+  };
 }
 
 export function resolveProjectIssueAction(input: {
   projects: Candidate[];
   proposedDestination: ProjectIssueDestination;
   requestText: string;
+  requesterCanOverride?: boolean;
   taskProjectIds?: string[];
 }): ResolveProjectIssueActionResponse {
   const requestText = readTopLevelRequestText(input.requestText);
@@ -121,14 +130,27 @@ export function resolveProjectIssueAction(input: {
     );
   }
   const project = candidates[0] ?? null;
-  const explicitProvider = readExplicitIssueProvider(requestText);
+  const explicitProvider = readExplicitIssueProvider(
+    requestText.replace(QUOTED_INSTRUCTION_PATTERN, "")
+  );
   if (explicitProvider === "ambiguous") {
     throw routingError(
       "project.issue_destination_ambiguous",
       "The request names both GitHub and Linear for a new issue. Choose one destination."
     );
   }
-  if (explicitProvider) {
+  if (
+    explicitProvider &&
+    input.requesterCanOverride !== true &&
+    project?.routing.destination &&
+    input.proposedDestination.provider !== project.routing.destination.provider
+  ) {
+    throw routingError(
+      "project.issue_requester_override_required",
+      `Only the requester can choose ${explicitProvider} instead of ${describeDestination(project.routing.destination)}. Ask them to confirm the exact issue destination.`
+    );
+  }
+  if (explicitProvider && input.requesterCanOverride === true) {
     if (input.proposedDestination.provider !== explicitProvider) {
       throw routingError(
         "project.issue_destination_mismatch",
@@ -164,6 +186,7 @@ export function resolveProjectIssueAction(input: {
     };
   }
   if (
+    input.requesterCanOverride === true &&
     hasGitHubObjectTarget(
       input.proposedDestination,
       referencedRepositories,
@@ -246,10 +269,14 @@ function readTopLevelRequestText(value: string): string {
       inCodeFence = !inCodeFence;
       continue;
     }
-    if (inCodeFence || QUOTED_LINE_PATTERN.test(line)) {
+    if (
+      inCodeFence ||
+      QUOTED_LINE_PATTERN.test(line) ||
+      INDENTED_CODE_PATTERN.test(line)
+    ) {
       continue;
     }
-    lines.push(line);
+    lines.push(line.replace(INLINE_CODE_PATTERN, ""));
   }
   return lines.join("\n").trim();
 }
@@ -296,6 +323,13 @@ function readExplicitIssueProvider(
   const matches: Array<"github" | "linear"> = [];
   for (const pattern of EXPLICIT_ISSUE_PROVIDER_PATTERNS) {
     for (const match of text.matchAll(pattern)) {
+      const precedingText = text.slice(
+        Math.max(0, (match.index ?? 0) - 32),
+        match.index
+      );
+      if (NEGATED_ISSUE_ACTION_PATTERN.test(precedingText)) {
+        continue;
+      }
       matches.push(match[1]?.toLowerCase() === "github" ? "github" : "linear");
     }
   }

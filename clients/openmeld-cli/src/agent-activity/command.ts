@@ -3,6 +3,7 @@ import {
   createAgentActivityApi,
   createProjectsApi,
 } from "@openmeld/api-client";
+import { buildCanonicalRepositoryUrl } from "@openmeld/projects";
 import {
   agentActivityInventorySessionOriginSchema,
   agentActivityInventorySessionStatusSchema,
@@ -53,6 +54,7 @@ import {
   bindProject,
   listProjectBindings,
   listProjectConnectionsWithStatus,
+  ProjectBindingOperationError,
   unbindProject,
 } from "./project-bindings";
 import {
@@ -339,11 +341,16 @@ export async function purgeLocalProject(binding: {
 }
 
 export function toPublicAgentActivityBinding<
-  T extends { bindingGeneration: string; isDefault?: boolean },
+  T extends {
+    bindingGeneration: string;
+    isDefault?: boolean;
+    ownerUserId?: string;
+  },
 >(binding: T) {
   const {
     bindingGeneration: _bindingGeneration,
     isDefault: _isDefault,
+    ownerUserId: _ownerUserId,
     ...publicBinding
   } = binding;
   return publicBinding;
@@ -354,6 +361,8 @@ export async function runProjectsBind(
     allowUnverified?: boolean;
     path?: string;
     projectSlug: string;
+    repository?: string;
+    share?: boolean;
   }
 ): Promise<void> {
   await runProjectCommand(input, "bind", async (context) => {
@@ -370,11 +379,16 @@ export async function runProjectsBind(
     if (!project || project.archivedAtMs !== null) {
       throw new Error(`Active Project "${projectSlug}" was not found.`);
     }
+    const selectedFingerprint = await resolveProjectBindFingerprint(
+      context,
+      project,
+      input.repository
+    );
     const requestedPath = input.path ?? process.cwd();
     const connection = await validateLocalProjectConnectionPath({
       allowUnverifiedNonGit: input.allowUnverified === true,
       declaredPath: requestedPath,
-      projectRepositoryFingerprint: project.repositoryFingerprint,
+      projectRepositoryFingerprint: selectedFingerprint,
     }).catch((error: unknown) => {
       if (
         error instanceof LocalProjectConnectionError &&
@@ -388,13 +402,18 @@ export async function runProjectsBind(
       throw error;
     });
     await assertProjectBindingProducerCompatible();
-    const binding = await bindProject({
+    const bindingInput = {
       organizationId: context.organizationId,
+      ownerUserId: context.ownerUserId,
       projectId: project.id,
       projectSlug: project.slug,
       repositoryFingerprint: connection.repositoryFingerprint,
       repositoryPath: connection.canonicalPath,
-    });
+    };
+    const binding = await bindProjectForCommand(
+      bindingInput,
+      input.share === true
+    );
     const integrationSetup = await activateAgentActivityIntegrations();
     emitSuccess(context, "projects.bind", {
       binding: toPublicAgentActivityBinding(binding),
@@ -405,6 +424,76 @@ export async function runProjectsBind(
         : { normalizedFrom: connection.normalizedFrom }),
     });
   });
+}
+
+async function resolveProjectBindFingerprint(
+  context: ProjectCommandContext,
+  project: Project,
+  requestedUrl: string | undefined
+): Promise<string | null> {
+  const settings = (
+    await context.projectsApi.readRepositorySettings({ projectId: project.id })
+  ).settings;
+  if (settings.projectId !== project.id) {
+    throw new Error(
+      "The Project repository settings changed. Refresh and retry."
+    );
+  }
+  const canonicalUrl = requestedUrl
+    ? buildCanonicalRepositoryUrl(requestedUrl)
+    : null;
+  if (requestedUrl && !canonicalUrl) {
+    throw new Error("--repository must name a supported repository URL.");
+  }
+  const selected = canonicalUrl
+    ? settings.repositories.find(
+        (repository) => repository.repositoryUrl === canonicalUrl
+      )
+    : (settings.repositories.find((repository) => repository.isDefault) ??
+      (settings.repositories.length === 1
+        ? settings.repositories[0]
+        : undefined));
+  if (canonicalUrl && !selected) {
+    throw new Error("That repository is not associated with this Project.");
+  }
+  if (
+    !(selected || settings.legacyDefaultFingerprint) &&
+    settings.repositories.length > 1
+  ) {
+    throw new Error(
+      "This Project has several repositories. Pass --repository with the exact URL."
+    );
+  }
+  return (
+    selected?.repositoryFingerprint ?? settings.legacyDefaultFingerprint ?? null
+  );
+}
+
+async function bindProjectForCommand(
+  bindingInput: Parameters<typeof bindProject>[0],
+  share: boolean
+): Promise<Awaited<ReturnType<typeof bindProject>>> {
+  try {
+    return await bindProject(bindingInput);
+  } catch (error) {
+    if (
+      !(error instanceof ProjectBindingOperationError) ||
+      error.code !== "path_conflict" ||
+      error.pathConflict?.conflictScope !== "same_organization"
+    ) {
+      throw error;
+    }
+    if (share && error.pathConflict.shareConfirmationToken) {
+      return await bindProject({
+        ...bindingInput,
+        shareConfirmationToken: error.pathConflict.shareConfirmationToken,
+      });
+    }
+    throw new Error(
+      `${error.message} Run this bind command again with --share to keep both Project connections.`,
+      { cause: error }
+    );
+  }
 }
 
 export async function activateAgentActivityIntegrations(input?: {
@@ -533,6 +622,7 @@ export type ProjectCommandContext = {
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
+  ownerUserId: string;
   presenter: Presenter;
   projectsApi: ReturnType<typeof createProjectsApi>;
 };
@@ -554,6 +644,10 @@ export async function runProjectCommand(
         "Sign in and choose an active Organization before managing Projects."
       );
     }
+    const ownerUserId = auth.session?.user?.id?.trim();
+    if (!ownerUserId) {
+      throw new Error("The signed-in account owner is unavailable.");
+    }
     organizationSlug = organization.slug;
     const apiClient = createCliApiClientFoundation(await resolveBaseUrl());
     await run({
@@ -562,6 +656,7 @@ export async function runProjectCommand(
       organizationId: organization.id,
       organizationName: organization.name,
       organizationSlug: organization.slug,
+      ownerUserId,
       presenter,
       projectsApi: createProjectsApi(apiClient),
     });

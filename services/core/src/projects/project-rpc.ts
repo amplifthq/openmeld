@@ -231,6 +231,17 @@ export async function rpcResolveProjectIssueAction(
     (delivery.routineRunId !== null
       ? (delivery.workerSubmitRequest?.messages[0]?.content ?? null)
       : null);
+  const turnEnvelope =
+    delivery.executionRecoverySubmitRequest?.turnEnvelope ??
+    delivery.workerSubmitRequest?.turnEnvelope;
+  const requesterCanOverride =
+    (turnEnvelope?.sender.kind === "member" &&
+      ["web_dm", "space_wake", "slack", "message_channel"].includes(
+        turnEnvelope.trigger.source
+      )) ||
+    (turnEnvelope?.sender.kind === "routine" &&
+      turnEnvelope.trigger.source === "routine" &&
+      !turnEnvelope.trigger.continuation);
   return parseProjectResponse(
     resolveProjectIssueActionResponseSchema,
     resolveProjectIssueAction({
@@ -240,6 +251,7 @@ export async function rpcResolveProjectIssueAction(
       }),
       proposedDestination: request.proposedDestination,
       requestText: sourceText ?? "",
+      requesterCanOverride,
       taskProjectIds: await readSourceTaskProjectIds({
         context: request.context,
         delivery,

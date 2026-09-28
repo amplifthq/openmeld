@@ -1,31 +1,47 @@
-import { spaceTaskSchema } from "@openmeld/schemas";
+import {
+  isLinearIssueCreateAction,
+  readLinearIssueReference,
+  spaceTaskSchema,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
-import {
-  attachCreatedLinearIssueToSourceTask,
-  readLinearIssueReference,
-} from "../agent-core/space-task-linear-binding";
+import { readLinearIssueDestination } from "../agent-core/project-issue-routing";
+import { attachCreatedLinearIssueToSourceTask } from "../agent-core/space-task-linear-binding";
 import { buildRemoteAgentToolContext } from "../agent-core/tool-context";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const teamId = "a86813e7-c458-4af2-8cfa-73a796d81201";
+// These keys match the OpenConnector action's declared output and executor.
+// https://github.com/amplifthq/open-connector/blob/83a5dbcaa320b5fc98ccb8c5846fc9589c58443f/src/providers/linear/executors.ts
 const issue = {
   id: "73c7947f-5bba-4e67-a668-9392b70cd424",
   identifier: "PAY-82",
-  title: "Fix payment retry",
-  url: "https://linear.app/acme/issue/PAY-82/fix-payment-retry",
+  issue_title: "Fix payment retry",
+  ticket_url: "https://linear.app/acme/issue/PAY-82/fix-payment-retry",
 };
-const providerData = { issueCreate: { success: true, issue } };
+const providerData = issue;
 
 describe("Linear issue Task association", () => {
+  it("recognizes the OpenConnector action and snake_case target input", () => {
+    expect(isLinearIssueCreateAction("linear.create_linear_issue")).toBe(true);
+    expect(isLinearIssueCreateAction("linear.create_issue")).toBe(false);
+    expect(
+      readLinearIssueDestination({
+        actionId: "linear.create_linear_issue",
+        actionInput: { team_id: teamId },
+        service: "linear",
+      })
+    ).toEqual({ provider: "linear", teamId });
+  });
+
   it("requires a verified Linear identity and URL", () => {
     expect(
       readLinearIssueReference({
-        actionInput: { teamId },
+        actionInput: { team_id: teamId },
         data: providerData,
       })
     ).toMatchObject({
@@ -33,19 +49,14 @@ describe("Linear issue Task association", () => {
       identifier: issue.identifier,
       provider: "linear",
       teamId,
-      url: issue.url,
+      url: issue.ticket_url,
       lastObservedAt: null,
       lastObservedState: null,
     });
     expect(
       readLinearIssueReference({
-        actionInput: { teamId },
-        data: {
-          issueCreate: {
-            success: true,
-            issue: { ...issue, url: "https://example.com/issue/PAY-82" },
-          },
-        },
+        actionInput: { team_id: teamId },
+        data: { ...issue, ticket_url: "https://example.com/issue/PAY-82" },
       })
     ).toBeNull();
   });
@@ -114,7 +125,7 @@ describe("Linear issue Task association", () => {
       updatedAt: "2026-09-20T00:00:00.000Z",
     });
     const item = readLinearIssueReference({
-      actionInput: { teamId },
+      actionInput: { team_id: teamId },
       data: providerData,
     });
     const linkedTask = {
@@ -140,7 +151,7 @@ describe("Linear issue Task association", () => {
     }));
     await expect(
       attachCreatedLinearIssueToSourceTask({
-        actionInput: { teamId },
+        actionInput: { team_id: teamId },
         coreWorker: {
           listSpaceTasks: vi.fn(async () => ({
             tasks: [task],

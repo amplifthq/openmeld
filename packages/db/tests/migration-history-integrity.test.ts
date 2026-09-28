@@ -1093,6 +1093,18 @@ describe("shared drizzle migration history integrity", () => {
         "updated_at_ms",
         "archived_at_ms",
         "creation_request_signature",
+        "issue_destination_json",
+        "issue_destination_revision",
+        "issue_destination_updated_by_user_id",
+        "issue_destination_updated_at_ms",
+        "additional_repository_urls_json",
+        "repository_settings_revision",
+        "repository_settings_updated_by_user_id",
+        "repository_settings_updated_at_ms",
+        "common_agent_profile_ids_json",
+        "common_agents_revision",
+        "common_agents_updated_by_user_id",
+        "common_agents_updated_at_ms",
       ]);
       expect(listTableIndexes(database, "projects")).toEqual(
         expect.arrayContaining([

@@ -101,9 +101,9 @@ export function readLinearIssueDestination(input: {
   }
   return projectIssueDestinationSchema.parse({
     provider: "linear",
-    teamId: input.actionInput.teamId,
-    ...(input.actionInput.projectId === undefined
+    teamId: input.actionInput.team_id,
+    ...(input.actionInput.project_id === undefined
       ? {}
-      : { projectId: input.actionInput.projectId }),
+      : { projectId: input.actionInput.project_id }),
   });
 }

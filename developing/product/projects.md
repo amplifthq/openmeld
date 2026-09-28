@@ -79,7 +79,11 @@ before its repository association list can be changed.
 One optional Project default names an exact GitHub repository or Linear team
 and optional Linear project. Supported OpenMeld-controlled issue-creation
 actions re-read the admitted request and current Project configuration before
-claiming a new provider operation. An explicit destination in the request wins;
+claiming a new provider operation. An explicit destination in a verified
+requester message or original Routine instruction wins; Agent-authored text
+cannot override the Project default. Quoted instructions and negated actions
+do not establish an override. When the source cannot prove who made the
+choice, request confirmation before a conflicting provider write;
 a GitHub PR cited as background does not override a Linear default. A Task's
 verified Project set may narrow the work scope, but multiple plausible Projects
 with different targets require a choice. No Task is required merely to create
@@ -94,18 +98,32 @@ the current OpenMeld lane on the current computer. It is an owner-self,
 device-local, lane-local execution fact. One Project may have many Local
 Project Connections, including a normal clone and multiple worktrees.
 
-One canonical local folder may belong to only one Project scope at a time,
-even across Organizations. Route Registry remains a separate global map from a
-repository path to one OpenMeld lane root; it resolves lane ambiguity and must
-never become a second Project-connection truth. A user may explicitly move a
-folder to another Project after OpenMeld identifies the existing connection,
-explains the impact, and receives a second confirmation.
+One canonical local folder may have several explicitly authorized Project
+uses only for the same owner, Organization, Computer, and lane. A cloud
+repository association alone cannot grant this local use. The local owner
+confirms the exact same-Organization share challenge before a second Project
+connection is written. Moving a folder remains a separate confirmed action;
+cross-Organization sharing is forbidden. Removing one Project connection
+preserves the folder and every other legitimate connection. Local binding
+store v4 records the Project uses under one canonical path; an older Service
+must fail closed on that store until updated. Route Registry remains a
+separate global map from a repository path to one OpenMeld lane root. It
+resolves lane ambiguity without choosing a Project from a shared folder.
+New connections record the current account owner locally. A connection known
+to belong to another account is hidden from that account's discovery and
+cannot be moved, shared, or used for selected code work. A legacy connection
+without owner evidence remains readable for compatibility, but must be
+explicitly reconnected by the current account before it can authorize new
+Project-selected execution or sharing.
 
-The approved workflow design extends same-owner, same-Organization,
-same-Computer, same-lane folder reuse after the local connection owner and
-Session attribution rules are migrated. Until that migration, a cloud
-multi-Project repository association must not imply that one connected folder
-can execute or report Activity for every associated Project.
+A selected code execution uses one Project and one repository fingerprint
+frozen with its Execution Context. Core verifies that the repository remains
+associated with the active Project, and the current local Service resolves
+one matching owner-local connection. A missing, changed, or ambiguous local
+connection blocks execution; neither Profile Default Project nor another
+repository becomes a fallback. Current-folder writers retain the Service's
+single exclusive local workspace boundary across Project labels. Isolated
+tasks use separate worktrees.
 
 ### Default Local Project Connection
 

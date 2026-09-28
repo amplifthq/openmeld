@@ -1626,6 +1626,20 @@ local binding generation when applicable, and effective directory with the
 current durable local configuration. Once a connection or Profile workspace
 mutation is durable, an older route cannot launch new work; catalog refresh
 only controls how quickly the new route becomes available again.
+For an accepted Execution Context with `projectWork`, the Service first
+performs that current-route check, then resolves the frozen Project and
+repository fingerprint against current owner-local, Organization-scoped
+connections. One matching folder is required; a matching Project default may
+disambiguate several clones. Missing, removed, and ambiguous matches fail
+closed without using the Profile's Default Project folder. The existing file
+access and native workspace preparation checks then apply to the selected
+folder. Local binding store v4 permits a canonical path to have several
+same-owner, same-Organization Project uses only after explicit share
+confirmation. Removing one use does not remove the folder or other uses.
+The selected-work resolver requires a binding recorded for the current
+Service account owner. Ownerless legacy connections remain readable for old
+work but cannot authorize the new selected-work contract until explicitly
+reconnected. Discovery does not disclose paths bound to another known owner.
 Every durable local Project connection writer emits the same lane-local catalog
 refresh signal, while an idempotent no-op emits nothing.
 

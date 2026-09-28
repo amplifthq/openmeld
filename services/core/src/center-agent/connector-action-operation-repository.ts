@@ -1,12 +1,19 @@
+import { spaceTaskExternalWorkItemSchema } from "@openmeld/schemas";
 import type {
   CenterAgentAction,
   CenterAgentAttribution,
   CenterAgentConnectorActionExecutionConnection,
   CenterAgentConnectorActionOperationStatus,
   ProjectIssueDestination,
+  SpaceTaskExternalWorkItem,
 } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-agent-repository";
+
+type LinearIssueReceipt = Extract<
+  SpaceTaskExternalWorkItem,
+  { provider: "linear" }
+>;
 
 export type CenterAgentConnectorActionOperationScope = {
   actorProfileId: string;
@@ -43,6 +50,7 @@ export type CenterAgentConnectorActionOperationRecord =
     createdAtMs: number;
     executionConnection: CenterAgentConnectorActionExecutionConnection | null;
     id: string;
+    linearIssueReceipt: LinearIssueReceipt | null;
     providerExecutionId: string | null;
     requestSignature: string;
     service: string;
@@ -65,6 +73,7 @@ type CenterAgentConnectorActionOperationRow = {
   connection_scope: string | null;
   created_at_ms: number;
   id: string;
+  linear_issue_receipt_json: string | null;
   operation_id: string;
   organization_id: string;
   provider_execution_id: string | null;
@@ -220,6 +229,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   operationId: string;
   organizationId: string;
   outcome: "attempted" | "completed" | "failed" | "outcome_unknown";
+  linearIssueReceipt?: LinearIssueReceipt;
   providerExecutionId: string | null;
   requester: CenterAgentConnectorActionRequester;
   requestSignature: string;
@@ -266,7 +276,9 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   }
   if (
     existing.status === input.outcome &&
-    existing.providerExecutionId === input.providerExecutionId
+    existing.providerExecutionId === input.providerExecutionId &&
+    JSON.stringify(existing.linearIssueReceipt) ===
+      JSON.stringify(input.linearIssueReceipt ?? null)
   ) {
     return {
       attribution: requireExistingAttribution(existingAttribution),
@@ -309,6 +321,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       id: existing.id,
       nowMs: input.nowMs,
       outcome: input.outcome,
+      linearIssueReceipt: input.linearIssueReceipt ?? null,
       providerExecutionId: input.providerExecutionId,
     }),
   ]);
@@ -316,7 +329,9 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   assertSameRequest(operation, input);
   if (
     operation.status !== input.outcome ||
-    operation.providerExecutionId !== input.providerExecutionId
+    operation.providerExecutionId !== input.providerExecutionId ||
+    JSON.stringify(operation.linearIssueReceipt) !==
+      JSON.stringify(input.linearIssueReceipt ?? null)
   ) {
     throw operationConflict(
       "This connector action operation was finalized concurrently with a different outcome."
@@ -596,18 +611,27 @@ function prepareFinalizeOperationStatement(input: {
   id: string;
   nowMs: number;
   outcome: Exclude<CenterAgentConnectorActionOperationStatus, "pending">;
+  linearIssueReceipt: LinearIssueReceipt | null;
   providerExecutionId: string | null;
 }): D1PreparedStatement {
   return input.db
     .prepare(
       `
         UPDATE center_agent_connector_action_operations
-        SET status = ?, provider_execution_id = ?, updated_at_ms = ?
+        SET status = ?, provider_execution_id = ?, linear_issue_receipt_json = ?, updated_at_ms = ?
         WHERE id = ?
           AND status IN ('pending', 'outcome_unknown')
       `
     )
-    .bind(input.outcome, input.providerExecutionId, input.nowMs, input.id);
+    .bind(
+      input.outcome,
+      input.providerExecutionId,
+      input.linearIssueReceipt
+        ? JSON.stringify(input.linearIssueReceipt)
+        : null,
+      input.nowMs,
+      input.id
+    );
 }
 
 async function requireOperation(input: {
@@ -760,6 +784,7 @@ function mapOperation(
     createdAtMs: Number(row.created_at_ms),
     executionConnection: mapExecutionConnection(row),
     id: row.id,
+    linearIssueReceipt: parseLinearIssueReceipt(row.linear_issue_receipt_json),
     operationId: row.operation_id,
     organizationId: row.organization_id,
     providerExecutionId: row.provider_execution_id,
@@ -769,6 +794,19 @@ function mapOperation(
     status: row.status,
     updatedAtMs: Number(row.updated_at_ms),
   };
+}
+
+function parseLinearIssueReceipt(
+  value: string | null
+): LinearIssueReceipt | null {
+  if (value === null) {
+    return null;
+  }
+  const parsed = spaceTaskExternalWorkItemSchema.safeParse(JSON.parse(value));
+  if (!parsed.success || parsed.data.provider !== "linear") {
+    throw new Error("Stored Linear issue receipt is invalid.");
+  }
+  return parsed.data;
 }
 
 function mapExecutionConnection(

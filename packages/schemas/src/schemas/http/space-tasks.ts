@@ -116,7 +116,7 @@ const githubExternalWorkItemSchema = z.strictObject({
   url: z.url().max(2048),
 });
 
-const linearExternalWorkItemSchema = z.strictObject({
+export const linearExternalWorkItemSchema = z.strictObject({
   id: z.uuid(),
   identifier: z.string().trim().min(1).max(100),
   teamId: z.uuid(),
