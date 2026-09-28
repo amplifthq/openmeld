@@ -297,6 +297,19 @@ async function fixture(
 
 afterEach(() => vi.restoreAllMocks());
 describe("bounded Git publication and receipts", () => {
+  it("reuses the verified Computer manifests instead of downloading the tree on retry", async () => {
+    const f = await fixture();
+    vi.mocked(f.deps.computer.readFile).mockResolvedValue("[]");
+    f.fetchMock.mockClear();
+    await checkoutRepository(f.deps, intent);
+    expect(
+      f.fetchMock.mock.calls.filter(([, init]) =>
+        JSON.parse(String(init?.body)).endpoint.includes("/git/trees/")
+      )
+    ).toHaveLength(0);
+    expect(f.deps.computer.writeFile).not.toHaveBeenCalled();
+  });
+
   it("resolves the trusted baseline from the authenticated repository default, independently of the requested ref", async () => {
     const f = await fixture();
     const original = f.fetchMock.getMockImplementation();
@@ -356,27 +369,24 @@ describe("bounded Git publication and receipts", () => {
 
   it("returns preparing with imported progress before the Code Mode deadline", async () => {
     const f = await fixture();
-    const secondBytes = Buffer.from("another file\n");
-    const secondBlob = createHash("sha1")
-      .update(`blob ${secondBytes.length}\0`)
-      .update(secondBytes)
-      .digest("hex");
-    const entries = [
-      {
-        path: "first.txt",
-        mode: "100644",
-        type: "blob",
-        sha: BLOB,
-        size: bytes.length,
-      },
-      {
-        path: "second.txt",
-        mode: "100644",
-        type: "blob",
-        sha: secondBlob,
-        size: secondBytes.length,
-      },
+    const contents = [
+      bytes,
+      ...[2, 3, 4, 5].map((index) => Buffer.from(`file ${index}\n`)),
     ];
+    const blobs = contents.map((content) => ({
+      bytes: content,
+      sha: createHash("sha1")
+        .update(`blob ${content.length}\0`)
+        .update(content)
+        .digest("hex"),
+    }));
+    const entries = blobs.map(({ bytes: content, sha }, index) => ({
+      path: `file-${index}.txt`,
+      mode: "100644" as const,
+      type: "blob" as const,
+      sha,
+      size: content.length,
+    }));
     vi.spyOn(GitHubWorkingCopyProvider.prototype, "tree").mockResolvedValue(
       entries as never
     );
@@ -388,8 +398,13 @@ describe("bounded Git publication and receipts", () => {
     vi.spyOn(Date, "now").mockImplementation(() => nowMs);
     f.fetchMock.mockImplementation(async (url, init) => {
       const request = JSON.parse(String(init?.body));
-      if (request.endpoint.endsWith(`/git/blobs/${BLOB}`)) {
-        nowMs += 46_000;
+      const blob = blobs.find(({ sha }) =>
+        request.endpoint.endsWith(`/git/blobs/${sha}`)
+      );
+      if (blob) {
+        if (blob.sha === BLOB) {
+          nowMs += 46_000;
+        }
         return Response.json({
           success: true,
           message: "OK",
@@ -397,26 +412,10 @@ describe("bounded Git publication and receipts", () => {
             status: 200,
             headers: {},
             data: {
-              sha: BLOB,
+              sha: blob.sha,
               encoding: "base64",
-              content: bytes.toString("base64"),
-              size: bytes.length,
-            },
-          },
-        });
-      }
-      if (request.endpoint.endsWith(`/git/blobs/${secondBlob}`)) {
-        return Response.json({
-          success: true,
-          message: "OK",
-          data: {
-            status: 200,
-            headers: {},
-            data: {
-              sha: secondBlob,
-              encoding: "base64",
-              content: secondBytes.toString("base64"),
-              size: secondBytes.length,
+              content: blob.bytes.toString("base64"),
+              size: blob.bytes.length,
             },
           },
         });
@@ -426,13 +425,13 @@ describe("bounded Git publication and receipts", () => {
     vi.mocked(GitWorkingCopyComputer.prototype.prepare)
       .mockResolvedValueOnce({
         ready: false,
-        remaining: 2,
-        missing: [BLOB, secondBlob],
+        remaining: blobs.length,
+        missing: blobs.map(({ sha }) => sha),
       })
       .mockResolvedValueOnce({
         ready: false,
         remaining: 1,
-        missing: [secondBlob],
+        missing: [blobs[4]?.sha ?? BLOB],
       });
     const result = await checkoutRepository(f.deps, {
       ...intent,
@@ -443,8 +442,8 @@ describe("bounded Git publication and receipts", () => {
       f.fetchMock.mock.calls.filter(([, init]) =>
         JSON.parse(String(init?.body)).endpoint.includes("/git/blobs/")
       )
-    ).toHaveLength(1);
-    expect(f.deps.computer.writeFile).toHaveBeenCalledTimes(1);
+    ).toHaveLength(4);
+    expect(f.deps.computer.writeFile).toHaveBeenCalledTimes(4);
   });
 
   it("rejects 201 new blobs before claiming a write, without leaving a pending receipt", async () => {

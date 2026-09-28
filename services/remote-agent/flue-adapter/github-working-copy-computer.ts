@@ -60,6 +60,15 @@ export class GitWorkingCopyComputer {
       JSON.stringify(baselineEntries)
     );
   }
+  async readManifest(
+    location: GitWorkingCopyLocation,
+    name: "manifest.json" | "baseline.json"
+  ): Promise<string> {
+    return await this.api.readFile(
+      `${location.transportDirectory}/${name}`,
+      REMOTE_AGENT_GIT_MAX_TREE_BYTES
+    );
+  }
   async writeBlob(
     location: GitWorkingCopyLocation,
     sha: string,
@@ -217,7 +226,7 @@ def prepare():
     git(root, 'check-ref-format', baseline_ref)
     shas = list(dict.fromkeys(e['sha'] for e in entries + baseline_entries if e['type'] == 'blob'))
     missing = import_cached(root, shas)
-    if missing: return {'ready': False, 'remaining': len(missing), 'missing': missing[:32]}
+    if missing: return {'ready': False, 'remaining': len(missing), 'missing': missing[:256]}
     tree = make_tree(root, entries)
     if tree != request['sourceTree']: raise RuntimeError('Complete source tree does not match GitHub')
     baseline_tree = make_tree(root, baseline_entries)
