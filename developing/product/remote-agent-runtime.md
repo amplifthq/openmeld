@@ -215,10 +215,17 @@ or replaced baseline refs and removed trusted releases must fail, not bypass it.
 
 Git history, LFS payloads and submodule repositories are not downloaded. Each
 manifest is limited to 30,000 entries and 8 MiB, each blob to 8 MiB, the combined
-source/baseline unique content to 256 MiB, and downloads to 32 blobs per call.
-A preparing result requires another identical call, not an invented ready
-state. Truncated provider trees fail closed. Version-2 checkout identities use
-fresh directories instead of adopting a previous baseline-free working copy.
+source/baseline unique content to 256 MiB, and each preparation request offers
+at most 256 missing blobs. The host fetches up to four blobs concurrently and
+stops starting new transfers when the Code Mode time budget needs room for a
+final Computer import. It reuses Computer manifests only after checking their
+stored digests against the pinned source and baseline; a missing or altered
+cache is rebuilt from GitHub. Batch diagnostics record authorization, tree and
+blob reads, Computer writes and preparation time without repository contents
+or credentials. A preparing result requires another identical call, not an
+invented ready state. Truncated provider trees fail closed. Version-2 checkout
+identities use fresh directories instead of adopting a previous baseline-free
+working copy.
 
 The Agent commits and tests with the ordinary Computer tools. Publication reads
 an exact immutable local commit, verifies the created GitHub tree, and updates
