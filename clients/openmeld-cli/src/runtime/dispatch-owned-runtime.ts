@@ -45,6 +45,7 @@ export function buildDispatchOwnedRuntimeEnv(input: {
   dispatchId: string;
   targetProfileId: string;
   distribution?: OpenMeldDistribution;
+  platform?: NodeJS.Platform;
   env?: Record<string, string | undefined>;
   cliEntryPath?: string;
   spaceActionContextPath?: string | null;
@@ -60,28 +61,41 @@ export function buildDispatchOwnedRuntimeEnv(input: {
   const currentPath = normalizeOptionalText(
     input.env?.PATH ?? process.env.PATH
   );
-  const shimDir = ensureDispatchOwnedRuntimeCliShims({
-    cliEntryPath: input.cliEntryPath,
-    dispatchId: input.dispatchId,
-    distribution: input.distribution,
-    env,
-    spaceActionContextPath: input.spaceActionContextPath,
-    targetProfileId: input.targetProfileId,
-  });
   const actionCommand = resolveDispatchOwnedRuntimeActionCliEntryCommand({
     env,
   });
+  const nativeWindowsBinary =
+    (input.platform ?? process.platform) === "win32" &&
+    (input.distribution ?? resolveOpenMeldDistribution()) === "binary";
+  // Windows cannot CreateProcess a POSIX shim. The managed launcher is already
+  // a native executable, and the dispatch identity remains in the child env.
+  const actionCommandPath = nativeWindowsBinary
+    ? resolveDispatchOwnedRuntimeBinaryCliEntryPath({
+        cliEntryPath: input.cliEntryPath,
+        env,
+      })
+    : join(
+        ensureDispatchOwnedRuntimeCliShims({
+          cliEntryPath: input.cliEntryPath,
+          dispatchId: input.dispatchId,
+          distribution: input.distribution,
+          env,
+          spaceActionContextPath: input.spaceActionContextPath,
+          targetProfileId: input.targetProfileId,
+        }),
+        actionCommand
+      );
   return {
     ...env,
     PATH: prependPathEntry({
       currentPath,
-      nextEntry: shimDir,
+      nextEntry: dirname(actionCommandPath),
     }),
     [OPENMELD_DISPATCH_RUNTIME_MODE_ENV]: DISPATCH_OWNED_RUNTIME_MODE,
     [OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV]: input.dispatchId,
     [OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV]: input.targetProfileId,
     [OPENMELD_USER_FACING_CLI_COMMAND_ENV]: actionCommand,
-    [OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV]: join(shimDir, actionCommand),
+    [OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH_ENV]: actionCommandPath,
     [OPENMELD_ENV_PRESET_ENV]: resolveDispatchOwnedRuntimeEnvPreset({
       env,
     }),

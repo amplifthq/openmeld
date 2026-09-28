@@ -85,7 +85,8 @@ export function resolveDispatchSpaceActionMcpServer(
     !(
       commandPath &&
       isAbsolute(commandPath) &&
-      basename(commandPath) === command
+      (basename(commandPath) === command ||
+        basename(commandPath) === `${command}.exe`)
     )
   ) {
     throw new Error(
