@@ -12,6 +12,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createRemoteAgentCallbackContext } from "../agent-core/callback-context";
+import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
 import {
   createOrganizationSkillResourceTool,
   materializeOrganizationSkillFlueSkillsFromCatalog,
@@ -22,6 +23,23 @@ import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("Organization Skill Flue adapter", () => {
+  it("preserves the unavailable pinned Skill reason without publishing raw Core errors", () => {
+    expect(
+      createRemoteAgentTerminalFailureFact({
+        error: new Error(
+          "HTTP 403 organization_skill.release_unavailable: The selected Skill release is unavailable or disabled."
+        ),
+        status: "failed",
+      }).code
+    ).toBe("organization_skill.release_unavailable");
+    expect(
+      createRemoteAgentTerminalFailureFact({
+        error: new Error("HTTP 403 organization_skill.other_error"),
+        status: "failed",
+      }).code
+    ).toBe("remote_agent.turn_not_completed");
+  });
+
   it("reads only an admitted resource through the authorized Core method", async () => {
     const bundle = createBundle();
     const selection = await createSelection(bundle);
@@ -135,6 +153,21 @@ describe("Organization Skill Flue adapter", () => {
     expect(skills[0]?.instructions).toContain("references/checklist.md");
     expect(skills[0]?.instructions).toContain("openmeld_read_skill_resource");
     expect(skills[0]?.instructions).not.toContain("Verify rollback.");
+    expect(() =>
+      materializeOrganizationSkillFlueSkillsFromCatalog({
+        expectedOrganizationId: "org_123",
+        selections: [selection],
+        catalog: { organizationId: "org_123", releases: [] },
+      })
+    ).toThrow("does not match the admitted task");
+    expect(
+      materializeOrganizationSkillFlueSkillsFromCatalog({
+        allowUnavailableSelections: true,
+        expectedOrganizationId: "org_123",
+        selections: [selection],
+        catalog: { organizationId: "org_123", releases: [] },
+      })
+    ).toEqual([]);
     expect(() =>
       materializeOrganizationSkillFlueSkillsFromCatalog({
         expectedOrganizationId: "org_123",

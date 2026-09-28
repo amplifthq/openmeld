@@ -1,10 +1,12 @@
 import {
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
   remoteAgentRuntimeEvidenceOutcomeReasonCodeSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentRuntimeEvidenceOutcomeReasonCode } from "@openmeld/schemas/types";
 import {
+  isOrganizationSkillReleaseUnavailable,
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
   normalizeRemoteAgentErrorMessage,
@@ -33,14 +35,25 @@ export function createRemoteAgentTerminalFailureFact(input: {
 
   const reasonCode = resolveFailureReasonCode(input);
   return {
-    code: isRemoteAgentToolResultTooLarge(input.error)
-      ? REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE
-      : resolveFailureCode(reasonCode),
+    code: resolveTerminalFailureCode(input.error, reasonCode),
     ...(input.error === undefined
       ? {}
       : { detail: normalizeRemoteAgentErrorMessage(input.error) }),
     reasonCode,
   };
+}
+
+function resolveTerminalFailureCode(
+  error: unknown,
+  reasonCode: RemoteAgentRuntimeEvidenceOutcomeReasonCode
+): string {
+  if (isOrganizationSkillReleaseUnavailable(error)) {
+    return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE;
+  }
+  if (isRemoteAgentToolResultTooLarge(error)) {
+    return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE;
+  }
+  return resolveFailureCode(reasonCode);
 }
 
 export function parseRemoteAgentTerminalFailureFact(
