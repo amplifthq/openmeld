@@ -79,8 +79,8 @@ export class GitWorkingCopyComputer {
       bytes
     );
   }
-  async prepare(location: GitWorkingCopyLocation) {
-    return await this.run(location, "prepare");
+  async prepare(location: GitWorkingCopyLocation, timeoutMs = 120_000) {
+    return await this.run(location, "prepare", undefined, timeoutMs);
   }
   async snapshot(location: GitWorkingCopyLocation, commit: string) {
     return await this.run(location, "snapshot", commit);
@@ -96,7 +96,8 @@ export class GitWorkingCopyComputer {
   private async run(
     location: GitWorkingCopyLocation,
     action: "prepare" | "snapshot" | "blob",
-    sha?: string
+    sha?: string,
+    timeoutMs = 120_000
   ) {
     const output = `${location.transportDirectory}/output-${crypto.randomUUID()}.json`;
     const request = remoteAgentGitNativeRequestSchema.parse({
@@ -113,15 +114,20 @@ export class GitWorkingCopyComputer {
       sha,
       output,
     });
-    this.signal?.throwIfAborted();
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = this.signal
+      ? AbortSignal.any([this.signal, timeoutSignal])
+      : timeoutSignal;
+    signal.throwIfAborted();
     const result = await this.api.exec(
       `python3 -c ${quote(GITHUB_WORKING_COPY_PROGRAM)} ${quote(JSON.stringify(request))}`,
       {
         backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-        signal: this.signal,
-        timeoutMs: 120_000,
+        signal,
+        timeoutMs,
       }
     );
+    signal.throwIfAborted();
     if (result.exitCode !== 0) {
       throw new Error(
         `github.checkout.computer_failed: ${result.stderr.slice(-1500)}`

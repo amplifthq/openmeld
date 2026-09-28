@@ -22,6 +22,7 @@ type ProviderInput = {
   connectionName: string;
   authorize: (effect: "read" | "write") => Promise<unknown>;
   signal?: AbortSignal;
+  deadlineAtMs?: number;
   onTiming?: (
     segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
     durationMs: number
@@ -230,9 +231,19 @@ export class GitHubWorkingCopyProvider {
       );
     }
     const baseUrl = runtime.baseUrl;
+    const remainingMs = this.input.deadlineAtMs
+      ? this.input.deadlineAtMs - Date.now()
+      : timeoutMs;
+    if (remainingMs <= 0) {
+      throw new DOMException("Checkout time budget expired", "TimeoutError");
+    }
+    const requestTimeoutMs = Math.min(timeoutMs, remainingMs);
     const signal = this.input.signal
-      ? AbortSignal.any([this.input.signal, AbortSignal.timeout(timeoutMs)])
-      : AbortSignal.timeout(timeoutMs);
+      ? AbortSignal.any([
+          this.input.signal,
+          AbortSignal.timeout(requestTimeoutMs),
+        ])
+      : AbortSignal.timeout(requestTimeoutMs);
     let segment: "treeGet" | "blobGet" | "otherGet" = "otherGet";
     if (path.startsWith("/git/trees/")) {
       segment = "treeGet";

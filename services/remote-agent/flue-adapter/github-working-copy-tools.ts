@@ -48,6 +48,7 @@ export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
 // Code Mode stops its script after 60 seconds. Leave time to import the blobs
 // already transferred and return a truthful preparing result.
 const CHECKOUT_BATCH_SOFT_BUDGET_MS = 45_000;
+const CHECKOUT_BATCH_HARD_BUDGET_MS = 55_000;
 const CHECKOUT_BLOB_CONCURRENCY = 4;
 const CHECKOUT_PREPARE_RESERVE_MS = 10_000;
 const GITHUB_REPOSITORY_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]{1,100}$/u;
@@ -458,7 +459,8 @@ function provider(
   onTiming?: (
     segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
     durationMs: number
-  ) => void
+  ) => void,
+  deadlineAtMs?: number
 ) {
   return new GitHubWorkingCopyProvider({
     runtime: input.connectorExecution,
@@ -468,6 +470,7 @@ function provider(
     authorize: (effect) => authorizeCheckout(input, record, effect),
     signal,
     onTiming,
+    deadlineAtMs,
   });
 }
 
@@ -479,7 +482,8 @@ async function createCheckout(
   onTiming?: (
     segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
     durationMs: number
-  ) => void
+  ) => void,
+  deadlineAtMs?: number
 ) {
   const toolContext = await buildRemoteAgentToolContext({
     storage: input.storage,
@@ -514,7 +518,7 @@ async function createCheckout(
     baselineManifestDigest: "",
     repositoryId: 0,
   };
-  const remote = provider(input, preliminary, signal, onTiming);
+  const remote = provider(input, preliminary, signal, onTiming, deadlineAtMs);
   const repository = await remote.repository();
   const commit = await remote.commit(intent.ref);
   // Resolve the default branch independently of model-selected ref/HEAD.
@@ -599,6 +603,37 @@ async function readVerifiedCachedManifests(
   }
 }
 
+async function loadVerifiedCheckoutManifests(input: {
+  record: Checkout;
+  created: Awaited<ReturnType<typeof createCheckout>> | null;
+  cached: Awaited<ReturnType<typeof readVerifiedCachedManifests>>;
+  remote: GitHubWorkingCopyProvider;
+}) {
+  const entries =
+    input.created?.entries ??
+    input.cached?.entries ??
+    (await input.remote.tree(input.record.sourceTree));
+  const baselineEntries =
+    input.created?.baselineEntries ??
+    input.cached?.baselineEntries ??
+    (input.record.baselineTree === input.record.sourceTree
+      ? entries
+      : await input.remote.tree(input.record.baselineTree));
+  validateCheckoutBudget(entries, baselineEntries);
+  if (
+    (await textDigest(JSON.stringify(baselineEntries))) !==
+    input.record.baselineManifestDigest
+  ) {
+    throw new Error("github.checkout.baseline_changed");
+  }
+  if (
+    (await textDigest(JSON.stringify(entries))) !== input.record.manifestDigest
+  ) {
+    throw new Error("github.checkout.manifest_changed");
+  }
+  return { entries, baselineEntries };
+}
+
 async function transferCheckoutBlobs(input: {
   allowed: Set<string>;
   missing: string[];
@@ -613,8 +648,6 @@ async function transferCheckoutBlobs(input: {
     }
   }
   let nextMissingIndex = 0;
-  let transferred = 0;
-  let timedOut = 0;
   let transferError: unknown;
   await Promise.all(
     Array.from(
@@ -636,14 +669,12 @@ async function transferCheckoutBlobs(input: {
               Math.min(20_000, remainingMs - CHECKOUT_PREPARE_RESERVE_MS)
             );
             await input.writeBlob(sha, bytes);
-            transferred += 1;
           } catch (error) {
             if (
               !input.signal?.aborted &&
               error instanceof Error &&
               error.name === "TimeoutError"
             ) {
-              timedOut += 1;
               return;
             }
             transferError = error;
@@ -655,10 +686,35 @@ async function transferCheckoutBlobs(input: {
   if (transferError) {
     throw transferError;
   }
-  if (timedOut > 0 && transferred === 0) {
-    throw new Error(
-      "github.checkout.blob_timeout: GitHub did not return a file before this batch's time limit. Retry the same checkout key."
+}
+
+async function prepareCheckoutWithinBudget(input: {
+  computer: GitWorkingCopyComputer;
+  record: Checkout;
+  startedAtMs: number;
+  final: boolean;
+  measure: <T>(action: () => Promise<T>) => Promise<T>;
+}) {
+  const remainingMs =
+    (input.final
+      ? CHECKOUT_BATCH_HARD_BUDGET_MS
+      : CHECKOUT_BATCH_SOFT_BUDGET_MS) -
+    (Date.now() - input.startedAtMs);
+  if (remainingMs <= (input.final ? 0 : CHECKOUT_PREPARE_RESERVE_MS)) {
+    return null;
+  }
+  try {
+    return await input.measure(() =>
+      input.computer.prepare(
+        input.record,
+        remainingMs - (input.final ? 0 : CHECKOUT_PREPARE_RESERVE_MS)
+      )
     );
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -699,6 +755,50 @@ export async function checkoutRepository(
   }
 }
 
+async function loadOrCreateCheckout(input: {
+  deps: Dependencies;
+  intent: RemoteAgentGitCheckoutInput;
+  signal?: AbortSignal;
+  startedAtMs: number;
+  timings: CheckoutTimings;
+  onTiming: (
+    segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
+    durationMs: number
+  ) => void;
+}) {
+  const started = Date.now();
+  const identity = await locate(input.deps, input.intent.key);
+  input.timings.authorization += Date.now() - started;
+  let created: Awaited<ReturnType<typeof createCheckout>> | null = null;
+  if (!identity.stored) {
+    try {
+      created = await createCheckout(
+        input.deps,
+        input.intent,
+        identity,
+        input.signal,
+        input.onTiming,
+        input.startedAtMs + CHECKOUT_BATCH_HARD_BUDGET_MS
+      );
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        return null;
+      }
+      throw error;
+    }
+  }
+  const record = identity.stored ?? created?.record;
+  if (!record) {
+    throw new Error("github.checkout.state_unavailable");
+  }
+  if (record.signature !== (await digestCanonicalJson(input.intent))) {
+    throw new Error(
+      "github.checkout.key_conflict: This key belongs to a different checkout request."
+    );
+  }
+  return { record, created };
+}
+
 async function checkoutRepositoryBatch(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
@@ -723,51 +823,64 @@ async function checkoutRepositoryBatch(
       timings[segment] += Date.now() - start;
     }
   };
-  const identity = await (async () => {
-    const started = Date.now();
-    try {
-      return await locate(input, intent.key);
-    } finally {
-      timings.authorization += Date.now() - started;
-    }
-  })();
-  const created = identity.stored
-    ? null
-    : await createCheckout(input, intent, identity, signal, onTiming);
-  const record = identity.stored ?? created?.record;
-  if (!record) {
-    throw new Error("github.checkout.state_unavailable");
+  const loaded = await loadOrCreateCheckout({
+    deps: input,
+    intent,
+    signal,
+    startedAtMs,
+    timings,
+    onTiming,
+  });
+  if (!loaded) {
+    return {
+      status: "preparing" as const,
+      key: intent.key,
+      remainingBlobs: null,
+      nextAction:
+        "Repository metadata is still being prepared. Retry github_checkout_repository with identical input.",
+    };
   }
-  if (record.signature !== (await digestCanonicalJson(intent))) {
-    throw new Error(
-      "github.checkout.key_conflict: This key belongs to a different checkout request."
-    );
-  }
-  const remote = provider(input, record, signal, onTiming);
+  const { record, created } = loaded;
+  const remote = provider(
+    input,
+    record,
+    signal,
+    onTiming,
+    startedAtMs + CHECKOUT_BATCH_HARD_BUDGET_MS
+  );
   const computer = new GitWorkingCopyComputer(input.computer, signal);
+  const prepareWithinBudget = (final: boolean) =>
+    prepareCheckoutWithinBudget({
+      computer,
+      record,
+      startedAtMs,
+      final,
+      measure: (action) => measureComputer("computerPrepare", action),
+    });
   const cached = created
     ? null
     : await readVerifiedCachedManifests(computer, record);
-  const entries =
-    created?.entries ??
-    cached?.entries ??
-    (await remote.tree(record.sourceTree));
-  const baselineEntries =
-    created?.baselineEntries ??
-    cached?.baselineEntries ??
-    (record.baselineTree === record.sourceTree
-      ? entries
-      : await remote.tree(record.baselineTree));
-  validateCheckoutBudget(entries, baselineEntries);
-  if (
-    (await textDigest(JSON.stringify(baselineEntries))) !==
-    record.baselineManifestDigest
-  ) {
-    throw new Error("github.checkout.baseline_changed");
+  let manifests: Awaited<ReturnType<typeof loadVerifiedCheckoutManifests>>;
+  try {
+    manifests = await loadVerifiedCheckoutManifests({
+      record,
+      created,
+      cached,
+      remote,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return {
+        status: "preparing" as const,
+        key: intent.key,
+        remainingBlobs: null,
+        nextAction:
+          "The pinned repository tree is still being prepared. Retry github_checkout_repository with identical input.",
+      };
+    }
+    throw error;
   }
-  if ((await textDigest(JSON.stringify(entries))) !== record.manifestDigest) {
-    throw new Error("github.checkout.manifest_changed");
-  }
+  const { entries, baselineEntries } = manifests;
   await recordComputerDataSource({
     ...input,
     source: {
@@ -782,9 +895,7 @@ async function checkoutRepositoryBatch(
       computer.writeManifest(record, entries, baselineEntries)
     );
   }
-  let progress = await measureComputer("computerPrepare", () =>
-    computer.prepare(record)
-  );
+  let progress = await prepareWithinBudget(false);
   const allowed = new Set(
     [...entries, ...baselineEntries]
       .filter((entry) => entry.type === "blob")
@@ -792,7 +903,7 @@ async function checkoutRepositoryBatch(
   );
   await transferCheckoutBlobs({
     allowed,
-    missing: progress.missing ?? [],
+    missing: progress?.missing ?? [],
     remote,
     signal,
     startedAtMs,
@@ -801,10 +912,8 @@ async function checkoutRepositoryBatch(
         computer.writeBlob(record, sha, bytes)
       ),
   });
-  if (!progress.ready) {
-    progress = await measureComputer("computerPrepare", () =>
-      computer.prepare(record)
-    );
+  if (!progress?.ready) {
+    progress = (await prepareWithinBudget(true)) ?? progress;
   }
   const authorizationStartedAtMs = Date.now();
   try {
@@ -813,13 +922,13 @@ async function checkoutRepositoryBatch(
     timings.authorization += Date.now() - authorizationStartedAtMs;
   }
   return {
-    status: progress.ready ? "ready" : "preparing",
+    status: progress?.ready ? "ready" : "preparing",
     key: intent.key,
     sourceCommit: record.sourceCommit,
     sourceTree: record.sourceTree,
     branch: record.branch,
-    remainingBlobs: progress.remaining,
-    ...(progress.ready
+    remainingBlobs: progress?.remaining ?? null,
+    ...(progress?.ready
       ? { directory: record.directory, localCommit: progress.localCommit }
       : {}),
     history: "snapshot_with_verified_baseline",
@@ -828,11 +937,11 @@ async function checkoutRepositoryBatch(
       sourceCommit: record.baselineCommit,
       tree: record.baselineTree,
       ref: `refs/remotes/origin/${record.baselineBranch}`,
-      localCommit: progress.baselineLocalCommit,
+      localCommit: progress?.baselineLocalCommit,
       history: "synthetic_comparison_only",
     },
     credentialsInComputer: false,
-    nextAction: progress.ready
+    nextAction: progress?.ready
       ? "Edit, commit, and test in this directory with the existing Computer tools."
       : "Call github_checkout_repository again with identical input to transfer the next bounded batch.",
   };

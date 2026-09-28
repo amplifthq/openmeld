@@ -446,6 +446,86 @@ describe("bounded Git publication and receipts", () => {
     expect(f.deps.computer.writeFile).toHaveBeenCalledTimes(4);
   });
 
+  it("returns preparing when the native preparation exceeds its remaining budget", async () => {
+    const f = await fixture();
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare).mockRejectedValue(
+      new DOMException("Preparation timed out", "TimeoutError")
+    );
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare).mockClear();
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "slow-prepare",
+    });
+    expect(result).toMatchObject({
+      status: "preparing",
+      remainingBlobs: null,
+    });
+    expect(GitWorkingCopyComputer.prototype.prepare).toHaveBeenCalledTimes(2);
+    expect(
+      vi
+        .mocked(GitWorkingCopyComputer.prototype.prepare)
+        .mock.calls.every(
+          ([, timeoutMs]) =>
+            typeof timeoutMs === "number" && timeoutMs <= 55_000
+        )
+    ).toBe(true);
+  });
+
+  it("returns a retryable preparing result when initial repository metadata times out", async () => {
+    const f = await fixture();
+    const originalFetch = f.fetchMock.getMockImplementation();
+    if (!originalFetch) {
+      throw new Error("Missing provider fixture");
+    }
+    let nowMs = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    f.fetchMock.mockClear();
+    f.fetchMock.mockImplementation(async (url, init) => {
+      const result = await originalFetch(url, init);
+      if (JSON.parse(String(init?.body)).endpoint === "/repos/acme/private") {
+        nowMs += 56_000;
+      }
+      return result;
+    });
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "slow-metadata",
+    });
+    expect(result).toMatchObject({
+      status: "preparing",
+      key: "slow-metadata",
+      remainingBlobs: null,
+    });
+    expect(f.fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("returns preparing instead of failing when every blob request times out", async () => {
+    const f = await fixture();
+    vi.spyOn(GitHubWorkingCopyProvider.prototype, "tree").mockResolvedValue([
+      {
+        path: "change.txt",
+        mode: "100644",
+        type: "blob",
+        sha: BLOB,
+        size: bytes.length,
+      },
+    ]);
+    vi.spyOn(GitHubWorkingCopyProvider.prototype, "blob").mockRejectedValue(
+      new DOMException("Blob timed out", "TimeoutError")
+    );
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare).mockResolvedValue({
+      ready: false,
+      remaining: 1,
+      missing: [BLOB],
+    });
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "slow-blob",
+    });
+    expect(result).toMatchObject({ status: "preparing", remainingBlobs: 1 });
+    expect(GitHubWorkingCopyProvider.prototype.blob).toHaveBeenCalledOnce();
+  });
+
   it("rejects 201 new blobs before claiming a write, without leaving a pending receipt", async () => {
     const f = await fixture();
     vi.mocked(GitWorkingCopyComputer.prototype.snapshot).mockResolvedValue({
