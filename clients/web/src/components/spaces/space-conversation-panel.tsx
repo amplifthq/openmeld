@@ -1043,6 +1043,8 @@ function renderPanelConversationBody(input: {
 		emptyStateAlignment: panel.emptyStateAlignment,
 		emptyStateTitle: panel.emptyStateTitle,
 		entries: presentation.entries,
+		// A continuation badge belongs to its source even before reply placement is known.
+		addressingWakeProgressItems: panel.ephemeralActivityItems,
 		ephemeralActivityItems: presentation.mainActivityItems,
 		firstUnreadSignalId: panel.firstUnreadSignalId,
 		historyIsPending: panel.historyIsPending,
@@ -2328,6 +2330,7 @@ function renderConversationBody(input: {
 	emptyStateAlignment?: "start" | "center";
 	emptyStateTitle?: string;
 	entries: ReturnType<typeof buildSpaceConversationEntries>;
+	addressingWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
 	historyIsPending: boolean;
@@ -2571,6 +2574,7 @@ function renderConversationBody(input: {
 							input.actionableAgentInteractionPlacement
 						}
 						activeThreadRootSignalIds={input.activeThreadRootSignalIds}
+						addressingWakeProgressItems={input.addressingWakeProgressItems}
 						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 						anchoredOutcomeNoticesBySourceSignalId={
 							input.anchoredOutcomeNoticesBySourceSignalId
@@ -2694,6 +2698,7 @@ type ConversationBubbleRunInput = {
 	>;
 	centerAgentProfileId: string | null;
 	currentOwnerUserId: string | null;
+	addressingWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	highlightedSignalId: string | null;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
@@ -3133,7 +3138,7 @@ function ConversationBubbleContent(input: {
 			<SpaceMessageAddressingBadges
 				item={input.item}
 				profilePresentationsById={parent.profilePresentationsById}
-				wakeProgressItems={parent.ephemeralActivityItems}
+				wakeProgressItems={parent.addressingWakeProgressItems}
 			/>
 			{input.item.actorProfileKind === "agent" ? (
 				<SpaceMessageWork
