@@ -2,7 +2,10 @@
 
 import { Popover } from "@base-ui/react/popover";
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
-import { resolveAgentWakeAvailabilityDisplayCategory } from "@openmeld/agent-runtime";
+import {
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+	resolveAgentWakeAvailabilityDisplayCategory,
+} from "@openmeld/agent-runtime";
 import type {
 	AgentWakeAvailability,
 	AuthProfileView,
@@ -35,6 +38,8 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
 import type {
 	AgentProfileActivityDestination,
 	AgentProfileActivityNavigation,
@@ -43,6 +48,7 @@ import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import { updateAgentAvatar } from "#/lib/profiles/update-agent-avatar";
 import {
 	AgentTaskActivityTime,
 	useAgentTaskActivity,
@@ -54,6 +60,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	agentControllerRef: string | null;
 	canEdit: boolean;
 	controllerModelSummary: string;
+	modelId?: string | null;
 	configurationContent?: ReactNode;
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending: boolean;
@@ -61,6 +68,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	operationalContext: AgentProfileOperationalContextInput | null;
 	onOpenDirectMessage: () => void;
 	onRenameProfile: (profileName: string) => Promise<void>;
+	onAvatarUpdated?: (profile: AuthProfileView) => void;
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
@@ -74,6 +82,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
 }) {
+	const [savingAvatar, setSavingAvatar] = useState(false);
 	const taskActivity = useAgentTaskActivity(input.profile.openMeldProfileId);
 	const displayedWakeAvailability = input.wakeAvailability;
 	const showOwnerOperationalContext =
@@ -114,17 +123,49 @@ export function AgentProfileWorkspaceDetail(input: {
 		>
 			<div className="flex min-w-0 @[42rem]/agent-detail:flex-row flex-col @[42rem]/agent-detail:items-end gap-4">
 				<div className="flex min-w-0 flex-1 items-start gap-4">
-					<AgentProfileControllerAvatar
-						agentControllerRef={input.agentControllerRef}
-						className={cn(
-							"shrink-0",
-							hasReducedProminence ? "opacity-55 grayscale" : null
-						)}
-						profileId={input.profile.openMeldProfileId}
-						profileName={input.profile.profileName}
-						size={96}
-						working={input.operationalContext?.status === "working"}
-					/>
+					{input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF ? (
+						<AgentAvatarEditor
+							avatarStyle={input.profile.avatarStyle}
+							canEdit={input.canEdit}
+							centerAgent={false}
+							modelId={input.modelId}
+							onSave={async (avatarStyle) => {
+								if (avatarStyle !== "automatic" && avatarStyle !== "fluid") {
+									return;
+								}
+								setSavingAvatar(true);
+								try {
+									const updated = await updateAgentAvatar({
+										profileId: input.profile.openMeldProfileId,
+										avatarStyle,
+									});
+									input.onAvatarUpdated?.(updated);
+									toast.success("Avatar updated.");
+								} catch (error) {
+									toast.error("Unable to save avatar. Try again.");
+									throw error;
+								} finally {
+									setSavingAvatar(false);
+								}
+							}}
+							profileId={input.profile.openMeldProfileId}
+							profileName={input.profile.profileName}
+							saving={savingAvatar}
+							size={96}
+						/>
+					) : (
+						<AgentProfileControllerAvatar
+							agentControllerRef={input.agentControllerRef}
+							className={cn(
+								"shrink-0",
+								hasReducedProminence ? "opacity-55 grayscale" : null
+							)}
+							profileId={input.profile.openMeldProfileId}
+							profileName={input.profile.profileName}
+							size={96}
+							working={input.operationalContext?.status === "working"}
+						/>
+					)}
 					<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
 						<div className="flex min-w-0 items-center gap-2">
 							<AgentProfileNameEditor

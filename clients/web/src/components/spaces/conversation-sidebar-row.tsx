@@ -554,6 +554,8 @@ export function ChatIcon(input: {
 	if (input.chat.session) {
 		return (
 			<CenterAgentChatAvatar
+				avatarStyle={input.chat.centerAgentAvatarStyle}
+				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
 				working={
 					input.summary?.statuses?.some(
@@ -567,6 +569,8 @@ export function ChatIcon(input: {
 		<SpaceProfileIcon
 			agentControllerRef={input.chat.peer?.agentControllerRef ?? null}
 			avatarImageUrl={input.chat.peer?.avatarUrl}
+			avatarModelId={input.chat.peer?.avatarModelId}
+			avatarStyle={input.chat.peer?.avatarStyle}
 			profileId={input.chat.peer?.profileId ?? input.chat.spaceId}
 			profileKind={input.chat.peer?.profileKind ?? "human"}
 			profileName={input.title}

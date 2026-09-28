@@ -2853,7 +2853,9 @@ describe("SpaceConversationPanel", () => {
 		const centerAgentAvatar = screen.getByTestId(
 			"space-center-agent-profile-avatar-agent-profile-center"
 		);
-		expect(centerAgentAvatar.getAttribute("data-shape")).toBe("circle");
+		expect(
+			centerAgentAvatar.querySelector("canvas[data-bot-avatar]")
+		).toBeTruthy();
 		const intro = introHeading.closest(
 			"[data-center-agent-direct-message-intro]"
 		);
@@ -2897,7 +2899,7 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
-	it("uses circular Fluid avatars for Center Agent messages in an ordinary Space", () => {
+	it("uses Bot avatars for Center Agent messages in an ordinary Space", () => {
 		renderSpaceConversationPanel({
 			centerAgentProfileId: "agent-profile-center",
 			isCenterAgentDirectMessage: false,
@@ -2917,7 +2919,7 @@ describe("SpaceConversationPanel", () => {
 		const avatar = screen.getByTestId(
 			"space-center-agent-profile-avatar-agent-profile-center"
 		);
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 

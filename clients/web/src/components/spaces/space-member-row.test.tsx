@@ -654,7 +654,7 @@ describe("SpaceMemberRow", () => {
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
 	});
 
-	it("uses a circular Fluid avatar for the Center Agent in an ordinary Space", () => {
+	it("uses a Bot avatar for the Center Agent in an ordinary Space", () => {
 		renderSpaceMemberRow({
 			centerAgentProfileId: "agt-1",
 			entry: buildAgentEntry({
@@ -663,7 +663,7 @@ describe("SpaceMemberRow", () => {
 		});
 
 		const avatar = screen.getByTestId("space-profile-icon-agt-1");
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 

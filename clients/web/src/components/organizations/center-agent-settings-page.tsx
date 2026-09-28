@@ -1,4 +1,5 @@
-import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
+import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
+import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
 
 ("use client");
 
@@ -240,6 +241,9 @@ export function CenterAgentSettingsContent(input: {
 			queryClient.invalidateQueries({
 				queryKey: organizationQueryKeys.directory(input.organizationId),
 			}),
+			queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
+			}),
 		]);
 	};
 	const designateMutation = useMutation({
@@ -284,10 +288,22 @@ export function CenterAgentSettingsContent(input: {
 		},
 	});
 	const updateProfileMutation = useMutation({
-		mutationFn: async (variables: { profileName: string }) =>
+		mutationFn: async (variables: {
+			profileName?: string;
+			avatarStyle?:
+				| "fluid"
+				| "clover"
+				| "flower"
+				| "star"
+				| "ghost"
+				| "mech"
+				| "circle"
+				| "hexagon"
+				| "square";
+		}) =>
 			await updateCurrentCenterAgentProfile({
 				organizationId: input.organizationId,
-				profileName: variables.profileName,
+				...variables,
 			}),
 		onError: (error) => {
 			setMutationError(resolveCenterAgentErrorMessage(error, "profile_update"));
@@ -295,7 +311,7 @@ export function CenterAgentSettingsContent(input: {
 		onMutate: () => {
 			setMutationError(null);
 		},
-		onSuccess: async (response) => {
+		onSuccess: async (response, variables) => {
 			queryClient.setQueryData(
 				organizationQueryKeys.directory(input.organizationId),
 				(current: OrganizationDirectoryResponse | undefined) =>
@@ -309,6 +325,7 @@ export function CenterAgentSettingsContent(input: {
 												...profile,
 												profileHandle: response.profile.profileHandle,
 												profileName: response.profile.profileName,
+												avatarStyle: response.profile.avatarStyle,
 												updatedAt: response.profile.updatedAt,
 											}
 										: profile
@@ -316,7 +333,11 @@ export function CenterAgentSettingsContent(input: {
 							}
 			);
 			await invalidateCenterAgentFacts();
-			toast.success("Center Agent profile updated.");
+			toast.success(
+				variables.avatarStyle
+					? "Avatar updated."
+					: "Center Agent profile updated."
+			);
 		},
 	});
 	const dmMutation = useMutation({
@@ -359,13 +380,21 @@ export function CenterAgentSettingsContent(input: {
 			)}
 			{designation && designatedProfile ? (
 				<CenterAgentConnectionSection
+					canManage={input.roleState.canManage && !input.roleState.isPending}
 					disableMessage={
 						dmMutation.isPending ||
 						operatingStateQuery.data?.operatingState === "paused"
 					}
 					onMessage={() => dmMutation.mutate()}
+					onSaveAvatar={async (avatarStyle) => {
+						if (avatarStyle === "automatic") {
+							throw new Error("Center Agent requires a selected avatar.");
+						}
+						await updateProfileMutation.mutateAsync({ avatarStyle });
+					}}
 					operatingState={operatingStateQuery.data?.operatingState ?? "active"}
 					profile={designatedProfile}
+					savingAvatar={updateProfileMutation.isPending}
 				/>
 			) : null}
 			{designation && designatedProfile ? (
@@ -725,6 +754,9 @@ function resolveRemoteConnectionDescription(input: {
 }
 
 function CenterAgentConnectionSection(input: {
+	canManage: boolean;
+	onSaveAvatar: (style: AgentAvatarStyle) => Promise<void>;
+	savingAvatar: boolean;
 	disableMessage: boolean;
 	onMessage: () => void;
 	operatingState: "active" | "paused";
@@ -739,11 +771,14 @@ function CenterAgentConnectionSection(input: {
 			<p className="text-muted-foreground text-xs">Center Agent settings</p>
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex min-w-0 items-start gap-4">
-					<RemoteAgentAvatar
-						data-testid={`center-agent-profile-avatar-${input.profile.profileId}`}
+					<AgentAvatarEditor
+						avatarStyle={input.profile.avatarStyle}
+						canEdit={input.canManage}
+						centerAgent
+						onSave={input.onSaveAvatar}
+						profileId={input.profile.profileId}
 						profileName={input.profile.profileName}
-						shape="circle"
-						size={64}
+						saving={input.savingAvatar}
 					/>
 					<div className="min-w-0">
 						<h1 className="truncate font-semibold text-2xl text-foreground">

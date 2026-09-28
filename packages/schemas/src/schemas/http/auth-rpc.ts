@@ -5,6 +5,7 @@ import {
   organizationDirectoryAgentProfileIdentitySchema,
   organizationDirectoryMemberSchema,
 } from "./organization-directory";
+import { agentAvatarStyleSchema } from "./profiles";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 
@@ -65,6 +66,7 @@ export const authRpcProfileFactSchema = z.strictObject({
   organizationId: z.string().nullable().optional(),
   managedRole: z.string().nullable().optional(),
   defaultProjectId: z.string().nullable().optional(),
+  avatarStyle: agentAvatarStyleSchema.nullable().optional(),
 });
 
 export const authRpcResolveProfileByIdResultSchema = z.discriminatedUnion(
@@ -76,6 +78,7 @@ export const authRpcResolveProfileByIdResultSchema = z.discriminatedUnion(
 );
 
 export const authRpcResolveProfilesByIdsInputSchema = z.strictObject({
+  includeAvatarStyle: z.boolean().optional(),
   profileIds: z
     .array(trimmedNonEmptyStringSchema.max(256))
     .min(1)
@@ -261,6 +264,7 @@ export const authRpcResolveOrganizationDirectoryMembersResultSchema =
 export const authRpcResolveOrganizationDirectoryAgentProfilesInputSchema =
   z.strictObject({
     additionalAgentProfileIds: z.array(agentProfileIdSchema),
+    includeAvatarStyle: z.boolean().optional(),
     organizationId: trimmedNonEmptyStringSchema.max(256),
   });
 
