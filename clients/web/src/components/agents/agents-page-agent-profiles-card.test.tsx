@@ -337,6 +337,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		cleanup();
 		vi.clearAllMocks();
 		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 	});
 
 	it("shows Agent Controller Permission Mode on the card without repeating it in More details", async () => {
@@ -1393,6 +1394,14 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 	});
 
 	it("shows team-safe Profile details for a teammate Agent", async () => {
+		// Base UI mounts AvatarImage only after a browser image reports loaded.
+		vi.stubGlobal(
+			"Image",
+			class {
+				complete = true;
+				naturalWidth = 1;
+			}
+		);
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",
 			"builtin:codex",
