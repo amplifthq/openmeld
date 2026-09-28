@@ -58,6 +58,17 @@ afterEach(() => {
 });
 
 describe("OpenMeld Space Action command", () => {
+  it("records an explicit main-conversation placement as structured reply data", async () => {
+    const context = createTestContext([]);
+    await runSpaceActionReply({
+      messageParts: ["Decision for everyone."],
+      placement: "conversation",
+    });
+    expect(readLoadedActionRecord(context).action).toMatchObject({
+      type: "post_message",
+      placement: "conversation",
+    });
+  });
   it("keeps expired contexts from uploading files or listing targets while recovering plain replies", () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     const context = createTestContext([], { ttlMs: 1000 });

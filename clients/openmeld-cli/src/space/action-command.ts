@@ -42,6 +42,7 @@ export function runSpaceActionReply(input: {
   filePaths?: readonly string[];
   messageFilePath?: string;
   messageParts: readonly string[];
+  placement?: "conversation" | "thread";
   mentionTargets?: readonly string[];
   referenceTargets?: readonly string[];
   wakeTargets?: readonly string[];
@@ -51,6 +52,7 @@ export function runSpaceActionReply(input: {
     filePaths: input.filePaths,
     messagePartCount: input.messageParts.length,
     mentionTargets: input.mentionTargets,
+    placement: input.placement,
     referenceTargets: input.referenceTargets,
     text,
     wakeTargets: input.wakeTargets,
@@ -69,6 +71,7 @@ export function recordDispatchSpaceReply(input: {
   filePaths?: readonly string[];
   messagePartCount?: number;
   mentionTargets?: readonly string[];
+  placement?: "conversation" | "thread";
   referenceTargets?: readonly string[];
   text: string;
   wakeTargets?: readonly string[];
@@ -116,6 +119,7 @@ export function recordDispatchSpaceReply(input: {
       context,
       files: input.files ? [...input.files] : [],
       targetIds,
+      placement: input.placement,
       text,
       timing,
     });
@@ -124,6 +128,7 @@ export function recordDispatchSpaceReply(input: {
     context,
     filePaths,
     targetIds,
+    placement: input.placement,
     text,
     timing,
   });
@@ -160,6 +165,7 @@ async function uploadAndRecordSpaceActionReply(input: {
     mentionTargets: string[];
     referenceTargets: string[];
   };
+  placement?: "conversation" | "thread";
   text: string;
   timing: ReturnType<typeof createSpaceActionReplyTiming>;
 }): Promise<DispatchSpaceActionRecord> {
@@ -178,11 +184,13 @@ function writeSpaceActionReplyRecord(input: {
     mentionTargets: string[];
     referenceTargets: string[];
   };
+  placement?: "conversation" | "thread";
   text: string;
   timing: ReturnType<typeof createSpaceActionReplyTiming>;
 }): DispatchSpaceActionRecord {
   const action: OpenMeldSpaceEgressAction = {
     type: "post_message",
+    ...(input.placement ? { placement: input.placement } : {}),
     ...(input.files.length > 0 ? { files: [...input.files] } : {}),
     messageEnvelope: {
       activationTargets: input.targetIds.activationTargets,

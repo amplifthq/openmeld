@@ -4536,6 +4536,7 @@ export class Space extends DurableObject<CoreBindings> {
       return {
         emittedSignal: existingSignal,
         finalReplySettled: true,
+        threadContext: this.resolveThreadContextForSignal(existingSignal.id),
       };
     }
 
@@ -4564,6 +4565,8 @@ export class Space extends DurableObject<CoreBindings> {
     const sourceDispatchChainContext =
       resolveSourceDispatchChainContext(requestContext);
     const spacePassword = getSpaceAccessPassword(spaceAccess);
+    const outputThreadContext =
+      await this.resolveAgentTransportOutputThreadContext(input);
     const signalContext = {
       ...(input.plan.kind === "message"
         ? {
@@ -4572,6 +4575,8 @@ export class Space extends DurableObject<CoreBindings> {
                 input.plan.observedThroughSignalId ??
                 input.dispatchMessage.sourceEventId,
               sourceSignalId: input.dispatchMessage.sourceEventId,
+              sourceThreadId:
+                input.dispatchMessage.threadContext?.threadId ?? null,
               targetProfileId: input.dispatchMessage.targetProfileId,
             },
           }
@@ -4590,9 +4595,9 @@ export class Space extends DurableObject<CoreBindings> {
         : {}),
       ...(sourceDispatchChainContext ? { sourceDispatchChainContext } : {}),
       ...(spacePassword === undefined ? {} : { spacePassword }),
-      ...(input.dispatchMessage.threadContext
+      ...(outputThreadContext
         ? {
-            threadContext: input.dispatchMessage.threadContext,
+            threadContext: outputThreadContext,
             threadPlacement: "thread" as const,
           }
         : {}),
@@ -4632,6 +4637,7 @@ export class Space extends DurableObject<CoreBindings> {
     return {
       emittedSignal: finalSignal,
       finalReplySettled: true,
+      threadContext: this.resolveThreadContextForSignal(finalSignal.id),
     };
   }
 
@@ -4643,6 +4649,24 @@ export class Space extends DurableObject<CoreBindings> {
       profileId: input.dispatchMessage.targetProfileId,
     });
     return signalId ? this.readSignalById(signalId) : null;
+  }
+
+  private async resolveAgentTransportOutputThreadContext(
+    input: AgentTransportSpaceActionDeliveryInput
+  ): Promise<SpaceThreadContext | null> {
+    if (input.plan.kind !== "message") {
+      return input.dispatchMessage.threadContext ?? null;
+    }
+    const placement = await this.rpcResolveNativeReplyPlacement({
+      spaceId: input.dispatchMessage.spaceId,
+      dispatchId: input.dispatchMessage.dispatchId,
+      sourceSignalId: input.dispatchMessage.sourceEventId,
+      profileId: input.dispatchMessage.targetProfileId,
+      defaultToThread: true,
+      lock: true,
+      ...(input.plan.placement ? { placement: input.plan.placement } : {}),
+    });
+    return placement.threadContext;
   }
 
   private async buildAgentTransportSpaceActionSignal(
@@ -18328,7 +18352,11 @@ export class Space extends DurableObject<CoreBindings> {
                   signalContext.agentReplyObservation.observedThroughSignalId,
                 sourceSignalId:
                   signalContext.agentReplyObservation.sourceSignalId,
-                threadId: signalContext.threadContext?.threadId ?? null,
+                threadId:
+                  signalContext.agentReplyObservation.sourceThreadId ===
+                  undefined
+                    ? (signalContext.threadContext?.threadId ?? null)
+                    : signalContext.agentReplyObservation.sourceThreadId,
               }
             : null,
           operation: () => {
@@ -18640,7 +18668,11 @@ export class Space extends DurableObject<CoreBindings> {
                   signalContext.agentReplyObservation.observedThroughSignalId,
                 sourceSignalId:
                   signalContext.agentReplyObservation.sourceSignalId,
-                threadId: signalContext.threadContext?.threadId ?? null,
+                threadId:
+                  signalContext.agentReplyObservation.sourceThreadId ===
+                  undefined
+                    ? (signalContext.threadContext?.threadId ?? null)
+                    : signalContext.agentReplyObservation.sourceThreadId,
               }
             : null,
           operation: () => {
