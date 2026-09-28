@@ -1,8 +1,8 @@
-// Downstream integration policy, not a credential store. The upstream worker
-// The reviewed fork keys its app cache by allowedProxies AND blockedProxies. Keep its
+// Downstream integration policy, not a credential store. The reviewed fork
+// keys its app cache by allowedProxies AND blockedProxies. Keep its
 // ordinary API/MCP environment unchanged and unblock only this validated call.
 export const OPENMELD_GIT_PROXY_UPSTREAM_SHA =
-  "7a4079eb30421c8a5b3ba12e413b2616e7ccc353";
+  "269dfc17d59f6b0ca1052dce3053fb3028bb9534";
 export const OPENMELD_GIT_PROXY_PATH = "/v1/openmeld/github-working-copy";
 const REPOSITORY_PATH = /^\/repos\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]+)(.*)$/u;
 const SHA = /^[a-f0-9]{40}$/u;
