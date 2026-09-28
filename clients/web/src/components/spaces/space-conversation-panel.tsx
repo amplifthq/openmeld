@@ -1156,9 +1156,31 @@ function useSpaceConversationPresentationController(
 		() => buildThreadSignalIds(input.threadPreviews),
 		[input.threadPreviews]
 	);
+	const undecidedCenterStreamIds = useMemo(
+		() =>
+			new Set(
+				(input.agentStreams ?? [])
+					.filter(
+						(stream) =>
+							!input.isDirectMessage &&
+							stream.profileId === input.centerAgentProfileId &&
+							stream.status === "streaming" &&
+							stream.replyThreadRootSignalId === undefined
+					)
+					.map((stream) => stream.streamId)
+			),
+		[input.agentStreams, input.centerAgentProfileId, input.isDirectMessage]
+	);
 	const baseMainTimelineItems = useMemo(
-		() => input.timelineItems.filter((item) => !threadSignalIds.has(item.id)),
-		[input.timelineItems, threadSignalIds]
+		() =>
+			input.timelineItems.filter(
+				(item) =>
+					!(
+						threadSignalIds.has(item.id) ||
+						undecidedCenterStreamIds.has(item.agentStreamState?.streamId ?? "")
+					)
+			),
+		[input.timelineItems, threadSignalIds, undecidedCenterStreamIds]
 	);
 	const belongsInMainConversation = useCallback(
 		(progress: SpaceEphemeralActivityItem) => {

@@ -4107,6 +4107,61 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
+	it("keeps an undecided Center Agent stream out of the main conversation", () => {
+		const progress = createWakeProgressItem();
+		const streamId = "stream-undecided";
+		renderSpaceConversationPanel({
+			agentStreams: [
+				{
+					createdAtMs: progress.startedAtMs ?? 0,
+					dispatchId: "dispatch-1",
+					observedRevision: 1,
+					profileId: TARGET_PROFILE_ID,
+					reasonCode: null,
+					sequence: 1,
+					spaceId: "space-1",
+					status: "streaming",
+					streamId,
+					text: "",
+					textSequence: 0,
+					triggerMessageId: "sig-source",
+					updatedAtMs: progress.updatedAtMs,
+				},
+			],
+			centerAgentProfileId: TARGET_PROFILE_ID,
+			ephemeralActivityItems: [progress],
+			timelineItems: [
+				createTimelineItem({
+					id: "sig-source",
+					text: "Please investigate",
+					wakeTargetProfileIds: [TARGET_PROFILE_ID],
+				}),
+				createTimelineItem({
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 1,
+						status: "streaming",
+						streamId,
+					},
+					actorProfileId: TARGET_PROFILE_ID,
+					actorProfileKind: "agent",
+					id: streamId,
+					isAgentFinalReply: true,
+					replyToSignalId: "sig-source",
+					text: "",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Please investigate")).toBeTruthy();
+		expect(
+			document.querySelector(`[data-message-id="${streamId}"]`)
+		).toBeNull();
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
+	});
+
 	it("replaces the optimistic Center Agent reply shell with the first real stream projection", () => {
 		renderSpaceConversationPanel({
 			ephemeralActivityItems: [
