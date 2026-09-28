@@ -44,6 +44,15 @@ type CapabilityCatalogEntry = {
 const CAPABILITY_CATALOG_OVERRIDES: Readonly<
   Record<string, CapabilityCatalogEntry>
 > = {
+  github_publish_computer_file: {
+    aliases: [
+      "publish image to GitHub",
+      "upload screenshot to GitHub",
+      "publish Computer image to GitHub branch",
+      "把电脑里的图片发到 GitHub 分支",
+    ],
+    namespace: "github",
+  },
   openmeld_connect_agent_profile_to_local_agent: {
     aliases: [
       "connect an Agent Profile to a local agent",

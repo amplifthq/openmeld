@@ -12,13 +12,16 @@ import {
   putRemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
 } from "../agent-core/callback-context";
+import { getRemoteAgentGitHubToolDefinitions } from "../agent-core/github-tools";
 import {
   GitHubWorkingCopyProvider,
   gitBlobSha,
 } from "../connectors/github-working-copy-provider";
+import { rankRemoteAgentCapabilities } from "../flue-adapter/capability-catalog";
 import { GitWorkingCopyComputer } from "../flue-adapter/github-working-copy-computer";
 import {
   checkoutRepository,
+  getGitHubWorkingCopyTools,
   publishCheckout,
   publishComputerFile,
 } from "../flue-adapter/github-working-copy-tools";
@@ -297,6 +300,26 @@ async function fixture(
 
 afterEach(() => vi.restoreAllMocks());
 describe("bounded Git publication and receipts", () => {
+  it.each([
+    "publish image to GitHub branch",
+    "upload screenshot to GitHub",
+    "把电脑里的图片发到 GitHub 分支",
+  ])("finds the hosted image publication entry for %s", (query) => {
+    const catalog = [
+      ...getRemoteAgentGitHubToolDefinitions({
+        coreWorker: {} as never,
+        storage: {} as never,
+        submissionId: "test",
+      }),
+      ...getGitHubWorkingCopyTools({} as never),
+    ];
+    expect(
+      rankRemoteAgentCapabilities(catalog, query)
+        .slice(0, 8)
+        .map(({ capability }) => capability.name)
+    ).toContain("github_publish_computer_file");
+  });
+
   it("reuses the verified Computer manifests instead of downloading the tree on retry", async () => {
     const f = await fixture();
     vi.mocked(f.deps.computer.readFile).mockResolvedValue("[]");

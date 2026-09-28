@@ -133,7 +133,7 @@ export function getGitHubWorkingCopyTools(
     {
       name: "github_publish_computer_file",
       description:
-        "Publish one PNG or JPEG file already downloaded into this Computer to a private GitHub repository. Supply its Computer path, owner/repo, the explicit GitHub identity and a stable operationId. This makes one file commit on an OpenMeld side branch, never main; no repository checkout or model-visible file bytes are needed. Reuse identical inputs and operationId on retries. Returns a commit-pinned GitHub blob?raw=true URL that viewers with repository access can embed in an issue or PR. Keep the side branch so GitHub retains the commit; the link is not public to people without repository access. This does not open a PR or attest tests.",
+        "Publish one PNG or JPEG image or screenshot already downloaded into this Computer to a private GitHub repository. Supply its Computer path, owner/repo, the explicit GitHub identity and a stable operationId. This makes one file commit on an OpenMeld side branch, never main; no repository checkout or model-visible file bytes are needed. Reuse identical inputs and operationId on retries. Returns a commit-pinned GitHub blob?raw=true URL that viewers with repository access can embed in an issue or PR. Keep the side branch so GitHub retains the commit; the link is not public to people without repository access. This does not open a PR or attest tests.",
       input: strictObject({
         path: string(),
         owner: string(),
