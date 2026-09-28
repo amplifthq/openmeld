@@ -1471,11 +1471,12 @@ Runtime results use the Space action contract:
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
   action boundary rather than provider-specific coordination prompts.
 
-Reply publication and observation use the source message's conversation scope.
-A main-timeline source remains in the main scope when a thread is opened beneath
-it; a `root` placement does not move that Wake into the thread. Only a source
-posted inside a thread defaults its outcome to that thread. Thread reads and
-the atomic reply guard both accept that thread's root as an observation cursor,
+Reply observation uses the source message's conversation scope. A main-timeline
+source remains in the main observation scope when a thread is opened beneath it;
+a `root` placement does not move that Wake into the thread. Final reply output
+in shared Spaces defaults to the thread under the source message, independently
+of that source scope. Thread reads and the atomic reply guard both accept that
+thread's root as an observation cursor,
 including when there are no replies yet. Other threads' cursors remain invalid,
 and newer messages in the observed scope still require review.
 
