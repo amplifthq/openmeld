@@ -7,6 +7,8 @@ export const ACTIVE_PROJECT_LIMIT = 500;
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
+const LINEAR_ISSUE_CREATE_ACTION_PATTERN =
+  /(?:^|[._-])(?:create[._-]?issue|issue[._-]?create)(?:$|[._-])/iu;
 
 export const repositoryFingerprintSchema = z
   .string()
@@ -76,6 +78,162 @@ export const createProjectResponseSchema = z.strictObject({
 
 export const projectRouteParamsSchema = z.strictObject({
   projectId: boundedIdentifierSchema,
+});
+
+const githubRepositoryPartSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9_.-]+$/u);
+
+export const projectIssueDestinationSchema = z.discriminatedUnion("provider", [
+  z.strictObject({
+    provider: z.literal("github"),
+    owner: githubRepositoryPartSchema,
+    repo: githubRepositoryPartSchema,
+  }),
+  z.strictObject({
+    provider: z.literal("linear"),
+    teamId: z.uuid(),
+    projectId: z.uuid().optional(),
+  }),
+]);
+
+export const projectIssueRoutingSchema = z.strictObject({
+  projectId: boundedIdentifierSchema,
+  destination: projectIssueDestinationSchema.nullable(),
+  revision: z.number().int().nonnegative(),
+  updatedAtMs: timestampMsSchema.nullable(),
+  updatedByUserId: boundedIdentifierSchema.nullable(),
+});
+
+export const readProjectIssueRoutingResponseSchema = z.strictObject({
+  routing: projectIssueRoutingSchema,
+});
+
+export const updateProjectIssueRoutingBodySchema = z.strictObject({
+  expectedOrganizationId: boundedIdentifierSchema,
+  expectedRevision: z.number().int().nonnegative(),
+  destination: projectIssueDestinationSchema.nullable(),
+});
+
+export const updateProjectIssueRoutingResponseSchema =
+  readProjectIssueRoutingResponseSchema;
+
+export const resolveProjectIssueActionRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  proposedDestination: projectIssueDestinationSchema,
+});
+
+export const resolveProjectIssueActionResponseSchema = z.strictObject({
+  basis: z.enum(["explicit_request", "project_default", "object_context"]),
+  destination: projectIssueDestinationSchema,
+  projectId: boundedIdentifierSchema.nullable(),
+  projectRevision: z.number().int().nonnegative().nullable(),
+});
+
+const projectRepositoryUrlsSchema = z
+  .array(repositoryUrlSchema)
+  .max(12)
+  .refine(
+    (urls) =>
+      new Set(urls.map((url) => url.toLowerCase())).size === urls.length,
+    "Each repository can be associated only once."
+  );
+
+export const projectRepositorySettingsSchema = z.strictObject({
+  projectId: boundedIdentifierSchema,
+  repositories: z
+    .array(
+      z.strictObject({
+        repositoryUrl: repositoryUrlSchema,
+        repositoryFingerprint: repositoryFingerprintSchema,
+        isDefault: z.boolean(),
+      })
+    )
+    .max(12),
+  legacyDefaultFingerprint: repositoryFingerprintSchema.nullable(),
+  revision: z.number().int().nonnegative(),
+  updatedAtMs: timestampMsSchema.nullable(),
+  updatedByUserId: boundedIdentifierSchema.nullable(),
+});
+
+export const readProjectRepositorySettingsResponseSchema = z.strictObject({
+  settings: projectRepositorySettingsSchema,
+});
+
+export const updateProjectRepositorySettingsBodySchema = z.strictObject({
+  expectedOrganizationId: boundedIdentifierSchema,
+  expectedRevision: z.number().int().nonnegative(),
+  repositoryUrls: projectRepositoryUrlsSchema,
+  defaultRepositoryUrl: repositoryUrlSchema.nullable(),
+});
+
+export const updateProjectRepositorySettingsResponseSchema =
+  readProjectRepositorySettingsResponseSchema;
+
+export const readProjectRepositorySettingsRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema.optional(),
+  projectId: boundedIdentifierSchema,
+});
+export const updateProjectRepositorySettingsRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema.optional(),
+  projectId: boundedIdentifierSchema,
+  ...updateProjectRepositorySettingsBodySchema.shape,
+});
+
+const projectCommonAgentIdsSchema = z
+  .array(boundedIdentifierSchema)
+  .max(50)
+  .refine((ids) => new Set(ids).size === ids.length, {
+    message: "An Agent can be listed only once.",
+  });
+
+export const projectCommonAgentsSchema = z.strictObject({
+  projectId: boundedIdentifierSchema,
+  agentProfileIds: projectCommonAgentIdsSchema,
+  revision: z.number().int().nonnegative(),
+  updatedAtMs: timestampMsSchema.nullable(),
+  updatedByUserId: boundedIdentifierSchema.nullable(),
+});
+
+export const readProjectCommonAgentsResponseSchema = z.strictObject({
+  commonAgents: projectCommonAgentsSchema,
+});
+
+export const updateProjectCommonAgentsBodySchema = z.strictObject({
+  expectedOrganizationId: boundedIdentifierSchema,
+  expectedRevision: z.number().int().nonnegative(),
+  agentProfileIds: projectCommonAgentIdsSchema,
+});
+
+export const updateProjectCommonAgentsResponseSchema =
+  readProjectCommonAgentsResponseSchema;
+
+export const readProjectCommonAgentsRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema.optional(),
+  projectId: boundedIdentifierSchema,
+});
+export const updateProjectCommonAgentsRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema.optional(),
+  projectId: boundedIdentifierSchema,
+  ...updateProjectCommonAgentsBodySchema.shape,
+});
+
+export function isLinearIssueCreateAction(actionId: string): boolean {
+  return LINEAR_ISSUE_CREATE_ACTION_PATTERN.test(actionId);
+}
+
+export const readProjectIssueRoutingRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema.optional(),
+  projectId: boundedIdentifierSchema,
+});
+
+export const updateProjectIssueRoutingRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema.optional(),
+  projectId: boundedIdentifierSchema,
+  ...updateProjectIssueRoutingBodySchema.shape,
 });
 
 const projectUpdateShape = {

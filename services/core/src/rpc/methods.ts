@@ -154,6 +154,7 @@ import {
   createCenterAgentSessionBodySchema,
   createConnectorAppRequestBodySchema,
   createSpaceDiagnosticReportBodySchema,
+  createSpaceTaskBodySchema,
   currentAgentProfileSessionLookupQuerySchema,
   currentAgentProfileSessionLookupResponseSchema,
   currentDeviceTargetDeviceIdSchema,
@@ -231,6 +232,7 @@ import {
   messageChannelIdentityLinkPreviewResponseSchema,
   messageChannelSetupRequestBodySchema,
   messageChannelSetupRequestResponseSchema,
+  mutateSpaceTaskBodySchema,
   normalizeSpaceCursorPatch,
   normalizeSpacePasswordText,
   notifyAgentProfileRouteCatalogChangedBodySchema,
@@ -281,6 +283,7 @@ import {
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
@@ -1000,6 +1003,7 @@ import {
   type CoreBindings,
   identityDb,
   localStateDb,
+  projectDb,
   projectionsDb,
   wakeEvidenceDb,
 } from "../lib/bindings";
@@ -1053,12 +1057,15 @@ import {
   buildCanonicalLocalProjectDiscoveryRequest,
   createLocalProjectControlRpc,
 } from "../projects/local-project-control-rpc";
+import { readActiveProjectIds } from "../projects/project-repository";
 import { prepareExpectedHumanProjectRequest } from "../projects/project-request-preparation";
 import {
   rpcArchiveProject as archiveProject,
   rpcCreateProject as createProject,
   rpcListProjects as listProjects,
+  rpcReadProjectIssueRouting as readProjectIssueRouting,
   rpcUpdateProject as updateProject,
+  rpcUpdateProjectIssueRouting as updateProjectIssueRouting,
 } from "../projects/project-rpc";
 import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
 import { reconcileChannelAuthorizationUpdates } from "../remote-agent/application/channel-authorization-update-service";
@@ -1237,6 +1244,13 @@ import {
   readSpaceMemberNameFromAuth,
   SPACE_MEMBER_NAME_READ_BUDGET_MS,
 } from "../space/application/space-members-service";
+import {
+  assertLegacySpaceTaskCanRead,
+  projectSpaceTaskDetailForClient,
+  projectSpaceTaskReceiptForClient,
+  projectSpaceTasksForClient,
+  spaceTaskContractUpdateRequiredError,
+} from "../space/application/space-task-client-compatibility";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/d1/space-board-execution-read-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/d1/space-dispatch-read-repo";
@@ -1375,6 +1389,20 @@ export type UpdateRoutineInput = RoutineUpdateInput;
 
 export function rpcListProjects(env: CoreBindings, input: ListProjectsInput) {
   return listProjects(env, input);
+}
+
+export function rpcReadProjectIssueRouting(
+  env: CoreBindings,
+  input: Parameters<typeof readProjectIssueRouting>[1]
+) {
+  return readProjectIssueRouting(env, input);
+}
+
+export function rpcUpdateProjectIssueRouting(
+  env: CoreBindings,
+  input: Parameters<typeof updateProjectIssueRouting>[1]
+) {
+  return updateProjectIssueRouting(env, input);
 }
 
 export function rpcCreateProject(env: CoreBindings, input: CreateProjectInput) {
@@ -25625,6 +25653,7 @@ export type SpaceFilePinsInput = GetSpaceMetaInput & {
 
 export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;
+  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 
 export type GetSpaceTaskInput = GetSpaceMetaInput &
@@ -25634,11 +25663,13 @@ export type GetSpaceTaskInput = GetSpaceMetaInput &
 
 export type CreateSpaceTaskInput = GetSpaceMetaInput & {
   body: CreateSpaceTaskBody;
+  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 
 export type MutateSpaceTaskInput = GetSpaceMetaInput & {
   taskId: string;
   body: MutateSpaceTaskBody;
+  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 
 export async function rpcSpaceFilePins(
@@ -25681,12 +25712,13 @@ export async function rpcListSpaceTasks(
   const context = input.context
     ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
     : undefined;
-  return await stub.rpcListTasks({
+  const listed = await stub.rpcListTasks({
     ...input,
     spaceId,
     context,
     spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
   });
+  return projectSpaceTasksForClient(listed, input.taskContractVersion);
 }
 
 export async function rpcGetSpaceTask(
@@ -25695,18 +25727,20 @@ export async function rpcGetSpaceTask(
 ): Promise<SpaceTaskResponse> {
   const options = spaceTaskDetailOptionsSchema.parse({
     includeAffordances: input.includeAffordances,
+    taskContractVersion: input.taskContractVersion,
   });
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const context = input.context
     ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
     : undefined;
-  return await stub.rpcGetTask({
+  const detail = await stub.rpcGetTask({
     ...input,
     ...options,
     spaceId,
     context,
     spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
   });
+  return projectSpaceTaskDetailForClient(detail, input.taskContractVersion);
 }
 
 export async function rpcCreateSpaceTask(
@@ -25719,6 +25753,27 @@ export async function rpcCreateSpaceTask(
     spaceId,
     requireRpcContext(input.context)
   );
+  const parsedBody = createSpaceTaskBodySchema.parse(input.body);
+  if (
+    parsedBody.projectIds?.length &&
+    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
+  }
+  if (
+    parsedBody.externalWorkItems?.some((item) => item.provider === "linear") &&
+    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
+  }
+  if (parsedBody.projectIds?.length) {
+    await assertSpaceTaskProjectsAvailable(env, {
+      context,
+      input,
+      projectIds: parsedBody.projectIds,
+      spaceId,
+    });
+  }
   let body = input.body;
   const submissionId = context.agentControllerConversationId?.trim();
   const db = wakeEvidenceDb(env);
@@ -25739,7 +25794,13 @@ export async function rpcCreateSpaceTask(
       };
     }
   }
-  return await stub.rpcCreateTask({ ...input, body, spaceId, context });
+  const receipt = await stub.rpcCreateTask({
+    ...input,
+    body,
+    spaceId,
+    context,
+  });
+  return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
 }
 
 export async function rpcMutateSpaceTask(
@@ -25752,7 +25813,83 @@ export async function rpcMutateSpaceTask(
     spaceId,
     requireRpcContext(input.context)
   );
-  return await stub.rpcMutateTask({ ...input, spaceId, context });
+  if (input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
+    if (
+      input.body.action === "set_projects" ||
+      input.body.action === "detach_linear_external_work_item" ||
+      (input.body.action === "attach_external_work_item" &&
+        input.body.item.provider === "linear")
+    ) {
+      throw spaceTaskContractUpdateRequiredError();
+    }
+    const current = await stub.rpcGetTask({
+      context,
+      password: input.password,
+      spaceId,
+      taskId: input.taskId,
+    });
+    assertLegacySpaceTaskCanRead(current.task, current.events);
+  }
+  if (input.body.action === "set_projects") {
+    const command = mutateSpaceTaskBodySchema.parse(input.body);
+    if (command.action === "set_projects" && command.projectIds.length) {
+      await assertSpaceTaskProjectsAvailable(env, {
+        context,
+        input,
+        projectIds: command.projectIds,
+        spaceId,
+      });
+    }
+  }
+  const receipt = await stub.rpcMutateTask({ ...input, spaceId, context });
+  return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
+}
+
+async function assertSpaceTaskProjectsAvailable(
+  env: CoreBindings,
+  input: {
+    context: CoreRpcContextInput;
+    input: GetSpaceMetaInput;
+    projectIds: string[];
+    spaceId: string;
+  }
+): Promise<void> {
+  const meta = await rpcGetSpaceMeta(env, {
+    ...input.input,
+    context: input.context,
+    spaceId: input.spaceId,
+  });
+  if (
+    !input.context.activeOrganizationId ||
+    meta.organizationId !== input.context.activeOrganizationId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "project.organization_context_changed",
+      reason: "The selected Organization changed. Refresh and try again.",
+      status: 409,
+    });
+  }
+  const db = projectDb(env);
+  if (!db) {
+    throw createCoreRpcHttpError({
+      code: "project.store_unavailable",
+      reason: "Project storage is unavailable.",
+      status: 503,
+    });
+  }
+  const active = await readActiveProjectIds({
+    db,
+    organizationId: meta.organizationId,
+    projectIds: input.projectIds,
+  });
+  if (active.length !== input.projectIds.length) {
+    throw createCoreRpcHttpError({
+      code: "project.association_unavailable",
+      reason:
+        "One or more selected Projects are unavailable in this Organization. Refresh the Task and choose active Projects.",
+      status: 409,
+    });
+  }
 }
 
 async function authorizeSpaceTaskRpcContext(

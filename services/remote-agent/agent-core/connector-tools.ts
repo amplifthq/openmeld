@@ -4,6 +4,7 @@ import {
   centerAgentConnectorConnectionSelectionSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentRecordConnectorActionOperationResponseSchema,
+  isLinearIssueCreateAction,
 } from "@openmeld/schemas";
 import type {
   ConnectorService,
@@ -52,7 +53,12 @@ import {
   resolveRemoteAgentRoutineDestructiveActionBlock,
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
+import {
+  readLinearIssueDestination,
+  requireProjectIssueActionDestination,
+} from "./project-issue-routing";
 import { tagRemoteAgentResultSources } from "./result-access";
+import { attachCreatedLinearIssueToSourceTask } from "./space-task-linear-binding";
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
@@ -206,6 +212,7 @@ export function getRemoteAgentConnectorToolDefinitions(
   ];
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This action owner must compose the existing identity, routine, connection, confirmation, and operation-claim checks in one ordered flow.
 async function executeAppAction(input: {
   dependencies: ConnectorToolDependencies;
   request: ExecuteAppActionRequest;
@@ -273,6 +280,9 @@ async function executeAppAction(input: {
         })))
       : undefined;
   let executionAction = routineAction ?? policyAction;
+  let issueResolution: Awaited<
+    ReturnType<typeof requireProjectIssueActionDestination>
+  > | null = null;
   if (routineAction && requiresHighRiskConnectorActionPolicy(routineAction)) {
     const block = resolveRemoteAgentRoutineDestructiveActionBlock(toolContext);
     if (!block) {
@@ -296,6 +306,12 @@ async function executeAppAction(input: {
         connectorExecution: input.dependencies.connectorExecution,
         service: input.request.service,
       }));
+    issueResolution = await resolveNewLinearIssueRouting({
+      action: executionAction,
+      dependencies: input.dependencies,
+      request: input.request,
+      toolContext,
+    });
     if (requiresHighRiskConnectorActionPolicy(executionAction)) {
       const requester = resolveConnectorTurnRequester(
         toolContext.turnEnvelope,
@@ -349,6 +365,13 @@ async function executeAppAction(input: {
     ...operation,
     toolContext,
   });
+  const spaceTask = await attachLinearIssueSpaceTaskBestEffort({
+    dependencies: input.dependencies,
+    issueResolution,
+    request: input.request,
+    resultData: run.data,
+    toolContext,
+  });
   const attribution = (() => {
     if (operation.selection) {
       return {
@@ -391,6 +414,7 @@ async function executeAppAction(input: {
       outputSchema: executionAction?.outputSchema,
       providerExecutionId: run.providerExecutionId,
       replayed: operation.coreOperationReplayed,
+      ...(spaceTask ? { spaceTask } : {}),
     },
     [
       {
@@ -401,6 +425,59 @@ async function executeAppAction(input: {
       },
     ]
   );
+}
+
+async function resolveNewLinearIssueRouting(input: {
+  action: OpenConnectorRuntimeAction;
+  dependencies: ConnectorToolDependencies;
+  request: ExecuteAppActionRequest;
+  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+}) {
+  const destination = readLinearIssueDestination({
+    actionId: input.action.id,
+    actionInput: input.request.input,
+    service: input.request.service,
+  });
+  if (!destination) {
+    return null;
+  }
+  return await requireProjectIssueActionDestination({
+    coreWorker: input.dependencies.coreWorker,
+    destination,
+    toolContext: input.toolContext,
+  });
+}
+
+async function attachLinearIssueSpaceTaskBestEffort(input: {
+  dependencies: ConnectorToolDependencies;
+  issueResolution: Awaited<
+    ReturnType<typeof requireProjectIssueActionDestination>
+  > | null;
+  request: ExecuteAppActionRequest;
+  resultData: unknown;
+  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+}) {
+  if (
+    input.request.service !== "linear" ||
+    !isLinearIssueCreateAction(input.request.actionId)
+  ) {
+    return null;
+  }
+  try {
+    return await attachCreatedLinearIssueToSourceTask({
+      actionInput: input.request.input,
+      coreWorker: input.dependencies.coreWorker,
+      data: input.resultData,
+      projectId: input.issueResolution?.projectId ?? null,
+      toolContext: input.toolContext,
+    });
+  } catch (error) {
+    return {
+      linked: false,
+      reason: `Linear created the issue, but Task linking failed: ${error instanceof Error ? error.message : String(error)}. Retry only the association.`,
+      task: null,
+    };
+  }
 }
 
 function assertOperationIdentityPreference(

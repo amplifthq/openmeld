@@ -161,6 +161,8 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  ResolveProjectIssueActionResponse,
+  ResolveProjectIssueActionRpcInput,
   ResolveSpaceFileContentInput,
   ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
@@ -445,6 +447,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentListProjects?(
     input: CenterAgentListProjectsToolRpcInput
   ): Promise<CenterAgentListProjectsToolResponse>;
+  resolveProjectIssueAction?(
+    input: ResolveProjectIssueActionRpcInput
+  ): Promise<ResolveProjectIssueActionResponse>;
   centerAgentPauseRoutine?(
     input: CenterAgentPauseRoutineToolRpcInput
   ): Promise<PauseCenterAgentRoutineResponse>;

@@ -4,8 +4,10 @@ import {
   createProjectBodySchema,
   createProjectRpcInputSchema,
   listProjectsQuerySchema,
+  projectIssueDestinationSchema,
   projectSchema,
   updateProjectBodySchema,
+  updateProjectIssueRoutingBodySchema,
 } from "../../src";
 
 const VALID_RPC_CONTEXT = {
@@ -94,6 +96,28 @@ describe("Project contracts", () => {
         force: true,
       })
     ).toMatchObject({ success: false });
+    expect(
+      updateProjectIssueRoutingBodySchema.safeParse({
+        destination: {
+          owner: "acme",
+          provider: "github",
+          repo: "payments",
+        },
+        expectedOrganizationId: "org-1",
+        expectedRevision: 0,
+      })
+    ).toMatchObject({ success: true });
+    for (const destination of [
+      { owner: "acme/other", provider: "github", repo: "payments" },
+      { provider: "linear", teamId: "not-an-id" },
+      { provider: "unknown", repo: "payments" },
+    ]) {
+      expect(
+        projectIssueDestinationSchema.safeParse(destination)
+      ).toMatchObject({
+        success: false,
+      });
+    }
   });
 
   it("keeps Project RPC inputs strict and Organization-scoped", () => {

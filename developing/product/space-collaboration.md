@@ -112,7 +112,8 @@ Center Agent sessions do not expose or accept Space Tasks.
 
 A Task preserves the trusted requester and creator, one optional assignee, one
 optional independent reviewer, its source message and Thread, completion
-conditions, linked GitHub issues, current result, current review, revision, and
+conditions, an explicit set of zero or several Projects, linked GitHub and
+Linear issue references, current result, current review, revision, and
 append-only activity.
 The active phases are **To do**, **In progress**, and **In review**. **Done**
 means the declared completion boundary was met; **Canceled** means the accepted
@@ -124,6 +125,11 @@ Tasks** captures one message explicitly. Agents create a Task automatically
 only when the current request is a clear, discrete deliverable; questions,
 exploration, acknowledgements, and tiny same-turn actions stay in Messages.
 Several Tasks may share one Thread, but a mutation must identify one exact Task.
+Project association is a revision-checked Task scope change owned by the Space.
+Existing Tasks remain unassociated until an authorized person or Agent makes an
+explicit choice. A Task's Project list order never selects an external target;
+one operation resolves its own relevant Project. Project association does not
+change Space visibility, membership, Task permissions, or execution authority.
 
 The requester, assignee, reviewer, and Space owner have action-specific
 permissions. The assignee starts work and submits results. With no reviewer,
@@ -162,9 +168,22 @@ refreshes that observation and does not reopen a completed or canceled Task.
 Closing or completing a Task does not silently patch GitHub; the Task result
 prompts the Agent or person to close the linked issue when it is still open.
 This is authorized association for already-linked issues, not an import of
-every GitHub issue and not Task creation from GitHub events. Linear objects
-remain links. Webhook deliveries grant no new execution authority and do not
-start Agent work.
+every GitHub issue and not Task creation from GitHub events. A confirmed Linear
+issue creation can attach an exact typed reference to one eligible source Task.
+The Linear reference keeps its issue UUID, display identifier, team scope,
+optional provider project, and URL. Failure to attach after creation is a
+partial outcome; recovery adds only the Task reference. Linear references do
+not claim status monitoring, close synchronization, or automatic follow-up.
+Webhook deliveries grant no new execution authority and do not start Agent
+work.
+
+Project Common Agents are selection suggestions in a Task assignment flow.
+When one is outside the Space, **Add and assign** discloses that the Agent and
+its owner will join the Space, applies the existing atomic membership operation
+first, then makes the revision-checked Task assignment. A membership success
+followed by assignment failure is shown as a partial outcome; it is never
+silently rolled back or described as successful assignment. Assignment alone
+does not start an execution.
 
 ## Editing and Recalling Messages
 

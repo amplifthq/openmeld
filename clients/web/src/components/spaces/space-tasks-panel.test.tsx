@@ -66,6 +66,10 @@ describe("SpaceTasksPanel", () => {
 
 	it("keeps board cards compact until a card is opened for details", () => {
 		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			addAndAssignTask: vi.fn(),
+			commonAgentIds: new Set(),
+			outsideCommonAgents: [],
+			projects: [],
 			members: [],
 			mutateTask: vi.fn(async () => true),
 			pendingTaskId: null,
@@ -173,6 +177,10 @@ describe("SpaceTasksPanel", () => {
 		});
 		const mutateTask = vi.fn(async () => true);
 		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			addAndAssignTask: vi.fn(),
+			commonAgentIds: new Set(),
+			outsideCommonAgents: [],
+			projects: [],
 			members: [],
 			mutateTask,
 			pendingTaskId: null,

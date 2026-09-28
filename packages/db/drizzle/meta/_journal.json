@@ -1303,6 +1303,20 @@
       "when": 1790507988646,
       "tag": "0185_stiff_ultron",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "6",
+      "when": 1790572537645,
+      "tag": "0186_rapid_ricochet",
+      "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "6",
+      "when": 1790576959664,
+      "tag": "0187_worried_red_hulk",
+      "breakpoints": true
     }
   ]
 }

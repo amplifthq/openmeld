@@ -10,6 +10,7 @@ import {
 } from "@openmeld/schemas/schemas";
 import type {
 	MutateSpaceTaskBody,
+	Project,
 	SpaceTask,
 	SpaceTaskAction,
 	SpaceTaskEvent,
@@ -42,6 +43,18 @@ type MutateTask = (body: SpaceTaskMutationDraft) => Promise<boolean>;
 
 export type SpaceTaskDetailDrawerProps = {
 	busy: boolean;
+	commonAgentIds: ReadonlySet<string>;
+	outsideCommonAgents: readonly {
+		profileId: string;
+		profileName: string;
+		ownerName: string | null;
+	}[];
+	onAddAndAssign: (profileId: string) => Promise<{
+		membership: "confirmed" | "unknown";
+		assigned: boolean;
+		message: string | null;
+	}>;
+	spaceName: string;
 	detail?: SpaceTaskResponse;
 	error: boolean;
 	loading: boolean;
@@ -51,6 +64,7 @@ export type SpaceTaskDetailDrawerProps = {
 	onOpenThread?: (threadId: string) => void;
 	onRefresh: () => void;
 	open: boolean;
+	projects: readonly Project[];
 	selfProfileId?: string;
 	sourceHref?: string;
 	task: SpaceTask | null;
@@ -162,14 +176,19 @@ export function SpaceTaskDetailDrawer(input: SpaceTaskDetailDrawerProps) {
 											: (input.detail?.allowedActions ?? [])
 									}
 									busy={input.busy}
+									commonAgentIds={input.commonAgentIds}
 									events={input.detail?.events ?? []}
 									members={input.members}
 									mutate={mutate}
+									onAddAndAssign={input.onAddAndAssign}
 									onOpenThread={input.onOpenThread}
 									onRefresh={input.onRefresh}
+									outsideCommonAgents={input.outsideCommonAgents}
 									pendingActions={input.detail?.pendingActions ?? []}
+									projects={input.projects}
 									selfProfileId={input.selfProfileId}
 									sourceHref={input.sourceHref}
+									spaceName={input.spaceName}
 									task={task}
 								/>
 							) : null}
@@ -184,6 +203,7 @@ export function SpaceTaskDetailDrawer(input: SpaceTaskDetailDrawerProps) {
 type TaskControlInput = {
 	allowedActions: readonly SpaceTaskAction[];
 	busy: boolean;
+	commonAgentIds: ReadonlySet<string>;
 	mutate: MutateTask;
 	selfProfileId?: string;
 	task: SpaceTask;
@@ -194,6 +214,10 @@ function SpaceTaskDetailBody(
 		events: readonly SpaceTaskEvent[];
 		pendingActions: NonNullable<SpaceTaskResponse["pendingActions"]>;
 		members: readonly SpaceTaskMember[];
+		projects: readonly Project[];
+		outsideCommonAgents: SpaceTaskDetailDrawerProps["outsideCommonAgents"];
+		onAddAndAssign: SpaceTaskDetailDrawerProps["onAddAndAssign"];
+		spaceName: string;
 		onOpenThread?: (threadId: string) => void;
 		onRefresh: () => void;
 		sourceHref?: string;
@@ -222,27 +246,44 @@ function SpaceTaskDetailBody(
 				sourceHref={input.sourceHref}
 				threadId={task.threadId}
 			/>
+			<TaskProjectsSection
+				allowed={input.allowedActions.includes("set_projects")}
+				busy={input.busy}
+				mutate={input.mutate}
+				projects={input.projects}
+				task={task}
+			/>
 			{input.allowedActions.includes("update_brief") ? (
 				<TaskBriefEditor {...input} />
 			) : null}
 			{task.externalWorkItems.length > 0 ? (
 				<div className="mt-4">
 					<p className="font-medium text-muted-foreground text-xs">
-						Linked GitHub issues
+						Linked issues
 					</p>
 					<ul className="mt-1 space-y-1 text-sm">
 						{task.externalWorkItems.map((item) => (
-							<li key={`${item.owner}/${item.repo}#${item.number}`}>
+							<li
+								key={
+									item.provider === "github"
+										? `${item.owner}/${item.repo}#${item.number}`
+										: item.id
+								}
+							>
 								<a
 									className="underline underline-offset-2"
 									href={item.url}
 									rel="noreferrer"
 									target="_blank"
 								>
-									{item.owner}/{item.repo}#{item.number}
+									{item.provider === "github"
+										? `${item.owner}/${item.repo}#${item.number}`
+										: item.identifier}
 								</a>
 								<span className="ml-2 text-muted-foreground">
-									{item.lastObservedState ?? "Status not checked"}
+									{item.provider === "linear"
+										? "Status not monitored"
+										: (item.lastObservedState ?? "Status not checked")}
 								</span>
 							</li>
 						))}
@@ -390,6 +431,96 @@ function SpaceTaskDetailBody(
 	);
 }
 
+function TaskProjectsSection(input: {
+	allowed: boolean;
+	busy: boolean;
+	mutate: MutateTask;
+	projects: readonly Project[];
+	task: SpaceTask;
+}) {
+	const [editing, setEditing] = useState(false);
+	const [selected, setSelected] = useState<string[]>([]);
+	const names = input.task.projectIds.map(
+		(id) =>
+			input.projects.find((project) => project.id === id)?.name ??
+			"Unavailable Project"
+	);
+	return (
+		<section className="mt-4 border-border border-t pt-4">
+			<div className="flex items-center justify-between gap-2">
+				<h3 className="font-medium text-muted-foreground text-xs">Projects</h3>
+				{input.allowed && input.projects.length > 0 && !editing ? (
+					<Button
+						onClick={() => {
+							setSelected(input.task.projectIds);
+							setEditing(true);
+						}}
+						size="sm"
+						variant="outline"
+					>
+						Edit Projects
+					</Button>
+				) : null}
+			</div>
+			<p className="mt-1 text-sm">
+				{names.length > 0 ? names.join(", ") : "No Project associated"}
+			</p>
+			{editing ? (
+				<form
+					className="mt-3 grid gap-3 rounded-md border p-3"
+					onSubmit={async (event) => {
+						event.preventDefault();
+						if (
+							await input.mutate({
+								action: "set_projects",
+								projectIds: selected,
+							})
+						) {
+							setEditing(false);
+						}
+					}}
+				>
+					<p className="text-muted-foreground text-xs">
+						Choose the work scope for this Task. This does not start an Agent or
+						change access.
+					</p>
+					{input.projects.map((project) => (
+						<label className="flex items-center gap-2 text-sm" key={project.id}>
+							<input
+								checked={selected.includes(project.id)}
+								disabled={input.busy}
+								onChange={(event) =>
+									setSelected((current) =>
+										event.target.checked
+											? [...current, project.id]
+											: current.filter((id) => id !== project.id)
+									)
+								}
+								type="checkbox"
+							/>
+							{project.name}
+						</label>
+					))}
+					<div className="flex gap-2">
+						<Button disabled={input.busy} size="sm" type="submit">
+							Save Projects
+						</Button>
+						<Button
+							disabled={input.busy}
+							onClick={() => setEditing(false)}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							Cancel
+						</Button>
+					</div>
+				</form>
+			) : null}
+		</section>
+	);
+}
+
 function TaskBriefEditor(input: TaskControlInput) {
 	const [editing, setEditing] = useState(false);
 	const [title, setTitle] = useState(input.task.title);
@@ -503,12 +634,21 @@ function TaskBriefEditor(input: TaskControlInput) {
 }
 
 function TaskAssignmentControls(
-	input: TaskControlInput & { members: readonly SpaceTaskMember[] }
+	input: TaskControlInput & {
+		members: readonly SpaceTaskMember[];
+		outsideCommonAgents: SpaceTaskDetailDrawerProps["outsideCommonAgents"];
+		onAddAndAssign: SpaceTaskDetailDrawerProps["onAddAndAssign"];
+		spaceName: string;
+	}
 ) {
+	const [addingProfileId, setAddingProfileId] = useState<string | null>(null);
+	const [outcome, setOutcome] = useState<string | null>(null);
+	const [addedIds, setAddedIds] = useState<ReadonlySet<string>>(new Set());
 	return (
 		<div className="mt-3 grid gap-2 sm:grid-cols-2">
 			{input.allowedActions.includes("assign") ? (
 				<MemberSelect
+					commonAgentIds={input.commonAgentIds}
 					disabled={input.busy}
 					label="Assign"
 					members={input.members.filter(
@@ -535,6 +675,60 @@ function TaskAssignmentControls(
 					}
 					value={input.task.reviewer?.profileId ?? ""}
 				/>
+			) : null}
+			{input.allowedActions.includes("assign") &&
+			input.outsideCommonAgents.some(
+				(agent) => !addedIds.has(agent.profileId)
+			) ? (
+				<div className="grid gap-2 rounded-md border p-3 text-sm sm:col-span-2">
+					<p className="font-medium">Common Agents outside this Space</p>
+					{input.outsideCommonAgents
+						.filter((agent) => !addedIds.has(agent.profileId))
+						.map((agent) => (
+							<div className="grid gap-1" key={agent.profileId}>
+								<p>
+									{agent.profileName}
+									{agent.ownerName ? ` · Owner: ${agent.ownerName}` : ""}
+								</p>
+								<p className="text-muted-foreground text-xs">
+									Add this Agent{agent.ownerName ? " and its owner" : ""} to{" "}
+									{input.spaceName}, then assign the Task. They will see this
+									Space.
+								</p>
+								<Button
+									disabled={input.busy || addingProfileId !== null}
+									onClick={async () => {
+										setAddingProfileId(agent.profileId);
+										setOutcome(null);
+										try {
+											const result = await input.onAddAndAssign(
+												agent.profileId
+											);
+											setOutcome(
+												result.message ??
+													`${agent.profileName} is in this Space and was assigned.`
+											);
+											if (result.membership === "confirmed") {
+												setAddedIds(
+													(current) => new Set([...current, agent.profileId])
+												);
+											}
+										} finally {
+											setAddingProfileId(null);
+										}
+									}}
+									size="sm"
+									type="button"
+									variant="outline"
+								>
+									{addingProfileId === agent.profileId
+										? "Adding…"
+										: "Add and assign"}
+								</Button>
+							</div>
+						))}
+					{outcome ? <output>{outcome}</output> : null}
+				</div>
 			) : null}
 		</div>
 	);
@@ -726,6 +920,7 @@ function TaskSourceLink(input: {
 }
 
 function MemberSelect(input: {
+	commonAgentIds?: ReadonlySet<string>;
 	disabled: boolean;
 	label: string;
 	members: readonly SpaceTaskMember[];
@@ -742,15 +937,31 @@ function MemberSelect(input: {
 				value={input.value}
 			>
 				<option value="">None</option>
-				{input.members.map((member) => (
-					<option key={member.profileId} value={member.profileId}>
-						{member.profileName} ·{" "}
-						{member.profileKind === "agent" ? "Agent" : "Person"}
-					</option>
-				))}
+				{[...input.members]
+					.sort(
+						(a, b) =>
+							Number(input.commonAgentIds?.has(b.profileId) ?? false) -
+							Number(input.commonAgentIds?.has(a.profileId) ?? false)
+					)
+					.map((member) => (
+						<option key={member.profileId} value={member.profileId}>
+							{member.profileName} ·{" "}
+							{memberSelectionRoleLabel(member, input.commonAgentIds)}
+						</option>
+					))}
 			</select>
 		</label>
 	);
+}
+
+function memberSelectionRoleLabel(
+	member: SpaceTaskMember,
+	commonAgentIds?: ReadonlySet<string>
+): string {
+	if (commonAgentIds?.has(member.profileId)) {
+		return "Common Agent";
+	}
+	return member.profileKind === "agent" ? "Agent" : "Person";
 }
 
 function formatTaskEvent(type: SpaceTaskEvent["type"]): string {
@@ -758,6 +969,7 @@ function formatTaskEvent(type: SpaceTaskEvent["type"]): string {
 		created: "Created",
 		assigned: "Assignment changed",
 		brief_updated: "Brief updated",
+		projects_set: "Projects changed",
 		reviewer_set: "Reviewer changed",
 		marked_in_progress: "Work started",
 		result_submitted: "Result submitted",
@@ -766,8 +978,8 @@ function formatTaskEvent(type: SpaceTaskEvent["type"]): string {
 		canceled: "Canceled",
 		reopened: "Reopened",
 		rework_continued: "Further rework authorized",
-		external_work_item_attached: "GitHub issue linked",
-		external_work_item_detached: "GitHub issue unlinked",
+		external_work_item_attached: "Issue linked",
+		external_work_item_detached: "Issue unlinked",
 		external_work_item_observed: "GitHub issue status checked",
 	};
 	return labels[type];

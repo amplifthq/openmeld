@@ -8,7 +8,7 @@
 - Do not use this for: Current production behavior, permission grants, execution authority, a generic project-management framework, or an implementation shortcut around the scoped owner documents.
 - Source of truth: This file records the approved design and its acceptance scope. Implemented behavior remains owned by `developing/product/projects.md`, `agent-profiles.md`, `space-collaboration.md`, `space-tasks-design.md` while it exists, `organizations-and-center-agent.md`, and their architecture and client owners until those documents change with the implementation.
 
-Status: APPROVED — the user confirmed all fifteen interview decisions and the consolidated design on 2026-09-24. Implementation has not started under this design; deployment and provider capability are not certified by this document.
+Status: IMPLEMENTING — the user confirmed all fifteen interview decisions and the consolidated design on 2026-09-24. Project configuration, issue routing, Task associations, and provider-typed references are being implemented in Draft PR #1286. Exact per-execution repository selection, shared local folders, Session attribution, and end-to-end provider acceptance remain open; deployment and provider capability are not certified by this document.
 
 Removal condition: Remove when the accepted design ships and its durable rules have been incorporated into the scoped owner documents, or when the proposal is rejected or superseded. Git history is the archive.
 

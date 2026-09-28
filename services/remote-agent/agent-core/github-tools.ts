@@ -58,6 +58,10 @@ import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
 } from "./execution-state";
+import {
+  readGitHubIssueDestination,
+  requireProjectIssueActionDestination,
+} from "./project-issue-routing";
 import { tagRemoteAgentResultSources } from "./result-access";
 import {
   appendOpenMeldTaskReferenceToIssueBody,
@@ -1213,6 +1217,14 @@ async function executeGitHubIssueBatch(input: {
     submissionId: input.submissionId,
     toolName: "github_create_issue_batch",
   });
+  const manifestKey = `${GITHUB_ISSUE_BATCH_PREFIX}${operationId}`;
+  if (!(await input.storage.get<GitHubIssueBatchManifest>(manifestKey))) {
+    await requireProjectIssueActionDestination({
+      coreWorker: input.coreWorker,
+      destination: readGitHubIssueDestination({ owner, repo }),
+      toolContext,
+    });
+  }
   const { attribution, selection } = await resolveGitHubActionContext({
     coreWorker: input.coreWorker,
     githubActor,
@@ -1227,7 +1239,6 @@ async function executeGitHubIssueBatch(input: {
     owner,
     repo,
   });
-  const manifestKey = `${GITHUB_ISSUE_BATCH_PREFIX}${operationId}`;
   const proposedManifest: GitHubIssueBatchManifest = {
     connectionName: selection.connection.connectionName,
     connectionOwnerUserId: selection.connection.userId,
@@ -2103,6 +2114,7 @@ async function executeIdempotentGitHubAction(input: {
     service: "github",
     toolContext: input.toolContext,
   });
+  await assertNewGitHubIssueDestination(input, Boolean(existingOperation));
   const action = input.useRuntimeCatalog
     ? await resolveGitHubCatalogActionPolicy({
         ...input,
@@ -2266,6 +2278,20 @@ async function executeIdempotentGitHubAction(input: {
     }),
     [source]
   );
+}
+
+async function assertNewGitHubIssueDestination(
+  input: Parameters<typeof executeIdempotentGitHubAction>[0],
+  replayed: boolean
+): Promise<void> {
+  if (replayed || input.actionId !== "github.create_issue") {
+    return;
+  }
+  await requireProjectIssueActionDestination({
+    coreWorker: input.coreWorker,
+    destination: readGitHubIssueDestination(input.actionInput),
+    toolContext: input.toolContext,
+  });
 }
 
 async function withGitHubIssueSpaceTaskBinding(input: {

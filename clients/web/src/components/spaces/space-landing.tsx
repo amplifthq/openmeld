@@ -218,8 +218,10 @@ function SpaceTasksPanelSlot(input: {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onOpenThread: (threadId: string) => void;
 	openMeldProfileId: string;
+	organizationId: string | null;
 	organizationSlug?: string;
 	spaceId: string;
+	spaceName: string | null;
 }) {
 	if (!input.enabled) {
 		return null;
@@ -231,8 +233,10 @@ function SpaceTasksPanelSlot(input: {
 				membersSnapshot={input.membersSnapshot}
 				onOpenThread={input.onOpenThread}
 				openMeldProfileId={input.openMeldProfileId}
+				organizationId={input.organizationId ?? undefined}
 				organizationSlug={input.organizationSlug}
 				spaceId={input.spaceId}
+				spaceName={input.spaceName}
 			/>
 		</Suspense>
 	);
@@ -2152,6 +2156,7 @@ function SpaceLandingConversation({
 		isDirectMessage,
 		modelCatalog,
 		openSpaceFile,
+		organizationId,
 		recovery,
 		setupRecallNonce,
 		spaceName,
@@ -2408,8 +2413,10 @@ function SpaceLandingConversation({
 						controller.onOpenThread(threadId);
 					}}
 					openMeldProfileId={controller.profileId}
+					organizationId={organizationId}
 					organizationSlug={input.orgSlug}
 					spaceId={controller.spaceId}
+					spaceName={spaceName}
 				/>
 			}
 			textareaRef={controller.textareaRef}

@@ -4,6 +4,7 @@ import type { AgentActivityEvent } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptAgentActivityEventRecord } from "../src/agent-activity/activity-event-repository";
 import type { CoreBindings } from "../src/lib/bindings";
+import { readActiveProjectIds } from "../src/projects/project-repository";
 import { createProjectService } from "../src/projects/project-service";
 import {
   rpcCreateProject,
@@ -74,6 +75,110 @@ afterEach(async () => {
 });
 
 describe("Core Projects", () => {
+  it("configures shared repository associations and a versioned code default", async () => {
+    const organizationId = await seedOrganization();
+    const service = createProjectService({ db: env.OPENMELD_DB });
+    const owner = authority({
+      organizationId,
+      role: "owner",
+      userId: "owner-1",
+    });
+    const project = await service.create(owner, {
+      name: "Payments",
+      repositoryUrl: "https://github.com/acme/payments",
+    });
+    const initial = await service.readRepositorySettings(owner, project.id);
+    expect(initial.repositories).toMatchObject([
+      { repositoryUrl: "https://github.com/acme/payments", isDefault: true },
+    ]);
+    const updated = await service.updateRepositorySettings(owner, project.id, {
+      defaultRepositoryUrl: "https://github.com/acme/sdk",
+      expectedRevision: initial.revision,
+      repositoryUrls: [
+        "https://github.com/acme/payments",
+        "https://github.com/acme/sdk",
+      ],
+    });
+    expect(updated.repositories).toMatchObject([
+      { repositoryUrl: "https://github.com/acme/sdk", isDefault: true },
+      { repositoryUrl: "https://github.com/acme/payments", isDefault: false },
+    ]);
+    expect((await service.read(owner, project.id)).repositoryUrl).toBe(
+      "https://github.com/acme/sdk"
+    );
+    await expect(
+      service.updateRepositorySettings(owner, project.id, {
+        defaultRepositoryUrl: null,
+        expectedRevision: initial.revision,
+        repositoryUrls: [],
+      })
+    ).rejects.toThrow("project.conflict");
+  });
+
+  it("keeps Common Agents independent of work history and Project edit authority", async () => {
+    const actor = await seedOrganizationActor("member");
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    await env.OPENMELD_DB.prepare(
+      `INSERT INTO openmeld_profiles (
+        profile_id, profile_name, profile_handle, profile_kind, is_default,
+        status, organization_id, owner_user_id, created_by_user_id, source,
+        created_at, updated_at
+      ) VALUES (?, 'Project Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 1, 1)`
+    )
+      .bind(
+        agentProfileId,
+        `project-agent-${crypto.randomUUID()}`,
+        actor.organizationId,
+        actor.userId,
+        actor.userId
+      )
+      .run();
+    const service = createProjectService({ db: env.OPENMELD_DB });
+    const manager = authority({
+      organizationId: actor.organizationId,
+      role: "member",
+      userId: actor.userId,
+    });
+    const project = await service.create(manager, { name: "Payments" });
+    const configured = await service.updateCommonAgents(manager, project.id, {
+      agentProfileIds: [agentProfileId],
+      expectedRevision: 0,
+    });
+    expect(configured.agentProfileIds).toEqual([agentProfileId]);
+    await expect(
+      service.updateCommonAgents(
+        { ...manager, userId: "other-member" },
+        project.id,
+        { agentProfileIds: [], expectedRevision: configured.revision }
+      )
+    ).rejects.toThrow("project.forbidden");
+  });
+
+  it("limits Task Project choices to active Projects in the owning Organization", async () => {
+    const organizationId = await seedOrganization();
+    const otherOrganizationId = await seedOrganization();
+    const service = createProjectService({ db: env.OPENMELD_DB });
+    const ownProject = await service.create(
+      authority({ organizationId, role: "owner", userId: "owner-1" }),
+      { name: "Own work" }
+    );
+    const otherProject = await service.create(
+      authority({
+        organizationId: otherOrganizationId,
+        role: "owner",
+        userId: "owner-1",
+      }),
+      { name: "Other work" }
+    );
+    expect(
+      await readActiveProjectIds({
+        db: env.OPENMELD_DB,
+        organizationId,
+        projectIds: [ownProject.id, otherProject.id],
+      })
+    ).toEqual([ownProject.id]);
+  });
+
   it("replays concurrent creation retries and rejects changed input after later edits", async () => {
     const organizationId = await seedOrganization();
     const service = createProjectService({ db: env.OPENMELD_DB });
@@ -96,7 +201,7 @@ describe("Core Projects", () => {
     ).rejects.toThrow("project.operation_conflict");
   });
 
-  it("prevents contextual creation from duplicating a repository across members", async () => {
+  it("allows one repository to belong to Projects created by different members", async () => {
     const organizationId = await seedOrganization();
     const service = createProjectService({ db: env.OPENMELD_DB });
     const owner = authority({
@@ -122,14 +227,8 @@ describe("Core Projects", () => {
         operationId: "member-create",
       }),
     ]);
-    expect(
-      results.filter((result) => result.status === "fulfilled")
-    ).toHaveLength(1);
-    expect((await service.list(owner)).projects).toHaveLength(1);
-    const rejected = results.find((result) => result.status === "rejected");
-    expect(
-      rejected?.status === "rejected" && String(rejected.reason)
-    ).toContain("project.repository_exists");
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    expect((await service.list(owner)).projects).toHaveLength(2);
   });
   it("stores one safe repository URL with its matching fingerprint", async () => {
     const organizationId = await seedOrganization();
@@ -230,6 +329,79 @@ describe("Core Projects", () => {
       organizationId,
       projects: [expect.objectContaining({ id: ownerProject.id })],
     });
+  });
+
+  it("keeps issue routing under Project management and rejects stale competing changes", async () => {
+    const organizationId = await seedOrganization();
+    const service = createProjectService({ db: env.OPENMELD_DB });
+    const owner = authority({
+      organizationId,
+      role: "owner",
+      userId: "owner-1",
+    });
+    const member = authority({
+      organizationId,
+      role: "member",
+      userId: "member-1",
+    });
+    const project = await service.create(owner, { name: "Payments" });
+    await expect(service.readIssueRouting(member, project.id)).resolves.toEqual(
+      {
+        destination: null,
+        projectId: project.id,
+        revision: 0,
+        updatedAtMs: null,
+        updatedByUserId: null,
+      }
+    );
+    await expect(
+      service.updateIssueRouting(member, project.id, {
+        destination: { provider: "github", owner: "acme", repo: "payments" },
+        expectedRevision: 0,
+      })
+    ).rejects.toThrow("project.forbidden");
+
+    const saved = await service.updateIssueRouting(owner, project.id, {
+      destination: { provider: "github", owner: "acme", repo: "payments" },
+      expectedRevision: 0,
+    });
+    expect(saved).toMatchObject({
+      destination: { provider: "github", owner: "acme", repo: "payments" },
+      revision: 1,
+      updatedByUserId: owner.userId,
+      updatedAtMs: expect.any(Number),
+    });
+    const competing = await Promise.allSettled([
+      service.updateIssueRouting(owner, project.id, {
+        destination: {
+          provider: "linear",
+          teamId: "11111111-1111-4111-8111-111111111111",
+        },
+        expectedRevision: 1,
+      }),
+      service.updateIssueRouting(owner, project.id, {
+        destination: null,
+        expectedRevision: 1,
+      }),
+    ]);
+    expect(
+      competing.filter((item) => item.status === "fulfilled")
+    ).toHaveLength(1);
+    expect(
+      competing.filter((item) => item.status === "rejected")
+    ).toMatchObject([
+      {
+        reason: expect.objectContaining({
+          message: expect.stringContaining("project.conflict"),
+        }),
+      },
+    ]);
+    expect((await service.readIssueRouting(owner, project.id)).revision).toBe(
+      2
+    );
+    expect((await service.list(owner)).projects[0]).not.toHaveProperty(
+      "issueDestination"
+    );
   });
 
   it("scopes every Project read and mutation to the actor organization", async () => {

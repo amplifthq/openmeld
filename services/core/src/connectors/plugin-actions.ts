@@ -1,6 +1,8 @@
 import {
+  isLinearIssueCreateAction,
   pluginActionRpcInputSchema,
   pluginRuntimeResponseSchema,
+  projectIssueDestinationSchema,
 } from "@openmeld/schemas";
 import type {
   PluginActionRequest,
@@ -17,6 +19,11 @@ import {
 } from "../center-agent/connector-action-operation-repository";
 import type { CoreBindings } from "../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../organizations/organization-context";
+import {
+  readLocalProjectIssueRequestText,
+  resolveProjectIssueAction,
+} from "../projects/project-issue-action-routing";
+import { listProjectIssueRoutingCandidates } from "../projects/project-repository";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type ConnectorConnectionRecord,
@@ -146,6 +153,14 @@ export async function rpcPluginAction(
       "This connection allows read-only access for Local Agents."
     );
   }
+  await assertLocalPluginIssueDestination({
+    action,
+    actionId: metadata.id,
+    caller,
+    context: input.context,
+    dispatchId: input.request.dispatchId ?? null,
+    env,
+  });
   const signature = await requestSignature(
     caller,
     action,
@@ -183,6 +198,55 @@ export async function rpcPluginAction(
     signature,
     effect
   );
+}
+
+async function assertLocalPluginIssueDestination(input: {
+  action: Execution;
+  actionId: string;
+  caller: Caller;
+  context: PluginActionRpcInput["context"];
+  dispatchId: string | null;
+  env: CoreBindings;
+}): Promise<void> {
+  const { action, actionId, caller, context, dispatchId, env } = input;
+  if (
+    !(
+      (action.service === "github" && actionId === "github.create_issue") ||
+      (action.service === "linear" && isLinearIssueCreateAction(actionId))
+    )
+  ) {
+    return;
+  }
+  const proposedDestination = projectIssueDestinationSchema.parse(
+    action.service === "github"
+      ? {
+          provider: "github",
+          owner: action.input.owner,
+          repo: action.input.repo,
+        }
+      : {
+          provider: "linear",
+          teamId: action.input.teamId,
+          ...(action.input.projectId === undefined
+            ? {}
+            : { projectId: action.input.projectId }),
+        }
+  );
+  resolveProjectIssueAction({
+    projects: await listProjectIssueRoutingCandidates({
+      db: caller.db,
+      organizationId: caller.organizationId,
+    }),
+    proposedDestination,
+    requestText: await readLocalProjectIssueRequestText({
+      context,
+      dispatchId,
+      env,
+      sourceSignalId: caller.sourceSignalId,
+      sourceSpaceId: caller.sourceSpaceId,
+      targetProfileId: caller.actorProfileId,
+    }),
+  });
 }
 
 async function readLocalContinuationBinding(

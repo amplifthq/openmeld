@@ -97,12 +97,53 @@ function getRemoteAgentGitHubToolDefinitions(
         recorded: true,
       })) as never,
       ...coreWorker,
+      resolveProjectIssueAction:
+        coreWorker.resolveProjectIssueAction ??
+        vi.fn(({ proposedDestination }) =>
+          Promise.resolve({
+            basis: "explicit_request" as const,
+            destination: proposedDestination,
+            projectId: null,
+            projectRevision: null,
+          })
+        ),
     },
     submissionId: ACK.submissionId,
   });
 }
 
 describe("Remote Agent GitHub tools", () => {
+  it("checks the Project destination before accepting a new issue write", async () => {
+    const resolveProjectIssueAction = vi.fn(() =>
+      Promise.reject(new Error("New issues for Payments go to Linear."))
+    );
+    const recordOperation = vi.fn();
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      coreWorker: {
+        centerAgentRecordConnectorActionOperation: recordOperation,
+        resolveProjectIssueAction,
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "github_create_issue", {
+        githubActor: "organization",
+        owner: "amplifthq",
+        repo: "payments",
+        title: "Follow up on the PR",
+      })
+    ).rejects.toThrow("New issues for Payments go to Linear.");
+    expect(resolveProjectIssueAction).toHaveBeenCalledWith({
+      context: expect.any(Object),
+      proposedDestination: {
+        provider: "github",
+        owner: "amplifthq",
+        repo: "payments",
+      },
+    });
+    expect(recordOperation).not.toHaveBeenCalled();
+  });
+
   it.each([
     { mode: "routine", effect: "destructive" },
     { mode: "read_only_routine", effect: "write" },

@@ -570,6 +570,13 @@ import {
   rpcCenterAgentSetAgentProfileDefaultProject,
   rpcCenterAgentUpdateProject,
 } from "./projects/project-center-agent-rpc";
+import {
+  rpcReadProjectCommonAgents,
+  rpcReadProjectRepositorySettings,
+  rpcResolveProjectIssueAction,
+  rpcUpdateProjectCommonAgents,
+  rpcUpdateProjectRepositorySettings,
+} from "./projects/project-rpc";
 import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platform-webhook-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
@@ -1033,6 +1040,7 @@ import {
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
   rpcReadPeopleComputerFileAccessPolicy,
+  rpcReadProjectIssueRouting,
   rpcReadServiceConnectionIncidents,
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
@@ -1097,6 +1105,7 @@ import {
   rpcUpdateComputerFileAccessPolicy,
   rpcUpdatePeopleComputerFileAccessPolicy,
   rpcUpdateProject,
+  rpcUpdateProjectIssueRouting,
   rpcUpdateRoutine,
   rpcUpdateSpaceCursor,
   rpcUpdateSpaceFileEntry,
@@ -1367,6 +1376,48 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   listProjects(input: ListProjectsInput) {
     return rpcListProjects(this.env, input);
+  }
+
+  readProjectIssueRouting(
+    input: Parameters<typeof rpcReadProjectIssueRouting>[1]
+  ) {
+    return rpcReadProjectIssueRouting(this.env, input);
+  }
+
+  readProjectRepositorySettings(
+    input: Parameters<typeof rpcReadProjectRepositorySettings>[1]
+  ) {
+    return rpcReadProjectRepositorySettings(this.env, input);
+  }
+
+  updateProjectRepositorySettings(
+    input: Parameters<typeof rpcUpdateProjectRepositorySettings>[1]
+  ) {
+    return rpcUpdateProjectRepositorySettings(this.env, input);
+  }
+
+  readProjectCommonAgents(
+    input: Parameters<typeof rpcReadProjectCommonAgents>[1]
+  ) {
+    return rpcReadProjectCommonAgents(this.env, input);
+  }
+
+  updateProjectCommonAgents(
+    input: Parameters<typeof rpcUpdateProjectCommonAgents>[1]
+  ) {
+    return rpcUpdateProjectCommonAgents(this.env, input);
+  }
+
+  resolveProjectIssueAction(
+    input: Parameters<typeof rpcResolveProjectIssueAction>[1]
+  ) {
+    return rpcResolveProjectIssueAction(this.env, input);
+  }
+
+  updateProjectIssueRouting(
+    input: Parameters<typeof rpcUpdateProjectIssueRouting>[1]
+  ) {
+    return rpcUpdateProjectIssueRouting(this.env, input);
   }
 
   createProject(input: CreateProjectInput) {
@@ -4023,6 +4074,48 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   listProjects(input: ListProjectsInput) {
     return super.listProjects(input);
+  }
+
+  readProjectIssueRouting(
+    input: Parameters<typeof rpcReadProjectIssueRouting>[1]
+  ) {
+    return super.readProjectIssueRouting(input);
+  }
+
+  readProjectRepositorySettings(
+    input: Parameters<typeof rpcReadProjectRepositorySettings>[1]
+  ) {
+    return super.readProjectRepositorySettings(input);
+  }
+
+  updateProjectRepositorySettings(
+    input: Parameters<typeof rpcUpdateProjectRepositorySettings>[1]
+  ) {
+    return super.updateProjectRepositorySettings(input);
+  }
+
+  readProjectCommonAgents(
+    input: Parameters<typeof rpcReadProjectCommonAgents>[1]
+  ) {
+    return super.readProjectCommonAgents(input);
+  }
+
+  updateProjectCommonAgents(
+    input: Parameters<typeof rpcUpdateProjectCommonAgents>[1]
+  ) {
+    return super.updateProjectCommonAgents(input);
+  }
+
+  resolveProjectIssueAction(
+    input: Parameters<typeof rpcResolveProjectIssueAction>[1]
+  ) {
+    return super.resolveProjectIssueAction(input);
+  }
+
+  updateProjectIssueRouting(
+    input: Parameters<typeof rpcUpdateProjectIssueRouting>[1]
+  ) {
+    return super.updateProjectIssueRouting(input);
   }
 
   createProject(input: CreateProjectInput) {

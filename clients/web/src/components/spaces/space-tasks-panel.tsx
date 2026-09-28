@@ -49,8 +49,17 @@ const ACTIVE_COLUMNS = [
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 	const [phase, setPhase] = useState<SpaceTaskPhase | undefined>();
-	const { detailQuery, members, mutateTask, pendingTaskId, tasksQuery } =
-		useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
+	const {
+		addAndAssignTask,
+		commonAgentIds,
+		detailQuery,
+		members,
+		mutateTask,
+		outsideCommonAgents,
+		pendingTaskId,
+		projects,
+		tasksQuery,
+	} = useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
 
 	if (tasksQuery.isPending) {
 		return <SpaceTasksSkeleton />;
@@ -77,13 +86,13 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	}
 
 	const tasks = tasksQuery.data?.tasks ?? [];
-	const doneTasks = tasks.filter((task) => task.phase === "done");
-	const canceledTasks = tasks.filter((task) => task.phase === "canceled");
 	const selectedTask = resolveSelectedTask(
 		tasks,
 		selectedTaskId,
 		detailQuery.data?.task
 	);
+	const doneTasks = tasks.filter((task) => task.phase === "done");
+	const canceledTasks = tasks.filter((task) => task.phase === "canceled");
 	const spaceHref = input.organizationSlug
 		? buildOrganizationSpacePath({
 				orgSlug: input.organizationSlug,
@@ -178,32 +187,34 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				)}
 			</div>
 			<SpaceTaskDetailDrawer
-				busy={selectedTask !== null && pendingTaskId === selectedTask.taskId}
+				busy={isTaskPending(selectedTask, pendingTaskId)}
+				commonAgentIds={commonAgentIds}
 				detail={detailQuery.data}
 				error={detailQuery.isError}
 				key={selectedTaskId ?? "closed"}
 				loading={selectedTaskId !== null && detailQuery.isPending}
 				members={members}
-				onMutate={async (body) => {
-					if (!selectedTaskId) {
-						return false;
-					}
-					return await mutateTask(selectedTaskId, body);
-				}}
-				onOpenChange={(open) => {
-					if (!open) {
-						setSelectedTaskId(null);
-					}
-				}}
+				onAddAndAssign={(profileId) =>
+					addAndAssignSelectedTask(selectedTask, profileId, addAndAssignTask)
+				}
+				onMutate={(body) =>
+					mutateSelectedTask(selectedTaskId, body, mutateTask)
+				}
+				onOpenChange={(open) =>
+					handleTaskDrawerOpenChange(open, setSelectedTaskId)
+				}
 				onOpenThread={input.onOpenThread}
 				onRefresh={() => detailQuery.refetch()}
 				open={selectedTaskId !== null}
+				outsideCommonAgents={outsideCommonAgents}
+				projects={projects}
 				selfProfileId={input.openMeldProfileId}
 				sourceHref={
 					selectedTask?.sourceSignalId
 						? buildSpaceMessageFocusHref(spaceHref, selectedTask.sourceSignalId)
 						: undefined
 				}
+				spaceName={input.spaceName ?? "this Space"}
 				task={selectedTask}
 			/>
 		</div>
@@ -216,6 +227,52 @@ function resolveSelectedTask(
 	detailTask?: SpaceTask
 ): SpaceTask | null {
 	return detailTask ?? tasks.find((task) => task.taskId === taskId) ?? null;
+}
+
+async function addAndAssignSelectedTask(
+	task: SpaceTask | null,
+	profileId: string,
+	addAndAssignTask: ReturnType<
+		typeof useSpaceTasksPanelController
+	>["addAndAssignTask"]
+) {
+	if (!task) {
+		return {
+			membership: "unknown" as const,
+			assigned: false,
+			message: "Task details are unavailable.",
+		};
+	}
+	return await addAndAssignTask(task.taskId, profileId, task.revision);
+}
+
+async function mutateSelectedTask(
+	taskId: string | null,
+	body: Parameters<
+		ReturnType<typeof useSpaceTasksPanelController>["mutateTask"]
+	>[1],
+	mutateTask: ReturnType<typeof useSpaceTasksPanelController>["mutateTask"]
+): Promise<boolean> {
+	if (!taskId) {
+		return false;
+	}
+	return await mutateTask(taskId, body);
+}
+
+function handleTaskDrawerOpenChange(
+	open: boolean,
+	setSelectedTaskId: (taskId: string | null) => void
+): void {
+	if (!open) {
+		setSelectedTaskId(null);
+	}
+}
+
+function isTaskPending(
+	task: SpaceTask | null,
+	pendingTaskId: string | null
+): boolean {
+	return task !== null && pendingTaskId === task.taskId;
 }
 
 function TaskBoardHeader(input: {

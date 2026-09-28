@@ -40,11 +40,14 @@ import {
 	projectQueryKeys,
 	projectsQueryOptions,
 } from "#/query/organizations/projects";
+import { ProjectCommonAgentsSection } from "./project-common-agents-section";
 import { ProjectComputerSection } from "./project-computer-section";
 import {
 	ProjectFormDialog,
 	type ProjectFormSubmission,
 } from "./project-form-dialog";
+import { ProjectIssueRoutingSection } from "./project-issue-routing-section";
+import { ProjectRepositoriesSection } from "./project-repositories-section";
 
 export function ProjectDetailPage(input: { projectId: string }) {
 	const { currentOrganization } = useAppOrganization();
@@ -199,24 +202,7 @@ export function ProjectDetailPage(input: { projectId: string }) {
 						</Button>
 					) : null}
 				</div>
-				<dl className="grid gap-3 rounded-md border p-4 text-sm sm:grid-cols-2">
-					<div>
-						<dt className="text-muted-foreground text-xs">Repository</dt>
-						<dd className="mt-1 font-medium">
-							{project.repositoryUrl ? (
-								<a
-									className="break-all underline underline-offset-4"
-									href={project.repositoryUrl}
-									rel="noreferrer"
-									target="_blank"
-								>
-									{project.repositoryUrl}
-								</a>
-							) : (
-								resolveRepositoryFallbackLabel(project.repositoryFingerprint)
-							)}
-						</dd>
-					</div>
+				<dl className="grid gap-3 rounded-md border p-4 text-sm">
 					<div>
 						<dt className="text-muted-foreground text-xs">Created by</dt>
 						<dd className="mt-1 font-medium">
@@ -225,6 +211,24 @@ export function ProjectDetailPage(input: { projectId: string }) {
 					</div>
 				</dl>
 			</section>
+
+			<ProjectRepositoriesSection
+				canManage={project.canManage}
+				organizationId={currentOrganization.id}
+				projectId={project.id}
+			/>
+
+			<ProjectIssueRoutingSection
+				canManage={project.canManage}
+				organizationId={currentOrganization.id}
+				projectId={project.id}
+			/>
+
+			<ProjectCommonAgentsSection
+				canManage={project.canManage}
+				organizationId={currentOrganization.id}
+				projectId={project.id}
+			/>
 
 			<ProjectComputerSection
 				organizationId={currentOrganization.id}
@@ -347,12 +351,4 @@ export function ProjectDetailPage(input: { projectId: string }) {
 			</Dialog>
 		</div>
 	);
-}
-
-function resolveRepositoryFallbackLabel(
-	repositoryFingerprint: string | null
-): string {
-	return repositoryFingerprint
-		? "Configured · URL unavailable"
-		: "Not configured";
 }

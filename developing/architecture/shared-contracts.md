@@ -640,9 +640,12 @@ requires Core and Gateway before Web; no local component upgrade is required.
 ## Space Task contracts
 
 `@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
-create, mutation, list, detail, receipt, and GitHub `externalWorkItems`
-contracts. `externalWorkItems` defaults to `[]`, so stored Task JSON written
-before this field still parses. Gateway authenticates
+create, mutation, list, detail, receipt, Project-set, and provider-typed
+`externalWorkItems` contracts. `externalWorkItems` and `projectIds` default to
+`[]`, so stored Task JSON written before these fields still parses. GitHub
+items retain owner, repository, and number; Linear items retain provider UUID,
+identifier, team UUID, optional provider project UUID, and URL. Linear observed
+state remains null because no Linear subscription owns it. Gateway authenticates
 `GET/POST /v1/spaces/:spaceId/tasks` and
 `GET/PATCH /v1/spaces/:spaceId/tasks/:taskId`; Core RPC delegates to the owning
 Space Durable Object. Writes require an active human or Agent member whose
@@ -655,7 +658,7 @@ expected revision. The Space Durable Object compares `expectedRevision` in the
 workflow before writing; a stale revision is typed `space_task.revision_conflict`
 HTTP 409. The SQL `UPDATE` is not a second concurrency authority. Replaying
 the same operation returns `applied: false`; reuse for different input is
-`space_task.operation_conflict` HTTP 409. Attaching too many GitHub issues is
+`space_task.operation_conflict` HTTP 409. Attaching too many external issues is
 `space_task.external_work_item_limit`; detaching or observing a missing link is
 `space_task.external_work_item_not_found`. Reviews additionally require
 `expectedResultRevision`, identifying the submitted result the reviewer
@@ -672,6 +675,12 @@ decision before resubmitting a semantic change. They do not replace
 `expectedRevision` and blindly replay a stale brief or review. A provider
 observation may retry once with a refreshed revision because it reports
 provider-owned state rather than approving a changed Task.
+`set_projects` is a revision-checked Space Task mutation. Core validates each
+active Project against the Space's Organization before the Space writer accepts
+the association; the Task's owning Space still writes the only Task state.
+The Task Project set is work scope, not another Task writer or an authorization
+grant. A new external write cannot take a destination from the set's list
+order. Existing Tasks remain unassociated until a new scoped mutation succeeds.
 
 `GET` detail returns the legacy Task and event shape by default. A client may
 request `includeAffordances=1` to receive `allowedActions` and `pendingActions`.
@@ -703,6 +712,24 @@ the issue through `github_update_issue` or a verified GitHub App webhook
 cancels still-active linked Tasks through the Space writer. Completing or
 canceling a Task does not PATCH GitHub from Core. Old Remote Agent builds
 simply omit the association.
+
+Confirmed Linear creation may add an exact reference to one eligible source
+Task through the same Space mutation RPC. An issue-creation receipt and its
+Task-reference write are separate effects: a confirmed provider creation with
+failed association reports the partial result and recovers only the Task
+mutation. Linear references do not enter the GitHub webhook link projection or
+GitHub close-prompt policy.
+
+New Task fields and the Linear variant are strict-reader changes. Deploy
+consumers that understand `projectIds` and both provider variants before Core
+begins returning them. Updated clients send `taskContractVersion=2` on Task
+read/write routes. For an older client, Core omits the empty new field from a
+legacy Task and returns `space_task.contract_update_required` (HTTP 426) when
+current Project or Linear facts would otherwise be lost or rejected. Older
+clients reject an unsupported Task rather than flatten it to one Project or
+recode a Linear issue as GitHub. The
+published CLI and OpenMeld Service compatibility audit covers the Task
+read/write path before this producer is enabled.
 
 Gateway `POST /github/app/webhook` forwards the raw body and GitHub delivery
 headers to Core `verifyGitHubAppWebhook`. Core verifies
@@ -2076,6 +2103,40 @@ call. The timeout remains a final crash or platform-hang backstop; it is not the
 way OpenMeld cancels authentication UI. Parent and helper are always the same
 packaged binary version, so no mixed-version rollout exists at this private
 boundary.
+
+### Project Workflow Contracts
+
+`packages/schemas/src/schemas/http/projects.ts` owns versioned Project
+issue-routing, repository-association, and Common Agent configuration
+contracts. Gateway exposes separate authenticated Project subroutes; Core
+persists each setting on the existing Organization-scoped Project row and
+reuses creator-or-Organization-owner management authority. Existing strict
+Project list responses retain their original shape. Repository URLs are
+canonicalized and fingerprinted by Core; the legacy Project repository fields
+project the optional default for older consumers, while additional URLs
+remain separate associations. Neither a repository association nor Common
+Agent membership authorizes file, provider, Space, or Agent execution access.
+
+For an OpenMeld-controlled new issue action, the action owner sends its exact
+proposed provider target to Core. Core verifies the active delivery, reads the
+admitted request and current Project/Task facts, and returns the resolved
+target, basis, Project ID when known, and configuration revision when a default
+was used. The action owner rejects a provider or target mismatch before its
+operation claim. GitHub PR background context does not create an explicit
+GitHub override. A replay reads its already accepted operation and retains its
+frozen provider, account, target, and idempotency key rather than re-resolving
+from a later Project edit. The Project rule never substitutes for current
+connection and actor authorization. Local Plugin calls use their verified
+dispatch source Signal and the same resolver; direct third-party tools outside
+OpenMeld are not covered by this boundary.
+
+Deploy D1 migrations 0186 and 0187 before the Core readers and writers. The
+Core issue-resolution receiver must be available before Remote Agent callers;
+an older Core fails closed on the new RPC. The local Service still resolves its
+existing one-Project connection contract. Additional repository associations
+must not be presented as executable until exact per-work selection and
+mixed-version rejection are implemented. The new Project subroutes remain
+additive to the legacy Project list contract.
 
 ### Center Agent Project Tool Contracts
 

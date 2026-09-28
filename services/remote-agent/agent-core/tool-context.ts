@@ -21,6 +21,7 @@ export async function buildRemoteAgentToolContext(input: {
   context: OpenMeldRequestContext;
   conversationId: RemoteAgentCallbackContext["conversationId"];
   modelRoute: RemoteAgentCallbackContext["modelRoute"];
+  triggerMessageId: RemoteAgentCallbackContext["triggerMessageId"];
   turnEnvelope: RemoteAgentCallbackContext["turnEnvelope"];
 }> {
   const turnContext = await readRemoteAgentCallbackContext(
@@ -36,6 +37,7 @@ export async function buildRemoteAgentToolContext(input: {
     context,
     conversationId: turnContext.conversationId,
     modelRoute: turnContext.modelRoute,
+    triggerMessageId: turnContext.triggerMessageId,
     turnEnvelope: turnContext.turnEnvelope,
   };
 }

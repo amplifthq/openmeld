@@ -3,13 +3,22 @@ import {
 	createProjectsApi,
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
+	type UpdateProjectCommonAgentsInput,
 	type UpdateProjectInput,
+	type UpdateProjectIssueRoutingInput,
+	type UpdateProjectRepositorySettingsInput,
 } from "@openmeld/api-client";
 import { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "@openmeld/schemas";
 import type {
 	ArchiveProjectResponse,
 	CreateProjectResponse,
 	ListProjectsResponse,
+	ReadProjectCommonAgentsResponse,
+	ReadProjectIssueRoutingResponse,
+	ReadProjectRepositorySettingsResponse,
+	UpdateProjectCommonAgentsResponse,
+	UpdateProjectIssueRoutingResponse,
+	UpdateProjectRepositorySettingsResponse,
 	UpdateProjectResponse,
 } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -63,6 +72,85 @@ export async function updateCurrentProject(
 	}
 }
 
+export async function readCurrentProjectIssueRouting(input: {
+	organizationId: string;
+	projectId: string;
+	signal?: AbortSignal;
+}): Promise<ReadProjectIssueRoutingResponse> {
+	try {
+		return await createWebProjectsApi(input.organizationId).readIssueRouting({
+			projectId: input.projectId,
+			signal: input.signal,
+		});
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function updateCurrentProjectIssueRouting(
+	input: UpdateProjectIssueRoutingInput
+): Promise<UpdateProjectIssueRoutingResponse> {
+	try {
+		return await createWebProjectsApi(
+			input.expectedOrganizationId
+		).updateIssueRouting(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function readCurrentProjectRepositorySettings(input: {
+	organizationId: string;
+	projectId: string;
+	signal?: AbortSignal;
+}): Promise<ReadProjectRepositorySettingsResponse> {
+	try {
+		return await createWebProjectsApi(
+			input.organizationId
+		).readRepositorySettings(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function updateCurrentProjectRepositorySettings(
+	input: UpdateProjectRepositorySettingsInput
+): Promise<UpdateProjectRepositorySettingsResponse> {
+	try {
+		return await createWebProjectsApi(
+			input.expectedOrganizationId
+		).updateRepositorySettings(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function readCurrentProjectCommonAgents(input: {
+	organizationId: string;
+	projectId: string;
+	signal?: AbortSignal;
+}): Promise<ReadProjectCommonAgentsResponse> {
+	try {
+		return await createWebProjectsApi(input.organizationId).readCommonAgents(
+			input
+		);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function updateCurrentProjectCommonAgents(
+	input: UpdateProjectCommonAgentsInput
+): Promise<UpdateProjectCommonAgentsResponse> {
+	try {
+		return await createWebProjectsApi(
+			input.expectedOrganizationId
+		).updateCommonAgents(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
 export async function archiveCurrentProject(input: {
 	expectedOrganizationId: string;
 	projectId: string;
@@ -84,8 +172,12 @@ export function resolveProjectErrorMessage(
 	const failure = toStructuredApiClientFailure(error);
 	const code = failure.upstreamCode ?? failure.code;
 	switch (code) {
-		case "project.repository_exists":
-			return "This repository already has a project. Try again to choose the existing project.";
+		case "project.repository_settings_invalid":
+			return "Choose distinct Repository URLs and a default from that list.";
+		case "project.legacy_repository_url_required":
+			return "Set a Repository URL for this legacy Project before changing its repository list.";
+		case "project.common_agent_unavailable":
+			return "Choose active Agents in this workspace.";
 		case "project.operation_conflict":
 			return "This creation request has changed. Close this dialog and try again.";
 		case "project.forbidden":

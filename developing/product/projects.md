@@ -45,19 +45,47 @@ CRUD, or reinterpret existing Activity evidence.
 
 ### Project
 
-A Project is the Organization-scoped cloud identity for a shared body of work. It
-may carry a safe canonical Repository URL and its stable repository
-fingerprint, but it never contains an absolute local path.
+A Project is the Organization-scoped cloud identity for a shared body of work.
+It can be non-code work or associate several canonical repositories. A
+repository can belong to several Projects in one Organization. Project identity
+is independent of repository identity, so a repository match need not identify
+one Project. The Project never contains an absolute local path.
+
+The Project owns one optional default issue destination and an explicit Common
+Agents shortlist. Existing Project managers configure both. The destination
+selects a target for new issues; it does not grant a provider connection or
+permission to write. The shortlist suggests Agent Profiles before work history
+exists; it does not make an Agent a Space member, assign a Task, or start work.
 
 ### Repository Identity
 
 Repository identity is a fingerprint used to decide whether local Git
-repositories belong to the same Project. OpenMeld also stores the normalized
-HTTPS Repository URL so people can see which repository they configured and
-edit it without re-entering it. The original pasted value is never stored:
+repositories match a Project association. A Project can save several normalized
+HTTPS Repository URLs and one optional default code repository. The legacy
+`repositoryUrl` and `repositoryFingerprint` Project fields remain the default
+repository projection for existing clients; additional URLs are separate
+associations under the same Project writer. A Project without a default or any
+repository is valid. The original pasted value is never stored:
 credentials, query, fragment, protocol-specific syntax, surrounding slashes,
 and the `.git` suffix are removed before upload. Core recomputes the fingerprint
-from that safe URL and rejects a mismatched pair atomically.
+from that safe URL and rejects a mismatched pair atomically. A cloud repository
+association alone does not register a local folder or permit code execution.
+Current local connections still require their own verified fingerprint and
+owner-self authorization. A legacy fingerprint-only Project must set its URL
+before its repository association list can be changed.
+
+### Issue Destination
+
+One optional Project default names an exact GitHub repository or Linear team
+and optional Linear project. Supported OpenMeld-controlled issue-creation
+actions re-read the admitted request and current Project configuration before
+claiming a new provider operation. An explicit destination in the request wins;
+a GitHub PR cited as background does not override a Linear default. A Task's
+verified Project set may narrow the work scope, but multiple plausible Projects
+with different targets require a choice. No Task is required merely to create
+an issue. Provider connection, actor, target, and write permission are checked
+by their existing owners. Accepted retries keep their frozen exact target and
+operation identity rather than consulting a later Project default.
 
 ### Local Project Connection
 
@@ -72,6 +100,12 @@ repository path to one OpenMeld lane root; it resolves lane ambiguity and must
 never become a second Project-connection truth. A user may explicitly move a
 folder to another Project after OpenMeld identifies the existing connection,
 explains the impact, and receives a second confirmation.
+
+The approved workflow design extends same-owner, same-Organization,
+same-Computer, same-lane folder reuse after the local connection owner and
+Session attribution rules are migrated. Until that migration, a cloud
+multi-Project repository association must not imply that one connected folder
+can execute or report Activity for every associated Project.
 
 ### Default Local Project Connection
 
@@ -142,8 +176,12 @@ unique; matching names always show their different slugs.
 
 The detail route is one continuous page with no tabs:
 
-- **Project**: name, slug, saved safe Repository URL or an explicit legacy
-  URL-unavailable state, creator, and Edit;
+- **Project**: name, slug, creator, and Edit;
+- **Repositories**: canonical associations, optional default code repository,
+  and an explicit legacy URL-unavailable state;
+- **Where issues go**: one optional, versioned GitHub or Linear default;
+- **Common Agents**: the explicitly configured shortlist, separate from
+  observed work and current Space membership;
 - **This Computer**: computer name, Service state, discovery state, default
   folder, additional folders or worktrees, Connect folder, Add another folder,
   Make default, and Remove connection;

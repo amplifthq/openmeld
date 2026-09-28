@@ -52,6 +52,40 @@ vi.mock("#/lib/organizations/projects", async (importOriginal) => {
 		...original,
 		archiveCurrentProject: vi.fn(),
 		listCurrentProjects: vi.fn(),
+		readCurrentProjectRepositorySettings: vi.fn(async () => ({
+			settings: {
+				projectId: "project-1",
+				repositories: [
+					{
+						repositoryUrl: "https://github.com/amplifthq/openmeld",
+						repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+						isDefault: true,
+					},
+				],
+				legacyDefaultFingerprint: null,
+				revision: 0,
+				updatedAtMs: null,
+				updatedByUserId: null,
+			},
+		})),
+		readCurrentProjectIssueRouting: vi.fn(async () => ({
+			routing: {
+				projectId: "project-1",
+				destination: null,
+				revision: 0,
+				updatedAtMs: null,
+				updatedByUserId: null,
+			},
+		})),
+		readCurrentProjectCommonAgents: vi.fn(async () => ({
+			commonAgents: {
+				projectId: "project-1",
+				agentProfileIds: [],
+				revision: 0,
+				updatedAtMs: null,
+				updatedByUserId: null,
+			},
+		})),
 		updateCurrentProject: vi.fn(),
 	};
 });
@@ -78,6 +112,11 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 		],
 		organizationId: "org-acme",
 	})),
+	readCurrentOrganizationProfileDirectory: vi.fn(async () => ({
+		agentProfiles: [],
+		members: [],
+		organizationId: "org-acme",
+	})),
 }));
 
 vi.mock("./project-computer-section", () => ({
@@ -90,7 +129,7 @@ afterEach(() => {
 });
 
 describe("ProjectDetailPage", () => {
-	it("renders the three detail sections and the server-projected archive boundary", async () => {
+	it("renders Project configuration and the server-projected archive boundary", async () => {
 		vi.mocked(listCurrentProjects).mockResolvedValueOnce({
 			organizationId: "org-acme",
 			projects: [project({ canArchive: false, canManage: false })],
@@ -102,12 +141,17 @@ describe("ProjectDetailPage", () => {
 		).toBeTruthy();
 		expect(screen.getByText("Felix")).toBeTruthy();
 		expect(
-			screen
-				.getByRole("link", {
+			(
+				await screen.findByRole("link", {
 					name: "https://github.com/amplifthq/openmeld",
 				})
-				.getAttribute("href")
+			).getAttribute("href")
 		).toBe("https://github.com/amplifthq/openmeld");
+		expect(screen.getByRole("heading", { name: "Repositories" })).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "Where new issues go" })
+		).toBeTruthy();
+		expect(screen.getByRole("heading", { name: "Common Agents" })).toBeTruthy();
 		expect(
 			screen.getByRole("heading", { name: "This computer controls" })
 		).toBeTruthy();
