@@ -58,6 +58,15 @@ test("dispatch Space Action MCP config forwards only its bounded authority", asy
       "read_receipt",
     ],
   });
+
+  assert.equal(
+    core.resolveDispatchSpaceActionMcpServer({
+      OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
+      OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld.exe",
+      OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
+    }).commandPath,
+    "/tmp/action/bin/openmeld.exe"
+  );
 });
 
 test("dispatch Space Action MCP config rejects an untrusted command", async () => {
