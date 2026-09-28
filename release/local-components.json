@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-27T21:38:43.801Z",
+  "updatedAt": "2026-09-28T02:08:32.691Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.229",
       "updatePolicy": "available",
-      "reason": "Existing CLI setup and cloud requests remain compatible; Windows waits longer for a cold Service lease."
+      "reason": "Existing CLI setup and commands remain compatible across this cloud rollout; Windows only waits longer for a cold Service lease."
     },
     "service": {
-      "bundleHash": "75e96c9d07ad27271508dde6bb3f429acf04c9e619aa91224ce8825d8567fcef",
-      "portableBundleHash": "a2654958d4b93e4d470ac25fe409187c318fbdf2950ea2e82bbc66b412acfbb1",
+      "bundleHash": "910b70e7f6bbc25bc1866feb827facf2c925582acab91d65a036d6873dc2a1d4",
+      "portableBundleHash": "8b4e6eed3d079dae12a1ee9618876c100c086247aad84ecb6e037244b88b17e1",
       "bundleVersion": "0.3.229",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Only the Windows startup observation budget changes; Service identity, wire contracts, and Wake handling remain compatible."
+      "reason": "Only the Windows Service startup observation budget changes; runtime identity, transport contracts, and Wake handling remain compatible across old and new cloud versions."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
