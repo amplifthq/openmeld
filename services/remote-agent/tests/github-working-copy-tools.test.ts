@@ -304,6 +304,7 @@ describe("bounded Git publication and receipts", () => {
     "publish image to GitHub branch",
     "upload screenshot to GitHub",
     "把电脑里的图片发到 GitHub 分支",
+    "发布一张图到 GitHub 分支",
   ])("finds the hosted image publication entry for %s", (query) => {
     const catalog = [
       ...getRemoteAgentGitHubToolDefinitions({

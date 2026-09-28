@@ -50,6 +50,7 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
       "upload screenshot to GitHub",
       "publish Computer image to GitHub branch",
       "把电脑里的图片发到 GitHub 分支",
+      "发布一张图到 GitHub 分支",
     ],
     namespace: "github",
   },
