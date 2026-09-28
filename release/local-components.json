@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-28T01:53:28.614Z",
+  "updatedAt": "2026-09-28T02:01:59.925Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
@@ -9,8 +9,8 @@
       "reason": "Existing CLI and cloud requests remain compatible; Windows setup now resumes an unclaimed update instead of waiting indefinitely."
     },
     "service": {
-      "bundleHash": "a3dfaa040db0d4a28e0a612cbeaa5b0d3a510f427dbc15e3e1b95e6f97ab96f3",
-      "portableBundleHash": "9ca66ff5d683400787b983ef48fa68d42d50b7d49cf42ebcc2dfbb006c58c415",
+      "bundleHash": "06d6ffe093bf100f18c950cc990998d649e070e8b84fc0f267d842b0cc3cfed9",
+      "portableBundleHash": "b454136ea6bdeba4ca90a8d1d9fff2a8c655b6c8dafd2c41455ad3fe007fa4c0",
       "bundleVersion": "0.3.230",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
