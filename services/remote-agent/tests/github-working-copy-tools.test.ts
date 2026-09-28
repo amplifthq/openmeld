@@ -12,7 +12,10 @@ import {
   putRemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
 } from "../agent-core/callback-context";
-import { gitBlobSha } from "../connectors/github-working-copy-provider";
+import {
+  GitHubWorkingCopyProvider,
+  gitBlobSha,
+} from "../connectors/github-working-copy-provider";
 import { GitWorkingCopyComputer } from "../flue-adapter/github-working-copy-computer";
 import {
   checkoutRepository,
@@ -349,6 +352,99 @@ describe("bounded Git publication and receipts", () => {
           `/repos/acme/private/commits/${SOURCE_COMMIT}`
       )
     ).toBe(true);
+  });
+
+  it("returns preparing with imported progress before the Code Mode deadline", async () => {
+    const f = await fixture();
+    const secondBytes = Buffer.from("another file\n");
+    const secondBlob = createHash("sha1")
+      .update(`blob ${secondBytes.length}\0`)
+      .update(secondBytes)
+      .digest("hex");
+    const entries = [
+      {
+        path: "first.txt",
+        mode: "100644",
+        type: "blob",
+        sha: BLOB,
+        size: bytes.length,
+      },
+      {
+        path: "second.txt",
+        mode: "100644",
+        type: "blob",
+        sha: secondBlob,
+        size: secondBytes.length,
+      },
+    ];
+    vi.spyOn(GitHubWorkingCopyProvider.prototype, "tree").mockResolvedValue(
+      entries as never
+    );
+    const originalFetch = f.fetchMock.getMockImplementation();
+    if (!originalFetch) {
+      throw new Error("Missing provider fixture");
+    }
+    let nowMs = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    f.fetchMock.mockImplementation(async (url, init) => {
+      const request = JSON.parse(String(init?.body));
+      if (request.endpoint.endsWith(`/git/blobs/${BLOB}`)) {
+        nowMs += 46_000;
+        return Response.json({
+          success: true,
+          message: "OK",
+          data: {
+            status: 200,
+            headers: {},
+            data: {
+              sha: BLOB,
+              encoding: "base64",
+              content: bytes.toString("base64"),
+              size: bytes.length,
+            },
+          },
+        });
+      }
+      if (request.endpoint.endsWith(`/git/blobs/${secondBlob}`)) {
+        return Response.json({
+          success: true,
+          message: "OK",
+          data: {
+            status: 200,
+            headers: {},
+            data: {
+              sha: secondBlob,
+              encoding: "base64",
+              content: secondBytes.toString("base64"),
+              size: secondBytes.length,
+            },
+          },
+        });
+      }
+      return await originalFetch(url, init);
+    });
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare)
+      .mockResolvedValueOnce({
+        ready: false,
+        remaining: 2,
+        missing: [BLOB, secondBlob],
+      })
+      .mockResolvedValueOnce({
+        ready: false,
+        remaining: 1,
+        missing: [secondBlob],
+      });
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "budget-progress",
+    });
+    expect(result).toMatchObject({ status: "preparing", remainingBlobs: 1 });
+    expect(
+      f.fetchMock.mock.calls.filter(([, init]) =>
+        JSON.parse(String(init?.body)).endpoint.includes("/git/blobs/")
+      )
+    ).toHaveLength(1);
+    expect(f.deps.computer.writeFile).toHaveBeenCalledTimes(1);
   });
 
   it("rejects 201 new blobs before claiming a write, without leaving a pending receipt", async () => {

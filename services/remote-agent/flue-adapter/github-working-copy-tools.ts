@@ -44,6 +44,9 @@ import {
 } from "./github-working-copy-computer";
 
 export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
+// Code Mode stops its script after 60 seconds. Leave time to import the blobs
+// already transferred and return a truthful preparing result.
+const CHECKOUT_BATCH_SOFT_BUDGET_MS = 45_000;
 const GITHUB_REPOSITORY_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]{1,100}$/u;
 const GITHUB_OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 type Dependencies = {
@@ -536,6 +539,7 @@ export async function checkoutRepository(
   intent: RemoteAgentGitCheckoutInput,
   signal?: AbortSignal
 ) {
+  const startedAtMs = Date.now();
   const identity = await locate(input, intent.key);
   const record =
     identity.stored ?? (await createCheckout(input, intent, identity, signal));
@@ -580,6 +584,9 @@ export async function checkoutRepository(
   for (const sha of progress.missing ?? []) {
     if (!allowed.has(sha)) {
       throw new Error("github.checkout.unexpected_blob_request");
+    }
+    if (Date.now() - startedAtMs >= CHECKOUT_BATCH_SOFT_BUDGET_MS) {
+      break;
     }
     await computer.writeBlob(record, sha, await remote.blob(sha));
   }
