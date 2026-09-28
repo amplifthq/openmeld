@@ -25,7 +25,9 @@ const {
   reportPrepareHandoffStoppedMock,
   waitForExternalOpenMeldToolsUpdateMock,
   readPendingDaemonServiceUpdateMock,
+  readPendingOpenMeldToolsUpdateAttemptMock,
   scheduleDaemonServiceUpdateMock,
+  startDaemonServiceUpdateWorkerMock,
   writeConnectionProgressMock,
 } = vi.hoisted(() => {
   const writeConnectionProgressMock = vi.fn();
@@ -54,7 +56,9 @@ const {
     reportPrepareHandoffStoppedMock: vi.fn(),
     waitForExternalOpenMeldToolsUpdateMock: vi.fn(),
     readPendingDaemonServiceUpdateMock: vi.fn(),
+    readPendingOpenMeldToolsUpdateAttemptMock: vi.fn(),
     scheduleDaemonServiceUpdateMock: vi.fn(),
+    startDaemonServiceUpdateWorkerMock: vi.fn(),
     writeConnectionProgressMock,
   };
 });
@@ -62,6 +66,19 @@ const {
 vi.mock("../src/local-service/lifecycle/daemon-service-update-state", () => ({
   readPendingDaemonServiceUpdate: readPendingDaemonServiceUpdateMock,
 }));
+vi.mock(
+  "../src/local-service/maintenance/openmeld-tools-update-attempt-state",
+  () => ({
+    readPendingOpenMeldToolsUpdateAttempt:
+      readPendingOpenMeldToolsUpdateAttemptMock,
+  })
+);
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-worker-manager",
+  () => ({
+    startDaemonServiceUpdateWorker: startDaemonServiceUpdateWorkerMock,
+  })
+);
 vi.mock(
   "../src/local-service/lifecycle/daemon-service-update-coordinator",
   () => ({
@@ -173,6 +190,22 @@ const presenter = {
 } satisfies Presenter;
 
 describe("Computer authorization handoff", () => {
+  it("wakes an unclaimed update before waiting for it", async () => {
+    readPendingOpenMeldToolsUpdateAttemptMock.mockResolvedValue({
+      attempts: 0,
+      operation: { operationId: "old-update" },
+    });
+    await waitForOpenMeldToolsUpdateBeforeComputerHandoff({ presenter });
+    expect(startDaemonServiceUpdateWorkerMock).toHaveBeenCalledOnce();
+    expect(
+      startDaemonServiceUpdateWorkerMock.mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      waitForExternalOpenMeldToolsUpdateMock.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(waitForExternalOpenMeldToolsUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ unclaimedTimeoutMs: 60_000 })
+    );
+  });
   it("advances an older waiting update before joining it, never racing it", async () => {
     readPendingDaemonServiceUpdateMock.mockResolvedValue({
       jobId: "older-pending-update",
@@ -199,6 +232,8 @@ describe("Computer authorization handoff", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     readPendingDaemonServiceUpdateMock.mockResolvedValue(null);
+    readPendingOpenMeldToolsUpdateAttemptMock.mockResolvedValue(null);
+    startDaemonServiceUpdateWorkerMock.mockResolvedValue(undefined);
     getAuthSessionMetadataMock.mockResolvedValue(null);
     resolveBaseUrlMock.mockResolvedValue("https://gateway.openmeld.test");
     resolveExternalOpenMeldToolsUpdateMock.mockResolvedValue(null);
