@@ -1134,6 +1134,33 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
+	it("shows which Agent will resume from a child result without address targets", () => {
+		const childResult = createTimelineItem({
+			actorName: "Runner",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorProfileKind: "agent",
+			actorProfileName: "Runner",
+			id: "signal-child-result",
+			text: "The review is complete.",
+		});
+		renderSpaceConversationPanel({
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem({ sourceSignalId: childResult.id }),
+					clientMessageId: null,
+					message: "@Amplift Center Agent is working...",
+					targetLabel: "@Amplift Center Agent",
+					targetProfileId: "agent-profile-center",
+				},
+			],
+			timelineItems: [childResult],
+		});
+
+		expect(screen.getByTestId("space-message-addressing").textContent).toBe(
+			"Auto resumes Amplift Center Agent"
+		);
+	});
+
 	it("can hide unread navigation without reading its messages", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
@@ -1593,6 +1620,35 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
 		expect(screen.getByText("Please investigate.")).toBeTruthy();
+	});
+
+	it.each([
+		["Wake", "wakeTargetProfileIds"],
+		["Mention", "mentionTargetProfileIds"],
+		["Reference", "referenceTargetProfileIds"],
+	] as const)("shows the %s badge from structured Agent addressing", (label, field) => {
+		renderSpaceConversationPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
+			timelineItems: [
+				createTimelineItem({
+					actorName: "Center Agent",
+					actorProfileId: "agent-profile-center",
+					actorProfileKind: "agent",
+					actorProfileName: "Center Agent",
+					[field]: [TARGET_PROFILE_ID],
+					text: "@Codex 5.6 Sol Please check this.",
+				}),
+			],
+		});
+
+		expect(
+			screen.getByTestId("space-message-addressing").textContent
+		).toContain(`${label} Codex 5.6 Sol`);
+		expect(
+			screen.getByRole("button", {
+				name: `Open Codex 5.6 Sol profile (${label === "Mention" ? "Mention only" : label})`,
+			})
+		).toBeTruthy();
 	});
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
@@ -2330,6 +2386,20 @@ describe("SpaceConversationPanel", () => {
 				],
 			]),
 			allowedActions: ["post_message"],
+			composerAddressingTargets: [
+				{
+					allowedRelations: { mention: false, reference: true, wake: false },
+					primaryMentionLabel: "Runner",
+					profileId: blockedProfileId,
+					profileName: "Runner",
+					relation: "wake",
+					wakeAvailability: {
+						reasonCodes: ["agent_profile_binding.missing"],
+						reasonText: "Runner can't reply right now.",
+						status: "blocked",
+					},
+				},
+			],
 			composerBlockedWakeProfileId: blockedProfileId,
 			composerErrorMessage: "Runner can't reply right now.",
 			readOnly: false,
@@ -3452,6 +3522,12 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("renders profile avatars and keeps message time outside the bubble", () => {
+		const imageComplete = vi
+			.spyOn(HTMLImageElement.prototype, "complete", "get")
+			.mockReturnValue(true);
+		const imageWidth = vi
+			.spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
+			.mockReturnValue(24);
 		const createdAtMs = Date.UTC(2026, 4, 27, 10, 0, 7);
 		const expectedTime = formatTestTime(createdAtMs);
 		renderSpaceConversationPanel({
@@ -3486,6 +3562,8 @@ describe("SpaceConversationPanel", () => {
 		expect(profileName.className).toContain("text-muted-foreground");
 		expect(screen.getByText(expectedTime)).toBeTruthy();
 		expect(messageBubble?.textContent).not.toContain(expectedTime);
+		imageComplete.mockRestore();
+		imageWidth.mockRestore();
 	});
 
 	it("only adds pending message status after sending takes eight seconds", () => {
