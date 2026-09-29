@@ -20,6 +20,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { type ReactNode, useMemo } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
+import { readRecentReactUpdates } from "#/lib/observability/react-update-trace";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
@@ -1038,6 +1039,12 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 			queryClient.getQueryData<SpaceHistorySnapshot>(options.queryKey)
 				?.envelopes
 		).toEqual([refreshed]);
+		const updateLabels = readRecentReactUpdates()
+			.slice(-10)
+			.map(({ event }) => event);
+		expect(updateLabels).toContain("space_timeline_agent_controller_changed");
+		expect(updateLabels).toContain("space_timeline_write");
+		expect(updateLabels).toContain("space_wake_visible_publish");
 		view.unmount();
 		queryClient.clear();
 	});

@@ -23,6 +23,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publishAgentReadinessInvalidationFrame } from "#/lib/agents/agent-readiness-invalidation-bus";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import {
 	parseSpaceLiveMessage,
 	type SpaceLiveMessage,
@@ -1874,6 +1875,20 @@ function mergeIncomingSignals(input: {
 		next.length === current.length ? replaceEqualDeep(current, next) : next;
 	if (merged === current) {
 		return current;
+	}
+	recordReactUpdate("space_timeline_write");
+	const currentControllerById = new Map(
+		current.map((signal) => [signal.id, signal.profile.agentControllerRef])
+	);
+	if (
+		merged.some(
+			(signal) =>
+				currentControllerById.has(signal.id) &&
+				currentControllerById.get(signal.id) !==
+					signal.profile.agentControllerRef
+		)
+	) {
+		recordReactUpdate("space_timeline_agent_controller_changed");
 	}
 	input.currentRef.current = merged;
 	input.setState(merged);
