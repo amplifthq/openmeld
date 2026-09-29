@@ -12,14 +12,15 @@ export async function createComputerAuthorizationGrant(
     path: string,
     method: "GET" | "POST",
     body?: unknown
-  ) => Promise<unknown>
+  ) => Promise<unknown>,
+  input: { clientId?: string } = {}
 ) {
   const codeResult = betterAuthDeviceAuthorizationCodeResponseSchema.safeParse(
     await request(
       "/device/code",
       "POST",
       betterAuthDeviceAuthorizationCodeRequestSchema.parse({
-        client_id: "openmeld-cli",
+        client_id: input.clientId ?? "openmeld-cli",
       })
     )
   );

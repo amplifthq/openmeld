@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-27T15:22:13Z",
+  "updatedAt": "2026-09-29T08:31:31Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -689,6 +689,22 @@
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
           "minCliVersion": null
+        },
+        {
+          "id": "opencode/longcat-2.5-preview-free",
+          "displayName": "OpenCode LongCat 2.5 Preview Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.18.33"
+        },
+        {
+          "id": "opencode/space-bunny-free",
+          "displayName": "OpenCode Space Bunny Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.18.33"
         },
         {
           "id": "openai/gpt-6-astra",

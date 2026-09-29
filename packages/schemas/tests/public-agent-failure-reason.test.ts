@@ -113,6 +113,15 @@ describe("public agent failure reason mapping", () => {
     expect(reason).toContain(expected);
     expect(reason).not.toContain("provider was unreachable");
   });
+  it("explains why Custom config cannot start a scoped task", () => {
+    expect(
+      resolveMappedPublicAgentFailureReason(
+        "execution_context.custom_config_file_access_unverified"
+      )
+    ).toBe(
+      "This task did not start because Custom (config.toml) cannot be combined with OpenMeld's task file boundary. Choose another permission mode in this Agent's settings, then wake the Agent again."
+    );
+  });
   it("links a missing Claude project container to Agent setup", () => {
     expect(
       resolvePublicAgentFailureRecovery({
@@ -935,6 +944,11 @@ describe("public agent failure reason mapping", () => {
       "daemon.delivery.execution_stalled",
       "Runner stopped making progress on this Wake. Reconnect the computer before trying again.",
       "This agent stopped making progress on this Wake. Reconnect the computer before trying again.",
+    ],
+    [
+      "runtime.local_runtime_lost",
+      "OpenMeld Service stopped or disconnected while Runner was working on this Wake. Start OpenMeld again before retrying.",
+      "OpenMeld Service stopped or disconnected while this agent was working on this Wake. Start OpenMeld again before retrying.",
     ],
     [
       "daemon.delivery.finalization_timeout",
