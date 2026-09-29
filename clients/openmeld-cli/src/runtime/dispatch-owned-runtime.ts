@@ -316,21 +316,19 @@ ${exportRows.join("\n")}
 exec ${quoteShellValue(input.cliEntryPath)} "$@"
 `;
   }
-  return `#!/usr/bin/env node
-import { spawnSync } from "node:child_process";
-
-const result = spawnSync(${JSON.stringify(input.nodePath)}, [${JSON.stringify(
+  const exportRows = Object.entries(embeddedEnv).map(
+    ([key, value]) => `export ${key}=${quoteShellValue(value)}`
+  );
+  // A file-scoped Codex sandbox can execute the lane-owned Node binary while
+  // denying Node's optional host OpenSSL configuration read. Start through a
+  // shell so the CLI process uses the built-in OpenSSL defaults instead of
+  // failing before the dispatch-scoped command can run.
+  return `#!/bin/sh
+${exportRows.join("\n")}
+export OPENSSL_CONF=/dev/null
+exec ${quoteShellValue(input.nodePath)} ${quoteShellValue(
     input.cliEntryPath
-  )}, ...process.argv.slice(2)], {
-  env: { ...process.env, ...${JSON.stringify(embeddedEnv)} },
-  stdio: "inherit",
-});
-
-if (result.error) {
-  throw result.error;
-}
-
-process.exit(result.status ?? 1);
+  )} "$@"
 `;
 }
 
