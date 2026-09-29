@@ -7,6 +7,8 @@ import {
 import { compareSemver } from "../config/version-state";
 import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
 import { readPendingDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-state";
+import { startDaemonServiceUpdateWorker } from "../local-service/lifecycle/daemon-service-update-worker-manager";
+import { readPendingOpenMeldToolsUpdateAttempt } from "../local-service/maintenance/openmeld-tools-update-attempt-state";
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import {
   resolveExternalOpenMeldToolsUpdate,
@@ -255,8 +257,19 @@ export async function waitForOpenMeldToolsUpdateBeforeComputerHandoff(input: {
       requestSource: "cli",
     });
   }
+  const pendingToolsUpdate = await readPendingOpenMeldToolsUpdateAttempt();
+  if (
+    pendingToolsUpdate?.attempts === 0 &&
+    pendingToolsUpdate.operation.operationId !== currentUpdate?.operationId &&
+    !pending
+  ) {
+    // An earlier Service may have persisted the request but failed to hand it
+    // to its OS-owned worker. Wake that same operation before joining it.
+    await startDaemonServiceUpdateWorker();
+  }
   await waitForExternalOpenMeldToolsUpdate({
     currentOperationId: currentUpdate?.operationId,
+    unclaimedTimeoutMs: 60_000,
     onWaiting: (operation) => {
       input.presenter.line({
         code: "setup.openmeld_tools_update.waiting",
