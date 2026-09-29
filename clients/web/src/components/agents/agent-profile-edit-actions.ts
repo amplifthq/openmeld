@@ -305,6 +305,7 @@ export function updateAgentProfileListCaches(input: {
 										...profile,
 										profileHandle: input.profile.profileHandle,
 										profileName: input.profile.profileName,
+										avatarStyle: input.profile.avatarStyle,
 										updatedAt: input.profile.updatedAt,
 									}
 								: profile
@@ -324,6 +325,7 @@ export function updateAgentProfileListCaches(input: {
 										...profile,
 										profileHandle: input.profile.profileHandle,
 										profileName: input.profile.profileName,
+										avatarStyle: input.profile.avatarStyle,
 										updatedAt: input.profile.updatedAt,
 									}
 								: profile

@@ -3,6 +3,7 @@ import {
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
+  getPersonalRemoteAgentDefaultModelId,
   parseAgentControllerRef,
   peopleComputerContainsDevice,
   projectPeopleComputersToLegacyLocalRuntimes,
@@ -6638,6 +6639,13 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
       agentControllerRef:
         configurationsByProfileId?.get(profile.profileId)?.agentControllerRef ??
         null,
+      avatarModelId:
+        configurationsByProfileId?.get(profile.profileId)?.modelSelection
+          ?.modelId ??
+        (configurationsByProfileId?.get(profile.profileId)
+          ?.agentControllerRef === "hosted:remote-agent"
+          ? getPersonalRemoteAgentDefaultModelId(readModelCatalog())
+          : null),
       ...(input.includeModelSelection === true &&
       configurationsByProfileId !== null
         ? {
@@ -10186,6 +10194,7 @@ export async function rpcUpdateCenterAgentProfile(
   const context = requireRpcContext(input.context);
   const body = centerAgentUpdateProfileBodySchema.safeParse({
     profileName: input.profileName,
+    avatarStyle: input.avatarStyle,
   });
   if (!body.success) {
     throw createCoreRpcHttpError({
@@ -10231,7 +10240,12 @@ export async function rpcUpdateCenterAgentProfile(
       authWorker.updateCenterAgentProfileInOrganization({
         organizationId: activeOrganization.organizationId,
         profileId: managedProfile.profileId,
-        profileName: body.data.profileName,
+        ...(body.data.profileName
+          ? { profileName: body.data.profileName }
+          : {}),
+        ...(body.data.avatarStyle
+          ? { avatarStyle: body.data.avatarStyle }
+          : {}),
       }),
     unavailable: {
       code: "center_agent.profile_update_unavailable",

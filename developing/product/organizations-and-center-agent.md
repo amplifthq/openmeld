@@ -499,8 +499,12 @@ New profiles default to "<Organization name> Center Agent" so they remain
 recognizable across Organizations. A missing or blank Organization name falls
 back to "Center Agent", and an Organization name that already ends with
 "Center Agent" is not given a duplicate suffix. Existing profiles are not
-renamed by ensure. Future Center Agent settings may let an org customize the
-name, role description, avatar, or instructions, but that customization edits
+renamed by ensure. Center Agent settings let an authorized organization owner
+or admin choose a Bot avatar or the abstract fluid avatar on the managed
+profile. An unset avatar uses a stable Bot choice derived from that profile's
+identity, so every member sees the same default. The user previews choices in
+place and explicitly saves the selected avatar. Future customization of the
+role description or instructions also edits
 the same managed profile. It must not create a second Center Agent or turn an
 arbitrary ordinary Agent Profile into the Center Agent. The UI shows a
 badge/label derived from the designation to convey "this is our org's Center

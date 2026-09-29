@@ -3,6 +3,7 @@ import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
+import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import {
@@ -36,6 +37,8 @@ export function SpaceProfileIcon(input: {
 	className?: string;
 	agentControllerRef: string | null;
 	avatarImageUrl?: string | null;
+	avatarStyle?: AgentAvatarStyle | null;
+	avatarModelId?: string | null;
 	isCenterAgent?: boolean;
 	profileId: string;
 	profileKind: "agent" | "human";
@@ -49,11 +52,13 @@ export function SpaceProfileIcon(input: {
 	if (input.profileKind === "agent" && input.isCenterAgent) {
 		return (
 			<RemoteAgentAvatar
+				avatarStyle={input.avatarStyle}
 				className={cn(
 					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
 					input.className
 				)}
 				data-testid={`space-profile-icon-${input.profileId}`}
+				profileId={input.profileId}
 				profileName={input.profileName}
 				shape="circle"
 				size={SPACE_PROFILE_ICON_SIZE_PIXELS[size]}
@@ -86,7 +91,10 @@ export function SpaceProfileIcon(input: {
 	if (input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
 		return (
 			<RemoteAgentAvatar
+				avatarStyle={input.avatarStyle}
 				className={input.className}
+				modelId={input.avatarModelId}
+				profileId={input.profileId}
 				profileName={input.profileName}
 				size={SPACE_PROFILE_ICON_SIZE_PIXELS[size]}
 			/>

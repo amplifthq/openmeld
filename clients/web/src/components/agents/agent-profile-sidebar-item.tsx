@@ -70,6 +70,10 @@ export function AgentProfileSidebarItemComponent(input: {
 		input.readiness,
 		input.agentControllerRef
 	);
+	const avatarModelId = resolveSidebarAvatarModelId(
+		input.readiness,
+		input.modelCatalog
+	);
 	const presentation = resolveAgentProfileSidebarPresentation({
 		agentControllerRef,
 		errorMessage: input.readinessErrorMessage,
@@ -157,7 +161,9 @@ export function AgentProfileSidebarItemComponent(input: {
 					renderAvatar={(size) => (
 						<AgentProfileControllerAvatar
 							agentControllerRef={agentControllerRef}
+							avatarStyle={input.profile.avatarStyle}
 							className={avatarClassName}
+							modelId={avatarModelId}
 							profileId={input.profile.openMeldProfileId}
 							profileName={input.profile.profileName}
 							size={size}
@@ -200,7 +206,9 @@ export function AgentProfileSidebarItemComponent(input: {
 			>
 				<AgentProfileControllerAvatar
 					agentControllerRef={agentControllerRef}
+					avatarStyle={input.profile.avatarStyle}
 					className={avatarClassName}
+					modelId={avatarModelId}
 					profileId={input.profile.openMeldProfileId}
 					profileName={input.profile.profileName}
 					size={input.avatarSize ?? 20}
@@ -243,6 +251,19 @@ export function AgentProfileSidebarItemComponent(input: {
 				</SidebarMenuActions>
 			)}
 		</FluidNavMenuItem>
+	);
+}
+
+function resolveSidebarAvatarModelId(
+	readiness: GetAgentExecutionReadinessResponse | null,
+	catalog: ModelCatalog | null
+): string | null {
+	return (
+		readiness?.primaryBinding?.modelSelection?.modelId ??
+		readiness?.publicProfileConfiguration?.modelSelection?.modelId ??
+		catalog?.agentControllers["center-agent"]?.hostedRuntimePolicy
+			?.personalRemoteAgentDefaultModelId ??
+		null
 	);
 }
 

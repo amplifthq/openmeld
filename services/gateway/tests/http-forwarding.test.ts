@@ -1700,6 +1700,60 @@ describe("gateway http forwarding", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it.each([
+    false,
+    true,
+  ])("returns Agent avatar fields only with opt-in=%s", async (includeAgentAvatars) => {
+    const { env, rpc } = makeEnv();
+    const profile = {
+      organizationId: "org-1",
+      profileId: "agt_11111111-1111-4111-8111-111111111111",
+      profileName: "Agent",
+      profileHandle: "agent",
+      profileKind: "agent",
+      isDefault: false,
+      status: "active",
+      ownerUserId: "user-1",
+      source: "cli_create",
+      managedRole: null,
+      createdByUserId: "user-1",
+      creatorProfileId: null,
+      lastUsedAt: null,
+      createdAt: "2026-09-10T00:00:00.000Z",
+      updatedAt: "2026-09-10T00:00:00.000Z",
+      avatarStyle: "fluid",
+      avatarModelId: "claude-opus-5-5",
+      agentControllerRef: "builtin:codex",
+    };
+    rpc.getCurrentOrganizationProfileDirectory.mockResolvedValue({
+      organizationId: "org-1",
+      generatedAt: profile.createdAt,
+      members: [],
+      agentProfiles: [profile],
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/organizations/current/profile-directory?includeAgentAvatars=${includeAgentAvatars}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    const { avatarStyle, avatarModelId, ...legacyProfile } = profile;
+    const body = await response.json();
+    expect(body).toMatchObject({
+      agentProfiles: [
+        includeAgentAvatars
+          ? { ...legacyProfile, avatarStyle, avatarModelId }
+          : legacyProfile,
+      ],
+    });
+    if (!includeAgentAvatars) {
+      expect(body.agentProfiles[0]).not.toHaveProperty("avatarStyle");
+      expect(body.agentProfiles[0]).not.toHaveProperty("avatarModelId");
+    }
+  });
+
   it("forwards only dynamic Agent runtime options to the runtime overview", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(

@@ -16,6 +16,8 @@ export type SpaceMemberDirectoryEntry = {
   addedByDisplayName: string | null;
   addedByProfileId: string | null;
   avatarUrl: string | null;
+  avatarStyle?: SpaceMemberAgentSnapshot["avatarStyle"];
+  avatarModelId?: string | null;
   agentControllerConversationId: string | null;
   agentControllerPermissionMode: AgentControllerPermissionMode | null;
   controllerDisplayName: string | null;
@@ -124,6 +126,7 @@ function buildDirectoryEntry(
       addedByDisplayName: normalizeText(member.addedByDisplayName),
       addedByProfileId: normalizeText(member.addedByProfileId),
       avatarUrl: normalizeText(member.avatarUrl),
+      ...projectAgentAvatar(member),
       agentControllerConversationId: normalizeText(
         member.agentControllerConversationId
       ),
@@ -170,6 +173,8 @@ function buildDirectoryEntry(
     addedByDisplayName: normalizeText(member.addedByDisplayName),
     addedByProfileId: normalizeText(member.addedByProfileId),
     avatarUrl: normalizeText(member.avatarUrl),
+    avatarStyle: null,
+    avatarModelId: null,
     agentControllerConversationId: null,
     agentControllerPermissionMode: null,
     controllerDisplayName: null,
@@ -202,6 +207,15 @@ function buildDirectoryEntry(
     runtimeDeviceDisplayName: null,
     searchText: buildSearchText(member, catalogEntry),
     workingDirectory: null,
+  };
+}
+
+function projectAgentAvatar(
+  member: SpaceMemberAgentSnapshot
+): Pick<SpaceMemberDirectoryEntry, "avatarStyle" | "avatarModelId"> {
+  return {
+    avatarStyle: member.avatarStyle ?? null,
+    avatarModelId: member.avatarModelId ?? null,
   };
 }
 

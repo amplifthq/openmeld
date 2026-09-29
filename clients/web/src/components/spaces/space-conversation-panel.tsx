@@ -2959,7 +2959,22 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 								{index === 0 ? (
 									<MessageHeader className="px-0">
 										<ConversationSpeakerHeader
+											avatarModelId={
+												input.membersSnapshot?.agents.find(
+													(agent) =>
+														agent.profileId === input.run.speaker.profileId
+												)?.avatarModelId ??
+												input.modelCatalog?.agentControllers["center-agent"]
+													?.hostedRuntimePolicy
+													?.personalRemoteAgentDefaultModelId
+											}
 											avatarOnly={input.isDirectMessage}
+											avatarStyle={
+												input.membersSnapshot?.agents.find(
+													(agent) =>
+														agent.profileId === input.run.speaker.profileId
+												)?.avatarStyle
+											}
 											centerAgentProfileId={input.centerAgentProfileId}
 											detailsDialog={detailsDialog}
 											isCenterAgentDirectMessage={
@@ -3232,6 +3247,8 @@ function ConversationBubbleContent(input: {
 }
 
 function ConversationSpeakerHeader(input: {
+	avatarStyle?: import("@openmeld/schemas/types").SpaceMemberAgentSnapshot["avatarStyle"];
+	avatarModelId?: string | null;
 	avatarOnly: boolean;
 	centerAgentProfileId: string | null;
 	detailsDialog: ReturnType<typeof useSpaceProfileDetailsPopover>;
@@ -3262,6 +3279,8 @@ function ConversationSpeakerHeader(input: {
 							? input.selfAvatarImageUrl
 							: null)
 					}
+					avatarModelId={input.avatarModelId}
+					avatarStyle={input.avatarStyle}
 					displayName={input.run.speaker.displayName}
 					isCenterAgent={isCenterAgentRun}
 					profileId={input.run.speaker.profileId}

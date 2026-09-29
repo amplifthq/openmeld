@@ -186,16 +186,14 @@ describe("CenterAgentSettingsContent", () => {
 	afterEach(cleanup);
 
 	it("shows Center Agent essentials first and loads the audit log on demand", async () => {
-		renderSettings({ canManage: false });
+		const view = renderSettings({ canManage: false });
 
 		expect(
 			await screen.findByRole("heading", { name: "Center Agent" })
 		).toBeTruthy();
 		expect(
-			screen
-				.getByTestId(`center-agent-profile-avatar-${CENTER_AGENT_ID}`)
-				.getAttribute("data-shape")
-		).toBe("circle");
+			view.container.querySelector("canvas[data-bot-avatar]")
+		).toBeTruthy();
 		expect(screen.getByText("How this Agent works")).toBeTruthy();
 		expect(screen.getByText("Identity")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Usage" })).toBeTruthy();

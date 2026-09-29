@@ -3822,7 +3822,15 @@ function AgentProfileWorkspacePresentation(input: {
 				headerRecoveryActions={wakeAvailabilityRecoveryActions}
 				isDirectMessagePending={input.input.pendingState.directMessage}
 				isRecoveryActionPending={input.input.pendingState.recoveryAction}
+				modelId={
+					input.input.editState?.modelSelection?.modelId ??
+					input.input.publicProfileConfiguration?.modelSelection?.modelId ??
+					input.input.modelCatalog?.agentControllers["center-agent"]
+						?.hostedRuntimePolicy?.personalRemoteAgentDefaultModelId ??
+					null
+				}
 				modelIsLoading={modelIsLoading}
+				onAvatarUpdated={input.input.onProfileUpdated}
 				onOpenDirectMessage={() => {
 					input.input.onOpenDirectMessage().catch((error) => {
 						console.error("Direct Message action failed.", error);
