@@ -106,7 +106,7 @@ const config = defineConfig(({ command, mode }) => {
 		environments: {
 			client: {
 				build: {
-					sourcemap: "hidden",
+					sourcemap: false,
 					// Keep real source lines for local Electron DevTools breakpoints.
 					...(desktopPilotBuild ? { minify: false } : {}),
 				},
