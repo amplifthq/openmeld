@@ -16555,14 +16555,33 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
    * the computer" dead end.
    */
   private async resolveRuntimeCoordinatorStaleProgressCause(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
     dispatchId: string;
     targetProfileId: string;
   }): Promise<{
     expiryCause: RuntimeCoordinatorRunExpiryCause;
     reasonCode:
       | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+      | typeof RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE
       | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
   }> {
+    const deliveredSession = this.state.sessionsById.get(
+      input.commandState.lastDeliveryProvenance.daemonSessionId
+    );
+    const sessionConnectionExpired =
+      !deliveredSession?.socket &&
+      (!deliveredSession ||
+        Date.now() - deliveredSession.lastHeartbeatMs > LEASE_TTL_MS);
+    if (
+      sessionConnectionExpired ||
+      (deliveredSession?.acceptingDispatches === false &&
+        deliveredSession.stopCause !== null)
+    ) {
+      return {
+        expiryCause: "local_runtime_lost",
+        reasonCode: RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE,
+      };
+    }
     const occupied =
       await readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied(
         {
@@ -16602,6 +16621,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode:
           | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
           | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
+          | typeof RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE
           | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
       }
     | {
@@ -16681,6 +16701,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           terminal: true,
           commandState,
           ...(await this.resolveRuntimeCoordinatorStaleProgressCause({
+            commandState,
             dispatchId: commandState.dispatchId,
             targetProfileId: commandState.targetProfileId,
           })),

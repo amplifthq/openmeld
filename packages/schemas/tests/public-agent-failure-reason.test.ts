@@ -946,6 +946,11 @@ describe("public agent failure reason mapping", () => {
       "This agent stopped making progress on this Wake. Reconnect the computer before trying again.",
     ],
     [
+      "runtime.local_runtime_lost",
+      "OpenMeld Service stopped or disconnected while Runner was working on this Wake. Start OpenMeld again before retrying.",
+      "OpenMeld Service stopped or disconnected while this agent was working on this Wake. Start OpenMeld again before retrying.",
+    ],
+    [
       "daemon.delivery.finalization_timeout",
       "OpenMeld received progress from Runner, but could not finish the final result in time.",
       "OpenMeld received progress from this agent, but could not finish the final result in time.",

@@ -127,6 +127,10 @@ present old quota or sign-in facts as live. A confirmed Agent-specific failure
 remains visible once current computer facts are available. Routine disconnects,
 account-switch cancellation, and required updates do not warrant a page full
 of red failures.
+Connected Service, stale controller check, controller launch failure, and
+Execution Host safety fencing are separate facts. Computer details name the
+specific blocked layer and recovery action. A historical `Can launch` check is
+dated and becomes `Last check` when the containing report is stale.
 
 Web, CLI, and Desktop must reach the same conclusion from the same facts — or
 explicitly explain the split (local view vs cloud view). A three-surface

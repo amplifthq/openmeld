@@ -88,6 +88,16 @@ export function mapCurrentLocalRuntimeReplyReadiness(
 		};
 	}
 
+	if (readiness.primaryBlocker === "execution_host_unavailable") {
+		return {
+			detailReasonCode,
+			executionTargetStatus,
+			reasonCode: "execution_host.unavailable",
+			service: null,
+			status: "needs_repair",
+		};
+	}
+
 	if (readiness.primaryBlocker === "agent_controller_report_stale") {
 		return {
 			detailReasonCode,

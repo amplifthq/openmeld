@@ -1240,6 +1240,100 @@ describe("current device target service", () => {
     });
   });
 
+  it("keeps a connected Service honest when previous local work is unconfirmed", async () => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          {
+            agentControllerRef: "builtin:codex",
+            capabilityReasonCodes: [],
+            capabilityStatus: "ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            deviceId: "device-owner-1",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      store,
+      userId: "owner-1",
+      deviceId: "device-owner-1",
+      runtimeLane: "dev-local",
+      now: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(
+      getCurrentLocalRuntimeReplyReadinessUseCase({
+        lookupOwnerService: () =>
+          Promise.resolve({
+            online: true,
+            sessions: [
+              {
+                capabilities: {
+                  executionHost: {
+                    activeCount: null,
+                    admission: null,
+                    hostInstanceId: "775cb4ce-60fd-4581-b2b7-03a0381711c3",
+                    observedAtMs: null,
+                    pendingCount: null,
+                    responsive: false,
+                    startupReplayPending: null,
+                    unacknowledgedResultCount: null,
+                    unavailableReason: {
+                      code: "host.previous_work_unconfirmed",
+                      message:
+                        "OpenMeld cannot confirm that work from the previous local execution host has ended.",
+                      recoveryAction: "restart_computer",
+                    },
+                  },
+                  localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
+                },
+                connectionGeneration: 1,
+                daemonSessionId: "daemon-session-1",
+                deviceId: "device-owner-1",
+                executionCompatibility: COMPATIBLE_SERVICE,
+                lane: "dev-local",
+                lastHeartbeatMs: Date.parse("2026-04-10T00:05:00.000Z"),
+                serviceVersion: "999.0.0",
+              },
+            ],
+          }),
+        now: new Date("2026-04-10T00:10:00.000Z"),
+        store,
+        userId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      canReplyFromThisComputer: false,
+      message:
+        "OpenMeld cannot confirm that work from the previous local execution host has ended. Restart this computer only if OpenMeld does not recover after the previous task ends.",
+      nextAction: "none",
+      primaryBlocker: "execution_host_unavailable",
+      service: {
+        connected: true,
+        executionHost: {
+          responsive: false,
+          unavailableReason: {
+            code: "host.previous_work_unconfirmed",
+            recoveryAction: "restart_computer",
+          },
+        },
+        matchingCurrentRuntime: true,
+        reasonCodes: ["host.previous_work_unconfirmed"],
+      },
+      status: "blocked",
+    });
+  });
+
   it.each([
     {
       description:

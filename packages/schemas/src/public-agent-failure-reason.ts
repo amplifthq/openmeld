@@ -1136,6 +1136,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
+        `OpenMeld Service stopped or disconnected while ${formatObjectTargetName(targetName)} was working on this Wake. Start OpenMeld again before retrying.`,
+      kind: "local_service",
+      patterns: ["=runtime.local_runtime_lost"],
+      primaryActionId: "reconnect_openmeld_service",
+      recoveryTarget: "prepare_setup",
+    },
+    {
+      body: (targetName) =>
         `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`,
       kind: "local_service",
       patterns: ["daemon.delivery.execution_stalled", "runtime.progress_stale"],
