@@ -167,6 +167,7 @@ async function validatePersonalRemoteAgentAdmission(input: {
 }
 
 export async function submitRemoteAgentWorkerAdmission(input: {
+  continuitySourceDispatchId?: string;
   db: D1Database;
   env: CoreBindings;
   nowMs: number;
@@ -321,6 +322,7 @@ async function handleRejectedWorkerOutcome(input: {
 }
 
 async function prepareGenerationRequest(input: {
+  continuitySourceDispatchId?: string;
   db: D1Database;
   env: CoreBindings;
   generation: RemoteAgentConversationGeneration;
@@ -338,6 +340,9 @@ async function prepareGenerationRequest(input: {
     input.generation.startedAtMs === null
   ) {
     continuityContext = await buildRemoteAgentConversationContinuityContext({
+      ...(input.continuitySourceDispatchId
+        ? { sourceDispatchId: input.continuitySourceDispatchId }
+        : {}),
       db: input.db,
       env: input.env,
       generation: input.generation.generation,

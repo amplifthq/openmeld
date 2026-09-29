@@ -31,6 +31,7 @@ type ProfileSeed = Omit<
   | "creationIdempotencyKey"
   | "defaultProjectId"
   | "managedRole"
+  | "avatarStyle"
   | "organizationId"
 > &
   Partial<
@@ -42,6 +43,7 @@ type ProfileSeed = Omit<
       | "creationIdempotencyKey"
       | "defaultProjectId"
       | "managedRole"
+      | "avatarStyle"
       | "organizationId"
     >
   >;
@@ -59,6 +61,7 @@ function withProfileDefaults(profile: ProfileSeed): OpenMeldProfileRecord {
     creationIdempotencyKey: profile.creationIdempotencyKey ?? null,
     defaultProjectId: profile.defaultProjectId ?? null,
     managedRole: profile.managedRole ?? null,
+    avatarStyle: profile.avatarStyle ?? null,
   };
 }
 
@@ -186,6 +189,7 @@ function createInMemoryRepository(
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
         defaultProjectId: null,
+        avatarStyle: null,
         managedRole: null,
         source: input.source ?? "auth_bootstrap",
         lastUsedAt: null,
@@ -237,6 +241,7 @@ function createInMemoryRepository(
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
         defaultProjectId: null,
+        avatarStyle: null,
         managedRole: input.managedRole ?? null,
         source: input.source ?? "cli_create",
         lastUsedAt: null,
@@ -269,6 +274,7 @@ function createInMemoryRepository(
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
         defaultProjectId: null,
+        avatarStyle: null,
         managedRole: null,
         source: input.source ?? "cli_create",
         lastUsedAt: null,
@@ -292,6 +298,19 @@ function createInMemoryRepository(
       if (target) {
         target.profileName = input.profileName;
         target.profileHandle = input.profileHandle;
+      }
+      return Promise.resolve();
+    },
+    updateAgentAvatarStyle(profileId, avatarStyle, scope) {
+      const profile = profiles.find(
+        (item) =>
+          item.profileId === profileId &&
+          ("organizationId" in scope
+            ? item.organizationId === scope.organizationId
+            : item.ownerUserId === scope.ownerUserId)
+      );
+      if (profile) {
+        profile.avatarStyle = avatarStyle;
       }
       return Promise.resolve();
     },
@@ -1128,6 +1147,69 @@ describe("OpenMeld profile service", () => {
           profile.managedRole === "openmeld_assistant"
       )
     ).toBe(true);
+  });
+
+  it("keeps Remote Agent avatar overrides owner-scoped and Center Agent avatars organization-scoped", async () => {
+    const repository = createInMemoryRepository();
+    const service = createOpenMeldProfileService(repository, {
+      generateAgentProfileId: (() => {
+        const ids = [
+          "agt_12345678-1111-2222-3333-444444444444",
+          "agt_22345678-1111-2222-3333-444444444444",
+        ];
+        return () => ids.shift() ?? "agt_32345678-1111-2222-3333-444444444444";
+      })(),
+    });
+    const remote = await service.createAgentProfile({
+      ownerUserId: "user_1",
+      createdByUserId: "user_1",
+      organizationId: TEST_ORGANIZATION_ID,
+      profileName: "Remote",
+    });
+    const center = await service.ensureManagedAgentProfile({
+      ownerUserId: "user_1",
+      createdByUserId: "user_1",
+      organizationId: TEST_ORGANIZATION_ID,
+      managedRole: "center_agent",
+      profileName: "Center Agent",
+    });
+    await expect(
+      service.updateAgentAvatarStyleForOwner({
+        ownerUserId: "user_2",
+        profileId: remote.profileId,
+        avatarStyle: "fluid",
+      })
+    ).rejects.toBeInstanceOf(ProfileNotFoundError);
+    await expect(
+      service.updateAgentAvatarStyleForOwner({
+        ownerUserId: "user_1",
+        profileId: center.profileId,
+        avatarStyle: "fluid",
+      })
+    ).rejects.toBeInstanceOf(ProfileNotFoundError);
+    const remoteUpdated = await service.updateAgentAvatarStyleForOwner({
+      ownerUserId: "user_1",
+      profileId: remote.profileId,
+      avatarStyle: "fluid",
+    });
+    expect(remoteUpdated.avatarStyle).toBe("fluid");
+    const centerUpdated = await service.updateManagedAgentProfileInOrganization(
+      {
+        organizationId: TEST_ORGANIZATION_ID,
+        profileId: center.profileId,
+        managedRole: "center_agent",
+        avatarStyle: "ghost",
+      }
+    );
+    expect(centerUpdated.avatarStyle).toBe("ghost");
+    await expect(
+      service.updateManagedAgentProfileInOrganization({
+        organizationId: "org_other",
+        profileId: center.profileId,
+        managedRole: "center_agent",
+        avatarStyle: "star",
+      })
+    ).rejects.toBeInstanceOf(ProfileNotFoundError);
   });
 
   it("still allows multiple ordinary Agent Profiles in the same organization", async () => {

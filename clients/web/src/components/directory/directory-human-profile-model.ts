@@ -2,6 +2,7 @@ import { buildProfileDetailsSnapshotFromHumanProfile } from "@openmeld/agent-pro
 import type {
 	AgentProfileBindingModelSelection,
 	AuthProfileView,
+	GetAgentExecutionReadinessResponse,
 	ListOrganizationDocumentsResponse,
 	MessageChannelConnectionListResponse,
 	MessageChannelConnectionProjection,
@@ -78,6 +79,8 @@ export type DirectoryHumanProfileComputer = {
 
 export type DirectoryAgentProfileSummary = {
 	agentControllerRef: string | null;
+	avatarStyle?: OrganizationProfileDirectoryResponse["agentProfiles"][number]["avatarStyle"];
+	avatarModelId?: string | null;
 	avatarImageUrl: string | null;
 	id: string;
 	modelSelection: AgentProfileBindingModelSelection | null;
@@ -452,6 +455,8 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 							null);
 				return {
 					agentControllerRef,
+					avatarStyle: profile.avatarStyle,
+					avatarModelId: resolveDirectoryAvatarModelId(profile, readiness),
 					avatarImageUrl: profile.avatarUrl ?? null,
 					id: profile.profileId,
 					modelSelection:
@@ -480,6 +485,20 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 		profilesByOwner.set(ownerUserId, profiles);
 	}
 	return profilesByOwner;
+}
+
+function resolveDirectoryAvatarModelId(
+	profile: DirectoryAgentProfileSource,
+	readiness: GetAgentExecutionReadinessResponse | null
+): string | null {
+	if ("avatarModelId" in profile) {
+		return profile.avatarModelId ?? null;
+	}
+	return (
+		readiness?.primaryBinding?.modelSelection?.modelId ??
+		readiness?.publicProfileConfiguration?.modelSelection?.modelId ??
+		null
+	);
 }
 
 function resolveAgentProfilesPath(input: {

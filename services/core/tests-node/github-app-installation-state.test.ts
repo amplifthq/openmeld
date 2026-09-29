@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  beginExistingGitHubAppInstallationVerification,
   beginGitHubAppInstallationVerification,
   completeGitHubAppInstallation,
   createGitHubAppInstallationState,
@@ -93,6 +94,73 @@ describe("GitHub App installation state", () => {
         state: created.state,
       })
     ).resolves.toEqual({ status: "invalid" });
+  });
+
+  it("completes an existing installation only for the starting organization and verifier", async () => {
+    const created = await createState(harness.db);
+    expect(
+      await readPendingGitHubAppInstallation({
+        db: harness.db,
+        nowMs: NOW_MS + 1,
+        organizationId: "org-1",
+        userId: "user-1",
+      })
+    ).toMatchObject({
+      status: "installing",
+      installationId: null,
+      verificationConnectionName: created.verificationConnectionName,
+    });
+    for (const override of [
+      { organizationId: "org-2" },
+      { userId: "user-2" },
+      { verificationConnectionName: "github_verify_wrong" },
+    ]) {
+      expect(
+        await beginExistingGitHubAppInstallationVerification({
+          db: harness.db,
+          installationId: "987654",
+          nowMs: NOW_MS + 2,
+          organizationId: "org-1",
+          userId: "user-1",
+          verificationConnectionName: created.verificationConnectionName,
+          ...override,
+        })
+      ).toBe(false);
+    }
+    expect(
+      await beginExistingGitHubAppInstallationVerification({
+        db: harness.db,
+        installationId: "987654",
+        nowMs: NOW_MS + 3,
+        organizationId: "org-1",
+        userId: "user-1",
+        verificationConnectionName: created.verificationConnectionName,
+      })
+    ).toBe(true);
+    expect(
+      await beginExistingGitHubAppInstallationVerification({
+        db: harness.db,
+        installationId: "987654",
+        nowMs: NOW_MS + 4,
+        organizationId: "org-1",
+        userId: "user-1",
+        verificationConnectionName: created.verificationConnectionName,
+      })
+    ).toBe(false);
+  });
+
+  it("rejects an expired existing installation attempt", async () => {
+    const created = await createState(harness.db);
+    expect(
+      await beginExistingGitHubAppInstallationVerification({
+        db: harness.db,
+        installationId: "987654",
+        nowMs: created.expiresAtMs + 1,
+        organizationId: "org-1",
+        userId: "user-1",
+        verificationConnectionName: created.verificationConnectionName,
+      })
+    ).toBe(false);
   });
 
   it("rejects and consumes an expired setup callback", async () => {

@@ -125,6 +125,7 @@ export async function readEnabledOrganizationSkillReleaseSelection(input: {
   db: D1Database;
   organizationId: string;
   selectedReleases?: OrganizationSkillRuntimeReleaseSelection[];
+  skipUnavailableSelectedReleases?: boolean;
 }): Promise<OrganizationSkillRuntimeReleaseSelection[]> {
   if (input.selectedReleases !== undefined) {
     const selected = input.selectedReleases.map((release) =>
@@ -134,6 +135,7 @@ export async function readEnabledOrganizationSkillReleaseSelection(input: {
       throw new Error("Too many selected Skill releases.");
     }
     let runtimeBytes = 0;
+    const available: OrganizationSkillRuntimeReleaseSelection[] = [];
     for (const release of selected) {
       const row = await input.db
         .prepare(
@@ -141,6 +143,9 @@ export async function readEnabledOrganizationSkillReleaseSelection(input: {
         )
         .bind(input.organizationId, release.skillId, release.releaseId)
         .first<{ digest: string; manifest_json: string }>();
+      if (!row && input.skipUnavailableSelectedReleases) {
+        continue;
+      }
       if (!row || row.digest !== release.digest) {
         throw createCoreRpcHttpError({
           status: 403,
@@ -149,11 +154,12 @@ export async function readEnabledOrganizationSkillReleaseSelection(input: {
         });
       }
       runtimeBytes += readManifestRuntimeBytes(row.manifest_json);
+      available.push(release);
     }
     if (runtimeBytes > ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES) {
       throw runtimeCatalogTooLargeError();
     }
-    return selected;
+    return available;
   }
   const rows = await input.db
     .prepare(

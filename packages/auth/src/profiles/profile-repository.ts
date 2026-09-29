@@ -25,6 +25,7 @@ type OpenMeldProfileFactRecord = Pick<
   | "organizationId"
   | "defaultProjectId"
   | "managedRole"
+  | "avatarStyle"
 >;
 
 type NewOpenMeldProfileRecord = InferInsertModel<typeof openMeldProfiles>;
@@ -99,6 +100,11 @@ export type OpenMeldProfileRepository = {
     profileId: string,
     input: { profileName: string; profileHandle: string }
   ) => Promise<void>;
+  updateAgentAvatarStyle: (
+    profileId: string,
+    avatarStyle: string,
+    scope: { organizationId: string } | { ownerUserId: string }
+  ) => Promise<void>;
   updateProfileIdentityForOwner: (
     ownerUserId: string,
     profileId: string,
@@ -140,6 +146,7 @@ export function createDrizzleOpenMeldProfileRepository(
           organizationId: openMeldProfiles.organizationId,
           defaultProjectId: openMeldProfiles.defaultProjectId,
           managedRole: openMeldProfiles.managedRole,
+          avatarStyle: openMeldProfiles.avatarStyle,
         })
         .from(openMeldProfiles)
         .where(inArray(openMeldProfiles.profileId, profileIds));
@@ -365,6 +372,20 @@ export function createDrizzleOpenMeldProfileRepository(
             eq(openMeldProfiles.organizationId, organizationId),
             eq(openMeldProfiles.profileId, profileId),
             eq(openMeldProfiles.managedRole, "center_agent")
+          )
+        );
+    },
+    async updateAgentAvatarStyle(profileId, avatarStyle, scope) {
+      await db
+        .update(openMeldProfiles)
+        .set({ avatarStyle, updatedAt: new Date() })
+        .where(
+          and(
+            eq(openMeldProfiles.profileId, profileId),
+            eq(openMeldProfiles.profileKind, "agent"),
+            "organizationId" in scope
+              ? eq(openMeldProfiles.organizationId, scope.organizationId)
+              : eq(openMeldProfiles.ownerUserId, scope.ownerUserId)
           )
         );
     },

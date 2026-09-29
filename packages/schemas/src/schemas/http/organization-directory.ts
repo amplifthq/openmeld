@@ -5,7 +5,10 @@ import { agentProfileIdSchema, uuidProfileIdSchema } from "../protocol/profile";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
 import { agentProfileBindingModelSelectionSchema } from "./agent-profile-binding";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
-import { authProfileManagedRoleSchema } from "./profiles";
+import {
+  agentAvatarStyleSchema,
+  authProfileManagedRoleSchema,
+} from "./profiles";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -94,6 +97,8 @@ export const organizationDirectoryAgentProfileIdentitySchema = z.strictObject({
   ownerUserId: nullableTrimmedStringSchema,
   ownerName: trimmedNonEmptyStringSchema.optional(),
   avatarUrl: trimmedNonEmptyStringSchema.optional(),
+  avatarStyle: agentAvatarStyleSchema.nullable().optional(),
+  avatarModelId: nullableTrimmedStringSchema.optional(),
   source: trimmedNonEmptyStringSchema,
   managedRole: z.union([authProfileManagedRoleSchema, z.null()]),
   createdByUserId: nullableTrimmedStringSchema,

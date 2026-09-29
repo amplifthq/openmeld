@@ -215,10 +215,18 @@ or replaced baseline refs and removed trusted releases must fail, not bypass it.
 
 Git history, LFS payloads and submodule repositories are not downloaded. Each
 manifest is limited to 30,000 entries and 8 MiB, each blob to 8 MiB, the combined
-source/baseline unique content to 256 MiB, and downloads to 32 blobs per call.
-A preparing result requires another identical call, not an invented ready
-state. Truncated provider trees fail closed. Version-2 checkout identities use
-fresh directories instead of adopting a previous baseline-free working copy.
+source/baseline unique content to 256 MiB, and each preparation request offers
+at most 256 missing blobs. The host fetches up to four blobs concurrently,
+bounds provider reads and native preparation against the Code Mode budget, and
+returns a retryable preparing result when a bounded read or preparation runs out
+of time. It reuses Computer manifests only after checking their
+stored digests against the pinned source and baseline; a missing or altered
+cache is rebuilt from GitHub. Batch diagnostics record authorization, tree and
+blob reads, Computer writes and preparation time without repository contents
+or credentials. A preparing result requires another identical call, not an
+invented ready state. Truncated provider trees fail closed. Version-2 checkout
+identities use fresh directories instead of adopting a previous baseline-free
+working copy.
 
 The Agent commits and tests with the ordinary Computer tools. Publication reads
 an exact immutable local commit, verifies the created GitHub tree, and updates
@@ -239,6 +247,16 @@ attempted. Duplicate calls cannot issue that update twice. An uncertain response
 is reconciled against the fixed branch; a different head stays outcome-unknown,
 not automatically retried under another operation ID. No repository credential,
 Git remote credential, or raw provider authorization enters the Computer.
+
+For one image already downloaded to the Computer, `github_publish_computer_file`
+avoids a full repository checkout. It accepts only a regular PNG or JPEG of at
+most 8 MiB, uses the selected GitHub connection and current Core write policy,
+and adds one file under `openmeld/attachments/` with a `base_tree` commit on a
+new fixed `openmeld/work-*` side branch. It never writes the default branch.
+The returned commit-pinned `blob/...?...raw=true` URL is usable in GitHub issue and PR Markdown
+by viewers with repository access. The side branch must remain while the image
+is referenced. The operation ledger and fixed branch reconcile uncertain writes;
+the image bytes never enter the model response.
 
 Imported private repository provenance stays with the durable Computer beyond
 the 24-hour Git operation lifetime. Ordinary Computer access rechecks these
@@ -1981,6 +1999,9 @@ For a Space turn, the Space owner resolves the exact dispatch's frozen main or
 thread placement and returns only bounded text Signals before that dispatch's
 source Signal; the generic main-timeline reader is not a continuity source for
 a thread.
+An automatic task continuation uses the original Space Wake dispatch for this
+read, even when a previous continuation delegated another task. Its native
+delivery id is not a Space dispatch.
 Routine Runs use a Run-scoped execution conversation independent of the frozen
 Space or channel where their result is published. Their standing instructions,
 turn envelope, and explicitly authorized reads supply the current Run's input;
@@ -2525,6 +2546,21 @@ connection. The connector action audit records that member and the source
 Native Delivery. Routine turns and member research reject `requester`; they may
 use only `organization`. Remote Agent strips `githubActor` before calling OpenConnector
 because it is OpenMeld authorization input, not a provider action parameter.
+
+For requester-owned repository checkout, the AgentComputer host fetches one
+shallow Git pack through OpenConnector's repository-scoped `git-upload-pack`
+stream. The host rechecks the active Core execution and the requester's current
+member connection; OpenConnector injects that member's credential. A durable
+Computer alarm owns the transfer, streams only the pack bytes into the Computer
+filesystem, and can retry an interrupted transfer. The Computer retains its
+ordinary direct egress policy. It only runs `git index-pack` against the local
+pack file; no URL, runtime bearer, or GitHub credential enters its environment,
+Git configuration, or remote list. Before constructing the existing synthetic
+working copy, it verifies the fetched source and default-branch commit trees
+against the independently pinned checkout record. Tool calls return `preparing`
+and poll the durable operation. Organization-owned checkout retains its existing
+bounded REST transfer until an Organization-specific Git transport is authorized.
+Deploy the OpenConnector stream endpoint before enabling this Remote Agent path.
 
 Workflow dispatch is a general GitHub capability, not an OpenMeld release
 endpoint. Its provider input is only repository, workflow identifier, explicit

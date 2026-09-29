@@ -2136,6 +2136,17 @@ export const runtimeTransportDispatchReasoningRequestSchema =
       reasoningState: localAgentReasoningStateSchema,
     });
 
+export const runtimeTransportDispatchProgressRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      progressSnapshot: z
+        .string()
+        .trim()
+        .min(1)
+        .max(32 * 1024),
+    });
+
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
@@ -2336,6 +2347,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.reasoning",
+  "daemon.dispatch.progress",
   "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",

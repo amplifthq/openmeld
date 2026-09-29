@@ -81,6 +81,7 @@ export const openMeldProfiles = sqliteTable(
     managedRole: text("managed_role").$type<OpenMeldProfileManagedRole>(),
     creationIdempotencyKey: text("creation_idempotency_key"),
     defaultProjectId: text("default_project_id"),
+    avatarStyle: text("avatar_style"),
     lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

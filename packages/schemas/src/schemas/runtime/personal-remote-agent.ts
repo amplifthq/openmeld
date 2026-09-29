@@ -1,6 +1,10 @@
 import * as z from "zod/v4";
 import { centerAgentContextManifestEntrySchema } from "../http/center-agent-context-manifest";
 import { spaceBoardResponseSchema } from "../http/space-board";
+import {
+  agentReplyPlacementSchema,
+  nativeReplyPlacementSchema,
+} from "../space-mesh/agent-reply-placement";
 
 const identifier = z.string().trim().min(1).max(256);
 
@@ -11,6 +15,10 @@ export const personalRemoteAgentSpaceToolRequestSchema = z.strictObject({
     z.strictObject({ kind: z.literal("members") }),
     z.strictObject({ kind: z.literal("messages") }),
     z.strictObject({ kind: z.literal("board") }),
+    z.strictObject({
+      kind: z.literal("reply_placement"),
+      placement: agentReplyPlacementSchema,
+    }),
     z.strictObject({
       kind: z.literal("updates"),
       afterSignalId: identifier.optional(),
@@ -27,6 +35,10 @@ export const personalRemoteAgentSpaceToolResponseSchema = z.discriminatedUnion(
   "kind",
   [
     z.strictObject({ kind: z.literal("authorize") }),
+    z.strictObject({
+      kind: z.literal("reply_placement"),
+      placement: nativeReplyPlacementSchema,
+    }),
     z.strictObject({
       kind: z.literal("board"),
       board: spaceBoardResponseSchema,

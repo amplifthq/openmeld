@@ -32,6 +32,7 @@ import {
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { ChatArchiveButton } from "./chat-archive-button";
 import { ChatIcon, resolvePreviewText } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
@@ -40,6 +41,32 @@ import { SpaceWindowHeader } from "./space-header";
 import { SpacesDirectoryNavigation } from "./spaces-directory-navigation";
 import { useChatFilters } from "./use-chat-filters";
 import { useChats } from "./use-chats";
+
+function useChatsDirectoryReadState(model: ReturnType<typeof useChats>) {
+	const waitingForProfile =
+		model.needsDefaultHumanProfile && model.profilesQuery.isPending;
+	const waitingForSpaces = model.spaces.isPending && !!model.profileId;
+	const waitingForSessions = model.sessions.isPending && !!model.profileId;
+	const pending =
+		waitingForProfile ||
+		waitingForSpaces ||
+		waitingForSessions ||
+		(model.store.isPending && !model.store.preferences);
+	const paused =
+		(waitingForProfile && model.profilesQuery.fetchStatus === "paused") ||
+		(waitingForSpaces && model.spaces.fetchStatus === "paused") ||
+		(waitingForSessions && model.sessions.fetchStatus === "paused");
+	const showDelayedPending = useDelayedPending(pending && !paused);
+	const failed =
+		(model.needsDefaultHumanProfile &&
+			!model.profileId &&
+			(model.profilesQuery.isError || model.profilesQuery.isSuccess)) ||
+		model.spaces.isError ||
+		model.sessions.isError ||
+		model.directory.isError ||
+		model.store.isError;
+	return { failed, paused, pending, showDelayedPending };
+}
 
 export function ChatsDirectory() {
 	const [creating, setCreating] = useState(false);
@@ -56,16 +83,8 @@ export function ChatsDirectory() {
 	const previewById = new Map(
 		model.chats.map((chat, index) => [chat.spaceId, model.previews[index]])
 	);
-	const pending =
-		model.spaces.isPending ||
-		model.sessions.isPending ||
-		model.directory.isPending ||
-		model.store.isPending;
-	const failed =
-		model.spaces.isError ||
-		model.sessions.isError ||
-		model.directory.isError ||
-		model.store.isError;
+	const { failed, paused, pending, showDelayedPending } =
+		useChatsDirectoryReadState(model);
 	const grouped =
 		model.preferences.groups.length > 0 ||
 		model.preferences.pinned.spaceIds.length > 0;
@@ -184,6 +203,7 @@ export function ChatsDirectory() {
 				{failed && (
 					<Button
 						onClick={() => {
+							model.profilesQuery.refetch();
 							model.spaces.refetch();
 							model.sessions.refetch();
 							model.directory.refetch();
@@ -191,16 +211,28 @@ export function ChatsDirectory() {
 						}}
 						variant="outline"
 					>
-						Could not load direct messages. Retry
+						{model.sessions.isFetchNextPageError
+							? "Could not check older direct messages. Retry"
+							: "Could not load direct messages. Retry"}
 					</Button>
 				)}
-				{pending && sections.length === 0 && (
+				{paused && !failed ? (
+					<p className="py-2 text-muted-foreground text-sm">
+						Connect to the internet to load direct messages.
+					</p>
+				) : null}
+				{showDelayedPending && !paused && sections.length === 0 && (
 					<SidebarListSkeleton
 						label="Loading direct messages"
 						rowCount={4}
 						showPreview
 					/>
 				)}
+				{model.sessions.isFetchingNextPage ? (
+					<p aria-live="polite" className="py-2 text-muted-foreground text-sm">
+						Loading older direct messages…
+					</p>
+				) : null}
 				{!(pending || failed || model.sessions.hasNextPage) &&
 					sections.length === 0 && (
 						<AppEmptyState
@@ -258,7 +290,9 @@ export function ChatsDirectory() {
 											className="py-4 text-muted-foreground text-xs"
 											colSpan={4}
 										>
-											No chats in this group yet.
+											{pending || model.sessions.hasNextPage
+												? "Checking older direct messages…"
+												: "No chats in this group yet."}
 										</TableCell>
 									</TableRow>
 								)}
@@ -295,9 +329,7 @@ export function ChatsDirectory() {
 															{model.title(chat)}
 														</span>
 														<span className="mt-1 block truncate text-muted-foreground text-xs">
-															{preview
-																? resolvePreviewText(preview)
-																: "Loading message…"}
+															{resolvePreviewText(preview)}
 														</span>
 													</span>
 												</Link>

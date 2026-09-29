@@ -22,6 +22,11 @@ type ProviderInput = {
   connectionName: string;
   authorize: (effect: "read" | "write") => Promise<unknown>;
   signal?: AbortSignal;
+  deadlineAtMs?: number;
+  onTiming?: (
+    segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
+    durationMs: number
+  ) => void;
 };
 
 /** The caller supplies an already-authorized connection, not credentials. No
@@ -93,11 +98,14 @@ export class GitHubWorkingCopyProvider {
     return value.tree;
   }
 
-  async blob(sha: string): Promise<Uint8Array> {
+  async blob(sha: string, timeoutMs = 35_000): Promise<Uint8Array> {
     const blob = remoteAgentGitBlobSchema.parse(
       await this.request(
         `/git/blobs/${remoteAgentGitShaSchema.parse(sha)}`,
-        "GET"
+        "GET",
+        undefined,
+        undefined,
+        timeoutMs
       )
     );
     const bytes = Uint8Array.from(Buffer.from(blob.content, "base64"));
@@ -140,6 +148,23 @@ export class GitHubWorkingCopyProvider {
         "github.publish.tree_integrity_failed: No branch was changed."
       );
     }
+  }
+
+  async createSingleFileTree(baseTree: string, path: string, blob: string) {
+    const result = asRecord(
+      await this.request("/git/trees", "POST", {
+        base_tree: remoteAgentGitShaSchema.parse(baseTree),
+        tree: [
+          {
+            path,
+            mode: "100644",
+            type: "blob",
+            sha: remoteAgentGitShaSchema.parse(blob),
+          },
+        ],
+      })
+    );
+    return remoteAgentGitShaSchema.parse(result.sha);
   }
 
   async createCommit(input: { tree: string; parent: string; message: string }) {
@@ -192,39 +217,61 @@ export class GitHubWorkingCopyProvider {
     path: string,
     method: "GET" | "POST" | "PATCH",
     body?: unknown,
-    query?: Record<string, string>
+    query?: Record<string, string>,
+    timeoutMs = 35_000
   ): Promise<unknown> {
     this.input.signal?.throwIfAborted();
-    await this.input.authorize(method === "GET" ? "read" : "write");
+    await this.measure("authorization", () =>
+      this.input.authorize(method === "GET" ? "read" : "write")
+    );
     const { runtime } = this.input;
     if (!(runtime.baseUrl && runtime.runtimeToken)) {
       throw new Error(
         "github.checkout.connector_unavailable: The connection runtime is not configured."
       );
     }
+    const baseUrl = runtime.baseUrl;
+    const remainingMs = this.input.deadlineAtMs
+      ? this.input.deadlineAtMs - Date.now()
+      : timeoutMs;
+    if (remainingMs <= 0) {
+      throw new DOMException("Checkout time budget expired", "TimeoutError");
+    }
+    const requestTimeoutMs = Math.min(timeoutMs, remainingMs);
     const signal = this.input.signal
-      ? AbortSignal.any([this.input.signal, AbortSignal.timeout(35_000)])
-      : AbortSignal.timeout(35_000);
-    const response = await (runtime.fetch ?? fetch)(
-      `${runtime.baseUrl.replace(TRAILING_SLASH_PATTERN, "")}/v1/openmeld/github-working-copy`,
-      {
-        method: "POST",
-        // Workers reject redirect: "error"; use manual and fail closed below so
-        // an authenticated proxy request is never followed to another origin.
-        redirect: "manual",
-        signal,
-        headers: {
-          authorization: `Bearer ${runtime.runtimeToken}`,
-          "content-type": "application/json",
-          "x-oo-connector-alias": this.input.connectionName,
-        },
-        body: JSON.stringify({
-          endpoint: `${this.root}${path}`,
-          method,
-          ...(body === undefined ? {} : { body }),
-          ...(query ? { query } : {}),
-        }),
-      }
+      ? AbortSignal.any([
+          this.input.signal,
+          AbortSignal.timeout(requestTimeoutMs),
+        ])
+      : AbortSignal.timeout(requestTimeoutMs);
+    let segment: "treeGet" | "blobGet" | "otherGet" = "otherGet";
+    if (path.startsWith("/git/trees/")) {
+      segment = "treeGet";
+    } else if (path.startsWith("/git/blobs/")) {
+      segment = "blobGet";
+    }
+    const response = await this.measure(segment, () =>
+      (runtime.fetch ?? fetch)(
+        `${baseUrl.replace(TRAILING_SLASH_PATTERN, "")}/v1/openmeld/github-working-copy`,
+        {
+          method: "POST",
+          // Workers reject redirect: "error"; use manual and fail closed below so
+          // an authenticated proxy request is never followed to another origin.
+          redirect: "manual",
+          signal,
+          headers: {
+            authorization: `Bearer ${runtime.runtimeToken}`,
+            "content-type": "application/json",
+            "x-oo-connector-alias": this.input.connectionName,
+          },
+          body: JSON.stringify({
+            endpoint: `${this.root}${path}`,
+            method,
+            ...(body === undefined ? {} : { body }),
+            ...(query ? { query } : {}),
+          }),
+        }
+      )
     );
     if (
       response.type === "opaqueredirect" ||
@@ -237,7 +284,9 @@ export class GitHubWorkingCopyProvider {
       );
     }
     const envelope = parseProviderEnvelope(
-      await readBounded(response, REMOTE_AGENT_GIT_MAX_TREE_BYTES * 2)
+      await this.measure(segment, () =>
+        readBounded(response, REMOTE_AGENT_GIT_MAX_TREE_BYTES * 2)
+      )
     );
     const data =
       envelope.data && typeof envelope.data === "object"
@@ -262,8 +311,22 @@ export class GitHubWorkingCopyProvider {
         `github.checkout.${code}: GitHub access returned HTTP ${status}. Check the selected account's repository grant and the connection runtime's GitHub proxy permission; no other account was substituted.`
       );
     }
-    await this.input.authorize(method === "GET" ? "read" : "write");
+    await this.measure("authorization", () =>
+      this.input.authorize(method === "GET" ? "read" : "write")
+    );
     return data.data;
+  }
+
+  private async measure<T>(
+    segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
+    action: () => Promise<T>
+  ): Promise<T> {
+    const startedAtMs = Date.now();
+    try {
+      return await action();
+    } finally {
+      this.input.onTiming?.(segment, Date.now() - startedAtMs);
+    }
   }
 }
 

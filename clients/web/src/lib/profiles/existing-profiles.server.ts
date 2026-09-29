@@ -16,7 +16,7 @@ export async function readStartProfiles(input: {
 	}
 
 	const response = await (input.fetchImpl ?? fetch)(
-		new URL("/v1/profiles", input.authBaseUrl),
+		new URL("/v1/profiles?includeAvatarStyle=true", input.authBaseUrl),
 		{
 			method: "GET",
 			headers,

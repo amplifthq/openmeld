@@ -190,28 +190,28 @@ export function copySpaceTimelineItemWithFeedback(input: {
 	item: SpaceTimelineItem;
 	openMeldProfileId?: string;
 	organizationSlug?: string;
-}): void {
-	copySpaceTimelineItem(input)
+}): Promise<boolean> {
+	return copySpaceTimelineItem(input)
 		.then((result) => {
 			switch (result) {
 				case "text":
 					toast.success("Message copied.");
-					return;
+					return true;
 				case "image":
 					toast.success("Image copied.");
-					return;
+					return true;
 				case "file":
 					toast.success("File copied.");
-					return;
+					return true;
 				case "unsupported":
 					toast.error("This file type can’t be copied from this browser.");
-					return;
+					return false;
 				case "empty":
 					toast.error("This message has nothing to copy.");
-					return;
+					return false;
 				case "unavailable":
 					toast.error("OpenMeld couldn’t copy this message.");
-					return;
+					return false;
 				default: {
 					const _exhaustive: never = result;
 					return _exhaustive;
@@ -220,6 +220,7 @@ export function copySpaceTimelineItemWithFeedback(input: {
 		})
 		.catch(() => {
 			toast.error("OpenMeld couldn’t copy this message.");
+			return false;
 		});
 }
 

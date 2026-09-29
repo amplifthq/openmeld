@@ -791,6 +791,61 @@ describe("Organization Skills", () => {
     });
   });
 
+  it("drops only disabled optional releases while explicit selections still fail", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const kept = await service.create(fixture.owner, {
+      description: "Still enabled.",
+      instructions: "Use this Skill when helpful.",
+      name: "optional-kept",
+    });
+    const removed = await service.create(fixture.owner, {
+      description: "Disabled before this turn starts.",
+      instructions: "This Skill should not be mounted.",
+      name: "optional-disabled",
+    });
+    const selectedReleases = await readEnabledOrganizationSkillReleaseSelection(
+      {
+        db: env.OPENMELD_DB,
+        organizationId: fixture.organizationId,
+      }
+    );
+    await service.setEnabled(fixture.owner, removed.id, false, removed.version);
+    await expect(
+      readEnabledOrganizationSkillReleaseSelection({
+        db: env.OPENMELD_DB,
+        organizationId: fixture.organizationId,
+        selectedReleases,
+      })
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.release_unavailable", status: 403 },
+    });
+    await expect(
+      readEnabledOrganizationSkillReleaseSelection({
+        db: env.OPENMELD_DB,
+        organizationId: fixture.organizationId,
+        selectedReleases,
+        skipUnavailableSelectedReleases: true,
+      })
+    ).resolves.toEqual(
+      selectedReleases.filter((release) => release.skillId === kept.id)
+    );
+    await expect(
+      readEnabledOrganizationSkillReleaseSelection({
+        db: env.OPENMELD_DB,
+        organizationId: fixture.organizationId,
+        selectedReleases: selectedReleases.map((release) =>
+          release.skillId === kept.id
+            ? { ...release, digest: "f".repeat(64) }
+            : release
+        ),
+        skipUnavailableSelectedReleases: true,
+      })
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.release_unavailable", status: 403 },
+    });
+  });
+
   it("keeps the winning Maintainers when a stale concurrent update is rejected", async () => {
     const fixture = await seedFixture();
     const service = createService();

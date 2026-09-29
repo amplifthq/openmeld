@@ -3,6 +3,14 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
+  DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
+  DAEMON_SERVICE_RUNTIME_DETACHED_ENV,
+  DAEMON_SERVICE_RUNTIME_MODE_ENV,
+  DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV,
+} from "../src/config/daemon-state";
+import {
+  assertDispatchOwnedRuntimeServiceMutationAllowed,
   buildDispatchOwnedRuntimeEnv,
   ensureDispatchOwnedRuntimeCliShims,
   resolveDispatchOwnedRuntimeActionCliEntryCommand,
@@ -17,6 +25,8 @@ import {
 import { OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV } from "../src/runtime/dispatch-space-action-context";
 
 const tempDirs: string[] = [];
+const PRODUCTION_SERVICE_MUTATION_PATTERN =
+  /could stop or replace the production OpenMeld Service/;
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -30,6 +40,31 @@ afterEach(() => {
 });
 
 describe("dispatch-owned runtime env", () => {
+  it("blocks production Service mutations from a running dispatch", () => {
+    expect(() =>
+      assertDispatchOwnedRuntimeServiceMutationAllowed({
+        commandLabel: "openmeld service repair",
+        env: {
+          OPENMELD_DISPATCH_RUNTIME_MODE: "dispatch-owned-runtime",
+          OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID: "dispatch-123",
+          OPENMELD_ENV_PRESET: "prod",
+        },
+      })
+    ).toThrow(PRODUCTION_SERVICE_MUTATION_PATTERN);
+  });
+
+  it("allows isolated Service mutations from a running dispatch", () => {
+    expect(() =>
+      assertDispatchOwnedRuntimeServiceMutationAllowed({
+        commandLabel: "openmeld-dev service repair",
+        env: {
+          OPENMELD_DISPATCH_RUNTIME_MODE: "dispatch-owned-runtime",
+          OPENMELD_ENV_PRESET: "dev-local",
+        },
+      })
+    ).not.toThrow();
+  });
+
   it("prepends a dispatch-scoped OpenMeld CLI shim directory to PATH", () => {
     const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
     tempDirs.push(openMeldHome);
@@ -72,6 +107,29 @@ describe("dispatch-owned runtime env", () => {
     expect(env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]).toBe(contextPath);
   });
 
+  it("does not expose Service-process markers to the Agent Controller", () => {
+    const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
+    tempDirs.push(openMeldHome);
+    vi.stubEnv(DAEMON_SERVICE_RUNTIME_MODE_ENV, "foreground");
+    vi.stubEnv(DAEMON_SERVICE_RUNTIME_DETACHED_ENV, "1");
+    vi.stubEnv(DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV, "launchd");
+    vi.stubEnv(DAEMON_SERVICE_RUNTIME_AUTO_START_ENV, "1");
+    vi.stubEnv(DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV, "1");
+
+    const env = buildDispatchOwnedRuntimeEnv({
+      cliEntryPath: "/tmp/current-openmeld-dev.mjs",
+      dispatchId: "dispatch-123",
+      targetProfileId: "agt_executor",
+      env: { OPENMELD_HOME: openMeldHome },
+    });
+
+    expect(env[DAEMON_SERVICE_RUNTIME_MODE_ENV]).toBeUndefined();
+    expect(env[DAEMON_SERVICE_RUNTIME_DETACHED_ENV]).toBeUndefined();
+    expect(env[DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV]).toBeUndefined();
+    expect(env[DAEMON_SERVICE_RUNTIME_AUTO_START_ENV]).toBeUndefined();
+    expect(env[DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV]).toBeUndefined();
+  });
+
   it("injects the dispatch Space Action context path when provided", () => {
     const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
     tempDirs.push(openMeldHome);
@@ -103,8 +161,10 @@ describe("dispatch-owned runtime env", () => {
     expect(existsSync(`${shimDir}/openmeld`)).toBe(true);
     expect(existsSync(`${shimDir}/openmeld-dev`)).toBe(true);
     expect(existsSync(`${shimDir}/openmeld-canary`)).toBe(true);
-    expect(readFileSync(`${shimDir}/openmeld`, "utf8")).toContain(
-      "/tmp/current-openmeld-dev.mjs"
+    const openMeldShim = readFileSync(`${shimDir}/openmeld`, "utf8");
+    expect(openMeldShim).toContain(JSON.stringify(process.execPath));
+    expect(openMeldShim).toContain(
+      JSON.stringify("/tmp/current-openmeld-dev.mjs")
     );
   });
 
@@ -124,6 +184,32 @@ describe("dispatch-owned runtime env", () => {
     expect(openMeldShim).toContain("exec '/tmp/openmeld-binary' \"$@\"");
     expect(openMeldShim).not.toContain("#!/usr/bin/env node");
     expect(openMeldShim).not.toContain("process.argv");
+  });
+
+  it("uses the managed Windows executable directly for a dispatch Space Action MCP", () => {
+    const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
+    tempDirs.push(openMeldHome);
+    const managedCli = join(openMeldHome, "bin", "openmeld.exe");
+    const contextPath = join(openMeldHome, "action", "context.json");
+    const env = buildDispatchOwnedRuntimeEnv({
+      cliEntryPath: managedCli,
+      dispatchId: "dispatch-windows-wake",
+      targetProfileId: "agent-windows-wake",
+      distribution: "binary",
+      platform: "win32",
+      env: { OPENMELD_HOME: openMeldHome },
+      spaceActionContextPath: contextPath,
+    });
+
+    expect(env.OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH).toBe(managedCli);
+    expect(env.PATH?.split(delimiter)[0]).toBe(join(openMeldHome, "bin"));
+    expect(env.OPENMELD_SPACE_ACTION_CONTEXT_PATH).toBe(contextPath);
+    expect(env.OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID).toBe(
+      "dispatch-windows-wake"
+    );
+    expect(existsSync(join(openMeldHome, "action", "bin", "openmeld"))).toBe(
+      false
+    );
   });
 
   it("targets the managed CLI when a background binary Service creates a shim", () => {

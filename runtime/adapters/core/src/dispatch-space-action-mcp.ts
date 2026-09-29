@@ -22,6 +22,7 @@ export const OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES = [
   "submit_task_result",
   "review_task",
   "cancel_task",
+  "report_progress",
   "reply",
   "stay_silent",
   "read_receipt",
@@ -85,7 +86,8 @@ export function resolveDispatchSpaceActionMcpServer(
     !(
       commandPath &&
       isAbsolute(commandPath) &&
-      basename(commandPath) === command
+      (basename(commandPath) === command ||
+        basename(commandPath) === `${command}.exe`)
     )
   ) {
     throw new Error(

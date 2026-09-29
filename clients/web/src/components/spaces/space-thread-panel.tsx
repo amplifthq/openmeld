@@ -3,6 +3,7 @@ import type {
 	ModelCatalog,
 	SignalEnvelope,
 	SpaceInboxUnreadTarget,
+	SpaceMemberAgentSnapshot,
 	SpaceMembersSnapshot,
 	SpaceThread,
 } from "@openmeld/schemas/types";
@@ -117,6 +118,7 @@ import {
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
+import { SpaceMessageAddressingBadges } from "./space-message-addressing-badges";
 import {
 	hasSpaceMessageAttachments,
 	SpaceMessageAttachments,
@@ -583,7 +585,14 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				resizeHandleLabel="Resize Thread panel"
 				width={panelWidth.width}
 			>
-				<ThreadPanelHeader onClose={input.onClose} />
+				<ThreadPanelHeader
+					onClose={input.onClose}
+					onGoToMessage={
+						activeThreadRootSignalId && input.onShowMessageInMain
+							? () => input.onShowMessageInMain?.(activeThreadRootSignalId)
+							: undefined
+					}
+				/>
 				{renderThreadFocusStatus(focusStatusMessage)}
 				<ThreadTimeline
 					actionableAgentInteractionPlacement={resolveSpaceAgentInteractionPlacement(
@@ -604,7 +613,9 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					isLoading={input.signalsIsLoading}
 					isPersonalContext={input.isPersonalContext === true}
 					items={threadTimelineItems}
+					membersSnapshot={input.membersSnapshot}
 					messageScrollActionRef={messageScrollActionRef}
+					modelCatalog={input.modelCatalog}
 					onAgentInteractionResponse={input.onAgentInteractionResponse}
 					onJumpToMessage={jumpToMessage}
 					onOpenMessageDetails={onOpenMessageDetails}
@@ -1108,6 +1119,8 @@ function resolveThreadComputerSetupPresentation(input: {
 }
 
 function ThreadTimeline(input: {
+	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
 	isDirectMessage: boolean;
 	messageScrollActionRef: { current: SpaceMessageScrollAction | null };
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -1165,6 +1178,7 @@ function ThreadTimeline(input: {
 	>;
 	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
 }) {
+	const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
 	const wakeProblemSourceSignalIds = useMemo(
 		() =>
 			buildWakeProblemSourceSignalIds({
@@ -1186,9 +1200,12 @@ function ThreadTimeline(input: {
 
 	return (
 		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
-			<SpaceMessageScrollController actionRef={input.messageScrollActionRef} />
+			<SpaceMessageScrollController
+				actionRef={input.messageScrollActionRef}
+				scrollElement={scrollElement}
+			/>
 			<MessageScroller className="min-h-0 flex-1">
-				<MessageScrollerViewport className="px-4 py-4">
+				<MessageScrollerViewport className="px-4 py-4" ref={setScrollElement}>
 					<SpaceMessageReadObserver
 						key={input.readScopeKey}
 						onViewedThroughTs={input.onViewedThroughTs}
@@ -1254,6 +1271,18 @@ function ThreadTimeline(input: {
 										anchoredOutcomeNoticesBySourceSignalId={
 											input.anchoredOutcomeNoticesBySourceSignalId
 										}
+										avatarModelId={
+											input.membersSnapshot?.agents.find(
+												(agent) => agent.profileId === item.actorProfileId
+											)?.avatarModelId ??
+											input.modelCatalog?.agentControllers["center-agent"]
+												?.hostedRuntimePolicy?.personalRemoteAgentDefaultModelId
+										}
+										avatarStyle={
+											input.membersSnapshot?.agents.find(
+												(agent) => agent.profileId === item.actorProfileId
+											)?.avatarStyle
+										}
 										centerAgentProfileId={input.centerAgentProfileId}
 										computerSetupActionSignalId={
 											input.computerSetupActionSignalId
@@ -1303,6 +1332,8 @@ function ThreadTimeline(input: {
 }
 
 const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
+	avatarStyle?: SpaceMemberAgentSnapshot["avatarStyle"];
+	avatarModelId?: string | null;
 	isDirectMessage: boolean;
 	centerAgentProfileId: string | null;
 	computerSetupActionSignalId: string | null;
@@ -1517,6 +1548,8 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										selfAvatarImageUrl: input.selfAvatarImageUrl,
 										selfProfileId: input.selfProfileId,
 									})}
+									avatarModelId={input.avatarModelId}
+									avatarStyle={input.avatarStyle}
 									displayName={input.item.actorName}
 									isCenterAgent={
 										input.item.actorProfileKind === "agent" &&
@@ -1586,6 +1619,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										status={showProgressInAnswerArea ? progressStatus : null}
 									/>
 								) : null}
+								<SpaceMessageAddressingBadges
+									item={input.item}
+									profilePresentationsById={input.profilePresentationsById}
+									wakeProgressItems={input.ephemeralActivityItems}
+								/>
 								<SpaceMessageBody
 									computerSetupContext={computerSetupPresentation.context}
 									computerSetupSourceSignalId={input.item.id}

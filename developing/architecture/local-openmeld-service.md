@@ -92,6 +92,11 @@ IPC; they cannot block the connector's event loop. Host admission is closed unti
 its current-generation response confirms it is ready, and closes when that
 observation fails. A shared Host failure may affect all its Agents, not the
 independent connector. Last-known Host observations are not fresh health.
+The negotiated Computer-care observation carries a bounded, path-free Host
+failure code, safe explanation, and recovery action when initialization or a
+health check fails. Core uses that same observation for owner Computer
+readiness and Center Agent Computer reads; `responsive = false` without its
+known cause is not an adequate operator diagnosis.
 
 The runner records only changes to dispatch admission, with a bounded reason
 from its current Host/connection observation. It includes the connection
@@ -114,11 +119,15 @@ usable; older clients do not receive unsolicited acknowledgment frames.
 Only one Host may own an installation's execution resources. Before provider
 work starts, a private process-incarnation receipt records non-quiescence. A clean
 local drain clears that fence. After an unconfirmed owner loss, PID disappearance
-alone does not prove that its children or side effects ended. Replacement needs
-confirmed quiescence or trustworthy operating-system restart evidence; unknown
-or corrupt evidence remains an explicit recovery blocker. This receipt contains
-no task results or approvals and does not authorize replay. It is not a second
-execution ledger. There is no automatic hot adoption or restart of unknown work.
+alone does not prove that its children or side effects ended. The current receipt
+records the Host process identity and each provider-owned process tree before
+execution continues. A same-boot replacement is allowed only when that evidence
+is complete, the exact Host incarnation is gone, and every recorded provider
+process group or Windows job-backed root is gone. Missing process evidence,
+legacy receipts, and corrupt records remain blocked; trustworthy operating-system
+restart evidence is the fallback. This receipt contains no task results or
+approvals and does not authorize replay. It is not a second execution ledger.
+There is no automatic hot adoption or restart of unknown work.
 
 Cloud-result acknowledgment is separate from local quiescence. Stop and update
 readiness query the Host; they do not inspect another socket's private execution
@@ -1146,6 +1155,12 @@ window without requiring a sandboxed shell to load Node, CLI code, or local
 authentication files. Its Space, source Wake, and acting Profile are fixed by
 the active dispatch, and it rechecks that context after the authorized read.
 This read does not complete or publish the Wake.
+
+An implicit ordinary Codex Wake uses `workspace` access with the `current`
+workspace. The Service resolves that current workspace through the same
+effective Profile working-folder path used by legacy dispatch; it must not
+substitute the Service-owned Space-context scratch directory. Explicit
+Space-only and isolated-project selections retain their separate boundaries.
 
 A selected-file handoff is the narrow writable exception: after preparation,
 the Service adds the dispatch's `workingCopyId` to the adapter boundary and
@@ -2199,6 +2214,11 @@ of the macOS LaunchAgent session. Locking the screen does not mean logging out.
 Task registration is process supervision, not Service readiness: startup still
 requires the current Service lease, account/lane alignment, and Core connection.
 
+Background controller status and session-inventory probes must also suppress
+console creation on Windows. A GUI Service parent and piped stdio alone do not
+provide that guarantee: direct Node-compatible child launches use `windowsHide`.
+This does not change the interactive CLI launcher's terminal behavior.
+
 For the retained npm distribution, both tasks start a lane-owned Windows-subsystem host,
 not a console-subsystem PowerShell process. The host creates the existing system
 PowerShell action with `UseShellExecute=false` and `CreateNoWindow=true`, waits
@@ -2301,11 +2321,19 @@ hash differ between macOS and Linux.
 The OS service manager registration is a per-user global resource keyed only by
 the env preset. `OPENMELD_HOME` isolates lane files but does not isolate this
 registration, so any process that mutates a service registration must fail
-closed unless its lane intent is unambiguous: test processes must never mutate
-the published production registration, and a process whose effective root left
-the published production lane must state an explicit `OPENMELD_ENV_PRESET`
-before mutating the production registration. Isolated validation targets the
-`dev-local` or `canary` service identity or stubs the service manager.
+closed unless its lane and root identify the same owner. The production service
+identity may be mutated only from the published production root; an explicit
+`OPENMELD_ENV_PRESET=prod` cannot authorize an isolated root. `openmeld-dev`
+always selects `dev-local`, even when its parent environment carried a production
+preset or production Auth, Gateway, and client defaults. Explicit lane-local
+endpoints remain intact. For compatibility, `OPENMELD_ENV=dev` resolves to the
+same `dev-local` lane; conflicting legacy and canonical selectors fail instead
+of choosing one silently. Test processes never mutate the published production registration.
+Isolated validation targets the `dev-local` or `canary` service identity or
+stubs the service manager. A dispatch-owned runtime may inspect production
+Service state, but it cannot run a production Service mutation that could stop
+or replace the carrier currently executing that dispatch; it may use a confirmed
+development lane for isolated lifecycle validation.
 
 Service alignment must compare the complete environment target persisted in
 that registration: env preset, Gateway URL, Auth URL, and user-facing CLI
@@ -3318,6 +3346,14 @@ private Agent output through this frame. Core still validates the current
 RuntimeCoordinator token, execution identity, daemon session, lease, and
 authoritative Space placement; emitting a frame does not give the Service Space
 or execution authority.
+
+A supported controller may separately call the dispatch-scoped
+`report_progress` tool with a short deliberate public update. The Service keeps
+an in-memory deduplication set for the active turn, sends a bounded accumulated
+snapshot through RuntimeTransport, and drops the capability when only final
+action repair is allowed. The tool does not write the final action record and
+has no standalone CLI fallback, so a child process cannot bypass the active
+Service execution token or turn progress into a second Space writer.
 
 The Service Thin Core line must not reassign ownership:
 

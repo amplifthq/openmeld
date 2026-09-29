@@ -100,6 +100,7 @@ type CoreAuthDispatchBindingRpc = {
     organizationId?: string | null;
     profileId?: string | null;
     profileName?: string | null;
+    avatarStyle?: string | null;
   }): Promise<AuthAgentProfileRpcResult>;
   updateAgentProfileDefaultProjectInOrganization?(input: {
     defaultProjectId: string | null;
@@ -123,6 +124,7 @@ type CoreAuthDispatchBindingRpc = {
   >;
   resolveProfileById?(input: {
     openMeldProfileId?: string | null;
+    includeAvatarStyle?: boolean;
   }): Promise<AuthRpcResolveProfileByIdResult>;
   resolveProfilesByIds?(
     input: AuthRpcResolveProfilesByIdsInput

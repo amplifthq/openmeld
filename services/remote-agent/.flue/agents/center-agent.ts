@@ -144,6 +144,9 @@ async function prepareCenterAgentRender() {
     env.OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding;
   const organizationSkillSelections =
     executionContext?.organizationSkillReleases ?? [];
+  // Space work handoffs pin explicit Skills. Automatically included Skills are
+  // optional and may have been disabled while this delivery waited to start.
+  const optionalOrganizationSkills = !executionContext?.workHandoff;
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
       executionContext &&
@@ -217,6 +220,7 @@ async function prepareCenterAgentRender() {
       runtimeContextPlan.materializeOrganizationSkills &&
       organizationSkillSelections.length > 0
         ? materializeOrganizationSkillFlueSkillsFromCatalog({
+            allowUnavailableSelections: optionalOrganizationSkills,
             expectedOrganizationId: executionContext.organizationId,
             selections: organizationSkillSelections,
             catalog: await callCoreRpc(
@@ -228,6 +232,9 @@ async function prepareCenterAgentRender() {
                   `remote-agent-skills:${executionContext.submissionId}`
                 ),
                 releases: organizationSkillSelections,
+                ...(optionalOrganizationSkills
+                  ? { skipUnavailableSelectedReleases: true }
+                  : {}),
                 ...(executionContext.conversationIdentity?.kind ===
                 "personal_agent"
                   ? {

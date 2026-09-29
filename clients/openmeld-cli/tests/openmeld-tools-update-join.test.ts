@@ -126,4 +126,18 @@ describe("OpenMeld Tools update join", () => {
       expect(onWaiting).toHaveBeenCalledWith(attempt.operation);
     });
   });
+  it("stops waiting when a persisted update is never claimed by its worker", async () => {
+    await withTempHome(async () => {
+      await persistOpenMeldToolsUpdateAttempt({ ...attempt, attempts: 0 });
+      await expect(
+        waitForExternalOpenMeldToolsUpdate({
+          pollIntervalMs: 1,
+          unclaimedTimeoutMs: 1,
+        })
+      ).rejects.toThrow("background updater did not start");
+      expect((await resolveExternalOpenMeldToolsUpdate())?.operationId).toBe(
+        attempt.operation.operationId
+      );
+    });
+  });
 });

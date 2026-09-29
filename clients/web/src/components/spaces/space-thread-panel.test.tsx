@@ -131,6 +131,19 @@ describe("SpaceThreadPanel", () => {
 		useQueryMock.mockReset();
 	});
 
+	it("jumps from the Thread header to its root message", () => {
+		const onShowMessageInMain = vi.fn();
+		renderThreadPanel({ onShowMessageInMain });
+		const thread = screen.getByRole("complementary", { name: "Thread" });
+		const jump = within(thread).getByRole("button", {
+			name: "Go to message",
+		});
+		expect(jump.className).toContain("size-7");
+		fireEvent.click(jump);
+		expect(onShowMessageInMain).toHaveBeenCalledOnce();
+		expect(onShowMessageInMain).toHaveBeenCalledWith("sig-root");
+	});
+
 	it("separates the thread composer with spacing instead of a top divider", () => {
 		renderThreadPanel();
 
@@ -385,9 +398,10 @@ describe("SpaceThreadPanel", () => {
 
 		fireEvent.click(
 			within(messageRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: "More actions",
 			})
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
@@ -429,17 +443,17 @@ describe("SpaceThreadPanel", () => {
 			messageRow?.querySelector("[data-slot='message-hover-actions']")
 		).toBeNull();
 
-		const detailsButton = within(footer as HTMLElement).getByRole("button", {
-			name: "Message details",
-		});
 		const copyButton = within(footer as HTMLElement).getByRole("button", {
 			name: "Copy message",
 		});
-		for (const button of [copyButton, detailsButton]) {
-			expect(button.className).toContain("size-7");
-			expect(button.className).toContain("border-0");
-			expect(button.className).toContain("bg-transparent");
-		}
+		expect(copyButton.className).toContain("size-7");
+		expect(copyButton.className).toContain("border-0");
+		expect(copyButton.className).toContain("bg-transparent");
+		expect(
+			within(footer as HTMLElement).queryByRole("button", {
+				name: "Message details",
+			})
+		).toBeNull();
 	});
 	it.each([
 		"sig-root",
@@ -463,12 +477,13 @@ describe("SpaceThreadPanel", () => {
 			signals: [createTextSignal({ id: signalId })],
 			spaceTimelineItems: [],
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 		const dialog = await screen.findByRole("dialog", {
 			name: "Message details",
 		});
 		const jump = within(dialog).queryByRole("button", {
-			name: "Show message in Messages",
+			name: "Go to message",
 		});
 		if (signalId === "sig-root") {
 			expect(jump).not.toBeNull();
@@ -528,8 +543,9 @@ describe("SpaceThreadPanel", () => {
 			throw new Error("Expected the Wake source row to render.");
 		}
 		fireEvent.click(
-			within(messageRow).getByRole("button", { name: "Message details" })
+			within(messageRow).getByRole("button", { name: "More actions" })
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		const dialog = await screen.findByRole("dialog", {
 			name: "Message details",
@@ -620,7 +636,7 @@ describe("SpaceThreadPanel", () => {
 		expect(marker?.getAttribute("aria-busy")).toBeNull();
 	});
 
-	it("uses circular Fluid avatars for Center Agent replies in an ordinary Space thread", () => {
+	it("uses Bot avatars for Center Agent replies in an ordinary Space thread", () => {
 		const centerAgentProfileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		renderThreadPanel({
 			centerAgentProfileId,
@@ -637,7 +653,7 @@ describe("SpaceThreadPanel", () => {
 		const avatar = screen.getByTestId(
 			`space-center-agent-profile-avatar-${centerAgentProfileId}`
 		);
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 	});
 
 	it("renders completed Agent Activity once inside its durable thread reply", () => {

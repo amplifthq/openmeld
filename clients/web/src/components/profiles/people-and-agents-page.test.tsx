@@ -797,6 +797,20 @@ describe("PeopleAndAgentsPage", () => {
 		).toBeNull();
 	});
 
+	it("shows the saved Agent avatar from the Organization directory", () => {
+		organizationDirectoryFixture.agentProfiles[0].avatarStyle = "fluid";
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		expect(
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].agentProfiles[0].avatarStyle
+		).toBe("fluid");
+	});
+
 	it("renders Agents with a secondary sidebar and selected detail", () => {
 		render(
 			<PeopleAndAgentsPage

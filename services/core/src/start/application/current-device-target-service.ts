@@ -23,6 +23,7 @@ import type {
   LocalRuntimesQuery,
   LocalRuntimesResponse,
   PeopleComputerTarget,
+  RuntimeTransportBaseCapabilities,
   RuntimeTransportLookupOwnerServiceResponse,
 } from "@openmeld/schemas/types";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
@@ -672,6 +673,36 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
     });
   }
 
+  return resolveConnectedOwnerServiceReadiness({
+    currentComputer,
+    currentExecutionTarget,
+    currentTarget,
+    generatedAt,
+    matchingSession,
+  });
+}
+
+function resolveConnectedOwnerServiceReadiness(input: {
+  currentComputer: LocalRuntimeComputer | null;
+  currentExecutionTarget: LocalRuntimeExecutionTarget | null;
+  currentTarget: {
+    availability: "resolved";
+    deviceId: string;
+    runtimeLane: DaemonServiceLane;
+  };
+  generatedAt: string;
+  matchingSession: Extract<
+    RuntimeTransportLookupOwnerServiceResponse,
+    { online: true }
+  >["sessions"][number];
+}): CurrentLocalRuntimeReplyReadinessResponse {
+  const {
+    currentComputer,
+    currentExecutionTarget,
+    currentTarget,
+    generatedAt,
+    matchingSession,
+  } = input;
   const localComponentsStatus =
     matchingSession.capabilities.localComponents ?? null;
   const executionCompatibility = matchingSession.executionCompatibility;
@@ -692,6 +723,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
       service: {
         connected: true,
         executionCompatibility,
+        executionHost: matchingSession.capabilities.executionHost ?? null,
         matchingCurrentRuntime: true,
         reasonCodes: [executionCompatibility.reasonCode],
         sessionDeviceId: matchingSession.deviceId,
@@ -724,9 +756,38 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
       serviceVersion: matchingSession.serviceVersion ?? null,
       service: {
         connected: true,
+        executionHost: matchingSession.capabilities.executionHost ?? null,
         executionCompatibility,
         matchingCurrentRuntime: true,
         reasonCodes: localComponents.service.reasonCodes,
+        sessionDeviceId: matchingSession.deviceId,
+        sessionLane: matchingSession.lane,
+      },
+      status: "blocked",
+    });
+  }
+
+  const executionHostBlocker = resolveExecutionHostReplyBlocker(
+    matchingSession.capabilities.executionHost ?? null
+  );
+  if (executionHostBlocker) {
+    return buildCurrentLocalRuntimeReplyReadiness({
+      currentTarget,
+      generatedAt,
+      localComponents,
+      message: executionHostBlocker.message,
+      nextAction: "none",
+      primaryBlocker: "execution_host_unavailable",
+      runtime: buildCurrentRuntimeEvidence({
+        computer: currentComputer,
+        target: currentExecutionTarget,
+      }),
+      service: {
+        connected: true,
+        executionCompatibility,
+        executionHost: matchingSession.capabilities.executionHost ?? null,
+        matchingCurrentRuntime: true,
+        reasonCodes: [executionHostBlocker.reasonCode],
         sessionDeviceId: matchingSession.deviceId,
         sessionLane: matchingSession.lane,
       },
@@ -753,6 +814,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
       }),
       service: {
         connected: true,
+        executionHost: matchingSession.capabilities.executionHost ?? null,
         executionCompatibility,
         matchingCurrentRuntime: true,
         reasonCodes: [],
@@ -778,6 +840,7 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
     }),
     service: {
       connected: true,
+      executionHost: matchingSession.capabilities.executionHost ?? null,
       executionCompatibility,
       matchingCurrentRuntime: true,
       reasonCodes: [],
@@ -788,6 +851,32 @@ export async function getCurrentLocalRuntimeReplyReadinessUseCase(input: {
     localComponentsStatus,
     status: "ready",
   });
+}
+
+function resolveExecutionHostReplyBlocker(
+  observation: RuntimeTransportBaseCapabilities["executionHost"] | null
+): { message: string; reasonCode: string } | null {
+  if (
+    !observation ||
+    observation.responsive ||
+    !observation.unavailableReason
+  ) {
+    return null;
+  }
+  const reason = observation.unavailableReason;
+  let recovery = "Open Diagnostics for details before trying again.";
+  if (reason.recoveryAction === "restart_computer") {
+    recovery =
+      "Restart this computer only if OpenMeld does not recover after the previous task ends.";
+  } else if (reason.recoveryAction === "update_openmeld_tools") {
+    recovery = "Update OpenMeld Tools on this computer.";
+  } else if (reason.recoveryAction === "wait_for_previous_work") {
+    recovery = "Wait for the previous local task to finish, then check again.";
+  }
+  return {
+    message: `${reason.message} ${recovery}`,
+    reasonCode: reason.code,
+  };
 }
 
 function resolveLegacyComputerReadinessTarget(
@@ -854,6 +943,7 @@ function resolveOwnerServiceDisconnectReadiness(input: {
     service: {
       connected: false,
       executionCompatibility: null,
+      executionHost: null,
       matchingCurrentRuntime: false,
       reasonCodes:
         input.ownerService.online === true
@@ -1091,6 +1181,7 @@ function buildCurrentLocalRuntimeReplyReadiness(input: {
     service: input.service ?? {
       connected: false,
       executionCompatibility: null,
+      executionHost: null,
       matchingCurrentRuntime: false,
       reasonCodes: [],
       sessionDeviceId: null,

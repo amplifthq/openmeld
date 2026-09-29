@@ -17,6 +17,7 @@ export function toProfileView(
     source: string;
     managedRole?: unknown;
     defaultProjectId?: string | null;
+    avatarStyle?: string | null;
     createdByUserId: string | null;
     creationActorProfileId: string | null;
     creatorProfileId: string | null;
@@ -24,7 +25,7 @@ export function toProfileView(
     createdAt: Date;
     updatedAt: Date;
   },
-  options?: { ownerName?: string | null }
+  options?: { ownerName?: string | null; includeAvatarStyle?: boolean }
 ) {
   const ownerName = normalizeOptionalText(options?.ownerName);
   const managedRole = normalizeProfileManagedRole(profile.managedRole);
@@ -40,6 +41,9 @@ export function toProfileView(
     ...(ownerName && profile.ownerUserId ? { ownerName } : {}),
     source: profile.source,
     managedRole,
+    ...(profile.profileKind === "agent" && options?.includeAvatarStyle
+      ? { avatarStyle: profile.avatarStyle ?? null }
+      : {}),
     ...(profile.profileKind === "agent" && managedRole === null
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }
       : {}),
