@@ -33,6 +33,7 @@ import type {
   RuntimeTransportDispatchInteractionDeliveredRequest,
   RuntimeTransportDispatchInteractionRequest,
   RuntimeTransportDispatchLifecycleRequest,
+  RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
   RuntimeTransportRuntimeCoordinatorDecisionRequest,
@@ -1221,6 +1222,12 @@ const createHarness = (input?: {
         lastSequence: input.sequence,
       })
     ),
+    rpcApplyAgentStreamDelta: vi.fn((input: { sequence: number }) =>
+      Promise.resolve({
+        status: "accepted" as const,
+        lastSequence: input.sequence,
+      })
+    ),
     rpcCloseAgentStream: vi.fn(() => Promise.resolve(null)),
     rpcApplyRuntimeCoordinatorFailurePublicationCommand: vi.fn(
       (
@@ -1954,6 +1961,18 @@ const buildToolActivityRequest = (
   taskId: "task-1",
   ...overrides,
 });
+
+const buildProgressRequest = (
+  overrides: Partial<RuntimeTransportDispatchProgressRequest> = {}
+): RuntimeTransportDispatchProgressRequest => {
+  const toolActivity = buildToolActivityRequest(overrides);
+  const { part: _part, ...identity } = toolActivity;
+  return {
+    ...identity,
+    progressSnapshot: "Confirmed the root cause; starting verification.",
+    ...overrides,
+  };
+};
 
 const buildInteractionRequest = (
   executionToken: RuntimeCoordinatorExecutionTokenEnvelope,
@@ -3958,6 +3977,83 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).json()) as { status: string; executionContext?: { access: string } };
     expect(spaceOnlyResponse.status).toBe("accepted");
     expect(spaceOnlyResponse.executionContext?.access).toBe("space_context");
+  });
+
+  it("keeps an ordinary Codex Wake in the Profile's current working folder after context activation", async () => {
+    const { hub, storageRecords } = createContextHarness({
+      bindingControllerRef: "builtin:codex",
+    });
+    const firstRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({
+          agentControllerRef: "builtin:codex",
+          fingerprint: "a",
+        }),
+        contextRequest: {
+          required: false,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "auto" },
+        },
+      },
+    });
+    const firstResponse = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        firstRequest
+      )
+    ).json()) as {
+      status: string;
+      executionContext?: unknown;
+    };
+    expect(firstResponse.status).toBe("accepted");
+    expect(firstResponse.executionContext).toBeUndefined();
+
+    const firstHead = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        firstRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const firstSnapshot = firstHead.acceptedDispatchSnapshot;
+    if (!firstSnapshot) {
+      throw new Error("Expected an accepted ordinary Codex Wake");
+    }
+    const dispatchId = "dispatch-codex-ordinary-current-folder";
+    const identity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-codex-ordinary-current-folder",
+      dispatchId,
+      sourceSignalId: "signal-codex-ordinary-current-folder",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const plan = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...firstHead,
+          primaryDispatchId: dispatchId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: identity,
+          acceptedDispatchSnapshot: {
+            ...firstSnapshot,
+            payloadFingerprint: `sha256:${"b".repeat(64)}`,
+          },
+        },
+      })
+    );
+    expect(
+      plan.record.acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({ access: "workspace", workspace: "current" });
   });
 
   it.each([
@@ -15871,6 +15967,47 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toEqual([]);
   });
 
+  it("applies authority-bound Local Agent public progress without finalizing the Wake", async () => {
+    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchToolActivityFrame: (
+          webSocket: WebSocket,
+          payload: unknown,
+          kind: "progress"
+        ) => Promise<void>;
+      }
+    ).handleDispatchToolActivityFrame(
+      socket,
+      buildProgressRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+      }),
+      "progress"
+    );
+
+    expect(spaceStub.rpcApplyAgentStreamDelta).toHaveBeenCalledWith({
+      v: 1,
+      dispatchId: "dispatch-1",
+      kind: "progress",
+      profileId: TARGET_AGENT_PROFILE_ID,
+      progressSnapshot: "Confirmed the root cause; starting verification.",
+      sequence: 1,
+      spaceId: HEX_SPACE_ID,
+      streamId: "local-agent:10.dispatch-1:9.attempt-1",
+      triggerMessageId: "signal-1",
+    });
+    expect(spaceStub.rpcCloseAgentStream).not.toHaveBeenCalled();
+    expect(sentFrames).toEqual([]);
+  });
+
   it("projects and resolves one normal-priority Inbox review for the interaction owner", async () => {
     const { hub, recordingD1, sentFrames, socket, state } = createHarness();
     const executionToken = await issueDeliveryToken({
@@ -20520,27 +20657,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
           failureStage: "execution",
           generatedBy: "openmeld",
           noticeType: "terminal_failure",
-          reason: "runtime.progress_stale",
-          reasonCode: "runtime.progress_stale",
+          reason: "runtime.local_runtime_lost",
+          reasonCode: "runtime.local_runtime_lost",
           stopCause: "controlled_service_update",
-          text: "Codex Agent stopped making progress on this Wake. Reconnect the computer before trying again.",
+          text: "OpenMeld Service stopped or disconnected while Codex Agent was working on this Wake. Start OpenMeld again before retrying.",
         },
       });
-      const progressStaleTerminalEvent = getRuntimeCoordinatorEventCalls(
+      const localRuntimeLostEvent = getRuntimeCoordinatorEventCalls(
         recordingD1.calls
-      ).find(
-        (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
-      );
+      ).find((call) => call.params[2] === "runtime_connection_lost");
       expect(
-        JSON.parse(String(progressStaleTerminalEvent?.params[7]))
+        JSON.parse(String(localRuntimeLostEvent?.params[7]))
       ).toMatchObject({
-        action: "timeout_terminal",
-        progressStale: {
-          expiryCause: "local_progress_stale",
+        action: "reclaim_blocked",
+        localRuntimeLost: {
+          expiryCause: "local_runtime_lost",
           publicationStatus: "published",
           publishedSignalId: "signal-delivery-expired-1",
         },
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         trigger: "alarm",
       });
       const terminalAuthority = [...storageRecords.values()].find(
@@ -20548,7 +20683,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           value !== null && typeof value === "object" && "runsById" in value
       );
       expect(terminalAuthority?.terminalOutcome).toMatchObject({
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         replySignalId: "signal-delivery-expired-1",
         status: "failed_terminal",
       });
@@ -20557,7 +20692,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
       expect(agentTaskOutcomeWrite?.params[2]).toBe("failed");
       expect(JSON.parse(String(agentTaskOutcomeWrite?.params[4]))).toEqual({
-        errorCode: "runtime.progress_stale",
+        errorCode: "runtime.local_runtime_lost",
         eventId: `runtime-coordinator-terminal:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
         occurredAtMs: 1_700_000_300_300,
         publishedSignalId: "signal-delivery-expired-1",
@@ -20673,7 +20808,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         recordingD1.inboxRows.get("dispatch-1::attempt-1")?.published_signal_id
       ).toBe("execution-recovery:space-1:dispatch-1::attempt-1");
       expect(terminalAuthority?.terminalOutcome).toMatchObject({
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         replySignalId: "signal-delivery-expired-1",
         status: "failed_terminal",
       });
@@ -21066,7 +21201,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             noticeType: "terminal_failure",
             reasonCode: "runtime.local_runtime_lost",
             stopCause: "controlled_service_update",
-            text: "Codex Agent was interrupted when its computer reconnected.",
+            text: "OpenMeld Service stopped or disconnected while Codex Agent was working on this Wake. Start OpenMeld again before retrying.",
           }),
         },
       });

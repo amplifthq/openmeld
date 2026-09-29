@@ -3,6 +3,7 @@ import {
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
+  getPersonalRemoteAgentDefaultModelId,
   parseAgentControllerRef,
   peopleComputerContainsDevice,
   projectPeopleComputersToLegacyLocalRuntimes,
@@ -950,6 +951,7 @@ import {
   upsertPendingSharedConnectorConnection,
 } from "../connectors/connector-connection-repository";
 import {
+  beginExistingGitHubAppInstallationVerification,
   beginGitHubAppInstallationVerification,
   completeGitHubAppInstallation,
   createGitHubAppInstallationState,
@@ -3283,6 +3285,12 @@ export type ReadPendingGitHubAppInstallationInput = {
   context?: CoreRpcContextInput;
   expectedOrganizationId: string;
 };
+
+export type BeginExistingGitHubAppInstallationVerificationInput =
+  ReadPendingGitHubAppInstallationInput & {
+    installationId: string;
+    verificationConnectionName: ConnectorConnectionName;
+  };
 
 export type CompleteGitHubAppInstallationInput =
   ReadPendingGitHubAppInstallationInput & {
@@ -6631,6 +6639,13 @@ export async function rpcGetCurrentOrganizationProfileDirectory(
       agentControllerRef:
         configurationsByProfileId?.get(profile.profileId)?.agentControllerRef ??
         null,
+      avatarModelId:
+        configurationsByProfileId?.get(profile.profileId)?.modelSelection
+          ?.modelId ??
+        (configurationsByProfileId?.get(profile.profileId)
+          ?.agentControllerRef === "hosted:remote-agent"
+          ? getPersonalRemoteAgentDefaultModelId(readModelCatalog())
+          : null),
       ...(input.includeModelSelection === true &&
       configurationsByProfileId !== null
         ? {
@@ -7916,6 +7931,30 @@ export async function rpcReadPendingGitHubAppInstallation(
     userId: activeOrganization.userId,
   });
   return pendingGitHubAppInstallationSchema.parse(pending);
+}
+
+export async function rpcBeginExistingGitHubAppInstallationVerification(
+  env: CoreBindings,
+  input: BeginExistingGitHubAppInstallationVerificationInput
+): Promise<boolean> {
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  requireExpectedConnectorOrganization({
+    activeOrganizationId: activeOrganization.organizationId,
+    expectedOrganizationId: input.expectedOrganizationId,
+  });
+  assertSharedConnectorManagementPermission(activeOrganization);
+  return await beginExistingGitHubAppInstallationVerification({
+    db: requireConnectorConnectionDb(env),
+    installationId: input.installationId,
+    nowMs: Date.now(),
+    organizationId: activeOrganization.organizationId,
+    userId: activeOrganization.userId,
+    verificationConnectionName: input.verificationConnectionName,
+  });
 }
 
 export async function rpcCompleteGitHubAppInstallation(
@@ -10155,6 +10194,7 @@ export async function rpcUpdateCenterAgentProfile(
   const context = requireRpcContext(input.context);
   const body = centerAgentUpdateProfileBodySchema.safeParse({
     profileName: input.profileName,
+    avatarStyle: input.avatarStyle,
   });
   if (!body.success) {
     throw createCoreRpcHttpError({
@@ -10200,7 +10240,12 @@ export async function rpcUpdateCenterAgentProfile(
       authWorker.updateCenterAgentProfileInOrganization({
         organizationId: activeOrganization.organizationId,
         profileId: managedProfile.profileId,
-        profileName: body.data.profileName,
+        ...(body.data.profileName
+          ? { profileName: body.data.profileName }
+          : {}),
+        ...(body.data.avatarStyle
+          ? { avatarStyle: body.data.avatarStyle }
+          : {}),
       }),
     unavailable: {
       code: "center_agent.profile_update_unavailable",

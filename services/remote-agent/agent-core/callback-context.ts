@@ -10,6 +10,8 @@ import {
   conversationCompactionMarkerSchema,
   type ModelCatalogReadOptions,
   type OpenMeldNavigationTarget,
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY,
+  ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE,
   openMeldNavigationTargetSchema,
   openMeldRuntimeProfileIdSchema,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
@@ -175,6 +177,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
+  isOrganizationSkillReleaseUnavailable,
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
   normalizeRemoteAgentErrorMessage,
@@ -1921,6 +1924,9 @@ function resolveRemoteAgentResultFailureCode(
   if (isRemoteAgentToolResultTooLarge(result.error)) {
     return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE;
   }
+  if (isOrganizationSkillReleaseUnavailable(result.error)) {
+    return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE;
+  }
   if (
     result.failureReasonCode &&
     result.failureReasonCode !==
@@ -1943,6 +1949,8 @@ function resolveRemoteAgentFailureMessage(code: string): string {
       return CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE:
+      return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
       return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":

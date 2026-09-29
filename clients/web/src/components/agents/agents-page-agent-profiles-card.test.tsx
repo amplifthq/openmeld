@@ -18,6 +18,7 @@ import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { projectQueryKeys } from "#/query/organizations/projects";
 import { startQueryKeys } from "#/query/query-keys";
 import {
 	createTestQueryClient,
@@ -336,6 +337,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		cleanup();
 		vi.clearAllMocks();
 		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 	});
 
 	it("shows Agent Controller Permission Mode on the card without repeating it in More details", async () => {
@@ -904,6 +906,25 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toHaveLength(1);
 	});
 
+	it("shows the selected Project instead of assuming an OpenMeld-managed folder", async () => {
+		const profile = {
+			...createAgentProfile(),
+			defaultProjectId: "project-1",
+		};
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const overrides = { agentProfiles: [profile] };
+		const view = renderAgentProfilesCard(overrides, binding, {
+			presentation: "detail",
+		});
+		view.queryClient.setQueryData(projectQueryKeys.organization("org-acme"), {
+			organizationId: "org-acme",
+			projects: [{ id: "project-1", name: "OpenMeld" }],
+		});
+		view.rerenderAgentProfilesCard(overrides, binding);
+		expect(await screen.findByText("Project: OpenMeld")).toBeTruthy();
+		expect(screen.queryByText("OpenMeld managed")).toBeNull();
+	});
+
 	it("shows a missing working folder with one direct recovery action", () => {
 		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
 		const baseReadiness = createReadinessResponseWithPrimaryBinding(binding);
@@ -1373,6 +1394,14 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 	});
 
 	it("shows team-safe Profile details for a teammate Agent", async () => {
+		// Base UI mounts AvatarImage only after a browser image reports loaded.
+		vi.stubGlobal(
+			"Image",
+			class {
+				complete = true;
+				naturalWidth = 1;
+			}
+		);
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",
 			"builtin:codex",
@@ -3446,6 +3475,59 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeGreaterThan(0);
 		expect(screen.queryByText("Checking Wake availability")).toBeNull();
 		expect(screen.queryByText("Checking")).toBeNull();
+	});
+
+	it("keeps the model hidden while the Agent configuration is still loading", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			primaryBinding: undefined,
+			publicProfileConfiguration: undefined,
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+				agentExecutionReadinessPendingProfileIds: new Set([AGENT_PROFILE_ID]),
+			},
+			null,
+			{
+				agentControllerRefByProfileId: new Map([
+					[AGENT_PROFILE_ID, "builtin:codex"],
+				]),
+				presentation: "detail",
+			}
+		);
+		expect(screen.getAllByLabelText("Loading model")).toHaveLength(2);
+		expect(
+			screen.queryByText("Codex · GPT-5.6 Sol · model default")
+		).toBeNull();
+	});
+
+	it("does not show a catalog default when the saved model cannot be confirmed", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			primaryBinding: undefined,
+			publicProfileConfiguration: undefined,
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+			},
+			null,
+			{
+				agentControllerRefByProfileId: new Map([
+					[AGENT_PROFILE_ID, "builtin:codex"],
+				]),
+				presentation: "detail",
+			}
+		);
+		expect(screen.getAllByText("Model unavailable").length).toBeGreaterThan(0);
+		expect(screen.queryByText("GPT-5.6 Sol")).toBeNull();
 	});
 
 	it("keeps self-healing readiness active without rendering controller UI", async () => {

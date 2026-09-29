@@ -16,6 +16,17 @@ export function normalizeDispatchThreadAction(input: {
     input.action.thread?.threadId
   );
   const currentThreadId = normalizeOptionalText(input.threadContext?.threadId);
+  if (
+    input.action.type === "post_message" &&
+    input.action.placement === "conversation"
+  ) {
+    if (requestedThreadId) {
+      throw new Error(
+        "structured action cannot select a thread and the main conversation together"
+      );
+    }
+    return input.action;
+  }
   if (currentThreadId) {
     if (requestedThreadId && requestedThreadId !== currentThreadId) {
       throw new Error(

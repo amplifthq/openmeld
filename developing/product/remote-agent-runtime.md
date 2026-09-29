@@ -215,10 +215,18 @@ or replaced baseline refs and removed trusted releases must fail, not bypass it.
 
 Git history, LFS payloads and submodule repositories are not downloaded. Each
 manifest is limited to 30,000 entries and 8 MiB, each blob to 8 MiB, the combined
-source/baseline unique content to 256 MiB, and downloads to 32 blobs per call.
-A preparing result requires another identical call, not an invented ready
-state. Truncated provider trees fail closed. Version-2 checkout identities use
-fresh directories instead of adopting a previous baseline-free working copy.
+source/baseline unique content to 256 MiB, and each preparation request offers
+at most 256 missing blobs. The host fetches up to four blobs concurrently,
+bounds provider reads and native preparation against the Code Mode budget, and
+returns a retryable preparing result when a bounded read or preparation runs out
+of time. It reuses Computer manifests only after checking their
+stored digests against the pinned source and baseline; a missing or altered
+cache is rebuilt from GitHub. Batch diagnostics record authorization, tree and
+blob reads, Computer writes and preparation time without repository contents
+or credentials. A preparing result requires another identical call, not an
+invented ready state. Truncated provider trees fail closed. Version-2 checkout
+identities use fresh directories instead of adopting a previous baseline-free
+working copy.
 
 The Agent commits and tests with the ordinary Computer tools. Publication reads
 an exact immutable local commit, verifies the created GitHub tree, and updates
@@ -1991,6 +1999,9 @@ For a Space turn, the Space owner resolves the exact dispatch's frozen main or
 thread placement and returns only bounded text Signals before that dispatch's
 source Signal; the generic main-timeline reader is not a continuity source for
 a thread.
+An automatic task continuation uses the original Space Wake dispatch for this
+read, even when a previous continuation delegated another task. Its native
+delivery id is not a Space dispatch.
 Routine Runs use a Run-scoped execution conversation independent of the frozen
 Space or channel where their result is published. Their standing instructions,
 turn envelope, and explicitly authorized reads supply the current Run's input;

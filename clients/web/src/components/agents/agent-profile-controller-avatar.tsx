@@ -9,10 +9,13 @@ import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
+import type { AgentAvatarStyle } from "./remote-agent-avatar";
 import { RemoteAgentAvatar } from "./remote-agent-avatar";
 
 export function AgentProfileControllerAvatar(input: {
 	agentControllerRef: string | null;
+	avatarStyle?: AgentAvatarStyle | null;
+	modelId?: string | null;
 	className?: string;
 	profileId: string;
 	profileName: string;
@@ -25,7 +28,10 @@ export function AgentProfileControllerAvatar(input: {
 	) {
 		return (
 			<RemoteAgentAvatar
+				avatarStyle={input.avatarStyle}
 				className={input.className}
+				modelId={input.modelId}
+				profileId={input.profileId}
 				profileName={input.profileName}
 				shape={
 					input.agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF

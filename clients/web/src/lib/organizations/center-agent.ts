@@ -9,6 +9,7 @@ import type {
 	CenterAgentModelPreference,
 	CenterAgentSlackWorkspaceConnectionResponse,
 	CenterAgentSlackWorkspaceDisconnectResponse,
+	CenterAgentUpdateProfileBody,
 	CenterAgentUpdateProfileResponse,
 	DesignateCenterAgentResponse,
 	GetCenterAgentDesignationResponse,
@@ -261,11 +262,13 @@ export async function consumeSlackIdentityLink(input: {
 
 export async function updateCurrentCenterAgentProfile(input: {
 	organizationId: string;
-	profileName: string;
+	profileName?: string;
+	avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
 }): Promise<CenterAgentUpdateProfileResponse> {
 	try {
 		return await createWebCenterAgentApi(input.organizationId).updateProfile({
-			profileName: input.profileName,
+			...(input.profileName ? { profileName: input.profileName } : {}),
+			...(input.avatarStyle ? { avatarStyle: input.avatarStyle } : {}),
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

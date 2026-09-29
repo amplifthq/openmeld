@@ -11,6 +11,12 @@ export type RenameProfileInput = {
   requestContext?: OpenMeldRequestContext;
 };
 
+export type UpdateAgentAvatarInput = {
+  profileId: string;
+  avatarStyle: "automatic" | "fluid";
+  requestContext?: OpenMeldRequestContext;
+};
+
 export type UpdateAgentProfileDefaultProjectInput = {
   defaultProjectId: string | null;
   expectedOrganizationId: string;
@@ -20,6 +26,9 @@ export type UpdateAgentProfileDefaultProjectInput = {
 
 export type ProfilesApi = {
   rename: (input: RenameProfileInput) => Promise<UpdateProfileResponse>;
+  updateAgentAvatar: (
+    input: UpdateAgentAvatarInput
+  ) => Promise<UpdateProfileResponse>;
   updateDefaultProject: (
     input: UpdateAgentProfileDefaultProjectInput
   ) => Promise<UpdateAgentProfileDefaultProjectResponse>;

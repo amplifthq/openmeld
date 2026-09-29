@@ -18,7 +18,7 @@ export const listStartProfiles = createIsomorphicFn()
 	.client(async () =>
 		readStartProfilesResponse(
 			await createUnscopedWebOpenMeldApiFoundation().requestResponse({
-				url: "/v1/profiles",
+				url: "/v1/profiles?includeAvatarStyle=true",
 				method: "GET",
 				operation: "profiles.list",
 			})

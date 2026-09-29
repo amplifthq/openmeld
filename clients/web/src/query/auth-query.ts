@@ -31,6 +31,7 @@ import {
 	isSessionExpiredError,
 	SessionExpiredError,
 } from "#/lib/session-expired";
+import { resolveWebCliTarget } from "#/lib/web-cli-target";
 
 type ChangePasswordInput = {
 	currentPassword: string;
@@ -541,6 +542,12 @@ export async function createComputerAuthorizationGrant(): Promise<ComputerAuthor
 				throwAuthError(response.error, "Failed to authorize this computer.");
 			}
 			return response.data;
+		},
+		{
+			clientId:
+				resolveWebCliTarget().lane === "dev-local"
+					? "openmeld-cli-dev"
+					: "openmeld-cli",
 		}
 	);
 }

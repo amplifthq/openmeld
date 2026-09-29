@@ -77,6 +77,10 @@ export const webApplicationReactUpdateEventSchema = z.enum([
   "conversation_position_ready",
   "conversation_position_follow",
   "center_agent_pending_scope_write",
+  "space_history_cache_write",
+  "space_timeline_write",
+  "space_timeline_agent_controller_changed",
+  "space_wake_visible_publish",
 ]);
 
 export type WebApplicationReactUpdateEvent = z.infer<

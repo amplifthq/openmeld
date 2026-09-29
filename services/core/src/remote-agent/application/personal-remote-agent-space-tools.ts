@@ -33,6 +33,7 @@ import {
 import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
+import { resolveNativeDeliveryReplyPlacement } from "./reply-placement";
 
 export async function requirePersonalRemoteAgentExecution(
   env: CoreBindings,
@@ -193,6 +194,21 @@ export async function runPersonalRemoteAgentSpaceTool(
       kind: "authorize",
     });
   }
+  if (input.operation.kind === "reply_placement") {
+    const placement = await resolveNativeDeliveryReplyPlacement({
+      env,
+      delivery,
+      lock: true,
+      placement: input.operation.placement,
+    });
+    if (!placement) {
+      throw new Error("remote_agent.reply_placement_unavailable");
+    }
+    return personalRemoteAgentSpaceToolResponseSchema.parse({
+      kind: "reply_placement",
+      placement,
+    });
+  }
   if (input.operation.kind === "board") {
     return personalRemoteAgentSpaceToolResponseSchema.parse({
       kind: "board",
@@ -260,6 +276,11 @@ export async function runPersonalRemoteAgentSpaceTool(
     throw new Error("remote_agent.collaboration_limit_reached");
   }
   const operation = input.operation;
+  const placement = await resolveNativeDeliveryReplyPlacement({
+    env,
+    delivery,
+    lock: false,
+  });
   const target = directory.members.find(
     (member) => member.profileId === operation.agentProfileId
   );
@@ -294,6 +315,9 @@ export async function runPersonalRemoteAgentSpaceTool(
     }),
     spaceId: delivery.spaceId,
     text: input.operation.text,
+    ...(placement?.threadContext
+      ? { threadContext: placement.threadContext }
+      : {}),
   });
   return personalRemoteAgentSpaceToolResponseSchema.parse({
     kind: "wake",

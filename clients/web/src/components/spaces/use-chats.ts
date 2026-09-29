@@ -100,6 +100,10 @@ export function useChats(input: {
 			...chatsById.get(session.spaceId),
 			...session,
 			session: true,
+			centerAgentProfileId: session.centerAgentProfileId,
+			centerAgentAvatarStyle: directory.data?.agentProfiles.find(
+				(profile) => profile.profileId === session.centerAgentProfileId
+			)?.avatarStyle,
 			centerAgentProfileName: directory.data?.agentProfiles.find(
 				(profile) => profile.profileId === session.centerAgentProfileId
 			)?.profileName,

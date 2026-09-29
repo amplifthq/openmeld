@@ -60,6 +60,15 @@ export class GitWorkingCopyComputer {
       JSON.stringify(baselineEntries)
     );
   }
+  async readManifest(
+    location: GitWorkingCopyLocation,
+    name: "manifest.json" | "baseline.json"
+  ): Promise<string> {
+    return await this.api.readFile(
+      `${location.transportDirectory}/${name}`,
+      REMOTE_AGENT_GIT_MAX_TREE_BYTES
+    );
+  }
   async writeBlob(
     location: GitWorkingCopyLocation,
     sha: string,
@@ -70,8 +79,8 @@ export class GitWorkingCopyComputer {
       bytes
     );
   }
-  async prepare(location: GitWorkingCopyLocation) {
-    return await this.run(location, "prepare");
+  async prepare(location: GitWorkingCopyLocation, timeoutMs = 120_000) {
+    return await this.run(location, "prepare", undefined, timeoutMs);
   }
   async snapshot(location: GitWorkingCopyLocation, commit: string) {
     return await this.run(location, "snapshot", commit);
@@ -87,7 +96,8 @@ export class GitWorkingCopyComputer {
   private async run(
     location: GitWorkingCopyLocation,
     action: "prepare" | "snapshot" | "blob",
-    sha?: string
+    sha?: string,
+    timeoutMs = 120_000
   ) {
     const output = `${location.transportDirectory}/output-${crypto.randomUUID()}.json`;
     const request = remoteAgentGitNativeRequestSchema.parse({
@@ -104,15 +114,20 @@ export class GitWorkingCopyComputer {
       sha,
       output,
     });
-    this.signal?.throwIfAborted();
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = this.signal
+      ? AbortSignal.any([this.signal, timeoutSignal])
+      : timeoutSignal;
+    signal.throwIfAborted();
     const result = await this.api.exec(
       `python3 -c ${quote(GITHUB_WORKING_COPY_PROGRAM)} ${quote(JSON.stringify(request))}`,
       {
         backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-        signal: this.signal,
-        timeoutMs: 120_000,
+        signal,
+        timeoutMs,
       }
     );
+    signal.throwIfAborted();
     if (result.exitCode !== 0) {
       throw new Error(
         `github.checkout.computer_failed: ${result.stderr.slice(-1500)}`
@@ -217,7 +232,7 @@ def prepare():
     git(root, 'check-ref-format', baseline_ref)
     shas = list(dict.fromkeys(e['sha'] for e in entries + baseline_entries if e['type'] == 'blob'))
     missing = import_cached(root, shas)
-    if missing: return {'ready': False, 'remaining': len(missing), 'missing': missing[:32]}
+    if missing: return {'ready': False, 'remaining': len(missing), 'missing': missing[:256]}
     tree = make_tree(root, entries)
     if tree != request['sourceTree']: raise RuntimeError('Complete source tree does not match GitHub')
     baseline_tree = make_tree(root, baseline_entries)

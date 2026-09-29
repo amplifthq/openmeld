@@ -175,6 +175,7 @@ import { Route as OOrgSlugCenterAgentSkillsSkillIdRouteImport } from './routes/o
 import { Route as OOrgSlugPeoplePersonIdAgentsRouteImport } from './routes/o/$orgSlug/people_.$personId_.agents'
 import { Route as OOrgSlugSettingsComputersDeviceIdRouteImport } from './routes/o/$orgSlug/settings/computers.$deviceId'
 import { Route as V1PrepareSessionsPrepareSessionIdStreamRouteImport } from './routes/v1/prepare/sessions/$prepareSessionId/stream'
+import { Route as V1ProfilesAgentsProfileIdAvatarRouteImport } from './routes/v1/profiles/agents/$profileId/avatar'
 import { Route as OOrgSlugCenterAgentCenterAgentAppsServiceRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.apps.$service'
 import { Route as OOrgSlugCenterAgentCenterAgentPluginsServiceRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.plugins.$service'
 import { Route as OOrgSlugPeoplePersonIdAgentsAgentIdRouteImport } from './routes/o/$orgSlug/people_.$personId_.agents_.$agentId'
@@ -1069,6 +1070,12 @@ const V1PrepareSessionsPrepareSessionIdStreamRoute =
     path: '/v1/prepare/sessions/$prepareSessionId/stream',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1ProfilesAgentsProfileIdAvatarRoute =
+  V1ProfilesAgentsProfileIdAvatarRouteImport.update({
+    id: '/avatar',
+    path: '/avatar',
+    getParentRoute: () => V1ProfilesAgentsProfileIdRoute,
+  } as any)
 const OOrgSlugCenterAgentCenterAgentAppsServiceRoute =
   OOrgSlugCenterAgentCenterAgentAppsServiceRouteImport.update({
     id: '/$service',
@@ -1226,7 +1233,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
-  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
+  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/': typeof OOrgSlugCenterAgentIndexRoute
   '/o/$orgSlug/agent-activity/': typeof OOrgSlugAgentActivityIndexRoute
@@ -1252,6 +1259,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/people/$personId/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
+  '/v1/profiles/agents/$profileId/avatar': typeof V1ProfilesAgentsProfileIdAvatarRoute
   '/o/$orgSlug/center-agent/': typeof OOrgSlugCenterAgentCenterAgentIndexRoute
   '/o/$orgSlug/center-agent/skills/': typeof OOrgSlugCenterAgentSkillsIndexRoute
   '/o/$orgSlug/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
@@ -1386,7 +1394,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
-  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
+  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/agent-activity': typeof OOrgSlugAgentActivityIndexRoute
   '/o/$orgSlug/chats': typeof OOrgSlugChatsIndexRoute
@@ -1411,6 +1419,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/people/$personId/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
+  '/v1/profiles/agents/$profileId/avatar': typeof V1ProfilesAgentsProfileIdAvatarRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentIndexRoute
   '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentSkillsIndexRoute
   '/o/$orgSlug/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
@@ -1557,7 +1566,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
-  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
+  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRouteWithChildren
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/_center-agent/': typeof OOrgSlugCenterAgentIndexRoute
   '/o/$orgSlug/agent-activity/': typeof OOrgSlugAgentActivityIndexRoute
@@ -1583,6 +1592,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/people_/$personId_/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
+  '/v1/profiles/agents/$profileId/avatar': typeof V1ProfilesAgentsProfileIdAvatarRoute
   '/o/$orgSlug/_center-agent/center-agent/': typeof OOrgSlugCenterAgentCenterAgentIndexRoute
   '/o/$orgSlug/center-agent/skills/': typeof OOrgSlugCenterAgentSkillsIndexRoute
   '/o/$orgSlug/_center-agent/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
@@ -1755,6 +1765,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/people/$personId/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
+    | '/v1/profiles/agents/$profileId/avatar'
     | '/o/$orgSlug/center-agent/'
     | '/o/$orgSlug/center-agent/skills/'
     | '/o/$orgSlug/center-agent/apps/$service'
@@ -1914,6 +1925,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/people/$personId/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
+    | '/v1/profiles/agents/$profileId/avatar'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/center-agent/skills'
     | '/o/$orgSlug/center-agent/apps/$service'
@@ -2085,6 +2097,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/people_/$personId_/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
+    | '/v1/profiles/agents/$profileId/avatar'
     | '/o/$orgSlug/_center-agent/center-agent/'
     | '/o/$orgSlug/center-agent/skills/'
     | '/o/$orgSlug/_center-agent/center-agent/apps/$service'
@@ -3318,6 +3331,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1PrepareSessionsPrepareSessionIdStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/profiles/agents/$profileId/avatar': {
+      id: '/v1/profiles/agents/$profileId/avatar'
+      path: '/avatar'
+      fullPath: '/v1/profiles/agents/$profileId/avatar'
+      preLoaderRoute: typeof V1ProfilesAgentsProfileIdAvatarRouteImport
+      parentRoute: typeof V1ProfilesAgentsProfileIdRoute
+    }
     '/o/$orgSlug/_center-agent/center-agent/apps/$service': {
       id: '/o/$orgSlug/_center-agent/center-agent/apps/$service'
       path: '/$service'
@@ -3797,12 +3817,26 @@ const V1OrganizationsRouteWithChildren = V1OrganizationsRoute._addFileChildren(
   V1OrganizationsRouteChildren,
 )
 
+interface V1ProfilesAgentsProfileIdRouteChildren {
+  V1ProfilesAgentsProfileIdAvatarRoute: typeof V1ProfilesAgentsProfileIdAvatarRoute
+}
+
+const V1ProfilesAgentsProfileIdRouteChildren: V1ProfilesAgentsProfileIdRouteChildren =
+  {
+    V1ProfilesAgentsProfileIdAvatarRoute: V1ProfilesAgentsProfileIdAvatarRoute,
+  }
+
+const V1ProfilesAgentsProfileIdRouteWithChildren =
+  V1ProfilesAgentsProfileIdRoute._addFileChildren(
+    V1ProfilesAgentsProfileIdRouteChildren,
+  )
+
 interface V1ProfilesAgentsRouteChildren {
-  V1ProfilesAgentsProfileIdRoute: typeof V1ProfilesAgentsProfileIdRoute
+  V1ProfilesAgentsProfileIdRoute: typeof V1ProfilesAgentsProfileIdRouteWithChildren
 }
 
 const V1ProfilesAgentsRouteChildren: V1ProfilesAgentsRouteChildren = {
-  V1ProfilesAgentsProfileIdRoute: V1ProfilesAgentsProfileIdRoute,
+  V1ProfilesAgentsProfileIdRoute: V1ProfilesAgentsProfileIdRouteWithChildren,
 }
 
 const V1ProfilesAgentsRouteWithChildren =
