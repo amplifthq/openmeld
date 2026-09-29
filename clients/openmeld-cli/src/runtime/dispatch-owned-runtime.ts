@@ -29,6 +29,7 @@ import {
 const DISPATCH_OWNED_RUNTIME_CLI_SHIM_DIRNAME = "dispatch-owned-cli";
 const DISPATCH_SPACE_ACTION_CLI_SHIM_DIRNAME = "bin";
 const OPENMELD_ENV_PRESET_ENV = "OPENMELD_ENV_PRESET";
+const OPENSSL_CONF_ENV = "OPENSSL_CONF";
 const DISPATCH_OWNED_RUNTIME_CLI_COMMAND_NAMES = [
   "openmeld",
   "openmeld-dev",
@@ -64,9 +65,9 @@ export function buildDispatchOwnedRuntimeEnv(input: {
   const actionCommand = resolveDispatchOwnedRuntimeActionCliEntryCommand({
     env,
   });
-  const nativeWindowsBinary =
-    (input.platform ?? process.platform) === "win32" &&
-    (input.distribution ?? resolveOpenMeldDistribution()) === "binary";
+  const distribution = input.distribution ?? resolveOpenMeldDistribution();
+  const platform = input.platform ?? process.platform;
+  const nativeWindowsBinary = platform === "win32" && distribution === "binary";
   // Windows cannot CreateProcess a POSIX shim. The managed launcher is already
   // a native executable, and the dispatch identity remains in the child env.
   const actionCommandPath = nativeWindowsBinary
@@ -99,6 +100,9 @@ export function buildDispatchOwnedRuntimeEnv(input: {
     [OPENMELD_ENV_PRESET_ENV]: resolveDispatchOwnedRuntimeEnvPreset({
       env,
     }),
+    ...(platform !== "win32" && distribution !== "binary"
+      ? { [OPENSSL_CONF_ENV]: "/dev/null" }
+      : {}),
     ...(input.spaceActionContextPath
       ? {
           [OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]:
@@ -316,11 +320,7 @@ ${exportRows.join("\n")}
 exec ${quoteShellValue(input.cliEntryPath)} "$@"
 `;
   }
-  // A file-scoped Codex sandbox can execute this capability shim while denying
-  // Node's optional host OpenSSL configuration read. Set the override in the
-  // shebang so it applies before Node starts without asking a shell to read a
-  // script outside the task's file boundary.
-  return `#!/usr/bin/env -S OPENSSL_CONF=/dev/null node
+  return `#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 
 const result = spawnSync(${JSON.stringify(input.nodePath)}, [${JSON.stringify(
