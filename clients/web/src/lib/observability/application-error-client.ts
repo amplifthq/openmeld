@@ -170,7 +170,7 @@ function createApplicationErrorReport(
 		: -1;
 	const summary = summarizeApplicationError(error, resource);
 	const reactUpdateTrace =
-		summary.code === "react_update_depth" ? readRecentReactUpdates() : [];
+		summary.code === "react_update_depth" ? readRecentReactUpdates(error) : [];
 	return {
 		version: 1,
 		id: crypto.randomUUID(),
