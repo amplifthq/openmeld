@@ -11,6 +11,7 @@ import {
 	queryOptions,
 	replaceEqualDeep,
 } from "@tanstack/react-query";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
 import {
@@ -137,14 +138,19 @@ export function writeSpaceHistoryEnvelopesToCache(input: {
 
 	input.queryClient.setQueryData<SpaceHistorySnapshot>(
 		spaceQueryKeys.history(input.spaceId, input.openMeldProfileId),
-		(current) =>
-			mergeSpaceHistorySnapshots({
+		(current) => {
+			const merged = mergeSpaceHistorySnapshots({
 				current,
 				incoming: {
 					envelopes: input.envelopes,
 					nextCursor: current?.nextCursor ?? null,
 				},
-			})
+			});
+			if (merged !== current) {
+				recordReactUpdate("space_history_cache_write");
+			}
+			return merged;
+		}
 	);
 }
 

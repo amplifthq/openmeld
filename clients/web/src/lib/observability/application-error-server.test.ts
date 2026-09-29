@@ -86,7 +86,10 @@ describe("application error intake", () => {
 		const depthReport = {
 			...report,
 			error: { ...report.error, code: "react_update_depth" },
-			reactUpdateTrace: [{ event: "composer_draft_set", ageMs: 20 }],
+			reactUpdateTrace: [
+				{ event: "space_timeline_agent_controller_changed", ageMs: 20 },
+				{ event: "space_history_cache_write", ageMs: 18 },
+			],
 		};
 		expect((await receiveApplicationError(request(depthReport))).status).toBe(
 			204
