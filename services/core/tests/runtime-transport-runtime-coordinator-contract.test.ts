@@ -3960,6 +3960,83 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(spaceOnlyResponse.executionContext?.access).toBe("space_context");
   });
 
+  it("keeps an ordinary Codex Wake in the Profile's current working folder after context activation", async () => {
+    const { hub, storageRecords } = createContextHarness({
+      bindingControllerRef: "builtin:codex",
+    });
+    const firstRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({
+          agentControllerRef: "builtin:codex",
+          fingerprint: "a",
+        }),
+        contextRequest: {
+          required: false,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "auto" },
+        },
+      },
+    });
+    const firstResponse = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        firstRequest
+      )
+    ).json()) as {
+      status: string;
+      executionContext?: unknown;
+    };
+    expect(firstResponse.status).toBe("accepted");
+    expect(firstResponse.executionContext).toBeUndefined();
+
+    const firstHead = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        firstRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const firstSnapshot = firstHead.acceptedDispatchSnapshot;
+    if (!firstSnapshot) {
+      throw new Error("Expected an accepted ordinary Codex Wake");
+    }
+    const dispatchId = "dispatch-codex-ordinary-current-folder";
+    const identity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-codex-ordinary-current-folder",
+      dispatchId,
+      sourceSignalId: "signal-codex-ordinary-current-folder",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const plan = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...firstHead,
+          primaryDispatchId: dispatchId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: identity,
+          acceptedDispatchSnapshot: {
+            ...firstSnapshot,
+            payloadFingerprint: `sha256:${"b".repeat(64)}`,
+          },
+        },
+      })
+    );
+    expect(
+      plan.record.acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({ access: "workspace", workspace: "current" });
+  });
+
   it.each([
     "builtin:cursor",
     "builtin:grok-build",

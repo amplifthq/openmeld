@@ -346,7 +346,10 @@ at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 New work and forks may select a context explicitly. An ordinary Claude Code
 Wake in parallel mode implicitly selects a new isolated Space-only context when
 it has no retained context; a retained or explicitly Space-only context keeps
-its selected access. Every selection is scoped to the exact requester,
+its selected access. An ordinary Codex Wake with no retained context keeps the
+Profile's effective working folder through a current-folder workspace context;
+it never silently changes to a Space-only scratch directory merely because the
+Profile has already entered context mode. Every selection is scoped to the exact requester,
 Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
