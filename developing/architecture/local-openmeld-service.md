@@ -114,11 +114,15 @@ usable; older clients do not receive unsolicited acknowledgment frames.
 Only one Host may own an installation's execution resources. Before provider
 work starts, a private process-incarnation receipt records non-quiescence. A clean
 local drain clears that fence. After an unconfirmed owner loss, PID disappearance
-alone does not prove that its children or side effects ended. Replacement needs
-confirmed quiescence or trustworthy operating-system restart evidence; unknown
-or corrupt evidence remains an explicit recovery blocker. This receipt contains
-no task results or approvals and does not authorize replay. It is not a second
-execution ledger. There is no automatic hot adoption or restart of unknown work.
+alone does not prove that its children or side effects ended. The current receipt
+records the Host process identity and each provider-owned process tree before
+execution continues. A same-boot replacement is allowed only when that evidence
+is complete, the exact Host incarnation is gone, and every recorded provider
+process group or Windows job-backed root is gone. Missing process evidence,
+legacy receipts, and corrupt records remain blocked; trustworthy operating-system
+restart evidence is the fallback. This receipt contains no task results or
+approvals and does not authorize replay. It is not a second execution ledger.
+There is no automatic hot adoption or restart of unknown work.
 
 Cloud-result acknowledgment is separate from local quiescence. Stop and update
 readiness query the Host; they do not inspect another socket's private execution
