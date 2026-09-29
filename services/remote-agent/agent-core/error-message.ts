@@ -27,6 +27,8 @@ const TOOL_RESULT_TOO_LARGE_PATTERNS = [
   /\bsqlite_toobig\b/i,
   /\bstring or blob too big\b/i,
 ] as const;
+const ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PATTERN =
+  /^HTTP 403 organization_skill\.release_unavailable(?::|$)/u;
 
 export function normalizeRemoteAgentErrorMessage(error: unknown): string {
   return normalizeErrorMessage(error) ?? "unknown error";
@@ -40,6 +42,13 @@ export function isRemoteAgentToolResultTooLarge(error: unknown): boolean {
   const message = normalizeErrorMessage(error);
   return message
     ? TOOL_RESULT_TOO_LARGE_PATTERNS.some((pattern) => pattern.test(message))
+    : false;
+}
+
+export function isOrganizationSkillReleaseUnavailable(error: unknown): boolean {
+  const message = normalizeErrorMessage(error);
+  return message
+    ? ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PATTERN.test(message)
     : false;
 }
 

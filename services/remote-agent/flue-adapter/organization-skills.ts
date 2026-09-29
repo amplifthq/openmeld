@@ -65,6 +65,7 @@ export function createOrganizationSkillResourceTool(input: {
 }
 
 export function materializeOrganizationSkillFlueSkillsFromCatalog(input: {
+  allowUnavailableSelections?: boolean;
   expectedOrganizationId: string;
   selections: readonly OrganizationSkillRuntimeReleaseSelection[];
   catalog: unknown;
@@ -74,30 +75,40 @@ export function materializeOrganizationSkillFlueSkillsFromCatalog(input: {
   );
   if (
     catalog.organizationId !== input.expectedOrganizationId ||
-    catalog.releases.length !== input.selections.length
+    catalog.releases.length > input.selections.length ||
+    (!input.allowUnavailableSelections &&
+      catalog.releases.length !== input.selections.length)
   ) {
     throw new Error(
       "Organization Skill catalog does not match the admitted task."
     );
   }
-  const releasesByIdentity = new Map(
-    catalog.releases.map((release) => [buildReleaseIdentity(release), release])
+  const selectionsByIdentity = new Map(
+    input.selections.map((selection) => [
+      buildReleaseIdentity(selection),
+      selection,
+    ])
   );
-  if (releasesByIdentity.size !== catalog.releases.length) {
-    throw new Error("Organization Skill catalog contains a duplicate release.");
+  if (selectionsByIdentity.size !== input.selections.length) {
+    throw new Error(
+      "Organization Skill selection contains a duplicate release."
+    );
   }
-  return input.selections.map((selection) => {
-    const release = releasesByIdentity.get(buildReleaseIdentity(selection));
+  const seen = new Set<string>();
+  return catalog.releases.map((release) => {
+    const identity = buildReleaseIdentity(release);
+    const selection = selectionsByIdentity.get(identity);
     if (
-      !release ||
+      !selection ||
+      seen.has(identity) ||
       release.digest !== selection.digest ||
       release.portable.name !== selection.name
     ) {
       throw new Error(
-        `Organization Skill release ${selection.releaseId} does not match the admitted task.`
+        `Organization Skill release ${release.releaseId} does not match the admitted task.`
       );
     }
-    releasesByIdentity.delete(buildReleaseIdentity(selection));
+    seen.add(identity);
     const resources = release.files
       .map((file) => `- ${file.path} (${file.mediaType}, ${file.size} bytes)`)
       .join("\n");

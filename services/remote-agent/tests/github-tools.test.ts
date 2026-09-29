@@ -1353,7 +1353,29 @@ describe("Remote Agent GitHub tools", () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       testOpenConnectorSuccessResponse({
         actionId: "github.list_pull_requests",
-        data: { pull_requests: [{ number: 42, title: "Ship connector" }] },
+        data: {
+          pull_requests: Array.from({ length: 30 }, (_, index) => ({
+            number: 42 + index,
+            title: "Ship connector",
+            body: "x".repeat(8000),
+            head: {
+              ref: "feature",
+              sha: "head-sha",
+              repo: {
+                full_name: "contributor/fork",
+                description: "x".repeat(6000),
+              },
+            },
+            base: {
+              ref: "main",
+              sha: "base-sha",
+              repo: {
+                full_name: "openmeld/app",
+                description: "x".repeat(6000),
+              },
+            },
+          })),
+        },
         executionId: "run-1",
         outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
@@ -1407,6 +1429,25 @@ describe("Remote Agent GitHub tools", () => {
       },
       status: "completed",
     });
+    const pullRequests = (
+      result as { data: { pull_requests: Record<string, unknown>[] } }
+    ).data.pull_requests;
+    expect(pullRequests).toHaveLength(30);
+    expect(pullRequests[0]).toMatchObject({
+      number: 42,
+      head: {
+        ref: "feature",
+        sha: "head-sha",
+        repo: { full_name: "contributor/fork" },
+      },
+      base: {
+        ref: "main",
+        sha: "base-sha",
+        repo: { full_name: "openmeld/app" },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("x".repeat(6000));
+    expect(JSON.stringify(result).length).toBeLessThan(128 * 1024);
     expect(info).toHaveBeenCalledWith(
       "[remote_agent.connector_action_completed]",
       expect.objectContaining({
@@ -1417,6 +1458,74 @@ describe("Remote Agent GitHub tools", () => {
       })
     );
     info.mockRestore();
+  });
+
+  it.each([
+    {
+      actionId: "github.list_repository_issues",
+      toolName: "github_list_repository_issues" as RemoteAgentGitHubToolName,
+      data: {
+        issues: [
+          {
+            number: 7,
+            title: "Fix setup",
+            body: "details",
+            user: { login: "felix", large: "x".repeat(6000) },
+          },
+        ],
+        pageInfo: { fetched: 2 },
+      },
+      expected: {
+        issues: [{ number: 7, user: { login: "felix" } }],
+        pageInfo: { fetched: 2 },
+      },
+    },
+    {
+      actionId: "github.list_commits",
+      toolName: "github_list_commits" as RemoteAgentGitHubToolName,
+      data: {
+        commits: [
+          {
+            sha: "abc123",
+            commit: { message: "Fix setup", tree: { huge: "x".repeat(6000) } },
+          },
+        ],
+      },
+      expected: { commits: [{ sha: "abc123", message: "Fix setup" }] },
+    },
+  ])("keeps $actionId summaries small without losing pagination", async ({
+    actionId,
+    toolName,
+    data,
+    expected,
+  }) => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorage(request);
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        runtimeToken: "test-runtime-token",
+        baseUrl: "https://connectors.example.test",
+        fetch: vi.fn<typeof fetch>(async () =>
+          testOpenConnectorSuccessResponse({
+            actionId,
+            data,
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+          })
+        ),
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Felix", userId: "user_1" })
+        ),
+      },
+      storage,
+    });
+    const result = await executeTool(tools, toolName, {
+      owner: "openmeld",
+      repo: "app",
+    });
+    expect(result).toMatchObject({ data: expected, status: "completed" });
+    expect(JSON.stringify(result)).not.toContain("x".repeat(6000));
   });
 
   it.each([

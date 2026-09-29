@@ -118,6 +118,7 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
@@ -514,6 +515,7 @@ describe("remote agent Flue capability inventory", () => {
     expect(names).toContain("openmeld_draft_org_document");
     expect(names).toEqual([
       "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
         (name) =>
           !REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES.some(
@@ -609,6 +611,7 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...expectedOpenMeldToolNames,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
@@ -640,6 +643,7 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
         (name) =>
           name !== "openmeld_remember_for_organization" &&
@@ -676,6 +680,7 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       "openmeld_report_progress",
+      "openmeld_read_tool_result",
       ...REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
