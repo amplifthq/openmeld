@@ -585,7 +585,14 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				resizeHandleLabel="Resize Thread panel"
 				width={panelWidth.width}
 			>
-				<ThreadPanelHeader onClose={input.onClose} />
+				<ThreadPanelHeader
+					onClose={input.onClose}
+					onGoToMessage={
+						activeThreadRootSignalId && input.onShowMessageInMain
+							? () => input.onShowMessageInMain?.(activeThreadRootSignalId)
+							: undefined
+					}
+				/>
 				{renderThreadFocusStatus(focusStatusMessage)}
 				<ThreadTimeline
 					actionableAgentInteractionPlacement={resolveSpaceAgentInteractionPlacement(
@@ -1171,6 +1178,7 @@ function ThreadTimeline(input: {
 	>;
 	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
 }) {
+	const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
 	const wakeProblemSourceSignalIds = useMemo(
 		() =>
 			buildWakeProblemSourceSignalIds({
@@ -1192,9 +1200,12 @@ function ThreadTimeline(input: {
 
 	return (
 		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
-			<SpaceMessageScrollController actionRef={input.messageScrollActionRef} />
+			<SpaceMessageScrollController
+				actionRef={input.messageScrollActionRef}
+				scrollElement={scrollElement}
+			/>
 			<MessageScroller className="min-h-0 flex-1">
-				<MessageScrollerViewport className="px-4 py-4">
+				<MessageScrollerViewport className="px-4 py-4" ref={setScrollElement}>
 					<SpaceMessageReadObserver
 						key={input.readScopeKey}
 						onViewedThroughTs={input.onViewedThroughTs}

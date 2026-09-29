@@ -145,6 +145,7 @@ import { SpaceConversationCompactionMarker } from "./space-conversation-compacti
 import { resolveLocalDateKey } from "./space-conversation-date";
 import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import {
+	getSpaceMessageJumpSpacer,
 	SpaceConversationSendScrollController,
 	type SpaceMessageScrollAction,
 	SpaceMessageScrollController,
@@ -418,6 +419,7 @@ type SpaceUnreadNavigationState = {
 const EMPTY_SPACE_UNREAD_NAVIGATION_STATE: SpaceUnreadNavigationState = {
 	targets: [],
 };
+const SPACE_CONVERSATION_END_THRESHOLD_PX = 48;
 
 type SpaceSetupGuidanceSlots = {
 	banner: ReactNode;
@@ -825,6 +827,7 @@ function SpaceConversationPanelContent(
 						key={buildSpaceConversationScrollRestorationId(
 							input.spaceId ?? input.spaceViewIdPrefix
 						)}
+						scrollEdgeThreshold={SPACE_CONVERSATION_END_THRESHOLD_PX}
 					>
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
@@ -879,6 +882,19 @@ function SpaceConversationPanelContent(
 									const conversationScrollElement = event.currentTarget;
 									onConversationScroll(conversationScrollElement);
 									requestUnreadMeasurement();
+									const historyWindow = input.historyNavigation?.activeWindow;
+									if (
+										historyWindow?.confirmedAtLiveTail &&
+										!historyWindow.hasAfter &&
+										!getSpaceMessageJumpSpacer(conversationScrollElement) &&
+										conversationScrollElement.scrollHeight -
+											conversationScrollElement.clientHeight -
+											conversationScrollElement.scrollTop <=
+											SPACE_CONVERSATION_END_THRESHOLD_PX
+									) {
+										input.historyNavigation?.latest();
+										followLatest();
+									}
 									if (conversationScrollElement.scrollTop > 48) {
 										return;
 									}
@@ -935,7 +951,10 @@ function SpaceConversationPanelContent(
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
-									<LoadNewerMessagesControl history={input.historyNavigation} />
+									<LoadNewerMessagesControl
+										history={input.historyNavigation}
+										scrollElement={conversationScrollElement}
+									/>
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
 							{!input.historyNavigation && (
@@ -3821,33 +3840,94 @@ function isModifiedNavigationClick(event: {
 
 function LoadNewerMessagesControl(input: {
 	history?: SpaceHistoryNavigationController;
+	scrollElement: HTMLElement | null;
 }) {
-	if (!input.history?.activeWindow?.hasAfter) {
+	const requestedSignalIdRef = useRef<string | null>(null);
+	const lastSignalId = input.history?.activeWindow?.envelopes.at(-1)?.id;
+	const hasAfter = input.history?.activeWindow?.hasAfter;
+	const pending = input.history?.pending;
+	const pendingDirection = input.history?.pendingDirection;
+	const error =
+		input.history?.errorDirection === "after" ? input.history.error : null;
+	useEffect(() => {
+		const scrollElement = input.scrollElement;
+		if (!hasAfter) {
+			requestedSignalIdRef.current = null;
+		}
+		if (!(scrollElement && hasAfter && !pending && !error)) {
+			return;
+		}
+		const loadWhenNearEnd = () => {
+			if (scrollElement.clientHeight <= 0) {
+				return;
+			}
+			const remaining =
+				scrollElement.scrollHeight -
+				scrollElement.clientHeight -
+				scrollElement.scrollTop;
+			if (
+				lastSignalId &&
+				requestedSignalIdRef.current !== lastSignalId &&
+				remaining <= Math.max(240, scrollElement.clientHeight / 2)
+			) {
+				requestedSignalIdRef.current = lastSignalId;
+				input.history?.loadAfter().then((loaded) => {
+					if (!loaded && requestedSignalIdRef.current === lastSignalId) {
+						requestedSignalIdRef.current = null;
+					}
+				});
+			}
+		};
+		scrollElement.addEventListener("scroll", loadWhenNearEnd, {
+			passive: true,
+		});
+		loadWhenNearEnd();
+		return () => scrollElement.removeEventListener("scroll", loadWhenNearEnd);
+	}, [
+		input.history,
+		input.scrollElement,
+		hasAfter,
+		lastSignalId,
+		pending,
+		error,
+	]);
+	if (!hasAfter) {
 		return null;
 	}
-	const href = input.history.newerHref;
+	if (!error) {
+		return pending && pendingDirection === "after" ? (
+			<output className="mx-auto mt-4 mb-16 text-muted-foreground text-sm">
+				Loading newer messages…
+			</output>
+		) : null;
+	}
+	const history = input.history;
+	if (!history) {
+		return null;
+	}
+	const href = history.newerHref;
 	return (
 		<Button
 			className="mx-auto mt-4 mb-16"
-			disabled={input.history.pending}
+			disabled={history.pending}
 			nativeButton={!href}
 			onClick={(event) => {
 				if (href && isModifiedNavigationClick(event)) {
 					return;
 				}
 				event.preventDefault();
-				input.history?.loadAfter();
+				history.loadAfter();
 			}}
 			render={
 				href ? (
 					<a href={href}>
-						<span className="sr-only">Load newer messages</span>
+						<span className="sr-only">Retry loading newer messages</span>
 					</a>
 				) : undefined
 			}
 			variant="ghost"
 		>
-			Load newer messages
+			Retry loading newer messages
 		</Button>
 	);
 }

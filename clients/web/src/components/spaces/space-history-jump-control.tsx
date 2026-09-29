@@ -68,7 +68,12 @@ export function SpaceHistoryJumpControl({
 		historyReservation?: SpaceHistoryLatestReservation
 	) => {
 		if (historyReservation) {
-			return await historyReservation.navigate();
+			try {
+				return await historyReservation.navigate();
+			} finally {
+				// The scroller owns jump space, even if loading the live tail fails.
+				scrollToEnd({ behavior: "auto" });
+			}
 		}
 		const behavior = onPrepareCatchUpUnread || reduceMotion ? "auto" : "smooth";
 		scrollToEnd({ behavior });
@@ -82,6 +87,9 @@ export function SpaceHistoryJumpControl({
 			return;
 		}
 		const historyReservation = history?.reserveLatest();
+		// The button leaves the temporary centered view immediately, even when
+		// loading the live tail has to wait or fails.
+		scrollToEnd({ behavior: "auto" });
 		if (!onPrepareCatchUpUnread) {
 			await navigateToLatest(historyReservation);
 			return;
@@ -187,6 +195,7 @@ export function SpaceHistoryJumpControl({
 										nativeButton={!history?.latestHref}
 										onClick={(event) => {
 											if (history?.latestHref) {
+												scrollToEnd({ behavior: "auto" });
 												return;
 											}
 											event.preventDefault();
