@@ -10,9 +10,11 @@ import {
   diagnoseSpaceIndexProjectionDrift,
   listAccountSpaceIdsFromSpaceIndex,
   listAccountSpacesFromSpaceIndex,
+  listCenterAgentSessionIndexRows,
   listOrganizationSpacesFromSpaceIndex,
   readSpaceIndexOrganizationJoinTarget,
 } from "../src/space-index/space-index-repository";
+import { projectSpaceMessagePreview } from "../src/space-index/space-message-preview";
 import {
   applyDrizzleMigrationsForTables,
   createSqliteD1Harness,
@@ -561,10 +563,35 @@ describe("space index AccountSpaces read model", () => {
         ],
       });
 
+      const projectedPreview = {
+        signalId: "signal-ordinary-dm",
+        profileId: "human-1",
+        timestamp: Date.parse("2026-04-12T00:00:00.000Z"),
+        text: "Latest ordinary message",
+      };
+      await projectSpaceMessagePreview({
+        db: harness.db,
+        spaceId: "space-ordinary-agent-dm",
+        revision: 1,
+        preview: projectedPreview,
+      });
+      await projectSpaceMessagePreview({
+        db: harness.db,
+        spaceId: "space-center-agent-dm",
+        revision: 1,
+        preview: {
+          signalId: "signal-center-agent-dm",
+          profileId: "agent-center",
+          timestamp: Date.parse("2026-04-13T00:00:00.000Z"),
+          text: "Center Agent reply",
+        },
+      });
+
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
         includeDirectMessageProfileIds: true,
+        includeMessagePreviews: true,
         limit: 10,
         ownerUserId: "owner-1",
         scope: "account",
@@ -577,6 +604,37 @@ describe("space index AccountSpaces read model", () => {
       expect(accountSpaces.spaceItems[0]?.directMessageProfileIds).toEqual([
         "agent-helper",
         "human-1",
+      ]);
+      expect(accountSpaces.spaceItems[0]?.messagePreview).toEqual(
+        projectedPreview
+      );
+      const sessions = await listCenterAgentSessionIndexRows({
+        db: harness.db,
+        organizationId: "org-1",
+        pairKey: "agent-center:human-1",
+        limit: 10,
+      });
+      expect(sessions).toMatchObject([
+        {
+          spaceId: "space-center-agent-dm",
+          messagePreview: { text: "Center Agent reply" },
+        },
+      ]);
+      await projectSpaceMessagePreview({
+        db: harness.db,
+        spaceId: "space-center-agent-dm",
+        revision: 2,
+        preview: null,
+      });
+      expect(
+        await listCenterAgentSessionIndexRows({
+          db: harness.db,
+          organizationId: "org-1",
+          pairKey: "agent-center:human-1",
+          limit: 10,
+        })
+      ).toMatchObject([
+        { spaceId: "space-center-agent-dm", messagePreview: null },
       ]);
     } finally {
       harness.close();

@@ -641,7 +641,13 @@ describe("CenterAgentSettingsContent", () => {
 	it("opens the Center Agent DM and pauses all current Center Agent tasks after confirmation", async () => {
 		renderSettings({ canManage: true });
 
-		fireEvent.click(await screen.findByRole("button", { name: "Message" }));
+		const messageButton = await screen.findByRole("button", {
+			name: "Message",
+		});
+		await waitFor(() =>
+			expect(messageButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(messageButton);
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
 				to: "/o/acme/spaces/space-dm-1",

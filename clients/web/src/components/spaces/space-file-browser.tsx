@@ -57,7 +57,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import type { FileSystemItem } from "#/components/extend/file-system";
+import { mayShowCachedReadData } from "#/lib/query-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	formatFileSize,
@@ -74,6 +77,10 @@ const FileSystem = lazy(() =>
 	}))
 );
 
+function DelayedSpaceFilesSkeleton() {
+	return useDelayedPending(true) ? <SpaceFilesSkeleton /> : null;
+}
+
 export function SpaceFileBrowser(input: {
 	actionError: string | null;
 	api: Pick<SpaceApi, "downloadFileContent">;
@@ -84,6 +91,7 @@ export function SpaceFileBrowser(input: {
 	error: unknown;
 	fileInputRef: RefObject<HTMLInputElement | null>;
 	isPending: boolean;
+	isPaused: boolean;
 	loaded: boolean;
 	onDismissError: () => void;
 	onMove: (entry: SpaceFileEntry) => void;
@@ -105,6 +113,8 @@ export function SpaceFileBrowser(input: {
 	onViewChange: (view: "active" | "trash") => void;
 }) {
 	const [fileDragDepth, setFileDragDepth] = useState(0);
+	const showCachedReadError =
+		input.loaded && input.error && mayShowCachedReadData(input.error);
 	const acceptingDrop = input.canWrite && input.view === "active";
 	const fileDragActive = acceptingDrop && fileDragDepth > 0;
 	const enterFileDrag = (event: DragEvent<HTMLElement>) => {
@@ -237,7 +247,8 @@ export function SpaceFileBrowser(input: {
 			api={input.api}
 			canWrite={input.canWrite}
 			entries={input.entries}
-			error={input.error}
+			error={showCachedReadError ? null : input.error}
+			isPaused={input.isPaused}
 			isPending={input.isPending}
 			onCopy={input.onCopy}
 			onMove={input.onMove}
@@ -347,6 +358,14 @@ export function SpaceFileBrowser(input: {
 					</Button>
 				</div>
 			) : null}
+			{showCachedReadError ? (
+				<output className="flex flex-wrap items-center justify-between gap-3 border-border/70 border-b bg-card/35 px-5 py-3 text-sm">
+					<span>Couldn't refresh Files. Showing the last loaded list.</span>
+					<Button onClick={input.onRetry} size="sm" variant="outline">
+						Retry
+					</Button>
+				</output>
+			) : null}
 			{input.view === "active" ? (
 				<div className="min-h-0 flex-1 p-5">{browserContent}</div>
 			) : (
@@ -369,6 +388,7 @@ function SpaceFileBrowserContent(input: {
 	entries: readonly SpaceFileEntry[];
 	error: unknown;
 	isPending: boolean;
+	isPaused: boolean;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onMove: (entry: SpaceFileEntry) => void;
 	onCopy?: (entry: SpaceFileDescriptor, destination: "team" | "my") => void;
@@ -389,8 +409,20 @@ function SpaceFileBrowserContent(input: {
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => setMounted(true), []);
 	const selectedEntry = input.entries.find((entry) => entry.id === selectedId);
+	const showPending = useDelayedPending(input.isPending && !input.isPaused);
+	let pendingEmptyContent: ReactNode;
+	if (input.isPending) {
+		pendingEmptyContent = input.isPaused ? (
+			<ReadPausedState subject="Files" />
+		) : (
+			<div className="min-h-64" />
+		);
+	}
 	if (input.isPending && input.view === "trash") {
-		return <SpaceFilesSkeleton />;
+		if (input.isPaused) {
+			return <ReadPausedState subject="Files" />;
+		}
+		return showPending ? <SpaceFilesSkeleton /> : null;
 	}
 	if (input.error && input.view === "trash") {
 		return <SpaceFilesLoadError error={input.error} onRetry={input.onRetry} />;
@@ -462,10 +494,11 @@ function SpaceFileBrowserContent(input: {
 					}}
 				>
 					{mounted ? (
-						<Suspense fallback={<SpaceFilesSkeleton />}>
+						<Suspense fallback={<DelayedSpaceFilesSkeleton />}>
 							<FileSystem
 								className="h-[min(65vh,48rem)] min-h-96"
 								embedded
+								emptyContent={pendingEmptyContent}
 								errorContent={
 									input.error ? (
 										<SpaceFilesLoadError
@@ -479,7 +512,7 @@ function SpaceFileBrowserContent(input: {
 										/>
 									) : undefined
 								}
-								isLoading={input.isPending}
+								isLoading={input.isPending && !input.isPaused && showPending}
 								items={items}
 								onEntryContextMenu={(item) =>
 									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
@@ -517,7 +550,7 @@ function SpaceFileBrowserContent(input: {
 							/>
 						</Suspense>
 					) : (
-						<SpaceFilesSkeleton />
+						<DelayedSpaceFilesSkeleton />
 					)}
 				</ContextMenuTrigger>
 				{selectedEntry || input.canWrite ? (

@@ -167,6 +167,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				entries={filesQuery.data?.entries ?? []}
 				error={filesQuery.isError ? filesQuery.error : null}
 				fileInputRef={fileInputRef}
+				isPaused={filesQuery.fetchStatus === "paused"}
 				isPending={filesQuery.isPending}
 				loaded={filesQuery.data !== undefined}
 				onCopy={

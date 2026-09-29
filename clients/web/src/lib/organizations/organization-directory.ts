@@ -47,15 +47,22 @@ export async function readCurrentOrganizationDirectory(input: {
 export async function readCurrentOrganizationProfileDirectory(input: {
 	organizationId: string;
 	signal?: AbortSignal;
+	identityOnly?: boolean;
 }): Promise<OrganizationProfileDirectoryResponse> {
-	const query = new URLSearchParams({
-		[ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER]: "true",
-		[ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER]:
-			"true",
-		[ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER]:
-			"true",
-		[ORGANIZATION_DIRECTORY_INCLUDE_AGENT_AVATARS_QUERY_PARAMETER]: "true",
-	});
+	const query = new URLSearchParams(
+		input.identityOnly
+			? {}
+			: {
+					[ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER]:
+						"true",
+					[ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER]:
+						"true",
+					[ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER]:
+						"true",
+					[ORGANIZATION_DIRECTORY_INCLUDE_AGENT_AVATARS_QUERY_PARAMETER]:
+						"true",
+				}
+	);
 	try {
 		return await createOrganizationScopedWebOpenMeldApiFoundation({
 			organizationId: input.organizationId,

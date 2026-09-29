@@ -377,7 +377,8 @@ export function CenterAgentSettingsContent(input: {
 					canManage={input.roleState.canManage && !input.roleState.isPending}
 					disableMessage={
 						dmMutation.isPending ||
-						operatingStateQuery.data?.operatingState === "paused"
+						operatingStateQuery.isError ||
+						operatingStateQuery.data?.operatingState !== "active"
 					}
 					onMessage={() => dmMutation.mutate()}
 					onSaveAvatar={async (avatarStyle) => {
@@ -386,7 +387,11 @@ export function CenterAgentSettingsContent(input: {
 						}
 						await updateProfileMutation.mutateAsync({ avatarStyle });
 					}}
-					operatingState={operatingStateQuery.data?.operatingState ?? "active"}
+					operatingState={
+						operatingStateQuery.isError
+							? null
+							: (operatingStateQuery.data?.operatingState ?? null)
+					}
 					profile={designatedProfile}
 					savingAvatar={updateProfileMutation.isPending}
 				/>
@@ -581,7 +586,9 @@ export function CenterAgentSettingsContent(input: {
 						onPause={() => operatingStateMutation.mutate("paused")}
 						onResume={() => operatingStateMutation.mutate("active")}
 						operatingState={
-							operatingStateQuery.data?.operatingState ?? "active"
+							operatingStateQuery.isError
+								? null
+								: (operatingStateQuery.data?.operatingState ?? null)
 						}
 					/>
 					<CenterAgentOperatingStateErrorState
@@ -753,13 +760,17 @@ function CenterAgentConnectionSection(input: {
 	savingAvatar: boolean;
 	disableMessage: boolean;
 	onMessage: () => void;
-	operatingState: "active" | "paused";
+	operatingState: "active" | "paused" | null;
 	profile: DirectoryAgentProfile;
 }) {
-	const status =
-		input.operatingState === "paused"
-			? "Paused"
-			: resolveCenterAgentConnectionStatus(input.profile);
+	let status:
+		| keyof typeof CENTER_AGENT_STATUS_BADGE_CLASS_NAMES
+		| "Status unavailable" = "Status unavailable";
+	if (input.operatingState === "paused") {
+		status = "Paused";
+	} else if (input.operatingState === "active") {
+		status = resolveCenterAgentConnectionStatus(input.profile);
+	}
 	return (
 		<section className="space-y-3 py-1">
 			<p className="text-muted-foreground text-xs">Center Agent settings</p>
@@ -782,7 +793,7 @@ function CenterAgentConnectionSection(input: {
 							@{input.profile.profileHandle}
 						</p>
 						<Badge
-							className={`mt-3 ${CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]}`}
+							className={`mt-3 ${status === "Status unavailable" ? resolveStatusToneProminentBadgeClassName("muted") : CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]}`}
 						>
 							{status}
 						</Badge>
@@ -878,10 +889,24 @@ function CenterAgentDangerSection(input: {
 	disableChange: boolean;
 	onPause: () => void;
 	onResume: () => void;
-	operatingState: "active" | "paused";
+	operatingState: "active" | "paused" | null;
 }) {
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const isPaused = input.operatingState === "paused";
+	let heading = "Operating state unavailable";
+	let description = "Check the Agent's state before changing it.";
+	let actionLabel = "Unavailable";
+	if (input.operatingState === "paused") {
+		heading = "Center Agent is paused";
+		description =
+			"It cannot start or continue tasks in OpenMeld, Slack, or connected channels until an Organization owner or admin resumes it.";
+		actionLabel = "Resume";
+	} else if (input.operatingState === "active") {
+		heading = "Pause Center Agent";
+		description =
+			"Stops every task currently interacting with the Center Agent across the organization and rejects new tasks until it is resumed.";
+		actionLabel = "Pause";
+	}
 	return (
 		<section className="overflow-hidden rounded-md border border-destructive/40 bg-destructive/5">
 			<div className="border-destructive/30 border-b px-5 py-4">
@@ -889,14 +914,8 @@ function CenterAgentDangerSection(input: {
 			</div>
 			<div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
 				<div className="min-w-0">
-					<p className="font-medium text-foreground text-sm">
-						{isPaused ? "Center Agent is paused" : "Pause Center Agent"}
-					</p>
-					<p className="mt-1 text-muted-foreground text-sm">
-						{isPaused
-							? "It cannot start or continue tasks in OpenMeld, Slack, or connected channels until an Organization owner or admin resumes it."
-							: "Stops every task currently interacting with the Center Agent across the organization and rejects new tasks until it is resumed."}
-					</p>
+					<p className="font-medium text-foreground text-sm">{heading}</p>
+					<p className="mt-1 text-muted-foreground text-sm">{description}</p>
 					{input.canChangeOperatingState ? null : (
 						<p className="mt-2 text-muted-foreground text-xs">
 							Only Organization owners and admins can pause the Center Agent.
@@ -922,7 +941,7 @@ function CenterAgentDangerSection(input: {
 						) : (
 							<PauseCircleIcon aria-hidden="true" data-icon="inline-start" />
 						)}
-						{isPaused ? "Resume" : "Pause"}
+						{actionLabel}
 					</Button>
 				) : null}
 			</div>

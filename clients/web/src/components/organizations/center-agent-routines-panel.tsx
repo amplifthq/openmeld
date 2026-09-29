@@ -15,11 +15,15 @@ import {
 } from "@openmeld/ui/fluid/shared-layout-group";
 import { CalendarDotsIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import { formatCenterAgentInteractionClient } from "#/lib/organizations/center-agent-interaction-source";
 import { formatRoutineTimestamp } from "#/lib/organizations/center-agent-routine-presentation";
 import { resolveCenterAgentRoutineErrorMessage } from "#/lib/organizations/center-agent-routines";
+import { mayShowCachedReadData } from "#/lib/query-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { centerAgentRoutinesQueryOptions } from "#/query/organizations/center-agent-routines";
 import { CenterAgentRoutineDeleteDialog } from "./center-agent-routine-delete-dialog";
 import {
@@ -54,6 +58,98 @@ export function CenterAgentRoutinesPanel(input: {
 			organizationId={input.organizationId}
 			orgSlug={input.orgSlug}
 		/>
+	);
+}
+
+function RoutinesReadGate(input: {
+	error: unknown;
+	isPending: boolean;
+	isPaused: boolean;
+	isRefetching: boolean;
+	onRetry: () => void;
+	pageHeader: ReactNode;
+}) {
+	const showPending = useDelayedPending(input.isPending && !input.isPaused);
+	if (input.isPending) {
+		return (
+			<div className="flex flex-col gap-6">
+				{input.pageHeader}
+				{input.isPaused ? <ReadPausedState subject="Routines" /> : null}
+				{showPending ? (
+					<SkeletonRows
+						className="rounded-md border border-border/70 p-4"
+						label="Loading routines"
+					/>
+				) : null}
+			</div>
+		);
+	}
+	return (
+		<div className="flex flex-col gap-6">
+			{input.pageHeader}
+			<section
+				aria-labelledby="routines-error-title"
+				className="rounded-md border border-destructive/50 bg-destructive/5 p-5"
+			>
+				<h2
+					className="font-medium text-foreground text-sm"
+					id="routines-error-title"
+				>
+					Could not load routines
+				</h2>
+				<p className="mt-2 break-words text-destructive text-sm" role="alert">
+					{resolveCenterAgentRoutineErrorMessage(input.error, "list")}
+				</p>
+				<Button
+					className="mt-4"
+					disabled={input.isRefetching}
+					onClick={input.onRetry}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					Retry
+				</Button>
+			</section>
+		</div>
+	);
+}
+
+function RoutinesRefreshNotice(input: {
+	isFetching: boolean;
+	isRefetchError: boolean;
+	onRetry: () => void;
+}) {
+	if (!input.isRefetchError) {
+		return null;
+	}
+	return (
+		<output className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-card/35 px-4 py-3 text-sm">
+			<span>Couldn't refresh Routines. Showing the last loaded list.</span>
+			<Button
+				disabled={input.isFetching}
+				onClick={input.onRetry}
+				size="sm"
+				variant="outline"
+			>
+				Retry
+			</Button>
+		</output>
+	);
+}
+
+function MissingLinkedRoutineNotice(input: {
+	focusRoutineId?: string | null;
+	focusRunId?: string | null;
+	hasFocusedRoutine: boolean;
+}) {
+	if (!(input.focusRoutineId && !input.hasFocusedRoutine)) {
+		return null;
+	}
+	return (
+		<output className="rounded-md border border-border/70 p-4 text-muted-foreground text-sm">
+			This Routine is no longer available. Its Run ID is {input.focusRunId}.
+		</output>
 	);
 }
 
@@ -213,67 +309,46 @@ function CenterAgentRoutinesPanelContent(input: {
 			showActions={Boolean(routinesQuery.data?.routines.length)}
 		/>
 	);
-	if (routinesQuery.isPending) {
+	if (
+		!routinesQuery.data ||
+		(routinesQuery.isError && !mayShowCachedReadData(routinesQuery.error))
+	) {
 		return (
-			<div className="flex flex-col gap-6">
-				{pageHeader}
-				<SkeletonRows
-					className="rounded-md border border-border/70 p-4"
-					label="Loading routines"
-				/>
-			</div>
+			<RoutinesReadGate
+				error={routinesQuery.error}
+				isPaused={routinesQuery.fetchStatus === "paused"}
+				isPending={routinesQuery.isPending}
+				isRefetching={routinesQuery.isRefetching}
+				onRetry={() => {
+					routinesQuery.refetch().catch((error) => {
+						console.error("Failed to refresh Center Agent routines.", error);
+					});
+				}}
+				pageHeader={pageHeader}
+			/>
 		);
 	}
+	const missingLinkedRoutineNotice = (
+		<MissingLinkedRoutineNotice
+			focusRoutineId={input.focusRoutineId}
+			focusRunId={input.focusRunId}
+			hasFocusedRoutine={Boolean(focusedRoutine)}
+		/>
+	);
 
-	if (routinesQuery.isError) {
-		return (
-			<div className="flex flex-col gap-6">
-				{pageHeader}
-				<section
-					aria-labelledby="routines-error-title"
-					className="rounded-md border border-destructive/50 bg-destructive/5 p-5"
-				>
-					<h2
-						className="font-medium text-foreground text-sm"
-						id="routines-error-title"
-					>
-						Could not load routines
-					</h2>
-					<p className="mt-2 break-words text-destructive text-sm" role="alert">
-						{resolveCenterAgentRoutineErrorMessage(routinesQuery.error, "list")}
-					</p>
-					<Button
-						className="mt-4"
-						disabled={routinesQuery.isRefetching}
-						onClick={() => {
-							routinesQuery.refetch().catch((error) => {
-								console.error(
-									"Failed to refresh Center Agent routines.",
-									error
-								);
-							});
-						}}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						Retry
-					</Button>
-				</section>
-			</div>
-		);
-	}
-	const missingLinkedRoutineNotice =
-		input.focusRoutineId && !focusedRoutine ? (
-			<output className="rounded-md border border-border/70 p-4 text-muted-foreground text-sm">
-				This Routine is no longer available. Its Run ID is {input.focusRunId}.
-			</output>
-		) : null;
+	const refreshNotice = (
+		<RoutinesRefreshNotice
+			isFetching={routinesQuery.isFetching}
+			isRefetchError={routinesQuery.isRefetchError}
+			onRetry={() => routinesQuery.refetch()}
+		/>
+	);
 
 	if (routinesQuery.data.routines.length === 0) {
 		return (
 			<div className="flex flex-col gap-6">
 				{pageHeader}
+				{refreshNotice}
 				{missingLinkedRoutineNotice}
 				<CenterAgentSelfEvolutionCard
 					currentUserId={input.currentUserId}
@@ -303,6 +378,7 @@ function CenterAgentRoutinesPanelContent(input: {
 	return (
 		<div className="flex flex-col gap-6">
 			{pageHeader}
+			{refreshNotice}
 			{missingLinkedRoutineNotice}
 			<CenterAgentSelfEvolutionCard
 				currentUserId={input.currentUserId}

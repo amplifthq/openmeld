@@ -9,8 +9,11 @@ import {
 	FlowArrowIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { mayShowCachedReadData } from "#/lib/query-display";
 import { buildSpaceMessageFocusHref } from "#/lib/spaces/thread-navigation";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { SpaceTasksSkeleton } from "./space-panel-skeletons";
 import { SpaceTaskCard } from "./space-task-card";
 import { SpaceTaskDetailDrawer } from "./space-task-detail-drawer";
@@ -46,33 +49,123 @@ const ACTIVE_COLUMNS = [
 	title: string;
 }[];
 
+function TasksRefreshNotice(input: {
+	isFetching: boolean;
+	isRefetchError: boolean;
+	onRetry: () => void;
+}) {
+	if (!input.isRefetchError) {
+		return null;
+	}
+	return (
+		<output className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-card/35 px-4 py-3 text-sm">
+			<span>Couldn't refresh Tasks. Showing the last loaded board.</span>
+			<Button
+				disabled={input.isFetching}
+				onClick={input.onRetry}
+				size="sm"
+				variant="outline"
+			>
+				Retry
+			</Button>
+		</output>
+	);
+}
+
+function EmptyTasksBoard(input: { phase?: SpaceTaskPhase }) {
+	return (
+		<div className="flex min-h-80 items-center justify-center rounded-lg border border-border border-dashed px-6 text-center">
+			<div className="max-w-md">
+				<CheckCircleIcon
+					aria-hidden="true"
+					className="mx-auto size-8 text-muted-foreground"
+				/>
+				<h3 className="mt-3 font-medium text-sm">
+					{input.phase
+						? `No ${formatSpaceTaskPhase(input.phase)} Tasks`
+						: "No Tasks yet"}
+				</h3>
+				<p className="mt-1 text-muted-foreground text-sm leading-6">
+					{input.phase ? (
+						"Choose another phase to see more work."
+					) : (
+						<>
+							Tasks begin in Messages when someone gives a person or Agent a
+							clear deliverable. Small questions and quick actions stay in the
+							conversation.
+						</>
+					)}
+				</p>
+			</div>
+		</div>
+	);
+}
+
+function TasksReadGate(input: {
+	isPaused: boolean;
+	isPending: boolean;
+	onRetry: () => void;
+	showPending: boolean;
+}) {
+	if (input.isPending) {
+		if (input.isPaused) {
+			return <ReadPausedState subject="Tasks" />;
+		}
+		return input.showPending ? <SpaceTasksSkeleton /> : null;
+	}
+	return (
+		<div className="flex min-h-0 flex-1 items-center justify-center p-6">
+			<div className="max-w-sm text-center">
+				<p className="font-medium text-sm">Tasks couldn't load</p>
+				<p className="mt-1 text-muted-foreground text-sm">
+					OpenMeld couldn't read the shared Task board.
+				</p>
+				<Button
+					className="mt-4"
+					onClick={input.onRetry}
+					size="sm"
+					variant="outline"
+				>
+					Try again
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+function shouldBlockTasksRead(input: {
+	hasData: boolean;
+	isError: boolean;
+	error: unknown;
+}): boolean {
+	return (
+		!input.hasData || (input.isError && !mayShowCachedReadData(input.error))
+	);
+}
+
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 	const [phase, setPhase] = useState<SpaceTaskPhase | undefined>();
 	const { detailQuery, members, mutateTask, pendingTaskId, tasksQuery } =
 		useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
+	const showPending = useDelayedPending(
+		tasksQuery.isPending && tasksQuery.fetchStatus !== "paused"
+	);
 
-	if (tasksQuery.isPending) {
-		return <SpaceTasksSkeleton />;
-	}
-	if (tasksQuery.isError) {
+	if (
+		shouldBlockTasksRead({
+			error: tasksQuery.error,
+			hasData: Boolean(tasksQuery.data),
+			isError: tasksQuery.isError,
+		})
+	) {
 		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center p-6">
-				<div className="max-w-sm text-center">
-					<p className="font-medium text-sm">Tasks couldn't load</p>
-					<p className="mt-1 text-muted-foreground text-sm">
-						OpenMeld couldn't read the shared Task board.
-					</p>
-					<Button
-						className="mt-4"
-						onClick={() => tasksQuery.refetch()}
-						size="sm"
-						variant="outline"
-					>
-						Try again
-					</Button>
-				</div>
-			</div>
+			<TasksReadGate
+				isPaused={tasksQuery.fetchStatus === "paused"}
+				isPending={tasksQuery.isPending}
+				onRetry={() => tasksQuery.refetch()}
+				showPending={showPending}
+			/>
 		);
 	}
 
@@ -94,6 +187,11 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto">
 			<div className="mx-auto max-w-[1600px] p-4 sm:p-6">
+				<TasksRefreshNotice
+					isFetching={tasksQuery.isFetching}
+					isRefetchError={tasksQuery.isRefetchError}
+					onRetry={() => tasksQuery.refetch()}
+				/>
 				<TaskBoardHeader
 					onPhaseChange={setPhase}
 					phase={phase}
@@ -109,30 +207,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				) : null}
 
 				{tasks.length === 0 ? (
-					<div className="flex min-h-80 items-center justify-center rounded-lg border border-border border-dashed px-6 text-center">
-						<div className="max-w-md">
-							<CheckCircleIcon
-								aria-hidden="true"
-								className="mx-auto size-8 text-muted-foreground"
-							/>
-							<h3 className="mt-3 font-medium text-sm">
-								{phase
-									? `No ${formatSpaceTaskPhase(phase)} Tasks`
-									: "No Tasks yet"}
-							</h3>
-							<p className="mt-1 text-muted-foreground text-sm leading-6">
-								{phase ? (
-									"Choose another phase to see more work."
-								) : (
-									<>
-										Tasks begin in Messages when someone gives a person or Agent
-										a clear deliverable. Small questions and quick actions stay
-										in the conversation.
-									</>
-								)}
-							</p>
-						</div>
-					</div>
+					<EmptyTasksBoard phase={phase} />
 				) : (
 					<>
 						<div className="grid items-start gap-4 md:grid-cols-3">

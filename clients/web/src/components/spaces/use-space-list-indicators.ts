@@ -26,6 +26,7 @@ export function useSpaceListIndicators(input: {
 }) {
 	const {
 		isPending: isAccountSummaryPending,
+		activityAvailable: isAccountSummaryAvailable,
 		activeWakeSummaryBySpaceId: ambientActiveWakeSummaryBySpaceId,
 		unreadBySpaceId,
 	} = useAccountSpaceIndicators({
@@ -161,5 +162,6 @@ export function useSpaceListIndicators(input: {
 		unreadBySpaceId,
 		// Keep recovered Space evidence visible even while account discovery retries.
 		isPending: isAccountSummaryPending && activeWakeSummaryBySpaceId.size === 0,
+		activityUnavailable: !isAccountSummaryAvailable,
 	};
 }
