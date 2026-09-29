@@ -2208,6 +2208,11 @@ of the macOS LaunchAgent session. Locking the screen does not mean logging out.
 Task registration is process supervision, not Service readiness: startup still
 requires the current Service lease, account/lane alignment, and Core connection.
 
+Background controller status and session-inventory probes must also suppress
+console creation on Windows. A GUI Service parent and piped stdio alone do not
+provide that guarantee: direct Node-compatible child launches use `windowsHide`.
+This does not change the interactive CLI launcher's terminal behavior.
+
 For the retained npm distribution, both tasks start a lane-owned Windows-subsystem host,
 not a console-subsystem PowerShell process. The host creates the existing system
 PowerShell action with `UseShellExecute=false` and `CreateNoWindow=true`, waits
