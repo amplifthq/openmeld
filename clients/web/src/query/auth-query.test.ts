@@ -43,6 +43,7 @@ describe("auth-query", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 	});
 
 	it("lists, switches, and revokes browser account sessions", async () => {
@@ -224,7 +225,7 @@ describe("auth-query", () => {
 			1,
 			"/api/auth/device/code",
 			expect.objectContaining({
-				body: JSON.stringify({ client_id: "openmeld-cli" }),
+				body: JSON.stringify({ client_id: "openmeld-cli-dev" }),
 				credentials: "include",
 				method: "POST",
 			})

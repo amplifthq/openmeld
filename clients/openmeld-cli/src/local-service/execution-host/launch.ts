@@ -15,6 +15,42 @@ import type { ExecutionHostEvent, ExecutionHostPort } from "./port";
 import { childExecutionHostChannel } from "./process-channel";
 
 const HOST_HEALTH_TIMEOUT_MS = 2000;
+const EXECUTION_HOST_REASON_CODE_PATTERN = /^host\.[a-z0-9_.-]{1,80}$/u;
+
+function projectExecutionHostUnavailableReason(error: unknown): {
+  code: string;
+  message: string;
+  recoveryAction:
+    | "wait_for_previous_work"
+    | "restart_computer"
+    | "update_openmeld_tools"
+    | "open_diagnostics";
+} {
+  const code =
+    error instanceof ExecutionHostError ? error.code : "host.operation_failed";
+  if (code === "host.previous_work_unconfirmed") {
+    return {
+      code,
+      message:
+        "OpenMeld cannot confirm that work from the previous local execution host has ended.",
+      recoveryAction: "restart_computer",
+    };
+  }
+  if (code === "host.entry_unavailable") {
+    return {
+      code,
+      message: "OpenMeld cannot find its bundled local execution host.",
+      recoveryAction: "update_openmeld_tools",
+    };
+  }
+  return {
+    code: EXECUTION_HOST_REASON_CODE_PATTERN.test(code)
+      ? code
+      : "host.operation_failed",
+    message: "OpenMeld could not start or verify its local execution host.",
+    recoveryAction: "open_diagnostics",
+  };
+}
 
 // Both distributions launch their own exact entry and bundled Host. No PATH
 // lookup, newer installed CLI, shell string, or renderer-selected executable.
@@ -82,6 +118,9 @@ export function launchExecutionHost(input: {
   let observedAtMs: number | null = null;
   let responsive = false;
   let failed = false;
+  let unavailableReason: ReturnType<
+    typeof projectExecutionHostUnavailableReason
+  > | null = null;
   let closing = false;
   const eventListeners = new Set<(event: ExecutionHostEvent) => void>();
   const availabilityListeners = new Set<() => void>();
@@ -104,6 +143,7 @@ export function launchExecutionHost(input: {
     },
     onFailure: (error) => {
       failed = true;
+      unavailableReason = projectExecutionHostUnavailableReason(error);
       setResponsive(false);
       if (!closing) {
         input.onFailure(error);
@@ -134,6 +174,7 @@ export function launchExecutionHost(input: {
         }
         lastSnapshot = observation.data;
         observedAtMs = Date.now();
+        unavailableReason = null;
         if (!failed) {
           setResponsive(true);
         }
@@ -147,6 +188,7 @@ export function launchExecutionHost(input: {
         method === "initialize" ||
         method === "heartbeat"
       ) {
+        unavailableReason = projectExecutionHostUnavailableReason(error);
         setResponsive(false);
       }
       throw error;
@@ -173,6 +215,7 @@ export function launchExecutionHost(input: {
       unacknowledgedResultCount:
         lastSnapshot?.unacknowledgedResultCount ?? null,
       startupReplayPending: lastSnapshot?.startupReplayPending ?? null,
+      unavailableReason,
     }),
     onEvent: (listener) => {
       eventListeners.add(listener);
