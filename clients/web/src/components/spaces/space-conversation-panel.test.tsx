@@ -3191,7 +3191,7 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(jumpButton);
 
 		expect(scrollToMock).toHaveBeenCalledWith({
-			behavior: "smooth",
+			behavior: "auto",
 			top: 700,
 		});
 		await waitFor(() => {
