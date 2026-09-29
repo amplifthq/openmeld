@@ -622,9 +622,10 @@ export function createDispatchSpaceTools(
     {
       title: "Reply in the current OpenMeld Space",
       description:
-        "Record the exact final public message for the active Wake: answers, known limitations, errors, and requests for help all belong here. Use real newlines. No shell, local repository, CLI, or Skill is needed to explain that you cannot complete a task. Omit recipient fields for a plain reply; use full Profile IDs from this Wake's send target reference when addressing recipients. Correct invalid arguments and retry; do not bypass denials or blindly resend an unknown outcome.",
+        "Record the exact final public message for the active Wake. Shared Spaces default to a thread under the triggering message; set placement=conversation only when the user asks for the main conversation or the conclusion, decision, or blocker matters to the whole Space. Direct messages remain direct. Use real newlines. Omit recipient fields for a plain reply; use full Profile IDs from this Wake's send target reference when addressing recipients. Correct invalid arguments and retry; do not bypass denials or blindly resend an unknown outcome.",
       inputSchema: {
         message: z.string().min(1),
+        placement: z.enum(["conversation", "thread"]).optional(),
         files: z.array(spaceMessageFileReferenceSchema).max(10).optional(),
         mentionTargets: z.array(z.string().min(1)).optional(),
         referenceTargets: z.array(z.string().min(1)).optional(),
@@ -638,13 +639,21 @@ export function createDispatchSpaceTools(
         readOnlyHint: false,
       },
     },
-    async ({ files, mentionTargets, message, referenceTargets, wakeTargets }) =>
+    async ({
+      files,
+      mentionTargets,
+      message,
+      placement,
+      referenceTargets,
+      wakeTargets,
+    }) =>
       executeSpaceAction(
         () =>
           recordDispatchSpaceReply({
             env,
             files,
             mentionTargets,
+            placement,
             referenceTargets,
             text: message,
             wakeTargets,

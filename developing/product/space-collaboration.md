@@ -1443,16 +1443,25 @@ reject that Wake action instead of silently posting it to the main Space.
 
 A reply should appear where the user expects the conversation to continue.
 
-For a workstation or personal Remote Agent Wake, the final reply, explicit
-stopped outcome, or explicit failure follows its source: main conversation for
-a main Wake, or the existing Thread for a Thread Wake.
+For Local Agents, personal Remote Agents, and interactive Center Agent turns in
+shared Spaces, the final answer belongs in the Thread under the triggering
+message by default. Existing Thread conversations continue there; direct
+messages remain direct. A user may request the main conversation, or an Agent
+may put a conclusion, decision, or blocker there when the whole Space needs it.
+That choice must be structured: Local Agents select `placement=conversation`
+on their final reply, while hosted Agents use `openmeld_set_reply_placement`.
+Answer text alone never changes placement. Do not also publish a copy in the
+main conversation.
 
-For interactive Center Agent turns in shared Spaces, the default answer belongs
-in the Thread under the triggering message. Existing Thread conversations stay
-in that Thread; direct messages default to direct replies. Follow an explicit
-user preference for the main conversation, including a continuing preference
-while it remains relevant. The Center Agent selects that destination with
-`openmeld_set_reply_placement` before composing its answer.
+Pre-execution progress and failure notices follow the source message. Final
+reply placement is resolved and locked by Space before publication, and later
+callbacks and recovery reuse it. This does not change the source message's
+observation scope or RuntimeCoordinator execution authority.
+
+For interactive Center Agent turns, follow an explicit user preference for the
+main conversation, including a continuing preference while it remains relevant.
+The Center Agent selects that destination with `openmeld_set_reply_placement`
+before composing its answer.
 While the destination is unresolved, Web does not present a shared-Space Center
 Agent as working in the main conversation. Once Space selects a Thread, the
 triggering message's **Open thread** entrance shows the compact current status

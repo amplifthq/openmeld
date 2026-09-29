@@ -74,6 +74,7 @@ import {
 import { requirePersonalRemoteAgentBinding } from "../src/remote-agent/application/personal-remote-agent-binding";
 import { runPersonalRemoteAgentSpaceTool } from "../src/remote-agent/application/personal-remote-agent-space-tools";
 import { attachCenterAgentMemoryToTurnEnvelope } from "../src/remote-agent/application/remote-agent-memory-context";
+import { resolveNativeDeliveryReplyThreadContext } from "../src/remote-agent/application/reply-placement";
 import {
   claimRemoteAgentNativeDeliveryTerminalFailure,
   markRemoteAgentCallbackPublishFailure,
@@ -527,6 +528,21 @@ describe("Remote Agent native delivery callback service", () => {
       expect(execution.delivery.status).toBe(
         accepted ? "accepted" : "retry_observed"
       );
+      await expect(
+        resolveNativeDeliveryReplyThreadContext({
+          env,
+          delivery: execution.delivery,
+        })
+      ).resolves.toEqual(THREAD_CONTEXT);
+      expect(
+        env.__spaceStub.rpcResolveNativeReplyPlacement
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dispatchId: "dispatch_1",
+          defaultToThread: true,
+          lock: true,
+        })
+      );
       const sender = execution.request.turnEnvelope.sender;
       if (sender.kind !== "member" || !sender.verified || !sender.ownerUserId) {
         throw new Error("Expected the admitted human requester");
@@ -592,6 +608,50 @@ describe("Remote Agent native delivery callback service", () => {
           limit: 20,
         })
       );
+      const siblingProfileId = "agt_22222222-2222-4222-8222-222222222222";
+      const sibling = directory.members[0];
+      if (!sibling) {
+        throw new Error("Expected the active Agent member");
+      }
+      readDirectory.mockResolvedValueOnce({
+        ...directory,
+        members: [
+          ...directory.members,
+          { ...sibling, profileId: siblingProfileId },
+        ],
+      });
+      await runPersonalRemoteAgentSpaceTool(env, {
+        submissionId: "personal-submission",
+        operation: {
+          kind: "wake",
+          agentProfileId: siblingProfileId,
+          text: "Review this work.",
+        },
+      });
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ threadContext: THREAD_CONTEXT })
+      );
+      const replyPlacement = await runPersonalRemoteAgentSpaceTool(env, {
+        submissionId: "personal-submission",
+        operation: { kind: "reply_placement", placement: "conversation" },
+      });
+      expect(replyPlacement).toMatchObject({
+        kind: "reply_placement",
+        placement: { dispatchId: "dispatch_1", locked: true },
+      });
+      expect(
+        env.__spaceStub.rpcResolveNativeReplyPlacement
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dispatchId: "dispatch_1",
+          sourceSignalId: "signal_1",
+          profileId: AGENT_PROFILE_ID,
+          placement: "conversation",
+          lock: true,
+        })
+      );
       for (const kind of ["board", "updates", "authorize"] as const) {
         readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
         await expect(
@@ -601,6 +661,13 @@ describe("Remote Agent native delivery callback service", () => {
           })
         ).rejects.toThrow("space_membership_revoked");
       }
+      readDirectory.mockResolvedValueOnce({ ...directory, members: [] });
+      await expect(
+        runPersonalRemoteAgentSpaceTool(env, {
+          submissionId: "personal-submission",
+          operation: { kind: "reply_placement", placement: "thread" },
+        })
+      ).rejects.toThrow("space_membership_revoked");
       expect(readUpdates).toHaveBeenCalledTimes(1);
       await expect(
         runPersonalRemoteAgentSpaceTool(env, {

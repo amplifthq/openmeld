@@ -3010,8 +3010,7 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
   failureCode: string;
   failureMessage: string;
 }): Promise<SignalEnvelope> {
-  const replyThreadContext =
-    await resolveNativeDeliveryReplyThreadContext(input);
+  const replyThreadContext = input.delivery.threadContext;
   const targetProfile = await resolveRemoteAgentTargetProfile({
     env: input.env,
     profileId: input.delivery.profileId,
