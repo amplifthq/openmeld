@@ -60,6 +60,17 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("explains a hosted admission timeout as a start failure", () => {
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.admission_timeout",
+        failureMessage: "internal watchdog detail",
+      })
+    ).toBe(
+      "Center Agent couldn't start this request because OpenMeld did not confirm it in time. Try again. If it keeps happening, open Diagnostics in OpenMeld."
+    );
+  });
+
   it("explains output exhaustion and the next safe action without vendor details", () => {
     expect(
       resolveCenterAgentCallbackFailureMessage({

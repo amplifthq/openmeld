@@ -137,6 +137,8 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       return `${agentLabel} reached the model's response limit before it could reply. Completed actions were not undone. Check the results, then send a shorter follow-up asking it to continue.`;
     case "remote_agent.execution_cancelled":
       return CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY;
+    case "remote_agent.admission_timeout":
+      return `${agentLabel} couldn't start this request because OpenMeld did not confirm it in time. Try again. If it keeps happening, open Diagnostics in OpenMeld.`;
     case "remote_agent.turn.context_window_exceeded":
       return `This conversation has grown too long for ${agentLabel} to continue in one request. Try again; OpenMeld will shorten older messages before continuing.`;
     case "remote_agent.execution_identity_mismatch":
