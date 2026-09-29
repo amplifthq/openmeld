@@ -230,7 +230,7 @@ describe("returning to the live Space history", () => {
 		expect(result.current.activeWindow?.envelopes[30]?.id).toBe("100");
 		clearSpaceConversationPositions();
 	});
-	it("replaces a recalled message in an open historical window without adding new live messages", async () => {
+	it("joins live messages only after the server confirms the historical window reached the tail", async () => {
 		const old: Extract<SignalEnvelope, { type: "signal.text" }> = {
 			v: 1,
 			id: "old",
@@ -264,8 +264,24 @@ describe("returning to the live Space history", () => {
 			},
 		};
 		rerender({ liveEnvelopes: [recalled, { ...old, id: "new", ts: 300 }] });
-		expect(result.current.activeWindow?.envelopes).toEqual([recalled]);
+		expect(result.current.activeWindow?.envelopes).toEqual([
+			recalled,
+			{ ...old, id: "new", ts: 300 },
+		]);
 		expect(result.current.activeWindow?.hasBefore).toBe(false);
+		const later = { ...old, id: "later", ts: 400 };
+		rerender({ liveEnvelopes: [later] });
+		expect(result.current.activeWindow?.envelopes).toEqual([old]);
+		expect(result.current.activeWindow?.hasAfter).toBe(true);
+		historyApi.listSignalEnvelopes.mockResolvedValueOnce({
+			envelopes: [old, { ...old, id: "bridge", ts: 250 }, later],
+		});
+		await act(async () => {
+			expect(await result.current.loadAfter()).toBe(true);
+		});
+		expect(
+			result.current.activeWindow?.envelopes.map((item) => item.id)
+		).toEqual(["old", "bridge", "later"]);
 	});
 	it("renders a recent page without discarding older messages or moving the boundary when new messages arrive", () => {
 		const history = Array.from({ length: 480 }, (_, index) =>

@@ -50,6 +50,7 @@ export function useSpaceHistoryNavigation(input: {
 			) {
 				setWindow({
 					identity,
+					confirmedAtLiveTail: false,
 					envelopes: input.liveEnvelopes.slice(
 						Math.max(0, anchor - 30),
 						anchor + 31
@@ -125,11 +126,32 @@ export function useSpaceHistoryNavigation(input: {
 			return null;
 		}
 		const ids = new Set(selectedWindow.envelopes.map((item) => item.id));
+		const liveTailOverlapIndex = selectedWindow.confirmedAtLiveTail
+			? visibleLiveEnvelopes.findLastIndex((item) => ids.has(item.id))
+			: -1;
+		const newestWindowSignal = selectedWindow.envelopes.at(-1);
+		const newestLiveSignal = visibleLiveEnvelopes.at(-1);
+		const liveTailIsAhead =
+			newestWindowSignal &&
+			newestLiveSignal &&
+			(newestLiveSignal.ts > newestWindowSignal.ts ||
+				(newestLiveSignal.ts === newestWindowSignal.ts &&
+					newestLiveSignal.id > newestWindowSignal.id));
 		return {
 			...selectedWindow,
+			hasAfter:
+				selectedWindow.hasAfter ||
+				(selectedWindow.confirmedAtLiveTail &&
+					liveTailOverlapIndex < 0 &&
+					Boolean(liveTailIsAhead)),
 			envelopes: mergeSpaceTimelineEnvelopes({
 				current: selectedWindow.envelopes,
-				incoming: input.liveEnvelopes.filter((item) => ids.has(item.id)),
+				incoming: [
+					...input.liveEnvelopes.filter((item) => ids.has(item.id)),
+					...(liveTailOverlapIndex >= 0
+						? visibleLiveEnvelopes.slice(liveTailOverlapIndex + 1)
+						: []),
+				],
 			}),
 		};
 	}, [
@@ -137,6 +159,7 @@ export function useSpaceHistoryNavigation(input: {
 		window,
 		input.initialWindowAnchorSignalId,
 		input.liveEnvelopes,
+		visibleLiveEnvelopes,
 	]);
 	const readWindow = async (
 		signalId: string,
@@ -293,6 +316,10 @@ function mergeHistoryWindow(
 	return {
 		identity,
 		envelopes: merged,
+		confirmedAtLiveTail:
+			direction === "before" && current?.identity === identity
+				? current.confirmedAtLiveTail
+				: envelopes.length - anchorIndex - 1 < 30,
 		hasBefore:
 			direction === "after" && current?.identity === identity
 				? current.hasBefore
@@ -307,6 +334,7 @@ function mergeHistoryWindow(
 type HistoryWindow = {
 	identity: string;
 	envelopes: readonly SignalEnvelope[];
+	confirmedAtLiveTail: boolean;
 	hasBefore: boolean;
 	hasAfter: boolean;
 };
@@ -354,6 +382,7 @@ function initialHistoryWindow(input: {
 	return {
 		identity: input.identity,
 		envelopes: input.envelopes,
+		confirmedAtLiveTail: false,
 		hasBefore: anchorIndex >= 30,
 		hasAfter: input.envelopes.length - anchorIndex - 1 >= 30,
 	};

@@ -3426,6 +3426,7 @@ describe("SpaceConversationPanel", () => {
 		const historyNavigation = {
 			activeWindow: {
 				envelopes: [signal],
+				confirmedAtLiveTail: false,
 				hasAfter: true,
 				hasBefore: true,
 				identity: "space-123:public",
