@@ -106,7 +106,7 @@ const config = defineConfig(({ command, mode }) => {
 		environments: {
 			client: {
 				build: {
-					sourcemap: false,
+					sourcemap: "hidden",
 					// Keep real source lines for local Electron DevTools breakpoints.
 					...(desktopPilotBuild ? { minify: false } : {}),
 				},
@@ -198,7 +198,9 @@ const config = defineConfig(({ command, mode }) => {
 			viteReact({
 				exclude: [nodeModulesPathPattern, extendComponentsPathPattern],
 				babel: {
-					plugins: ["babel-plugin-react-compiler"],
+					// React Compiler is optional at runtime. Keep it for fast local feedback,
+					// but avoid its whole-app Babel graph in memory-bound release builds.
+					plugins: command === "build" ? [] : ["babel-plugin-react-compiler"],
 				},
 			}),
 			tailwindcss(),
