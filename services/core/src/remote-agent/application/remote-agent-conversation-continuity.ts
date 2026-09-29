@@ -170,6 +170,7 @@ export async function buildRemoteAgentConversationContinuityContext(input: {
   env: CoreBindings;
   generation: number;
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  sourceDispatchId?: string;
 }): Promise<RemoteAgentConversationContinuityContext> {
   if (input.generation < 1) {
     throw new Error(
@@ -201,6 +202,7 @@ async function readContinuityEntryDrafts(input: {
   env: CoreBindings;
   generation: number;
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  sourceDispatchId?: string;
 }): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
   if (isRemoteAgentRoutineRunConversation(input.request)) {
     throw new RemoteAgentConversationContinuitySourceError({
@@ -220,6 +222,7 @@ async function readContinuityEntryDrafts(input: {
   return await readSpaceContinuityEntryDrafts({
     env: input.env,
     request: input.request,
+    sourceDispatchId: input.sourceDispatchId,
   });
 }
 
@@ -257,6 +260,7 @@ function readMessageChannelContinuityEntryDrafts(
 async function readSpaceContinuityEntryDrafts(input: {
   env: CoreBindings;
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  sourceDispatchId?: string;
 }): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
   const stub = resolveSpaceStub(
     input.env.OPENMELD_SPACES,
@@ -281,7 +285,7 @@ async function readSpaceContinuityEntryDrafts(input: {
     beforeCount: REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES + 1,
     signalTypes: ["signal.text"],
     spaceAccess: createDispatchContinuationSpaceAccessContext({
-      dispatchId: input.request.dispatchId,
+      dispatchId: input.sourceDispatchId ?? input.request.dispatchId,
       requestContext,
       sourceSignalId: input.request.triggerMessageId,
       spaceId: input.request.spaceId,

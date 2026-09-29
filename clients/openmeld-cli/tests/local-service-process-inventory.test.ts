@@ -70,6 +70,33 @@ describe("local service process inventory", () => {
     });
   });
 
+  it("inspects every lane when the dev entry also sets the legacy lane selector", async () => {
+    const processes = await listDaemonOwnedProcesses({
+      pathInput: {
+        env: {
+          ...process.env,
+          OPENMELD_ENV: "dev",
+          OPENMELD_ENV_PRESET: "dev-local",
+        },
+      },
+      listProcesses: async () => [
+        {
+          pid: 106,
+          parentPid: 1,
+          command: `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service start --mode foreground --json`,
+        },
+      ],
+    });
+
+    expect(processes).toEqual([
+      expect.objectContaining({
+        pid: 106,
+        ownership: "cli_direct",
+        mode: "foreground",
+      }),
+    ]);
+  });
+
   it("does not claim a repo-local service from another custom OPENMELD_HOME", async () => {
     const pathInput = {
       env: {

@@ -273,9 +273,9 @@ describe("native Git working-copy transport", () => {
   });
 
   it("continues bounded batches and never resets edits when checkout is retried", () => {
-    const f = fixture(40);
+    const f = fixture(257);
     const first = f.invoke("prepare");
-    expect(first.missing).toHaveLength(32);
+    expect(first.missing).toHaveLength(256);
     f.transfer(required(first.missing));
     const second = f.invoke("prepare");
     expect(second.ready).toBe(false);
@@ -289,7 +289,7 @@ describe("native Git working-copy transport", () => {
     expect(readFileSync(join(f.request.directory, "file-0.txt"), "utf8")).toBe(
       "unfinished user edit"
     );
-  });
+  }, 10_000);
 
   it("exports an exact immutable commit and does not include later uncommitted changes", () => {
     const f = fixture();

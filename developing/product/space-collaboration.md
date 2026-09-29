@@ -411,9 +411,11 @@ Agent work stays above the answer in both the main conversation and Threads,
 from live output through the settled reply. The shared bounded viewport opens
 for live work and lets the reader pause following by scrolling up. It collapses
 after a successful final reply and remains available for manual inspection.
-Hosted Center and Remote Agents show explicitly authored public Agent updates
-alongside automatic tool steps. These updates explain meaningful phases; they
-are not a continuous activity signal. Provider thinking stays private.
+Hosted Center and Remote Agents, and supported Local Agent controllers, can show
+explicitly authored public updates alongside automatic tool steps. These
+updates explain meaningful phases; they are not a continuous activity signal,
+a Space message, or a final reply. Exact Local Agent retries are idempotent and
+do not resume a parent task. Provider thinking stays private.
 Disabled local streaming is explicitly
 attributed to the Agent owner; an unsupported connection is distinguished from
 waiting for a provider that has not emitted reasoning. Absence of reasoning is
@@ -1455,6 +1457,16 @@ Pre-execution progress and failure notices follow the source message. Final
 reply placement is resolved and locked by Space before publication, and later
 callbacks and recovery reuse it. This does not change the source message's
 observation scope or RuntimeCoordinator execution authority.
+
+For interactive Center Agent turns, follow an explicit user preference for the
+main conversation, including a continuing preference while it remains relevant.
+The Center Agent selects that destination with `openmeld_set_reply_placement`
+before composing its answer.
+While the destination is unresolved, Web does not present a shared-Space Center
+Agent as working in the main conversation. Once Space selects a Thread, the
+triggering message's **Open thread** entrance shows the compact current status
+and an authorized Stop control; the complete progress and final answer appear
+in that Thread. A final reply preview replaces the interim entrance status.
 
 Space owns one durable output placement per dispatch, separate from source
 context and conversation continuity. Explicit selection or the first answer

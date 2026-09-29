@@ -1,3 +1,4 @@
+import { delimiter } from "node:path";
 import { WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL } from "@openmeld/schemas";
 import { afterEach, describe, expect, it } from "vitest";
 import { daemonRuntimeRootPath } from "../src/config/daemon-state";
@@ -45,6 +46,30 @@ describe("local service system service command spec", () => {
     expect(spec.env.OPENMELD_USER_FACING_CLI_COMMAND).toBe("openmeld-dev");
     expect(spec.executable).toBe("/bin/sh");
     expect(spec.args[0]).toMatch(DEV_SERVICE_WRAPPER_PATH_PATTERN);
+  });
+
+  it("does not persist a dispatch-scoped Space Action shim in the Service PATH", () => {
+    const originalPath = process.env.PATH;
+    const dispatchShim =
+      "/Users/dev/.openmeld/runtime/daemon/dispatch-space-actions/dispatch-123/bin";
+    process.env.PATH = ["/usr/local/bin", dispatchShim, "/usr/bin"].join(
+      delimiter
+    );
+    try {
+      const spec = buildDaemonSystemServiceCommandSpec({
+        controller: "launchd",
+      });
+
+      expect(spec.env.PATH).toBe(
+        ["/usr/local/bin", "/usr/bin"].join(delimiter)
+      );
+    } finally {
+      if (originalPath === undefined) {
+        process.env.PATH = undefined;
+      } else {
+        process.env.PATH = originalPath;
+      }
+    }
   });
 
   it("propagates the canary lane into the managed system service env", () => {

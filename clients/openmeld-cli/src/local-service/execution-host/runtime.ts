@@ -69,6 +69,11 @@ type HostEvent = Exclude<ServiceExecutionHostMessage, { type: "reply" }>;
 export async function createExecutionHostResources(input: {
   runtimePaths: DaemonRuntimePaths;
   presenter: Presenter;
+  observeOwnedProcess?: (event: {
+    phase: "process_exit" | "process_spawned";
+    processId: number | null;
+    signalTarget: "process" | "process_group";
+  }) => void;
 }) {
   const ledgerPaths = buildLedgerPaths(input.runtimePaths.ledgerRootPath);
   const contextStore = await loadContextStore(
@@ -88,6 +93,7 @@ export async function createExecutionHostResources(input: {
         await interrupt(signal);
       },
       registerRuntimeProcess: (event) => {
+        input.observeOwnedProcess?.(event);
         const processId =
           event.phase === "process_exit" ? null : event.processId;
         const updated = inflightTaskControlRegistry.updateTaskProcess({

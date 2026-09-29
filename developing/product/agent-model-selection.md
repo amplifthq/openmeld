@@ -652,6 +652,17 @@ These are online catalog changes served by Core. The CLI offline snapshot,
 shared schemas, adapter protocols, and local-component version floors are
 unchanged. Provider acceptance and an OpenMeld Wake remain separate evidence.
 
+The 2026-09-29 manual review of OpenCode 1.18.33's local `opencode models
+opencode --verbose` inventory found `opencode/longcat-2.5-preview-free` and
+`opencode/space-bunny-free` with exact variant keys `low, medium, high` and
+`low, medium, high, xhigh, max`, respectively. Both completed a direct
+`opencode run --pure` prompt on the review machine. The catalog adds only these
+verified free-provider routes. Other discovery candidates and routes in the
+local inventory are not assumed usable by every member's account; a real
+OpenMeld Wake remains deployment acceptance evidence.
+For a client without a reported ACI model inventory, the new routes require
+at least the observed OpenCode 1.18.33 version.
+
 ---
 
 ### 5.9 Claude Opus 5.5

@@ -1392,6 +1392,32 @@ describe("Remote Agent native delivery callback service", () => {
         createSignalEnvelope("signal_v4_parent", "Coordinate this task."),
       ],
     });
+    env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult.mockImplementation(
+      async (query) =>
+        query.spaceAccess?.actor.kind === "dispatch_continuation" &&
+        query.spaceAccess.actor.dispatchId === "dispatch-v4-parent"
+          ? {
+              ok: true,
+              value: {
+                signals: [
+                  createSignalEnvelope(
+                    "signal_previous_v4",
+                    "The delegated investigation is ready to summarize."
+                  ),
+                  createSignalEnvelope(
+                    "signal_v4_parent",
+                    "Coordinate this task."
+                  ),
+                ],
+              },
+            }
+          : {
+              code: "space.continuity.dispatch_not_found",
+              message: "The exact Space dispatch is unavailable.",
+              ok: false,
+              status: 404,
+            }
+    );
 
     try {
       await upsertRemoteAgentNativeDeliveryRecord({
@@ -1406,6 +1432,7 @@ describe("Remote Agent native delivery callback service", () => {
         onBehalfOfUserId: "user_1",
         organizationId: "org_1",
         profileId: AGENT_PROFILE_ID,
+        sourceClientMessageId: "client-v4-parent",
         spaceId: SPACE_ID,
         status: "submitted",
         threadContext: THREAD_CONTEXT,
@@ -1428,10 +1455,44 @@ describe("Remote Agent native delivery callback service", () => {
         submissionId: "submission-v4-parent",
         workerRequestId: "request-v4-parent",
       });
+      await upsertRemoteAgentNativeDeliveryRecord({
+        attemptId: null,
+        bindingId: "binding-v4-parent",
+        db: harness.db,
+        dispatchId: "agent-task-continuation:nested-parent",
+        idempotencyKey: "idempotency-v4-nested-parent",
+        nowMs: 980,
+        onBehalfOfDisplayName: "Ari",
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        onBehalfOfUserId: "user_1",
+        organizationId: "org_1",
+        profileId: AGENT_PROFILE_ID,
+        spaceId: SPACE_ID,
+        status: "submitted",
+        threadContext: THREAD_CONTEXT,
+        triggerMessageId: "signal_v4_parent",
+      });
+      await persistTestCenterAgentWorkerSubmitRequest({
+        bindingId: "binding-v4-parent",
+        db: harness.db,
+        dispatchId: "agent-task-continuation:nested-parent",
+        idempotencyKey: "idempotency-v4-nested-parent",
+        requestVersion: 4,
+        spaceId: SPACE_ID,
+        triggerMessageId: "signal_v4_parent",
+      });
+      await markRemoteAgentNativeDeliveryAck({
+        accepted: true,
+        db: harness.db,
+        idempotencyKey: "idempotency-v4-nested-parent",
+        nowMs: 990,
+        submissionId: "submission-v4-nested-parent",
+        workerRequestId: "request-v4-nested-parent",
+      });
       const observerDelivery =
         await readRemoteAgentNativeDeliveryBySubmissionId({
           db: harness.db,
-          submissionId: "submission-v4-parent",
+          submissionId: "submission-v4-nested-parent",
         });
       if (!observerDelivery) {
         throw new Error("expected v4 parent delivery fixture");
@@ -1452,11 +1513,11 @@ describe("Remote Agent native delivery callback service", () => {
           nowMs: 1100,
           observerDelivery,
           outcome: {
-            errorCode: null,
+            errorCode: "runtime_coordinator.delivery_expired",
             eventId: "terminal-v4-child",
             occurredAtMs: 1050,
-            publishedSignalId: "signal-v4-child-result",
-            status: "succeeded",
+            publishedSignalId: "signal-v4-child-expired",
+            status: "failed",
           },
           subscriptionId: "subscription-v4",
           watchedTask: {
@@ -1476,6 +1537,13 @@ describe("Remote Agent native delivery callback service", () => {
       expect(workerSubmit).toHaveBeenCalledTimes(2);
       expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
         conversationId: SPACE_ID,
+        messages: [
+          {
+            content: expect.stringContaining(
+              "The child Wake expired before it reached the local Agent. No child task result is available"
+            ),
+          },
+        ],
         runtimeConversation: { generation: 0 },
         v: 4,
       });
@@ -1492,6 +1560,18 @@ describe("Remote Agent native delivery callback service", () => {
       expect(
         env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
       ).toHaveBeenCalledOnce();
+      expect(
+        env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spaceAccess: expect.objectContaining({
+            actor: expect.objectContaining({
+              dispatchId: "dispatch-v4-parent",
+              sourceSignalId: "signal_v4_parent",
+            }),
+          }),
+        })
+      );
     } finally {
       harness.close();
     }
