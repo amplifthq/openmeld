@@ -284,9 +284,10 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.mouseEnter(messageRow as HTMLElement);
 		fireEvent.click(
 			within(messageRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: "More actions",
 			})
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 		expect(
 			await screen.findByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
@@ -480,8 +481,8 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			conversationLog.style.getPropertyValue("--space-conversation-sticky-top")
 		).toBe("56px");
-		expect(stickyDateItem?.className).toContain(
-			"top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)]"
+		expect((stickyDateItem as HTMLElement | null)?.style.top).toContain(
+			"var(--space-conversation-sticky-top, 0px)"
 		);
 	});
 
@@ -559,14 +560,14 @@ describe("SpaceConversationPanel", () => {
 		Object.defineProperty(secondDateMarker, "getBoundingClientRect", {
 			configurable: true,
 			value: () => ({
-				bottom: 72,
+				bottom: 60,
 				height: 32,
 				left: 0,
 				right: 800,
-				top: 40,
+				top: 28,
 				width: 800,
 				x: 0,
-				y: 40,
+				y: 28,
 				toJSON: () => ({}),
 			}),
 		});
@@ -841,9 +842,6 @@ describe("SpaceConversationPanel", () => {
 				expect(inFlowPill.firstElementChild?.className).toContain(
 					"conversation-floating-surface"
 				);
-				expect(inFlowPill.firstElementChild?.className).toContain(
-					"conversation-floating-surface"
-				);
 			}
 			expect(
 				landmark.querySelector("[data-conversation-date-marker-placeholder]")
@@ -858,8 +856,8 @@ describe("SpaceConversationPanel", () => {
 			expect(pillItem?.className).toContain("absolute");
 			expect(pillItem?.className).toContain("h-8");
 			expect(pillItem?.className).toContain("max-lg:h-11");
-			expect(pillItem?.className).toContain(
-				"top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)]"
+			expect((pillItem as HTMLElement).style.top).toContain(
+				"var(--space-conversation-sticky-top, 0px)"
 			);
 			expect(pillItem?.className).not.toContain("bg-background");
 			expect(pillItem?.className).not.toContain("backdrop-blur");
@@ -869,18 +867,19 @@ describe("SpaceConversationPanel", () => {
 		);
 		expect(stickyPillViewport?.className).toContain("h-[calc(100%+0.25rem)]");
 		expect(stickyPillViewport?.className).toContain("py-0.5");
-		expect(stickyPillViewport?.className).toContain("overflow-hidden");
+		expect(stickyPillViewport?.className).not.toContain("overflow-hidden");
 		expect(stickyDatePills[0]?.className).not.toContain("overflow-clip");
+		const floatingDateTrack = document.querySelector(
+			"[data-slot='conversation-date-pill-track']"
+		);
 		expect(
-			document.querySelector(
-				"[data-slot='conversation-date-pill-track'] > :first-child > *"
-			)?.className
-		).toContain("conversation-floating-surface");
+			floatingDateTrack?.querySelectorAll(":scope > span[aria-hidden]")
+		).toHaveLength(0);
 		expect(
-			document.querySelector(
-				"[data-slot='conversation-date-pill-track'] > :first-child > *"
-			)?.className
-		).toContain("conversation-floating-surface");
+			floatingDateTrack?.querySelector(
+				"[data-slot='conversation-date-pill-surface'] .conversation-floating-surface"
+			)
+		).not.toBeNull();
 
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
@@ -962,7 +961,7 @@ describe("SpaceConversationPanel", () => {
 				document.querySelector<HTMLElement>(
 					"[data-slot='conversation-date-pill-track']"
 				)?.style.transform
-			).toBe("translate3d(0, -40px, 0)");
+			).toBe("translate3d(0, -36px, 0)");
 		});
 		expect(
 			screen.getAllByRole("button", {
@@ -2760,7 +2759,7 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
-	it("keeps the scroll viewport full width and constrains only messages and the composer", () => {
+	it("keeps the scroll viewport full width while constraining conversation content and the composer", () => {
 		const view = renderSpaceConversationPanel({ readOnly: false });
 		let conversation = screen.getByRole("region", {
 			name: "Space conversation",
@@ -2768,9 +2767,6 @@ describe("SpaceConversationPanel", () => {
 		let conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
-		let contentRails = conversation.querySelectorAll(
-			"[data-space-conversation-content-width]"
-		);
 
 		expect(
 			conversation.hasAttribute("data-space-conversation-content-width")
@@ -2778,7 +2774,6 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			conversationLog.hasAttribute("data-space-conversation-content-width")
 		).toBe(false);
-		expect(contentRails).toHaveLength(2);
 		expect(
 			conversationLog.querySelector("[data-space-conversation-content-width]")
 		).toBeTruthy();
@@ -2799,9 +2794,6 @@ describe("SpaceConversationPanel", () => {
 		conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
-		contentRails = conversation.querySelectorAll(
-			"[data-space-conversation-content-width]"
-		);
 
 		expect(
 			conversation.hasAttribute("data-space-conversation-content-width")
@@ -2809,7 +2801,9 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			conversationLog.hasAttribute("data-space-conversation-content-width")
 		).toBe(false);
-		expect(contentRails).toHaveLength(2);
+		expect(
+			conversationLog.querySelector("[data-space-conversation-content-width]")
+		).toBeTruthy();
 	});
 
 	it("separates the main composer with spacing instead of a top divider", () => {
@@ -4308,8 +4302,9 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(
 			within(
 				bubbleContent?.closest("[data-message-row-id]") as HTMLElement
-			).getByRole("button", { name: "Message details" })
+			).getByRole("button", { name: "More actions" })
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();

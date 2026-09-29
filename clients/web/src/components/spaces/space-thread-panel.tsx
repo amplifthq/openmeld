@@ -584,7 +584,14 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				resizeHandleLabel="Resize Thread panel"
 				width={panelWidth.width}
 			>
-				<ThreadPanelHeader onClose={input.onClose} />
+				<ThreadPanelHeader
+					onClose={input.onClose}
+					onGoToMessage={
+						activeThreadRootSignalId && input.onShowMessageInMain
+							? () => input.onShowMessageInMain?.(activeThreadRootSignalId)
+							: undefined
+					}
+				/>
 				{renderThreadFocusStatus(focusStatusMessage)}
 				<ThreadTimeline
 					actionableAgentInteractionPlacement={resolveSpaceAgentInteractionPlacement(

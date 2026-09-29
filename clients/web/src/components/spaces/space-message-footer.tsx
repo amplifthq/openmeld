@@ -8,12 +8,6 @@ import {
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
-	Popover,
-	PopoverContent,
-	PopoverTitle,
-	PopoverTrigger,
-} from "@openmeld/ui/components/popover";
-import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
@@ -22,6 +16,7 @@ import {
 	ArrowBendUpLeftIcon,
 	ArrowUUpLeftIcon,
 	ChatCircleIcon,
+	CheckIcon,
 	CheckSquareOffsetIcon,
 	CopyIcon,
 	DotsThreeIcon,
@@ -32,7 +27,13 @@ import {
 	TargetIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceDeviceWaitOutcome } from "./space-device-wait-outcome";
@@ -127,7 +128,7 @@ type SpaceMessageFooterProps = {
 	failureSummary?: string | null;
 	isDirectMessage?: boolean;
 	layout?: "floating" | "inline";
-	onCopy?: () => void;
+	onCopy?: () => Promise<boolean>;
 	reply?: SpaceMessageFooterAction;
 	task?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
@@ -187,7 +188,7 @@ function SpaceMessageFooterContent(
 ) {
 	const { state: reactions } = useMessageReactionsContext();
 	const hasReactions = Boolean(input.reaction && reactions.groups.length);
-	const persistent = Boolean(input.failureSummary);
+	const persistent = Boolean(input.failureSummary || input.details?.hasProblem);
 	const detailsButton = (
 		<MessageFooterDetailsAction
 			details={input.details}
@@ -233,16 +234,23 @@ export function resolveToolbarPosition(input: {
 	viewport?: DOMRect;
 }): ToolbarPosition {
 	const { bubble, container, preferredSide, toolbar, viewport } = input;
+	const edgeOverlap = 10;
 	const visibleBottom = viewport
 		? Math.min(bubble.bottom, viewport.bottom)
 		: bubble.bottom;
-	const lowerEdgeTop = visibleBottom - toolbar.height - 8;
-	const verticalTop = (initialTop: number) =>
-		viewport &&
-		initialTop + toolbar.height <= viewport.top + 8 &&
-		lowerEdgeTop >= viewport.top + 8
+	const verticalTop = (initialTop: number, bottomOverlap: number) => {
+		if (!viewport) {
+			return initialTop - container.top;
+		}
+		const lowerEdgeTop = Math.min(
+			visibleBottom - toolbar.height + bottomOverlap,
+			viewport.bottom - toolbar.height - 8
+		);
+		return initialTop + toolbar.height <= viewport.top + 8 &&
+			lowerEdgeTop >= viewport.top + 8
 			? lowerEdgeTop - container.top
 			: initialTop - container.top;
+	};
 	for (const side of [
 		preferredSide,
 		preferredSide === "after" ? "before" : "after",
@@ -258,7 +266,7 @@ export function resolveToolbarPosition(input: {
 						? bubble.right - container.left + 6
 						: bubble.left - container.left - toolbar.width - 6,
 				placement: side,
-				top: verticalTop(bubble.top),
+				top: verticalTop(bubble.top, 0),
 			};
 		}
 	}
@@ -273,7 +281,10 @@ export function resolveToolbarPosition(input: {
 			)
 		),
 		placement: "overlay",
-		top: verticalTop(bubble.top - toolbar.height + 10),
+		top: verticalTop(
+			bubble.top - toolbar.height + edgeOverlap,
+			toolbar.height - edgeOverlap
+		),
 	};
 }
 
@@ -462,7 +473,6 @@ function MessageFooterActions({
 						data-slot="message-footer-standard-actions"
 					>
 						<MessageFooterStandardActions input={input} />
-						{detailsButton}
 					</span>
 				)}
 				<MessageFooterOverflowActions
@@ -470,6 +480,7 @@ function MessageFooterActions({
 					input={input}
 					persistent={persistent}
 					reactions={reactions}
+					toolbarRef={toolbarRef}
 				/>
 				{input.item ? (
 					<SpaceMessageTime
@@ -488,6 +499,7 @@ function MessageFooterOverflowActions({
 	reactions,
 	persistent,
 	hasReactions,
+	toolbarRef,
 }: {
 	input: SpaceMessageFooterProps & {
 		onEdit?: () => void;
@@ -496,22 +508,44 @@ function MessageFooterOverflowActions({
 	reactions: ReturnType<typeof useMessageReactions>;
 	persistent: boolean;
 	hasReactions: boolean;
+	toolbarRef: RefObject<HTMLDivElement | null>;
 }) {
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [showToolbarActionsInMenu, setShowToolbarActionsInMenu] =
+		useState(false);
 	const pin = useSpaceMessagePinAction(input.signalId);
 	const hasOverflowActions =
 		hasReactions ||
-		Boolean(input.onEdit || pin || input.task || input.details) ||
+		Boolean(
+			input.onEdit ||
+				pin ||
+				input.task ||
+				input.details ||
+				input.addressingTargets.length
+		) ||
 		persistent ||
 		Boolean(input.onCopy || input.reply || input.thread);
 
 	return hasOverflowActions ? (
 		<MessageFooterMoreMenu
-			addressingTargets={persistent ? input.addressingTargets : []}
-			details={input.details}
+			addressingTargets={input.addressingTargets}
+			details={persistent ? undefined : input.details}
 			edit={input.onEdit}
 			onCopy={input.onCopy}
-			onOpenChange={setMenuOpen}
+			onOpenChange={(open) => {
+				if (open) {
+					const standardActions =
+						toolbarRef.current?.querySelector<HTMLElement>(
+							'[data-slot="message-footer-standard-actions"]'
+						);
+					setShowToolbarActionsInMenu(
+						persistent ||
+							!standardActions ||
+							getComputedStyle(standardActions).display === "none"
+					);
+				}
+				setMenuOpen(open);
+			}}
 			onViewReactions={
 				hasReactions ? () => reactions.setViewerOpen(true) : undefined
 			}
@@ -519,6 +553,7 @@ function MessageFooterOverflowActions({
 			pin={pin}
 			recall={input.onRecall}
 			reply={input.reply}
+			showToolbarActions={showToolbarActionsInMenu}
 			task={input.task}
 			thread={input.thread}
 		/>
@@ -535,13 +570,7 @@ function MessageFooterStandardActions({
 }) {
 	return (
 		<>
-			{input.onCopy ? (
-				<MessageFooterIconAction
-					icon={<CopyIcon aria-hidden="true" />}
-					label="Copy message"
-					onSelect={input.onCopy}
-				/>
-			) : null}
+			{input.onCopy ? <MessageFooterCopyAction onCopy={input.onCopy} /> : null}
 			{input.reply ? (
 				<MessageFooterIconAction
 					disabled={input.reply.disabled}
@@ -557,9 +586,6 @@ function MessageFooterStandardActions({
 					label={input.thread.label}
 					onSelect={input.thread.onSelect}
 				/>
-			) : null}
-			{input.addressingTargets.length > 0 ? (
-				<MessageAddressingPopover targets={input.addressingTargets} />
 			) : null}
 		</>
 	);
@@ -594,6 +620,58 @@ function MessageFooterDetailsAction(input: {
 	) : null;
 }
 
+function MessageFooterCopyAction(input: { onCopy: () => Promise<boolean> }) {
+	const [copied, setCopied] = useState(false);
+	const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			if (resetTimer.current) {
+				clearTimeout(resetTimer.current);
+			}
+		},
+		[]
+	);
+	const label = copied ? "Copied" : "Copy message";
+	return (
+		<MessageActionTooltip label={label}>
+			<Button
+				aria-label={label}
+				className={FOOTER_BUTTON_CLASS_NAME}
+				onClick={async () => {
+					if (!(await input.onCopy().catch(() => false))) {
+						return;
+					}
+					setCopied(true);
+					if (resetTimer.current) {
+						clearTimeout(resetTimer.current);
+					}
+					resetTimer.current = setTimeout(() => setCopied(false), 2000);
+				}}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<span className="relative block size-4">
+					<CopyIcon
+						aria-hidden="true"
+						className={cn(
+							"absolute inset-0 size-4 transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none motion-reduce:transition-opacity",
+							copied ? "scale-95 opacity-0" : "opacity-100"
+						)}
+					/>
+					<CheckIcon
+						aria-hidden="true"
+						className={cn(
+							"absolute inset-0 size-4 transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none motion-reduce:transition-opacity",
+							copied ? "opacity-100" : "scale-95 opacity-0"
+						)}
+					/>
+				</span>
+			</Button>
+		</MessageActionTooltip>
+	);
+}
+
 function MessageFooterIconAction(input: {
 	className?: string;
 	disabled?: boolean;
@@ -618,30 +696,7 @@ function MessageFooterIconAction(input: {
 	);
 }
 
-function MessageAddressingPopover(input: {
-	className?: string;
-	targets: readonly SpaceMessageFooterAddressingTarget[];
-}) {
-	return (
-		<Popover>
-			<MessageActionTooltip label="Message addressing">
-				<PopoverTrigger
-					aria-label="Message addressing"
-					className={cn(FOOTER_BUTTON_CLASS_NAME, input.className)}
-					render={<Button size="icon-sm" type="button" variant="ghost" />}
-				>
-					<TargetIcon aria-hidden="true" />
-				</PopoverTrigger>
-			</MessageActionTooltip>
-			<PopoverContent align="start" className="w-64 rounded-md" sideOffset={6}>
-				<PopoverTitle>Message addressing</PopoverTitle>
-				<MessageAddressingTargetList targets={input.targets} />
-			</PopoverContent>
-		</Popover>
-	);
-}
-
-function MessageFooterMoreMenu(input: {
+type MessageFooterMoreMenuProps = {
 	details?: SpaceMessageFooterDetailsAction;
 	edit?: () => void;
 	recall?: () => void;
@@ -650,22 +705,29 @@ function MessageFooterMoreMenu(input: {
 	onOpenChange: (open: boolean) => void;
 	pin?: SpaceMessageFooterAction;
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
-	onCopy?: () => void;
+	onCopy?: () => Promise<boolean>;
 	reply?: SpaceMessageFooterAction;
+	showToolbarActions: boolean;
 	thread?: SpaceMessageFooterAction;
 	task?: SpaceMessageFooterAction;
-}) {
-	const actionIds = [
+};
+
+function resolveMessageFooterMoreActionIds(input: MessageFooterMoreMenuProps) {
+	return [
 		input.edit && "edit",
 		input.pin && "pin",
 		input.onViewReactions && "reactions",
-		input.onCopy && "copy",
+		input.showToolbarActions && input.onCopy && "copy",
 		input.details && "details",
-		input.reply && "reply",
-		input.thread && "thread",
+		input.showToolbarActions && input.reply && "reply",
+		input.showToolbarActions && input.thread && "thread",
 		input.task && "task",
 		input.recall && "recall",
 	].filter(Boolean);
+}
+
+function MessageFooterMoreMenu(input: MessageFooterMoreMenuProps) {
+	const actionIds = resolveMessageFooterMoreActionIds(input);
 	return (
 		<DropdownMenu onOpenChange={input.onOpenChange} open={input.open}>
 			<MessageActionTooltip label="More actions">
@@ -708,7 +770,7 @@ function MessageFooterMoreMenu(input: {
 							View reactions
 						</FluidDropdownMenuItem>
 					) : null}
-					{input.onCopy ? (
+					{input.showToolbarActions && input.onCopy ? (
 						<FluidDropdownMenuItem
 							index={actionIds.indexOf("copy")}
 							onClick={input.onCopy}
@@ -726,7 +788,7 @@ function MessageFooterMoreMenu(input: {
 							Message details
 						</FluidDropdownMenuItem>
 					) : null}
-					{input.reply ? (
+					{input.showToolbarActions && input.reply ? (
 						<FluidDropdownMenuItem
 							disabled={input.reply.disabled}
 							index={actionIds.indexOf("reply")}
@@ -736,7 +798,7 @@ function MessageFooterMoreMenu(input: {
 							{input.reply.label}
 						</FluidDropdownMenuItem>
 					) : null}
-					{input.thread ? (
+					{input.showToolbarActions && input.thread ? (
 						<FluidDropdownMenuItem
 							disabled={input.thread.disabled}
 							index={actionIds.indexOf("thread")}

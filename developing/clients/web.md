@@ -1460,15 +1460,19 @@ explicit and persistent.
 Appearance also owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
-trailing-aligned, content-sized bubble with a responsive maximum width; a
-message placed on the left uses the available transcript width beside its avatar.
+trailing-aligned, content-sized bubble; a message placed on the left uses the
+available transcript width beside its avatar. In the Full width conversation
+layout, a short main-timeline message fits its content, while a long one can
+use the full available width without a separate bubble cap. Centered layout
+limits the conversation column itself.
 Both placements keep their content leading-aligned. Ordinary Spaces put the
 speaker's avatar beside the name and bubble, with the name aligned to the avatar's
 top and the bubble below it. Names use regular-weight, muted, extra-small text;
 the name line compensates for the font's ascent inset to align its visible ink
 slightly above the avatar top.
 Direct Messages, including Center
-Agent chats, use content-sized bubbles with a dedicated avatar column. The first
+Agent chats, use content-sized bubbles up to the available conversation width
+with a dedicated avatar column. The first
 message in a speaker run aligns the avatar with the bubble's top; subsequent
 messages retain the same column. Names and runtime/owner attribution are omitted
 from DM speaker headers, while avatar Profile Details remain available. The
@@ -4328,6 +4332,7 @@ sent revision even after the viewer temporarily returned to the current file.
 - `Reply to` creates a normal reply relation to a message
 - `Reply in thread` opens the thread panel
 - thread replies stay in the thread panel
+- the Thread header's **Go to message** action focuses its root message in Messages
 - the root message may show a compact thread preview
 - the main timeline must not render thread replies as standalone root messages
 
@@ -4610,14 +4615,20 @@ time inside the floating toolbar. Message details remains available for an
 individual message. Message actions form one floating
 toolbar beside the bubble, or slightly over its upper edge when neither side
 has room. As a long message scrolls past the top of the message viewport, the
-toolbar follows that message's lower visible edge so its actions remain in view.
+toolbar aligns with that message's lower visible edge while it fits beside the
+bubble. When it must overlap the bubble, it straddles that lower edge if there
+is room. It remains inside the viewport when the message continues beyond it.
 It prefers the opposite side of a right-aligned self message and the right side
-of a left-aligned message. Phone widths show
-reaction and More actions beside a narrower bubble, keeping the full set of
-actions available from More. The toolbar does not reserve a footer row or change
-the bubble's height. When a message has a failure, the visible
-toolbar keeps only one red Message details icon and More actions;
-Copy, Reply, Thread, and Addressing move into More actions. Toolbar icon controls
+of a left-aligned message. Phone widths show reaction and More actions, keeping
+the full set of actions available from More. The floating toolbar never reserves
+bubble width or a footer row: when it cannot fit beside the bubble, it overlaps
+the upper edge without changing the bubble's width or height. When a message has
+a failure, the visible toolbar keeps only one red Message details icon and More
+actions; Copy, Reply, and Thread move into More actions. Otherwise the expanded
+toolbar shows reaction, Copy, Reply, Thread, and More. More holds Message details,
+Addressing, and other less frequent actions without repeating visible toolbar
+actions. A successful Copy briefly changes its icon to a check; a failed Copy
+leaves the copy icon in place. Toolbar icon controls
 use a compact 28-pixel container with 6-pixel visual padding. A failure colors
 the Message details icon red but does not show a persistent hover or selected
 background; that background appears only through real interaction state. The

@@ -2926,8 +2926,9 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Message details" })
+			await screen.findByRole("button", { name: "More actions" })
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		expect(createDiagnosticReportMock).not.toHaveBeenCalled();
 		expect(
@@ -14167,8 +14168,8 @@ describe("SpaceLanding", () => {
 		);
 		expect(within(log).queryByText("Open in Files")).toBeNull();
 		expect(
-			within(log).getByRole("button", { name: "Copy message" })
-		).toHaveProperty("disabled", true);
+			within(log).queryByRole("button", { name: "Copy message" })
+		).toBeNull();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		await waitFor(() => expect(releasePublication).toBeDefined());
 		await act(async () => releasePublication?.());
@@ -16222,7 +16223,10 @@ describe("SpaceLanding", () => {
 			'[data-signal-id="sig-inbox-target"]'
 		);
 		expect(target?.getAttribute("data-highlighted")).toBe("true");
-		expect(target?.className).toContain("motion-reduce:transition-none");
+		expect(
+			target?.querySelector('[data-slot="space-message-text-surface"]')
+				?.className
+		).toContain("motion-reduce:transition-none");
 		expect(
 			screen.getByRole("log", { name: "Conversation history" }).scrollTop
 		).toBe(480);
@@ -16528,7 +16532,10 @@ describe("SpaceLanding", () => {
 				`[data-signal-id="${replySignal.id}"]`
 			);
 			expect(target?.getAttribute("data-highlighted")).toBe("true");
-			expect(target?.className).toContain("motion-reduce:transition-none");
+			expect(
+				target?.querySelector('[data-slot="space-message-text-surface"]')
+					?.className
+			).toContain("motion-reduce:transition-none");
 		});
 		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
 			replySignal.id
@@ -16746,12 +16753,14 @@ describe("SpaceLanding", () => {
 		expect(actionRow).not.toBeNull();
 		const actionScope = within(actionRow as HTMLElement);
 
-		const messageDetailsButton = actionScope.getByRole("button", {
-			name: "Message details",
+		const moreActionsButton = actionScope.getByRole("button", {
+			name: "More actions",
 		});
-		expect(messageDetailsButton.getAttribute("data-slot")).toBe(
-			"tooltip-trigger"
-		);
+		expect(moreActionsButton.getAttribute("data-slot")).toBe("tooltip-trigger");
+		fireEvent.click(moreActionsButton);
+		expect(
+			screen.getByRole("menuitem", { name: "Message details" })
+		).toBeTruthy();
 
 		const replyButton = actionScope.getByRole("button", { name: "Reply" });
 		expect(replyButton.getAttribute("data-slot")).toBe("tooltip-trigger");
@@ -16973,6 +16982,15 @@ describe("SpaceLanding", () => {
 			name: "Thread",
 		});
 		expect(restoredPanel).toBeTruthy();
+		fireEvent.click(
+			within(restoredPanel).getByRole("button", { name: "Go to message" })
+		);
+		await waitFor(() => {
+			expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+				rootSignal.id
+			);
+		});
+		expect(screen.getByRole("complementary", { name: "Thread" })).toBeTruthy();
 
 		fireEvent.click(
 			within(restoredPanel).getByRole("button", { name: "Close thread" })
@@ -17231,7 +17249,7 @@ describe("SpaceLanding", () => {
 		expect(within(runnerActivity).queryByText("OpenMeld")).toBeNull();
 		expect(
 			within(runnerActivity).getByRole("button", {
-				name: "Show reply in Messages",
+				name: "Go to message",
 			})
 		).toBeTruthy();
 		expect(useQueryMock).toHaveBeenCalledWith(
@@ -17261,9 +17279,10 @@ describe("SpaceLanding", () => {
 
 		fireEvent.click(
 			within(finalReplyRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: "More actions",
 			})
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })
@@ -17737,8 +17756,9 @@ describe("SpaceLanding", () => {
 			within(threadPanel).queryByRole("button", { name: "Report issue" })
 		).toBeNull();
 		fireEvent.click(
-			within(threadPanel).getByRole("button", { name: "Message details" })
+			within(threadPanel).getByRole("button", { name: "More actions" })
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 
 		expect(createDiagnosticReportMock).not.toHaveBeenCalled();
 		expect(
