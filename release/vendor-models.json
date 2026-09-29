@@ -696,7 +696,7 @@
           "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
-          "minCliVersion": null
+          "minCliVersion": "1.18.33"
         },
         {
           "id": "opencode/space-bunny-free",
@@ -704,7 +704,7 @@
           "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-          "minCliVersion": null
+          "minCliVersion": "1.18.33"
         },
         {
           "id": "openai/gpt-6-astra",

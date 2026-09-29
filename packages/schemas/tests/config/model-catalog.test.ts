@@ -319,7 +319,7 @@ describe("model catalog schema", () => {
           badgeLabel: "New",
           unavailable: false,
           supportedReasoningLevels: [...variants],
-          minCliVersion: null,
+          minCliVersion: "1.18.33",
         });
       }
 

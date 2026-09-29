@@ -660,6 +660,8 @@ opencode --verbose` inventory found `opencode/longcat-2.5-preview-free` and
 verified free-provider routes. Other discovery candidates and routes in the
 local inventory are not assumed usable by every member's account; a real
 OpenMeld Wake remains deployment acceptance evidence.
+For a client without a reported ACI model inventory, the new routes require
+at least the observed OpenCode 1.18.33 version.
 
 ---
 
