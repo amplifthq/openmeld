@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ExecutionHostError } from "../src/local-service/execution-host/channel";
 import { launchExecutionHost } from "../src/local-service/execution-host/launch";
 import { createExecutionHostSocketLink } from "../src/local-service/execution-host/socket-link";
 
@@ -214,7 +215,15 @@ describe("Host responsiveness observations", () => {
     expect(host.available()).toBe(false);
     expect(link.canAccept()).toBe(false);
     expect(link.snapshot()).toBeNull();
-    expect(host.observation?.()).toEqual({ ...previous, responsive: false });
+    expect(host.observation?.()).toEqual({
+      ...previous,
+      responsive: false,
+      unavailableReason: {
+        code: "host.operation_failed",
+        message: "OpenMeld could not start or verify its local execution host.",
+        recoveryAction: "open_diagnostics",
+      },
+    });
     expect(failure).not.toHaveBeenCalled();
     expect(fixture.call.mock.calls.map(([method]) => method)).toEqual([
       "initialize",
@@ -236,8 +245,47 @@ describe("Host responsiveness observations", () => {
       activeCount: 1,
       pendingCount: 1,
       unacknowledgedResultCount: 1,
+      unavailableReason: null,
     });
     fixture.call.mockResolvedValueOnce({});
     await link.detach();
+  });
+
+  it("reports why previous work prevents Host initialization and how to recover", async () => {
+    fixture.call.mockRejectedValueOnce(
+      new ExecutionHostError(
+        "host.previous_work_unconfirmed",
+        "internal evidence omitted"
+      )
+    );
+    const host = launchExecutionHost({
+      identity: {
+        ownerUserId: "test-owner",
+        deviceId: "test-device",
+        lane: "dev-local",
+        daemonSessionId: "test-session",
+        serviceContractGeneration: 1,
+        sessionIdentity: "test-identity",
+        stateRoot: "/unused-boundary-fixture",
+        authBaseUrl: "http://localhost:1",
+        gatewayBaseUrl: "http://localhost:1",
+        parentPid: 41_000,
+        parentProcessStartedAt: "test-start",
+      },
+      onFailure: vi.fn(),
+    });
+
+    await expect(host.initialized).rejects.toMatchObject({
+      code: "host.previous_work_unconfirmed",
+    });
+    expect(host.observation?.()).toMatchObject({
+      responsive: false,
+      unavailableReason: {
+        code: "host.previous_work_unconfirmed",
+        message:
+          "OpenMeld cannot confirm that work from the previous local execution host has ended.",
+        recoveryAction: "restart_computer",
+      },
+    });
   });
 });

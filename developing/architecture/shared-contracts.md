@@ -493,15 +493,20 @@ release is deferred to the normal clean-main local-component release; no
 contract epoch, command-contract floor, or feature-branch manifest stamp is
 introduced. See the
 [owning admission semantics](local-openmeld-service.md#account-checked-service-start-and-stop).
-## Center Agent Space reply placement
+## Agent Space reply placement
 
 Space owns the durable per-dispatch output destination. The native delivery's
 frozen `threadContext` remains source context for authorization and continuity.
-Core resolves the output through `rpcResolveNativeReplyPlacement`; the hosted
-Center Agent can explicitly select it through `centerAgentSetReplyPlacement`
-using its authenticated submission context. A choice is locked before answer
-text or final publication and reused for recovery. Workstation execution,
-personal Remote Agents, Routines, and external channels retain their contracts.
+Core resolves the output through `rpcResolveNativeReplyPlacement`. The Center
+Agent can explicitly select it through `centerAgentSetReplyPlacement`; personal
+Remote Agents use `personalRemoteAgentSpaceTool` with a `reply_placement`
+operation. Both require an authenticated active submission. Local Agents may select it with the
+optional `placement` field on a final `post_message` Space Action; old clients
+omit that field, and Core still defaults their shared-Space replies to a
+Thread. A choice is locked before final publication and reused for recovery.
+Direct messages stay direct; Routines and external channels retain their
+contracts. Source `threadContext` continues to govern authorization and
+continuity independently of output placement.
 
 Agent stream identities add optional `replyThreadRootSignalId`: a root means
 Thread output, `null` means main output, and absence preserves legacy source
@@ -515,9 +520,14 @@ frames, rather than deriving output location from the trigger's source scope.
 Roll out Core and Gateway before Remote Agent and Web. A new Remote Agent tool
 against old Core reports unavailable rather than posting an independent answer.
 Old Remote Agent workers still receive the new default from Core, but need the
-new tool to select main explicitly. This is a cloud-only capability: old/new
-CLI, Service, and Skills retain setup, Wake, Space actions, trace and recovery
-contracts. No local contract epoch or local component stamp changes are needed.
+new tool to select main explicitly. Local reply placement is an additive shared
+Space Action field. Deploy Core before publishing a CLI or Service that can
+emit `placement`; old clients omit it and receive the new Core default. Roll
+back the emitting local component before rolling Core back, or its new field
+may be rejected by old Core. Existing setup, Wake admission, status, trace,
+and recovery payloads remain valid. The local component release requires the
+normal base-aware stamp and readiness verification; no forced local contract
+epoch is needed for the optional field.
 
 ## Center Agent session title generation
 

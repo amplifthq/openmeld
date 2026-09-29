@@ -772,16 +772,26 @@ export async function rpcReadOrganizationSkillRuntimeCatalog(
   );
   const authorization = await authorizeRuntimeSelection(env, request);
   const { db, bucket } = requireStores(env);
-  await readEnabledOrganizationSkillReleaseSelection({
+  const availableReleases = await readEnabledOrganizationSkillReleaseSelection({
     db,
     organizationId: authorization.activeOrganization.organizationId,
     selectedReleases: request.releases,
+    skipUnavailableSelectedReleases: request.skipUnavailableSelectedReleases,
   });
+  if (availableReleases.length !== request.releases.length) {
+    console.info(
+      "[core.organization_skill.unavailable_optional_releases_skipped]",
+      {
+        count: request.releases.length - availableReleases.length,
+        organizationId: authorization.activeOrganization.organizationId,
+      }
+    );
+  }
   return parseResponse(
     organizationSkillRuntimeCatalogResponseSchema,
     await createOrganizationSkillService({ bucket, db }).readRuntimeCatalog(
       authorization.activeOrganization.organizationId,
-      request.releases
+      availableReleases
     )
   );
 }

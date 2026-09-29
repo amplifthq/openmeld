@@ -33,6 +33,7 @@ import {
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
   runtimeTransportErrorCodeSchema,
@@ -1838,6 +1839,29 @@ describe("runtime transport schema", () => {
       connectionGeneration: 1,
       leaseEpoch: 2,
       previewText: "preview text",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts bounded public progress with execution authority echoes", () => {
+    const parsed = runtimeTransportDispatchProgressRequestSchema.safeParse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+      executionTokenEcho: createExecutionTokenEcho(),
+      executionIdentityEcho: createRuntimeEvidenceIdentityEcho(),
+      dispatchId: "dispatch-1",
+      attemptId: "attempt-1",
+      daemonSessionId: "session-1",
+      connectionGeneration: 1,
+      leaseEpoch: 2,
+      sequence: 1,
+      observedAtMs: 1_700_000_000_100,
+      taskId: "task-1",
+      spaceId: "space-1",
+      sourceSignalId: "signal-1",
+      targetProfileId: "agent-1",
+      progressSnapshot: "Confirmed the root cause; starting verification.",
     });
 
     expect(parsed.success).toBe(true);

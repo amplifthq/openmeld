@@ -60,6 +60,10 @@ export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE =
   "remote_agent.work_loop_continuation_limit_exceeded";
 export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY =
   "Center Agent kept working but could not finish this request within the safe execution limit. Try again or open diagnostics.";
+export const ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE =
+  "organization_skill.release_unavailable";
+export const ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY =
+  "A Skill selected for this request is no longer available. Ask an Organization admin to restore it, or send a new request without that Skill.";
 const EXACT_PATTERN_PREFIX = "=";
 const RUNTIME_PERMISSION_DENIAL_PUBLIC_COPY =
   "The requested action was blocked by the Agent Profile’s permission settings. Review its permissions and choose a less restrictive mode only if you trust the access it grants, then wake the agent again.";
@@ -137,6 +141,10 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       return `${agentLabel} reached the model's response limit before it could reply. Completed actions were not undone. Check the results, then send a shorter follow-up asking it to continue.`;
     case "remote_agent.execution_cancelled":
       return CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY;
+    case ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE:
+      return ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY;
+    case "remote_agent.admission_timeout":
+      return `${agentLabel} couldn't start this request because OpenMeld did not confirm it in time. Try again. If it keeps happening, open Diagnostics in OpenMeld.`;
     case "remote_agent.turn.context_window_exceeded":
       return `This conversation has grown too long for ${agentLabel} to continue in one request. Try again; OpenMeld will shorten older messages before continuing.`;
     case "remote_agent.execution_identity_mismatch":
@@ -1136,6 +1144,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
+        `OpenMeld Service stopped or disconnected while ${formatObjectTargetName(targetName)} was working on this Wake. Start OpenMeld again before retrying.`,
+      kind: "local_service",
+      patterns: ["=runtime.local_runtime_lost"],
+      primaryActionId: "reconnect_openmeld_service",
+      recoveryTarget: "prepare_setup",
+    },
+    {
+      body: (targetName) =>
         `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`,
       kind: "local_service",
       patterns: ["daemon.delivery.execution_stalled", "runtime.progress_stale"],
@@ -1423,6 +1439,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         "execution_context.project_repository_root_required",
         "execution_context.project_commit_required",
       ],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "This task did not start because Custom (config.toml) cannot be combined with OpenMeld's task file boundary. Choose another permission mode in this Agent's settings, then wake the Agent again.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.custom_config_file_access_unverified"],
       primaryActionId: "manage_local_agent",
       preferMappedReasonOverDetail: true,
       recoveryTarget: "computer",

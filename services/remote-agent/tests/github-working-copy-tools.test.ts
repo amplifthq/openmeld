@@ -12,10 +12,16 @@ import {
   putRemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
 } from "../agent-core/callback-context";
-import { gitBlobSha } from "../connectors/github-working-copy-provider";
+import { getRemoteAgentGitHubToolDefinitions } from "../agent-core/github-tools";
+import {
+  GitHubWorkingCopyProvider,
+  gitBlobSha,
+} from "../connectors/github-working-copy-provider";
+import { rankRemoteAgentCapabilities } from "../flue-adapter/capability-catalog";
 import { GitWorkingCopyComputer } from "../flue-adapter/github-working-copy-computer";
 import {
   checkoutRepository,
+  getGitHubWorkingCopyTools,
   publishCheckout,
   publishComputerFile,
 } from "../flue-adapter/github-working-copy-tools";
@@ -294,6 +300,40 @@ async function fixture(
 
 afterEach(() => vi.restoreAllMocks());
 describe("bounded Git publication and receipts", () => {
+  it.each([
+    "publish image to GitHub branch",
+    "upload screenshot to GitHub",
+    "把电脑里的图片发到 GitHub 分支",
+    "发布一张图到 GitHub 分支",
+  ])("finds the hosted image publication entry for %s", (query) => {
+    const catalog = [
+      ...getRemoteAgentGitHubToolDefinitions({
+        coreWorker: {} as never,
+        storage: {} as never,
+        submissionId: "test",
+      }),
+      ...getGitHubWorkingCopyTools({} as never),
+    ];
+    expect(
+      rankRemoteAgentCapabilities(catalog, query)
+        .slice(0, 8)
+        .map(({ capability }) => capability.name)
+    ).toContain("github_publish_computer_file");
+  });
+
+  it("reuses the verified Computer manifests instead of downloading the tree on retry", async () => {
+    const f = await fixture();
+    vi.mocked(f.deps.computer.readFile).mockResolvedValue("[]");
+    f.fetchMock.mockClear();
+    await checkoutRepository(f.deps, intent);
+    expect(
+      f.fetchMock.mock.calls.filter(([, init]) =>
+        JSON.parse(String(init?.body)).endpoint.includes("/git/trees/")
+      )
+    ).toHaveLength(0);
+    expect(f.deps.computer.writeFile).not.toHaveBeenCalled();
+  });
+
   it("resolves the trusted baseline from the authenticated repository default, independently of the requested ref", async () => {
     const f = await fixture();
     const original = f.fetchMock.getMockImplementation();
@@ -349,6 +389,165 @@ describe("bounded Git publication and receipts", () => {
           `/repos/acme/private/commits/${SOURCE_COMMIT}`
       )
     ).toBe(true);
+  });
+
+  it("returns preparing with imported progress before the Code Mode deadline", async () => {
+    const f = await fixture();
+    const contents = [
+      bytes,
+      ...[2, 3, 4, 5].map((index) => Buffer.from(`file ${index}\n`)),
+    ];
+    const blobs = contents.map((content) => ({
+      bytes: content,
+      sha: createHash("sha1")
+        .update(`blob ${content.length}\0`)
+        .update(content)
+        .digest("hex"),
+    }));
+    const entries = blobs.map(({ bytes: content, sha }, index) => ({
+      path: `file-${index}.txt`,
+      mode: "100644" as const,
+      type: "blob" as const,
+      sha,
+      size: content.length,
+    }));
+    vi.spyOn(GitHubWorkingCopyProvider.prototype, "tree").mockResolvedValue(
+      entries as never
+    );
+    const originalFetch = f.fetchMock.getMockImplementation();
+    if (!originalFetch) {
+      throw new Error("Missing provider fixture");
+    }
+    let nowMs = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    f.fetchMock.mockImplementation(async (url, init) => {
+      const request = JSON.parse(String(init?.body));
+      const blob = blobs.find(({ sha }) =>
+        request.endpoint.endsWith(`/git/blobs/${sha}`)
+      );
+      if (blob) {
+        if (blob.sha === BLOB) {
+          nowMs += 46_000;
+        }
+        return Response.json({
+          success: true,
+          message: "OK",
+          data: {
+            status: 200,
+            headers: {},
+            data: {
+              sha: blob.sha,
+              encoding: "base64",
+              content: blob.bytes.toString("base64"),
+              size: blob.bytes.length,
+            },
+          },
+        });
+      }
+      return await originalFetch(url, init);
+    });
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare)
+      .mockResolvedValueOnce({
+        ready: false,
+        remaining: blobs.length,
+        missing: blobs.map(({ sha }) => sha),
+      })
+      .mockResolvedValueOnce({
+        ready: false,
+        remaining: 1,
+        missing: [blobs[4]?.sha ?? BLOB],
+      });
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "budget-progress",
+    });
+    expect(result).toMatchObject({ status: "preparing", remainingBlobs: 1 });
+    expect(
+      f.fetchMock.mock.calls.filter(([, init]) =>
+        JSON.parse(String(init?.body)).endpoint.includes("/git/blobs/")
+      )
+    ).toHaveLength(4);
+    expect(f.deps.computer.writeFile).toHaveBeenCalledTimes(4);
+  });
+
+  it("returns preparing when the native preparation exceeds its remaining budget", async () => {
+    const f = await fixture();
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare).mockRejectedValue(
+      new DOMException("Preparation timed out", "TimeoutError")
+    );
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare).mockClear();
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "slow-prepare",
+    });
+    expect(result).toMatchObject({
+      status: "preparing",
+      remainingBlobs: null,
+    });
+    expect(GitWorkingCopyComputer.prototype.prepare).toHaveBeenCalledTimes(2);
+    expect(
+      vi
+        .mocked(GitWorkingCopyComputer.prototype.prepare)
+        .mock.calls.every(
+          ([, timeoutMs]) =>
+            typeof timeoutMs === "number" && timeoutMs <= 55_000
+        )
+    ).toBe(true);
+  });
+
+  it("returns a retryable preparing result when initial repository metadata times out", async () => {
+    const f = await fixture();
+    const originalFetch = f.fetchMock.getMockImplementation();
+    if (!originalFetch) {
+      throw new Error("Missing provider fixture");
+    }
+    let nowMs = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    f.fetchMock.mockClear();
+    f.fetchMock.mockImplementation(async (url, init) => {
+      const result = await originalFetch(url, init);
+      if (JSON.parse(String(init?.body)).endpoint === "/repos/acme/private") {
+        nowMs += 56_000;
+      }
+      return result;
+    });
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "slow-metadata",
+    });
+    expect(result).toMatchObject({
+      status: "preparing",
+      key: "slow-metadata",
+      remainingBlobs: null,
+    });
+    expect(f.fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("returns preparing instead of failing when every blob request times out", async () => {
+    const f = await fixture();
+    vi.spyOn(GitHubWorkingCopyProvider.prototype, "tree").mockResolvedValue([
+      {
+        path: "change.txt",
+        mode: "100644",
+        type: "blob",
+        sha: BLOB,
+        size: bytes.length,
+      },
+    ]);
+    vi.spyOn(GitHubWorkingCopyProvider.prototype, "blob").mockRejectedValue(
+      new DOMException("Blob timed out", "TimeoutError")
+    );
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare).mockResolvedValue({
+      ready: false,
+      remaining: 1,
+      missing: [BLOB],
+    });
+    const result = await checkoutRepository(f.deps, {
+      ...intent,
+      key: "slow-blob",
+    });
+    expect(result).toMatchObject({ status: "preparing", remainingBlobs: 1 });
+    expect(GitHubWorkingCopyProvider.prototype.blob).toHaveBeenCalledOnce();
   });
 
   it("rejects 201 new blobs before claiming a write, without leaving a pending receipt", async () => {

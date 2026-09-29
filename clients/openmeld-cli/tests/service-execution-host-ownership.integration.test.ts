@@ -191,7 +191,7 @@ describe("execution Host durable process ownership", () => {
           throw new Error(`Owner fixture exited before readiness: ${stderr}`);
         }),
       ]);
-      expect(ready[0]).toEqual({ ready: true });
+      expect(ready[0]).toMatchObject({ ready: true });
       const retained = await readFile(receiptPath(), "utf8");
       expect(JSON.parse(retained)).toMatchObject({
         pid: child.pid,
@@ -215,4 +215,91 @@ describe("execution Host durable process ownership", () => {
       await exited;
     }
   });
+
+  it("recovers on the same boot only after the old Host and provider process tree are gone", async () => {
+    const require = createRequire(import.meta.url);
+    const loader = join(
+      createRequire(require.resolve("vitest/package.json")).resolve(
+        "tsx/package.json"
+      ),
+      "..",
+      "dist/loader.mjs"
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        loader,
+        join(import.meta.dirname, "fixtures/service-execution-host-owner.ts"),
+        root,
+        "with-provider",
+      ],
+      {
+        env: { ...process.env, OPENMELD_HOME: root },
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
+      }
+    );
+    const exited = once(child, "exit");
+    let providerPid: number | null = null;
+    try {
+      const ready = await Promise.race([
+        once(child, "message"),
+        exited.then(() => {
+          throw new Error("Owner fixture exited before provider readiness");
+        }),
+      ]);
+      const payload = ready[0] as { providerPid: number | null; ready: true };
+      providerPid = payload.providerPid;
+      expect(providerPid).toBeTypeOf("number");
+      child.kill("SIGKILL");
+      await exited;
+
+      await expect(
+        acquire(await readExecutionHostBootIdentity())
+      ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
+
+      if (providerPid !== null) {
+        process.kill(
+          process.platform === "win32" ? providerPid : -providerPid,
+          "SIGKILL"
+        );
+        await waitForProcessTreeExit(providerPid);
+      }
+      const replacement = await acquire(await readExecutionHostBootIdentity());
+      await replacement.release();
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+      if (providerPid !== null) {
+        try {
+          process.kill(
+            process.platform === "win32" ? providerPid : -providerPid,
+            "SIGKILL"
+          );
+        } catch {
+          // Already gone.
+        }
+      }
+      await exited;
+    }
+  });
 });
+
+async function waitForProcessTreeExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      process.kill(process.platform === "win32" ? pid : -pid, 0);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        String(error.code) === "ESRCH"
+      ) {
+        return;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Provider process tree ${pid} did not exit`);
+}

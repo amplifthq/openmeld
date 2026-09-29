@@ -92,6 +92,8 @@ const GITHUB_FILE_SEGMENT_DEFAULT_UTF16_CODE_UNITS = 24_000;
 const GITHUB_FILE_SEGMENT_MAX_UTF16_CODE_UNITS = 50_000;
 const GITHUB_SEARCH_DEFAULT_PER_PAGE = 10;
 const GITHUB_SEARCH_TEXT_FIELD_MAX_LENGTH = 500;
+const GITHUB_LIST_MAX_PER_PAGE = 30;
+const GITHUB_LIST_MAX_LABELS = 10;
 const GITHUB_SEARCH_TEXT_TRUNCATION_SUFFIX = "...";
 const GITHUB_ACTORS = ["organization", "requester"] as const;
 const GITHUB_ACTOR_GUIDANCE =
@@ -191,6 +193,12 @@ const nonNegativeIntegerSchema = pipe(number(), integer(), minValue(0));
 const optionalPaginationFields = {
   page: optional(positiveIntegerSchema),
   perPage: optional(positiveIntegerSchema),
+};
+const boundedListPaginationFields = {
+  page: optional(positiveIntegerSchema),
+  perPage: optional(
+    pipe(number(), integer(), minValue(1), maxValue(GITHUB_LIST_MAX_PER_PAGE))
+  ),
 };
 const repositoryFields = {
   owner: nonEmptyStringSchema,
@@ -460,13 +468,13 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.list_commits",
       description:
-        "List repository commits, optionally filtered by branch or SHA, path, author, committer, or date range.",
+        "List up to 30 concise repository commit summaries per page. Use github_get_commit for full details. Optionally filter by branch or SHA, path, author, committer, or date range.",
       input: object({
         author: optional(string()),
         committer: optional(string()),
         path: optional(string()),
         ...repositoryFields,
-        ...optionalPaginationFields,
+        ...boundedListPaginationFields,
         sha: optional(string()),
         since: optional(string()),
         until: optional(string()),
@@ -513,12 +521,12 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.list_repository_issues",
       description:
-        "List issues in a GitHub repository; pull requests are excluded by OpenConnector.",
+        "List up to 30 concise issue summaries per page; pull requests are excluded by OpenConnector. Use github_get_issue for full details.",
       input: object({
         direction: optional(picklist(["asc", "desc"])),
         labels: optional(array(string())),
         ...repositoryFields,
-        ...optionalPaginationFields,
+        ...boundedListPaginationFields,
         since: optional(string()),
         sort: optional(picklist(["created", "updated", "comments"])),
         state: optional(picklist(["open", "closed", "all"])),
@@ -563,13 +571,14 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     }),
     githubToolDefinition({
       actionId: "github.list_pull_requests",
-      description: "List pull requests in a GitHub repository.",
+      description:
+        "List up to 30 concise pull request summaries per page, including fork repository names. Use github_get_pull_request for full details.",
       input: object({
         base: optional(string()),
         direction: optional(picklist(["asc", "desc"])),
         head: optional(string()),
         ...repositoryFields,
-        ...optionalPaginationFields,
+        ...boundedListPaginationFields,
         sort: optional(
           picklist(["created", "updated", "popularity", "long-running"])
         ),
@@ -2587,6 +2596,30 @@ function projectGitHubActionResult(input: {
   attribution: Record<string, unknown>;
   data: unknown;
 }): unknown {
+  if (input.actionId === "github.list_pull_requests") {
+    return projectGitHubList(
+      input.data,
+      "pull_requests",
+      projectPullRequestListItem
+    );
+  }
+  if (input.actionId === "github.list_repository_issues") {
+    const fetched = readNumber(
+      asRecord(asRecord(input.data)?.pageInfo)?.fetched
+    );
+    if (fetched === null) {
+      throw new Error(
+        "OpenConnector returned an invalid GitHub issues pageInfo."
+      );
+    }
+    return {
+      ...projectGitHubList(input.data, "issues", projectIssueListItem),
+      pageInfo: { fetched },
+    };
+  }
+  if (input.actionId === "github.list_commits") {
+    return projectGitHubList(input.data, "commits", projectCommitListItem);
+  }
   if (input.actionId === "github.search_commits") {
     return projectGitHubCommitSearchResult({
       actionInput: input.actionInput,
@@ -2602,6 +2635,113 @@ function projectGitHubActionResult(input: {
     });
   }
   return input.data;
+}
+
+function projectGitHubList<Key extends "pull_requests" | "issues" | "commits">(
+  data: unknown,
+  key: Key,
+  project: (item: Record<string, unknown>) => Record<string, unknown>
+): Record<Key, Record<string, unknown>[]> {
+  const items = asRecord(data)?.[key];
+  if (!Array.isArray(items) || items.some((item) => !asRecord(item))) {
+    throw new Error(`OpenConnector returned an invalid GitHub ${key} list.`);
+  }
+  return {
+    [key]: items.map((item) => project(item as Record<string, unknown>)),
+  } as Record<Key, Record<string, unknown>[]>;
+}
+
+function projectPullRequestListItem(
+  item: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    number: item.number,
+    title: truncateGitHubSearchText(readString(item.title) ?? ""),
+    state: item.state,
+    draft: item.draft,
+    html_url: item.html_url,
+    user: projectGitHubListUser(item.user),
+    body: truncateGitHubSearchText(readString(item.body) ?? ""),
+    labels: projectGitHubListLabels(item.labels),
+    labels_truncated:
+      Array.isArray(item.labels) && item.labels.length > GITHUB_LIST_MAX_LABELS,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    closed_at: item.closed_at,
+    merged_at: item.merged_at,
+    merge_commit_sha: item.merge_commit_sha,
+    head: projectGitHubListBranch(item.head),
+    base: projectGitHubListBranch(item.base),
+  };
+}
+
+function projectIssueListItem(
+  item: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    number: item.number,
+    title: truncateGitHubSearchText(readString(item.title) ?? ""),
+    state: item.state,
+    html_url: item.html_url,
+    user: projectGitHubListUser(item.user),
+    body: truncateGitHubSearchText(readString(item.body) ?? ""),
+    labels: projectGitHubListLabels(item.labels),
+    labels_truncated:
+      Array.isArray(item.labels) && item.labels.length > GITHUB_LIST_MAX_LABELS,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    closed_at: item.closed_at,
+    comments: item.comments,
+  };
+}
+
+function projectCommitListItem(
+  item: Record<string, unknown>
+): Record<string, unknown> {
+  const commit = asRecord(item.commit);
+  return {
+    sha: item.sha,
+    html_url: item.html_url,
+    message: truncateGitHubSearchText(readString(commit?.message) ?? ""),
+    author: buildGitHubCommitPersonSummary({
+      commitPerson: asRecord(commit?.author),
+      profile: asRecord(item.author),
+    }),
+    committer: buildGitHubCommitPersonSummary({
+      commitPerson: asRecord(commit?.committer),
+      profile: asRecord(item.committer),
+    }),
+    parents: Array.isArray(item.parents)
+      ? item.parents.slice(0, 16).flatMap((parent) => {
+          const sha = readString(asRecord(parent)?.sha);
+          return sha ? [{ sha }] : [];
+        })
+      : [],
+  };
+}
+
+function projectGitHubListUser(value: unknown): { login: string } {
+  return { login: readString(asRecord(value)?.login) ?? "" };
+}
+
+function projectGitHubListLabels(value: unknown): { name: string }[] {
+  return Array.isArray(value)
+    ? value.slice(0, GITHUB_LIST_MAX_LABELS).flatMap((label) => {
+        const name =
+          typeof label === "string" ? label : readString(asRecord(label)?.name);
+        return name ? [{ name: truncateGitHubSearchText(name) }] : [];
+      })
+    : [];
+}
+
+function projectGitHubListBranch(value: unknown): Record<string, unknown> {
+  const branch = asRecord(value);
+  const repo = asRecord(branch?.repo);
+  return {
+    ref: branch?.ref,
+    sha: branch?.sha,
+    repo: repo ? { full_name: repo.full_name } : null,
+  };
 }
 
 function projectGitHubCommitSearchResult(input: {

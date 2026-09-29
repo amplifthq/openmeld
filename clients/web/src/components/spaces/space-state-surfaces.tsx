@@ -14,9 +14,11 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import type { CSSProperties, ReactNode } from "react";
 import { SessionExpiredCard } from "#/components/auth/session-expired-card";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { toSessionExpiredState } from "#/lib/session-expired";
 import { readSpaceMembersPanelOpen } from "#/lib/spaces/members-panel-storage";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
+import { DesktopProtectedSpaceHandoff } from "./desktop-protected-space-handoff";
 import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceWindowHeader } from "./space-header";
 import { SpaceThreadLoadingPanel } from "./space-thread-loading";
@@ -107,6 +109,9 @@ export function SpacePasswordRecoverySurface(input: {
 	onSubmit: () => Promise<void>;
 	onRefresh: () => Promise<void>;
 }) {
+	if (getDesktopPlatform()) {
+		return <DesktopProtectedSpaceHandoff spaceId={input.spaceId} />;
+	}
 	return (
 		<ScrollArea
 			className="h-full min-h-0 w-full min-w-0 flex-1"

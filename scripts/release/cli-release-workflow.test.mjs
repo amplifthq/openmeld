@@ -542,7 +542,7 @@ test("builds Web workspace dependencies before a production Vite build", () => {
 
   assert.equal(
     packageJson.scripts["build:prod"],
-    "pnpm -C ../.. exec turbo run build --filter=openmeld-web^... && CLOUDFLARE_ENV=prod vite build"
+    "pnpm -C ../.. exec turbo run build --filter=openmeld-web^... && CLOUDFLARE_ENV=prod node ./scripts/build-production.mjs"
   );
 });
 

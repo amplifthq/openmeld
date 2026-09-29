@@ -951,6 +951,7 @@ import {
   upsertPendingSharedConnectorConnection,
 } from "../connectors/connector-connection-repository";
 import {
+  beginExistingGitHubAppInstallationVerification,
   beginGitHubAppInstallationVerification,
   completeGitHubAppInstallation,
   createGitHubAppInstallationState,
@@ -3284,6 +3285,12 @@ export type ReadPendingGitHubAppInstallationInput = {
   context?: CoreRpcContextInput;
   expectedOrganizationId: string;
 };
+
+export type BeginExistingGitHubAppInstallationVerificationInput =
+  ReadPendingGitHubAppInstallationInput & {
+    installationId: string;
+    verificationConnectionName: ConnectorConnectionName;
+  };
 
 export type CompleteGitHubAppInstallationInput =
   ReadPendingGitHubAppInstallationInput & {
@@ -7924,6 +7931,30 @@ export async function rpcReadPendingGitHubAppInstallation(
     userId: activeOrganization.userId,
   });
   return pendingGitHubAppInstallationSchema.parse(pending);
+}
+
+export async function rpcBeginExistingGitHubAppInstallationVerification(
+  env: CoreBindings,
+  input: BeginExistingGitHubAppInstallationVerificationInput
+): Promise<boolean> {
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  requireExpectedConnectorOrganization({
+    activeOrganizationId: activeOrganization.organizationId,
+    expectedOrganizationId: input.expectedOrganizationId,
+  });
+  assertSharedConnectorManagementPermission(activeOrganization);
+  return await beginExistingGitHubAppInstallationVerification({
+    db: requireConnectorConnectionDb(env),
+    installationId: input.installationId,
+    nowMs: Date.now(),
+    organizationId: activeOrganization.organizationId,
+    userId: activeOrganization.userId,
+    verificationConnectionName: input.verificationConnectionName,
+  });
 }
 
 export async function rpcCompleteGitHubAppInstallation(

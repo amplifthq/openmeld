@@ -1,11 +1,37 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceLandingFailureSurface,
 	SpaceLandingLoadingShell,
+	SpacePasswordRecoverySurface,
 } from "./space-state-surfaces";
 
+const desktopPlatformMock = vi.hoisted(() => vi.fn());
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+	openDesktopWeb: vi.fn(),
+}));
+beforeEach(() => desktopPlatformMock.mockReset().mockReturnValue(null));
+
 describe("SpaceLandingLoadingShell", () => {
+	it("hands Desktop password recovery to Web without a local password form", () => {
+		desktopPlatformMock.mockReturnValue({});
+		render(
+			<SpacePasswordRecoverySurface
+				inlineErrorMessage={null}
+				isSubmitting={false}
+				onPasswordChange={vi.fn()}
+				onRefresh={vi.fn()}
+				onSubmit={vi.fn()}
+				password=""
+				spaceId="space-123"
+			/>
+		);
+		expect(
+			screen.getByRole("button", { name: "Open in OpenMeld Web" })
+		).toBeTruthy();
+		expect(screen.queryByLabelText("Password")).toBeNull();
+	});
 	it("fills the app content pane during bootstrap loading", () => {
 		const { container } = render(<SpaceLandingLoadingShell />);
 		const shell = container.firstElementChild;

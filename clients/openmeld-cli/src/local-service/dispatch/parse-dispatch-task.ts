@@ -846,6 +846,7 @@ function buildActionGuidanceLines(
   });
   return [
     ...compactGuidanceLines.slice(1).map((line) => `- ${line}`),
+    "- In shared Spaces, reply in the triggering message's thread by default. Choose placement=conversation only when the user requests the main conversation or your conclusion, decision, or blocker matters to the whole Space. Direct messages remain direct.",
     ...SPACE_ACTION_CONTEXT_GUIDANCE_LINES,
   ];
 }
