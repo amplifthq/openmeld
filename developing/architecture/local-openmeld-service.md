@@ -92,6 +92,11 @@ IPC; they cannot block the connector's event loop. Host admission is closed unti
 its current-generation response confirms it is ready, and closes when that
 observation fails. A shared Host failure may affect all its Agents, not the
 independent connector. Last-known Host observations are not fresh health.
+The negotiated Computer-care observation carries a bounded, path-free Host
+failure code, safe explanation, and recovery action when initialization or a
+health check fails. Core uses that same observation for owner Computer
+readiness and Center Agent Computer reads; `responsive = false` without its
+known cause is not an adequate operator diagnosis.
 
 The runner records only changes to dispatch admission, with a bounded reason
 from its current Host/connection observation. It includes the connection
