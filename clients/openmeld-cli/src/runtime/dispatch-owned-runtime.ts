@@ -6,7 +6,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
-import { daemonRuntimeRootPath } from "../config/daemon-state";
+import {
+  DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
+  DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
+  DAEMON_SERVICE_RUNTIME_DETACHED_ENV,
+  DAEMON_SERVICE_RUNTIME_MODE_ENV,
+  DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV,
+  daemonRuntimeRootPath,
+} from "../config/daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   openMeldManagedBinaryPath,
@@ -87,6 +94,16 @@ export function buildDispatchOwnedRuntimeEnv(input: {
       );
   return {
     ...env,
+    // These markers describe the Service process itself. Agent Controller
+    // children must not inherit them: otherwise an `openmeld-dev service
+    // repair` launched by an Agent can mistake its own CLI process for the
+    // launchd-managed Service and run the daemon loop inside the repair
+    // command instead of starting the isolated system service.
+    [DAEMON_SERVICE_RUNTIME_MODE_ENV]: undefined,
+    [DAEMON_SERVICE_RUNTIME_DETACHED_ENV]: undefined,
+    [DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV]: undefined,
+    [DAEMON_SERVICE_RUNTIME_AUTO_START_ENV]: undefined,
+    [DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV]: undefined,
     PATH: prependPathEntry({
       currentPath,
       nextEntry: dirname(actionCommandPath),
