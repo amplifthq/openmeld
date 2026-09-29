@@ -184,7 +184,7 @@ describe("reviewed Git working-copy ingress", () => {
   it("pins the reviewed upstream contract and keeps the broad proxy block in both deploy configs", () => {
     assert.equal(
       OPENMELD_GIT_PROXY_UPSTREAM_SHA,
-      "c6f45596a8e018285d2799ccd08e6a251444c25d"
+      "35036c02e3311ed1bf0c2d286d8a860ccf9fb151"
     );
     for (const lane of ["staging", "production"]) {
       const config = JSON.parse(
