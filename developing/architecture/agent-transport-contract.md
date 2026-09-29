@@ -1059,13 +1059,16 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   (Default Project or Profile workspace) is missing or invalid. Current
   Wakeability still reports that fact as blocked
   for ordinary Wakes. For one dispatch whose Space-frozen new-Context selection
-  includes `projectWork`, Core may pass this specific default-folder blocker
+  includes `projectWork`, or whose explicit resume/fork selection names an
+  existing Context source, Core may pass this specific default-folder blocker
   only when the current Binding, Service, route, controller, and other readiness
-  facts permit execution. This does not change the public Wakeability
-  projection. RuntimeCoordinator resolves the selected Context before
-  execution. Core checks that its Project/repository association is still
-  current; the Service verifies the exact owner-local connection before local
-  execution. A missing or ambiguous selected connection fails closed.
+  facts permit execution. Resume/fork admission at this stage is provisional:
+  RuntimeCoordinator must resolve and authorize the source Context before
+  execution. This does not change the public Wakeability projection. Once the
+  Context is resolved, Core checks that its Project/repository association is
+  still current; the Service verifies the exact owner-local connection before
+  local execution. An absent, missing, or ambiguous selected connection fails
+  closed without running the Agent.
   Space member/status and Organization directory readiness use the same Core
   decision. Profiles in one request share existing Runtime registry and
   Controller report reads; no result survives into another request. Each

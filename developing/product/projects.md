@@ -145,7 +145,9 @@ use by default. It is not a local path, is not a permanent assignment, and does
 not move an existing session. An explicit Project and repository on a new
 Execution Context can use its own verified local connection even when this
 preference has no usable folder. An ordinary Wake still requires the Default
-Project folder to be available.
+Project folder to be available. An explicit continuation or fork retains the
+authorized source Context's Project selection; it cannot acquire a different
+repository from the Profile default.
 
 ### Working Folder
 

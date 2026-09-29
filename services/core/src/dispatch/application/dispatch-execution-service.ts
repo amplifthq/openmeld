@@ -3502,7 +3502,7 @@ function resolveCanonicalDispatchPreflight(input: {
   );
   if (
     blockReasonCode &&
-    canAdmitSelectedProjectWorkWithUnavailableDefaultFolder({
+    canAdmitContextWithUnavailableDefaultFolder({
       blockReasonCode,
       message,
       readiness: input.readiness.agentExecutionReadiness,
@@ -3546,16 +3546,20 @@ const POSITIVE_RUNTIME_READINESS_REASONS = new Set([
   "service.ready",
 ]);
 
-function canAdmitSelectedProjectWorkWithUnavailableDefaultFolder(input: {
+function canAdmitContextWithUnavailableDefaultFolder(input: {
   blockReasonCode: string;
   message: OpenMeldDaemonDispatchQueueMessage;
   readiness: AgentExecutionStatusProjection;
 }): boolean {
+  // RuntimeCoordinator resolves a resume/fork source only after this preflight.
+  // Later Core and Service checks still require a valid selected repository.
+  const selection = input.message.contextSelection;
   if (
     !(
       (input.message.executionContext?.projectWork ||
-        (input.message.contextSelection?.mode === "new" &&
-          input.message.contextSelection.projectWork)) &&
+        (selection?.mode === "new" && selection.projectWork) ||
+        selection?.mode === "resume" ||
+        selection?.mode === "fork") &&
       DEFAULT_FOLDER_UNAVAILABLE_REASONS.has(input.blockReasonCode)
     )
   ) {

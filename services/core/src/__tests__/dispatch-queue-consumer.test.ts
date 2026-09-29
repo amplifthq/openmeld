@@ -10488,6 +10488,22 @@ describe("handleDispatchQueueBatch", () => {
     });
     expect(selectedResult).toMatchObject({ ok: true });
 
+    for (const mode of ["resume", "fork"] as const) {
+      read.mockResolvedValueOnce(readiness);
+      await expect(
+        runDispatchExecutionPreflightGate({
+          env: makeEnvWithBindings(),
+          message: {
+            ...message,
+            contextSelection: {
+              mode,
+              sourceWakeId: "twl_v1:previous-selected-project-wake",
+            },
+          },
+        })
+      ).resolves.toMatchObject({ ok: true });
+    }
+
     read.mockResolvedValueOnce({
       ...readiness,
       agentExecutionReadiness: {
