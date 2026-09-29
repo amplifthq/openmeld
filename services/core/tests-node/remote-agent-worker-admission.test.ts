@@ -190,12 +190,13 @@ describe("Remote Agent worker admission", () => {
       } as const)
     );
     const db = centerAgentPauseRaceDb();
-    const request = {
+    const request: RemoteAgentWorkerSubmitTurnRequest = {
+      ...createRolloverRequest(),
+      v: 1,
       agentProfileId: "agt-center",
       idempotencyKey: "turn-1",
       spaceId: "space-1",
-      v: 1,
-    } as RemoteAgentWorkerSubmitTurnRequest;
+    };
     const worker = {
       cancelExecution,
       submitConversationTurn: workerSubmit,

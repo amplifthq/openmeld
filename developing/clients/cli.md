@@ -110,11 +110,31 @@ automatic updates. This keeps localhost upgrade verification isolated from the
 production release channel.
 
 `openmeld skills` is the canonical Organization Skills command group. Phase 1
-provides `list`, `show`, and `load` with Human View, Agent View, and strict JSON
+provides `list`, `show`, `load`, and `add` for GitHub or a local Skill directory with Human View, Agent View, and strict JSON
 contracts. `load` resolves one enabled exact release from the authenticated
 route Organization, verifies the digest, and writes only to the private
 Organization-scoped OpenMeld cache. It never copies a Skill into a global
 Codex, Claude, Cursor, or `.agents/skills` directory.
+`add <github-url> --preview` shows one importable Skill and the resolved commit;
+without `--preview`, the CLI pins that commit before installing it in the active
+Team. `add <local-directory> [--preview]` previews one complete portable Skill
+package through Core and installs it in one authorized operation unless
+preview-only is requested. Local Agents
+use the same authenticated member authority as the CLI user.
+The current import endpoint still has its bundle limits and does not install a
+whole multi-Skill repository in one call.
+
+`openmeld files` is the terminal entry for Team files and the signed-in
+member's private files in the active Organization. `--location team|my` is
+required so a person or Local Agent chooses the audience explicitly. The
+initial commands list files, read an exact text revision, download a binary
+revision, inspect history, upload local content, copy one exact Team/My revision
+to a stated Team or My destination, copy an exact Team/My revision into a named
+Space with `copy-to-space`, and write a new revision
+against the version previously read. `--view agent` and `--json` expose the same server-authorized results
+without a second local file authority. Existing `openmeld space files`
+commands remain the Space location entry; adding a location to the CLI never
+changes Space membership or file access rules.
 
 The former `openmeld skills ensure|install|uninstall|check|update` commands
 manage OpenMeld-owned setup assets, not Organization Skills. They remain
@@ -122,6 +142,14 @@ deprecated compatibility aliases for one published CLI window, print their
 Setup/Doctor replacement, and preserve existing behavior during that window.
 The old ambiguous local-helper `skills list` spelling is not retained because
 `openmeld skills list` now lists Organization Skills.
+`openmeld skills scan <github-repository-url>` lists one pinned repository's
+Skill directories and their declared blockers without installing anything.
+`--json` and Agent View return the same server-authorized inventory, so a
+Local Agent can select an exact Skill URL before `openmeld skills add`.
+`openmeld skills add <github-repository-url> --all` installs every eligible
+candidate at the scanned commit, reporting each installed, skipped, or failed
+item. The result includes a pinned `retrySource` and an operation ID. A Local
+Agent must pass both to retry without duplicating completed Skills.
 
 CLI must not infer Wake blocking from local component drift by itself. Core owns
 the user-visible local component update projection for Wake eligibility:
@@ -1168,6 +1196,10 @@ per-dispatch CLI shim ahead of `PATH`, and binds that shim to the current
 dispatch ID, target Agent Profile, and Space Action context. When the first-party
 tool is unavailable, Agents should run the exact fallback `space action`
 command printed in the dispatch prompt and must not rewrite it to `npx`.
+The native Windows binary carrier uses its verified lane-owned `openmeld.exe`
+directly for the dispatch MCP and fallback command, with the same dispatch ID,
+target Agent Profile, and context in the inherited runtime environment. Windows
+does not attempt to execute the POSIX shim as a process.
 Outside a Wake dispatch, help must use the
 `<DISPATCH_ACTION_CLI>` placeholder instead of presenting a guessed runnable
 command. `targets` requires the current dispatch target snapshot.
@@ -1279,8 +1311,10 @@ session before changing local auth. A cross-account switch requires explicit
 interactive confirmation. That confirmation is bound to the stable identity of
 the exact committed session the user reviewed and is compared again inside the
 auth mutation lock; a changed session fails closed and requires fresh review.
-The Web bootstrap runs from a downloaded temporary file and may reopen the controlling
-terminal for the managed CLI. Any prompt reachable from that bootstrap must use
+The Web bootstrap is piped to `sh` and may reopen the controlling terminal
+for the managed CLI. Its entire install body must be one top-level shell
+compound that cannot execute before the closing `fi` arrives. Any prompt
+reachable from that bootstrap must use
 the CLI's binary-safe interactive prompt primitive, which reads the reopened
 terminal synchronously in the compiled binary. It must not bypass that owner
 with an asynchronous third-party prompt. If no controlling terminal is usable,
@@ -1994,7 +2028,7 @@ Use scoped owner documents for deeper rules:
   `developing/engineering/development-workflow.md`.
 ## Plugins
 
-`openmeld plugins list`, `plugins actions <service>`, and
+`openmeld plugins list`, `plugins connect <service>`, `plugins actions <service>`, and
 `plugins call <service> <action-id>` use the current Organization's connected
 accounts through Core. Calls require a Local Agent owned by the signed-in
 account and an enabled workstation Binding; `--profile` selects that Agent.
@@ -2004,6 +2038,17 @@ owner's private account for another member's request. A direct CLI invocation
 uses the signed-in account's authority. The local account and its Service are
 the trust boundary; a dispatch ID is provenance, not a RuntimeCoordinator token
 or a sandbox protecting the account from arbitrary local programs.
+
+`plugins connect <service> --account personal|shared|choose` returns the shared
+secure setup URL and an exact final-reply suffix. `choose` is only for unspecified
+intent, not permission to substitute accounts during execution. In a Wake, put
+`replyText` unchanged in the final reply: Web/Desktop uses the same lazy setup
+surface as Hosted Agent messages. Only the original human can continue, and Core
+checks the actual RuntimeCoordinator published reply, current Local Binding,
+original source/revision, Thread and Local Agent Plugin permission. A connection
+callback never resumes work. Subsequent Local Plugin actions enforce the private
+Space account binding, including across successive Plugin setups. Standalone
+CLI invocation has no conversation to resume and returns setup guidance only.
 
 Action discovery and execution explicitly select `--account personal|shared`.
 There is no fallback between these identities. `--view agent` returns the shared

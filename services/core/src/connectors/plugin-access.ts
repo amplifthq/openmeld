@@ -51,8 +51,9 @@ type ConnectionAccessRow = {
   scope: "member" | "shared";
 };
 
-// An absent policy preserves shipped authority, including the shared-only
-// personal Remote Agent boundary. It never grants a newly introduced consumer.
+// A legacy absent policy preserves shipped authority, including the shared-only
+// personal Remote Agent boundary. New registrations persist explicit all-none;
+// this fallback must not be reused as their initialization policy.
 export function resolvePluginAccessPolicy(
   scope: "member" | "shared",
   stored: string | null
@@ -168,7 +169,7 @@ export async function updatePluginAccess(input: {
   expectedRevision: number;
   policy: PluginAccessPolicy;
 }) {
-  const previous = await readPluginAccess(input);
+  const previous = await readPluginAccess({ ...input, activeOnly: true });
   if (previous.revision !== input.expectedRevision) {
     throw accessConflict();
   }
@@ -179,7 +180,7 @@ export async function updatePluginAccess(input: {
       .prepare(`INSERT INTO connector_access_events
       (id, connection_name, organization_id, actor_profile_id, actor_user_id, revision, previous_policy, policy, created_at_ms)
       SELECT ?, connection_name, organization_id, ?, ?, access_revision + 1, ?, ?, ?
-      FROM connector_connections WHERE organization_id = ? AND connection_name = ? AND access_revision = ?`)
+      FROM connector_connections WHERE organization_id = ? AND connection_name = ? AND access_revision = ? AND status = 'active'`)
       .bind(
         id,
         input.actorProfileId,
@@ -193,7 +194,7 @@ export async function updatePluginAccess(input: {
       ),
     input.db
       .prepare(`UPDATE connector_connections SET access_policy = ?, access_revision = access_revision + 1
-      WHERE organization_id = ? AND connection_name = ? AND access_revision = ?
+      WHERE organization_id = ? AND connection_name = ? AND access_revision = ? AND status = 'active'
       AND EXISTS (SELECT 1 FROM connector_access_events WHERE id = ?)`)
       .bind(
         policy,

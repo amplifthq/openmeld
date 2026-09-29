@@ -58,6 +58,7 @@ describe("app shell layout", () => {
 		[appShellStaticData.people, "people"],
 		[appShellStaticData.plugins, "people"],
 		[appShellStaticData.skills, "people"],
+		[appShellStaticData.files, "people"],
 		[appShellStaticData.projects, "projects"],
 		[appShellStaticData.settings, "settings"],
 		[appShellStaticData.space, "spaces"],

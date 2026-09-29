@@ -407,12 +407,14 @@ The setting explains that people with access to the Space can see live output.
 OpenClaw is excluded.
 
 The existing working title, elapsed time, and Stop control remain available.
-A bounded Thinking + Reasoning viewport below them opens for live output and
-lets the reader pause following by scrolling up. It collapses when the stream
-transitions to text or tool work, and opens when reasoning resumes. Hosted Center
-and Remote Agents show explicit public updates inside the live Work summary's
-expandable, bounded viewport, alongside tool steps when present. Provider
-thinking stays private. Disabled local streaming is explicitly
+Agent work stays above the answer in both the main conversation and Threads,
+from live output through the settled reply. The shared bounded viewport opens
+for live work and lets the reader pause following by scrolling up. It collapses
+after a successful final reply and remains available for manual inspection.
+Hosted Center and Remote Agents show explicitly authored public Agent updates
+alongside automatic tool steps. These updates explain meaningful phases; they
+are not a continuous activity signal. Provider thinking stays private.
+Disabled local streaming is explicitly
 attributed to the Agent owner; an unsupported connection is distinguished from
 waiting for a provider that has not emitted reasoning. Absence of reasoning is
 never evidence that a running Agent is stuck.
@@ -828,8 +830,8 @@ through a separate no-tool model request. This work is never awaited by message
 publication, Wake admission, or the Center Agent execution loop. It cannot alter
 conversation context, steering, tools, replies, or the selected Agent model.
 
-The fixed model is `z-ai/glm-5.3-flash` through the existing OpenRouter
-AI Gateway connection, with temperature zero, low reasoning, structured
+The fixed model is `openai/gpt-6-luna` through the existing OpenRouter
+AI Gateway connection, with low reasoning, structured
 JSON, a 15-second request deadline, and bounded input/output. Titles use the
 message's language, capture the action and subject, preserve meaningful names
 and identifiers, and contain at most 64 characters. Output is validated rather
@@ -1096,6 +1098,19 @@ Reference includes an Agent Profile as message context without assigning work.
 Web labels this relation `Mention only`. The Composer relation menu explains it
 as `Mention only — Won’t wake the agent`; compact tokens use `Mention only`.
 The serialized relation remains `reference`, with no change to execution semantics.
+An explicitly referenced Agent must not be added back by implicit Direct Message,
+Thread continuation, or listen-all dispatch. Reference-only messages do not check
+execution readiness or create work, and reconnecting a Computer must not replay
+them. Current member and message-write authorization still applies.
+
+The Footer's `Mention only instead` recovery is for a confirmed Local Agent that
+cannot currently Wake, not a Hosted Agent or a transient checking/preparing
+state. In a Local Agent Direct Message without an authored mention, choosing it
+inserts a visible Reference token while preserving the draft; it is not an
+invisible mode or a no-op. Existing tokens use the same relation mutation.
+Normal explicit references to Hosted Agents remain supported in collaboration.
+Connection recovery belongs to the current blocked Wake target, never a stale
+failed-send target after the draft changes.
 Human Mention directs a person's attention to the message without creating
 Agent work or requiring a reply.
 

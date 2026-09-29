@@ -16,6 +16,7 @@ import {
 } from "@shadcn/react/message-scroller";
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { reportClientQueryError } from "#/lib/observability/application-error-client";
 import { MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME } from "./primitives/message-scroller";
 import type {
 	SpaceHistoryActions,
@@ -43,6 +44,16 @@ export function SpaceHistoryJumpControl({
 			operationSequence.current += 1;
 		};
 	}, []);
+	const hasCatchUp = !!onPrepareCatchUpUnread;
+	// The alert describes unread messages that are still unread. Once the main
+	// timeline has nothing left to mark (the catch-up callback goes away), the
+	// failure no longer applies, whichever path cleared it.
+	useEffect(() => {
+		if (!hasCatchUp) {
+			setCatchUpError(false);
+		}
+	}, [hasCatchUp]);
+	const showCatchUpError = catchUpError && hasCatchUp;
 	const pending = catchUpPending || !!history?.pending;
 	const active =
 		!!history?.isHistorical ||
@@ -50,8 +61,8 @@ export function SpaceHistoryJumpControl({
 		pending ||
 		!!onPrepareCatchUpUnread;
 	const actionLabel = resolveLatestActionLabel({
-		catchUpError,
-		hasCatchUp: !!onPrepareCatchUpUnread,
+		catchUpError: showCatchUpError,
+		hasCatchUp,
 	});
 	const navigateToLatest = async (
 		historyReservation?: SpaceHistoryLatestReservation
@@ -81,6 +92,7 @@ export function SpaceHistoryJumpControl({
 		const isOperationCurrent = () =>
 			sequence === operationSequence.current &&
 			(!historyReservation || historyReservation.isCurrent());
+		let catchUpStage: "prepare" | "navigate" | "persist" = "prepare";
 		try {
 			const preparedCatchUp = await onPrepareCatchUpUnread();
 			if (!preparedCatchUp) {
@@ -90,17 +102,20 @@ export function SpaceHistoryJumpControl({
 				preparedCatchUp.abandon();
 				return;
 			}
+			catchUpStage = "navigate";
 			const reachedLatest = await navigateToLatest(historyReservation);
 			if (!(isOperationCurrent() && reachedLatest)) {
 				preparedCatchUp.abandon();
 				return;
 			}
+			catchUpStage = "persist";
 			await preparedCatchUp.commit();
 		} catch (error) {
 			if (!isOperationCurrent()) {
 				return;
 			}
 			console.error("Failed to catch up the Space read position.", error);
+			reportClientQueryError(error, "inbox", catchUpStage);
 			setCatchUpError(true);
 		} finally {
 			if (sequence === operationSequence.current) {
@@ -207,7 +222,7 @@ export function SpaceHistoryJumpControl({
 					</motion.div>
 				</motion.div>
 			</div>
-			{catchUpError ? (
+			{showCatchUpError ? (
 				<div
 					className="pointer-events-auto rounded-lg bg-background px-3 py-2 text-destructive text-xs shadow-sm"
 					role="alert"

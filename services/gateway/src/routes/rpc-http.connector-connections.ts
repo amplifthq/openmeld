@@ -16,6 +16,12 @@ import {
   pluginAccessUpdateBodySchema,
   pluginActionRequestSchema,
   pluginActionResponseSchema,
+  pluginChannelContinueBodySchema,
+  pluginChannelContinueResponseSchema,
+  pluginChannelRequestBodySchema,
+  pluginChannelRequestPreviewSchema,
+  pluginConnectionContinuationBodySchema,
+  pluginConnectionContinuationResponseSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorCredentialConnectBody,
@@ -31,6 +37,7 @@ import {
 import {
   buildCoreRpcContext,
   executeRpcRoute,
+  readSpacePasswordHeader,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import type { RpcHttpMethod } from "./rpc-http.types";
@@ -71,9 +78,117 @@ type OpenConnectorBindings = {
   GITHUB_OPENMELD_APP_SLUG?: string;
 };
 
+function registerPluginChannelContinuationRoutes(app: Hono<HonoBindings>) {
+  const previewRoute =
+    "/v1/organizations/current/plugins/connection-requests/preview";
+  const continueRoute =
+    "/v1/organizations/current/plugins/connection-requests/continue";
+  app.post(previewRoute, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      previewRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    const parsed = pluginChannelRequestBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: previewRoute,
+        method: "POST",
+        message: "Choose a valid Plugin setup request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: previewRoute,
+      method: "POST",
+      retryMode: "none",
+      responseSchema: pluginChannelRequestPreviewSchema,
+      execute: () =>
+        c.var.coreRpc.previewPluginChannelConnection({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: organization.expectedOrganizationId,
+        }),
+    });
+  });
+  app.post(continueRoute, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      continueRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    const parsed = pluginChannelContinueBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: continueRoute,
+        method: "POST",
+        message: "Choose a valid Plugin continuation.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: continueRoute,
+      method: "POST",
+      retryMode: "none",
+      responseSchema: pluginChannelContinueResponseSchema,
+      execute: () =>
+        c.var.coreRpc.continuePluginChannelConnection({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: organization.expectedOrganizationId,
+        }),
+    });
+  });
+}
+
 export function registerConnectorConnectionRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const continuationRoute = "/v1/spaces/:spaceId/plugin-connection/continue";
+  app.post(continuationRoute, async (c) => {
+    const spaceId = c.req.param("spaceId");
+    const parsed = pluginConnectionContinuationBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: continuationRoute,
+        method: "POST",
+        spaceId,
+        message: "Choose a valid connection continuation.",
+      });
+    }
+    const password = readSpacePasswordHeader(c.req.raw.headers);
+    return executeRpcRoute({
+      c,
+      route: continuationRoute,
+      method: "POST",
+      spaceId,
+      retryMode: "none",
+      responseSchema: pluginConnectionContinuationResponseSchema,
+      execute: () =>
+        c.var.coreRpc.continuePluginConnection({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+          spaceId,
+          ...(password === undefined ? {} : { password }),
+        }),
+    });
+  });
+  registerPluginChannelContinuationRoutes(app);
   const actionRoute = "/v1/organizations/current/plugins/actions";
   app.post(actionRoute, async (c) => {
     const organization = parseConnectorOrganizationRequest(

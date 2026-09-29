@@ -568,7 +568,7 @@ describe("AgentProfilesWorkspace", () => {
 		);
 		const onSelectProfile = vi.fn();
 		renderWorkspace({ onDeleteProfiles, onSelectProfile });
-		fireEvent.click(screen.getByRole("button", { name: "Select" }));
+		fireEvent.click(screen.getByRole("button", { name: "Select Agents" }));
 		fireEvent.click(screen.getByLabelText("Select Felix Agent"));
 		expect(onSelectProfile).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Search Agents" }));

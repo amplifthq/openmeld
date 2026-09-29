@@ -1176,6 +1176,108 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentReadChannelFile).toHaveBeenCalledOnce();
   });
 
+  it("describes an exact historical Space image without returning its bytes to the primary model", async () => {
+    const request = createSubmitTurnRequest();
+    const imageBytes = new TextEncoder().encode("png");
+    const file = {
+      ...spaceFileDescriptor(2),
+      name: "status.png",
+      origin: "artifact" as const,
+      trashedAt: null,
+      trashedBy: null,
+    };
+    const revision = {
+      ...file.latestRevision,
+      id: "revision-1",
+      mimeType: "image/png",
+      revision: 1,
+      sizeBytes: imageBytes.byteLength,
+    };
+    const streamSpaceFileContent = vi.fn(async () => ({
+      bytes: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(imageBytes);
+          controller.close();
+        },
+      }),
+      file,
+      objectKey:
+        "org/org_123/space/space_created/files/file-1/revisions/revision-1",
+      organizationId: request.organizationId,
+      revision,
+    }));
+    const imageFetch = vi.fn(async () =>
+      Response.json({
+        choices: [{ message: { content: "A green status card." } }],
+      })
+    );
+    const prepareImage = vi.fn(async (image) => ({
+      data: image.data,
+      filename: image.filename,
+      mimeType: "image/webp" as const,
+      sizeBytes: imageBytes.byteLength,
+      type: "image" as const,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { streamSpaceFileContent },
+      env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+      fetch: imageFetch,
+      modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+      prepareImage,
+      storage: await createStorageWithPendingContext(request),
+    });
+    const result = await executeTool(tools, "openmeld_describe_space_image", {
+      fileId: "file-1",
+      revision: 1,
+      spaceId: SPACE_ID,
+    });
+    expect(streamSpaceFileContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: { fileId: "file-1", revision: 1, spaceId: SPACE_ID },
+        context: expect.any(Object),
+        spaceId: SPACE_ID,
+      }),
+      "1"
+    );
+    expect(prepareImage).toHaveBeenCalledWith({
+      data: "cG5n",
+      filename: "status.png",
+      mimeType: "image/png",
+      type: "image",
+    });
+    expect(result).toMatchObject({
+      fileId: "file-1",
+      imageDescription: "A green status card.",
+      revision: 1,
+    });
+    expect(result).not.toHaveProperty("bytes");
+    expect(result).not.toHaveProperty("objectKey");
+    imageFetch.mockRejectedValueOnce(new Error("auxiliary unavailable"));
+    await expect(
+      executeTool(tools, "openmeld_describe_space_image", {
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      })
+    ).rejects.toThrow("auxiliary unavailable");
+    streamSpaceFileContent.mockResolvedValueOnce({
+      bytes: new ReadableStream<Uint8Array>(),
+      file,
+      objectKey:
+        "org/org_123/space/space_created/files/file-1/revisions/revision-1",
+      organizationId: request.organizationId,
+      revision: { ...revision, sizeBytes: 8 * 1024 * 1024 + 1 },
+    });
+    await expect(
+      executeTool(tools, "openmeld_describe_space_image", {
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      })
+    ).rejects.toThrow("exceeds the 8 MiB description limit");
+    expect(imageFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("reads only a Slack file ID observed in channel history and keeps private bytes out of the model result", async () => {
     const request = createSubmitTurnRequest();
     const bytes = new TextEncoder().encode("release notes");
@@ -2351,6 +2453,82 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).rejects.toThrow();
   });
 
+  it.each([
+    ["github", "shared", "organization"],
+    ["notion", "member", "personal"],
+    ["cloudflare_r2", "choose", null],
+  ] as const)("offers %s setup through the shared navigation contract, without connecting it", async (service, scope, routeScope) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        organization: {
+          ...base.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service,
+        scope,
+      })
+    ).resolves.toEqual({
+      label: "Open Plugin connection",
+      target: { kind: "plugin_connection", service, scope },
+      url: `https://openmeld.ai/o/amplift/plugins/${service}${routeScope ? `?scope=${routeScope}` : ""}`,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service,
+        scope,
+        token: "must-not-be-accepted",
+      })
+    ).rejects.toThrow();
+  });
+
+  it("limits personal Agent navigation to the same Plugin setup implementation", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        organization: {
+          ...base.turnEnvelope.organization,
+          webUrl: "https://openmeld.ai/o/amplift",
+        },
+      },
+    });
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      personalAgent: true,
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "plugin_connection",
+        service: "notion",
+        scope: "member",
+      })
+    ).resolves.toMatchObject({
+      target: { kind: "plugin_connection", service: "notion", scope: "member" },
+    });
+    await expect(
+      executeTool(tools, "openmeld_get_navigation_action", {
+        kind: "message_channel_identity_link",
+        purpose: "continue_request",
+      })
+    ).rejects.toThrow();
+  });
+
   it("refuses to guess a navigation URL without Core-owned Web context", async () => {
     const request = createSubmitTurnRequest();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
@@ -2365,6 +2543,62 @@ describe("remote agent OpenMeld tool catalog", () => {
         service: "github",
       })
     ).rejects.toThrow("trusted OpenMeld link is unavailable");
+  });
+
+  it("routes unlinked external Plugin setup through the existing identity boundary before offering account access", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      author: { displayName: "Ari", profileId: null, profileKind: null },
+      onBehalfOf: null,
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          id: "slack:T123:U123",
+          displayName: "Ari",
+          kind: "member",
+          verified: false,
+          messageChannelIdentity: {
+            provider: "slack",
+            connectionId: "T123",
+            providerUserId: "U123",
+          },
+        },
+        trigger: { source: "slack", teamId: "T123" },
+      },
+    });
+    const storage = await createStorageWithPendingContext(request);
+    const authorize = vi.fn(async () => ({
+      authorized: true as const,
+      messageChannelIdentityLinkSupported: true as const,
+      messageChannelAccountTargetSupported: true as const,
+      sourceNativeDeliveryId: "delivery_123",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentAuthorizeAnonymousMemberTool: authorize },
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    const result = await executeTool(tools, "openmeld_get_navigation_action", {
+      kind: "plugin_connection",
+      service: "github",
+      scope: "choose",
+    });
+    expect(result).toMatchObject({
+      actionWillBeAttached: true,
+      target: {
+        kind: "message_channel_identity_link",
+        purpose: "continue_request",
+      },
+    });
+    expect(result).not.toHaveProperty("url");
+    expect(
+      await readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).toMatchObject({
+      anonymousIdentityBoundary: {
+        requestedAction: "Connect github and continue this request",
+      },
+    });
+    expect(authorize).toHaveBeenCalled();
   });
 
   it("binds a private Message Channel connection action only after the current requester reaches a personal boundary", async () => {
@@ -3190,6 +3424,12 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
       "verified represented member only"
     );
+    expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
+      "Default Project alone does not set that folder"
+    );
+    expect(
+      descriptions.get("openmeld_update_agent_profile_runtime_settings")
+    ).toContain("use workspacePath to correct a folder");
     expect(
       [...descriptions.keys()].includes(
         "openmeld_create_configured_agent_profile"
@@ -6087,6 +6327,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       expectedPayload: {
         sourceProfileId: HUMAN_PROFILE_ID,
         spaceId: SPACE_ID,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
         targetProfileId: AGENT_PROFILE_ID,
       },
       input: {
@@ -6123,6 +6364,110 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       rpcName: "centerAgentReadSpaceWakeProgress",
       toolName: "openmeld_read_space_wake_progress",
+    },
+    {
+      expectedPayload: {
+        body: {
+          target: {
+            by: "source_signal",
+            sourceSignalId: "signal-1",
+            targetProfileId: AGENT_PROFILE_ID,
+          },
+        },
+        spaceId: SPACE_ID,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        target: {
+          by: "source_signal",
+          sourceSignalId: "signal-1",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      },
+      response: {
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.wake_stop_requested",
+          status: "requested",
+        },
+        ok: true,
+        runtimeCoordinatorExecutionId: "rce-1",
+        status: "cancellation_requested",
+        targetProfileId: AGENT_PROFILE_ID,
+      },
+      rpcName: "centerAgentStopSpaceWake",
+      toolName: "openmeld_stop_space_wake",
+    },
+    {
+      expectedPayload: {
+        body: {
+          target: {
+            by: "source_signal",
+            sourceSignalId: "signal-1",
+            targetProfileId: AGENT_PROFILE_ID,
+          },
+        },
+        spaceId: SPACE_ID,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        target: {
+          by: "source_signal",
+          sourceSignalId: "signal-1",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      },
+      response: {
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+          status: "cancelled",
+        },
+        ok: true,
+        runtimeCoordinatorExecutionId: null,
+        status: "already_cancelled",
+        stopMode: "openmeld_owned_pre_agent",
+        targetProfileId: AGENT_PROFILE_ID,
+      },
+      rpcName: "centerAgentStopSpaceWake",
+      toolName: "openmeld_stop_space_wake",
+    },
+    {
+      expectedPayload: {
+        body: {
+          target: {
+            by: "source_signal",
+            sourceSignalId: "signal-1",
+            targetProfileId: AGENT_PROFILE_ID,
+          },
+        },
+        spaceId: SPACE_ID,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        spaceId: SPACE_ID,
+        target: {
+          by: "source_signal",
+          sourceSignalId: "signal-1",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      },
+      response: {
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.wake_stop_not_stoppable",
+          status: "not_requested",
+        },
+        ok: false,
+        reasonCode: "runtime_coordinator.wake_stop_not_stoppable",
+        runtimeCoordinatorExecutionId: null,
+        status: "not_stoppable",
+        targetProfileId: AGENT_PROFILE_ID,
+      },
+      rpcName: "centerAgentStopSpaceWake",
+      toolName: "openmeld_stop_space_wake",
     },
     {
       expectedPayload: {
@@ -6303,6 +6648,49 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       response: readSourceSpaceContextResponse(),
       rpcName: "centerAgentReadSpaceContext",
       toolName: "openmeld_read_space_context",
+    },
+    {
+      expectedPayload: {
+        parentId: null,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: { parentId: null },
+      response: listTeamFilesResponse(),
+      rpcName: "remoteAgentListTeamFiles",
+      toolName: "openmeld_list_team_files",
+    },
+    {
+      expectedPayload: {
+        fileId: "file-1",
+        revision: 1,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: { fileId: "file-1", revision: 1 },
+      response: readTeamFileResponse(),
+      rpcName: "remoteAgentReadTeamFile",
+      toolName: "openmeld_read_team_file",
+    },
+    {
+      expectedPayload: {
+        action: "update",
+        baseRevision: 1,
+        clientMutationId: "save-team-note-r2",
+        content: "Updated team note",
+        fileId: "file-1",
+        mimeType: "text/markdown",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        action: "update",
+        baseRevision: 1,
+        clientMutationId: "save-team-note-r2",
+        content: "Updated team note",
+        fileId: "file-1",
+        mimeType: "text/markdown",
+      },
+      response: { file: teamFileDescriptor() },
+      rpcName: "remoteAgentSaveTeamFile",
+      toolName: "openmeld_save_team_file",
     },
     {
       expectedPayload: {
@@ -7408,6 +7796,34 @@ function listSpaceFilesResponse() {
 
 function readSpaceFileResponse() {
   const file = spaceFileDescriptor();
+  return {
+    content: "# Release brief\n\nDraft.",
+    file,
+    revision: file.latestRevision,
+  };
+}
+
+function teamFileDescriptor() {
+  const { spaceId: _spaceId, ...file } = spaceFileDescriptor();
+  return {
+    ...file,
+    root: { kind: "team" as const, organizationId: "org_123" },
+  };
+}
+
+function listTeamFilesResponse() {
+  return {
+    root: { kind: "team" as const, organizationId: "org_123" },
+    breadcrumbs: [{ id: null, name: "Files" }],
+    capabilities: { canRead: true as const, canWrite: true },
+    entries: [teamFileDescriptor()],
+    parentId: null,
+    view: "active" as const,
+  };
+}
+
+function readTeamFileResponse() {
+  const file = teamFileDescriptor();
   return {
     content: "# Release brief\n\nDraft.",
     file,

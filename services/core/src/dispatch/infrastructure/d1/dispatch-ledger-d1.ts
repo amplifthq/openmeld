@@ -1453,6 +1453,8 @@ const shouldRetryPreExecutionAdmissionAfterRetryableFailure = (input: {
     (isRuntimeCoordinatorHeadLifecycleRetryableErrorCode(
       input.latestAttempt.errorCode
     ) ||
+      input.latestAttempt.errorCode ===
+        "runtime_coordinator.execution_target_mutation_in_progress" ||
       isAgentWakeAdmissionPreparationPendingReason(
         input.latestAttempt.errorCode ?? ""
       ))

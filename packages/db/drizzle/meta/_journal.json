@@ -1282,6 +1282,27 @@
       "when": 1790065762927,
       "tag": "0182_grey_captain_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "6",
+      "when": 1790428558600,
+      "tag": "0183_warm_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "6",
+      "when": 1790485312805,
+      "tag": "0184_lethal_ultimates",
+      "breakpoints": true
+    },
+    {
+      "idx": 185,
+      "version": "6",
+      "when": 1790507988646,
+      "tag": "0185_stiff_ultron",
+      "breakpoints": true
     }
   ]
 }

@@ -150,7 +150,9 @@ describe("OrganizationPluginDetailPage", () => {
 		);
 
 		expect(
-			screen.getByText("Connect your account for your own requests.")
+			screen.getByText(
+				"Connect your account, then choose which Agents may use it."
+			)
 		).toBeTruthy();
 		expect(
 			screen.getByTestId("plugin-access").getAttribute("data-personal")

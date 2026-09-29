@@ -1,3 +1,5 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { webApplicationErrorReportSchema } from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
 	createSpaceMemberHumanSnapshot,
@@ -1132,6 +1134,33 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
+	it("shows which Agent will resume from a child result without address targets", () => {
+		const childResult = createTimelineItem({
+			actorName: "Runner",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorProfileKind: "agent",
+			actorProfileName: "Runner",
+			id: "signal-child-result",
+			text: "The review is complete.",
+		});
+		renderSpaceConversationPanel({
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem({ sourceSignalId: childResult.id }),
+					clientMessageId: null,
+					message: "@Amplift Center Agent is working...",
+					targetLabel: "@Amplift Center Agent",
+					targetProfileId: "agent-profile-center",
+				},
+			],
+			timelineItems: [childResult],
+		});
+
+		expect(screen.getByTestId("space-message-addressing").textContent).toBe(
+			"Auto resumes Amplift Center Agent"
+		);
+	});
+
 	it("can hide unread navigation without reading its messages", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
@@ -1593,6 +1622,35 @@ describe("SpaceConversationPanel", () => {
 		expect(screen.getByText("Please investigate.")).toBeTruthy();
 	});
 
+	it.each([
+		["Wake", "wakeTargetProfileIds"],
+		["Mention", "mentionTargetProfileIds"],
+		["Reference", "referenceTargetProfileIds"],
+	] as const)("shows the %s badge from structured Agent addressing", (label, field) => {
+		renderSpaceConversationPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
+			timelineItems: [
+				createTimelineItem({
+					actorName: "Center Agent",
+					actorProfileId: "agent-profile-center",
+					actorProfileKind: "agent",
+					actorProfileName: "Center Agent",
+					[field]: [TARGET_PROFILE_ID],
+					text: "@Codex 5.6 Sol Please check this.",
+				}),
+			],
+		});
+
+		expect(
+			screen.getByTestId("space-message-addressing").textContent
+		).toContain(`${label} Codex 5.6 Sol`);
+		expect(
+			screen.getByRole("button", {
+				name: `Open Codex 5.6 Sol profile (${label === "Mention" ? "Mention only" : label})`,
+			})
+		).toBeTruthy();
+	});
+
 	it("stops advancing the unread watermark while the Graph is open", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onViewedThroughTs = vi.fn();
@@ -2021,7 +2079,9 @@ describe("SpaceConversationPanel", () => {
 					(child) => child.textContent === longMessage
 				)
 		);
-		const messageBubble = messageText.closest("[data-signal-id]");
+		const messageBubble = messageText.closest(
+			"[data-slot='space-message-text-surface']"
+		);
 
 		expect(messageBubble?.className).not.toContain("min-w-[16rem]");
 		expect(messageBubble?.className).toContain("max-w-full");
@@ -2049,10 +2109,10 @@ describe("SpaceConversationPanel", () => {
 
 		const agentBubble = screen
 			.getByText("Agent reply")
-			.closest("[data-signal-id]");
+			.closest("[data-slot='space-message-text-surface']");
 		const selfBubble = screen
 			.getByText("Self message")
-			.closest("[data-signal-id]");
+			.closest("[data-slot='space-message-text-surface']");
 		expect(agentBubble?.classList.contains("border")).toBe(true);
 		expect(agentBubble?.classList.contains("border-transparent")).toBe(true);
 		expect(agentBubble?.classList.contains("bg-muted/35")).toBe(true);
@@ -2326,6 +2386,20 @@ describe("SpaceConversationPanel", () => {
 				],
 			]),
 			allowedActions: ["post_message"],
+			composerAddressingTargets: [
+				{
+					allowedRelations: { mention: false, reference: true, wake: false },
+					primaryMentionLabel: "Runner",
+					profileId: blockedProfileId,
+					profileName: "Runner",
+					relation: "wake",
+					wakeAvailability: {
+						reasonCodes: ["agent_profile_binding.missing"],
+						reasonText: "Runner can't reply right now.",
+						status: "blocked",
+					},
+				},
+			],
 			composerBlockedWakeProfileId: blockedProfileId,
 			composerErrorMessage: "Runner can't reply right now.",
 			readOnly: false,
@@ -2404,12 +2478,17 @@ describe("SpaceConversationPanel", () => {
 		expect(onAddPeopleOrAgents).toHaveBeenCalledOnce();
 	});
 
-	it("opens a conversation file in the same Space Files view", () => {
+	it.each([
+		false,
+		true,
+	])("keeps attachment-only messages outside the text bubble and opens the exact file (DM=%s)", (isDirectMessage) => {
 		const onOpenSpaceFile = vi.fn();
 		renderSpaceConversationPanel({
+			isDirectMessage,
 			onOpenSpaceFile,
 			timelineItems: [
 				createTimelineItem({
+					editedAt: Date.UTC(2026, 8, 26),
 					files: [
 						{
 							fileId: "file-1",
@@ -2427,6 +2506,20 @@ describe("SpaceConversationPanel", () => {
 
 		const fileButton = screen.getByText("launch-brief.pdf").closest("button");
 		expect(fileButton).not.toBeNull();
+		expect(
+			fileButton?.closest("[data-slot='space-message-text-surface']")
+		).toBeNull();
+		const message = fileButton?.closest("[data-slot='bubble-content']");
+		expect(
+			message?.querySelector("[data-slot='space-message-edited']")?.textContent
+		).toBe("(edited)");
+		expect(
+			message?.querySelectorAll("[data-slot='space-attachment-strip']")
+		).toHaveLength(1);
+		expect(
+			message?.querySelector("[data-slot='space-message-text-surface']")
+				?.childElementCount
+		).toBe(0);
 		expect(
 			fileButton?.closest("[data-slot='bubble']")?.className
 		).not.toContain("hidden");
@@ -3146,13 +3239,24 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("keeps catch-up retryable after reaching latest when the read write fails", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+		);
+		const writeError = new OpenMeldApiClientHttpError({
+			code: "auth.unauthenticated",
+			message: "private response body",
+			rawBody: "private response body",
+			requestId: "req-catch-up-write",
+			status: 401,
+		});
 		const consoleError = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
 		renderSpaceConversationPanel({
 			onPrepareCatchUpUnread: vi.fn(async () => ({
 				abandon: vi.fn(),
-				commit: () => Promise.reject(new Error("offline")),
+				commit: () => Promise.reject(writeError),
 			})),
 			timelineItems: [createTimelineItem({ text: "Unread short message" })],
 			unreadCount: 1,
@@ -3182,6 +3286,24 @@ describe("SpaceConversationPanel", () => {
 				name: "Try again to mark the latest messages as read",
 			})
 		).toBeTruthy();
+		const reports = vi
+			.mocked(fetch)
+			.mock.calls.filter(
+				([url]) => url === "/v1/observability/application-errors"
+			)
+			.map(([, options]) =>
+				webApplicationErrorReportSchema.parse(JSON.parse(String(options?.body)))
+			);
+		expect(reports).toHaveLength(1);
+		expect(reports[0]?.query).toEqual({
+			category: "inbox",
+			stage: "persist",
+			failure: {
+				code: "auth.unauthenticated",
+				requestId: "req-catch-up-write",
+				status: 401,
+			},
+		});
 		consoleError.mockRestore();
 	});
 
@@ -3400,6 +3522,12 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("renders profile avatars and keeps message time outside the bubble", () => {
+		const imageComplete = vi
+			.spyOn(HTMLImageElement.prototype, "complete", "get")
+			.mockReturnValue(true);
+		const imageWidth = vi
+			.spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
+			.mockReturnValue(24);
 		const createdAtMs = Date.UTC(2026, 4, 27, 10, 0, 7);
 		const expectedTime = formatTestTime(createdAtMs);
 		renderSpaceConversationPanel({
@@ -3434,6 +3562,8 @@ describe("SpaceConversationPanel", () => {
 		expect(profileName.className).toContain("text-muted-foreground");
 		expect(screen.getByText(expectedTime)).toBeTruthy();
 		expect(messageBubble?.textContent).not.toContain(expectedTime);
+		imageComplete.mockRestore();
+		imageWidth.mockRestore();
 	});
 
 	it("only adds pending message status after sending takes eight seconds", () => {
@@ -3752,14 +3882,19 @@ describe("SpaceConversationPanel", () => {
 		).toContain("runner is working");
 	});
 
-	it("renders completed Agent Activity once inside its durable reply", () => {
+	it.each([
+		["Center Agent", "hosted:center-agent"],
+		["Remote Agent", "hosted:remote-agent"],
+		["Local Agent", "codex"],
+	] as const)("puts completed %s work before its durable reply", (name, controller) => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
-					actorName: "Center Agent",
+					actorAgentControllerRef: controller,
+					actorName: name,
 					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
-					actorProfileName: "Center Agent",
+					actorProfileName: name,
 					agentActivity: {
 						v: 1,
 						steps: [
@@ -3788,7 +3923,7 @@ describe("SpaceConversationPanel", () => {
 
 		const bubbleContent = screen
 			.getByText("Here is the Space summary.")
-			.closest("[data-slot='bubble-content']");
+			.closest("[data-slot='space-message-text-surface']");
 		expect(bubbleContent?.contains(activityTriggers[0] ?? null)).toBe(true);
 		const answerElement = screen.getByText("Here is the Space summary.");
 		const directChildren = Array.from(bubbleContent?.children ?? []);
@@ -3798,8 +3933,8 @@ describe("SpaceConversationPanel", () => {
 		const activitySection = directChildren.find((child) =>
 			child.contains(activityTriggers[0] ?? null)
 		);
-		expect(directChildren.indexOf(answerSection as Element)).toBeLessThan(
-			directChildren.indexOf(activitySection as Element)
+		expect(directChildren.indexOf(activitySection as Element)).toBeLessThan(
+			directChildren.indexOf(answerSection as Element)
 		);
 	});
 

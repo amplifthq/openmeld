@@ -10,7 +10,7 @@ import type {
   SpaceFileUploadMetadata,
   SpaceFileUploadResponse,
 } from "@openmeld/schemas/types";
-import { createCoreRpcHttpError } from "../../rpc/errors";
+import { createCoreRpcHttpError } from "../rpc/errors";
 
 type UploadState = {
   actorId: string;
@@ -34,13 +34,14 @@ type UploadInput = {
   ) => Promise<Pick<SpaceFileUploadResponse, "file" | "upload">>;
 };
 
-/** Space-owned sessions; R2 identifiers never leave the server. */
-export class SpaceFileUploads {
+/** Root-owned resumable sessions; R2 identifiers never leave the server. */
+export class FileUploadSessions {
   private readonly sql: SqlStorage;
   private readonly bucket: R2Bucket;
   constructor(sql: SqlStorage, bucket: R2Bucket) {
     this.sql = sql;
     this.bucket = bucket;
+    // Keep the existing table name so active Space uploads survive this extraction.
     sql.exec(`CREATE TABLE IF NOT EXISTS space_file_upload_sessions (
       id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, state TEXT NOT NULL
     )`);

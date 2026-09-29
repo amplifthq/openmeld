@@ -72,6 +72,7 @@
     "OPENMELD_WORKER_ENVIRONMENT": "local",
     "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
     "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+    "OPENMELD_SKILL_FILE_BACKED_WRITES": "true",
     "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
     "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
     "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
@@ -131,6 +132,10 @@
       {
         "name": "OPENMELD_SPACES",
         "class_name": "Space"
+      },
+      {
+        "name": "OPENMELD_FILE_ROOTS",
+        "class_name": "OrganizationFileRoot"
       },
       {
         "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
@@ -211,7 +216,8 @@
       ]
     },
     { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] },
-    { "tag": "v6", "new_sqlite_classes": ["AccountInvalidationHub"] }
+    { "tag": "v6", "new_sqlite_classes": ["AccountInvalidationHub"] },
+    { "tag": "v7", "new_sqlite_classes": ["OrganizationFileRoot"] }
   ],
   "env": {
     "stg": {
@@ -259,6 +265,7 @@
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
         "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+        "OPENMELD_SKILL_FILE_BACKED_WRITES": "true",
         "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
         "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
         "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
@@ -303,6 +310,10 @@
           {
             "name": "OPENMELD_SPACES",
             "class_name": "Space"
+          },
+          {
+            "name": "OPENMELD_FILE_ROOTS",
+            "class_name": "OrganizationFileRoot"
           },
           {
             "name": "OPENMELD_ACCOUNT_INVALIDATIONS",
@@ -404,6 +415,7 @@
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
         "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+        "OPENMELD_SKILL_FILE_BACKED_WRITES": "true",
         "OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED": "true",
         "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
         "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
@@ -463,6 +475,10 @@
           {
             "name": "OPENMELD_SPACES",
             "class_name": "Space"
+          },
+          {
+            "name": "OPENMELD_FILE_ROOTS",
+            "class_name": "OrganizationFileRoot"
           },
           {
             "name": "OPENMELD_ACCOUNT_INVALIDATIONS",

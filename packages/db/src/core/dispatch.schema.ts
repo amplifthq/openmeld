@@ -116,6 +116,8 @@ import {
 import {
   centerAgentOrganizationSkillOperations,
   organizationSkillActivations,
+  organizationSkillImportBatches,
+  organizationSkillImportOperations,
   organizationSkillMaintainers,
   organizationSkillReleases,
   organizationSkills,
@@ -381,6 +383,9 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     triggerMessageId: text("trigger_message_id").notNull(),
     sourceClientMessageId: text("source_client_message_id"),
     triggerText: text("trigger_text"),
+    // Private source proof / selected account for Plugin continuation. The
+    // native delivery retains sole ownership of execution and retention.
+    pluginConnectionMetadataJson: text("plugin_connection_metadata_json"),
     routineRunId: text("routine_run_id"),
     routineNameSnapshot: text("routine_name_snapshot"),
     workerSubmitRequestJson: text("worker_submit_request_json"),
@@ -1719,6 +1724,8 @@ export const coreSchema = {
   organizationSkillMaintainers,
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
+  organizationSkillImportOperations,
+  organizationSkillImportBatches,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
   organizationMemberPresenceSessions,

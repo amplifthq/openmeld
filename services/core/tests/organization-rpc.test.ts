@@ -60,12 +60,14 @@ import {
   rpcCenterAgentReadSlackWorkspaceDirectory,
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
+  rpcCenterAgentReadSpaceWakeProgress,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRemoveAgentProfilesFromSpace,
   rpcCenterAgentRequestOpenMeldToolsUpdate,
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
+  rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
   rpcClearSpacePassword,
@@ -6791,14 +6793,7 @@ describe("organization Core RPC", () => {
       expect.objectContaining({
         action: "wake_agent_profiles_in_space",
         actorProfileId: AGENT_PROFILE_ID,
-        onBehalfOfProfileId: HUMAN_PROFILE_ID,
-        organizationId: "org-a",
-        resourceId: JOINED_PRIVATE_SPACE_ID,
-        resourceType: "space",
-      }),
-      expect.objectContaining({
-        action: "wake_agent_profiles_in_space",
-        actorProfileId: AGENT_PROFILE_ID,
+        id: `center-agent-wake:${firstWake.signal.data.meta?.clientMessageId}`,
         onBehalfOfProfileId: HUMAN_PROFILE_ID,
         organizationId: "org-a",
         resourceId: JOINED_PRIVATE_SPACE_ID,
@@ -11061,6 +11056,197 @@ describe("organization Core RPC", () => {
   });
 });
 
+describe("Center Agent Wake Stop delegation", () => {
+  const stopBody = {
+    target: {
+      by: "source_signal" as const,
+      sourceSignalId: "signal-center-wake",
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    },
+  };
+  const centerContext = (submissionId?: string) =>
+    buildCenterAgentContext({
+      activeOrganizationId: "org-a",
+      ...(submissionId ? { agentControllerConversationId: submissionId } : {}),
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+  const setup = (withDelivery: boolean) => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "member")],
+      nativeDeliveries: withDelivery
+        ? [
+            nativeDeliveryLedgerRow({
+              deliveryId: "delivery-center-stop",
+              submissionId: "submission-center-stop",
+            }),
+          ]
+        : [],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PUBLIC_SPACE_ID,
+          spaceName: "Stop test",
+          visibility: "public",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const stop = vi.fn((input: { context: OpenMeldRequestContext }) => {
+      if (input.context.actorContext.profileKind === "agent") {
+        return Promise.reject(
+          Object.assign(new Error("Only the requester can stop this Wake"), {
+            status: 403,
+          })
+        );
+      }
+      return Promise.resolve({
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+          status: "cancelled" as const,
+        },
+        ok: true as const,
+        runtimeCoordinatorExecutionId: null,
+        status: "cancelled" as const,
+        stopMode: "openmeld_owned_pre_agent" as const,
+        targetProfileId: SECOND_AGENT_PROFILE_ID,
+      });
+    });
+    Object.assign(spaceStub, { rpcPostWakeStop: stop });
+    return { env: buildEnv({ db, spaceStub }), spaceStub, stop };
+  };
+
+  it("uses the same Space Stop RPC for a verified current requester", async () => {
+    const { env, stop } = setup(true);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(
+      stop.mock.calls.map(([request]) => request.context.actorContext)
+    ).toEqual([
+      expect.objectContaining({
+        openMeldProfileId: HUMAN_PROFILE_ID,
+        ownerUserId: "user-a",
+        profileKind: "human",
+      }),
+    ]);
+  });
+
+  it("does not turn membership alone into Stop authority", async () => {
+    const { env, stop } = setup(false);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext(),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("does not call Space Stop across Organizations", async () => {
+    const { env, stop } = setup(true);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext("submission-center-stop"),
+        spaceId: OTHER_ORG_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).rejects.toMatchObject({ status: 404 });
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps Center progress available when the requester cannot read that Space", async () => {
+    const { env, spaceStub } = setup(true);
+    const progress = {
+      items: [
+        {
+          clientMessageId: "client-1",
+          dispatchId: "dispatch-1",
+          sourceSignalId: "signal-center-wake",
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+          wakeStopEligibility: { status: "eligible" as const },
+        },
+      ],
+    };
+    const read = vi.fn((input: { context: OpenMeldRequestContext }) => {
+      if (input.context.actorContext.profileKind === "human") {
+        return Promise.reject(
+          Object.assign(new Error("Space access denied"), { status: 403 })
+        );
+      }
+      return Promise.resolve(progress);
+    });
+    Object.assign(spaceStub, { rpcGetActiveWakeProgress: read });
+    await expect(
+      rpcCenterAgentReadSpaceWakeProgress(env, {
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).resolves.toMatchObject({
+      items: [{ wakeStopEligibility: null }],
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a verified requester's Stop eligibility on the exact Wake", async () => {
+    const { env, spaceStub } = setup(true);
+    const wake = {
+      clientMessageId: "client-1",
+      dispatchId: "dispatch-1",
+      sourceSignalId: "signal-center-wake",
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    };
+    const eligible = {
+      controlMode: "cancel" as const,
+      reasonCode: null,
+      reliability: "native_cancel" as const,
+      status: "eligible" as const,
+    };
+    Object.assign(spaceStub, {
+      rpcGetActiveWakeProgress: vi.fn(
+        (input: { context: OpenMeldRequestContext }) =>
+          Promise.resolve({
+            items: [
+              {
+                ...wake,
+                wakeStopEligibility:
+                  input.context.actorContext.profileKind === "human"
+                    ? eligible
+                    : null,
+              },
+            ],
+          })
+      ),
+    });
+    const response = await rpcCenterAgentReadSpaceWakeProgress(env, {
+      context: centerContext("submission-center-stop"),
+      spaceId: JOINED_PUBLIC_SPACE_ID,
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+    });
+    expect(response.items[0]?.wakeStopEligibility).toEqual(eligible);
+  });
+});
+
 function buildEnv(
   input: Partial<Parameters<typeof createOrganizationRpcDb>[0]> & {
     authWorker?: {
@@ -11834,6 +12020,7 @@ function createOrganizationRpcDb(input: {
               agentProfiles: input.agentProfiles,
               args,
               authorizationRows,
+              centerAgentAuditRows,
               centerAgentDesignationRows,
               centerAgentDesignationReadbackOverride:
                 input.centerAgentDesignationReadbackOverride,
@@ -12005,11 +12192,22 @@ function createOrganizationRpcDb(input: {
               return createD1RunResult(1);
             }
             if (
-              normalizedSql.includes("insert into center_agent_audit_journal")
+              normalizedSql.includes(
+                "insert into center_agent_audit_journal"
+              ) ||
+              normalizedSql.includes(
+                "insert or ignore into center_agent_audit_journal"
+              )
             ) {
               if (remainingCenterAgentAuditWriteFailures > 0) {
                 remainingCenterAgentAuditWriteFailures -= 1;
                 throw new Error("Test Center Agent audit write failure.");
+              }
+              if (
+                normalizedSql.includes("insert or ignore") &&
+                centerAgentAuditRows.some((row) => row.id === String(args[0]))
+              ) {
+                return createD1RunResult(0);
               }
               centerAgentAuditRows.push({
                 id: String(args[0] ?? ""),
@@ -12456,6 +12654,7 @@ function resolveFirstRow(input: {
   agentProfiles: Parameters<typeof createOrganizationRpcDb>[0]["agentProfiles"];
   args: unknown[];
   authorizationRows: Map<string, ReturnType<typeof authorizationRow>>;
+  centerAgentAuditRows: CenterAgentAuditJournalTestRow[];
   centerAgentDesignationRows: Map<
     string,
     ReturnType<typeof centerAgentDesignationRow>
@@ -12501,6 +12700,37 @@ function resolveFirstRow(input: {
   }>;
   spaces?: ReturnType<typeof spaceRow>[];
 }) {
+  if (
+    input.normalizedSql.includes("from center_agent_audit_journal") &&
+    input.normalizedSql.includes("where id = ?")
+  ) {
+    const row = input.centerAgentAuditRows.find(
+      (entry) => entry.id === String(input.args[0] ?? "")
+    );
+    return row
+      ? {
+          id: row.id,
+          action: row.action,
+          actor_profile_id: row.actorProfileId,
+          organization_id: row.organizationId,
+          on_behalf_of_profile_id: row.onBehalfOfProfileId,
+          on_behalf_of_user_id: row.onBehalfOfUserId,
+          on_behalf_of_display_name: row.onBehalfOfDisplayName,
+          resource_type: row.resourceType,
+          resource_id: row.resourceId,
+          source_native_delivery_id: row.sourceNativeDeliveryId,
+          source_space_id: row.sourceSpaceId,
+          local_agent_client: null,
+          context_manifest_estimated_token_count: null,
+          context_manifest_included_message_count: null,
+          context_manifest_truncated: null,
+          context_load_estimated_token_count: null,
+          context_load_included_message_count: null,
+          context_load_manifest_id: null,
+          created_at: row.createdAtMs,
+        }
+      : null;
+  }
   if (input.normalizedSql.includes("from connector_connections")) {
     const organizationId = String(input.args[0] ?? "");
     const connectionName = String(input.args[1] ?? "");
@@ -13203,6 +13433,9 @@ function resolveAllRows(input: {
   }
 
   if (input.normalizedSql.includes("from center_agent_audit_journal")) {
+    const exactId = input.normalizedSql.includes("where id = ?")
+      ? String(input.args[0] ?? "")
+      : null;
     const organizationId = String(input.args[0] ?? "");
     const excludesActions = input.normalizedSql.includes("action not in");
     const excludedActions = new Set(
@@ -13210,11 +13443,13 @@ function resolveAllRows(input: {
         ? input.args.slice(1, -1).map((value) => String(value ?? ""))
         : []
     );
-    const limit = Number(input.args.at(-1) ?? 100);
+    const limit = exactId ? 1 : Number(input.args.at(-1) ?? 100);
     return [...(input.centerAgentAuditRows ?? [])]
       .filter(
         (row) =>
-          row.organizationId === organizationId &&
+          (exactId
+            ? row.id === exactId
+            : row.organizationId === organizationId) &&
           !excludedActions.has(row.action)
       )
       .sort(

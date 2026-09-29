@@ -19,12 +19,14 @@ import pythonModules from "@cloudflare/computer/shell/python";
 import sqliteModules from "@cloudflare/computer/shell/sqlite";
 import xanModules from "@cloudflare/computer/shell/xan";
 import yqModules from "@cloudflare/computer/shell/yq";
+import type { RemoteAgentResultSource } from "@openmeld/schemas";
 import {
   agentComputerBrowserRequestSchema,
   agentComputerPreviewRequestSchema,
 } from "@openmeld/schemas";
 import type { BrowserBinding } from "agents/browser";
 import { createBrowserTools } from "agents/browser/ai";
+import { ComputerDataSourceStore } from "./computer-data-sources";
 import {
   inspectComputerPreview,
   type PreviewBrowserBinding,
@@ -74,6 +76,18 @@ function workspaceRef(ctx: DurableObjectState) {
 }
 
 export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
+  // Created before Workspace and never exposed by Workspace.stub().
+  readonly #dataSources = new ComputerDataSourceStore(this.ctx.storage);
+
+  readDataSources(): Promise<RemoteAgentResultSource[]> {
+    return Promise.resolve(this.#dataSources.read());
+  }
+
+  recordDataSource(source: RemoteAgentResultSource): Promise<void> {
+    this.#dataSources.record(source);
+    return Promise.resolve();
+  }
+
   private browserTool(spaceId: string) {
     if (!(this.env.BROWSER && spaceId)) {
       throw new Error(

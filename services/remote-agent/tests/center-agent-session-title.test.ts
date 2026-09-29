@@ -28,14 +28,14 @@ describe("independent Center Agent session title generation", () => {
     const options = fetch.mock.calls[0]?.[1];
     const body = JSON.parse(String(options?.body));
     expect(body).toMatchObject({
-      model: "z-ai/glm-5.3-flash",
-      temperature: 0,
+      model: "openai/gpt-6-luna",
       max_tokens: 512,
       stream: false,
       reasoning: { effort: "low", exclude: true },
       provider: { require_parameters: true },
     });
     expect(body.tools).toBeUndefined();
+    expect(body.temperature).toBeUndefined();
     expect(body.messages).toHaveLength(2);
     expect(JSON.parse(body.messages[1].content)).toEqual({
       message: request.text,

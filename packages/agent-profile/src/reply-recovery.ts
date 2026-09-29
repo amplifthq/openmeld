@@ -2,6 +2,7 @@ import {
   type AgentRecoveryActionId,
   canonicalizeAgentControllerRef,
   formatAgentRecoveryActionLabel,
+  isHostedAgentControllerRef,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentFailureRecovery,
 } from "@openmeld/schemas";
@@ -302,6 +303,12 @@ export function planAgentProfileReplyRecovery(input: {
     return { kind: "none" };
   }
 
+  if (!canUseLocalReplyRecovery(input.member)) {
+    // A native/unknown target may have an actionable model failure, but never
+    // a local setup recipe. The caller still presents its readiness hint.
+    return planNonLocalReplyRecovery(input.member, profileName);
+  }
+
   const reasonCode = resolvePrimaryRecoveryReasonCode({
     currentLocalRuntimeReplyState: input.currentLocalRuntimeReplyState ?? null,
     member: input.member,
@@ -345,6 +352,67 @@ export function planAgentProfileReplyRecovery(input: {
     profileName,
     reasonCode,
   });
+}
+
+function planNonLocalReplyRecovery(
+  member: SpaceMemberAgentSnapshot,
+  profileName: string
+): AgentProfileReplyRecoveryPlan {
+  const conflict = resolveMemberReadinessReasonCodes(member).find(
+    isControllerConversationConflictReasonCode
+  );
+  if (conflict) {
+    return planControllerConversationConflictRecovery({
+      member,
+      profileName,
+      reasonCode: conflict,
+    });
+  }
+  const reasonCode =
+    resolveMemberReadinessReasonCodes(member).find(
+      (reason) => reason === "model.retired" || reason === "model.unavailable"
+    ) ?? null;
+  return (
+    planAgentModelRecovery({ member, profileName, reasonCode }) ?? {
+      kind: "none",
+    }
+  );
+}
+
+function canUseLocalReplyRecovery(member: SpaceMemberAgentSnapshot): boolean {
+  const readiness = resolveMemberLocalRecoveryReadiness(member);
+  return Boolean(
+    member.agentControllerRef &&
+      !isHostedAgentControllerRef(member.agentControllerRef) &&
+      readiness?.facts.runtime.source !== "native_runtime" &&
+      readiness?.facts.route.source !== "hosted_route" &&
+      readiness?.facts.binding.source !== "unavailable" &&
+      readiness?.facts.binding.source !== "not_checked"
+  );
+}
+
+function planAgentModelRecovery(input: {
+  member: SpaceMemberAgentSnapshot;
+  profileName: string;
+  reasonCode: string | null;
+}): AgentProfileReplyRecoveryPlan | null {
+  if (
+    input.reasonCode !== "model.retired" &&
+    input.reasonCode !== "model.unavailable"
+  ) {
+    return null;
+  }
+  return {
+    ...resolveSharedRecoveryCopy({
+      profileName: input.profileName,
+      reasonCode: input.reasonCode,
+    }),
+    kind: "review_agent_profile",
+    ...createPrimaryAction("change_model"),
+    profileId: input.member.profileId,
+    profileName: input.profileName,
+    recoveryReasonCode: input.reasonCode,
+  };
 }
 
 function planCurrentAgentExecutionRecovery(input: {
@@ -481,24 +549,9 @@ function planAgentRecoveryFromExecutionPrimaryAction(input: {
     }
   }
 
-  if (
-    input.reasonCode === "model.retired" ||
-    input.reasonCode === "model.unavailable"
-  ) {
-    const copy = resolveSharedRecoveryCopy({
-      profileName: input.profileName,
-      reasonCode: input.reasonCode,
-    });
-    return {
-      body: copy.body,
-      kind: "review_agent_profile",
-      ...createPrimaryAction("change_model"),
-      profileId: input.member.profileId,
-      profileName: input.profileName,
-      recoveryReasonCode: input.reasonCode,
-      secondaryLabel: copy.secondaryLabel,
-      title: copy.title,
-    };
+  const modelRecovery = planAgentModelRecovery(input);
+  if (modelRecovery) {
+    return modelRecovery;
   }
 
   if (isControllerConversationConflictReasonCode(input.reasonCode)) {
@@ -552,7 +605,9 @@ function planAgentRecoveryFromExecutionPrimaryAction(input: {
         reasonCode: input.reasonCode,
       });
     case "check_status":
-      return planStatusRecoveryFromPrimaryAction(input);
+      return isUnboundAgentReasonCode(input.reasonCode)
+        ? planBindingRecoveryFromPrimaryAction(input)
+        : planStatusRecoveryFromPrimaryAction(input);
     case null:
       return null;
     default:

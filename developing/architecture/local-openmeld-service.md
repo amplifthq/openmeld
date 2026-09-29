@@ -177,6 +177,10 @@ A fresh running lease identifying a directly started process takes precedence
 over that same PID's managed executable path when classifying lifecycle owners.
 Using an installed binary does not itself mean the OS service manager started
 it. Other PIDs and an actually running manager remain independent evidence.
+A fresh running lease identifying a system-managed PID likewise takes precedence
+over that same PID's path-based direct/unknown classification. Do not count one
+verified system-managed process as both lifecycle owners; a different direct
+process must still be reported independently.
 
 Isolated Service smoke must use the development or Canary entry point, not
 borrow the installed Production binary with a different `OPENMELD_HOME` or
@@ -357,6 +361,22 @@ provider account identity, paths, arguments, commands, skills, or raw diagnostic
 Missing inventory is unknown evidence, not proof that every catalog model works
 or that none do. Version advisory remains a separate maintenance check; an
 advisory lookup failure must not erase an otherwise proven incompatibility.
+
+Codex discovery supports both the legacy `Contents/Resources/codex` and the
+`Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` layout in
+Codex.app and ChatGPT.app, independently of the Service PATH. When a saved
+bundled executable disappears, registration reconciliation may follow a verified
+replacement inside that same host app. It preserves launch arguments and never
+switches between host apps or from an app to a standalone CLI automatically.
+An unsuccessful replacement probe retains the original selection and failure.
+Other providers retain stable command entrypoints; Cursor additionally repairs
+its historical version-directory selections. A sole alternative installation is
+not evidence of the same identity and requires explicit owner selection.
+
+ACI launch evidence may include the bounded `installation_missing` or
+`installation_access_denied` reason. Cloud reporting preserves these reason
+codes while stripping raw diagnostic text and local paths. Owner-facing clients
+render actionable copy from the reason, independently of computer connectivity.
 
 The selected launch contract remains the install and update identity. When an
 Agent Controller is bundled inside a host application, ACI must treat that host

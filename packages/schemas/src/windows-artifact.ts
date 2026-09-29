@@ -13,6 +13,8 @@ export const windowsManagedCliInstallationSchema = z.strictObject({
     .string()
     .max(128)
     .regex(/^[0-9][0-9A-Za-z.+-]*$/u),
+  // Absence means the signed stable channel, including existing records.
+  releaseChannel: z.literal("windows-preview").optional(),
 });
 
 /** Exact Authenticode publisher identity shared by CLI and Desktop artifacts. */

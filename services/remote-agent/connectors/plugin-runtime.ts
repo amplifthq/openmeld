@@ -51,6 +51,7 @@ export async function executePluginRuntime(
     return pluginRuntimeResponseSchema.parse({
       status: "completed",
       ...result,
+      outputSchema: action.outputSchema,
     });
   } catch (error) {
     if (error instanceof OpenConnectorOperationPendingError) {

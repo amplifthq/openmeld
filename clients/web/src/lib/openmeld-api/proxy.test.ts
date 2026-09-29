@@ -4,6 +4,8 @@ import {
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
 	OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
 	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+	OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+	OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import { OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
@@ -200,6 +202,34 @@ describe("OpenMeld gateway proxy", () => {
 			fetchImpl: fetchMock,
 		});
 
+		expect(response.status).toBe(200);
+	});
+
+	it("forwards Space Files capabilities while blocking untrusted headers", async () => {
+		const fetchMock = vi.fn<typeof fetch>((_input, init) => {
+			const headers = init?.headers as Headers;
+			expect(headers.get(OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION)).toBe("1");
+			expect(headers.get(OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION)).toBe(
+				"1"
+			);
+			expect(headers.has("x-openmeld-untrusted")).toBe(false);
+			return Promise.resolve(new Response("ok", { status: 200 }));
+		});
+		const response = await proxyOpenMeldGatewayRequest({
+			request: new Request(
+				"https://openmeld.test/v1/spaces/space-1/files?origin=all",
+				{
+					headers: {
+						[OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]: "1",
+						[OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]: "1",
+						"x-openmeld-untrusted": "blocked",
+					},
+				}
+			),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			fetchImpl: fetchMock,
+		});
 		expect(response.status).toBe(200);
 	});
 

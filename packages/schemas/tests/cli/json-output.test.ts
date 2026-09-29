@@ -849,6 +849,7 @@ describe("cli --json output envelope contract", () => {
       "organization.invite_link.create",
       "organization.invite_link.revoke",
       "skills.list",
+      "skills.scan",
       "skills.show",
       "skills.load",
     ]);

@@ -96,7 +96,10 @@ function mount() {
 	);
 }
 async function selectView(name: "Grouped" | "Recent") {
-	fireEvent.click(screen.getByRole("button", { name: "Conversation view" }));
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: "Conversation view" })
+	);
 	fireEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
 
@@ -140,11 +143,12 @@ it("shows Spaces and Direct messages together and keeps the current draft when s
 			.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
 	).toHaveLength(2);
 });
-it("searches both types and retains canonical session destinations", () => {
+it("searches both types and applies the nested conversation filter", async () => {
 	mount();
 	const search = screen.getByRole("searchbox", {
 		name: "Search conversations",
 	});
+	expect(search.getAttribute("placeholder")).toBe("Find a space...");
 	fireEvent.change(search, { target: { value: "product" } });
 	expect(
 		screen.getByRole("link", { name: "Product design" }).getAttribute("href")
@@ -157,17 +161,25 @@ it("searches both types and retains canonical session destinations", () => {
 	expect(
 		screen.getByText("No conversations match your search or filters.")
 	).toBeTruthy();
+	fireEvent.change(search, { target: { value: "" } });
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: "Filter conversations" })
+	);
+	fireEvent.click(
+		await screen.findByRole("menuitemcheckbox", { name: "Spaces" })
+	);
+	expect(screen.getByRole("link", { name: "Product design" })).toBeTruthy();
+	expect(screen.queryByRole("link", { name: "Launch checklist" })).toBeNull();
 });
-it("keeps discovery visible in both views and carries an unmatched search into the organization picker", async () => {
+it("keeps the Spaces directory reachable in both views and carries an unmatched search into the organization picker", async () => {
 	mount();
 	expect(
 		screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
 	).toBe("/o/test/spaces");
 	for (const view of ["Grouped", "Recent"] as const) {
 		await selectView(view);
-		expect(
-			screen.getByRole("link", { name: "Browse spaces" }).getAttribute("href")
-		).toBe("/o/test/spaces");
+		expect(screen.queryByRole("link", { name: "Browse spaces" })).toBeNull();
 	}
 	fireEvent.change(
 		screen.getByRole("searchbox", { name: "Search conversations" }),

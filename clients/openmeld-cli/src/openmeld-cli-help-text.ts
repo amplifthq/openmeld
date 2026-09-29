@@ -18,6 +18,7 @@ const TOP_LEVEL_HELP_EXAMPLES = [
   "openmeld prompt commands --raw",
   "openmeld skills",
   "openmeld skills list",
+  "openmeld skills add <github-url> --preview",
   "openmeld skills show <name-or-id>",
   "openmeld skills load <name-or-id> --view agent",
   "openmeld agents",

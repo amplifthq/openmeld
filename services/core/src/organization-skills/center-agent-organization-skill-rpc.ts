@@ -23,16 +23,17 @@ import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center
 import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
-  beginCenterAgentOrganizationSkillOperation,
+  beginOrganizationSkillOperation,
   buildCenterAgentOrganizationSkillOperationKey,
-  buildCenterAgentOrganizationSkillRequestSignature,
-  type CenterAgentOrganizationSkillOperationRecord,
-  deletePendingCenterAgentOrganizationSkillOperation,
-  prepareCompleteCenterAgentOrganizationSkillOperationStatement,
-  readCenterAgentOrganizationSkillOperation,
-} from "./center-agent-organization-skill-operation-repository";
+  buildOrganizationSkillRequestSignature,
+  deletePendingOrganizationSkillOperation,
+  type OrganizationSkillOperationRecord,
+  prepareCompleteOrganizationSkillOperationStatement,
+  readOrganizationSkillOperation,
+} from "./organization-skill-operation-repository";
 import {
   createOrganizationSkillService,
+  describeOrganizationSkillBundleLimitations,
   type OrganizationSkillActor,
   type OrganizationSkillReadActor,
 } from "./organization-skill-service";
@@ -64,12 +65,17 @@ export async function rpcCenterAgentReadOrganizationSkills(
     env,
     speakerMember: request.speakerMember,
   });
-  if (request.action === "preview_github" && !prepared.member.profileId) {
+  if (
+    (request.action === "preview_github" ||
+      request.action === "preview_github_repository") &&
+    !prepared.member.profileId
+  ) {
     throw openMeldIdentityRequiredError();
   }
   const service = createOrganizationSkillService({
     bucket: prepared.bucket,
     db: prepared.db,
+    fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
     githubToken: env.GITHUB_OPENMELD_API_TOKEN,
   });
   if (request.action === "list") {
@@ -106,6 +112,27 @@ export async function rpcCenterAgentReadOrganizationSkills(
       skill,
     });
   }
+  if (request.action === "preview_github_repository") {
+    const preview = await service.previewRepositoryFromGitHub(
+      requireOpenMeldIdentity(prepared.actor),
+      request.url
+    );
+    await writeCenterAgentAuditEntry({
+      action: "preview_org_skill",
+      authorization: prepared.authorization,
+      onBehalfOfProfileId: prepared.member.profileId,
+      resource: {
+        id: preview.commitSha,
+        type: "organization_skill_github_preview",
+      },
+      sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
+    });
+    return parseReadResponse({
+      action: request.action,
+      organizationId: prepared.actor.organizationId,
+      preview,
+    });
+  }
   const preview = await service.previewFromGitHub(
     requireOpenMeldIdentity(prepared.actor),
     request.url
@@ -121,7 +148,7 @@ export async function rpcCenterAgentReadOrganizationSkills(
     sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
   });
   return parseReadResponse({
-    action: "preview_github",
+    action: request.action,
     organizationId: prepared.actor.organizationId,
     preview,
   });
@@ -148,15 +175,15 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     organizationId: prepared.actor.organizationId,
     representedUserId: prepared.representedHuman.userId,
   });
-  const requestSignature =
-    await buildCenterAgentOrganizationSkillRequestSignature({
-      action: request.action,
-      actorProfileId: prepared.actorProfileId,
-      payload: installPayload(request),
-      representedUserId: prepared.representedHuman.userId,
-    });
-  const begin = await beginCenterAgentOrganizationSkillOperation({
+  const requestSignature = await buildOrganizationSkillRequestSignature({
+    action: request.action,
+    actorProfileId: prepared.actorProfileId,
+    payload: installPayload(request),
+    representedUserId: prepared.representedHuman.userId,
+  });
+  const begin = await beginOrganizationSkillOperation({
     db: prepared.db,
+    kind: "center_agent",
     nowMs: Date.now(),
     operationKey,
     organizationId: prepared.actor.organizationId,
@@ -169,12 +196,18 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     throw operationInProgressError();
   }
 
-  const skillId = `org_skill_${requestSignature.slice(0, 32)}`;
-  const releaseId = `org_skill_release_${requestSignature.slice(32)}`;
+  // Distinct operations must not share release object keys: a failed writer
+  // may clean up only the objects that its own operation created.
+  const releaseIdentity = await buildOrganizationSkillRequestSignature({
+    operationKey,
+  });
+  const skillId = `org_skill_${releaseIdentity.slice(0, 32)}`;
+  const releaseId = `org_skill_release_${releaseIdentity.slice(32)}`;
   const ids = [skillId, releaseId];
   const service = createOrganizationSkillService({
     bucket: prepared.bucket,
     db: prepared.db,
+    fileBackedWritesEnabled: env.OPENMELD_SKILL_FILE_BACKED_WRITES === "true",
     githubToken: env.GITHUB_OPENMELD_API_TOKEN,
     newId: () => {
       const id = ids.shift();
@@ -204,8 +237,9 @@ export async function rpcCenterAgentInstallOrganizationSkill(
       .get(prepared.actor, skillId)
       .catch(() => null);
     if (recovered?.activeRelease.id !== releaseId) {
-      await deletePendingCenterAgentOrganizationSkillOperation({
+      await deletePendingOrganizationSkillOperation({
         db: prepared.db,
+        kind: "center_agent",
         operation: begin.operation,
       });
       throw error;
@@ -213,11 +247,19 @@ export async function rpcCenterAgentInstallOrganizationSkill(
     skill = recovered;
   }
 
-  const response = parseInstallResponse({
+  const baseResponse = {
     action: request.action,
     organizationId: prepared.actor.organizationId,
     skill: toSkillSummary(skill),
-  });
+  };
+  const response = parseInstallResponse(
+    request.action === "import_github_with_report"
+      ? {
+          ...baseResponse,
+          ...describeOrganizationSkillBundleLimitations(skill.bundle),
+        }
+      : baseResponse
+  );
   return await completeOperation({
     operation: begin.operation,
     prepared,
@@ -317,7 +359,7 @@ function openMeldIdentityRequiredError(): Error {
 }
 
 async function completeOperation(input: {
-  operation: CenterAgentOrganizationSkillOperationRecord;
+  operation: OrganizationSkillOperationRecord;
   prepared: PreparedCenterAgentOrganizationSkillRequest;
   response: CenterAgentInstallOrganizationSkillResponse;
   skillId: string;
@@ -342,8 +384,9 @@ async function completeOperation(input: {
       resource: { id: input.skillId, type: "organization_skill" },
       sourceNativeDeliveryId: input.prepared.sourceNativeDeliveryId,
     }),
-    prepareCompleteCenterAgentOrganizationSkillOperationStatement({
+    prepareCompleteOrganizationSkillOperationStatement({
       db: input.prepared.db,
+      kind: "center_agent",
       nowMs,
       operation: input.operation,
       responseJson: JSON.stringify(input.response),
@@ -352,8 +395,9 @@ async function completeOperation(input: {
   if (Number(results[1]?.meta.changes ?? 0) === 1) {
     return input.response;
   }
-  const current = await readCenterAgentOrganizationSkillOperation({
+  const current = await readOrganizationSkillOperation({
     db: input.prepared.db,
+    kind: "center_agent",
     operationKey: input.operation.operationKey,
     organizationId: input.operation.organizationId,
   });
@@ -458,7 +502,7 @@ function parseInstallResponse(
 }
 
 function parseCompletedResponse(
-  operation: CenterAgentOrganizationSkillOperationRecord
+  operation: OrganizationSkillOperationRecord
 ): CenterAgentInstallOrganizationSkillResponse {
   if (!operation.responseJson) {
     throw new Error(

@@ -1,3 +1,5 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { webApplicationErrorReportSchema } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const PRIVATE_CONTENT = /token|private|https/;
@@ -14,7 +16,114 @@ describe("browser application error reporting", () => {
 	afterEach(() => {
 		dispose?.();
 		dispose = undefined;
+		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
+	});
+
+	it("reports the incoming route and caught area without sending a URL or error text", async () => {
+		const {
+			recordApplicationErrorNavigation,
+			reportCaughtComponentError,
+			setApplicationErrorRouteReader,
+		} = await import("./application-error-client");
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(1000)
+			.mockReturnValue(1250);
+		setApplicationErrorRouteReader(
+			() => "/o/$orgSlug/_center-agent/chats/center-agent"
+		);
+		recordApplicationErrorNavigation("/o/$orgSlug/inbox");
+		const error = new Error("private token from https://openmeld.ai/o/secret");
+		reportCaughtComponentError(error, "space_conversation");
+		const first = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(first).toMatchObject({
+			routeId: "/o/$orgSlug/_center-agent/chats/center-agent",
+			navigation: { fromRouteId: "/o/$orgSlug/inbox", elapsedMs: 250 },
+			reactBoundary: "space_conversation",
+		});
+		expect(JSON.stringify(first)).not.toMatch(PRIVATE_CONTENT);
+		reportCaughtComponentError(error, "space_conversation");
+		expect(fetch).toHaveBeenCalledOnce();
+		recordApplicationErrorNavigation("/o/private?token=private");
+		reportCaughtComponentError(error, "markdown_editor");
+		const second = JSON.parse(
+			String(vi.mocked(fetch).mock.calls[1]?.[1]?.body)
+		);
+		expect(second.navigation).toBeUndefined();
+		expect(second.reactBoundary).toBe("markdown_editor");
+	});
+
+	it("attaches only recent fixed update labels to a React depth report", async () => {
+		const { recordReactUpdate } = await import("./react-update-trace");
+		const { reportClientApplicationError } = await import(
+			"./application-error-client"
+		);
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(100)
+			.mockReturnValueOnce(110)
+			.mockReturnValue(130);
+		recordReactUpdate("composer_draft_set");
+		recordReactUpdate("composer_editor_external_value");
+		reportClientApplicationError(
+			new Error("Minified React error #185; private token"),
+			"react_caught"
+		);
+		const body = String(vi.mocked(fetch).mock.calls[0]?.[1]?.body);
+		expect(JSON.parse(body)).toMatchObject({
+			error: { code: "react_update_depth" },
+			reactUpdateTrace: [
+				{ event: "composer_draft_set", ageMs: 30 },
+				{ event: "composer_editor_external_value", ageMs: 20 },
+			],
+		});
+		expect(body).not.toMatch(PRIVATE_CONTENT);
+		reportClientApplicationError(new Error("ordinary failure"), "route");
+		expect(
+			JSON.parse(String(vi.mocked(fetch).mock.calls[1]?.[1]?.body))
+				.reactUpdateTrace
+		).toBeUndefined();
+	});
+
+	it("expires the previous route before a later error or manual report", async () => {
+		const { recordApplicationErrorNavigation, submitApplicationErrorReport } =
+			await import("./application-error-client");
+		vi.spyOn(performance, "now")
+			.mockReturnValueOnce(1000)
+			.mockReturnValue(601_001);
+		recordApplicationErrorNavigation("/o/$orgSlug/inbox");
+		await submitApplicationErrorReport(new Error("late failure"));
+		const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
+		expect(body.navigation).toBeUndefined();
+	});
+
+	it("reports the catch-up stage with API status, code, and request ID", async () => {
+		const { reportClientQueryError } = await import(
+			"./application-error-client"
+		);
+		reportClientQueryError(
+			new OpenMeldApiClientHttpError({
+				code: "auth.unauthenticated",
+				message: "private response body",
+				rawBody: "private response body",
+				requestId: "req-catch-up-401",
+				status: 401,
+			}),
+			"inbox",
+			"persist"
+		);
+		const body = String(vi.mocked(fetch).mock.calls[0]?.[1]?.body);
+		expect(
+			webApplicationErrorReportSchema.parse(JSON.parse(body)).query
+		).toEqual({
+			category: "inbox",
+			stage: "persist",
+			failure: {
+				code: "auth.unauthenticated",
+				requestId: "req-catch-up-401",
+				status: 401,
+			},
+		});
+		expect(body).not.toContain("private response body");
 	});
 
 	it("captures resource and route failures without suppressing the original error", async () => {

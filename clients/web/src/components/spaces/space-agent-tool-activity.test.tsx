@@ -112,7 +112,7 @@ describe("SpaceAgentToolActivity", () => {
 			/>
 		);
 		const completedTrigger = screen.getByRole("button", {
-			name: "Work summary: Progress updates",
+			name: "Work summary: Agent updates",
 		});
 		expect(completedTrigger.getAttribute("aria-expanded")).toBe("false");
 		fireEvent.click(completedTrigger);
@@ -161,7 +161,7 @@ describe("SpaceAgentToolActivity", () => {
 		expect(
 			screen
 				.getByRole("button", {
-					name: "Agent is working. Work summary: Drafting an Organization Document…",
+					name: "Agent is working. Work summary: Drafting a Team knowledge file…",
 				})
 				.querySelector("canvas")
 				?.getAttribute("data-space-agent-orb-state")

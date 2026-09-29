@@ -10,7 +10,10 @@ import {
   buildTrustedGitHubRepositoryUrl,
   createTrustedGitEnvironment,
 } from "../ci/trusted-git-network.mjs";
-import { buildProductionReleasePlan } from "./production-release.mjs";
+import {
+  buildProductionReleasePlan,
+  resolveAutomaticReleaseScopes,
+} from "./production-release.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
 import {
   RELEASE_SCOPES,
@@ -450,6 +453,13 @@ function describeReleaseComponent(input) {
     }
     plansByBase.set(releaseSource.sha, entry);
   }
+  entry = resolveDatabaseHistoricalPlan({
+    adapters,
+    entry,
+    releaseSource,
+    scope,
+    sourceSha,
+  });
   if (entry.error) {
     return unknown(
       `${entry.error} Current release contracts rejected this historical baseline. Use current-main guarded tooling for an evidence-backed forward fix, or the documented same-source recovery path when its retained receipt qualifies; never run older release guards or bypass the receipt.`
@@ -469,6 +479,26 @@ function describeReleaseComponent(input) {
     scope,
     state: entry.plan.scopes.includes(scope) ? "pending" : "current",
   };
+}
+
+function resolveDatabaseHistoricalPlan(input) {
+  if (!(input.entry.error && input.scope === "db")) {
+    return input.entry;
+  }
+  try {
+    // A successful Database receipt does not depend on whether unrelated
+    // historical Worker contracts can still compose into one release plan.
+    return {
+      plan: input.adapters.buildDatabaseStatusPlan({
+        base: input.releaseSource.sha,
+        sourceSha: input.sourceSha,
+      }),
+    };
+  } catch {
+    // Preserve the original historical planning error when even the
+    // Database-specific diff cannot be established.
+    return input.entry;
+  }
 }
 
 function resolveCompatibilityReceiverWitnessEvidence(input) {
@@ -619,14 +649,33 @@ function describeComponentEvidence(releaseSource) {
   };
 }
 
-async function readLatestSuccessfulReleaseSources(input) {
+export async function readLatestSuccessfulReleaseSources(input) {
   const sources = new Map();
+  // Completed runs are ordered by their last update. Active runs and runs
+  // without a trustworthy update time must always have their jobs inspected:
+  // an active run can finish a deployment after the history snapshot was read.
+  const runsByUpdate = [...input.runs].sort((left, right) => {
+    const leftTime = runUpdateTime(left);
+    const rightTime = runUpdateTime(right);
+    return leftTime === rightTime ? 0 : rightTime - leftTime;
+  });
   for (
     let offset = 0;
-    offset < input.runs.length;
+    offset < runsByUpdate.length;
     offset += RELEASE_JOB_BATCH_SIZE
   ) {
-    const runs = input.runs.slice(offset, offset + RELEASE_JOB_BATCH_SIZE);
+    const remaining = runsByUpdate.slice(offset);
+    const oldestReceipt = Math.min(
+      ...RELEASE_SCOPES.map((scope) =>
+        sources.has(scope)
+          ? Date.parse(sources.get(scope).recordedAt)
+          : Number.NEGATIVE_INFINITY
+      )
+    );
+    if (runUpdateTime(remaining[0]) < oldestReceipt) {
+      break;
+    }
+    const runs = remaining.slice(0, RELEASE_JOB_BATCH_SIZE);
     const jobsByRun = await Promise.all(
       runs.map(async (run) => {
         try {
@@ -663,6 +712,14 @@ async function readLatestSuccessfulReleaseSources(input) {
     }
   }
   return sources;
+}
+
+function runUpdateTime(run) {
+  if (run.status !== "completed") {
+    return Number.POSITIVE_INFINITY;
+  }
+  const value = Date.parse(run.updatedAt);
+  return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 }
 
 async function readReleaseJobSource(job, run, input) {
@@ -965,6 +1022,20 @@ function defaultAdapters() {
         scope: "auto",
         sourceSha,
       }),
+    buildDatabaseStatusPlan: ({ base, sourceSha }) => {
+      const changedPaths = splitLines(
+        runGit(["diff", "--name-only", `${base}...${sourceSha}`])
+      );
+      return {
+        changedPaths,
+        compatibilityDependencies: [],
+        compatibilityReceiverWitnesses: [],
+        scopes: resolveAutomaticReleaseScopes({
+          affectedPackages: [],
+          changedPaths,
+        }).filter((scope) => scope === "db"),
+      };
+    },
     compareGitPathContents,
     readPushChecks: async (repo, sourceSha) =>
       (

@@ -27,7 +27,6 @@ describe("space conversation stream state", () => {
 		});
 		expect(listVisibleSpaceConversationStreams(streaming)[0]).toMatchObject({
 			progress: "Checking the current Space context.",
-			progressActive: true,
 		});
 		expect(
 			listVisibleSpaceConversationStreams(

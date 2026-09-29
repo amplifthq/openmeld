@@ -1,4 +1,5 @@
 import type {
+  AgentControllerInterfaceSnapshot,
   RuntimeAgentControllerLaunchCandidate,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
@@ -21,6 +22,7 @@ export type LocalControllerInstallStatus =
 
 export type LocalControllerInstallResolution = {
   detail: string | null;
+  failureReason?: AgentControllerInterfaceSnapshot["launch"]["failureReason"];
   installChoices: LocalControllerInstallChoice[];
   launchContract: RuntimeAgentControllerLaunchContract | null;
   status: LocalControllerInstallStatus;
@@ -262,6 +264,9 @@ async function resolvePersistedControllerInstall(input: {
 
   return {
     detail: persistedVerification.errorMessage,
+    ...(persistedVerification.failureReason
+      ? { failureReason: persistedVerification.failureReason }
+      : {}),
     installChoices:
       installedCandidates.ok && installedCandidates.candidates.length === 1
         ? installedCandidates.candidates

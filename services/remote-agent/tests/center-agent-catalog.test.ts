@@ -218,6 +218,6 @@ describe("curated Center Agent provider models", () => {
     expect(
       catalog.agentControllers["center-agent"]?.hostedRuntimePolicy
         ?.imageUnderstandingModelId
-    ).toBe("x-ai/grok-4.6");
+    ).toBe("openai/gpt-6-luna");
   });
 });

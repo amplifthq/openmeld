@@ -41,6 +41,7 @@ import {
   type MessageChannelTurnTargetResolution,
   resolveMessageChannelTurnTarget,
 } from "./message-channel-turn-resolution";
+import { buildPluginChannelSourceProof } from "./plugin-channel-source-proof";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 
 const MESSAGE_CHANNEL_EVENT_CLAIM_LEASE_MS = 30_000;
@@ -507,6 +508,19 @@ async function processClaimedMessageChannelEvent(input: {
     },
     request: {
       locator,
+      ...(admittedEvent.kind === "message"
+        ? {
+            pluginSourceProof: await buildPluginChannelSourceProof({
+              provider: locator.provider,
+              messageId: admittedEvent.messageId,
+              providerUserId: admittedEvent.senderId,
+              text: admittedEvent.text,
+              resourceIds: admittedEvent.resources.map(
+                (resource) => resource.fileKey
+              ),
+            }),
+          }
+        : {}),
       sourceText:
         admittedEvent.kind === "message"
           ? admittedEvent.text

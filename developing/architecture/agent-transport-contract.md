@@ -113,6 +113,10 @@ preserves FIFO order within one target. A candidate failure is isolated from
 the other target queues. After a full batch advances successfully while more
 pending records remain, the shared Space alarm schedules an immediate
 continuation; retrying or poisoned work keeps the normal durable retry cadence.
+The outbox creation time remains stable across handoffs and redrives so a Wake
+waiting on an execution-target settings lease reaches its bounded, visible
+failure deadline. The queue handoff timestamp is separate and may advance on
+each redrive.
 Concurrent flush callers share one in-flight flush per Space. D1 overload is
 storage backpressure, not evidence of a malformed request or a missing Agent
 account: it does not consume the candidate poison budget. The same durable
@@ -686,6 +690,15 @@ Important execution rules:
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
+- A designated Organization Center Agent may request Stop only for a member
+  verified by its current native delivery. Space grants the represented member
+  ordinary source-account or target-owner authority, or authority over an exact
+  Center-authored Wake whose immutable, Core-written audit provenance records
+  that same member as `onBehalfOf`. A missing or mismatched attribution grants
+  no Center-authored Wake authority. Routine deliveries use their verified
+  delegated member in the same comparison. An ownerless Center Agent Profile,
+  Organization membership, or a caller-supplied selector grants no Stop
+  authority. The progress projection uses this same Space authorization.
 - An explicit Space Task cancellation has one additional, Task-scoped Stop
   authority. The same currently active, Auth-verified actor must have authored
   the retained cancellation operation, its event ID must match the operation
@@ -2079,6 +2092,86 @@ existing fresh cancel/interrupt report requirement. The existing Stop mutation
 continues to validate the accepted result and elect the final Space claim;
 eligibility cannot cancel work, publish a notice, or advance recovery.
 
+### Hosted Stop admission fence and compatibility
+
+Core-to-Space uses the private `rpcReadWakeStopIntent` observation and
+`rpcAuthorizeNativeWakeAdmission` mutation. Both use shared strict
+`SpaceWakeStopIntentQuery` / `SpaceWakeStopIntentResponse` contracts scoped by
+Space, dispatch, and target Profile. The mutation synchronously records possible
+native exposure in the existing Space outbox before permitting the Worker call;
+Stop and this admission cannot pass each other without a durable fence. It does
+not grant tool authority or claim that execution started or stopped.
+
+The additive nullable SQLite column `native_admission_started_at_ms` is zero only
+for newly staged pending rows, positive after admission authorization, and NULL
+for historical rows with unknown exposure. Space schema v48 adds it to existing
+v47 Spaces as well as new Spaces; an existing v47 migration marker must not skip
+this upgrade. Only a zero row with no submission
+may be terminalized as withdrawn before execution. Positive/NULL rows use the
+existing native execution reconciliation; not-found and transport failures keep
+Stop pending. There is no new execution owner, D1 migration, or cancellation
+table. Stop reuses the existing cancelled outbox, native ledger, watchdog/probe,
+and final Space message claim. A stopped notice is durable and idempotent.
+
+The conveyor payload lifetime is not the Stop-intent lifetime. Normal Hosted
+handoff cleanup may retire the outbox payload after native ownership is durable.
+For that absent-payload case only, the internal read resolves the exact
+Space/dispatch/Profile native ledger identity and rechecks Space after the D1
+await. A known delivery without recorded cancellation returns `not_requested`;
+unknown, mismatched or malformed identities remain `not_found`, and a failed
+read remains retryable. This is not a generic not-found-is-ready fallback.
+Stop for an exact native delivery whose payload was retired recreates a
+cancelled, non-dispatchable control record before contacting the Worker. Normal
+conveyor deletion cannot remove a cancelled record, including when an old
+recovery candidate races the Stop write. The original task is never regenerated
+from that record; the native ledger still supplies exact execution identity.
+
+For every cancelled Hosted Wake, the existing Space alarm is armed before
+intent is written. It scans eight records lacking a final claim per pass; a
+durable dispatch cursor prevents unresolved older records from starving later
+work. The cursor is scheduling metadata, not execution truth. A provably
+unexposed Wake needs only stopped-notice repair. An exposed or legacy-NULL Wake
+instead re-reads exact native evidence and retries cancellation when that
+evidence arrives. No recovery pass resubmits model work. Missing identity remains
+explicitly unconfirmed with diagnostics and another bounded pass; elapsed time
+or a negative lookup is never promoted to proof of termination.
+
+After Space saves the Stop fence, response status acknowledges the durable
+request even if Worker delivery, probe scheduling or notice publication fails.
+Those failures do not return a contradictory request rejection or prevent the
+direct cancellation attempt. The existing Space alarm and native probes retain
+recovery. A pending acknowledgement is not a completed Stop. Terminal settlement
+requires the exact Worker execution identity to be aborted, completed or failed,
+or a terminal callback/atomic unexposed withdrawal, and a persisted final Space
+outcome. A Worker `not_stoppable` because computation finished does not undo a
+Stop that beat publication; that terminal evidence permits suppressing the
+unpublished answer and publishing the stopped outcome. An already-persisted
+answer still wins. `already_cancelled` with nonterminal execution state or a
+mismatched identity is not terminal proof. Keyed stopped claims also close Wake
+progress when the notice is outside the recent-message window.
+
+Cancelling before this particular submit does not prove an earlier ambiguous
+submit never ran. The confirmed Space stopped claim projects the existing native
+`failed` + cancellation-code encoding and dispatch/task `cancelled`/`stopped`
+outcomes without a DLQ entry or a second failure notice. A read-only Stop
+preflight precedes daily admission accounting; the authorization fence remains
+immediately before Worker submission. A Stop already present at preflight spends
+no admission. Concurrent cancellation after daily admission does not undo the
+existing once-admitted accounting rule.
+
+Contract Impact Audit: the new RPC callers and Space receivers are in Core and
+must ship together. Deploy the cancellation-aware Remote Agent before Core, then
+Gateway/Web; older Web request/response shapes remain valid. There are no new
+Worker wire fields, Local Service commands, CLI/Skills setup contracts, or local
+minimum versions. Readiness changes must not reinterpret unknown targets as
+workstation targets. The shared source changes still require normal release
+planning for any packaged local artifacts they affect. Keep the additive SQLite
+column on rollback. Do not restore an older native admission caller that ignores
+the Space fence while cancelled admissions/continuations remain unresolved;
+first settle those exact Wakes using the supported owners or retain the fence in
+the rollback candidate. No release, migration, or live execution is performed
+by the implementation PR.
+
 Wake execution invariants:
 
 - `dispatchId` is the logical Wake identity.
@@ -2100,15 +2193,13 @@ Wake execution invariants:
 - If Stop happens before execution is linked, RuntimeCoordinator must record
   `stopped_before_execution`, publish a `wake_stopped` system notice, and keep
   late dispatch, late local result, and late reply facts diagnostic-only.
-- A Space Wake routed to Remote Agent native delivery must honor that same
-  pre-agent stopped head before worker submission. Core checks before
-  admission, checks again after the worker ACK to close the admission race,
-  requests worker cancellation when the ACK lost that race, and settles a late
-  callback as stopped without publishing it. The admitted submission id is
-  carried across the ACK-persistence race so a worker accepted immediately
-  before the local Stop fence cannot escape cancellation. Terminal projection
-  failure keeps the dispatch Queue message retryable; a stopped ledger replay
-  must finish that projection before it acknowledges the message.
+- A Hosted Space Wake uses the existing Space outbox cancellation fence, not
+  a workstation pre-agent head. Core checks before native admission, checks
+  again after the Worker ACK to close the race, and forwards cancellation using
+  the exact admitted identity even before ACK persistence. Checkpoint rearming
+  cannot erase the logical Wake's Stop. A terminal callback after Stop is
+  settled as stopped without publishing its answer. Terminal projection and
+  stopped-notice failures remain retryable; replay never creates another run.
 - The Space Durable Object is the atomic final-outcome fence for this native
   path. Once its dispatch outbox is cancelled, it rejects a matching Remote
   Agent final reply with `space.final_outcome_stopped`; the callback consumer

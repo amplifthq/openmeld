@@ -72,6 +72,12 @@ node scripts/release/build-cli-binary.mjs
   Service retention is independent of CLI rollback selection.
 - The Windows managed layout uses immutable `versions/<version>/openmeld.exe`
   plus its process helper, and one `bin/cli-installation.json` selection record.
+  When the exact production Windows internal-preview manifest and explicit
+  preview opt-in installed that version, this record also retains the preview
+  channel. Only the selected managed CLI restores that choice for later update
+  checks, upgrades, and Service registration; a temporary bootstrap or unrelated
+  executable does not inherit it. Version metadata caches are scoped to their
+  release source so a stable minimum version cannot gate a preview installation.
   `bin/openmeld.exe` is a thin native console launcher built from the same helper
   artifact; it forwards argv, inherited streams, and exit status to that selected
   CLI. It has no account, connection, or update authority. Windows never creates
@@ -116,12 +122,14 @@ node scripts/release/build-cli-binary.mjs
 ### Windows native carrier acceptance
 
 For the internal Windows x64 trial, `.github/workflows/windows-internal-preview.yml`
-builds CLI, Service, process helper, and the unsigned production-account
-Desktop installer on a native Windows runner. It exercises the delivered
-carriers without user Node/Bun in the fixture PATH and inspects the actual
-installer payload before exporting an exact-source GitHub artifact. It runs on
-explicit dispatch, not every Draft or Ready update. Dispatch it for a Windows
-preview candidate and check the run's source SHA:
+builds CLI, Service, and the process helper on a native Windows runner and
+exercises the delivered carriers without user Node/Bun in the fixture PATH.
+It exports an independently validated CLI artifact before building the unsigned
+production-account Desktop installer. The Desktop stage inspects the actual
+installer payload and exports a separate complete artifact. A Desktop build
+failure does not invalidate the earlier CLI carrier result. The workflow runs
+on explicit dispatch, not every Draft or Ready update. Check the run's source
+SHA:
 
 ```sh
 gh workflow run windows-internal-preview.yml --ref <candidate-branch>
@@ -134,13 +142,18 @@ read-only handoff check from a clean checkout of the artifact's source SHA:
 node scripts/release/publish-windows-internal-preview.mjs check <extracted-artifact-directory>
 ```
 
-The guarded `publish` mode is a separate, authorized release action after
-merging; do not run it merely to mark the feature PR Ready. On release, build
-again from the exact merged main SHA, check the downloaded artifact, then
-publish immutable executables first and the preview CLI manifest and Desktop
-pointer last. The Web deployment must include the preview routes before the
-command or Desktop link is shared. This trial does not change the signed stable
-CLI publisher, supply Authenticode trust, or enable Desktop auto-updates.
+For the `windows-cli-preview-*` artifact, use `check-cli` instead. Its guarded
+`publish-cli` mode publishes only the exact CLI, Service, helper, and Windows
+preview manifest. It does not change the Desktop pointer. The complete
+`windows-internal-preview-*` artifact still uses `check` and `publish`.
+
+The guarded publish modes are separate, authorized release actions after
+merging; do not run them merely to mark the feature PR Ready. On release, build
+again from the exact merged main SHA and check the downloaded artifact. Publish
+immutable executables before their preview manifest or Desktop pointer. The Web
+deployment must include the preview routes before the command or Desktop link
+is shared. This trial does not change the signed stable CLI publisher, supply
+Authenticode trust, or enable Desktop auto-updates.
 
 On a Windows x64 build machine, build the console CLI and GUI-subsystem
 background Service from the same production entry:

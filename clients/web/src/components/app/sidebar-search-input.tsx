@@ -1,4 +1,5 @@
 import { Input } from "@openmeld/ui/components/input";
+import { cn } from "@openmeld/ui/lib/utils";
 import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
 import { useCallback, useRef, useState } from "react";
 import {
@@ -11,6 +12,8 @@ export function SidebarSearchInput(input: {
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
 	label: string;
+	inputClassName?: string;
+	placeholder?: string;
 	destination?: "people" | "agents" | "spaces" | "home" | "directMessages";
 	value: string;
 	onValueChange: (value: string) => void;
@@ -64,7 +67,10 @@ export function SidebarSearchInput(input: {
 					<Input
 						aria-label={input.label}
 						autoComplete="off"
-						className="pr-8 pl-7 [&::-webkit-search-cancel-button]:appearance-none"
+						className={cn(
+							"pr-8 pl-7 [&::-webkit-search-cancel-button]:appearance-none",
+							input.inputClassName
+						)}
 						onChange={(event) => input.onValueChange(event.target.value)}
 						onKeyDown={(event) => {
 							if (event.key === "Escape" && input.destination) {
@@ -72,7 +78,7 @@ export function SidebarSearchInput(input: {
 								close();
 							}
 						}}
-						placeholder={input.label}
+						placeholder={input.placeholder ?? input.label}
 						ref={focusInput}
 						spellCheck={false}
 						type="search"

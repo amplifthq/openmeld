@@ -9,14 +9,19 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WINDOWS_PROCESS_HELPER_FILENAME } from "@openmeld/schemas";
+import {
+  WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
+  WINDOWS_PROCESS_HELPER_FILENAME,
+} from "@openmeld/schemas";
 import { expect, it } from "vitest";
 import {
   activateWindowsManagedCli,
   placeWindowsManagedVersion,
+  readWindowsManagedCliInstallation,
   readWindowsManagedCliVersion,
   reconcileWindowsManagedLauncher,
 } from "../src/local-components/windows-managed-install";
+import { restoreWindowsPreviewChannel } from "../src/local-components/windows-preview-channel";
 
 // Real filesystem transactions run on Mac as well. Executable locking, argv,
 // and actual install-self belong to the Windows artifact gate, not this test.
@@ -32,8 +37,46 @@ it("keeps the active installation and complete old bundle through failed acquisi
       "native helper one"
     );
     await placeWindowsManagedVersion({ root, sourceBinary, version: "1.0.0" });
-    await activateWindowsManagedCli(root, "1.0.0");
+    await activateWindowsManagedCli(root, "1.0.0", "windows-preview");
     await expect(readWindowsManagedCliVersion(root)).resolves.toBe("1.0.0");
+    await expect(readWindowsManagedCliInstallation(root)).resolves.toEqual({
+      schemaVersion: 1,
+      version: "1.0.0",
+      releaseChannel: "windows-preview",
+    });
+    const selectedEnv: NodeJS.ProcessEnv = {};
+    await restoreWindowsPreviewChannel({
+      platform: "win32",
+      binaryDistribution: true,
+      root,
+      execPath: join(root, "versions/1.0.0/openmeld.exe"),
+      env: selectedEnv,
+    });
+    expect(selectedEnv).toMatchObject({
+      OPENMELD_ENV_PRESET: "prod",
+      OPENMELD_CLI_BINARY_MANIFEST_URL: WINDOWS_INTERNAL_PREVIEW_MANIFEST_URL,
+      OPENMELD_WINDOWS_INTERNAL_PREVIEW: "1",
+    });
+    const rejectedSelections: { execPath: string; env: NodeJS.ProcessEnv }[] = [
+      { execPath: sourceBinary, env: {} },
+      {
+        execPath: join(root, "versions/1.0.0/openmeld.exe"),
+        env: {
+          OPENMELD_CLI_BINARY_MANIFEST_URL:
+            "https://openmeld.ai/cli/manifest.json",
+        },
+      },
+    ];
+    for (const rejected of rejectedSelections) {
+      await restoreWindowsPreviewChannel({
+        platform: "win32",
+        binaryDistribution: true,
+        root,
+        execPath: rejected.execPath,
+        env: rejected.env,
+      });
+      expect(rejected.env.OPENMELD_WINDOWS_INTERNAL_PREVIEW).toBeUndefined();
+    }
 
     await writeFile(sourceBinary, "cli version two");
     await rm(join(download, WINDOWS_PROCESS_HELPER_FILENAME));
@@ -63,8 +106,14 @@ it("keeps the active installation and complete old bundle through failed acquisi
       "native helper two"
     );
     await placeWindowsManagedVersion({ root, sourceBinary, version: "1.0.1" });
-    await activateWindowsManagedCli(root, "1.0.1");
+    await activateWindowsManagedCli(root, "1.0.1", "windows-preview");
     await expect(readWindowsManagedCliVersion(root)).resolves.toBe("1.0.1");
+    await expect(
+      readWindowsManagedCliInstallation(root)
+    ).resolves.toMatchObject({
+      version: "1.0.1",
+      releaseChannel: "windows-preview",
+    });
     await expect(readFile(launcher, "utf8")).resolves.toBe("native helper two");
   } finally {
     await rm(root, { recursive: true, force: true });

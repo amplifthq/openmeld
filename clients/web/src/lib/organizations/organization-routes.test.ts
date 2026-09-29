@@ -21,10 +21,14 @@ import {
 	buildOrganizationDirectoryLegacyMembersPath,
 	buildOrganizationDirectoryPeoplePath,
 	buildOrganizationDirectoryRootPath,
+	buildOrganizationDocumentPath,
+	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
 	buildOrganizationInboxItemPath,
 	buildOrganizationInboxPath,
 	buildOrganizationLegacyCenterAgentSettingsPath,
 	buildOrganizationMemoryPath,
+	buildOrganizationNewDocumentPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationOrganizationsPath,
 	buildOrganizationOrgSettingsPath,
@@ -181,6 +185,31 @@ describe("primary organization routes", () => {
 		expect(
 			buildOrganizationSkillPath({ orgSlug: "team one", skillId: "skill %/#?" })
 		).toBe("/o/team%20one/skills/skill%20%25%2F%23%3F");
+	});
+
+	it("keeps Files in the Team when switching Organizations", () => {
+		expect(buildOrganizationFilesPath("acme")).toBe("/o/acme/files");
+		expect(
+			resolveOrganizationSwitchPath({
+				currentPathname: "/o/acme/files",
+				nextOrgSlug: "next-team",
+			})
+		).toBe("/o/next-team/files");
+	});
+
+	it("opens managed knowledge directly inside Files", () => {
+		expect(buildOrganizationDocumentsPath("acme")).toBe(
+			"/o/acme/files?view=knowledge"
+		);
+		expect(
+			buildOrganizationDocumentPath({
+				documentId: "brief/one",
+				orgSlug: "acme",
+			})
+		).toBe("/o/acme/files?view=knowledge&document=brief%2Fone");
+		expect(
+			buildOrganizationNewDocumentPath({ kind: "brief", orgSlug: "acme" })
+		).toBe("/o/acme/files?view=knowledge&create=1&kind=brief");
 	});
 
 	it("uses immutable Project ids for the Projects route family", () => {

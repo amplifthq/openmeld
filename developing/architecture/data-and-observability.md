@@ -744,10 +744,10 @@ requests. It does not reinterpret an existing operation as
 provider-attributed.
 
 OpenConnector receives that operation ID as its idempotency key and owns the
-provider execution ID plus durable result replay. Every successful provider
-response carries the exact output schema that describes its data, and
-OpenConnector persists and replays both together. Core stores only the provider
-execution ID and `pending`, `completed`, `failed`, or `outcome_unknown` status;
+provider execution ID plus durable result replay. The action catalog carries
+the output schema; a successful execution response carries data and execution
+metadata without a schema. Core stores only the provider execution ID and
+`pending`, `completed`, `failed`, or `outcome_unknown` status;
 it does not copy provider output, its output schema, credentials, or action
 input. A later provider replay may reconcile `outcome_unknown` to `completed`
 or `failed`. Audit history may therefore show the earlier uncertainty and later
@@ -1263,6 +1263,17 @@ hierarchy, current placement, revision sequence, Trash state, and actor
 attribution. Its SQLite tables are canonical business state, not a D1
 projection. No Resources, Organization Documents, Center Agent Computer, or
 Space Index table mirrors this tree.
+
+Team and member-private Files use one independent `OrganizationFileRoot`
+Durable Object per Organization Team root or Organization member root. Its
+SQLite database owns that root's file metadata and reuses the Space File
+repository behavior where the file contract matches; its identity row fixes
+the exact root before any mutation. Space roots remain in their existing Space
+Durable Objects. Core checks current Organization membership, active Profile
+ownership, and member-private ownership before each Team/member root operation.
+The initial Team/member endpoint covers metadata and folders only; immutable
+content transport and Agent audience authorization require separate completion
+before this is a user-facing Files location.
 
 The same Space owns `space_file_update_settings` and
 `space_file_update_outbox`. The file revision transaction enqueues notification
@@ -1938,6 +1949,14 @@ continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
 
+An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
+`center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
+attribution before a direct Space publication; delegated publication writes
+the same deterministic row during accepted settlement. Space compares that
+row's Organization, actor, Space, and represented member to the persisted
+source Signal when authorizing Stop. Older direct Wakes without an exact row
+do not gain this special Stop authority.
+
 `center_agent_wake_publications` is the durable publication outbox for the
 initial Space message that starts delegated child work. It stores the exact
 validated publication command before delegation preparation and uses the Space
@@ -2198,6 +2217,12 @@ Only a native delivery whose `conversationKind` is `space` may populate
 external conversation identity in their owning locator and leave
 `sourceSpaceId` null; an external conversation ID must never be reinterpreted as
 an OpenMeld Space ID.
+
+For a verified member's task continuation, a connector-operation audit row may
+also retain the matched source Native Delivery id alongside `onBehalfOf`. The
+requester-attribution key remains the represented user, so replay identity does
+not change. A final audit phase reuses the source id from the attempted phase;
+the current caller cannot replace it during recovery.
 
 For a native delivery created from a Space Wake, the native-delivery ledger
 remains the authoritative hosted execution record while the Dispatch Ledger is
@@ -3574,6 +3599,9 @@ and caps log volume. Raw exception text, full stacks, actual page URLs, user
 content, credentials, and local paths must not enter this report. Error categories,
 code-template route IDs, build asset positions, build IDs, source SHAs, and
 Cloudflare request correlation support diagnosis without product payloads.
+React update-depth reports may also include a bounded, recent sequence of fixed
+client code-path labels and relative ages. The labels carry no user content or
+identity and cannot become execution or product-state authority.
 This does not create another product audit or execution ledger. Coverage,
 retention, source-map handling, and manual queries are documented in
 `docs/web-application-errors.md`.

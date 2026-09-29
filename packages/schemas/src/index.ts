@@ -228,6 +228,11 @@ export {
 export { normalizeOrganizationList } from "./organization-list";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
+  appendPluginConnectionReplyLink,
+  readPluginConnectionReplyLink,
+} from "./plugin-connection-reply";
+export {
+  buildHostedAgentRequestFailedPublicCopy,
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
@@ -282,6 +287,37 @@ export {
   saveAccountSidebarBodySchema,
   sidebarSortSchema,
 } from "./schemas/account-sidebar";
+export {
+  type PluginChannelContinueResponse,
+  type PluginChannelDeliveryMetadata,
+  type PluginChannelRequestPreview,
+  type PluginChannelSelection,
+  type PluginChannelSourceProof,
+  pluginChannelContinueBodySchema,
+  pluginChannelContinueResponseSchema,
+  pluginChannelContinueRpcInputSchema,
+  pluginChannelDeliveryMetadataSchema,
+  pluginChannelRequestBodySchema,
+  pluginChannelRequestPreviewSchema,
+  pluginChannelRequestRpcInputSchema,
+  pluginChannelSelectionSchema,
+  pluginChannelSourceProofSchema,
+} from "./schemas/http/plugin-channel-continuation";
+export {
+  type PluginConnectionContinuationBinding,
+  type PluginConnectionContinuationBody,
+  type PluginConnectionContinuationResponse,
+  type PluginConnectionLocalSourceRequest,
+  pluginConnectionContinuationBindingSchema,
+  pluginConnectionContinuationBodySchema,
+  pluginConnectionContinuationResponseSchema,
+  pluginConnectionContinuationRpcInputSchema,
+  pluginConnectionLocalSourceRequestSchema,
+  pluginConnectionLocalSourceResponseSchema,
+  type ReadPluginConnectionContinuationBindingRequest,
+  readPluginConnectionContinuationBindingRequestSchema,
+  readPluginConnectionContinuationBindingResponseSchema,
+} from "./schemas/http/plugin-connection-continuation";
 export type {
   GetSpaceLinkPreviewsResponse,
   LinkPreview,
@@ -313,6 +349,51 @@ export {
 } from "./schemas/http/space-message-search";
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
+export {
+  type RemoteAgentExecutionAccessRequest,
+  type RemoteAgentExecutionAccessResponse,
+  type RemoteAgentExecutionScope,
+  remoteAgentExecutionAccessRequestSchema,
+  remoteAgentExecutionAccessResponseSchema,
+  remoteAgentExecutionScopeKey,
+  remoteAgentExecutionScopeSchema,
+  resolveRemoteAgentExecutionScope,
+} from "./schemas/runtime/remote-agent-execution-access";
+export {
+  REMOTE_AGENT_GIT_BATCH_SIZE,
+  REMOTE_AGENT_GIT_MAX_BLOB_BYTES,
+  REMOTE_AGENT_GIT_MAX_FILES,
+  REMOTE_AGENT_GIT_MAX_TOTAL_BYTES,
+  REMOTE_AGENT_GIT_MAX_TREE_BYTES,
+  REMOTE_AGENT_GIT_TTL_MS,
+  type RemoteAgentGitCheckoutInput,
+  type RemoteAgentGitNativeResult,
+  type RemoteAgentGitPublishInput,
+  type RemoteAgentGitTreeEntry,
+  remoteAgentGitBlobSchema,
+  remoteAgentGitCheckoutInputSchema,
+  remoteAgentGitCommitSchema,
+  remoteAgentGitKeySchema,
+  remoteAgentGitNativeRequestSchema,
+  remoteAgentGitNativeResultSchema,
+  remoteAgentGitPublishInputSchema,
+  remoteAgentGitRefSchema,
+  remoteAgentGitRepositorySchema,
+  remoteAgentGitShaSchema,
+  remoteAgentGitTreeEntrySchema,
+  remoteAgentGitTreeSchema,
+} from "./schemas/runtime/remote-agent-git";
+export {
+  REMOTE_AGENT_RETAINED_RESULT_MAX_BYTES,
+  REMOTE_AGENT_RETAINED_RESULT_MAX_PER_EXECUTION,
+  REMOTE_AGENT_RETAINED_RESULT_READ_MAX_CHARS,
+  REMOTE_AGENT_RETAINED_RESULT_TTL_MS,
+  type RemoteAgentResultSource,
+  remoteAgentReadToolResultRequestSchema,
+  remoteAgentReadToolResultResponseSchema,
+  remoteAgentResultSourceSchema,
+  remoteAgentResultSourcesSchema,
+} from "./schemas/runtime/remote-agent-retained-result";
 export {
   SERVICE_ACCOUNT_STOP_REFUSED_CODE,
   type ServiceAccountAdmission,
@@ -399,16 +480,22 @@ export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,
   WEB_APPLICATION_ERROR_PATH,
+  WEB_APPLICATION_REACT_UPDATE_TRACE_MAX_EVENTS,
+  type WebApplicationErrorBoundary,
   type WebApplicationErrorQueryCategory,
   type WebApplicationErrorQueryDiagnostic,
   type WebApplicationErrorReport,
   type WebApplicationErrorSource,
+  type WebApplicationReactUpdateEvent,
+  webApplicationErrorBoundarySchema,
   webApplicationErrorQueryCategorySchema,
   webApplicationErrorQueryCodeSchema,
   webApplicationErrorQueryDiagnosticSchema,
   webApplicationErrorReportSchema,
+  webApplicationErrorRouteIdSchema,
   webApplicationErrorSourceSchema,
   webApplicationErrorSummarySchema,
+  webApplicationReactUpdateEventSchema,
 } from "./web-application-error";
 export {
   WEB_PERFORMANCE_PATH,

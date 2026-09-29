@@ -1,0 +1,943 @@
+import {
+  detectSpaceAttachmentMimeType,
+  REMOTE_AGENT_GIT_MAX_TOTAL_BYTES,
+  REMOTE_AGENT_GIT_MAX_TREE_BYTES,
+  REMOTE_AGENT_GIT_TTL_MS,
+  type RemoteAgentGitCheckoutInput,
+  type RemoteAgentGitPublishInput,
+  type RemoteAgentGitTreeEntry,
+  remoteAgentExecutionScopeKey,
+  remoteAgentGitCheckoutInputSchema,
+  remoteAgentGitPublishInputSchema,
+} from "@openmeld/schemas";
+import { digestCanonicalJson } from "@openmeld/utils";
+import { picklist, strictObject, string } from "valibot";
+import type {
+  RemoteAgentCallbackContext,
+  RemoteAgentCoreWorkerBinding,
+  RemoteAgentStorage,
+} from "../agent-core/callback-context";
+import {
+  readConnectorActionOperation,
+  recordConnectorActionOperation,
+} from "../agent-core/connector-tools";
+import { resolveRemoteAgentRoutineExternalWriteBlock } from "../agent-core/destructive-authorization";
+import { requireRemoteAgentExecutionAccess } from "../agent-core/execution-access";
+import { resolveGitHubActionContext } from "../agent-core/github-tools";
+import { buildRemoteAgentToolContext } from "../agent-core/tool-context";
+import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import {
+  GitHubWorkingCopyProvider,
+  gitBlobSha,
+} from "../connectors/github-working-copy-provider";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
+import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
+import {
+  type ComputerDataSourceAccess,
+  recordComputerDataSource,
+} from "./computer-data-sources";
+import { createAgentComputerFileHandoff } from "./computer-file-handoff";
+import {
+  GitWorkingCopyComputer,
+  type GitWorkingCopyComputerApi,
+  type GitWorkingCopyLocation,
+} from "./github-working-copy-computer";
+
+export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
+const GITHUB_REPOSITORY_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]{1,100}$/u;
+const GITHUB_OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
+type Dependencies = {
+  context: RemoteAgentCallbackContext;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  storage: RemoteAgentStorage;
+  connectorExecution: ConnectorExecutionConfig;
+  computer: GitWorkingCopyComputerApi;
+  dataSources: ComputerDataSourceAccess;
+  workingDirectory: string;
+  workspaceAccess: AgentComputerWorkspaceAccess;
+};
+type Checkout = GitWorkingCopyLocation & {
+  intent: RemoteAgentGitCheckoutInput;
+  signature: string;
+  scopeKey: string;
+  connectionName: string;
+  connectionUpdatedAtMs: number;
+  repositoryId: number;
+  branch: string;
+  expiresAtMs: number;
+};
+type Publication = { signature: string; commit: string; refAttempted: boolean };
+type FilePublication = Publication & {
+  branch: string;
+  path: string;
+  owner: string;
+  repo: string;
+  githubActor: "requester" | "organization";
+};
+
+export function getGitHubWorkingCopyTools(
+  input: Dependencies
+): RemoteAgentToolDefinition[] {
+  return [
+    {
+      name: "github_checkout_repository",
+      description:
+        "Prepare a private GitHub repository snapshot in this isolated Computer using the explicitly selected Plugin account. Use one stable key and the same owner/repo/ref/githubActor for retries. A preparing result means the next bounded batch is needed: call again with the unchanged input. Ready supplies the exact source commit/tree, directory, fixed task branch and an independently authenticated default-branch baseline at origin/<default-branch>. Local commits have a synthetic comparison graph, not downloaded upstream history. LFS payloads and submodule repositories are not downloaded. Use the existing computer_command tools for editing, git commits and tests. Provider credentials never enter the Computer. No remote branch is created by checkout.",
+      input: strictObject({
+        key: string(),
+        owner: string(),
+        repo: string(),
+        ref: string(),
+        githubActor: picklist(["requester", "organization"]),
+      }),
+      execute: async (raw, options) =>
+        await checkoutRepository(
+          input,
+          remoteAgentGitCheckoutInputSchema.parse(raw),
+          options?.signal
+        ),
+    },
+    {
+      name: "github_publish_checkout",
+      description:
+        "Publish one exact local Git commit from a ready github_checkout_repository working copy to its fixed task branch. Supply the source commit as expectedRemoteHead on first publication, or the previously returned remote commit for a subsequent publication. Reuse operationId and identical inputs for retries. Completed writes are reconciled, never blindly repeated; an unknown branch-update outcome must be inspected. This does not merge, force-push, change repositories/accounts, or claim tests passed. Run tests on the exact local commit/tree first and report their evidence separately. Use the existing github_create_pull_request with draft=true and the returned branch to open a Draft PR.",
+      input: strictObject({
+        key: string(),
+        localCommit: string(),
+        expectedRemoteHead: string(),
+        operationId: string(),
+        message: string(),
+      }),
+      execute: async (raw, options) =>
+        await publishCheckout(
+          input,
+          remoteAgentGitPublishInputSchema.parse(raw),
+          options?.signal
+        ),
+    },
+    {
+      name: "github_publish_computer_file",
+      description:
+        "Publish one PNG or JPEG file already downloaded into this Computer to a private GitHub repository. Supply its Computer path, owner/repo, the explicit GitHub identity and a stable operationId. This makes one file commit on an OpenMeld side branch, never main; no repository checkout or model-visible file bytes are needed. Reuse identical inputs and operationId on retries. Returns a commit-pinned GitHub blob?raw=true URL that viewers with repository access can embed in an issue or PR. Keep the side branch so GitHub retains the commit; the link is not public to people without repository access. This does not open a PR or attest tests.",
+      input: strictObject({
+        path: string(),
+        owner: string(),
+        repo: string(),
+        githubActor: picklist(["requester", "organization"]),
+        operationId: string(),
+      }),
+      execute: async (raw, options) =>
+        await publishComputerFile(
+          input,
+          raw as PublishComputerFileInput,
+          options?.signal
+        ),
+    },
+  ];
+}
+
+type PublishComputerFileInput = {
+  path: string;
+  owner: string;
+  repo: string;
+  githubActor: "requester" | "organization";
+  operationId: string;
+};
+
+export async function publishComputerFile(
+  input: Dependencies,
+  request: PublishComputerFileInput,
+  signal?: AbortSignal
+) {
+  const scope = await requireRemoteAgentExecutionAccess(input);
+  const scopeKey = remoteAgentExecutionScopeKey(scope);
+  const toolContext = await buildRemoteAgentToolContext({
+    storage: input.storage,
+    submissionId: input.context.submissionId,
+    toolName: "github_publish_computer_file",
+  });
+  const selected = await resolveGitHubActionContext({
+    ...input,
+    submissionId: input.context.submissionId,
+    toolContext,
+    githubActor: request.githubActor,
+    includeAccessPolicy: true,
+  });
+  const connection = selected.selection.connection;
+  const authorize = async (effect: "read" | "write") =>
+    await requireRemoteAgentExecutionAccess({
+      ...input,
+      effect,
+      sources: [
+        {
+          kind: "plugin_connection",
+          connectionName: connection.connectionName,
+          connectionUpdatedAtMs: connection.updatedAtMs,
+          service: "github",
+        },
+      ],
+    });
+  await authorize("write");
+  const block = resolveRemoteAgentRoutineExternalWriteBlock(toolContext);
+  if (block) {
+    return block;
+  }
+  if (toolContext.turnEnvelope?.trigger.source === "member_research") {
+    throw new Error("github.publish.read_only_context");
+  }
+  if (!validComputerFilePublishRequest(request)) {
+    throw new Error("github.publish.invalid_repository_or_operation");
+  }
+  const file = await input.workspaceAccess.withWorkspace(
+    async (workspace) =>
+      await createAgentComputerFileHandoff({
+        workingDirectory: input.workingDirectory,
+        workspace,
+        maxBinaryFileBytes: 8 * 1024 * 1024,
+      }).readBinaryFile(request.path)
+  );
+  const mime = detectSpaceAttachmentMimeType(file.bytes);
+  if (!mime) {
+    throw new Error(
+      "github.publish.image_required: Select a PNG or JPEG file."
+    );
+  }
+  const blob = await gitBlobSha(file.bytes);
+  const signature = await digestCanonicalJson({
+    request,
+    scopeKey,
+    connectionName: connection.connectionName,
+    connectionUpdatedAtMs: connection.updatedAtMs,
+    blob,
+  });
+  const id = await digestCanonicalJson([
+    scopeKey,
+    request.owner,
+    request.repo,
+    request.operationId,
+  ]);
+  const branch = `openmeld/work-${id.slice(0, 32)}`;
+  const path = `openmeld/attachments/${blob}.${mime === "image/png" ? "png" : "jpg"}`;
+  const stateKey = `${REMOTE_AGENT_GIT_STORAGE_PREFIX}file:${id}`;
+  const remote = new GitHubWorkingCopyProvider({
+    runtime: input.connectorExecution,
+    owner: request.owner,
+    repo: request.repo,
+    connectionName: connection.connectionName,
+    authorize,
+    signal,
+  });
+  const operation = {
+    actionId: "github.publish_computer_file",
+    effect: "write" as const,
+    service: "github" as const,
+    connectionName: connection.connectionName,
+    coreWorker: input.coreWorker,
+    operationId: request.operationId,
+    requestSignature: signature,
+    toolContext,
+  };
+  let publication = await input.storage.get<FilePublication>(stateKey);
+  if (publication && publication.signature !== signature) {
+    throw new Error("github.publish.operation_conflict");
+  }
+  const existing = await readConnectorActionOperation(operation);
+  const current = await remote.branch(branch);
+  if (publication?.refAttempted) {
+    if (current === publication.commit) {
+      if (existing?.status !== "completed") {
+        await recordConnectorActionOperation({
+          ...operation,
+          outcome: "completed",
+          providerExecutionId: publication.commit,
+        });
+      }
+      return computerFileReceipt(publication, request.operationId, true);
+    }
+    return {
+      status: "outcome_unknown",
+      operationId: request.operationId,
+      branch,
+      candidateCommit: publication.commit,
+      currentHead: current,
+      nextAction: "Inspect the branch; do not create another write.",
+    };
+  }
+  if (current !== null) {
+    throw new Error(
+      "github.publish.branch_exists: This operation branch is already occupied."
+    );
+  }
+  if (!publication) {
+    const commit = await createComputerFileCommit({
+      remote,
+      operation,
+      bytes: file.bytes,
+      blob,
+      path,
+    });
+    await input.storage.putIfAbsentExpiring(
+      stateKey,
+      {
+        signature,
+        commit: commit.sha,
+        refAttempted: false,
+        branch,
+        path,
+        owner: request.owner,
+        repo: request.repo,
+        githubActor: request.githubActor,
+      } satisfies FilePublication,
+      Date.now() + REMOTE_AGENT_GIT_TTL_MS
+    );
+    publication = await input.storage.get<FilePublication>(stateKey);
+  }
+  if (!publication || publication.signature !== signature) {
+    throw new Error("github.publish.operation_conflict");
+  }
+  const attempted = { ...publication, refAttempted: true };
+  if (
+    !(await input.storage.compareAndSetExpiring(
+      stateKey,
+      publication,
+      attempted,
+      Date.now() + REMOTE_AGENT_GIT_TTL_MS
+    ))
+  ) {
+    return {
+      status: "pending",
+      operationId: request.operationId,
+      nextAction: "Retry this exact operation to reconcile the branch update.",
+    };
+  }
+  signal?.throwIfAborted();
+  await authorize("write");
+  try {
+    await remote.publish(branch, publication.commit, false);
+    await recordConnectorActionOperation({
+      ...operation,
+      outcome: "completed",
+      providerExecutionId: publication.commit,
+    });
+  } catch (error) {
+    await recordConnectorActionOperation({
+      ...operation,
+      outcome: "outcome_unknown",
+      providerExecutionId: publication.commit,
+    });
+    throw new Error(
+      "github.publish.outcome_unknown: Retry this exact operation to reconcile the branch update.",
+      { cause: error }
+    );
+  }
+  return computerFileReceipt(publication, request.operationId, false);
+}
+
+function validComputerFilePublishRequest(request: PublishComputerFileInput) {
+  return (
+    GITHUB_REPOSITORY_SEGMENT_PATTERN.test(request.owner) &&
+    GITHUB_REPOSITORY_SEGMENT_PATTERN.test(request.repo) &&
+    GITHUB_OPERATION_ID_PATTERN.test(request.operationId)
+  );
+}
+
+async function createComputerFileCommit(input: {
+  remote: GitHubWorkingCopyProvider;
+  operation: Omit<
+    Parameters<typeof recordConnectorActionOperation>[0],
+    "outcome" | "providerExecutionId"
+  >;
+  bytes: Uint8Array;
+  blob: string;
+  path: string;
+}) {
+  const repository = await input.remote.repository();
+  const parent = await input.remote.branch(repository.default_branch);
+  if (!parent) {
+    throw new Error("github.publish.default_branch_unavailable");
+  }
+  const base = await input.remote.commit(parent);
+  await recordConnectorActionOperation({
+    ...input.operation,
+    outcome: "attempted",
+    providerExecutionId: null,
+  });
+  await input.remote.createBlob(input.bytes, input.blob);
+  const tree = await input.remote.createSingleFileTree(
+    base.tree.sha,
+    input.path,
+    input.blob
+  );
+  const commit = await input.remote.createCommit({
+    tree,
+    parent,
+    message: `Add Space image ${input.blob.slice(0, 12)}`,
+  });
+  if (commit.tree.sha !== tree) {
+    throw new Error("github.publish.commit_tree_mismatch");
+  }
+  return commit;
+}
+
+function computerFileReceipt(
+  publication: FilePublication,
+  operationId: string,
+  replayed: boolean
+) {
+  const { owner, repo, branch, path, commit, githubActor } = publication;
+  return {
+    status: "completed",
+    operationId,
+    repository: `${owner}/${repo}`,
+    branch,
+    commit,
+    path,
+    githubActor,
+    replayed,
+    url: `https://github.com/${owner}/${repo}/blob/${commit}/${path}?raw=true`,
+    visibility: "repository_members_only",
+    retention:
+      "Keep this side branch while the image is referenced so the commit remains reachable.",
+  };
+}
+
+async function locate(input: Dependencies, key: string) {
+  const scope = await requireRemoteAgentExecutionAccess(input);
+  const scopeKey = remoteAgentExecutionScopeKey(scope);
+  const id = await digestCanonicalJson([2, scopeKey, key]);
+  const storageKey = `${REMOTE_AGENT_GIT_STORAGE_PREFIX}${id}`;
+  const stored = await input.storage.get<Checkout>(storageKey);
+  if (
+    stored &&
+    (stored.scopeKey !== scopeKey || stored.expiresAtMs <= Date.now())
+  ) {
+    throw new Error(
+      "github.checkout.expired_or_wrong_audience: Start a new working-copy key; existing files will not be overwritten."
+    );
+  }
+  return { stored, id, storageKey, scopeKey };
+}
+
+async function authorizeCheckout(
+  input: Dependencies,
+  record: Checkout,
+  effect: "read" | "write"
+) {
+  return await requireRemoteAgentExecutionAccess({
+    ...input,
+    effect,
+    sources: [
+      {
+        kind: "plugin_connection",
+        connectionName: record.connectionName,
+        connectionUpdatedAtMs: record.connectionUpdatedAtMs,
+        service: "github",
+      },
+    ],
+  });
+}
+
+function provider(input: Dependencies, record: Checkout, signal?: AbortSignal) {
+  return new GitHubWorkingCopyProvider({
+    runtime: input.connectorExecution,
+    owner: record.intent.owner,
+    repo: record.intent.repo,
+    connectionName: record.connectionName,
+    authorize: (effect) => authorizeCheckout(input, record, effect),
+    signal,
+  });
+}
+
+async function createCheckout(
+  input: Dependencies,
+  intent: RemoteAgentGitCheckoutInput,
+  identity: Awaited<ReturnType<typeof locate>>,
+  signal?: AbortSignal
+) {
+  const toolContext = await buildRemoteAgentToolContext({
+    storage: input.storage,
+    submissionId: input.context.submissionId,
+    toolName: "github_checkout_repository",
+  });
+  const selected = await resolveGitHubActionContext({
+    ...input,
+    submissionId: input.context.submissionId,
+    toolContext,
+    githubActor: intent.githubActor,
+    includeAccessPolicy: true,
+  });
+  const connection = selected.selection.connection;
+  const expiresAtMs = Date.now() + REMOTE_AGENT_GIT_TTL_MS;
+  const preliminary = {
+    intent,
+    scopeKey: identity.scopeKey,
+    signature: await digestCanonicalJson(intent),
+    connectionName: connection.connectionName,
+    connectionUpdatedAtMs: connection.updatedAtMs,
+    directory: `${input.workingDirectory}/repositories/${identity.id}`,
+    transportDirectory: `${input.workingDirectory}/.openmeld-git-transfer/${identity.id}`,
+    branch: `openmeld/work-${identity.id.slice(0, 32)}`,
+    expiresAtMs,
+    sourceCommit: "",
+    sourceTree: "",
+    manifestDigest: "",
+    baselineBranch: "",
+    baselineCommit: "",
+    baselineTree: "",
+    baselineManifestDigest: "",
+    repositoryId: 0,
+  };
+  const remote = provider(input, preliminary, signal);
+  const repository = await remote.repository();
+  const commit = await remote.commit(intent.ref);
+  // Resolve the default branch independently of model-selected ref/HEAD.
+  // It is not safe to make a candidate its own trusted verification baseline.
+  const baselineRef = await remote.branch(repository.default_branch);
+  if (!baselineRef) {
+    throw new Error(
+      "github.checkout.baseline_unavailable: The exact repository default branch is unavailable."
+    );
+  }
+  const baseline = await remote.commit(baselineRef);
+  if (baseline.sha !== baselineRef) {
+    throw new Error("github.checkout.baseline_changed");
+  }
+  const entries = await remote.tree(commit.tree.sha);
+  const baselineEntries =
+    baseline.tree.sha === commit.tree.sha
+      ? entries
+      : await remote.tree(baseline.tree.sha);
+  validateCheckoutBudget(entries, baselineEntries);
+  const record: Checkout = {
+    ...preliminary,
+    repositoryId: repository.id,
+    sourceCommit: commit.sha,
+    sourceTree: commit.tree.sha,
+    manifestDigest: await textDigest(JSON.stringify(entries)),
+    baselineBranch: repository.default_branch,
+    baselineCommit: baseline.sha,
+    baselineTree: baseline.tree.sha,
+    baselineManifestDigest: await textDigest(JSON.stringify(baselineEntries)),
+  };
+  await input.storage.putIfAbsentExpiring(
+    identity.storageKey,
+    record,
+    expiresAtMs
+  );
+  const frozen = await input.storage.get<Checkout>(identity.storageKey);
+  if (!frozen) {
+    throw new Error("github.checkout.state_unavailable");
+  }
+  return frozen;
+}
+
+export async function checkoutRepository(
+  input: Dependencies,
+  intent: RemoteAgentGitCheckoutInput,
+  signal?: AbortSignal
+) {
+  const identity = await locate(input, intent.key);
+  const record =
+    identity.stored ?? (await createCheckout(input, intent, identity, signal));
+  if (record.signature !== (await digestCanonicalJson(intent))) {
+    throw new Error(
+      "github.checkout.key_conflict: This key belongs to a different checkout request."
+    );
+  }
+  const remote = provider(input, record, signal);
+  const entries = await remote.tree(record.sourceTree);
+  const baselineEntries =
+    record.baselineTree === record.sourceTree
+      ? entries
+      : await remote.tree(record.baselineTree);
+  validateCheckoutBudget(entries, baselineEntries);
+  if (
+    (await textDigest(JSON.stringify(baselineEntries))) !==
+    record.baselineManifestDigest
+  ) {
+    throw new Error("github.checkout.baseline_changed");
+  }
+  if ((await textDigest(JSON.stringify(entries))) !== record.manifestDigest) {
+    throw new Error("github.checkout.manifest_changed");
+  }
+  const computer = new GitWorkingCopyComputer(input.computer, signal);
+  await recordComputerDataSource({
+    ...input,
+    source: {
+      kind: "plugin_connection",
+      service: "github",
+      connectionName: record.connectionName,
+      connectionUpdatedAtMs: record.connectionUpdatedAtMs,
+    },
+  });
+  await computer.writeManifest(record, entries, baselineEntries);
+  let progress = await computer.prepare(record);
+  const allowed = new Set(
+    [...entries, ...baselineEntries]
+      .filter((entry) => entry.type === "blob")
+      .map((entry) => entry.sha)
+  );
+  for (const sha of progress.missing ?? []) {
+    if (!allowed.has(sha)) {
+      throw new Error("github.checkout.unexpected_blob_request");
+    }
+    await computer.writeBlob(record, sha, await remote.blob(sha));
+  }
+  if (!progress.ready) {
+    progress = await computer.prepare(record);
+  }
+  await authorizeCheckout(input, record, "read");
+  return {
+    status: progress.ready ? "ready" : "preparing",
+    key: intent.key,
+    sourceCommit: record.sourceCommit,
+    sourceTree: record.sourceTree,
+    branch: record.branch,
+    remainingBlobs: progress.remaining,
+    ...(progress.ready
+      ? { directory: record.directory, localCommit: progress.localCommit }
+      : {}),
+    history: "snapshot_with_verified_baseline",
+    baseline: {
+      branch: record.baselineBranch,
+      sourceCommit: record.baselineCommit,
+      tree: record.baselineTree,
+      ref: `refs/remotes/origin/${record.baselineBranch}`,
+      localCommit: progress.baselineLocalCommit,
+      history: "synthetic_comparison_only",
+    },
+    credentialsInComputer: false,
+    nextAction: progress.ready
+      ? "Edit, commit, and test in this directory with the existing Computer tools."
+      : "Call github_checkout_repository again with identical input to transfer the next bounded batch.",
+  };
+}
+
+export async function publishCheckout(
+  input: Dependencies,
+  request: RemoteAgentGitPublishInput,
+  signal?: AbortSignal
+) {
+  const identity = await locate(input, request.key);
+  const record = identity.stored;
+  if (!record) {
+    throw new Error("github.publish.checkout_required");
+  }
+  await authorizeCheckout(input, record, "write");
+  const remote = provider(input, record, signal);
+  if ((await remote.repository()).id !== record.repositoryId) {
+    throw new Error("github.publish.repository_changed");
+  }
+  const computer = new GitWorkingCopyComputer(input.computer, signal);
+  const snapshot = await computer.snapshot(record, request.localCommit);
+  if (
+    !(
+      snapshot.entries &&
+      snapshot.tree &&
+      snapshot.localCommit === request.localCommit
+    )
+  ) {
+    throw new Error("github.publish.incomplete_snapshot");
+  }
+  const signature = await digestCanonicalJson({
+    request,
+    scopeKey: record.scopeKey,
+    connectionName: record.connectionName,
+    repositoryId: record.repositoryId,
+    branch: record.branch,
+    tree: snapshot.tree,
+  });
+  const toolContext = await buildRemoteAgentToolContext({
+    storage: input.storage,
+    submissionId: input.context.submissionId,
+    toolName: "github_publish_checkout",
+  });
+  const operation = {
+    actionId: "github.publish_working_copy",
+    effect: "write" as const,
+    service: "github" as const,
+    connectionName: record.connectionName,
+    coreWorker: input.coreWorker,
+    operationId: request.operationId,
+    requestSignature: signature,
+    toolContext,
+  };
+  const stateKey = `${identity.storageKey}:publish:${request.operationId}`;
+  let publication = await input.storage.get<Publication>(stateKey);
+  if (publication && publication.signature !== signature) {
+    throw new Error("github.publish.operation_conflict");
+  }
+  const existing = await readConnectorActionOperation(operation);
+  const current = await remote.branch(record.branch);
+  const reconciled = await reconcilePublication({
+    existing,
+    publication,
+    current,
+    operation,
+    record,
+    request,
+    tree: snapshot.tree,
+  });
+  if (reconciled) {
+    return reconciled;
+  }
+  const routineBlock = resolveRemoteAgentRoutineExternalWriteBlock(toolContext);
+  if (routineBlock) {
+    return routineBlock;
+  }
+  if (toolContext.turnEnvelope?.trigger.source === "member_research") {
+    throw new Error(
+      "github.publish.read_only_context: Member research cannot publish repository changes."
+    );
+  }
+  if ((current ?? record.sourceCommit) !== request.expectedRemoteHead) {
+    throw new Error(
+      "github.publish.branch_changed: No force-push is permitted. Reconcile the newer branch before publishing."
+    );
+  }
+  // Pure planning precedes the durable dispatch claim. A known local limit
+  // rejection has no provider effect and must not strand a pending operation.
+  const needed = publication
+    ? []
+    : await planUploadObjects(remote, snapshot.entries, request);
+  await recordConnectorActionOperation({
+    ...operation,
+    outcome: "attempted",
+    providerExecutionId: null,
+  });
+  if (!publication) {
+    await uploadObjects(
+      remote,
+      computer,
+      record,
+      snapshot.entries,
+      snapshot.tree,
+      needed
+    );
+    const created = await remote.createCommit({
+      tree: snapshot.tree,
+      parent: request.expectedRemoteHead,
+      message: request.message,
+    });
+    if (created.tree.sha !== snapshot.tree) {
+      throw new Error("github.publish.commit_tree_mismatch");
+    }
+    await input.storage.putIfAbsentExpiring(
+      stateKey,
+      {
+        signature,
+        commit: created.sha,
+        refAttempted: false,
+      } satisfies Publication,
+      record.expiresAtMs
+    );
+    publication = await input.storage.get<Publication>(stateKey);
+  }
+  if (!publication || publication.signature !== signature) {
+    throw new Error("github.publish.operation_conflict");
+  }
+  if (publication.refAttempted) {
+    return {
+      status: "pending",
+      operationId: request.operationId,
+      nextAction:
+        "Read this same operation again to reconcile the recorded branch update.",
+    };
+  }
+  signal?.throwIfAborted();
+  await authorizeCheckout(input, record, "write");
+  if (
+    !(await input.storage.compareAndSetExpiring(
+      stateKey,
+      publication,
+      { ...publication, refAttempted: true },
+      record.expiresAtMs
+    ))
+  ) {
+    return {
+      status: "pending",
+      operationId: request.operationId,
+      nextAction:
+        "Another call is publishing this same operation. Read it again with identical input.",
+    };
+  }
+  try {
+    await remote.publish(record.branch, publication.commit, current !== null);
+    await recordConnectorActionOperation({
+      ...operation,
+      outcome: "completed",
+      providerExecutionId: publication.commit,
+    });
+  } catch (error) {
+    await recordConnectorActionOperation({
+      ...operation,
+      outcome: "outcome_unknown",
+      providerExecutionId: publication.commit,
+    });
+    throw new Error(
+      "github.publish.outcome_unknown: The branch update needs reconciliation. Reuse this exact operationId and input; do not create another write.",
+      { cause: error }
+    );
+  }
+  return publicationReceipt(
+    record,
+    request,
+    snapshot.tree,
+    publication.commit,
+    false
+  );
+}
+
+async function reconcilePublication(input: {
+  existing: Awaited<ReturnType<typeof readConnectorActionOperation>>;
+  publication: Publication | undefined;
+  current: string | null;
+  operation: Omit<
+    Parameters<typeof recordConnectorActionOperation>[0],
+    "outcome" | "providerExecutionId"
+  >;
+  record: Checkout;
+  request: RemoteAgentGitPublishInput;
+  tree: string;
+}) {
+  const { publication, record, request } = input;
+  if (input.existing?.status === "completed") {
+    if (!publication) {
+      throw new Error("github.publish.receipt_unavailable");
+    }
+    return publicationReceipt(
+      record,
+      request,
+      input.tree,
+      publication.commit,
+      true
+    );
+  }
+  if (!publication?.refAttempted) {
+    return null;
+  }
+  if (input.current !== publication.commit) {
+    return {
+      status: "outcome_unknown",
+      branch: record.branch,
+      candidateCommit: publication.commit,
+      currentHead: input.current,
+      nextAction:
+        "Inspect the branch and this operation. Do not retry the write with a new operationId.",
+    };
+  }
+  await recordConnectorActionOperation({
+    ...input.operation,
+    outcome: "completed",
+    providerExecutionId: publication.commit,
+  });
+  return publicationReceipt(
+    record,
+    request,
+    input.tree,
+    publication.commit,
+    true
+  );
+}
+
+async function planUploadObjects(
+  remote: GitHubWorkingCopyProvider,
+  entries: RemoteAgentGitTreeEntry[],
+  request: RemoteAgentGitPublishInput
+) {
+  const base = await remote.commit(request.expectedRemoteHead);
+  const original = await remote.tree(base.tree.sha);
+  const existingBlobs = new Set(
+    original.filter((entry) => entry.type === "blob").map((entry) => entry.sha)
+  );
+  const needed = [
+    ...new Set(
+      entries
+        .filter(
+          (entry) => entry.type === "blob" && !existingBlobs.has(entry.sha)
+        )
+        .map((entry) => entry.sha)
+    ),
+  ];
+  if (needed.length > 200) {
+    throw new Error(
+      "github.publish.change_too_large: Publish at most 200 changed blobs in one operation."
+    );
+  }
+  return needed;
+}
+
+async function uploadObjects(
+  remote: GitHubWorkingCopyProvider,
+  computer: GitWorkingCopyComputer,
+  record: Checkout,
+  entries: RemoteAgentGitTreeEntry[],
+  tree: string,
+  needed: string[]
+) {
+  for (const sha of needed) {
+    await remote.createBlob(await computer.blob(record, sha), sha);
+  }
+  await remote.createTree(entries, tree);
+}
+
+function publicationReceipt(
+  record: Checkout,
+  request: RemoteAgentGitPublishInput,
+  tree: string,
+  commit: string,
+  replayed: boolean
+) {
+  return {
+    status: "completed",
+    operationId: request.operationId,
+    repository: `${record.intent.owner}/${record.intent.repo}`,
+    branch: record.branch,
+    commit,
+    tree,
+    localCommit: request.localCommit,
+    githubActor: record.intent.githubActor,
+    replayed,
+    tests: "not_attested_by_publish",
+    nextAction:
+      "Use this branch with github_create_pull_request and draft=true, or update the existing Draft PR. Report tests against the exact local commit/tree separately.",
+  };
+}
+
+function validateCheckoutBudget(
+  entries: RemoteAgentGitTreeEntry[],
+  baseline: RemoteAgentGitTreeEntry[]
+) {
+  for (const manifest of [entries, baseline]) {
+    if (
+      Buffer.byteLength(JSON.stringify(manifest)) >
+      REMOTE_AGENT_GIT_MAX_TREE_BYTES
+    ) {
+      throw new Error("github.checkout.manifest_too_large");
+    }
+  }
+  const sizes = new Map<string, number>();
+  for (const entry of [...entries, ...baseline]) {
+    if (entry.type !== "blob") {
+      continue;
+    }
+    if (entry.size === undefined) {
+      throw new Error("github.checkout.blob_size_missing");
+    }
+    sizes.set(entry.sha, entry.size);
+  }
+  if (
+    [...sizes.values()].reduce((sum, size) => sum + size, 0) >
+    REMOTE_AGENT_GIT_MAX_TOTAL_BYTES
+  ) {
+    throw new Error(
+      "github.checkout.repository_too_large: Source and verified baseline together exceed the 256 MiB content budget."
+    );
+  }
+}
+
+async function textDigest(text: string) {
+  return Buffer.from(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  ).toString("hex");
+}

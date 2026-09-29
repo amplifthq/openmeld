@@ -345,7 +345,7 @@ describe("DirectoryMembersOverview", () => {
 		});
 	});
 
-	it("does not present an old teammate Computer connection as current during refresh", async () => {
+	it("keeps the last Computer display during refresh and applies the next result", async () => {
 		const response = {
 			computers: [
 				{
@@ -381,13 +381,52 @@ describe("DirectoryMembersOverview", () => {
 			queryKey: organizationQueryKeys.computers("org-acme"),
 		});
 		await waitFor(() => {
+			expect(
+				queryClient.getQueryState(organizationQueryKeys.computers("org-acme"))
+					?.fetchStatus
+			).toBe("fetching");
+		});
+		await waitFor(() => {
+			const props = workspacePropsMock.mock.lastCall?.[0];
+			const grace = props?.members.find(
+				(member: { userId: string }) => member.userId === "user-grace"
+			);
+			expect(grace?.computer.state).toBe("connected");
+			expect(
+				props?.computerGroups.find(
+					(group: { ownerUserId: string }) => group.ownerUserId === "user-grace"
+				)?.computers
+			).toHaveLength(1);
+		});
+		finishRefresh({
+			...response,
+			computers: [{ ...response.computers[0], serviceState: "not_connected" }],
+		});
+		await refresh;
+		await waitFor(() => {
 			const grace = workspacePropsMock.mock.lastCall?.[0]?.members.find(
 				(member: { userId: string }) => member.userId === "user-grace"
 			);
-			expect(grace?.computer.state).toBe("unknown");
+			expect(grace?.computer.state).toBe("not_connected");
 		});
-		finishRefresh(response);
-		await refresh;
+		readCurrentOrganizationComputersMock.mockRejectedValue(
+			new Error("Computer status unavailable.")
+		);
+		await queryClient.invalidateQueries({
+			queryKey: organizationQueryKeys.computers("org-acme"),
+		});
+		await waitFor(() => {
+			const props = workspacePropsMock.mock.lastCall?.[0];
+			const grace = props?.members.find(
+				(member: { userId: string }) => member.userId === "user-grace"
+			);
+			expect(grace?.computer.state).toBe("unknown");
+			expect(
+				props?.computerGroups.find(
+					(group: { ownerUserId: string }) => group.ownerUserId === "user-grace"
+				)?.computers
+			).toHaveLength(1);
+		});
 	});
 });
 
