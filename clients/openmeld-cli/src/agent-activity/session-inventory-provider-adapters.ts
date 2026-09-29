@@ -261,6 +261,7 @@ function createCodexJsonRpcClient(
     env: process.env,
     shell: invocation.shell ?? false,
     stdio: ["pipe", "pipe", "ignore"],
+    windowsHide: true,
   });
   let nextId = 1;
   let buffer = "";
@@ -962,6 +963,7 @@ async function executeJsonCommand(input: {
       env: process.env,
       shell: invocation.shell ?? false,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     let stdout = "";
     const timer = setTimeout(() => {
