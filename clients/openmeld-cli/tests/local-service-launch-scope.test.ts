@@ -33,4 +33,18 @@ describe("Service launch scope", () => {
       })
     ).resolves.toBeUndefined();
   });
+
+  it("checks production executable paths without conflicting with the legacy dev lane selector", async () => {
+    await expect(
+      assertDaemonServiceLaunchScope({
+        homeDir: "/test-user",
+        executablePath: "/usr/local/bin/node",
+        env: {
+          OPENMELD_ENV: "dev",
+          OPENMELD_ENV_PRESET: "dev-local",
+          OPENMELD_HOME: "/isolated-dev",
+        },
+      })
+    ).resolves.toBeUndefined();
+  });
 });

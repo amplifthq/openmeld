@@ -54,9 +54,7 @@ export const serviceExecutionHostSnapshotSchema = z.strictObject({
   adapterIds: z.array(identityString).max(256),
 });
 
-// A process-incarnation recovery fence, not a task ledger. An unconfirmed
-// owner cannot be replaced on the same OS boot merely because its PID died.
-export const serviceExecutionHostOwnerSchema = z.strictObject({
+const serviceExecutionHostOwnerV1Schema = z.strictObject({
   schema: z.literal("service-execution-host-owner-v1"),
   hostInstanceId: z.uuid(),
   ownerUserId: identityString,
@@ -66,6 +64,36 @@ export const serviceExecutionHostOwnerSchema = z.strictObject({
   bootIdentity: identityString.nullable(),
   localQuiescent: z.boolean(),
 });
+
+const serviceExecutionHostOwnedProcessTreeSchema = z.strictObject({
+  pid: z.number().int().positive(),
+  processStartedAt: identityString,
+  signalTarget: z.enum(["process", "process_group"]),
+});
+
+// A process-incarnation recovery fence, not a task ledger. V2 records the
+// exact Host and provider process trees needed to prove a same-boot takeover
+// safe. V1 remains readable but cannot authorize that recovery.
+const serviceExecutionHostOwnerV2Schema = z.strictObject({
+  schema: z.literal("service-execution-host-owner-v2"),
+  hostInstanceId: z.uuid(),
+  ownerUserId: identityString,
+  deviceId: identityString,
+  lane: daemonServiceLaneSchema,
+  pid: z.number().int().positive(),
+  processStartedAt: identityString,
+  bootIdentity: identityString.nullable(),
+  localQuiescent: z.boolean(),
+  processEvidenceComplete: z.boolean(),
+  ownedProcessTrees: z
+    .array(serviceExecutionHostOwnedProcessTreeSchema)
+    .max(64),
+});
+
+export const serviceExecutionHostOwnerSchema = z.discriminatedUnion("schema", [
+  serviceExecutionHostOwnerV1Schema,
+  serviceExecutionHostOwnerV2Schema,
+]);
 
 export const profileWorkingFolderFactSchema = z.strictObject({
   defaultProjectId: identityString.nullable(),

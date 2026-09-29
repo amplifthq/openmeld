@@ -3979,6 +3979,83 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(spaceOnlyResponse.executionContext?.access).toBe("space_context");
   });
 
+  it("keeps an ordinary Codex Wake in the Profile's current working folder after context activation", async () => {
+    const { hub, storageRecords } = createContextHarness({
+      bindingControllerRef: "builtin:codex",
+    });
+    const firstRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({
+          agentControllerRef: "builtin:codex",
+          fingerprint: "a",
+        }),
+        contextRequest: {
+          required: false,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "auto" },
+        },
+      },
+    });
+    const firstResponse = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        firstRequest
+      )
+    ).json()) as {
+      status: string;
+      executionContext?: unknown;
+    };
+    expect(firstResponse.status).toBe("accepted");
+    expect(firstResponse.executionContext).toBeUndefined();
+
+    const firstHead = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        firstRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const firstSnapshot = firstHead.acceptedDispatchSnapshot;
+    if (!firstSnapshot) {
+      throw new Error("Expected an accepted ordinary Codex Wake");
+    }
+    const dispatchId = "dispatch-codex-ordinary-current-folder";
+    const identity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-codex-ordinary-current-folder",
+      dispatchId,
+      sourceSignalId: "signal-codex-ordinary-current-folder",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const plan = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...firstHead,
+          primaryDispatchId: dispatchId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: identity,
+          acceptedDispatchSnapshot: {
+            ...firstSnapshot,
+            payloadFingerprint: `sha256:${"b".repeat(64)}`,
+          },
+        },
+      })
+    );
+    expect(
+      plan.record.acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({ access: "workspace", workspace: "current" });
+  });
+
   it.each([
     "builtin:cursor",
     "builtin:grok-build",
@@ -20580,27 +20657,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
           failureStage: "execution",
           generatedBy: "openmeld",
           noticeType: "terminal_failure",
-          reason: "runtime.progress_stale",
-          reasonCode: "runtime.progress_stale",
+          reason: "runtime.local_runtime_lost",
+          reasonCode: "runtime.local_runtime_lost",
           stopCause: "controlled_service_update",
-          text: "Codex Agent stopped making progress on this Wake. Reconnect the computer before trying again.",
+          text: "OpenMeld Service stopped or disconnected while Codex Agent was working on this Wake. Start OpenMeld again before retrying.",
         },
       });
-      const progressStaleTerminalEvent = getRuntimeCoordinatorEventCalls(
+      const localRuntimeLostEvent = getRuntimeCoordinatorEventCalls(
         recordingD1.calls
-      ).find(
-        (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
-      );
+      ).find((call) => call.params[2] === "runtime_connection_lost");
       expect(
-        JSON.parse(String(progressStaleTerminalEvent?.params[7]))
+        JSON.parse(String(localRuntimeLostEvent?.params[7]))
       ).toMatchObject({
-        action: "timeout_terminal",
-        progressStale: {
-          expiryCause: "local_progress_stale",
+        action: "reclaim_blocked",
+        localRuntimeLost: {
+          expiryCause: "local_runtime_lost",
           publicationStatus: "published",
           publishedSignalId: "signal-delivery-expired-1",
         },
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         trigger: "alarm",
       });
       const terminalAuthority = [...storageRecords.values()].find(
@@ -20608,7 +20683,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           value !== null && typeof value === "object" && "runsById" in value
       );
       expect(terminalAuthority?.terminalOutcome).toMatchObject({
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         replySignalId: "signal-delivery-expired-1",
         status: "failed_terminal",
       });
@@ -20617,7 +20692,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
       expect(agentTaskOutcomeWrite?.params[2]).toBe("failed");
       expect(JSON.parse(String(agentTaskOutcomeWrite?.params[4]))).toEqual({
-        errorCode: "runtime.progress_stale",
+        errorCode: "runtime.local_runtime_lost",
         eventId: `runtime-coordinator-terminal:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
         occurredAtMs: 1_700_000_300_300,
         publishedSignalId: "signal-delivery-expired-1",
@@ -20733,7 +20808,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         recordingD1.inboxRows.get("dispatch-1::attempt-1")?.published_signal_id
       ).toBe("execution-recovery:space-1:dispatch-1::attempt-1");
       expect(terminalAuthority?.terminalOutcome).toMatchObject({
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         replySignalId: "signal-delivery-expired-1",
         status: "failed_terminal",
       });
@@ -21126,7 +21201,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             noticeType: "terminal_failure",
             reasonCode: "runtime.local_runtime_lost",
             stopCause: "controlled_service_update",
-            text: "Codex Agent was interrupted when its computer reconnected.",
+            text: "OpenMeld Service stopped or disconnected while Codex Agent was working on this Wake. Start OpenMeld again before retrying.",
           }),
         },
       });

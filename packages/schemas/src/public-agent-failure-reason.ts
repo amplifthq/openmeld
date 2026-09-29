@@ -1136,6 +1136,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
+        `OpenMeld Service stopped or disconnected while ${formatObjectTargetName(targetName)} was working on this Wake. Start OpenMeld again before retrying.`,
+      kind: "local_service",
+      patterns: ["=runtime.local_runtime_lost"],
+      primaryActionId: "reconnect_openmeld_service",
+      recoveryTarget: "prepare_setup",
+    },
+    {
+      body: (targetName) =>
         `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`,
       kind: "local_service",
       patterns: ["daemon.delivery.execution_stalled", "runtime.progress_stale"],
@@ -1423,6 +1431,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         "execution_context.project_repository_root_required",
         "execution_context.project_commit_required",
       ],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "This task did not start because Custom (config.toml) cannot be combined with OpenMeld's task file boundary. Choose another permission mode in this Agent's settings, then wake the Agent again.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.custom_config_file_access_unverified"],
       primaryActionId: "manage_local_agent",
       preferMappedReasonOverDetail: true,
       recoveryTarget: "computer",

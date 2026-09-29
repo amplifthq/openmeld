@@ -3132,7 +3132,14 @@ async function resolveDispatchComputerFileAccess(input: {
       transportMode: input.parsedTask.transportMode,
     });
     if (!verification.supported) {
-      throw new Error("execution_context.file_access_unverified");
+      throw new Error(
+        verification.reasonCode ===
+          "computer.file_access.controller_unsupported" &&
+          input.routeConfig?.agentControllerPermissionMode ===
+            "codex:customConfig"
+          ? "execution_context.custom_config_file_access_unverified"
+          : "execution_context.file_access_unverified"
+      );
     }
     return boundary;
   }
