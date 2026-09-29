@@ -201,6 +201,7 @@ export const githubAppInstallationStartResponseSchema = z.strictObject({
   connection: connectorConnectionSchema,
   expiresAtMs: timestampMsSchema,
   state: githubAppInstallationStateSchema,
+  verificationConnectionName: connectorConnectionNameSchema,
 });
 
 export const githubAppInstallationSetupQuerySchema = z.strictObject({
@@ -226,9 +227,9 @@ export const githubAppInstallationVerificationResponseSchema =
 
 export const pendingGitHubAppInstallationSchema = z
   .strictObject({
-    installationId: githubAppInstallationIdSchema,
+    installationId: githubAppInstallationIdSchema.nullable(),
     organizationId: trimmedNonEmptyStringSchema,
-    status: z.literal("verifying"),
+    status: z.enum(["installing", "verifying"]),
     targetConnectionName: connectorConnectionNameSchema,
     userId: trimmedNonEmptyStringSchema,
     verificationConnectionName: connectorConnectionNameSchema,
