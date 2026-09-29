@@ -37,7 +37,15 @@ internal static class WindowsConsoleProbe
         using (var child = Process.Start(start))
         {
             Task.Run(async () => {
-                await Console.OpenStandardInput().CopyToAsync(child.StandardInput.BaseStream);
+                var input = Console.OpenStandardInput();
+                var output = child.StandardInput.BaseStream;
+                var buffer = new byte[4096];
+                int count;
+                while ((count = await input.ReadAsync(buffer, 0, buffer.Length)) != 0)
+                {
+                    await output.WriteAsync(buffer, 0, count);
+                    await output.FlushAsync();
+                }
                 child.StandardInput.Close();
             });
             var stdout = child.StandardOutput.BaseStream.CopyToAsync(Console.OpenStandardOutput());
