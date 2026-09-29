@@ -1466,6 +1466,14 @@ Runtime results use the Space action contract:
   even when it looks like JSON, a tool call, or a former protocol marker. If no
   supported action entry point can record a valid action, the Wake fails with
   structured diagnostic evidence.
+- A supported local controller may publish a deliberate bounded progress
+  snapshot through its dispatch-scoped structured tool. The Service sends that
+  snapshot on the active RuntimeTransport execution token; Core validates the
+  same execution identity, lease, source Signal, target Profile, and stream
+  sequence used for privacy-bounded tool activity. Space stores it only as the
+  existing transient public-progress draft. Exact local retries are idempotent.
+  Progress never writes the final Space Action record, claims the final outcome
+  slot, dispatches a Wake, or releases an Agent Task continuation barrier.
 - A current local runtime attaches the newest relevant Space signal it observed
   to `post_message.observedThroughSignalId`. This is provider-neutral: Codex,
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space

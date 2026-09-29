@@ -967,6 +967,42 @@ describe("OpenMeld Space Action MCP server", () => {
 });
 
 describe("dispatch-owned native Space tools", () => {
+  it("reports non-final public progress without recording a final action", async () => {
+    const context = createTestContext([]);
+    const reportProgress = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "accepted" as const })
+      .mockResolvedValueOnce({ status: "duplicate" as const });
+    const tools = createDispatchSpaceTools({
+      env: {
+        ...process.env,
+        [OPENMELD_DISPATCH_RUNTIME_MODE_ENV]: DISPATCH_OWNED_RUNTIME_MODE,
+        [OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV]: context.dispatchId,
+        [OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV]:
+          context.targetProfileId,
+      },
+      reportProgress,
+    });
+
+    expect(tools.tools.map((tool) => tool.name)).toContain("report_progress");
+    const first = await tools.call("report_progress", {
+      update: "Confirmed the root cause; starting verification.",
+    });
+    const retry = await tools.call("report_progress", {
+      update: "Confirmed the root cause; starting verification.",
+    });
+
+    expect(first.content).toEqual([
+      { type: "text", text: '{"status":"accepted"}' },
+    ]);
+    expect(retry.content).toEqual([
+      { type: "text", text: '{"status":"duplicate"}' },
+    ]);
+    expect(reportProgress).toHaveBeenCalledTimes(2);
+    expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+    tools.close();
+  });
+
   it("keeps concurrent Wake capabilities bound to their own context and closes old invocations", async () => {
     const first = createTestContext([], { targetProfileId: "agt_first" });
     const toolsA = createDispatchSpaceTools({ env: { ...process.env } });

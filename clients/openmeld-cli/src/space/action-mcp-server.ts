@@ -45,7 +45,11 @@ import {
 import { runDispatchWorkingCopy } from "./dispatch-working-copy";
 
 export const DISPATCH_SPACE_TOOL_INSTRUCTIONS =
-  "Use read_history for the bounded text history around the current Wake, and read_file for shared text files in the current Space. Use Space Task tools only when a clear deliverable needs durable ownership, progress, review, or later closure; questions and tiny same-turn actions stay in Messages. Task operations are non-final. Then choose exactly one permitted final OpenMeld Space Action: reply for an answer, limitation, error explanation, or request for help; stay_silent only when no public communication is appropriate. Do not create a Task just to acknowledge a message. Parameter validation errors record no action and may be corrected. Use read_receipt to reconcile an unknown outcome before resending. Private assistant output is not posted to the Space.";
+  "Use read_history for the bounded text history around the current Wake, and read_file for shared text files in the current Space. When report_progress is available, use it only for a brief deliberate public update during meaningful multi-step work; it is non-final and does not replace the final action. Use Space Task tools only when a clear deliverable needs durable ownership, progress, review, or later closure; questions and tiny same-turn actions stay in Messages. Task operations are non-final. Then choose exactly one permitted final OpenMeld Space Action: reply for an answer, limitation, error explanation, or request for help; stay_silent only when no public communication is appropriate. Do not create a Task just to acknowledge a message. Parameter validation errors record no action and may be corrected. Use read_receipt to reconcile an unknown outcome before resending. Private assistant output is not posted to the Space.";
+
+export type DispatchPublicProgressResult = {
+  status: "accepted" | "duplicate" | "unavailable";
+};
 
 /** Every carrier uses the same schemas, validation, authority and recorder. */
 class DispatchSpaceTools implements AdapterDispatchSpaceTools {
@@ -204,7 +208,12 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
 }
 
 export function createDispatchSpaceTools(
-  input: { env?: NodeJS.ProcessEnv } = {}
+  input: {
+    env?: NodeJS.ProcessEnv;
+    reportProgress?: (
+      update: string
+    ) => DispatchPublicProgressResult | Promise<DispatchPublicProgressResult>;
+  } = {}
 ): AdapterDispatchSpaceTools {
   const env = Object.freeze({ ...(input.env ?? process.env) });
   const server = new DispatchSpaceTools(env);
@@ -387,6 +396,39 @@ export function createDispatchSpaceTools(
       }
     }
   );
+
+  if (input.reportProgress) {
+    server.registerTool(
+      "report_progress",
+      {
+        title: "Share public progress in the current OpenMeld Space",
+        description:
+          "Share one brief, concrete update while this Wake is still running. Use this only when you start meaningful work, confirm a useful fact, change direction, or begin verification. Do not include private reasoning, protected information, credentials, raw commands, or unverified claims. Exact retries are idempotent. This does not post a final reply, close the Wake, or resume a parent task.",
+        inputSchema: {
+          update: z.string().trim().min(1).max(600),
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async ({ update }) => {
+        const result = await input.reportProgress?.(update);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                result ?? ({ status: "unavailable" } as const)
+              ),
+            },
+          ],
+        };
+      }
+    );
+  }
 
   server.registerTool(
     "list_tasks",

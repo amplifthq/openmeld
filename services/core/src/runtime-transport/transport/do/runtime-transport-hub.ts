@@ -92,6 +92,7 @@ import {
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
@@ -234,6 +235,7 @@ import type {
   RuntimeTransportDispatchLifecycleRequest,
   RuntimeTransportDispatchPreviewEndRequest,
   RuntimeTransportDispatchPreviewRequest,
+  RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchReasoningRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
@@ -776,6 +778,29 @@ export function resolveLocalAgentControlResponseTimeoutMs(
     return 35_000;
   }
   return LOCAL_AGENT_CONTROL_SET_ENABLED_RESPONSE_TIMEOUT_MS;
+}
+
+function parseRuntimeTransportDispatchLiveActivity(
+  payload: unknown,
+  kind: "progress" | "reasoning" | "tool"
+):
+  | RuntimeTransportDispatchProgressRequest
+  | RuntimeTransportDispatchReasoningRequest
+  | RuntimeTransportDispatchToolActivityRequest
+  | null {
+  if (kind === "reasoning") {
+    const parsed =
+      runtimeTransportDispatchReasoningRequestSchema.safeParse(payload);
+    return parsed.success ? parsed.data : null;
+  }
+  if (kind === "progress") {
+    const parsed =
+      runtimeTransportDispatchProgressRequestSchema.safeParse(payload);
+    return parsed.success ? parsed.data : null;
+  }
+  const parsed =
+    runtimeTransportDispatchToolActivityRequestSchema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
 }
 
 type RuntimeTransportHubHousekeepingAlarmPhase =
@@ -3411,7 +3436,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               this.handleDispatchToolActivityFrame(
                 webSocket,
                 { ...parsed.data, thinkingSnapshot: "" },
-                true
+                "reasoning"
               ),
           });
           return;
@@ -3433,12 +3458,34 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               await this.handleDispatchToolActivityFrame(
                 webSocket,
                 frame.payload,
-                true
+                "reasoning"
               );
             } finally {
               this.pendingReasoningDispatches.delete(dispatchId);
             }
           },
+        });
+        return;
+      }
+      case "daemon.dispatch.progress": {
+        this.enqueueOrderedDispatchFrame({
+          onError: (error) => {
+            console.warn("[core.runtime_transport.progress_frame_failed]", {
+              errorMessage:
+                error instanceof Error ? error.message : String(error),
+            });
+            this.sendErrorFrame(webSocket, {
+              code: "execution_token_authority_missing",
+              message: "dispatch progress rejected",
+            });
+          },
+          payload: frame.payload,
+          run: () =>
+            this.handleDispatchToolActivityFrame(
+              webSocket,
+              frame.payload,
+              "progress"
+            ),
         });
         return;
       }
@@ -9089,21 +9136,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async handleDispatchToolActivityFrame(
     webSocket: WebSocket,
     payload: unknown,
-    reasoning = false
+    kind: "progress" | "reasoning" | "tool" = "tool"
   ): Promise<void> {
-    const parsed = (
-      reasoning
-        ? runtimeTransportDispatchReasoningRequestSchema
-        : runtimeTransportDispatchToolActivityRequestSchema
-    ).safeParse(payload);
-    if (!parsed.success) {
+    const activity = parseRuntimeTransportDispatchLiveActivity(payload, kind);
+    if (!activity) {
       this.sendErrorFrame(webSocket, {
         code: "schema.invalid",
         message: "invalid dispatch tool activity payload",
       });
       return;
     }
-    const activity = parsed.data;
     const pending = await this.readDispatchProgressProjection(activity);
     const coordinatorContract = this.validateRuntimeCoordinatorExecutionIdEcho({
       attemptId: activity.attemptId,
@@ -9190,6 +9232,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     pending: PendingDispatchState,
     activity:
       | RuntimeTransportDispatchToolActivityRequest
+      | RuntimeTransportDispatchProgressRequest
       | RuntimeTransportDispatchReasoningRequest
   ): Promise<void> {
     const spaceStub = resolveSpaceStub(
@@ -9233,18 +9276,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       activity.thinkingSnapshot = "";
     }
-    const result =
-      "thinkingSnapshot" in activity
-        ? await spaceStub.rpcApplyAgentStreamDelta({
-            ...streamIdentity,
-            kind: "thinking",
-            thinkingSnapshot: activity.thinkingSnapshot,
-            reasoningState: activity.reasoningState,
-          })
-        : await spaceStub.rpcApplyAgentStreamPart({
-            ...streamIdentity,
-            part: activity.part,
-          });
+    let result: Awaited<ReturnType<typeof spaceStub.rpcApplyAgentStreamDelta>>;
+    if ("thinkingSnapshot" in activity) {
+      result = await spaceStub.rpcApplyAgentStreamDelta({
+        ...streamIdentity,
+        kind: "thinking",
+        thinkingSnapshot: activity.thinkingSnapshot,
+        reasoningState: activity.reasoningState,
+      });
+    } else if ("progressSnapshot" in activity) {
+      result = await spaceStub.rpcApplyAgentStreamDelta({
+        ...streamIdentity,
+        kind: "progress",
+        progressSnapshot: activity.progressSnapshot,
+      });
+    } else {
+      result = await spaceStub.rpcApplyAgentStreamPart({
+        ...streamIdentity,
+        part: activity.part,
+      });
+    }
     if (result.status === "rejected") {
       console.warn("[core.runtime_transport.tool_activity_rejected]", {
         attemptId: activity.attemptId,
@@ -9259,7 +9310,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    if ("thinkingSnapshot" in activity) {
+    if ("thinkingSnapshot" in activity || "progressSnapshot" in activity) {
       return;
     }
     console.info("[core.runtime_transport.tool_activity_applied]", {
