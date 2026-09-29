@@ -211,6 +211,7 @@ async function startOpenCodeProbeServer(input: {
       env: process.env,
       shell: invocation.shell ?? false,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     const spawnedAtMs = Date.now();
     let stdout = "";
