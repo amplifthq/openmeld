@@ -9,6 +9,7 @@ import type {
 	CenterAgentModelPreference,
 	CenterAgentSlackWorkspaceConnectionResponse,
 	CenterAgentSlackWorkspaceDisconnectResponse,
+	CenterAgentUpdateProfileBody,
 	CenterAgentUpdateProfileResponse,
 	DesignateCenterAgentResponse,
 	GetCenterAgentDesignationResponse,
@@ -262,16 +263,7 @@ export async function consumeSlackIdentityLink(input: {
 export async function updateCurrentCenterAgentProfile(input: {
 	organizationId: string;
 	profileName?: string;
-	avatarStyle?:
-		| "fluid"
-		| "clover"
-		| "flower"
-		| "star"
-		| "ghost"
-		| "mech"
-		| "circle"
-		| "hexagon"
-		| "square";
+	avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
 }): Promise<CenterAgentUpdateProfileResponse> {
 	try {
 		return await createWebCenterAgentApi(input.organizationId).updateProfile({

@@ -3,7 +3,10 @@ import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
 
 ("use client");
 
-import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
+import type {
+	CenterAgentUpdateProfileBody,
+	OrganizationDirectoryResponse,
+} from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -290,16 +293,7 @@ export function CenterAgentSettingsContent(input: {
 	const updateProfileMutation = useMutation({
 		mutationFn: async (variables: {
 			profileName?: string;
-			avatarStyle?:
-				| "fluid"
-				| "clover"
-				| "flower"
-				| "star"
-				| "ghost"
-				| "mech"
-				| "circle"
-				| "hexagon"
-				| "square";
+			avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
 		}) =>
 			await updateCurrentCenterAgentProfile({
 				organizationId: input.organizationId,
