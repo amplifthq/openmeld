@@ -29,7 +29,6 @@ import {
 const DISPATCH_OWNED_RUNTIME_CLI_SHIM_DIRNAME = "dispatch-owned-cli";
 const DISPATCH_SPACE_ACTION_CLI_SHIM_DIRNAME = "bin";
 const OPENMELD_ENV_PRESET_ENV = "OPENMELD_ENV_PRESET";
-const OPENSSL_CONF_ENV = "OPENSSL_CONF";
 const DISPATCH_OWNED_RUNTIME_CLI_COMMAND_NAMES = [
   "openmeld",
   "openmeld-dev",
@@ -65,9 +64,9 @@ export function buildDispatchOwnedRuntimeEnv(input: {
   const actionCommand = resolveDispatchOwnedRuntimeActionCliEntryCommand({
     env,
   });
-  const distribution = input.distribution ?? resolveOpenMeldDistribution();
-  const platform = input.platform ?? process.platform;
-  const nativeWindowsBinary = platform === "win32" && distribution === "binary";
+  const nativeWindowsBinary =
+    (input.platform ?? process.platform) === "win32" &&
+    (input.distribution ?? resolveOpenMeldDistribution()) === "binary";
   // Windows cannot CreateProcess a POSIX shim. The managed launcher is already
   // a native executable, and the dispatch identity remains in the child env.
   const actionCommandPath = nativeWindowsBinary
@@ -100,9 +99,6 @@ export function buildDispatchOwnedRuntimeEnv(input: {
     [OPENMELD_ENV_PRESET_ENV]: resolveDispatchOwnedRuntimeEnvPreset({
       env,
     }),
-    ...(platform !== "win32" && distribution !== "binary"
-      ? { [OPENSSL_CONF_ENV]: "/dev/null" }
-      : {}),
     ...(input.spaceActionContextPath
       ? {
           [OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]:

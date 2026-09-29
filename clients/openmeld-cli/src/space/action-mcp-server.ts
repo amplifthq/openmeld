@@ -30,6 +30,7 @@ import {
   readDispatchSpaceActionContextFromEnv,
   readDispatchSpaceActionRecord,
 } from "../runtime/dispatch-space-action-context";
+import { recordDispatchSpaceProgress } from "../runtime/dispatch-space-progress-relay";
 import {
   recordDispatchSpaceReply,
   recordDispatchSpaceSilent,
@@ -717,7 +718,9 @@ export function createDispatchSpaceTools(
 
 export function createSpaceActionMcpServer(): McpServer {
   const context = readDispatchSpaceActionContextForReceiptFromEnv();
-  const tools = createDispatchSpaceTools();
+  const tools = createDispatchSpaceTools({
+    reportProgress: (update) => recordDispatchSpaceProgress(update),
+  });
   const server = new McpServer(
     { name: "openmeld-dispatch-space-action", version: "1.0.0" },
     { instructions: DISPATCH_SPACE_TOOL_INSTRUCTIONS }

@@ -95,9 +95,11 @@ import {
   type DispatchSpaceActionRecord,
   type DispatchSpaceActionRecordReadResult,
   OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV,
+  readDispatchSpaceActionContextForReceiptFromEnv,
   readDispatchSpaceActionRecord,
   supersedeDispatchSpaceActionRecordForReconsideration,
 } from "../../runtime/dispatch-space-action-context";
+import { startDispatchSpaceProgressRelay } from "../../runtime/dispatch-space-progress-relay";
 import type { Presenter } from "../../runtime/presenter/types";
 import {
   createDispatchSpaceTools,
@@ -4951,14 +4953,27 @@ async function runDispatchRuntimeExecution(input: {
     streamingMode:
       input.streamingModeOverride ?? input.parsedTask.streamingMode,
   });
+  const dispatchRuntimeEnv = { ...process.env, ...route.env };
   const spaceActionTools = route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
     ? createDispatchSpaceTools({
-        env: { ...process.env, ...route.env },
+        env: dispatchRuntimeEnv,
         ...(input.onPublicProgress
           ? { reportProgress: input.onPublicProgress }
           : {}),
       })
     : undefined;
+  const progressRelay =
+    input.onPublicProgress &&
+    route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+      ? startDispatchSpaceProgressRelay({
+          context:
+            readDispatchSpaceActionContextForReceiptFromEnv(dispatchRuntimeEnv),
+          contextPath: route.env[
+            OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV
+          ] as string,
+          reportProgress: input.onPublicProgress,
+        })
+      : null;
   try {
     await input.onNativeTurnStarted();
     const result = await runRuntimeTask({
@@ -4990,6 +5005,7 @@ async function runDispatchRuntimeExecution(input: {
     input.onNativeTurnCompleted(result);
     return result;
   } finally {
+    await progressRelay?.close();
     spaceActionTools?.close();
   }
 }

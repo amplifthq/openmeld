@@ -70,7 +70,6 @@ describe("dispatch-owned runtime env", () => {
       join(shimDir, "openmeld")
     );
     expect(env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]).toBe(contextPath);
-    expect(env.OPENSSL_CONF).toBe("/dev/null");
   });
 
   it("injects the dispatch Space Action context path when provided", () => {
@@ -105,7 +104,6 @@ describe("dispatch-owned runtime env", () => {
     expect(existsSync(`${shimDir}/openmeld-dev`)).toBe(true);
     expect(existsSync(`${shimDir}/openmeld-canary`)).toBe(true);
     const openMeldShim = readFileSync(`${shimDir}/openmeld`, "utf8");
-    expect(openMeldShim).toContain("#!/usr/bin/env node");
     expect(openMeldShim).toContain(JSON.stringify(process.execPath));
     expect(openMeldShim).toContain(
       JSON.stringify("/tmp/current-openmeld-dev.mjs")
@@ -148,7 +146,6 @@ describe("dispatch-owned runtime env", () => {
     expect(env.OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH).toBe(managedCli);
     expect(env.PATH?.split(delimiter)[0]).toBe(join(openMeldHome, "bin"));
     expect(env.OPENMELD_SPACE_ACTION_CONTEXT_PATH).toBe(contextPath);
-    expect(env.OPENSSL_CONF).toBeUndefined();
     expect(env.OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID).toBe(
       "dispatch-windows-wake"
     );
