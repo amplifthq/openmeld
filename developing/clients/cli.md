@@ -1196,6 +1196,10 @@ per-dispatch CLI shim ahead of `PATH`, and binds that shim to the current
 dispatch ID, target Agent Profile, and Space Action context. When the first-party
 tool is unavailable, Agents should run the exact fallback `space action`
 command printed in the dispatch prompt and must not rewrite it to `npx`.
+The native Windows binary carrier uses its verified lane-owned `openmeld.exe`
+directly for the dispatch MCP and fallback command, with the same dispatch ID,
+target Agent Profile, and context in the inherited runtime environment. Windows
+does not attempt to execute the POSIX shim as a process.
 Outside a Wake dispatch, help must use the
 `<DISPATCH_ACTION_CLI>` placeholder instead of presenting a guessed runnable
 command. `targets` requires the current dispatch target snapshot.
