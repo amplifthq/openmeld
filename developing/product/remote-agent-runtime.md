@@ -2547,6 +2547,21 @@ Native Delivery. Routine turns and member research reject `requester`; they may
 use only `organization`. Remote Agent strips `githubActor` before calling OpenConnector
 because it is OpenMeld authorization input, not a provider action parameter.
 
+For requester-owned repository checkout, the AgentComputer host fetches one
+shallow Git pack through OpenConnector's repository-scoped `git-upload-pack`
+stream. The host rechecks the active Core execution and the requester's current
+member connection; OpenConnector injects that member's credential. A durable
+Computer alarm owns the transfer, streams only the pack bytes into the Computer
+filesystem, and can retry an interrupted transfer. The Computer retains its
+ordinary direct egress policy. It only runs `git index-pack` against the local
+pack file; no URL, runtime bearer, or GitHub credential enters its environment,
+Git configuration, or remote list. Before constructing the existing synthetic
+working copy, it verifies the fetched source and default-branch commit trees
+against the independently pinned checkout record. Tool calls return `preparing`
+and poll the durable operation. Organization-owned checkout retains its existing
+bounded REST transfer until an Organization-specific Git transport is authorized.
+Deploy the OpenConnector stream endpoint before enabling this Remote Agent path.
+
 Workflow dispatch is a general GitHub capability, not an OpenMeld release
 endpoint. Its provider input is only repository, workflow identifier, explicit
 branch or tag `ref`, and an optional string-to-string workflow input map. The
