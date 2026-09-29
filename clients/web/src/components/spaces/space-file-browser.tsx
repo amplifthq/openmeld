@@ -410,7 +410,15 @@ function SpaceFileBrowserContent(input: {
 	useEffect(() => setMounted(true), []);
 	const selectedEntry = input.entries.find((entry) => entry.id === selectedId);
 	const showPending = useDelayedPending(input.isPending && !input.isPaused);
+	let pendingEmptyContent: ReactNode;
 	if (input.isPending) {
+		pendingEmptyContent = input.isPaused ? (
+			<ReadPausedState subject="Files" />
+		) : (
+			<div className="min-h-64" />
+		);
+	}
+	if (input.isPending && input.view === "trash") {
 		if (input.isPaused) {
 			return <ReadPausedState subject="Files" />;
 		}
@@ -490,6 +498,7 @@ function SpaceFileBrowserContent(input: {
 							<FileSystem
 								className="h-[min(65vh,48rem)] min-h-96"
 								embedded
+								emptyContent={pendingEmptyContent}
 								errorContent={
 									input.error ? (
 										<SpaceFilesLoadError
@@ -503,7 +512,7 @@ function SpaceFileBrowserContent(input: {
 										/>
 									) : undefined
 								}
-								isLoading={input.isPending}
+								isLoading={input.isPending && !input.isPaused && showPending}
 								items={items}
 								onEntryContextMenu={(item) =>
 									setSelectedId(entriesByPath.get(item.path)?.id ?? null)
