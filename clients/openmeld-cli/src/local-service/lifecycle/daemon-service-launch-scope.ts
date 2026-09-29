@@ -27,6 +27,7 @@ export async function assertDaemonServiceLaunchScope(
     ...input,
     env: {
       ...(input.env ?? process.env),
+      OPENMELD_ENV: "prod",
       OPENMELD_ENV_PRESET: "prod",
       OPENMELD_HOME: "",
     },

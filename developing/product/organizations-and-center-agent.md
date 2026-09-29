@@ -1722,10 +1722,13 @@ repository outside the installation grant fails visibly with the matching
 remedy.
 
 The installation start is bound to one Organization, installer, Center Agent
-profile, and target connection by a single-use ten-minute opaque state. GitHub
-returns the installation id to OpenMeld's public setup callback. OpenMeld then
-uses a temporary verifier connection to prove that the same signed-in GitHub
-user can see that installation before OpenConnector stores the final
+profile, and target connection by a single-use ten-minute opaque state. For a
+new installation, GitHub returns the installation id to OpenMeld's public setup
+callback. For an App already installed, OpenMeld starts user authorization
+directly and accepts the installation only when that user can access exactly
+one organization installation of the configured App. If several installations
+are accessible, setup must stop instead of guessing an account. Both paths use
+a temporary verifier connection before OpenConnector stores the final
 installation credential. Core stores the installation id and connection
 ownership metadata, never an installation token, App private key, OAuth client
 secret, or user token.

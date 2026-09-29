@@ -297,6 +297,31 @@ describe("model catalog schema", () => {
           (model) => model.id === "opencode/hy3-free"
         )?.supportedReasoningLevels
       ).toEqual(["low", "medium", "high"]);
+      for (const [id, displayName, variants] of [
+        [
+          "opencode/longcat-2.5-preview-free",
+          "OpenCode LongCat 2.5 Preview Free",
+          ["low", "medium", "high"],
+        ],
+        [
+          "opencode/space-bunny-free",
+          "OpenCode Space Bunny Free",
+          ["low", "medium", "high", "xhigh", "max"],
+        ],
+      ] as const) {
+        expect(
+          result.data.agentControllers.opencode?.models.find(
+            (model) => model.id === id
+          )
+        ).toEqual({
+          id,
+          displayName,
+          badgeLabel: "New",
+          unavailable: false,
+          supportedReasoningLevels: [...variants],
+          minCliVersion: "1.18.33",
+        });
+      }
 
       expect(result.data.agentControllers.cursor?.defaultModelId).toBe(
         "default[]"

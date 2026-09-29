@@ -530,6 +530,13 @@ For every admitted Center Agent turn, personal Remote Agent turn, or Routine Run
    exact release and path. Core checks current access and resource integrity
    before returning bytes.
 
+Automatically included Skills are optional. When a release is disabled or
+removed after a turn is queued but before Flue mounts it, Core omits that
+release from the current catalog; the turn continues with the remaining
+verified releases. An explicitly selected Space work-handoff Skill remains a
+required pinned input and fails visibly if it is unavailable. A digest mismatch
+or invalid catalog is never treated as an ordinary disablement.
+
 Personal runtime reads and activation records validate the active native delivery,
 current membership, and Binding through the shared Remote tool caller. They do
 not require or acquire Center designation. Skill administration remains governed
