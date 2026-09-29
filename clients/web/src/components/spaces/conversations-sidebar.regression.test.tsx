@@ -241,6 +241,14 @@ vi.mock("#/lib/spaces/api", () => ({
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 	useDefaultHumanProfile: () => ({
 		defaultHumanProfile: { openMeldProfileId: "human-1" },
+		profilesQuery: {
+			isPending: false,
+			isError: false,
+			isSuccess: true,
+			isFetching: false,
+			fetchStatus: "idle",
+			refetch: vi.fn(),
+		},
 	}),
 }));
 vi.mock("./new-chat-dialog", () => ({ NewChatDialog: () => null }));

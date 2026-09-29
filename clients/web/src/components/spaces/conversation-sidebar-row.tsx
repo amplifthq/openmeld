@@ -540,9 +540,6 @@ export function resolvePreviewText(
 	if (preview?.isError) {
 		return "Couldn’t load preview. Open chat to retry.";
 	}
-	if (!preview || preview.isPending) {
-		return "Loading message…";
-	}
 	return "";
 }
 

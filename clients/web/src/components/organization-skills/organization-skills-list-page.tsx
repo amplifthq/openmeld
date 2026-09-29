@@ -41,9 +41,11 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSkillPath } from "#/lib/organizations/organization-routes";
 import type { OrganizationSkillFailure } from "#/lib/organizations/organization-skills";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import {
 	organizationSkillQueryKeys,
 	organizationSkillsQueryOptions,
@@ -312,7 +314,16 @@ function SkillsListContent(input: {
 	>;
 	searching: boolean;
 }) {
+	const showPending = useDelayedPending(
+		input.query.isPending && input.query.fetchStatus !== "paused"
+	);
 	if (input.query.isPending) {
+		if (input.query.fetchStatus === "paused") {
+			return <ReadPausedState subject="Skills" />;
+		}
+		if (!showPending) {
+			return null;
+		}
 		return (
 			<div className="grid @min-[760px]/skills:grid-cols-2 gap-3">
 				{[0, 1, 2].map((item) => (

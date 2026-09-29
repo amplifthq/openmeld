@@ -52,6 +52,7 @@ import {
 	buildOrganizationNewSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
 import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
@@ -123,6 +124,18 @@ function getConversationFailures(
 ) {
 	return [
 		{
+			label: "profile",
+			isError:
+				dm.needsDefaultHumanProfile &&
+				!dm.profileId &&
+				(dm.profilesQuery.isError || dm.profilesQuery.isSuccess),
+			isFetching: dm.profilesQuery.isFetching,
+			message: dm.profilesQuery.isError
+				? "Couldn't load your profile."
+				: "No Human Profile is available for this account.",
+			retry: dm.profilesQuery.refetch,
+		},
+		{
 			label: "sidebar settings",
 			isError: dm.store.isError,
 			isFetching: dm.store.isFetching,
@@ -159,6 +172,56 @@ function getConversationFailures(
 			retry: dm.directory.refetch,
 		},
 	].filter((failure) => failure.isError);
+}
+
+function isConversationStatusEvidenceUnavailable(input: {
+	activityUnavailable: boolean;
+	inboxUnavailable: boolean;
+	statuses: string[];
+}): boolean {
+	return (
+		(input.statuses.includes("unread") && input.inboxUnavailable) ||
+		(input.statuses.some((status) => status !== "unread") &&
+			input.activityUnavailable)
+	);
+}
+
+function isConversationListIncomplete(input: {
+	failed: boolean;
+	hasFilters: boolean;
+	hasNextPage: boolean;
+	pending: boolean;
+}): boolean {
+	return input.pending || input.failed || input.hasFilters || input.hasNextPage;
+}
+
+function shouldHoldConversationRows(input: {
+	hasAccountIndex: boolean;
+	isAccountIndexPending: boolean;
+}): boolean {
+	return input.isAccountIndexPending && !input.hasAccountIndex;
+}
+
+function useConversationReadState(
+	dm: ReturnType<typeof useConversations>["directMessages"],
+	waitingForActivity: boolean
+) {
+	const waitingForProfile =
+		dm.needsDefaultHumanProfile && dm.profilesQuery.isPending;
+	const waitingForSpaces = dm.spaces.isPending && !!dm.profileId;
+	const waitingForSessions = dm.sessions.isPending && !!dm.profileId;
+	const pending =
+		waitingForProfile ||
+		waitingForSpaces ||
+		waitingForSessions ||
+		(dm.store.isPending && !dm.store.preferences) ||
+		waitingForActivity;
+	const paused =
+		(waitingForProfile && dm.profilesQuery.fetchStatus === "paused") ||
+		(waitingForSpaces && dm.spaces.fetchStatus === "paused") ||
+		(waitingForSessions && dm.sessions.fetchStatus === "paused");
+	const showDelayedPending = useDelayedPending(pending && !paused);
+	return { pending, paused, showDelayedPending };
 }
 
 export function ConversationsSidebar(
@@ -217,6 +280,11 @@ export function ConversationsSidebar(
 				?.focus(),
 		"Search conversations"
 	);
+	const statusEvidenceUnavailable = isConversationStatusEvidenceUnavailable({
+		activityUnavailable: dm.indicators.activityUnavailable,
+		inboxUnavailable: dm.inbox.isPending || dm.inbox.isError,
+		statuses: filter.statuses,
+	});
 	const active = model.conversations.find(
 		(item) => item.spaceId === model.selected
 	);
@@ -228,7 +296,15 @@ export function ConversationsSidebar(
 		activeSection,
 		!!search.trim() || filter.active
 	);
-	const filtered = model.conversations.filter(
+	// The account index is the source for ordinary Spaces. Keep session-only
+	// discovery from appearing to be the complete sidebar before it resolves.
+	const discoverableConversations = shouldHoldConversationRows({
+		hasAccountIndex: Boolean(dm.spaces.data),
+		isAccountIndexPending: dm.spaces.isPending,
+	})
+		? []
+		: model.conversations;
+	const filtered = discoverableConversations.filter(
 		(item) =>
 			kinds.includes(conversationCategory(item)) &&
 			(item.kind === "direct-message"
@@ -238,10 +314,11 @@ export function ConversationsSidebar(
 				.toLocaleLowerCase()
 				.includes(search.trim().toLocaleLowerCase()) &&
 			filter.includes(model.owner(item)) &&
-			filter.matchesStatus(
-				dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
-				dm.indicators.activeWakeSummaryBySpaceId.get(item.spaceId)
-			)
+			(statusEvidenceUnavailable ||
+				filter.matchesStatus(
+					dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
+					dm.indicators.activeWakeSummaryBySpaceId.get(item.spaceId)
+				))
 	);
 	const recentSection: ConversationSection = {
 		id: "recent",
@@ -289,12 +366,10 @@ export function ConversationsSidebar(
 				section.id !== "chats" &&
 				!hasFilters)
 	);
-	const pending =
-		dm.store.isPending ||
-		dm.spaces.isPending ||
-		dm.sessions.isPending ||
-		dm.directory.isPending ||
-		waitingForActivity;
+	const { pending, paused, showDelayedPending } = useConversationReadState(
+		dm,
+		waitingForActivity
+	);
 	const failures = getConversationFailures(
 		dm,
 		input.hideAccountSpacesFailure === true
@@ -302,7 +377,12 @@ export function ConversationsSidebar(
 	const failed = failures.length > 0;
 	const showSpaceEmptyState = isSpaceEmptyStateVisible(
 		view,
-		pending || failed || hasFilters,
+		isConversationListIncomplete({
+			failed,
+			hasFilters,
+			hasNextPage: Boolean(dm.sessions.hasNextPage),
+			pending,
+		}),
 		model.conversations
 	);
 	const move = (sectionId: string, id: string, beforeId?: string) => {
@@ -533,16 +613,33 @@ export function ConversationsSidebar(
 					</Button>
 				</div>
 			))}
-			{pending && (
-				<SidebarListSkeleton
-					label="Loading conversations"
-					rowCount={2}
-					showPreview
-				/>
+			{paused && !failed && (
+				<p className="px-2 py-1 text-muted-foreground text-xs">
+					Connect to the internet to load conversations.
+				</p>
 			)}
-			{[pending, failed, showSpaceEmptyState, filtered.length > 0].every(
-				(value) => !value
-			) && (
+			{statusEvidenceUnavailable ? (
+				<p className="px-2 py-1 text-muted-foreground text-xs">
+					Status filters are unavailable. Showing conversations without them.
+				</p>
+			) : null}
+			{showDelayedPending &&
+				!paused &&
+				filtered.length === 0 &&
+				!hasFilters && (
+					<SidebarListSkeleton
+						label="Loading conversations"
+						rowCount={2}
+						showPreview
+					/>
+				)}
+			{[
+				pending,
+				failed,
+				dm.sessions.hasNextPage,
+				showSpaceEmptyState,
+				filtered.length > 0,
+			].every((value) => !value) && (
 				<div className="p-2 text-muted-foreground text-xs">
 					<p>
 						{hasFilters
@@ -559,7 +656,7 @@ export function ConversationsSidebar(
 					</Button>
 				</div>
 			)}
-			{dm.sessions.hasNextPage && (
+			{dm.sessions.isFetchingNextPage && (
 				<p aria-live="polite" className="px-2 text-muted-foreground text-xs">
 					Loading older direct messages…
 				</p>

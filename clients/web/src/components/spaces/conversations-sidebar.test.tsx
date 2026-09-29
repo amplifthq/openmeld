@@ -12,11 +12,26 @@ import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ConversationsSidebar } from "./conversations-sidebar";
 
-vi.mock("./use-conversations", async () => ({
-	useConversations: (
-		await import("#/test-support/conversation-sidebar-fixture")
-	).useConversationSidebarFixture,
-}));
+const sidebarState = vi.hoisted(() => ({ accountIndexPending: false }));
+vi.mock("./use-conversations", async () => {
+	const { useConversationSidebarFixture } = await import(
+		"#/test-support/conversation-sidebar-fixture"
+	);
+	return {
+		useConversations: () => {
+			const model = useConversationSidebarFixture();
+			return sidebarState.accountIndexPending
+				? {
+						...model,
+						directMessages: {
+							...model.directMessages,
+							spaces: { ...model.directMessages.spaces, isPending: true },
+						},
+					}
+				: model;
+		},
+	};
+});
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
 		currentUserId: "viewer",
@@ -84,6 +99,7 @@ vi.mock("../organizations/center-agent-chat-avatar", () => ({
 afterEach(() => {
 	cleanup();
 	localStorage.clear();
+	sidebarState.accountIndexPending = false;
 });
 function mount() {
 	return render(
@@ -142,6 +158,14 @@ it("shows Spaces and Direct messages together and keeps the current draft when s
 			.getAllByRole("link")
 			.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
 	).toHaveLength(2);
+});
+
+it("does not present session-only discovery as a complete conversation list", () => {
+	sidebarState.accountIndexPending = true;
+	mount();
+	expect(screen.queryByRole("link", { name: "Launch checklist" })).toBeNull();
+	expect(screen.queryByRole("link", { name: "Product design" })).toBeNull();
+	expect(screen.queryByText("No matching conversations")).toBeNull();
 });
 it("searches both types and applies the nested conversation filter", async () => {
 	mount();
