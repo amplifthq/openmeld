@@ -817,6 +817,7 @@ function SpaceConversationPanelContent(
 						key={buildSpaceConversationScrollRestorationId(
 							input.spaceId ?? input.spaceViewIdPrefix
 						)}
+						scrollEdgeThreshold={48}
 					>
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
