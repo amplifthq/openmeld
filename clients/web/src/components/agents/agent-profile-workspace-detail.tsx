@@ -54,6 +54,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	agentControllerRef: string | null;
 	canEdit: boolean;
 	controllerModelSummary: string;
+	modelIsLoading?: boolean;
 	configurationContent?: ReactNode;
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending: boolean;
@@ -139,9 +140,16 @@ export function AgentProfileWorkspaceDetail(input: {
 								profileName={input.profile.profileName}
 							/>
 						</div>
-						<p className="mt-1 break-words text-muted-foreground text-sm">
-							{input.controllerModelSummary}
-						</p>
+						{input.modelIsLoading ? (
+							<Skeleton
+								aria-label="Loading model"
+								className="mt-2 h-4 w-40 rounded-sm"
+							/>
+						) : (
+							<p className="mt-1 break-words text-muted-foreground text-sm">
+								{input.controllerModelSummary}
+							</p>
+						)}
 						<AgentProfilePresence
 							headerRecoveryActions={
 								showOwnerOperationalContext ? input.headerRecoveryActions : null
