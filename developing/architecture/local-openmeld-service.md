@@ -2301,11 +2301,16 @@ hash differ between macOS and Linux.
 The OS service manager registration is a per-user global resource keyed only by
 the env preset. `OPENMELD_HOME` isolates lane files but does not isolate this
 registration, so any process that mutates a service registration must fail
-closed unless its lane intent is unambiguous: test processes must never mutate
-the published production registration, and a process whose effective root left
-the published production lane must state an explicit `OPENMELD_ENV_PRESET`
-before mutating the production registration. Isolated validation targets the
-`dev-local` or `canary` service identity or stubs the service manager.
+closed unless its lane and root identify the same owner. The production service
+identity may be mutated only from the published production root; an explicit
+`OPENMELD_ENV_PRESET=prod` cannot authorize an isolated root. `openmeld-dev`
+always selects `dev-local`, even when its parent environment carried a production
+preset. Test processes never mutate the published production registration.
+Isolated validation targets the `dev-local` or `canary` service identity or
+stubs the service manager. A dispatch-owned runtime may inspect production
+Service state, but it cannot run a production Service mutation that could stop
+or replace the carrier currently executing that dispatch; it may use a confirmed
+development lane for isolated lifecycle validation.
 
 Service alignment must compare the complete environment target persisted in
 that registration: env preset, Gateway URL, Auth URL, and user-facing CLI

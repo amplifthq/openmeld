@@ -232,6 +232,23 @@ export function assertDispatchOwnedRuntimePublicWriteAllowed(input: {
   );
 }
 
+export function assertDispatchOwnedRuntimeServiceMutationAllowed(input: {
+  commandLabel: string;
+  env?: NodeJS.ProcessEnv;
+}): void {
+  const env = input.env ?? process.env;
+  const guard = readDispatchOwnedRuntimeGuard(env);
+  if (!guard.active || resolveOpenMeldEnvPreset({ env }) !== "prod") {
+    return;
+  }
+  const dispatchIdSuffix = guard.dispatchId
+    ? ` (dispatch ${guard.dispatchId})`
+    : "";
+  throw new Error(
+    `${input.commandLabel} is blocked inside a dispatch-owned runtime${dispatchIdSuffix} because it could stop or replace the production OpenMeld Service carrying this Agent. Use a confirmed dev lane for isolated service testing.`
+  );
+}
+
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;

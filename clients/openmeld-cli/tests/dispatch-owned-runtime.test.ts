@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  assertDispatchOwnedRuntimeServiceMutationAllowed,
   buildDispatchOwnedRuntimeEnv,
   ensureDispatchOwnedRuntimeCliShims,
   resolveDispatchOwnedRuntimeActionCliEntryCommand,
@@ -17,6 +18,8 @@ import {
 import { OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV } from "../src/runtime/dispatch-space-action-context";
 
 const tempDirs: string[] = [];
+const PRODUCTION_SERVICE_MUTATION_PATTERN =
+  /could stop or replace the production OpenMeld Service/;
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -30,6 +33,31 @@ afterEach(() => {
 });
 
 describe("dispatch-owned runtime env", () => {
+  it("blocks production Service mutations from a running dispatch", () => {
+    expect(() =>
+      assertDispatchOwnedRuntimeServiceMutationAllowed({
+        commandLabel: "openmeld service repair",
+        env: {
+          OPENMELD_DISPATCH_RUNTIME_MODE: "dispatch-owned-runtime",
+          OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID: "dispatch-123",
+          OPENMELD_ENV_PRESET: "prod",
+        },
+      })
+    ).toThrow(PRODUCTION_SERVICE_MUTATION_PATTERN);
+  });
+
+  it("allows isolated Service mutations from a running dispatch", () => {
+    expect(() =>
+      assertDispatchOwnedRuntimeServiceMutationAllowed({
+        commandLabel: "openmeld-dev service repair",
+        env: {
+          OPENMELD_DISPATCH_RUNTIME_MODE: "dispatch-owned-runtime",
+          OPENMELD_ENV_PRESET: "dev-local",
+        },
+      })
+    ).not.toThrow();
+  });
+
   it("prepends a dispatch-scoped OpenMeld CLI shim directory to PATH", () => {
     const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
     tempDirs.push(openMeldHome);
