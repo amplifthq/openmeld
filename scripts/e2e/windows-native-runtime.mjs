@@ -51,7 +51,9 @@ for (const name of [
     buildBunCompileArgs({
       bunTarget: "bun-windows-x64",
       version,
-      background: name === "windows-direct-task",
+      background: ["windows-direct-task", "windows-native-codex"].includes(
+        name
+      ),
       outFile,
       entry: path.join(
         repo,
@@ -95,6 +97,22 @@ const workspace = path.join(root, "workspace 中文 with spaces");
 await mkdir(workspace);
 const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
 assert.ok(systemRoot);
+const consoleProbe = path.join(evidence, "windows-console-probe.exe");
+const compileProbe = spawnSync(
+  path.join(systemRoot, "Microsoft.NET/Framework64/v4.0.30319/csc.exe"),
+  [
+    "/nologo",
+    "/target:exe",
+    `/out:${consoleProbe}`,
+    path.join(
+      repo,
+      "clients/openmeld-cli/tests/fixtures/windows-console-probe.cs"
+    ),
+  ],
+  { encoding: "utf8", timeout: 30_000 }
+);
+assert.ifError(compileProbe.error);
+assert.equal(compileProbe.status, 0, compileProbe.stdout + compileProbe.stderr);
 // Keep normal Windows OS discovery (including PowerShell's system modules).
 // Removing the entire OS environment tests an artificial launcher environment,
 // not the promised absence of user-installed Node/Bun. Isolate user state and
@@ -191,9 +209,12 @@ assert.ok(
 );
 await exerciseOwnedComponent({
   executable: binaries["windows-native-codex"].path,
-  args: [codex],
+  args: [codex, consoleProbe],
   log: "official-codex.log",
-  stages: ["official_codex_account_protocol"],
+  stages: [
+    "official_codex_account_protocol",
+    "windows_background_controller_probes",
+  ],
 });
 await rm(root, { recursive: true, force: true });
 
