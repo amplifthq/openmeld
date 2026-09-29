@@ -1453,6 +1453,11 @@ in that Thread; direct messages default to direct replies. Follow an explicit
 user preference for the main conversation, including a continuing preference
 while it remains relevant. The Center Agent selects that destination with
 `openmeld_set_reply_placement` before composing its answer.
+While the destination is unresolved, Web does not present a shared-Space Center
+Agent as working in the main conversation. Once Space selects a Thread, the
+triggering message's **Open thread** entrance shows the compact current status
+and an authorized Stop control; the complete progress and final answer appear
+in that Thread. A final reply preview replaces the interim entrance status.
 
 Space owns one durable output placement per dispatch, separate from source
 context and conversation continuity. Explicit selection or the first answer
