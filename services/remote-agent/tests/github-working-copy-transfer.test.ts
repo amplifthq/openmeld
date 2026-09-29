@@ -5,9 +5,12 @@ import { join } from "node:path";
 import type { WorkspaceClient } from "@cloudflare/computer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  gitUploadPackBytes,
+  gitUploadPackRequest,
+} from "../flue-adapter/git-upload-pack-stream";
+import {
   advanceGitPackTransfer,
   GIT_PACK_TRANSFER_PROGRAM,
-  hasGitPackTransfer,
 } from "../flue-adapter/github-working-copy-transfer";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -31,16 +34,54 @@ function git(directory: string, ...args: string[]): string {
 }
 
 describe("Git pack working-copy transport", () => {
-  it("starts an operation only when no transfer has been recorded", async () => {
-    const storage = new InMemoryDurableObjectStorage();
-    expect(await hasGitPackTransfer(storage, "operation-1")).toBe(false);
-    await storage.put("github-working-copy:git-transfer:operation-1", {
-      id: "retained-process",
-      operationId: "operation-1",
+  it("strips Git progress and rejects a remote error before importing bytes", async () => {
+    const encoder = new TextEncoder();
+    const packet = (bytes: Uint8Array) => {
+      const header = encoder.encode(
+        (bytes.length + 4).toString(16).padStart(4, "0")
+      );
+      return Buffer.concat([header, bytes]);
+    };
+    const response = Buffer.concat([
+      packet(encoder.encode(`shallow ${"a".repeat(40)}\n`)),
+      packet(encoder.encode("NAK\n")),
+      packet(new Uint8Array([2, ...encoder.encode("Counting objects\n")])),
+      packet(new Uint8Array([1, ...encoder.encode("PACKobjects")])),
+      encoder.encode("0000"),
+    ]);
+    const split = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let index = 0; index < response.length; index += 3) {
+          controller.enqueue(response.subarray(index, index + 3));
+        }
+        controller.close();
+      },
     });
-    expect(await hasGitPackTransfer(storage, "operation-1")).toBe(true);
+    let bytes = 0;
+    const result = Buffer.from(
+      await new Response(
+        gitUploadPackBytes(split, (count) => {
+          bytes = count;
+        })
+      ).arrayBuffer()
+    );
+    expect(result.toString()).toBe("PACKobjects");
+    expect(bytes).toBe(result.length);
+    const request = Buffer.from(gitUploadPackRequest(["a".repeat(40)]));
+    expect(request.toString()).toContain("deepen 1\n");
+    expect(request.toString()).toContain("side-band-64k");
+    const failure = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          packet(new Uint8Array([3, ...encoder.encode("denied\n")]))
+        );
+        controller.close();
+      },
+    });
+    await expect(
+      new Response(gitUploadPackBytes(failure, () => undefined)).arrayBuffer()
+    ).rejects.toThrow("github.checkout.git_remote_rejected");
   });
-
   it("restarts a lost retained transfer at most once per retry", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const exec = vi.fn(async () => ({ [Symbol.dispose]: () => undefined }));
@@ -61,8 +102,7 @@ describe("Git pack working-copy transport", () => {
           await run(workspace),
       },
       operationId: "operation-2",
-      owner: "acme",
-      repo: "private",
+      packPath: "/computer/transfer/pack-1.pack",
       location: {
         directory: "/computer/repo",
         transportDirectory: "/computer/transfer",
@@ -99,9 +139,20 @@ describe("Git pack working-copy transport", () => {
     const sourceCommit = git(upstream, "rev-parse", "HEAD");
     const sourceTree = git(upstream, "rev-parse", "HEAD^{tree}");
     execFileSync("git", ["init", "--quiet", transport]);
+    const packPath = join(directory, "objects.pack");
+    writeFileSync(
+      packPath,
+      execFileSync(
+        "git",
+        ["-C", upstream, "pack-objects", "--stdout", "--revs"],
+        {
+          input: `${sourceCommit}\n${baselineCommit}\n`,
+        }
+      )
+    );
     const request = {
       root: transport,
-      url: `file://${upstream}`,
+      packPath,
       sourceCommit,
       sourceTree,
       baselineCommit,

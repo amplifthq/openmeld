@@ -86,6 +86,27 @@ export const remoteAgentGitTransferGrantSchema = z.strictObject({
   scopeKey: z.string().min(1).max(2048),
   expiresAtMs: z.number().int().positive(),
 });
+/** Trusted Remote Agent to AgentComputer RPC. Pack bytes never cross this contract. */
+export const remoteAgentGitPackStartSchema = z.strictObject({
+  operationId: remoteAgentGitKeySchema,
+  transportDirectory: z.string().min(1).max(4096),
+  sourceCommit: remoteAgentGitShaSchema,
+  sourceTree: remoteAgentGitShaSchema,
+  baselineCommit: remoteAgentGitShaSchema,
+  baselineTree: remoteAgentGitShaSchema,
+});
+export type RemoteAgentGitPackStart = zod.infer<
+  typeof remoteAgentGitPackStartSchema
+>;
+export const remoteAgentGitPackStatusSchema = z.strictObject({
+  status: z.enum(["pending", "running", "available", "failed"]),
+  path: z.string().min(1).max(4096).nullable(),
+  bytes: z.number().int().nonnegative().nullable(),
+  errorCode: z.string().nullable(),
+});
+export type RemoteAgentGitPackStatus = zod.infer<
+  typeof remoteAgentGitPackStatusSchema
+>;
 export const remoteAgentGitNativeResultSchema = z.object({
   ready: z.boolean().optional(),
   remaining: z.number().int().nonnegative().optional(),

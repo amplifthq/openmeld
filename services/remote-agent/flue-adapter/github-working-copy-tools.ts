@@ -46,10 +46,7 @@ import {
   type GitWorkingCopyComputerApi,
   type GitWorkingCopyLocation,
 } from "./github-working-copy-computer";
-import {
-  advanceGitPackTransfer,
-  hasGitPackTransfer,
-} from "./github-working-copy-transfer";
+import { advanceGitPackTransfer } from "./github-working-copy-transfer";
 
 export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
 const GITHUB_REPOSITORY_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]{1,100}$/u;
@@ -564,22 +561,38 @@ async function prepareCheckoutObjects(input: {
       storage: dependencies.storage,
       workspaceAccess: dependencies.workspaceAccess,
       operationId,
-      owner: intent.owner,
-      repo: intent.repo,
       location: record,
       expiresAtMs: record.expiresAtMs,
     };
-    if (await hasGitPackTransfer(dependencies.storage, operationId)) {
-      const status = await advanceGitPackTransfer(transferInput);
-      return status === "completed"
-        ? await computer.prepare(record)
-        : { ready: false, remaining: entries.length };
-    }
     const progress = await computer.prepare(record);
-    if (!progress.ready) {
-      await advanceGitPackTransfer(transferInput);
+    if (progress.ready) {
+      return progress;
     }
-    return progress;
+    const start = dependencies.workspaceAccess.startGitPackTransfer;
+    if (!start) {
+      throw new Error("github.checkout.git_pack_host_unavailable");
+    }
+    const status = await start({
+      operationId,
+      transportDirectory: record.transportDirectory,
+      sourceCommit: record.sourceCommit,
+      sourceTree: record.sourceTree,
+      baselineCommit: record.baselineCommit,
+      baselineTree: record.baselineTree,
+    });
+    if (status.status === "failed") {
+      throw new Error(
+        status.errorCode ?? "github.checkout.git_transfer_failed"
+      );
+    }
+    if (status.status !== "available" || !status.path) {
+      return progress;
+    }
+    const imported = await advanceGitPackTransfer({
+      ...transferInput,
+      packPath: status.path,
+    });
+    return imported === "completed" ? await computer.prepare(record) : progress;
   }
   const remote = provider(dependencies, record, signal);
   let progress = await computer.prepare(record);

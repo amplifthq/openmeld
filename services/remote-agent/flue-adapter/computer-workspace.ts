@@ -23,7 +23,10 @@ import type { RemoteAgentResultSource } from "@openmeld/schemas";
 import {
   agentComputerBrowserRequestSchema,
   agentComputerPreviewRequestSchema,
+  type RemoteAgentGitPackStart,
+  type RemoteAgentGitPackStatus,
   type RemoteAgentGitTransferGrant,
+  remoteAgentGitPackStartSchema,
   remoteAgentGitTransferGrantSchema,
 } from "@openmeld/schemas";
 import type { BrowserBinding } from "agents/browser";
@@ -36,6 +39,10 @@ import {
   validateComputerPreviewPort,
 } from "./computer-preview";
 import { authorizeGitTransfer } from "./git-transfer-authorization";
+import {
+  gitUploadPackBytes,
+  gitUploadPackRequest,
+} from "./git-upload-pack-stream";
 
 /**
  * The hosted Agent's computer: an identity-scoped durable workspace backed by
@@ -76,8 +83,9 @@ type AgentComputerEnv = {
   OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: string;
 };
 
-const GIT_EGRESS_HOST = "git.openmeld.invalid";
 const GIT_TRANSFER_GRANT_PREFIX = "openmeld:git-transfer-grant:";
+const GIT_PACK_JOB_PREFIX = "openmeld:git-pack-job:";
+const GIT_PACK_RETRY_AFTER_MS = 13 * 60 * 1000;
 const GIT_EGRESS_PATH =
   /^\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})\/([A-Za-z0-9][A-Za-z0-9_.-]{0,99})\.git\/(info\/refs|git-upload-pack)$/u;
 
@@ -132,6 +140,27 @@ function observeGitStream(
 
 class AgentComputerBase extends DurableObject<AgentComputerEnv> {}
 
+type GitPackJob = RemoteAgentGitPackStart & {
+  status: RemoteAgentGitPackStatus["status"];
+  attempt: number;
+  startedAtMs: number | null;
+  bytes: number | null;
+  errorCode: string | null;
+};
+
+function gitPackPath(job: GitPackJob): string {
+  return `${job.transportDirectory}/pack-${job.attempt}.pack`;
+}
+
+function gitPackStatus(job: GitPackJob): RemoteAgentGitPackStatus {
+  return {
+    status: job.status,
+    path: job.status === "available" ? gitPackPath(job) : null,
+    bytes: job.bytes,
+    errorCode: job.errorCode,
+  };
+}
+
 function workspaceRef(ctx: DurableObjectState) {
   return { binding: AGENT_COMPUTER_BINDING, id: ctx.id.toString() };
 }
@@ -163,8 +192,6 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
         previous.owner !== grant.owner ||
         previous.repo !== grant.repo ||
         previous.scopeKey !== grant.scopeKey ||
-        previous.authorization.submissionId !==
-          grant.authorization.submissionId ||
         previous.authorization.sources?.[0]?.connectionName !==
           grant.authorization.sources[0].connectionName ||
         previous.authorization.sources?.[0]?.connectionUpdatedAtMs !==
@@ -175,17 +202,167 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
     await this.ctx.storage.put(key, grant);
   }
 
-  readonly #gitEgressGateway = {
-    fetch: async (request: Request) =>
-      await this.forwardComputerEgress(request),
-  } as Fetcher;
+  async startGitPackTransfer(
+    value: unknown
+  ): Promise<RemoteAgentGitPackStatus> {
+    const request = remoteAgentGitPackStartSchema.parse(value);
+    if (
+      !request.transportDirectory.startsWith("/computer/") ||
+      request.transportDirectory
+        .split("/")
+        .some((part) => part === "." || part === "..")
+    ) {
+      throw new Error("github.checkout.invalid_transfer_directory");
+    }
+    const grant = await this.ctx.storage.get<RemoteAgentGitTransferGrant>(
+      `${GIT_TRANSFER_GRANT_PREFIX}${request.operationId}`
+    );
+    if (!grant || grant.expiresAtMs <= Date.now()) {
+      throw new Error("github.checkout.transfer_grant_unavailable");
+    }
+    await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
+    const key = `${GIT_PACK_JOB_PREFIX}${request.operationId}`;
+    let job = await this.ctx.storage.get<GitPackJob>(key);
+    if (
+      job &&
+      (job.transportDirectory !== request.transportDirectory ||
+        job.sourceCommit !== request.sourceCommit ||
+        job.sourceTree !== request.sourceTree ||
+        job.baselineCommit !== request.baselineCommit ||
+        job.baselineTree !== request.baselineTree)
+    ) {
+      throw new Error("github.checkout.transfer_conflict");
+    }
+    if (!job) {
+      job = {
+        ...request,
+        status: "pending",
+        attempt: 0,
+        startedAtMs: null,
+        bytes: null,
+        errorCode: null,
+      };
+      await this.ctx.storage.put(key, job);
+      await this.ctx.storage.setAlarm(Date.now());
+    } else if (
+      job.status === "running" &&
+      job.startedAtMs !== null &&
+      Date.now() - job.startedAtMs > GIT_PACK_RETRY_AFTER_MS
+    ) {
+      await this.ctx.storage.setAlarm(Date.now());
+    }
+    return gitPackStatus(job);
+  }
+
+  async alarm(): Promise<void> {
+    const jobs = await this.ctx.storage.list<GitPackJob>({
+      prefix: GIT_PACK_JOB_PREFIX,
+    });
+    const selected = [...jobs.entries()].find(
+      ([, job]) =>
+        job.status === "pending" ||
+        (job.status === "running" &&
+          job.startedAtMs !== null &&
+          Date.now() - job.startedAtMs > GIT_PACK_RETRY_AFTER_MS)
+    );
+    if (!selected) {
+      return;
+    }
+    const [key, old] = selected;
+    const grant = await this.ctx.storage.get<RemoteAgentGitTransferGrant>(
+      `${GIT_TRANSFER_GRANT_PREFIX}${old.operationId}`
+    );
+    if (!grant || grant.expiresAtMs <= Date.now() || old.attempt >= 3) {
+      await this.ctx.storage.put(key, {
+        ...old,
+        status: "failed",
+        errorCode: "github.checkout.git_transfer_unavailable",
+      } satisfies GitPackJob);
+      return;
+    }
+    const startedAtMs = Date.now();
+    const job: GitPackJob = {
+      ...old,
+      status: "running",
+      attempt: old.attempt + 1,
+      startedAtMs,
+      bytes: null,
+      errorCode: null,
+    };
+    await this.ctx.storage.put(key, job);
+    await this.ctx.storage.setAlarm(Date.now() + GIT_PACK_RETRY_AFTER_MS);
+    const path = gitPackPath(job);
+    try {
+      await authorizeGitTransfer(this.env.OPENMELD_CORE_WORKER, grant);
+      const virtualUrl = `https://git.openmeld.invalid/${job.operationId}/${grant.owner}/${grant.repo}.git/git-upload-pack`;
+      const response = await this.forwardComputerEgress(
+        new Request(virtualUrl, {
+          method: "POST",
+          headers: { "content-type": "application/x-git-upload-pack-request" },
+          body: new Blob([
+            new Uint8Array(
+              gitUploadPackRequest([job.sourceCommit, job.baselineCommit])
+            ),
+          ]),
+          signal: AbortSignal.timeout(12 * 60 * 1000),
+        })
+      );
+      if (!(response.ok && response.body)) {
+        await response.body?.cancel();
+        throw new Error("github.checkout.git_upstream_unavailable");
+      }
+      let bytes = 0;
+      await this.workspace.fs.mkdir(job.transportDirectory, {
+        recursive: true,
+      });
+      await this.workspace.fs.writeFile(
+        path,
+        gitUploadPackBytes(response.body, (count) => {
+          bytes = count;
+        })
+      );
+      const current = await this.ctx.storage.get<GitPackJob>(key);
+      if (current?.attempt === job.attempt) {
+        await this.ctx.storage.put(key, {
+          ...job,
+          status: "available",
+          bytes,
+        } satisfies GitPackJob);
+      }
+      console.info("[remote_agent.git_pack_received]", {
+        operationId: job.operationId,
+        bytes,
+        durationMs: Date.now() - startedAtMs,
+      });
+    } catch (error) {
+      await this.workspace.fs.rm(path, { force: true }).catch(() => undefined);
+      const current = await this.ctx.storage.get<GitPackJob>(key);
+      if (current?.attempt === job.attempt) {
+        await this.ctx.storage.put(key, {
+          ...job,
+          status: job.attempt >= 3 ? "failed" : "pending",
+          errorCode:
+            error instanceof Error &&
+            error.message.startsWith("github.checkout.")
+              ? error.message
+              : "github.checkout.git_transfer_failed",
+        } satisfies GitPackJob);
+      }
+    } finally {
+      const pending = await this.ctx.storage.list<GitPackJob>({
+        prefix: GIT_PACK_JOB_PREFIX,
+      });
+      if (
+        [...pending.values()].some(
+          (candidate) => candidate.status === "pending"
+        )
+      ) {
+        await this.ctx.storage.setAlarm(Date.now());
+      }
+    }
+  }
 
   private async forwardComputerEgress(request: Request): Promise<Response> {
-    const target = new URL(request.url);
-    if (target.hostname !== GIT_EGRESS_HOST) {
-      // Preserve the Computer's existing public network capability.
-      return await fetch(request);
-    }
     const route = parseGitEgressRoute(request);
     if (route instanceof Response) {
       return route;
@@ -339,7 +516,7 @@ export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
   readonly #containerBackend = new CloudflareContainerBackend({
     container: () => this,
     // Preserve the native Computer's existing public-network capability.
-    egress: { mode: "http-gateway", gateway: this.#gitEgressGateway },
+    egress: { mode: "direct" },
     // The backend defaults MOUNT_POINT to /workspace; our tree lives
     // under /computer, so pin the FUSE mount there for same-path
     // fidelity between the isolate and the container.
