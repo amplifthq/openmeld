@@ -3691,6 +3691,9 @@ function LoadNewerMessagesControl(input: {
 		input.history?.errorDirection === "after" ? input.history.error : null;
 	useEffect(() => {
 		const scrollElement = input.scrollElement;
+		if (!hasAfter) {
+			requestedSignalIdRef.current = null;
+		}
 		if (!(scrollElement && hasAfter && !pending && !error)) {
 			return;
 		}
