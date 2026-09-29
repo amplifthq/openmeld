@@ -96,11 +96,13 @@ const PDFViewer = import.meta.env.SSR
 				default: module.PDFViewer,
 			}))
 		);
-const CsvViewer = lazy(() =>
-	import("#/components/extend/csv-viewer").then((module) => ({
-		default: module.CsvViewer,
-	}))
-);
+const CsvViewer = import.meta.env.SSR
+	? lazy(async () => ({ default: () => null }))
+	: lazy(() =>
+			import("#/components/extend/csv-viewer").then((module) => ({
+				default: module.CsvViewer,
+			}))
+		);
 const noPreviewUrl = () => null;
 const noPreviewSubscription = () => () => {
 	// There is no browser resource to observe before the authorized read succeeds.
