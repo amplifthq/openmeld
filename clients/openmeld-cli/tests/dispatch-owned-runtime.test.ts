@@ -104,12 +104,13 @@ describe("dispatch-owned runtime env", () => {
     expect(existsSync(`${shimDir}/openmeld-dev`)).toBe(true);
     expect(existsSync(`${shimDir}/openmeld-canary`)).toBe(true);
     const openMeldShim = readFileSync(`${shimDir}/openmeld`, "utf8");
-    expect(openMeldShim).toContain("#!/bin/sh");
-    expect(openMeldShim).toContain("export OPENSSL_CONF=/dev/null");
     expect(openMeldShim).toContain(
-      `exec '${process.execPath}' '/tmp/current-openmeld-dev.mjs' "$@"`
+      "#!/usr/bin/env -S OPENSSL_CONF=/dev/null node"
     );
-    expect(openMeldShim).not.toContain("#!/usr/bin/env node");
+    expect(openMeldShim).toContain(JSON.stringify(process.execPath));
+    expect(openMeldShim).toContain(
+      JSON.stringify("/tmp/current-openmeld-dev.mjs")
+    );
   });
 
   it("generates direct binary shims without a Node script entry", () => {
@@ -217,16 +218,14 @@ describe("dispatch-owned runtime env", () => {
     });
 
     const openMeldDevShim = readFileSync(`${shimDir}/openmeld-dev`, "utf8");
-    expect(openMeldDevShim).toContain(
-      "export OPENMELD_SPACE_ACTION_CONTEXT_PATH="
-    );
+    expect(openMeldDevShim).toContain('"OPENMELD_SPACE_ACTION_CONTEXT_PATH"');
     expect(openMeldDevShim).toContain(contextPath);
     expect(openMeldDevShim).toContain(
-      "export OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID="
+      '"OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID"'
     );
     expect(openMeldDevShim).toContain("dispatch-123");
     expect(openMeldDevShim).toContain(
-      "export OPENMELD_USER_FACING_CLI_COMMAND='openmeld-dev'"
+      '"OPENMELD_USER_FACING_CLI_COMMAND":"openmeld-dev"'
     );
   });
 
