@@ -10,6 +10,8 @@ import {
   readProjectCommonAgentsRpcInputSchema,
   readProjectIssueRoutingResponseSchema,
   readProjectIssueRoutingRpcInputSchema,
+  readProjectRecentTasksResponseSchema,
+  readProjectRecentTasksRpcInputSchema,
   readProjectRepositorySettingsResponseSchema,
   readProjectRepositorySettingsRpcInputSchema,
   resolveProjectIssueActionResponseSchema,
@@ -34,6 +36,8 @@ import type {
   ReadProjectCommonAgentsRpcInput,
   ReadProjectIssueRoutingResponse,
   ReadProjectIssueRoutingRpcInput,
+  ReadProjectRecentTasksResponse,
+  ReadProjectRecentTasksRpcInput,
   ReadProjectRepositorySettingsResponse,
   ReadProjectRepositorySettingsRpcInput,
   ResolveProjectIssueActionResponse,
@@ -47,11 +51,17 @@ import type {
   UpdateProjectResponse,
   UpdateProjectRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, projectDb, wakeEvidenceDb } from "../lib/bindings";
+import {
+  type CoreBindings,
+  projectDb,
+  projectionsDb,
+  wakeEvidenceDb,
+} from "../lib/bindings";
 import { authorizeRemoteAgentExecutionAccess } from "../remote-agent/application/remote-agent-execution-access";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { createCoreRpcHttpError } from "../rpc/errors";
+import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "../rpc/errors";
 import { resolveSpaceStub } from "../rpc/space-ref";
+import { listSpaceTaskProjectCandidates } from "../space/infrastructure/d1/space-task-project-link-repo";
 import { resolveProjectIssueAction } from "./project-issue-action-routing";
 import { listProjectIssueRoutingCandidates } from "./project-repository";
 import {
@@ -155,6 +165,84 @@ export async function rpcReadProjectCommonAgents(
   return parseProjectResponse(readProjectCommonAgentsResponseSchema, {
     commonAgents: await service.readCommonAgents(authority, request.projectId),
   });
+}
+
+export async function rpcReadProjectRecentTasks(
+  env: CoreBindings,
+  input: ReadProjectRecentTasksRpcInput
+): Promise<ReadProjectRecentTasksResponse> {
+  const request = parseProjectPayload(
+    readProjectRecentTasksRpcInputSchema,
+    input
+  );
+  const { authority, service } = await prepareHumanProjectRequest(
+    env,
+    request.context
+  );
+  await service.read(authority, request.projectId);
+  const db = projectionsDb(env);
+  if (!db) {
+    throw createCoreRpcHttpError({
+      code: "project.store_unavailable",
+      reason: "Project work is unavailable.",
+      status: 503,
+    });
+  }
+  const candidates = await listSpaceTaskProjectCandidates({
+    db,
+    organizationId: authority.organizationId,
+    projectId: request.projectId,
+    limit: 40,
+  });
+  const tasks: ReadProjectRecentTasksResponse["tasks"] = [];
+  for (
+    let offset = 0;
+    offset < candidates.length && tasks.length < 20;
+    offset += 5
+  ) {
+    const batch = await Promise.all(
+      candidates.slice(offset, offset + 5).map(async (candidate) => {
+        const stub = resolveSpaceStub(env.OPENMELD_SPACES, candidate.spaceId);
+        if (!stub) {
+          return null;
+        }
+        try {
+          const detail = await stub.rpcGetTask({
+            context: request.context,
+            spaceId: candidate.spaceId,
+            taskId: candidate.taskId,
+          });
+          const task = detail.task;
+          if (
+            task.spaceId !== candidate.spaceId ||
+            task.taskId !== candidate.taskId ||
+            !task.projectIds.includes(request.projectId)
+          ) {
+            return null;
+          }
+          return {
+            spaceId: task.spaceId,
+            taskId: task.taskId,
+            title: task.title,
+            phase: task.phase,
+            updatedAt: task.updatedAt,
+          };
+        } catch (error) {
+          const status = readCoreRpcHttpStatus(error);
+          if (status === 401 || status === 403 || status === 404) {
+            return null;
+          }
+          throw error;
+        }
+      })
+    );
+    for (const task of batch) {
+      if (task && tasks.length < 20) {
+        tasks.push(task);
+      }
+    }
+  }
+  return parseProjectResponse(readProjectRecentTasksResponseSchema, { tasks });
 }
 
 export async function rpcUpdateProjectCommonAgents(

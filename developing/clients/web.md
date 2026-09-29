@@ -2997,6 +2997,11 @@ destination, and Common Agents. Each manager edit uses its section revision;
 the page does not treat a saved preference as provider permission, Space
 membership, or a connected local folder. The current-computer section retains
 its owner-self connection status and authority.
+The same continuous page shows up to twenty recent, viewer-authorized Task
+links back to their owning Spaces. Core rechecks current Space access and Task
+association before returning titles or phases; Web shows no private-Space
+counts and does not call a bounded recent list complete history. An unavailable
+read displays an error rather than an empty Task claim.
 
 The complete Project domain, privacy, permission, local connection, and Wake
 contracts belong to `developing/product/projects.md`.

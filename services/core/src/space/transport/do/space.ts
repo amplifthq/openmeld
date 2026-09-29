@@ -649,6 +649,7 @@ import {
   type SpaceDispatchLedgerStatus,
 } from "../../infrastructure/d1/space-dispatch-read-repo";
 import { projectSpaceTaskGitHubIssueLinks } from "../../infrastructure/d1/space-task-github-issue-link-repo";
+import { projectSpaceTaskProjectLinks } from "../../infrastructure/d1/space-task-project-link-repo";
 import {
   clearDispatchOutboxPoisonFailure,
   createDispatchOutboxRecord,
@@ -7404,7 +7405,8 @@ export class Space extends DurableObject<CoreBindings> {
               normalizedBody.sourceSignalId ?? null
             );
             await this.armSpaceTaskRecovery(
-              (normalizedBody.externalWorkItems?.length ?? 0) > 0
+              (normalizedBody.externalWorkItems?.length ?? 0) > 0 ||
+                (normalizedBody.projectIds?.length ?? 0) > 0
             );
             const receipt = this.createSpaceTaskService(context).create(
               normalizedBody,
@@ -7551,8 +7553,13 @@ export class Space extends DurableObject<CoreBindings> {
     context: CoreRpcContextInput,
     taskContext: SpaceTaskMutationContext
   ): Promise<SpaceTaskMutationReceipt> {
+    const currentProjectIds = this.spaceTaskService.read(input.taskId).task
+      .projectIds;
     await this.armSpaceTaskRecovery(
-      taskMutationMayNeedDelivery(input.body.action)
+      taskMutationMayNeedDelivery(input.body.action) ||
+        currentProjectIds.length > 0 ||
+        (input.body.action === "set_projects" &&
+          input.body.projectIds.length > 0)
     );
     if (input.body.action === "cancel") {
       this.captureSpaceTaskWakeReferences(input.taskId);
@@ -7651,6 +7658,10 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (delivery.kind === "github_projection") {
       await this.projectSpaceTaskGitHubIssueLinks(current);
+      return;
+    }
+    if (delivery.kind === "project_projection") {
+      await this.projectSpaceTaskProjectLinks(current);
       return;
     }
     if (delivery.kind === "completion") {
@@ -8052,6 +8063,18 @@ export class Space extends DurableObject<CoreBindings> {
       });
       throw error;
     }
+  }
+
+  private async projectSpaceTaskProjectLinks(task: SpaceTask): Promise<void> {
+    const db = projectionsDb(this.bindings);
+    const organizationId = this.readSpaceMetaRecord()?.organizationId?.trim();
+    if (!(db && organizationId)) {
+      throw new SpaceTaskDeliveryError(
+        "The Task's Project link projection is unavailable. Check the Space database and Organization configuration.",
+        true
+      );
+    }
+    await projectSpaceTaskProjectLinks({ db, organizationId, task });
   }
 
   private buildSpaceTaskCreateContext(

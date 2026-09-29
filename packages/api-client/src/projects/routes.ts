@@ -19,3 +19,7 @@ export function buildProjectRepositoriesPath(projectId: string): string {
 export function buildProjectCommonAgentsPath(projectId: string): string {
   return `${buildProjectPath(projectId)}/common-agents`;
 }
+
+export function buildProjectRecentTasksPath(projectId: string): string {
+  return `${buildProjectPath(projectId)}/recent-tasks`;
+}

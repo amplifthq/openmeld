@@ -15,6 +15,7 @@ import type {
 	ListProjectsResponse,
 	ReadProjectCommonAgentsResponse,
 	ReadProjectIssueRoutingResponse,
+	ReadProjectRecentTasksResponse,
 	ReadProjectRepositorySettingsResponse,
 	UpdateProjectCommonAgentsResponse,
 	UpdateProjectIssueRoutingResponse,
@@ -132,6 +133,20 @@ export async function readCurrentProjectCommonAgents(input: {
 }): Promise<ReadProjectCommonAgentsResponse> {
 	try {
 		return await createWebProjectsApi(input.organizationId).readCommonAgents(
+			input
+		);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function readCurrentProjectRecentTasks(input: {
+	organizationId: string;
+	projectId: string;
+	signal?: AbortSignal;
+}): Promise<ReadProjectRecentTasksResponse> {
+	try {
+		return await createWebProjectsApi(input.organizationId).readRecentTasks(
 			input
 		);
 	} catch (error) {

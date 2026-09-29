@@ -7,6 +7,7 @@ import type {
   OpenMeldRequestContext,
   ReadProjectCommonAgentsResponse,
   ReadProjectIssueRoutingResponse,
+  ReadProjectRecentTasksResponse,
   ReadProjectRepositorySettingsResponse,
   UpdateProjectBody,
   UpdateProjectCommonAgentsBody,
@@ -44,6 +45,9 @@ export type UpdateProjectRepositorySettingsInput = ProjectRequestInput &
 export type ReadProjectCommonAgentsInput = ProjectRequestInput & {
   projectId: string;
 };
+export type ReadProjectRecentTasksInput = ProjectRequestInput & {
+  projectId: string;
+};
 export type UpdateProjectCommonAgentsInput = ProjectRequestInput &
   UpdateProjectCommonAgentsBody & { projectId: string };
 
@@ -67,6 +71,9 @@ export type ProjectsApi = {
   readCommonAgents: (
     input: ReadProjectCommonAgentsInput
   ) => Promise<ReadProjectCommonAgentsResponse>;
+  readRecentTasks: (
+    input: ReadProjectRecentTasksInput
+  ) => Promise<ReadProjectRecentTasksResponse>;
   updateCommonAgents: (
     input: UpdateProjectCommonAgentsInput
   ) => Promise<UpdateProjectCommonAgentsResponse>;

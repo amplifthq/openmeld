@@ -84,6 +84,19 @@ describe("Project issue action routing", () => {
       projectId: project.id,
       projectRevision: null,
     });
+    expect(
+      resolveProjectIssueAction({
+        projects: [project],
+        proposedDestination: {
+          provider: "github",
+          owner: "amplifthq",
+          repo: "payments",
+        },
+        requestText:
+          "File an issue about https://github.com/amplifthq/payments/pull/82. Create it in this GitHub repository.",
+        requesterCanOverride: true,
+      }).basis
+    ).toBe("explicit_request");
   });
 
   it("does not accept an Agent-authored provider override of a Project default", () => {

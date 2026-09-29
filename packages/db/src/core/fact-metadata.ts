@@ -7,6 +7,8 @@ export const CORE_SPACE_INDEX_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/space-index.schema.ts";
 export const CORE_SPACE_TASK_GITHUB_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/space-task-github.schema.ts";
+export const CORE_SPACE_TASK_PROJECT_SCHEMA_DEFINITION_PATH =
+  "packages/db/src/core/space-task-project.schema.ts";
 export const CORE_SPACE_ATTACHMENT_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/space-attachment.schema.ts";
 export const CORE_FEEDBACK_SCHEMA_DEFINITION_PATH =
@@ -157,6 +159,12 @@ export const getCoreDbSchemaSources = (): DbFactSource[] => {
       owner: "packages/db",
       path: CORE_SPACE_TASK_GITHUB_SCHEMA_DEFINITION_PATH,
       note: "Linked GitHub issue lookup and GitHub App webhook delivery ledger are Core-owned query projections, not Space Task truth.",
+    },
+    {
+      kind: "schema_module",
+      owner: "packages/db",
+      path: CORE_SPACE_TASK_PROJECT_SCHEMA_DEFINITION_PATH,
+      note: "Project-linked Task keys are a Core read projection; Space remains the Task writer and read authority.",
     },
     {
       kind: "schema_module",

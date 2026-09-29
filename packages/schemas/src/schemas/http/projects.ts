@@ -1,10 +1,11 @@
 import * as z from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
-import { linearExternalWorkItemSchema } from "./space-tasks";
+import { linearExternalWorkItemSchema, spaceTaskSchema } from "./space-tasks";
 
 export const PROJECT_NAME_MAX_CHARS = 120;
 export const PROJECT_SLUG_MAX_CHARS = 80;
 export const ACTIVE_PROJECT_LIMIT = 500;
+export const PROJECT_RECENT_TASK_LIMIT = 20;
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
@@ -77,6 +78,23 @@ export const createProjectResponseSchema = z.strictObject({
 });
 
 export const projectRouteParamsSchema = z.strictObject({
+  projectId: boundedIdentifierSchema,
+});
+
+export const projectRecentTaskSchema = z.strictObject({
+  spaceId: spaceTaskSchema.shape.spaceId,
+  taskId: spaceTaskSchema.shape.taskId,
+  title: spaceTaskSchema.shape.title,
+  phase: spaceTaskSchema.shape.phase,
+  updatedAt: spaceTaskSchema.shape.updatedAt,
+});
+
+export const readProjectRecentTasksResponseSchema = z.strictObject({
+  tasks: z.array(projectRecentTaskSchema).max(PROJECT_RECENT_TASK_LIMIT),
+});
+
+export const readProjectRecentTasksRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema.optional(),
   projectId: boundedIdentifierSchema,
 });
 

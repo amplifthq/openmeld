@@ -382,7 +382,13 @@ export const spaceTaskResponseSchema = z.strictObject({
   pendingActions: z
     .array(
       z.strictObject({
-        kind: z.enum(["handoff", "completion", "stop", "github_projection"]),
+        kind: z.enum([
+          "handoff",
+          "completion",
+          "stop",
+          "github_projection",
+          "project_projection",
+        ]),
         state: z.enum(["pending", "failed"]),
         error: z.string().nullable(),
       })

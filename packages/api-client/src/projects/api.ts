@@ -7,6 +7,7 @@ import {
   projectRouteParamsSchema,
   readProjectCommonAgentsResponseSchema,
   readProjectIssueRoutingResponseSchema,
+  readProjectRecentTasksResponseSchema,
   readProjectRepositorySettingsResponseSchema,
   updateProjectBodySchema,
   updateProjectCommonAgentsBodySchema,
@@ -22,6 +23,7 @@ import {
   buildProjectCommonAgentsPath,
   buildProjectIssueRoutingPath,
   buildProjectPath,
+  buildProjectRecentTasksPath,
   buildProjectRepositoriesPath,
   buildProjectsPath,
 } from "./routes";
@@ -120,6 +122,18 @@ export const createProjectsApi: CreateProjectsApi = (
       operation: "project.common-agents.read",
       schema: readProjectCommonAgentsResponseSchema,
       url: buildProjectCommonAgentsPath(projectId),
+    });
+  },
+
+  readRecentTasks: async (input) => {
+    const projectId = requireProjectId(input.projectId);
+    return await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Project recent Tasks response",
+      method: "GET",
+      operation: "project.recent-tasks.read",
+      schema: readProjectRecentTasksResponseSchema,
+      url: buildProjectRecentTasksPath(projectId),
     });
   },
 

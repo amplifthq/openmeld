@@ -153,6 +153,10 @@ import {
   githubAppWebhookDeliveries,
   spaceTaskGitHubIssueLinks,
 } from "./space-task-github.schema.ts";
+import {
+  spaceTaskProjectLinks,
+  spaceTaskProjectProjectionStates,
+} from "./space-task-project.schema.ts";
 
 export const openMeldDaemonOpsDecisions = sqliteTable(
   "openMeldDaemon_ops_decisions",
@@ -1809,5 +1813,7 @@ export const coreSchema = {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceTaskGitHubIssueLinks,
+  spaceTaskProjectLinks,
+  spaceTaskProjectProjectionStates,
   githubAppWebhookDeliveries,
 } as const;

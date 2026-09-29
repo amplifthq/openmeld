@@ -108,7 +108,12 @@ Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
 The same transaction writes `space_task_delivery_outbox` rows for necessary
-handoff, completion, GitHub link projection, and authorized Stop effects.
+handoff, completion, GitHub issue and Project link projections, and authorized
+Stop effects. The Project link D1 projection contains only Organization,
+Project, Space, and Task keys plus Task revision and update time. Its versioned
+write rejects an older Task revision; a Project read rechecks Space membership
+and the Task's current Project set before showing any Task content. It is not
+another Task store or a source of private Space counts.
 The Space alarm retries due rows, and Task detail exposes pending or failed
 effects without treating their state as execution truth. Deterministic Signal
 IDs prevent duplicate publication after a retry. Immediately before inserting

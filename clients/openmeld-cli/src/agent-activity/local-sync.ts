@@ -221,11 +221,11 @@ async function submitDueAgentActivity(
     });
     return unavailable(input, observedCount, "auth_unavailable");
   }
+  const ownerUserId = auth.session.user.id;
   const ownerProjectKeys = new Set(
     bindings
       .filter(
-        (binding) =>
-          !binding.ownerUserId || binding.ownerUserId === auth.session.user.id
+        (binding) => !binding.ownerUserId || binding.ownerUserId === ownerUserId
       )
       .map((binding) => `${binding.organizationId}\u0000${binding.projectId}`)
   );

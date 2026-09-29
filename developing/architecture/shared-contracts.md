@@ -681,6 +681,11 @@ the association; the Task's owning Space still writes the only Task state.
 The Task Project set is work scope, not another Task writer or an authorization
 grant. A new external write cannot take a destination from the set's list
 order. Existing Tasks remain unassociated until a new scoped mutation succeeds.
+Project detail's recent Task response contains at most twenty currently
+authorized Task summaries. Core first reads bounded Project link keys from
+D1, then rereads each Task through the owning Space with the current Human
+Profile. Missing, inaccessible, or no-longer-associated Tasks are omitted;
+the response never exposes candidate counts or implies complete history.
 
 `GET` detail returns the legacy Task and event shape by default. A client may
 request `includeAffordances=1` to receive `allowedActions` and `pendingActions`.

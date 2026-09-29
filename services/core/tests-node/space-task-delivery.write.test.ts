@@ -108,6 +108,49 @@ function createSqlHarness(previousOutboxSchema = false) {
 afterEach(() => vi.useRealTimers());
 
 describe("Space Task durable delivery", () => {
+  it("retains Project link projection for creation and association removal", () => {
+    const harness = createSqlHarness();
+    try {
+      const context = {
+        actor: requester,
+        requestedBy: requester,
+        isSpaceOwner: true,
+        resolveMember: () => null,
+      };
+      const created = harness.service().create(
+        {
+          operationId: "create-project-linked-task",
+          title: "Project work",
+          projectIds: ["project-1"],
+        },
+        context
+      );
+      expect(harness.deliveries.pending(Date.now())).toMatchObject([
+        {
+          kind: "project_projection",
+          receipt: { task: { projectIds: ["project-1"] } },
+        },
+      ]);
+      harness.deliveries.complete(
+        harness.deliveries.pending(Date.now())[0]?.id ?? ""
+      );
+      harness.service().mutate(
+        created.task.taskId,
+        {
+          action: "set_projects",
+          expectedRevision: created.task.revision,
+          operationId: "remove-project-link",
+          projectIds: [],
+        },
+        context
+      );
+      expect(harness.deliveries.pending(Date.now())).toMatchObject([
+        { kind: "project_projection", receipt: { task: { projectIds: [] } } },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
   it("adds delivery retention metadata without dropping a previous outbox row", () => {
     const harness = createSqlHarness(true);
     try {

@@ -997,6 +997,8 @@ function formatTaskDeliveryKind(
 			return "Execution stop request";
 		case "github_projection":
 			return "GitHub issue link sync";
+		case "project_projection":
+			return "Project work link sync";
 		default:
 			return "Task delivery";
 	}

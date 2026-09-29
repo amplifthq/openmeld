@@ -86,6 +86,17 @@ vi.mock("#/lib/organizations/projects", async (importOriginal) => {
 				updatedByUserId: null,
 			},
 		})),
+		readCurrentProjectRecentTasks: vi.fn(async () => ({
+			tasks: [
+				{
+					spaceId: "a".repeat(64),
+					taskId: "tsk_11111111-1111-4111-8111-111111111111",
+					title: "Ship the SDK",
+					phase: "in_progress",
+					updatedAt: "2026-09-29T00:00:00.000Z",
+				},
+			],
+		})),
 		updateCurrentProject: vi.fn(),
 	};
 });
@@ -152,6 +163,11 @@ describe("ProjectDetailPage", () => {
 			screen.getByRole("heading", { name: "Where new issues go" })
 		).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Common Agents" })).toBeTruthy();
+		expect(
+			(await screen.findByRole("link", { name: "Ship the SDK" })).getAttribute(
+				"href"
+			)
+		).toBe(`/o/acme/spaces/${"a".repeat(64)}`);
 		expect(
 			screen.getByRole("heading", { name: "This computer controls" })
 		).toBeTruthy();

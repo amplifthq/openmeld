@@ -19,6 +19,7 @@ import {
   projectRouteParamsSchema,
   readProjectCommonAgentsResponseSchema,
   readProjectIssueRoutingResponseSchema,
+  readProjectRecentTasksResponseSchema,
   readProjectRepositorySettingsResponseSchema,
   updateProjectBodySchema,
   updateProjectCommonAgentsBodySchema,
@@ -45,6 +46,7 @@ const PROJECT_ROUTE = `${PROJECTS_ROUTE}/:projectId`;
 const PROJECT_ISSUE_ROUTING_ROUTE = `${PROJECT_ROUTE}/issue-routing`;
 const PROJECT_REPOSITORIES_ROUTE = `${PROJECT_ROUTE}/repositories`;
 const PROJECT_COMMON_AGENTS_ROUTE = `${PROJECT_ROUTE}/common-agents`;
+const PROJECT_RECENT_TASKS_ROUTE = `${PROJECT_ROUTE}/recent-tasks`;
 const CURRENT_PROJECTS_ROUTE = "/v1/local-runtimes/current/projects";
 const DISCOVER_PROJECTS_ROUTE = `${CURRENT_PROJECTS_ROUTE}/discover`;
 const CONNECT_CANDIDATE_ROUTE = `${CURRENT_PROJECTS_ROUTE}/connect-candidate`;
@@ -54,6 +56,24 @@ const REMOVE_CONNECTION_ROUTE = `${CURRENT_PROJECTS_ROUTE}/connections/remove`;
 const REMOVE_MISSING_CONNECTIONS_ROUTE = `${CURRENT_PROJECTS_ROUTE}/connections/remove-missing`;
 
 export function registerProjectRoutes(app: Hono<HonoBindings>): void {
+  app.get(PROJECT_RECENT_TASKS_ROUTE, (c) => {
+    const params = parseProjectParams(c, PROJECT_RECENT_TASKS_ROUTE, "GET");
+    if (!params.ok) {
+      return params.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.readProjectRecentTasks({
+          context: buildCoreRpcContext(c),
+          projectId: params.data.projectId,
+        }),
+      method: "GET",
+      responseSchema: readProjectRecentTasksResponseSchema,
+      route: PROJECT_RECENT_TASKS_ROUTE,
+    });
+  });
+
   app.get(PROJECT_REPOSITORIES_ROUTE, (c) => {
     const params = parseProjectParams(c, PROJECT_REPOSITORIES_ROUTE, "GET");
     if (!params.ok) {

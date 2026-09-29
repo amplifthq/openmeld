@@ -200,6 +200,9 @@ The detail route is one continuous page with no tabs:
 - **Where issues go**: one optional, versioned GitHub or Linear default;
 - **Common Agents**: the explicitly configured shortlist, separate from
   observed work and current Space membership;
+- **Recent Tasks**: a bounded list of current Task links from Spaces the viewer
+  can access, with each link returning to its owning Space; it does not claim
+  complete Task history or expose private Space counts;
 - **This Computer**: computer name, Service state, discovery state, default
   folder, additional folders or worktrees, Connect folder, Add another folder,
   Make default, and Remove connection;
@@ -210,6 +213,13 @@ The detail route is one continuous page with no tabs:
 Projects links to filtered Activity and related Agent Profile surfaces instead
 of duplicating Activity lists, Agent Profile lists, Organization members,
 session history, or statistics dashboards.
+
+The Project page reads recent Task candidates from a key-only Core projection.
+Each candidate is rechecked against the owning Space's current Task and the
+viewer's current Space access before its title or phase is returned. Revoked
+Space membership, removed Project association, and deleted Tasks cannot be
+shown from stale projection rows. The recent list makes no completeness or
+private-Space count claim.
 
 Current-computer presentation distinguishes these states:
 

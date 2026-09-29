@@ -902,6 +902,8 @@ export type {
   ReadProjectCommonAgentsRpcInput,
   ReadProjectIssueRoutingResponse,
   ReadProjectIssueRoutingRpcInput,
+  ReadProjectRecentTasksResponse,
+  ReadProjectRecentTasksRpcInput,
   ReadProjectRepositorySettingsResponse,
   ReadProjectRepositorySettingsRpcInput,
   RepositoryFingerprint,

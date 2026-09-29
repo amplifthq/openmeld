@@ -47,6 +47,7 @@ import {
 	type ProjectFormSubmission,
 } from "./project-form-dialog";
 import { ProjectIssueRoutingSection } from "./project-issue-routing-section";
+import { ProjectRecentTasksSection } from "./project-recent-tasks-section";
 import { ProjectRepositoriesSection } from "./project-repositories-section";
 
 export function ProjectDetailPage(input: { projectId: string }) {
@@ -227,6 +228,12 @@ export function ProjectDetailPage(input: { projectId: string }) {
 			<ProjectCommonAgentsSection
 				canManage={project.canManage}
 				organizationId={currentOrganization.id}
+				projectId={project.id}
+			/>
+
+			<ProjectRecentTasksSection
+				organizationId={currentOrganization.id}
+				organizationSlug={currentOrganization.slug}
 				projectId={project.id}
 			/>
 

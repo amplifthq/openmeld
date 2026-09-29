@@ -36,6 +36,12 @@ export type ReadProjectCommonAgentsResponse = z.infer<
 export type ReadProjectCommonAgentsRpcInput = z.infer<
   ProjectSchemas["readProjectCommonAgentsRpcInputSchema"]
 >;
+export type ReadProjectRecentTasksResponse = z.infer<
+  ProjectSchemas["readProjectRecentTasksResponseSchema"]
+>;
+export type ReadProjectRecentTasksRpcInput = z.infer<
+  ProjectSchemas["readProjectRecentTasksRpcInputSchema"]
+>;
 export type UpdateProjectCommonAgentsBody = z.infer<
   ProjectSchemas["updateProjectCommonAgentsBodySchema"]
 >;

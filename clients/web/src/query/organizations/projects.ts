@@ -1,6 +1,7 @@
 import type {
 	ListProjectsResponse,
 	ReadProjectIssueRoutingResponse,
+	ReadProjectRecentTasksResponse,
 } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
 import {
@@ -8,6 +9,7 @@ import {
 	type ProjectFailure,
 	readCurrentProjectCommonAgents,
 	readCurrentProjectIssueRouting,
+	readCurrentProjectRecentTasks,
 	readCurrentProjectRepositorySettings,
 } from "#/lib/organizations/projects";
 import { baseQueryOptions } from "#/query/query-config";
@@ -32,6 +34,12 @@ export const projectQueryKeys = {
 		[
 			...projectQueryKeys.organization(organizationId),
 			"common-agents",
+			projectId,
+		] as const,
+	recentTasks: (organizationId: string, projectId: string) =>
+		[
+			...projectQueryKeys.organization(organizationId),
+			"recent-tasks",
 			projectId,
 		] as const,
 };
@@ -100,5 +108,20 @@ export function projectCommonAgentsQueryOptions(input: {
 		queryFn: async ({ signal }) =>
 			await readCurrentProjectCommonAgents({ ...input, signal }),
 		staleTime: 10_000,
+	});
+}
+
+export function projectRecentTasksQueryOptions(input: {
+	organizationId: string;
+	projectId: string;
+}) {
+	return queryOptions<ReadProjectRecentTasksResponse, ProjectFailure>({
+		queryKey: projectQueryKeys.recentTasks(
+			input.organizationId,
+			input.projectId
+		),
+		queryFn: async ({ signal }) =>
+			await readCurrentProjectRecentTasks({ ...input, signal }),
+		staleTime: 0,
 	});
 }

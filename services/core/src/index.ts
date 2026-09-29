@@ -572,6 +572,7 @@ import {
 } from "./projects/project-center-agent-rpc";
 import {
   rpcReadProjectCommonAgents,
+  rpcReadProjectRecentTasks,
   rpcReadProjectRepositorySettings,
   rpcResolveProjectIssueAction,
   rpcUpdateProjectCommonAgents,
@@ -1400,6 +1401,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: Parameters<typeof rpcReadProjectCommonAgents>[1]
   ) {
     return rpcReadProjectCommonAgents(this.env, input);
+  }
+
+  readProjectRecentTasks(
+    input: Parameters<typeof rpcReadProjectRecentTasks>[1]
+  ) {
+    return rpcReadProjectRecentTasks(this.env, input);
   }
 
   updateProjectCommonAgents(
@@ -4098,6 +4105,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcReadProjectCommonAgents>[1]
   ) {
     return super.readProjectCommonAgents(input);
+  }
+
+  readProjectRecentTasks(
+    input: Parameters<typeof rpcReadProjectRecentTasks>[1]
+  ) {
+    return super.readProjectRecentTasks(input);
   }
 
   updateProjectCommonAgents(

@@ -3874,6 +3874,8 @@ withSpaceProfileOption(
       "--task-workspace <mode>",
       "Task folder: isolated (private project worktree for local work) or current"
     )
+    .option("--project <slug>", "Project for a new code task")
+    .option("--repository <url>", "Repository associated with --project")
     .argument("[space]", "Space ID (64-character hex)")
     .argument("[text...]", "Text to send")
     .option(
@@ -3932,6 +3934,11 @@ withSpaceProfileOption(
     profile: cliOptions.profile,
     gatewayUrl: cliOptions.gatewayUrl,
     run: async () => {
+      const projectWork = await resolveCliProjectWork({
+        baseUrl: cliOptions.gatewayUrl,
+        projectSlug: opts.project,
+        repositoryUrl: opts.repository,
+      });
       await runSpaceSend({
         profile: cliOptions.profile,
         baseUrl: cliOptions.gatewayUrl,
@@ -3945,6 +3952,7 @@ withSpaceProfileOption(
           continueFrom: opts.continueFrom,
           taskAccess: opts.taskAccess,
           taskWorkspace: opts.taskWorkspace,
+          projectWork,
         }),
         password: cliOptions.password,
         text: textValue,
@@ -4654,6 +4662,8 @@ program
     "--task-workspace <mode>",
     "Task folder: isolated (private project worktree for local work) or current"
   )
+  .option("--project <slug>", "Project for a new code task")
+  .option("--repository <url>", "Repository associated with --project")
   .argument("[text...]", "Text to send")
   .option("--profile <id>", "OpenMeld profile ID")
   .option("--base-url <url>", "OpenMeld gateway URL")
@@ -4703,6 +4713,8 @@ program
         continueFrom?: string;
         taskAccess?: string;
         taskWorkspace?: string;
+        project?: string;
+        repository?: string;
         file?: string[];
         textFile?: string;
         plain?: boolean;
@@ -4723,6 +4735,11 @@ program
         profile: opts.profile,
         gatewayUrl: opts.baseUrl,
         run: async () => {
+          const projectWork = await resolveCliProjectWork({
+            baseUrl: opts.baseUrl,
+            projectSlug: opts.project,
+            repositoryUrl: opts.repository,
+          });
           await runSpaceSend({
             profile: opts.profile,
             contextSelection: resolveSpaceTaskSelection({
@@ -4733,6 +4750,7 @@ program
               continueFrom: opts.continueFrom,
               taskAccess: opts.taskAccess,
               taskWorkspace: opts.taskWorkspace,
+              projectWork,
             }),
             baseUrl: opts.baseUrl,
             space,
@@ -6095,4 +6113,7 @@ main().catch((error: unknown) => {
 });
 
 import { registerPluginCommands } from "./plugins/registration";
-import { resolveSpaceTaskSelection } from "./space/send-input";
+import {
+  resolveCliProjectWork,
+  resolveSpaceTaskSelection,
+} from "./space/send-input";

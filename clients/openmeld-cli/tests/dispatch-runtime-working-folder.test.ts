@@ -307,6 +307,68 @@ describe("dispatch runtime working folder", () => {
     });
   });
 
+  it("uses the configured local default among clones and blocks an unresolved clone choice", async () => {
+    const fingerprint = `sha256:${"a".repeat(64)}`;
+    const routeConfig = createCurrentRoute();
+    const clones = [
+      {
+        bindingGeneration: "clone-a",
+        boundAtMs: 1,
+        isDefault: false,
+        organizationId: "organization-1",
+        ownerUserId: "user-1",
+        projectId: "project-1",
+        projectSlug: "payments",
+        repositoryFingerprint: fingerprint,
+        repositoryPath: "/tmp/clone-a",
+        status: "available" as const,
+      },
+      {
+        bindingGeneration: "clone-b",
+        boundAtMs: 2,
+        isDefault: true,
+        organizationId: "organization-1",
+        ownerUserId: "user-1",
+        projectId: "project-1",
+        projectSlug: "payments",
+        repositoryFingerprint: fingerprint,
+        repositoryPath: "/tmp/clone-b",
+        status: "available" as const,
+      },
+    ];
+    listProjectConnectionsWithStatus.mockResolvedValue(clones);
+    const request = {
+      ...createDispatchIdentityInput(routeConfig),
+      defaultProjectId: "project-1",
+      defaultProjectIdWasProvided: true,
+      executionContext: createProjectExecutionContext(fingerprint),
+      ownerUserId: "user-1",
+      nowMs: 10_000,
+      routeConfig,
+      targetProfileId: "agt-1",
+    };
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext(request)
+    ).resolves.toEqual({
+      providerRuntimeWorkingDirectory: "/tmp/clone-b",
+    });
+    listProjectConnectionsWithStatus.mockResolvedValue([
+      { ...clones[0], isDefault: false },
+      { ...clones[1], isDefault: false },
+      {
+        ...clones[1],
+        bindingGeneration: "other-repository-default",
+        repositoryFingerprint: `sha256:${"b".repeat(64)}`,
+        repositoryPath: "/tmp/other-repository",
+      },
+    ]);
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext(request)
+    ).rejects.toMatchObject({
+      code: "project.local_connection.invalid",
+    });
+  });
+
   it("blocks selected code work when no local folder matches its Project and repository", async () => {
     const routeConfig = createCurrentRoute();
     await expect(

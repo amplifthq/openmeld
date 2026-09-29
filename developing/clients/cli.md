@@ -1647,6 +1647,16 @@ before upload/publication. Repeating an ID in one relation is deduplicated.
 Dispatch-owned replies still use their prompt-owned context and publication
 boundary; generic send cannot replace a dispatch action.
 
+For a new code task, `space send` and its `send` alias accept
+`--project <slug>` and optional `--repository <url>`. The CLI reads the current
+Project repository settings, uses the configured default or sole repository
+when no URL is supplied, and asks for an exact URL when several repositories
+remain. It freezes the Project ID and repository fingerprint in the Execution
+Context selection. This option requires one `--wake` and `--new-task`; it
+cannot move a continued or forked Context. Core and the current local
+Service still verify the Project, repository, owner-local connection, and file
+policy before execution. No CLI flag grants repository access by itself.
+
 Message text is literal, including old `@Name(wake)` syntax, code, and examples.
 `--plain` optionally asserts that no recipient flags were supplied. Plain sends
 need no member-directory read. Explicit recipients are resolved against one

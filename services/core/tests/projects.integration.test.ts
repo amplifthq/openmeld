@@ -1,16 +1,18 @@
 import { env } from "cloudflare:test";
 import { buildRepositoryFingerprint } from "@openmeld/projects";
-import type { AgentActivityEvent } from "@openmeld/schemas/types";
+import type { AgentActivityEvent, SpaceTask } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptAgentActivityEventRecord } from "../src/agent-activity/activity-event-repository";
 import type { CoreBindings } from "../src/lib/bindings";
 import { readActiveProjectIds } from "../src/projects/project-repository";
+import { rpcReadProjectRecentTasks } from "../src/projects/project-rpc";
 import { createProjectService } from "../src/projects/project-service";
 import {
   rpcCreateProject,
   rpcListProjects,
   rpcUpdateAgentProfileDefaultProject,
 } from "../src/rpc/methods";
+import { projectSpaceTaskProjectLinks } from "../src/space/infrastructure/d1/space-task-project-link-repo";
 
 const ownedOrganizationIds = new Set<string>();
 const ownedUserIds = new Set<string>();
@@ -18,6 +20,16 @@ const ownedExecutionIds = new Set<string>();
 
 afterEach(async () => {
   for (const organizationId of ownedOrganizationIds) {
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM space_task_project_links WHERE organization_id = ?"
+    )
+      .bind(organizationId)
+      .run();
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM space_task_project_projection_states WHERE organization_id = ?"
+    )
+      .bind(organizationId)
+      .run();
     await env.OPENMELD_DB.batch([
       env.OPENMELD_DB.prepare(
         "DELETE FROM agent_activity_execution_links WHERE organization_id = ?"
@@ -75,6 +87,108 @@ afterEach(async () => {
 });
 
 describe("Core Projects", () => {
+  it("shows only current Tasks in Spaces the human can access, and ignores stale projection replay", async () => {
+    const actor = await seedOrganizationActor("member");
+    const project = await createProjectService({ db: env.OPENMELD_DB }).create(
+      authority({
+        organizationId: actor.organizationId,
+        role: "member",
+        userId: actor.userId,
+      }),
+      { name: "Payments" }
+    );
+    const context = {
+      activeOrganizationId: actor.organizationId,
+      actorContext: {
+        callerPrincipalId: actor.userId,
+        profileKind: "human" as const,
+        requestId: `request_${crypto.randomUUID()}`,
+        openMeldProfileId: actor.profileId,
+      },
+    };
+    const actorSnapshot: SpaceTask["createdBy"] = {
+      ownerUserId: actor.userId,
+      profileId: actor.profileId,
+      profileKind: "human",
+      profileName: "Member",
+    };
+    const task = (spaceId: string, title: string, day: number): SpaceTask => ({
+      assignee: null,
+      automaticReworkRounds: 0,
+      completionConditions: [],
+      createdAt: `2026-09-${day}T00:00:00.000Z`,
+      createdBy: actorSnapshot,
+      description: null,
+      externalWorkItems: [],
+      needsHumanDecision: false,
+      phase: "to_do",
+      projectIds: [project.id],
+      requestedBy: actorSnapshot,
+      result: null,
+      review: null,
+      reviewer: null,
+      revision: 1,
+      sourceSignalId: null,
+      spaceId,
+      taskId: `tsk_${crypto.randomUUID()}`,
+      threadId: null,
+      title,
+      updatedAt: `2026-09-${day}T00:00:00.000Z`,
+    });
+    const privateTask = task("a".repeat(64), "Private Task", 29);
+    const staleTask = task("b".repeat(64), "Stale Task", 28);
+    const visibleTask = task("c".repeat(64), "Visible Task", 27);
+    for (const current of [privateTask, staleTask, visibleTask]) {
+      await projectSpaceTaskProjectLinks({
+        db: env.OPENMELD_DB,
+        organizationId: actor.organizationId,
+        task: current,
+      });
+    }
+    const taskBySpace = new Map<string, SpaceTask>([
+      [privateTask.spaceId, privateTask],
+      [staleTask.spaceId, { ...staleTask, projectIds: [] }],
+      [visibleTask.spaceId, visibleTask],
+    ]);
+    const spaces = {
+      idFromString: (spaceId: string) => spaceId,
+      get: (spaceId: string) => ({
+        rpcGetTask: () => {
+          if (spaceId === privateTask.spaceId) {
+            return Promise.reject(
+              new Error("HTTP 401: Space password required")
+            );
+          }
+          return Promise.resolve({
+            task: taskBySpace.get(spaceId),
+            events: [],
+          });
+        },
+      }),
+    } as unknown as CoreBindings["OPENMELD_SPACES"];
+    const coreEnv = { ...env, OPENMELD_SPACES: spaces } as CoreBindings;
+    await expect(
+      rpcReadProjectRecentTasks(coreEnv, { context, projectId: project.id })
+    ).resolves.toEqual({
+      tasks: [expect.objectContaining({ title: "Visible Task" })],
+    });
+
+    const removed = { ...visibleTask, projectIds: [], revision: 2 };
+    taskBySpace.set(visibleTask.spaceId, removed);
+    await projectSpaceTaskProjectLinks({
+      db: env.OPENMELD_DB,
+      organizationId: actor.organizationId,
+      task: removed,
+    });
+    await projectSpaceTaskProjectLinks({
+      db: env.OPENMELD_DB,
+      organizationId: actor.organizationId,
+      task: visibleTask,
+    });
+    await expect(
+      rpcReadProjectRecentTasks(coreEnv, { context, projectId: project.id })
+    ).resolves.toEqual({ tasks: [] });
+  });
   it("configures shared repository associations and a versioned code default", async () => {
     const organizationId = await seedOrganization();
     const service = createProjectService({ db: env.OPENMELD_DB });
