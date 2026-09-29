@@ -137,6 +137,7 @@ import { SpaceConversationCompactionMarker } from "./space-conversation-compacti
 import { resolveLocalDateKey } from "./space-conversation-date";
 import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
 import {
+	getSpaceMessageJumpSpacer,
 	SpaceConversationSendScrollController,
 	type SpaceMessageScrollAction,
 	SpaceMessageScrollController,
@@ -410,6 +411,7 @@ type SpaceUnreadNavigationState = {
 const EMPTY_SPACE_UNREAD_NAVIGATION_STATE: SpaceUnreadNavigationState = {
 	targets: [],
 };
+const SPACE_CONVERSATION_END_THRESHOLD_PX = 48;
 
 type SpaceSetupGuidanceSlots = {
 	banner: ReactNode;
@@ -817,7 +819,7 @@ function SpaceConversationPanelContent(
 						key={buildSpaceConversationScrollRestorationId(
 							input.spaceId ?? input.spaceViewIdPrefix
 						)}
-						scrollEdgeThreshold={48}
+						scrollEdgeThreshold={SPACE_CONVERSATION_END_THRESHOLD_PX}
 					>
 						<SpaceConversationSendScrollController
 							isSendingMessage={input.isSendingMessage}
@@ -872,6 +874,19 @@ function SpaceConversationPanelContent(
 									const conversationScrollElement = event.currentTarget;
 									onConversationScroll(conversationScrollElement);
 									requestUnreadMeasurement();
+									const historyWindow = input.historyNavigation?.activeWindow;
+									if (
+										historyWindow?.confirmedAtLiveTail &&
+										!historyWindow.hasAfter &&
+										!getSpaceMessageJumpSpacer(conversationScrollElement) &&
+										conversationScrollElement.scrollHeight -
+											conversationScrollElement.clientHeight -
+											conversationScrollElement.scrollTop <=
+											SPACE_CONVERSATION_END_THRESHOLD_PX
+									) {
+										input.historyNavigation?.latest();
+										followLatest();
+									}
 									if (conversationScrollElement.scrollTop > 48) {
 										return;
 									}

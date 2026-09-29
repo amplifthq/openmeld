@@ -5,7 +5,9 @@ export type SpaceMessageScrollAction = ReturnType<
 	typeof useMessageScroller
 >["scrollToMessage"];
 
-function getJumpSpacer(scrollElement: HTMLElement): HTMLElement | null {
+export function getSpaceMessageJumpSpacer(
+	scrollElement: HTMLElement
+): HTMLElement | null {
 	const spacer = scrollElement.querySelector<HTMLElement>(
 		"[data-message-scroller-spacer]"
 	);
@@ -100,7 +102,7 @@ export function SpaceMessageScrollController(input: {
 		let pointerDown = false;
 		let previousScrollTop = scrollElement.scrollTop;
 		const releaseAfterUserScroll = (direction: number) => {
-			const spacer = getJumpSpacer(scrollElement);
+			const spacer = getSpaceMessageJumpSpacer(scrollElement);
 			if (!(spacer && direction)) {
 				return;
 			}
@@ -196,7 +198,7 @@ export function SpaceMessageScrollController(input: {
 		) {
 			return;
 		}
-		if (input.scrollElement && getJumpSpacer(input.scrollElement)) {
+		if (input.scrollElement && getSpaceMessageJumpSpacer(input.scrollElement)) {
 			// A jump near the tail can leave artificial space below the focused
 			// message. Once a new tail arrives, show it and release that space.
 			scrollToEnd({ behavior: "auto" });
