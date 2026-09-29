@@ -105,7 +105,13 @@ For React update-depth errors only, the reporter can include up to 40 fixed
 code-path labels from the preceding five seconds, with bounded age in
 milliseconds. The labels cover composer draft writes and restoration, editor
 changes and external replacements, reading-position state writes, and Center
-Agent pending-scope writes. This trace is held only in page memory and contains
+Agent pending-scope writes. Space labels identify timeline writes, Agent
+controller presentation changes on existing signals, history cache writes, and
+visible Wake publication attempts. Repeated labels identify the owners to
+inspect; the Agent controller label names the field category without its value
+or message ID. A later manual report for the same Error retains the fixed-label
+snapshot captured at failure time, with its original ages. A different Error
+cannot inherit it. This trace is held only in page memory and contains
 no draft content, message text, component props, identities, URLs, or arbitrary
 call stacks. It is a lead to reproduce and inspect the writer, not proof that
 the last recorded update initiated the loop. Older clients omit the field.

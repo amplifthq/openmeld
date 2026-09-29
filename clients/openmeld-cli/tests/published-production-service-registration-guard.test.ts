@@ -110,7 +110,7 @@ describe("published production service registration guard", () => {
     ).not.toThrow();
   });
 
-  it("allows a non-test isolated-root mutation with an explicit prod preset", () => {
+  it("rejects a non-test isolated-root mutation even with an explicit prod preset", () => {
     expect(() =>
       assertSafePublishedProductionServiceRegistrationMutation("stop", {
         env: {
@@ -119,7 +119,7 @@ describe("published production service registration guard", () => {
         },
         argv: PLAIN_ARGV,
       })
-    ).not.toThrow();
+    ).toThrow(OUTSIDE_LANE_PATTERN);
   });
 });
 

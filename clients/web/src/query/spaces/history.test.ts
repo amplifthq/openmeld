@@ -4,6 +4,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readRecentReactUpdates } from "#/lib/observability/react-update-trace";
 import {
 	boundSavedSpaceHistory,
 	boundSpaceThreadDisplay,
@@ -11,8 +12,10 @@ import {
 	readSpaceUpdates,
 	SPACE_DATE_HISTORY_PAGE_MAX_MESSAGES,
 	SPACE_SAVED_HISTORY_MAX_BYTES,
+	type SpaceHistorySnapshot,
 	spaceHistoryDateWindowQueryOptions,
 	spaceHistoryQueryOptions,
+	writeSpaceHistoryEnvelopesToCache,
 } from "./history";
 import { SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS } from "./status";
 
@@ -27,6 +30,37 @@ vi.mock("#/lib/spaces/api", () => ({
 }));
 
 describe("space history helpers", () => {
+	it("records a cache write only when saved history changes", () => {
+		const queryClient = new QueryClient();
+		const spaceId = "space-a";
+		const openMeldProfileId = "human-a";
+		const options = spaceHistoryQueryOptions({
+			spaceId,
+			openMeldProfileId,
+			enabled: false,
+		});
+		const envelopes = [createTextSignal({ id: "message-1", ts: 1 })];
+		writeSpaceHistoryEnvelopesToCache({
+			envelopes,
+			queryClient,
+			spaceId,
+			openMeldProfileId,
+		});
+		expect(
+			queryClient.getQueryData<SpaceHistorySnapshot>(options.queryKey)
+				?.envelopes
+		).toEqual(envelopes);
+		const labels = readRecentReactUpdates();
+		expect(labels.at(-1)?.event).toBe("space_history_cache_write");
+		writeSpaceHistoryEnvelopesToCache({
+			envelopes,
+			queryClient,
+			spaceId,
+			openMeldProfileId,
+		});
+		expect(readRecentReactUpdates()).toHaveLength(labels.length);
+		queryClient.clear();
+	});
 	it("keeps only bounded reply previews for retained roots and preserves them across a main-message refresh", () => {
 		const messages = [createTextSignal({ id: "root", ts: 1 })];
 		const thread = {

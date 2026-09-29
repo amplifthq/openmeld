@@ -1981,6 +1981,7 @@ function renderLocalAgentCatalogRowDetail(input: {
 					onCheckAgents: input.rowInput.onCheckAgents,
 					onRevealEmail: input.rowInput.onRevealAccountEmail,
 					snapshot: input.snapshot,
+					targetStatus: input.rowInput.target?.status ?? null,
 				})}
 			/>
 		</div>
@@ -2045,6 +2046,7 @@ function createAgentControllerInterfaceDetailRows(input: {
 	onCheckAgents: () => Promise<void>;
 	onRevealEmail: (agentId: string) => void;
 	snapshot: AgentControllerInterfaceSnapshot;
+	targetStatus: LocalRuntimeExecutionTarget["status"] | null;
 }): SettingsDetailListRow[] {
 	const email = resolveAgentControllerAccountEmailText(input.snapshot);
 	const hasIssueMessage = shouldRenderAgentControllerIssueRow(input.snapshot);
@@ -2098,6 +2100,14 @@ function createAgentControllerInterfaceDetailRows(input: {
 				/>
 			),
 		});
+	}
+	const launchCheck = rows.find((row) => row.label === "Launch check");
+	if (
+		launchCheck &&
+		input.targetStatus === "stale" &&
+		typeof launchCheck.value === "string"
+	) {
+		launchCheck.value = `Last check: ${launchCheck.value}`;
 	}
 	return placeLaunchCheckSecond(rows);
 }
