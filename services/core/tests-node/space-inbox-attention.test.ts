@@ -6,6 +6,45 @@ import { selectSpaceInboxRecipients } from "../src/space/application/space-inbox
 import type { SpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 
 describe("Space Inbox recipient and addressing boundaries", () => {
+  it("delivers one threaded Agent reply notification to the requester and each Human mention", async () => {
+    const reply = {
+      ...message({ mentionTargets: ["felix"] }),
+      profile: {
+        kind: "agent" as const,
+        profileId: "codex",
+        profileName: "Codex",
+      },
+      data: {
+        ...message({ mentionTargets: ["felix"] }).data,
+        meta: { dispatchId: "dispatch-1" },
+      },
+    };
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      ...projectionInput(reply),
+      signalContext: {
+        threadContext: { threadId: "thread-1", rootSignalId: "root-1" },
+        threadPlacement: "thread",
+      },
+      threadParticipantProfileIds: ["monica"],
+      threadRootAuthorUserId: "monica",
+      wakeRequesterUserId: "monica",
+    });
+    const recipients = await selectSpaceInboxRecipients(
+      record?.candidates ?? [],
+      async () => true
+    );
+    expect(recipients.map((item) => item.recipientUserId).sort()).toEqual([
+      "felix",
+      "monica",
+    ]);
+    expect(
+      recipients.every(
+        (item) =>
+          item.sourceTarget.kind === "space" &&
+          item.sourceTarget.threadRootSignalId === "root-1"
+      )
+    ).toBe(true);
+  });
   it("does not turn unrelated Space conversation into personal-Agent activity", async () => {
     const record = project(message({}), [
       member("monica", "monica", "human"),

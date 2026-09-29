@@ -97,6 +97,7 @@ import {
 	resolveWakeFailureTargetContext,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import {
 	refreshWebAgentReadinessAfterCoreFactsChanged,
 	refreshWebAgentReadinessFacts,
@@ -213,6 +214,16 @@ const SpaceTasksPanel = lazy(() =>
 	}))
 );
 
+function DelayedSpaceTasksFallback() {
+	return useDelayedPending(true) ? <SpaceTasksSkeleton /> : null;
+}
+
+function DelayedSpaceFilesFallback() {
+	return useDelayedPending(true) ? (
+		<SpaceFilesSkeleton className="p-6" showToolbar />
+	) : null;
+}
+
 function SpaceTasksPanelSlot(input: {
 	enabled: boolean;
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -225,7 +236,7 @@ function SpaceTasksPanelSlot(input: {
 		return null;
 	}
 	return (
-		<Suspense fallback={<SpaceTasksSkeleton />}>
+		<Suspense fallback={<DelayedSpaceTasksFallback />}>
 			<SpaceTasksPanel
 				key={input.spaceId}
 				membersSnapshot={input.membersSnapshot}
@@ -2276,7 +2287,7 @@ function SpaceLandingConversation({
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
-				<Suspense fallback={<SpaceFilesSkeleton className="p-6" showToolbar />}>
+				<Suspense fallback={<DelayedSpaceFilesFallback />}>
 					<SpaceFilesPanel
 						fileToOpen={spaceFileToOpen}
 						key={controller.spaceId}

@@ -178,7 +178,7 @@ html[data-space-self-message-alignment="left"]
   align-self: flex-start;
 }
 
-[data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
+[data-thread-message] [data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
   max-inline-size: min(100%, 52rem);
 }
 
@@ -186,7 +186,6 @@ html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"]:not([data-thread-message])
   [data-slot="bubble"] {
   inline-size: fit-content;
-  max-inline-size: min(68%, calc(100% - 11rem), 52rem);
 }
 
 html[data-space-self-message-alignment="right"]
@@ -322,7 +321,7 @@ html[data-space-self-message-alignment="right"]
 }
 
 /* Attachment rails use the available message width, including after an inline
-   edit adds the first file. Keep the existing maximum/action-space limits. */
+   edit adds the first file. */
 html:root [data-slot="message"] [data-slot="bubble"]:has([data-slot="space-attachment-strip"]) {
   inline-size: 100%;
 }
@@ -351,48 +350,10 @@ html[data-space-self-message-alignment="left"]
   justify-content: flex-start;
 }
 
-/* Main conversation messages reserve a side for floating actions. Thread actions
-   sit below the bubble, so Thread messages can use the panel's full width. */
-:root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
-  max-inline-size: min(calc(100% - 11rem), 52rem);
-}
-
 @container space-message-row (max-width: 32rem) {
-  :root [data-message-row-id]:not([data-thread-message]) [data-slot="bubble"] {
-    max-inline-size: calc(100% - 4rem);
-  }
-
-  html[data-space-self-message-alignment="right"]
-    [data-space-self-message="true"]:not([data-thread-message])
-    [data-slot="bubble"] {
-    max-inline-size: calc(100% - 4rem);
-  }
-
   [data-message-row-id]:not([data-thread-message])
     [data-slot="message-footer-standard-actions"] {
     display: none;
-  }
-}
-
-/* Direct messages keep their existing content width. Their time lives in the
-   shared hover toolbar, which can float above a bubble when the side is full. */
-:root [data-direct-message] [data-slot="bubble"] {
-  max-inline-size: 100%;
-}
-
-html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"]:not([data-thread-message])
-  [data-direct-message]
-  [data-slot="bubble"] {
-  max-inline-size: min(68%, 52rem);
-}
-
-@container space-message-row (max-width: 32rem) {
-  html[data-space-self-message-alignment="right"]
-    [data-space-self-message="true"]:not([data-thread-message])
-    [data-direct-message]
-    [data-slot="bubble"] {
-    max-inline-size: min(88%, 52rem);
   }
 }
 

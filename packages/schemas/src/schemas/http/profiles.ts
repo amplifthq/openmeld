@@ -49,6 +49,31 @@ export const authProfileManagedRoleSchema = z.enum([
   "openmeld_assistant",
   "center_agent",
 ]);
+export const CENTER_AGENT_BOT_AVATAR_TYPES = [
+  "clover",
+  "flower",
+  "triangle",
+  "square",
+  "blob",
+  "ghost",
+  "circle",
+  "drop",
+  "star",
+  "droid",
+  "mech",
+  "alien",
+  "hexagon",
+  "cat",
+  "cloud",
+  "pill",
+  "pebble",
+  "puddle",
+] as const;
+export const agentAvatarStyleSchema = z.enum([
+  "automatic",
+  "fluid",
+  ...CENTER_AGENT_BOT_AVATAR_TYPES,
+]);
 const authProfileViewManagedRoleSchema = authProfileManagedRoleSchema
   .nullish()
   .transform((value) => value ?? null);
@@ -65,6 +90,7 @@ export const authProfileViewSchema = z
     organizationId: z.string().min(1).nullable().optional(),
     ownerName: z.string().min(1).optional(),
     avatarUrl: z.string().min(1).optional(),
+    avatarStyle: agentAvatarStyleSchema.nullable().optional(),
     source: z.string().min(1),
     managedRole: authProfileViewManagedRoleSchema,
     defaultProjectId: z.string().trim().min(1).nullable().optional(),

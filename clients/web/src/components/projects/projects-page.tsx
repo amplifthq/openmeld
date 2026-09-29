@@ -26,12 +26,15 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { ReadPausedState } from "#/components/app/read-paused-state";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationProjectPath } from "#/lib/organizations/organization-routes";
 import {
 	createCurrentProject,
 	resolveProjectErrorMessage,
 } from "#/lib/organizations/projects";
+import { mayShowCachedReadData } from "#/lib/query-display";
+import { useDelayedPending } from "#/lib/use-delayed-pending";
 import {
 	projectQueryKeys,
 	projectsQueryOptions,
@@ -52,6 +55,9 @@ export function ProjectsPage() {
 	const queryClient = useQueryClient();
 	const projectsQuery = useQuery(
 		projectsQueryOptions({ organizationId: currentOrganization.id })
+	);
+	const showPending = useDelayedPending(
+		projectsQuery.isPending && projectsQuery.fetchStatus !== "paused"
 	);
 	const projects = projectsQuery.data?.projects ?? [];
 	const discovery = useProjectDiscovery({
@@ -120,7 +126,12 @@ export function ProjectsPage() {
 			</header>
 			<ProjectRefreshStatus message={discovery.refreshErrorMessage} />
 
-			{projectsQuery.isPending ? (
+			{projectsQuery.isPending &&
+			!projectsQuery.data &&
+			projectsQuery.fetchStatus === "paused" ? (
+				<ReadPausedState subject="Projects" />
+			) : null}
+			{showPending && !projectsQuery.data ? (
 				<div className={CARD_PICKER_GRID_CLASS_NAME}>
 					<Skeleton className="h-52 w-full" />
 					<Skeleton className="h-52 w-full" />
@@ -135,7 +146,9 @@ export function ProjectsPage() {
 					role="alert"
 				>
 					<p className={resolveStatusToneStrongTextClassName("danger")}>
-						{resolveProjectErrorMessage(projectsQuery.error, "list")}
+						{projectsQuery.data && mayShowCachedReadData(projectsQuery.error)
+							? "Couldn't refresh Projects. Showing the last loaded list."
+							: resolveProjectErrorMessage(projectsQuery.error, "list")}
 					</p>
 					<Button
 						onClick={() => projectsQuery.refetch()}
@@ -146,7 +159,8 @@ export function ProjectsPage() {
 					</Button>
 				</div>
 			) : null}
-			{projectsQuery.isSuccess ? (
+			{projectsQuery.data &&
+			(!projectsQuery.isError || mayShowCachedReadData(projectsQuery.error)) ? (
 				<FluidCardGroup>
 					<ul aria-label="Projects" className={CARD_PICKER_GRID_CLASS_NAME}>
 						{projects.map((project) => (

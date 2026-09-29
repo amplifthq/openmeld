@@ -3,6 +3,8 @@ import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 
 type DirectMessagePeer = {
 	agentControllerRef: string | null;
+	avatarStyle?: OrganizationProfileDirectoryResponse["agentProfiles"][number]["avatarStyle"];
+	avatarModelId?: string | null;
 	avatarUrl: string | null;
 	profileId: string;
 	profileKind: "agent" | "human";
@@ -30,6 +32,8 @@ export function resolveDirectMessagePeer(input: {
 	if (agent) {
 		return {
 			agentControllerRef: agent.agentControllerRef,
+			avatarStyle: agent.avatarStyle,
+			avatarModelId: agent.avatarModelId,
 			avatarUrl: agent.avatarUrl ?? null,
 			profileId,
 			profileKind: "agent",

@@ -23,6 +23,24 @@ describe("normalizeDispatchThreadAction", () => {
     expect(normalized.thread).toEqual({ threadId: THREAD_CONTEXT.threadId });
   });
 
+  it("allows a structured conversation reply from an existing thread", () => {
+    const normalized = normalizeDispatchThreadAction({
+      action: {
+        type: "post_message",
+        placement: "conversation",
+        messageEnvelope: {
+          text: "Decision for everyone.",
+          activationTargets: [],
+          referenceTargets: [],
+        },
+      },
+      threadContext: THREAD_CONTEXT,
+    });
+
+    expect(normalized).toMatchObject({ placement: "conversation" });
+    expect(normalized.thread).toBeUndefined();
+  });
+
   it("defaults post_status replies to the current thread", () => {
     const normalized = normalizeDispatchThreadAction({
       action: {

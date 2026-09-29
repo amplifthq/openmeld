@@ -5,18 +5,21 @@ describe("Agent task destinations", () => {
 	it("uses only work locations disclosed by the owning projection", () => {
 		const context = { status: "working" as const, waitingCount: 1 };
 		expect(
-			agentTaskActivityNavigation({ operationalContext: context })
+			agentTaskActivityNavigation({ operationalContext: context }, "amplift")
 		).toEqual({ current: null, queued: [] });
 		const spaceId = "a".repeat(64);
 		expect(
-			agentTaskActivityNavigation({
-				operationalContext: {
-					...context,
-					currentWorkLocation: { spaceId, spaceName: "Release room" },
+			agentTaskActivityNavigation(
+				{
+					operationalContext: {
+						...context,
+						currentWorkLocation: { spaceId, spaceName: "Release room" },
+					},
 				},
-			})?.current
+				"amplift"
+			)?.current
 		).toEqual({
-			href: `/spaces/${spaceId}`,
+			href: `/o/amplift/spaces/${spaceId}`,
 			source: "space",
 			title: "Release room",
 		});
@@ -27,6 +30,8 @@ describe("Agent task destinations", () => {
 	] as const)("does not invent work locations for %s", (status) => {
 		const operationalContext =
 			status === "idle" ? { status, waitingCount: 0 as const } : { status };
-		expect(agentTaskActivityNavigation({ operationalContext })).toBeNull();
+		expect(
+			agentTaskActivityNavigation({ operationalContext }, "amplift")
+		).toBeNull();
 	});
 });

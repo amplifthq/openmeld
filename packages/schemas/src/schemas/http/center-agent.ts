@@ -70,7 +70,10 @@ import {
   peopleComputerTargetSchema,
 } from "./people-computers";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
-import { authProfileViewSchema } from "./profiles";
+import {
+  authProfileViewSchema,
+  CENTER_AGENT_BOT_AVATAR_TYPES,
+} from "./profiles";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
 import {
   CENTER_AGENT_SLACK_FILE_MAX_BASE64_CHARACTERS,
@@ -543,9 +546,18 @@ export const updateCenterAgentOperatingStateResponseSchema =
     changed: z.boolean(),
   });
 
-export const centerAgentUpdateProfileBodySchema = z.strictObject({
-  profileName: trimmedNonEmptyStringSchema,
-});
+export const centerAgentUpdateProfileBodySchema = z
+  .strictObject({
+    profileName: trimmedNonEmptyStringSchema.optional(),
+    avatarStyle: z.enum(["fluid", ...CENTER_AGENT_BOT_AVATAR_TYPES]).optional(),
+  })
+  .refine(
+    (value) =>
+      value.profileName !== undefined || value.avatarStyle !== undefined,
+    {
+      message: "Choose a profile name or avatar.",
+    }
+  );
 
 export const centerAgentUpdateProfileResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,

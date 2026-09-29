@@ -1,4 +1,5 @@
 import {
+  getPersonalRemoteAgentDefaultModelId,
   resolveAgentWakeAvailability,
   resolveHostedAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
@@ -33,6 +34,7 @@ import {
   type AuthProfileFacts,
   readAuthProfileFacts,
 } from "../../auth/application/profile-facts-reader";
+import { readModelCatalog } from "../../config/model-catalog";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
@@ -676,6 +678,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
         ? Promise.resolve(
             buildAgentIdentitySnapshot({
               record,
+              profileFacts: input.profileFacts,
               liveProfileById,
               cursorSnapshots,
               latestSignalActivity,
@@ -684,6 +687,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
           )
         : buildAgentSnapshot({
             activeOrganizationId,
+            profileFacts: input.profileFacts,
             env: input.env,
             record,
             viewerOwnerUserId: input.viewerOwnerUserId,
@@ -1124,6 +1128,7 @@ async function preloadHumanMemberAvatars(input: {
 }
 
 function buildAgentIdentitySnapshot(input: {
+  profileFacts?: AuthProfileFacts | null;
   record: SpaceMemberRecord;
   liveProfileById: Map<string, Profile>;
   cursorSnapshots: Map<string, CursorMemberSnapshot>;
@@ -1133,6 +1138,8 @@ function buildAgentIdentitySnapshot(input: {
   const snapshotBase = buildSnapshotBase(input);
   return {
     profileId: input.record.profileId,
+    avatarStyle:
+      input.profileFacts?.get(input.record.profileId)?.avatarStyle ?? null,
     profileName: input.record.profileNameSnapshot,
     profileKind: "agent",
     mentionAlias:
@@ -1331,7 +1338,20 @@ function needsLocalMemberPreload(record: SpaceMemberRecord): boolean {
   );
 }
 
+function resolveHostedAvatarModelId(
+  agentControllerRef: string | null,
+  selectedModelId: string | null | undefined
+): string | null {
+  if (selectedModelId) {
+    return selectedModelId;
+  }
+  return agentControllerRef === "hosted:remote-agent"
+    ? getPersonalRemoteAgentDefaultModelId(readModelCatalog())
+    : null;
+}
+
 async function buildAgentSnapshot(input: {
+  profileFacts?: AuthProfileFacts | null;
   activeOrganizationId?: string | null;
   env: CoreBindings;
   record: SpaceMemberRecord;
@@ -1445,6 +1465,12 @@ async function buildAgentSnapshot(input: {
 
   return {
     profileId: input.record.profileId,
+    avatarStyle:
+      input.profileFacts?.get(input.record.profileId)?.avatarStyle ?? null,
+    avatarModelId: resolveHostedAvatarModelId(
+      agentControllerRef,
+      executionReadiness.modelSelection?.modelId
+    ),
     profileName,
     profileKind: "agent",
     mentionAlias:
@@ -1833,6 +1859,7 @@ export async function refreshSpaceMemberNamesFromAuth(input: {
     const profiles = await Promise.race([
       readAuthProfileFacts({
         authWorker: auth,
+        includeAvatarStyle: true,
         profileIds: members.map((member) => member.profileId),
         deadlineAtMs,
       }),

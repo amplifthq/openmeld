@@ -41,6 +41,7 @@ import type {
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLifecycleSnapshot,
+  SpaceThreadContext,
 } from "@openmeld/schemas/types";
 import { resolveCoreAgentExecutionReadinessForProfile } from "../../agent-execution/application/agent-execution-readiness-service";
 import {
@@ -212,6 +213,7 @@ async function measureDispatchTiming<T>(input: {
 export type AgentTransportSpaceActionDeliveryReceipt = {
   emittedSignal: SignalEnvelope | null;
   finalReplySettled: boolean;
+  threadContext?: SpaceThreadContext | null;
 };
 
 export type AgentTransportSpaceActionDeliveryInput = {
@@ -2500,6 +2502,7 @@ const deliverFailedDispatchPublicationPlan = async (input: {
       executionContext: input.executionContext,
       executionLogBase: input.executionLogBase,
       plan: input.plan,
+      publishedThreadContext: emission.threadContext,
       recordPublicationProjection: input.recordPublicationProjection,
       runtimeOutput: resolveArchivedDispatchReplyText({
         plan: input.plan,
@@ -2749,6 +2752,7 @@ const finalizePublishedDispatchReply = async (input: {
     DispatchPublicationPlan,
     { kind: "message" | "status" | "system_notice" }
   >;
+  publishedThreadContext?: SpaceThreadContext | null;
   recordPublicationProjection: boolean;
   runtimeOutput: string;
   targetProfileName: string | null;
@@ -2776,7 +2780,10 @@ const finalizePublishedDispatchReply = async (input: {
     targetProfileName: input.targetProfileName,
     plan: input.plan,
     spaceId: input.dispatchMessage.spaceId,
-    threadContext: input.dispatchMessage.threadContext ?? null,
+    threadContext:
+      input.publishedThreadContext === undefined
+        ? (input.dispatchMessage.threadContext ?? null)
+        : input.publishedThreadContext,
   });
   if (dispatchResult) {
     await writeDispatchResult({
@@ -4856,6 +4863,15 @@ const persistAgentControllerConversationId = async (input: {
   }
 };
 
+function resolveDeliveredThreadContext(
+  receipt: AgentTransportSpaceActionDeliveryReceipt,
+  sourceThreadContext: SpaceThreadContext | null
+): SpaceThreadContext | null {
+  return receipt.threadContext === undefined
+    ? sourceThreadContext
+    : receipt.threadContext;
+}
+
 const emitDispatchReplySignals = async (input: {
   agentControllerConversationId: string | null;
   attemptId: string;
@@ -4927,6 +4943,7 @@ const emitDispatchReplySignals = async (input: {
         })
       : null;
   let emittedSignal: SignalEnvelope | null = null;
+  let publishedThreadContext = input.dispatchMessage.threadContext ?? null;
 
   if (
     input.deliverAgentTransportSpaceAction &&
@@ -4954,6 +4971,10 @@ const emitDispatchReplySignals = async (input: {
       workingDirectory,
     });
     emittedSignal = emission.emittedSignal;
+    publishedThreadContext = resolveDeliveredThreadContext(
+      emission,
+      publishedThreadContext
+    );
   } else if (publicationPlan.kind === "message") {
     emittedSignal = await emitDispatchTextReplySignal({
       ...input,
@@ -5034,6 +5055,7 @@ const emitDispatchReplySignals = async (input: {
       executionLogBase: input.executionLogBase,
       archivedMessageEnvelope,
       plan: publicationPlan,
+      publishedThreadContext,
       recordPublicationProjection: input.recordPublicationProjection,
       runtimeOutput: payload.output,
       targetProfileName: input.targetProfileName,

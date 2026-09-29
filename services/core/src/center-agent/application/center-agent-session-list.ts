@@ -80,6 +80,9 @@ export async function listAuthorizedCenterAgentSessions(input: {
     sessions: page.map((row) => ({
       spaceId: row.spaceId,
       name: row.name,
+      ...(row.messagePreview !== undefined
+        ? { messagePreview: row.messagePreview }
+        : {}),
       createdAt:
         row.createdAtMs === null
           ? null

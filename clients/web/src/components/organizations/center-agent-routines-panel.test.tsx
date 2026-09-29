@@ -1250,7 +1250,7 @@ describe("CenterAgentRoutinesPanel", () => {
 		});
 	});
 
-	it("shows an honest loading state while the Routine owner read is pending", () => {
+	it("shows an honest loading state after a Routine owner read stays pending", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(() => new Promise<Response>(() => undefined)) as typeof fetch
@@ -1264,7 +1264,10 @@ describe("CenterAgentRoutinesPanel", () => {
 			</TestQueryClientProvider>
 		);
 		expect(
-			screen.getByRole("status", { name: "Loading routines" })
+			screen.queryByRole("status", { name: "Loading routines" })
+		).toBeNull();
+		expect(
+			await screen.findByRole("status", { name: "Loading routines" })
 		).toBeTruthy();
 	});
 

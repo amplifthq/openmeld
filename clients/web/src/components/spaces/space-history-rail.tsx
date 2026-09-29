@@ -262,13 +262,14 @@ export function SpaceHistoryRail(input: {
 	const reserveLatest = (): SpaceHistoryLatestReservation => {
 		const sequence = ++jumpSequence.current;
 		const isCurrent = () => sequence === jumpSequence.current;
+		const previousPosition = readPosition(input.scrollElement);
 		return {
 			isCurrent,
 			navigate: async () => {
 				if (!isCurrent()) {
 					return false;
 				}
-				setPrevious(readPosition(input.scrollElement));
+				setPrevious(previousPosition);
 				closePreview();
 				input.controller.latest();
 				input.onFollowLatest();
@@ -284,10 +285,6 @@ export function SpaceHistoryRail(input: {
 				) {
 					return false;
 				}
-				current.scrollElement.scrollTo({
-					top: current.scrollElement.scrollHeight,
-					behavior: "instant",
-				});
 				return isCurrent();
 			},
 		};

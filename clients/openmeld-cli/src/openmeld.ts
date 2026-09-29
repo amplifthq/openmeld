@@ -2998,6 +2998,12 @@ spaceActionCmd
   .command("reply")
   .description("Record a final Space reply for the current dispatch.")
   .argument("[message...]", "Reply message")
+  .addOption(
+    new Option(
+      "--placement <placement>",
+      "Reply location: thread or conversation"
+    ).choices(["thread", "conversation"])
+  )
   .option(
     "--message-file <path>",
     "Read the UTF-8 reply message from a file; use - for stdin"
@@ -3032,6 +3038,10 @@ spaceActionCmd
       messageFilePath:
         typeof opts.messageFile === "string" ? opts.messageFile : undefined,
       messageParts: Array.isArray(messageParts) ? messageParts : [],
+      placement:
+        opts.placement === "thread" || opts.placement === "conversation"
+          ? opts.placement
+          : undefined,
       mentionTargets: Array.isArray(opts.mention) ? opts.mention : [],
       wakeTargets: Array.isArray(opts.wake) ? opts.wake : [],
       referenceTargets: Array.isArray(opts.reference) ? opts.reference : [],
