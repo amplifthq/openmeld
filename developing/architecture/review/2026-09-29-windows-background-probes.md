@@ -1,5 +1,18 @@
 # Windows background controller probe console regression
 
+## Agent Context
+
+- Purpose: Preserve the confirmed Windows console regression and its focused validation.
+- Read this when: Reviewing this fix or preparing its Windows release smoke.
+- Update this when: Candidate verification or post-release visual acceptance completes.
+- Do not use this for: Release authorization or proof that every historical flash has the same cause.
+- Source of truth: The identified carrier, real-machine observations, and exact CI runs below.
+
+Status: Native regression passed; release and post-release production smoke pending.
+
+Remove when the fix ships and its Windows production smoke is recorded in the PR;
+Git history retains the investigation evidence.
+
 ## Confirmed cause
 
 The published 0.3.231 GUI Service carrier could create a visible Windows
@@ -57,6 +70,18 @@ then launch that witness, which refuses a console and otherwise forwards stdio
 to the pinned official Codex. Successful unauthenticated account and empty
 session responses prove that suppressing the console preserves the protocol.
 This test uses an isolated home, no provider login, and no model inference.
+
+Candidate `7217d0f9b71a306d947a14250a43ec78239d6a78` passed both native jobs in
+[run 36546429122, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/36546429122).
+At 09:09:02 UTC the evidence records `official_codex_account_protocol` and
+`windows_background_controller_probes` as passed. The GUI artifact SHA-256 is
+`8563b1571889c2f782ac38e1ce85002671c9d1be2cf0461847e840f56d7bedc0`.
+
+The earlier [run 36544851500, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/36544851500)
+failed: the new C# witness buffered stdin until EOF, preventing the RPC handshake.
+Flushing each forwarded byte chunk corrected the test without changing a product
+timeout. That run separately reproduced the historical npm/legacy task-host
+`ETIMEDOUT` investigated in #1342. No task-host fix is claimed by this PR.
 
 ## Contract impact and release boundary
 
