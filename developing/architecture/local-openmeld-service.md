@@ -2314,7 +2314,10 @@ closed unless its lane and root identify the same owner. The production service
 identity may be mutated only from the published production root; an explicit
 `OPENMELD_ENV_PRESET=prod` cannot authorize an isolated root. `openmeld-dev`
 always selects `dev-local`, even when its parent environment carried a production
-preset. Test processes never mutate the published production registration.
+preset or production Auth, Gateway, and client defaults. Explicit lane-local
+endpoints remain intact. For compatibility, `OPENMELD_ENV=dev` resolves to the
+same `dev-local` lane; conflicting legacy and canonical selectors fail instead
+of choosing one silently. Test processes never mutate the published production registration.
 Isolated validation targets the `dev-local` or `canary` service identity or
 stubs the service manager. A dispatch-owned runtime may inspect production
 Service state, but it cannot run a production Service mutation that could stop
