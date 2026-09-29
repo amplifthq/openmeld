@@ -25,6 +25,19 @@ it.each([
   ).toMatchObject({ kind: "request_ended", recoveryTarget: null });
 });
 
+it("explains a pinned Skill that was disabled before the turn started", () => {
+  expect(
+    resolveCenterAgentCallbackFailureMessage({
+      failureCode: "organization_skill.release_unavailable",
+      failureDetail:
+        "HTTP 403 organization_skill.release_unavailable: internal detail",
+      failureMessage: "Internal callback failure",
+    })
+  ).toBe(
+    "A Skill selected for this request is no longer available. Ask an Organization admin to restore it, or send a new request without that Skill."
+  );
+});
+
 it.each([
   "context.workspace_mismatch",
   "context.workspace_verification_unavailable",

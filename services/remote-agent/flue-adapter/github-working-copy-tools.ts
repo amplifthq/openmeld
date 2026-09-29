@@ -10,6 +10,7 @@ import {
   remoteAgentGitCheckoutInputSchema,
   remoteAgentGitPublishInputSchema,
   remoteAgentGitTransferGrantSchema,
+  remoteAgentGitTreeSchema,
 } from "@openmeld/schemas";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { picklist, strictObject, string } from "valibot";
@@ -49,6 +50,12 @@ import {
 import { advanceGitPackTransfer } from "./github-working-copy-transfer";
 
 export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
+// Code Mode stops its script after 60 seconds. Leave time to import the blobs
+// already transferred and return a truthful preparing result.
+const CHECKOUT_BATCH_SOFT_BUDGET_MS = 45_000;
+const CHECKOUT_BATCH_HARD_BUDGET_MS = 55_000;
+const CHECKOUT_BLOB_CONCURRENCY = 4;
+const CHECKOUT_PREPARE_RESERVE_MS = 10_000;
 const GITHUB_REPOSITORY_SEGMENT_PATTERN = /^[A-Za-z0-9_.-]{1,100}$/u;
 const GITHUB_OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 type Dependencies = {
@@ -70,6 +77,14 @@ type Checkout = GitWorkingCopyLocation & {
   repositoryId: number;
   branch: string;
   expiresAtMs: number;
+};
+type CheckoutTimings = {
+  authorization: number;
+  treeGet: number;
+  blobGet: number;
+  otherGet: number;
+  computerWrite: number;
+  computerPrepare: number;
 };
 type Publication = { signature: string; commit: string; refAttempted: boolean };
 type FilePublication = Publication & {
@@ -123,7 +138,7 @@ export function getGitHubWorkingCopyTools(
     {
       name: "github_publish_computer_file",
       description:
-        "Publish one PNG or JPEG file already downloaded into this Computer to a private GitHub repository. Supply its Computer path, owner/repo, the explicit GitHub identity and a stable operationId. This makes one file commit on an OpenMeld side branch, never main; no repository checkout or model-visible file bytes are needed. Reuse identical inputs and operationId on retries. Returns a commit-pinned GitHub blob?raw=true URL that viewers with repository access can embed in an issue or PR. Keep the side branch so GitHub retains the commit; the link is not public to people without repository access. This does not open a PR or attest tests.",
+        "Publish one PNG or JPEG image or screenshot already downloaded into this Computer to a private GitHub repository. Supply its Computer path, owner/repo, the explicit GitHub identity and a stable operationId. This makes one file commit on an OpenMeld side branch, never main; no repository checkout or model-visible file bytes are needed. Reuse identical inputs and operationId on retries. Returns a commit-pinned GitHub blob?raw=true URL that viewers with repository access can embed in an issue or PR. Keep the side branch so GitHub retains the commit; the link is not public to people without repository access. This does not open a PR or attest tests.",
       input: strictObject({
         path: string(),
         owner: string(),
@@ -442,7 +457,16 @@ async function authorizeCheckout(
   });
 }
 
-function provider(input: Dependencies, record: Checkout, signal?: AbortSignal) {
+function provider(
+  input: Dependencies,
+  record: Checkout,
+  signal?: AbortSignal,
+  onTiming?: (
+    segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
+    durationMs: number
+  ) => void,
+  deadlineAtMs?: number
+) {
   return new GitHubWorkingCopyProvider({
     runtime: input.connectorExecution,
     owner: record.intent.owner,
@@ -450,6 +474,8 @@ function provider(input: Dependencies, record: Checkout, signal?: AbortSignal) {
     connectionName: record.connectionName,
     authorize: (effect) => authorizeCheckout(input, record, effect),
     signal,
+    onTiming,
+    deadlineAtMs,
   });
 }
 
@@ -457,7 +483,12 @@ async function createCheckout(
   input: Dependencies,
   intent: RemoteAgentGitCheckoutInput,
   identity: Awaited<ReturnType<typeof locate>>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onTiming?: (
+    segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
+    durationMs: number
+  ) => void,
+  deadlineAtMs?: number
 ) {
   const toolContext = await buildRemoteAgentToolContext({
     storage: input.storage,
@@ -492,7 +523,7 @@ async function createCheckout(
     baselineManifestDigest: "",
     repositoryId: 0,
   };
-  const remote = provider(input, preliminary, signal);
+  const remote = provider(input, preliminary, signal, onTiming, deadlineAtMs);
   const repository = await remote.repository();
   const commit = await remote.commit(intent.ref);
   // Resolve the default branch independently of model-selected ref/HEAD.
@@ -533,84 +564,207 @@ async function createCheckout(
   if (!frozen) {
     throw new Error("github.checkout.state_unavailable");
   }
-  return frozen;
+  return {
+    record: frozen,
+    entries: frozen.manifestDigest === record.manifestDigest ? entries : null,
+    baselineEntries:
+      frozen.baselineManifestDigest === record.baselineManifestDigest
+        ? baselineEntries
+        : null,
+  };
 }
 
-async function prepareCheckoutObjects(input: {
-  dependencies: Dependencies;
-  intent: RemoteAgentGitCheckoutInput;
-  record: Checkout;
-  operationId: string;
+async function readVerifiedCachedManifests(
+  computer: GitWorkingCopyComputer,
+  record: Checkout
+): Promise<{
   entries: RemoteAgentGitTreeEntry[];
   baselineEntries: RemoteAgentGitTreeEntry[];
-  computer: GitWorkingCopyComputer;
-  signal?: AbortSignal;
-}): Promise<Awaited<ReturnType<GitWorkingCopyComputer["prepare"]>>> {
-  const {
-    dependencies,
-    intent,
-    record,
-    operationId,
-    entries,
-    baselineEntries,
-    computer,
-    signal,
-  } = input;
-  if (intent.githubActor === "requester") {
-    const transferInput = {
-      storage: dependencies.storage,
-      workspaceAccess: dependencies.workspaceAccess,
-      operationId,
-      location: record,
-      expiresAtMs: record.expiresAtMs,
+} | null> {
+  try {
+    const manifest = await computer.readManifest(record, "manifest.json");
+    const baseline = await computer.readManifest(record, "baseline.json");
+    if (
+      (await textDigest(manifest)) !== record.manifestDigest ||
+      (await textDigest(baseline)) !== record.baselineManifestDigest
+    ) {
+      return null;
+    }
+    return {
+      entries: remoteAgentGitTreeSchema.parse({
+        sha: record.sourceTree,
+        truncated: false,
+        tree: JSON.parse(manifest),
+      }).tree,
+      baselineEntries: remoteAgentGitTreeSchema.parse({
+        sha: record.baselineTree,
+        truncated: false,
+        tree: JSON.parse(baseline),
+      }).tree,
     };
-    const progress = await computer.prepare(record);
-    if (progress.ready) {
-      return progress;
-    }
-    const start = dependencies.workspaceAccess.startGitPackTransfer;
-    if (!start) {
-      throw new Error("github.checkout.git_pack_host_unavailable");
-    }
-    const status = await start({
-      operationId,
-      transportDirectory: record.transportDirectory,
-      sourceCommit: record.sourceCommit,
-      sourceTree: record.sourceTree,
-      baselineCommit: record.baselineCommit,
-      baselineTree: record.baselineTree,
-    });
-    if (status.status === "failed") {
-      throw new Error(
-        status.errorCode ?? "github.checkout.git_transfer_failed"
-      );
-    }
-    if (status.status !== "available" || !status.path) {
-      return progress;
-    }
-    const imported = await advanceGitPackTransfer({
-      ...transferInput,
-      packPath: status.path,
-    });
-    return imported === "completed" ? await computer.prepare(record) : progress;
+  } catch {
+    // A missing or altered Computer cache is rebuilt from the pinned trees.
+    return null;
   }
-  const remote = provider(dependencies, record, signal);
-  let progress = await computer.prepare(record);
-  const allowed = new Set(
-    [...entries, ...baselineEntries]
-      .filter((entry) => entry.type === "blob")
-      .map((entry) => entry.sha)
-  );
-  for (const sha of progress.missing ?? []) {
-    if (!allowed.has(sha)) {
+}
+
+async function loadVerifiedCheckoutManifests(input: {
+  record: Checkout;
+  created: Awaited<ReturnType<typeof createCheckout>> | null;
+  cached: Awaited<ReturnType<typeof readVerifiedCachedManifests>>;
+  remote: GitHubWorkingCopyProvider;
+}) {
+  const entries =
+    input.created?.entries ??
+    input.cached?.entries ??
+    (await input.remote.tree(input.record.sourceTree));
+  const baselineEntries =
+    input.created?.baselineEntries ??
+    input.cached?.baselineEntries ??
+    (input.record.baselineTree === input.record.sourceTree
+      ? entries
+      : await input.remote.tree(input.record.baselineTree));
+  validateCheckoutBudget(entries, baselineEntries);
+  if (
+    (await textDigest(JSON.stringify(baselineEntries))) !==
+    input.record.baselineManifestDigest
+  ) {
+    throw new Error("github.checkout.baseline_changed");
+  }
+  if (
+    (await textDigest(JSON.stringify(entries))) !== input.record.manifestDigest
+  ) {
+    throw new Error("github.checkout.manifest_changed");
+  }
+  return { entries, baselineEntries };
+}
+
+async function transferCheckoutBlobs(input: {
+  allowed: Set<string>;
+  missing: string[];
+  remote: GitHubWorkingCopyProvider;
+  signal?: AbortSignal;
+  startedAtMs: number;
+  writeBlob: (sha: string, bytes: Uint8Array) => Promise<void>;
+}): Promise<void> {
+  for (const sha of input.missing) {
+    if (!input.allowed.has(sha)) {
       throw new Error("github.checkout.unexpected_blob_request");
     }
-    await computer.writeBlob(record, sha, await remote.blob(sha));
   }
-  if (!progress.ready) {
-    progress = await computer.prepare(record);
+  let nextMissingIndex = 0;
+  let transferError: unknown;
+  await Promise.all(
+    Array.from(
+      { length: Math.min(CHECKOUT_BLOB_CONCURRENCY, input.missing.length) },
+      async () => {
+        while (!transferError && nextMissingIndex < input.missing.length) {
+          const remainingMs =
+            CHECKOUT_BATCH_SOFT_BUDGET_MS - (Date.now() - input.startedAtMs);
+          if (remainingMs <= CHECKOUT_PREPARE_RESERVE_MS) {
+            return;
+          }
+          const sha = input.missing[nextMissingIndex++];
+          if (!sha) {
+            return;
+          }
+          try {
+            const bytes = await input.remote.blob(
+              sha,
+              Math.min(20_000, remainingMs - CHECKOUT_PREPARE_RESERVE_MS)
+            );
+            await input.writeBlob(sha, bytes);
+          } catch (error) {
+            if (
+              !input.signal?.aborted &&
+              error instanceof Error &&
+              error.name === "TimeoutError"
+            ) {
+              return;
+            }
+            transferError = error;
+          }
+        }
+      }
+    )
+  );
+  if (transferError) {
+    throw transferError;
   }
-  return progress;
+}
+
+async function prepareCheckoutWithinBudget(input: {
+  computer: GitWorkingCopyComputer;
+  record: Checkout;
+  startedAtMs: number;
+  final: boolean;
+  measure: <T>(action: () => Promise<T>) => Promise<T>;
+}) {
+  const remainingMs =
+    (input.final
+      ? CHECKOUT_BATCH_HARD_BUDGET_MS
+      : CHECKOUT_BATCH_SOFT_BUDGET_MS) -
+    (Date.now() - input.startedAtMs);
+  if (remainingMs <= (input.final ? 0 : CHECKOUT_PREPARE_RESERVE_MS)) {
+    return null;
+  }
+  try {
+    return await input.measure(() =>
+      input.computer.prepare(
+        input.record,
+        remainingMs - (input.final ? 0 : CHECKOUT_PREPARE_RESERVE_MS)
+      )
+    );
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function prepareRequesterCheckoutObjects(input: {
+  dependencies: Dependencies;
+  record: Checkout;
+  operationId: string;
+  prepareWithinBudget: (
+    final: boolean
+  ) => Promise<Awaited<ReturnType<GitWorkingCopyComputer["prepare"]>> | null>;
+}): Promise<Awaited<ReturnType<GitWorkingCopyComputer["prepare"]>> | null> {
+  const { dependencies, record, operationId, prepareWithinBudget } = input;
+  const progress = await prepareWithinBudget(false);
+  if (!progress || progress.ready) {
+    return progress;
+  }
+  const start = dependencies.workspaceAccess.startGitPackTransfer;
+  if (!start) {
+    throw new Error("github.checkout.git_pack_host_unavailable");
+  }
+  const status = await start({
+    operationId,
+    transportDirectory: record.transportDirectory,
+    sourceCommit: record.sourceCommit,
+    sourceTree: record.sourceTree,
+    baselineCommit: record.baselineCommit,
+    baselineTree: record.baselineTree,
+  });
+  if (status.status === "failed") {
+    throw new Error(status.errorCode ?? "github.checkout.git_transfer_failed");
+  }
+  if (status.status !== "available" || !status.path) {
+    return progress;
+  }
+  const imported = await advanceGitPackTransfer({
+    storage: dependencies.storage,
+    workspaceAccess: dependencies.workspaceAccess,
+    operationId,
+    location: record,
+    expiresAtMs: record.expiresAtMs,
+    packPath: status.path,
+  });
+  return imported === "completed"
+    ? ((await prepareWithinBudget(true)) ?? progress)
+    : progress;
 }
 
 export async function checkoutRepository(
@@ -618,82 +772,230 @@ export async function checkoutRepository(
   intent: RemoteAgentGitCheckoutInput,
   signal?: AbortSignal
 ) {
-  const identity = await locate(input, intent.key);
-  const record =
-    identity.stored ?? (await createCheckout(input, intent, identity, signal));
-  if (record.signature !== (await digestCanonicalJson(intent))) {
+  const startedAtMs = Date.now();
+  const timings: CheckoutTimings = {
+    authorization: 0,
+    treeGet: 0,
+    blobGet: 0,
+    otherGet: 0,
+    computerWrite: 0,
+    computerPrepare: 0,
+  };
+  let status: "ready" | "preparing" | "failed" = "failed";
+  let remainingBlobs: number | null = null;
+  try {
+    const result = await checkoutRepositoryBatch(
+      input,
+      intent,
+      signal,
+      startedAtMs,
+      timings
+    );
+    status = result.status === "ready" ? "ready" : "preparing";
+    remainingBlobs = result.remainingBlobs ?? null;
+    return result;
+  } finally {
+    console.info("[remote_agent.github_checkout.batch]", {
+      status,
+      remainingBlobs,
+      totalMs: Date.now() - startedAtMs,
+      ...timings,
+    });
+  }
+}
+
+async function loadOrCreateCheckout(input: {
+  deps: Dependencies;
+  intent: RemoteAgentGitCheckoutInput;
+  signal?: AbortSignal;
+  startedAtMs: number;
+  timings: CheckoutTimings;
+  onTiming: (
+    segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
+    durationMs: number
+  ) => void;
+}) {
+  const started = Date.now();
+  const identity = await locate(input.deps, input.intent.key);
+  input.timings.authorization += Date.now() - started;
+  let created: Awaited<ReturnType<typeof createCheckout>> | null = null;
+  if (!identity.stored) {
+    try {
+      created = await createCheckout(
+        input.deps,
+        input.intent,
+        identity,
+        input.signal,
+        input.onTiming,
+        input.startedAtMs + CHECKOUT_BATCH_HARD_BUDGET_MS
+      );
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        return null;
+      }
+      throw error;
+    }
+  }
+  const record = identity.stored ?? created?.record;
+  if (!record) {
+    throw new Error("github.checkout.state_unavailable");
+  }
+  if (record.signature !== (await digestCanonicalJson(input.intent))) {
     throw new Error(
       "github.checkout.key_conflict: This key belongs to a different checkout request."
     );
   }
-  const remote = provider(input, record, signal);
-  const entries = await remote.tree(record.sourceTree);
-  const baselineEntries =
-    record.baselineTree === record.sourceTree
-      ? entries
-      : await remote.tree(record.baselineTree);
-  validateCheckoutBudget(entries, baselineEntries);
+  return { record, created, identity };
+}
+
+async function registerRequesterCheckoutGrant(input: {
+  dependencies: Dependencies;
+  intent: RemoteAgentGitCheckoutInput;
+  record: Checkout;
+  identity: Awaited<ReturnType<typeof locate>>;
+}) {
+  const { dependencies, intent, record, identity } = input;
+  const register = dependencies.workspaceAccess.registerGitTransferGrant;
+  if (!register) {
+    throw new Error("github.checkout.git_transfer_unavailable");
+  }
+  const toolContext = await buildRemoteAgentToolContext({
+    storage: dependencies.storage,
+    submissionId: dependencies.context.submissionId,
+    toolName: "github_checkout_repository",
+  });
+  const selected = await resolveGitHubActionContext({
+    ...dependencies,
+    submissionId: dependencies.context.submissionId,
+    toolContext,
+    githubActor: "requester",
+    includeAccessPolicy: true,
+  });
   if (
-    (await textDigest(JSON.stringify(baselineEntries))) !==
-    record.baselineManifestDigest
+    !selected.requesterUserId ||
+    selected.selection.connection.connectionName !== record.connectionName ||
+    selected.selection.connection.updatedAtMs !== record.connectionUpdatedAtMs
   ) {
-    throw new Error("github.checkout.baseline_changed");
+    throw new Error("github.checkout.requester_connection_changed");
   }
-  if ((await textDigest(JSON.stringify(entries))) !== record.manifestDigest) {
-    throw new Error("github.checkout.manifest_changed");
+  await register(
+    remoteAgentGitTransferGrantSchema.parse({
+      operationId: identity.id,
+      organizationId: dependencies.context.organizationId,
+      requesterUserId: selected.requesterUserId,
+      owner: intent.owner,
+      repo: intent.repo,
+      authorization: {
+        context: buildRemoteAgentCoreContext(
+          dependencies.context,
+          `git-transfer:${identity.id}`
+        ),
+        submissionId: dependencies.context.submissionId,
+        effect: "read",
+        sources: [
+          {
+            kind: "plugin_connection",
+            service: "github",
+            connectionName: record.connectionName,
+            connectionUpdatedAtMs: record.connectionUpdatedAtMs,
+          },
+        ],
+      },
+      scopeKey: identity.scopeKey,
+      expiresAtMs: Math.min(record.expiresAtMs, Date.now() + 30 * 60 * 1000),
+    })
+  );
+}
+
+async function checkoutRepositoryBatch(
+  input: Dependencies,
+  intent: RemoteAgentGitCheckoutInput,
+  signal: AbortSignal | undefined,
+  startedAtMs: number,
+  timings: CheckoutTimings
+) {
+  const onTiming = (
+    segment: "authorization" | "treeGet" | "blobGet" | "otherGet",
+    durationMs: number
+  ) => {
+    timings[segment] += durationMs;
+  };
+  const measureComputer = async <T>(
+    segment: "computerWrite" | "computerPrepare",
+    action: () => Promise<T>
+  ): Promise<T> => {
+    const start = Date.now();
+    try {
+      return await action();
+    } finally {
+      timings[segment] += Date.now() - start;
+    }
+  };
+  const loaded = await loadOrCreateCheckout({
+    deps: input,
+    intent,
+    signal,
+    startedAtMs,
+    timings,
+    onTiming,
+  });
+  if (!loaded) {
+    return {
+      status: "preparing" as const,
+      key: intent.key,
+      remainingBlobs: null,
+      nextAction:
+        "Repository metadata is still being prepared. Retry github_checkout_repository with identical input.",
+    };
   }
+  const { record, created, identity } = loaded;
+  const remote = provider(
+    input,
+    record,
+    signal,
+    onTiming,
+    startedAtMs + CHECKOUT_BATCH_HARD_BUDGET_MS
+  );
   const computer = new GitWorkingCopyComputer(input.computer, signal);
+  const prepareWithinBudget = (final: boolean) =>
+    prepareCheckoutWithinBudget({
+      computer,
+      record,
+      startedAtMs,
+      final,
+      measure: (action) => measureComputer("computerPrepare", action),
+    });
+  const cached = created
+    ? null
+    : await readVerifiedCachedManifests(computer, record);
+  let manifests: Awaited<ReturnType<typeof loadVerifiedCheckoutManifests>>;
+  try {
+    manifests = await loadVerifiedCheckoutManifests({
+      record,
+      created,
+      cached,
+      remote,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return {
+        status: "preparing" as const,
+        key: intent.key,
+        remainingBlobs: null,
+        nextAction:
+          "The pinned repository tree is still being prepared. Retry github_checkout_repository with identical input.",
+      };
+    }
+    throw error;
+  }
+  const { entries, baselineEntries } = manifests;
   if (intent.githubActor === "requester") {
-    const register = input.workspaceAccess.registerGitTransferGrant;
-    if (!register) {
-      throw new Error("github.checkout.git_transfer_unavailable");
-    }
-    const toolContext = await buildRemoteAgentToolContext({
-      storage: input.storage,
-      submissionId: input.context.submissionId,
-      toolName: "github_checkout_repository",
+    await registerRequesterCheckoutGrant({
+      dependencies: input,
+      intent,
+      record,
+      identity,
     });
-    const selected = await resolveGitHubActionContext({
-      ...input,
-      submissionId: input.context.submissionId,
-      toolContext,
-      githubActor: "requester",
-      includeAccessPolicy: true,
-    });
-    if (
-      !selected.requesterUserId ||
-      selected.selection.connection.connectionName !== record.connectionName ||
-      selected.selection.connection.updatedAtMs !== record.connectionUpdatedAtMs
-    ) {
-      throw new Error("github.checkout.requester_connection_changed");
-    }
-    await register(
-      remoteAgentGitTransferGrantSchema.parse({
-        operationId: identity.id,
-        organizationId: input.context.organizationId,
-        requesterUserId: selected.requesterUserId,
-        owner: intent.owner,
-        repo: intent.repo,
-        authorization: {
-          context: buildRemoteAgentCoreContext(
-            input.context,
-            `git-transfer:${identity.id}`
-          ),
-          submissionId: input.context.submissionId,
-          effect: "read",
-          sources: [
-            {
-              kind: "plugin_connection",
-              service: "github",
-              connectionName: record.connectionName,
-              connectionUpdatedAtMs: record.connectionUpdatedAtMs,
-            },
-          ],
-        },
-        scopeKey: identity.scopeKey,
-        expiresAtMs: Math.min(record.expiresAtMs, Date.now() + 30 * 60 * 1000),
-      })
-    );
   }
   await recordComputerDataSource({
     ...input,
@@ -704,26 +1006,55 @@ export async function checkoutRepository(
       connectionUpdatedAtMs: record.connectionUpdatedAtMs,
     },
   });
-  await computer.writeManifest(record, entries, baselineEntries);
-  const progress = await prepareCheckoutObjects({
-    dependencies: input,
-    intent,
-    record,
-    operationId: identity.id,
-    entries,
-    baselineEntries,
-    computer,
-    signal,
-  });
-  await authorizeCheckout(input, record, "read");
+  if (!cached) {
+    await measureComputer("computerWrite", () =>
+      computer.writeManifest(record, entries, baselineEntries)
+    );
+  }
+  let progress =
+    intent.githubActor === "requester"
+      ? await prepareRequesterCheckoutObjects({
+          dependencies: input,
+          record,
+          operationId: identity.id,
+          prepareWithinBudget,
+        })
+      : await prepareWithinBudget(false);
+  if (intent.githubActor !== "requester") {
+    const allowed = new Set(
+      [...entries, ...baselineEntries]
+        .filter((entry) => entry.type === "blob")
+        .map((entry) => entry.sha)
+    );
+    await transferCheckoutBlobs({
+      allowed,
+      missing: progress?.missing ?? [],
+      remote,
+      signal,
+      startedAtMs,
+      writeBlob: (sha, bytes) =>
+        measureComputer("computerWrite", () =>
+          computer.writeBlob(record, sha, bytes)
+        ),
+    });
+    if (!progress?.ready) {
+      progress = (await prepareWithinBudget(true)) ?? progress;
+    }
+  }
+  const authorizationStartedAtMs = Date.now();
+  try {
+    await authorizeCheckout(input, record, "read");
+  } finally {
+    timings.authorization += Date.now() - authorizationStartedAtMs;
+  }
   return {
-    status: progress.ready ? "ready" : "preparing",
+    status: progress?.ready ? "ready" : "preparing",
     key: intent.key,
     sourceCommit: record.sourceCommit,
     sourceTree: record.sourceTree,
     branch: record.branch,
-    remainingBlobs: progress.remaining,
-    ...(progress.ready
+    remainingBlobs: progress?.remaining ?? null,
+    ...(progress?.ready
       ? { directory: record.directory, localCommit: progress.localCommit }
       : {}),
     history: "snapshot_with_verified_baseline",
@@ -732,11 +1063,11 @@ export async function checkoutRepository(
       sourceCommit: record.baselineCommit,
       tree: record.baselineTree,
       ref: `refs/remotes/origin/${record.baselineBranch}`,
-      localCommit: progress.baselineLocalCommit,
+      localCommit: progress?.baselineLocalCommit,
       history: "synthetic_comparison_only",
     },
     credentialsInComputer: false,
-    nextAction: progress.ready
+    nextAction: progress?.ready
       ? "Edit, commit, and test in this directory with the existing Computer tools."
       : "Call github_checkout_repository again with identical input to check transfer progress.",
   };

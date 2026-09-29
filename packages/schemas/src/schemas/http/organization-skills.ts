@@ -654,7 +654,9 @@ export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =
       .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),
   });
 export const readOrganizationSkillRuntimeCatalogRpcInputSchema =
-  readOrganizationSkillRuntimeSnapshotRpcInputSchema;
+  readOrganizationSkillRuntimeSnapshotRpcInputSchema.extend({
+    skipUnavailableSelectedReleases: z.boolean().optional(),
+  });
 
 export const readOrganizationSkillRuntimeResourceRpcInputSchema =
   z.strictObject({
