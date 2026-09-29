@@ -113,6 +113,15 @@ describe("public agent failure reason mapping", () => {
     expect(reason).toContain(expected);
     expect(reason).not.toContain("provider was unreachable");
   });
+  it("explains why Custom config cannot start a scoped task", () => {
+    expect(
+      resolveMappedPublicAgentFailureReason(
+        "execution_context.custom_config_file_access_unverified"
+      )
+    ).toBe(
+      "This task did not start because Custom (config.toml) cannot be combined with OpenMeld's task file boundary. Choose another permission mode in this Agent's settings, then wake the Agent again."
+    );
+  });
   it("links a missing Claude project container to Agent setup", () => {
     expect(
       resolvePublicAgentFailureRecovery({

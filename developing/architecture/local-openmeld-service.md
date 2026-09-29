@@ -1156,6 +1156,12 @@ authentication files. Its Space, source Wake, and acting Profile are fixed by
 the active dispatch, and it rechecks that context after the authorized read.
 This read does not complete or publish the Wake.
 
+An implicit ordinary Codex Wake uses `workspace` access with the `current`
+workspace. The Service resolves that current workspace through the same
+effective Profile working-folder path used by legacy dispatch; it must not
+substitute the Service-owned Space-context scratch directory. Explicit
+Space-only and isolated-project selections retain their separate boundaries.
+
 A selected-file handoff is the narrow writable exception: after preparation,
 the Service adds the dispatch's `workingCopyId` to the adapter boundary and
 limits its folders to the prepared handoff root, not its parent scratch root.
