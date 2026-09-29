@@ -171,6 +171,7 @@ describe("SpaceConversationPanel", () => {
 			directoryError: false,
 			directoryPending: false,
 			error: null,
+			errorDirection: undefined,
 			hasHiddenLiveHistory: false,
 			latest: vi.fn(),
 			loadAfter: vi.fn(async () => false),
@@ -181,6 +182,7 @@ describe("SpaceConversationPanel", () => {
 			latestHref: undefined,
 			newerHref: undefined,
 			pending: false,
+			pendingDirection: undefined,
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [],
@@ -3346,6 +3348,7 @@ describe("SpaceConversationPanel", () => {
 				directoryError: false,
 				directoryPending: false,
 				error: null,
+				errorDirection: undefined,
 				latest,
 				loadAfter: vi.fn(async () => false),
 				loadBefore: vi.fn(async () => false),
@@ -3355,6 +3358,7 @@ describe("SpaceConversationPanel", () => {
 				latestHref: undefined,
 				newerHref: undefined,
 				pending: false,
+				pendingDirection: undefined,
 				retryDirectory: vi.fn(),
 				revealCachedBefore: vi.fn(),
 				visibleLiveEnvelopes: [],
@@ -3444,6 +3448,7 @@ describe("SpaceConversationPanel", () => {
 			directoryPending: false,
 			earlierHref: "/spaces/space-123?signalId=sig-earlier",
 			error: null,
+			errorDirection: undefined,
 			hasHiddenLiveHistory: false,
 			hrefForSignalId: (signalId: string) =>
 				`/spaces/space-123?signalId=${signalId}`,
@@ -3454,6 +3459,7 @@ describe("SpaceConversationPanel", () => {
 			open: vi.fn(async () => true),
 			newerHref: "/spaces/space-123?signalId=sig-old",
 			pending: false,
+			pendingDirection: undefined,
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [signal],
@@ -3478,22 +3484,19 @@ describe("SpaceConversationPanel", () => {
 		expect(latestLink.dispatchEvent(click)).toBe(true);
 		expect(latest).not.toHaveBeenCalled();
 		expect(document.querySelector(".space-history-tick")?.tagName).toBe("A");
-		const newerLink = screen.getByRole("button", {
-			name: "Load newer messages",
-		});
-		expect(newerLink.tagName).toBe("A");
-		expect(newerLink.getAttribute("href")).toBe(
-			"/spaces/space-123?signalId=sig-old"
+		expect(screen.queryByText("Load newer messages")).toBeNull();
+		const viewport = document.querySelector<HTMLElement>(
+			'[aria-label="Conversation history"]'
 		);
-		fireEvent.click(newerLink);
-		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
-		const modifiedClick = new MouseEvent("click", {
-			bubbles: true,
-			button: 0,
-			cancelable: true,
-			ctrlKey: true,
+		expect(viewport).not.toBeNull();
+		Object.defineProperties(viewport, {
+			clientHeight: { configurable: true, value: 500 },
+			scrollHeight: { configurable: true, value: 1000 },
 		});
-		expect(newerLink.dispatchEvent(modifiedClick)).toBe(true);
+		if (viewport) {
+			viewport.scrollTop = 300;
+			fireEvent.scroll(viewport);
+		}
 		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
 
 		cleanup();

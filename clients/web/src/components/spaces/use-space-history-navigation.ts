@@ -77,14 +77,22 @@ export function useSpaceHistoryNavigation(input: {
 		[input.liveEnvelopes, liveStartIndex]
 	);
 	const [pending, setPending] = useState(false);
+	const [pendingDirection, setPendingDirection] = useState<
+		"before" | "after" | undefined
+	>();
 	const [error, setError] = useState<string | null>(null);
+	const [errorDirection, setErrorDirection] = useState<
+		"before" | "after" | undefined
+	>();
 	const flight = useRef<AbortController | null>(null);
 	const currentIdentity = useRef(identity);
 	currentIdentity.current = identity;
 	useEffect(() => {
 		currentIdentity.current = identity;
 		setPending(false);
+		setPendingDirection(undefined);
 		setError(null);
+		setErrorDirection(undefined);
 		return () => flight.current?.abort();
 	}, [identity]);
 	const api = useCallback(
@@ -146,7 +154,9 @@ export function useSpaceHistoryNavigation(input: {
 		const isCurrentRequest = () =>
 			!controller.signal.aborted && currentIdentity.current === identity;
 		setPending(true);
+		setPendingDirection(direction);
 		setError(null);
+		setErrorDirection(undefined);
 		try {
 			const result = await api().listSignalEnvelopes({
 				spaceId: input.spaceId,
@@ -190,6 +200,7 @@ export function useSpaceHistoryNavigation(input: {
 		} catch (failure) {
 			if (isCurrentRequest()) {
 				setError(navigationErrorMessage(failure));
+				setErrorDirection(direction);
 			}
 			return false;
 		} finally {
@@ -197,6 +208,7 @@ export function useSpaceHistoryNavigation(input: {
 			if (flight.current === controller) {
 				flight.current = null;
 				setPending(false);
+				setPendingDirection(undefined);
 			}
 		}
 	};
@@ -207,7 +219,9 @@ export function useSpaceHistoryNavigation(input: {
 		flight.current = null;
 		setWindow(null);
 		setPending(false);
+		setPendingDirection(undefined);
 		setError(null);
+		setErrorDirection(undefined);
 	};
 	const { earlierSignal, newerSignal } = continuationSignals({
 		activeWindow,
@@ -239,7 +253,9 @@ export function useSpaceHistoryNavigation(input: {
 		retryDirectory: () => directory.refetch(),
 		activeWindow,
 		pending,
+		pendingDirection,
 		error,
+		errorDirection,
 		open: (signalId: string, signal?: AbortSignal) =>
 			readWindow(signalId, undefined, signal),
 		latest,

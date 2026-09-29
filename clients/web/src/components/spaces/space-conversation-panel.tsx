@@ -927,7 +927,10 @@ function SpaceConversationPanelContent(
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
-									<LoadNewerMessagesControl history={input.historyNavigation} />
+									<LoadNewerMessagesControl
+										history={input.historyNavigation}
+										scrollElement={conversationScrollElement}
+									/>
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
 							{!input.historyNavigation && (
@@ -3677,33 +3680,91 @@ function isModifiedNavigationClick(event: {
 
 function LoadNewerMessagesControl(input: {
 	history?: SpaceHistoryNavigationController;
+	scrollElement: HTMLElement | null;
 }) {
-	if (!input.history?.activeWindow?.hasAfter) {
+	const requestedSignalIdRef = useRef<string | null>(null);
+	const lastSignalId = input.history?.activeWindow?.envelopes.at(-1)?.id;
+	const hasAfter = input.history?.activeWindow?.hasAfter;
+	const pending = input.history?.pending;
+	const pendingDirection = input.history?.pendingDirection;
+	const error =
+		input.history?.errorDirection === "after" ? input.history.error : null;
+	useEffect(() => {
+		const scrollElement = input.scrollElement;
+		if (!(scrollElement && hasAfter && !pending && !error)) {
+			return;
+		}
+		const loadWhenNearEnd = () => {
+			if (scrollElement.clientHeight <= 0) {
+				return;
+			}
+			const remaining =
+				scrollElement.scrollHeight -
+				scrollElement.clientHeight -
+				scrollElement.scrollTop;
+			if (
+				lastSignalId &&
+				requestedSignalIdRef.current !== lastSignalId &&
+				remaining <= Math.max(240, scrollElement.clientHeight / 2)
+			) {
+				requestedSignalIdRef.current = lastSignalId;
+				input.history?.loadAfter().then((loaded) => {
+					if (!loaded && requestedSignalIdRef.current === lastSignalId) {
+						requestedSignalIdRef.current = null;
+					}
+				});
+			}
+		};
+		scrollElement.addEventListener("scroll", loadWhenNearEnd, {
+			passive: true,
+		});
+		loadWhenNearEnd();
+		return () => scrollElement.removeEventListener("scroll", loadWhenNearEnd);
+	}, [
+		input.history,
+		input.scrollElement,
+		hasAfter,
+		lastSignalId,
+		pending,
+		error,
+	]);
+	if (!hasAfter) {
 		return null;
 	}
-	const href = input.history.newerHref;
+	if (!error) {
+		return pending && pendingDirection === "after" ? (
+			<output className="mx-auto mt-4 mb-16 text-muted-foreground text-sm">
+				Loading newer messages…
+			</output>
+		) : null;
+	}
+	const history = input.history;
+	if (!history) {
+		return null;
+	}
+	const href = history.newerHref;
 	return (
 		<Button
 			className="mx-auto mt-4 mb-16"
-			disabled={input.history.pending}
+			disabled={history.pending}
 			nativeButton={!href}
 			onClick={(event) => {
 				if (href && isModifiedNavigationClick(event)) {
 					return;
 				}
 				event.preventDefault();
-				input.history?.loadAfter();
+				history.loadAfter();
 			}}
 			render={
 				href ? (
 					<a href={href}>
-						<span className="sr-only">Load newer messages</span>
+						<span className="sr-only">Retry loading newer messages</span>
 					</a>
 				) : undefined
 			}
 			variant="ghost"
 		>
-			Load newer messages
+			Retry loading newer messages
 		</Button>
 	);
 }
