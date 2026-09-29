@@ -577,6 +577,7 @@ function resolveLanePathInput(
   const currentPreset = resolveOpenMeldEnvPreset(pathInput);
   const env: NodeJS.ProcessEnv = {
     ...(pathInput.env ?? process.env),
+    OPENMELD_ENV: preset === "dev-local" ? "dev" : preset,
     OPENMELD_ENV_PRESET: preset,
   };
   if (preset !== currentPreset && env[OPENMELD_HOME_ENV_KEY]) {

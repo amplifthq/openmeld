@@ -414,6 +414,51 @@ describe("OpenMeldServiceCard", () => {
 		).toBeNull();
 	});
 
+	it("shows an execution Host blocker without claiming the connected computer is disconnected", () => {
+		const readiness = buildCurrentLocalRuntimeReplyReadiness();
+		readiness.canReplyFromThisComputer = false;
+		readiness.message =
+			"OpenMeld cannot confirm that work from the previous local execution host has ended. Restart this computer only if OpenMeld does not recover after the previous task ends.";
+		readiness.nextAction = "none";
+		readiness.primaryBlocker = "execution_host_unavailable";
+		readiness.service.executionHost = {
+			activeCount: null,
+			admission: null,
+			hostInstanceId: "775cb4ce-60fd-4581-b2b7-03a0381711c3",
+			observedAtMs: null,
+			pendingCount: null,
+			responsive: false,
+			startupReplayPending: null,
+			unacknowledgedResultCount: null,
+			unavailableReason: {
+				code: "host.previous_work_unconfirmed",
+				message:
+					"OpenMeld cannot confirm that work from the previous local execution host has ended.",
+				recoveryAction: "restart_computer",
+			},
+		};
+		readiness.service.reasonCodes = ["host.previous_work_unconfirmed"];
+		readiness.status = "blocked";
+
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: readiness,
+			replyReadiness: {
+				detailReasonCode: "host.previous_work_unconfirmed",
+				executionTargetStatus: "ready",
+				reasonCode: "execution_host.unavailable",
+				service: null,
+				status: "needs_repair",
+			},
+		});
+
+		expect(screen.getByText("Local execution paused")).toBeTruthy();
+		expect(screen.getByText(readiness.message)).toBeTruthy();
+		expect(screen.queryByText("Disconnected")).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: "Reconnect Computer" })
+		).toBeNull();
+	});
+
 	it("shows OpenMeld tools as one card with a component list", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness:

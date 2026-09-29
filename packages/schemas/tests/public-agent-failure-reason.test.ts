@@ -73,6 +73,17 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("explains a hosted admission timeout as a start failure", () => {
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.admission_timeout",
+        failureMessage: "internal watchdog detail",
+      })
+    ).toBe(
+      "Center Agent couldn't start this request because OpenMeld did not confirm it in time. Try again. If it keeps happening, open Diagnostics in OpenMeld."
+    );
+  });
+
   it("explains output exhaustion and the next safe action without vendor details", () => {
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -125,6 +136,15 @@ describe("public agent failure reason mapping", () => {
     const reason = resolveMappedPublicAgentFailureReason(errorCode);
     expect(reason).toContain(expected);
     expect(reason).not.toContain("provider was unreachable");
+  });
+  it("explains why Custom config cannot start a scoped task", () => {
+    expect(
+      resolveMappedPublicAgentFailureReason(
+        "execution_context.custom_config_file_access_unverified"
+      )
+    ).toBe(
+      "This task did not start because Custom (config.toml) cannot be combined with OpenMeld's task file boundary. Choose another permission mode in this Agent's settings, then wake the Agent again."
+    );
   });
   it("links a missing Claude project container to Agent setup", () => {
     expect(
@@ -948,6 +968,11 @@ describe("public agent failure reason mapping", () => {
       "daemon.delivery.execution_stalled",
       "Runner stopped making progress on this Wake. Reconnect the computer before trying again.",
       "This agent stopped making progress on this Wake. Reconnect the computer before trying again.",
+    ],
+    [
+      "runtime.local_runtime_lost",
+      "OpenMeld Service stopped or disconnected while Runner was working on this Wake. Start OpenMeld again before retrying.",
+      "OpenMeld Service stopped or disconnected while this agent was working on this Wake. Start OpenMeld again before retrying.",
     ],
     [
       "daemon.delivery.finalization_timeout",

@@ -237,6 +237,11 @@ validation, completion or failure, phase timings, HTTP status, and existing
 server functions, and requests outside this allowlist are not covered by this
 detail; an empty list does not mean no network work occurred. No body is cloned
 or logged. Application-error reports share the ephemeral page and attempt IDs.
+React update-depth reports may include a bounded page-memory trace of fixed
+writer labels and an Agent controller field-change category. The trace contains
+no message, Profile, Space, or controller value, and is diagnostic evidence,
+not an execution or identity fact. The same Error object retains its
+failure-time trace for a later manual submission; other errors do not inherit it.
 The prolonged access-check surface can copy the attempt ID and attempt a
 best-effort snapshot submission; copying is not a delivery receipt.
 

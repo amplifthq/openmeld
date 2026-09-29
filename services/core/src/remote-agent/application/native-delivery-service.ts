@@ -3295,6 +3295,11 @@ export async function submitRemoteAgentTaskContinuationDelivery(
     },
   });
   const admission = await submitRemoteAgentWorkerAdmission({
+    continuitySourceDispatchId:
+      await resolveTaskContinuationSpaceSourceDispatchId({
+        db: input.db,
+        observer,
+      }),
     db: input.db,
     env: input.env,
     nowMs: input.nowMs,
@@ -3700,6 +3705,13 @@ async function stopCancelledFallbackSpaceWake(input: {
 function buildRemoteAgentTaskContinuationInstructions(
   input: RemoteAgentTaskContinuationDeliveryInput
 ): string {
+  const childExecutionNote =
+    "errorCode" in input.outcome &&
+    input.outcome.errorCode === "runtime_coordinator.delivery_expired"
+      ? [
+          "- The child Wake expired before it reached the local Agent. No child task result is available; tell the requester that the task did not run.",
+        ]
+      : [];
   if (input.watchId !== undefined) {
     return [
       input.instruction,
@@ -3709,6 +3721,7 @@ function buildRemoteAgentTaskContinuationInstructions(
       `- subscriptionId: ${input.subscriptionId}`,
       `- observed task: ${JSON.stringify(input.watchedTask)}`,
       `- observed outcome: ${JSON.stringify(input.outcome)}`,
+      ...childExecutionNote,
       "",
       "Continue only from this exact completion evidence. If a publishedSignalId is present, read that exact result before proceeding. Reply to the original requester in the original conversation.",
     ].join("\n");
@@ -3723,6 +3736,7 @@ function buildRemoteAgentTaskContinuationInstructions(
     `- subscriptionId: ${input.subscriptionId}`,
     `- triggering child task: ${JSON.stringify(input.watchedTask)}`,
     `- triggering child outcome: ${JSON.stringify(input.outcome)}`,
+    ...childExecutionNote,
     "- delegation children:",
     ...input.delegation.children.map(
       (child) =>
@@ -3731,6 +3745,38 @@ function buildRemoteAgentTaskContinuationInstructions(
     "",
     "Continue only from this completion evidence. If a publishedSignalId is present, read that exact result before synthesizing. Reply to the original requester in the original conversation.",
   ].join("\n");
+}
+
+async function resolveTaskContinuationSpaceSourceDispatchId(input: {
+  db: D1Database;
+  observer: RemoteAgentNativeDeliveryRecord;
+}): Promise<string> {
+  const { observer } = input;
+  if (observer.conversationKind !== "space" || observer.sourceClientMessageId) {
+    return observer.dispatchId;
+  }
+  // A continuation may itself become the parent of another delegation. Its
+  // dispatch is native-delivery-only; the Space owns the original Wake scope.
+  const source = await input.db
+    .prepare(
+      `SELECT dispatch_id
+       FROM openMeldRemoteAgent_native_delivery_ledger
+       WHERE organization_id = ?
+         AND space_id = ?
+         AND profile_id = ?
+         AND trigger_message_id = ?
+         AND source_client_message_id IS NOT NULL
+       ORDER BY created_at_ms ASC
+       LIMIT 1`
+    )
+    .bind(
+      observer.organizationId,
+      observer.spaceId,
+      observer.profileId,
+      observer.triggerMessageId
+    )
+    .first<{ dispatch_id: string }>();
+  return source?.dispatch_id ?? observer.dispatchId;
 }
 
 function resolveTaskContinuationExternalSpaceEnvelope(

@@ -346,7 +346,10 @@ at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 New work and forks may select a context explicitly. An ordinary Claude Code
 Wake in parallel mode implicitly selects a new isolated Space-only context when
 it has no retained context; a retained or explicitly Space-only context keeps
-its selected access. Every selection is scoped to the exact requester,
+its selected access. An ordinary Codex Wake with no retained context keeps the
+Profile's effective working folder through a current-folder workspace context;
+it never silently changes to a Space-only scratch directory merely because the
+Profile has already entered context mode. Every selection is scoped to the exact requester,
 Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
@@ -524,8 +527,10 @@ Important execution rules:
   not prove that execution evidence has caught up. A continuously connected
   controller with stale progress keeps the ordinary
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
-  reconciliation take precedence. Window expiry retains `runtime.progress_stale`
-  and the existing owner-mediated late-result recovery, never automatic rerun.
+  reconciliation take precedence. At window expiry, a missing/stopped delivery
+  Service becomes `runtime.local_runtime_lost`; only a still-connected Service
+  with no more specific cause remains `runtime.progress_stale`. Both retain the
+  existing owner-mediated late-result recovery and never automatically rerun.
 - The five-minute policy names the cause it actually found. An occupied native
   conversation reports its occupancy once and then goes quiet, so it reaches the
   same threshold looking like a lost computer. When the blocked work item still
@@ -559,6 +564,10 @@ Important execution rules:
   before unloading the operating-system service. The request is acknowledged
   only after the current socket session has completed its drain. A deliberate
   force path may bypass this handshake, but it must retain force-stop evidence.
+- If that route is still non-accepting with a recorded stop cause when the
+  watchdog expires, the terminal outcome is `runtime.local_runtime_lost` and
+  user copy says that OpenMeld Service stopped or disconnected during the Wake.
+  It must not fall through to generic stale-progress or connection advice.
 - A newly registered Service session on the same owner, device, and lane proves
   that process-local task ownership from a disconnected prior session cannot
   still be controlled by that prior Service. For a token-current execution with
@@ -1466,6 +1475,14 @@ Runtime results use the Space action contract:
   even when it looks like JSON, a tool call, or a former protocol marker. If no
   supported action entry point can record a valid action, the Wake fails with
   structured diagnostic evidence.
+- A supported local controller may publish a deliberate bounded progress
+  snapshot through its dispatch-scoped structured tool. The Service sends that
+  snapshot on the active RuntimeTransport execution token; Core validates the
+  same execution identity, lease, source Signal, target Profile, and stream
+  sequence used for privacy-bounded tool activity. Space stores it only as the
+  existing transient public-progress draft. Exact local retries are idempotent.
+  Progress never writes the final Space Action record, claims the final outcome
+  slot, dispatches a Wake, or releases an Agent Task continuation barrier.
 - A current local runtime attaches the newest relevant Space signal it observed
   to `post_message.observedThroughSignalId`. This is provider-neutral: Codex,
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space

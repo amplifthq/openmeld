@@ -1006,6 +1006,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	const display = resolveCurrentLocalRuntimeServiceDisplay({
 		cliUpdate,
 		computerSummaryStatus,
+		currentReadiness: input.currentLocalRuntimeReplyReadiness,
 		isCheckingStatus: input.isCheckingStatus,
 		replyReadiness: input.replyReadiness,
 		requiredServiceUpdate,
@@ -1149,6 +1150,7 @@ type CurrentLocalRuntimeServiceDisplay = {
 type CurrentLocalRuntimeServiceDisplayInput = {
 	cliUpdate: OpenMeldToolsCliUpdate | null;
 	computerSummaryStatus: ComputerSummaryStatus | null;
+	currentReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	isCheckingStatus: boolean;
 	replyReadiness: ComputerReplyReadiness;
 	requiredServiceUpdate: boolean;
@@ -1272,6 +1274,19 @@ function resolveOpenMeldToolsUpdateDisplay(
 function resolveOpenMeldToolsDefaultDisplay(
 	input: CurrentLocalRuntimeServiceDisplayInput
 ): CurrentLocalRuntimeServiceDisplay {
+	if (
+		input.serviceConnected &&
+		input.currentReadiness?.primaryBlocker === "execution_host_unavailable"
+	) {
+		return {
+			description: input.currentReadiness.message,
+			descriptionTone: "warning",
+			hideVersionDetails: false,
+			primaryAction: null,
+			statusLabel: "Local execution paused",
+			tone: "warning",
+		};
+	}
 	const primaryActionLabel = resolveOpenMeldServiceActionLabel({
 		replyReadiness: input.replyReadiness,
 		serviceConnected: input.serviceConnected,
@@ -1616,7 +1631,10 @@ function resolveOpenMeldServiceActionLabel(input: {
 }): string | null {
 	if (
 		input.serviceConnected &&
-		isLocalAgentControllerReportReadinessReason(input.replyReadiness.reasonCode)
+		(isLocalAgentControllerReportReadinessReason(
+			input.replyReadiness.reasonCode
+		) ||
+			input.replyReadiness.reasonCode === "execution_host.unavailable")
 	) {
 		return null;
 	}
@@ -1652,7 +1670,10 @@ function formatCurrentLocalRuntimeServiceStatus(input: {
 	}
 	if (
 		input.serviceConnected &&
-		isLocalAgentControllerReportReadinessReason(input.replyReadiness.reasonCode)
+		(isLocalAgentControllerReportReadinessReason(
+			input.replyReadiness.reasonCode
+		) ||
+			input.replyReadiness.reasonCode === "execution_host.unavailable")
 	) {
 		return "OpenMeld Service is connected";
 	}
@@ -1677,7 +1698,10 @@ function formatOpenMeldServiceDescription(input: {
 	}
 	if (
 		input.serviceConnected &&
-		isLocalAgentControllerReportReadinessReason(input.replyReadiness.reasonCode)
+		(isLocalAgentControllerReportReadinessReason(
+			input.replyReadiness.reasonCode
+		) ||
+			input.replyReadiness.reasonCode === "execution_host.unavailable")
 	) {
 		return "OpenMeld Service is connected on this computer.";
 	}
@@ -1705,7 +1729,10 @@ function resolveCurrentLocalRuntimeServiceTone(input: {
 	}
 	if (
 		input.serviceConnected &&
-		isLocalAgentControllerReportReadinessReason(input.replyReadiness.reasonCode)
+		(isLocalAgentControllerReportReadinessReason(
+			input.replyReadiness.reasonCode
+		) ||
+			input.replyReadiness.reasonCode === "execution_host.unavailable")
 	) {
 		return "ready";
 	}
