@@ -201,6 +201,7 @@ const executionOutputFrameCodes = new Set([
   "daemon.dispatch.lifecycle",
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.reasoning",
+  "daemon.dispatch.progress",
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_delivered",

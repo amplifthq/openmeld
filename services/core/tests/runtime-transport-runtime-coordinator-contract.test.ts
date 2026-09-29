@@ -33,6 +33,7 @@ import type {
   RuntimeTransportDispatchInteractionDeliveredRequest,
   RuntimeTransportDispatchInteractionRequest,
   RuntimeTransportDispatchLifecycleRequest,
+  RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
   RuntimeTransportRuntimeCoordinatorDecisionRequest,
@@ -1221,6 +1222,12 @@ const createHarness = (input?: {
         lastSequence: input.sequence,
       })
     ),
+    rpcApplyAgentStreamDelta: vi.fn((input: { sequence: number }) =>
+      Promise.resolve({
+        status: "accepted" as const,
+        lastSequence: input.sequence,
+      })
+    ),
     rpcCloseAgentStream: vi.fn(() => Promise.resolve(null)),
     rpcApplyRuntimeCoordinatorFailurePublicationCommand: vi.fn(
       (
@@ -1954,6 +1961,18 @@ const buildToolActivityRequest = (
   taskId: "task-1",
   ...overrides,
 });
+
+const buildProgressRequest = (
+  overrides: Partial<RuntimeTransportDispatchProgressRequest> = {}
+): RuntimeTransportDispatchProgressRequest => {
+  const toolActivity = buildToolActivityRequest(overrides);
+  const { part: _part, ...identity } = toolActivity;
+  return {
+    ...identity,
+    progressSnapshot: "Confirmed the root cause; starting verification.",
+    ...overrides,
+  };
+};
 
 const buildInteractionRequest = (
   executionToken: RuntimeCoordinatorExecutionTokenEnvelope,
@@ -15945,6 +15964,47 @@ describe("runtime transport runtime coordinator transport contract", () => {
       streamId: "local-agent:10.dispatch-1:9.attempt-1",
       triggerMessageId: "signal-1",
     });
+    expect(sentFrames).toEqual([]);
+  });
+
+  it("applies authority-bound Local Agent public progress without finalizing the Wake", async () => {
+    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchToolActivityFrame: (
+          webSocket: WebSocket,
+          payload: unknown,
+          kind: "progress"
+        ) => Promise<void>;
+      }
+    ).handleDispatchToolActivityFrame(
+      socket,
+      buildProgressRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+      }),
+      "progress"
+    );
+
+    expect(spaceStub.rpcApplyAgentStreamDelta).toHaveBeenCalledWith({
+      v: 1,
+      dispatchId: "dispatch-1",
+      kind: "progress",
+      profileId: TARGET_AGENT_PROFILE_ID,
+      progressSnapshot: "Confirmed the root cause; starting verification.",
+      sequence: 1,
+      spaceId: HEX_SPACE_ID,
+      streamId: "local-agent:10.dispatch-1:9.attempt-1",
+      triggerMessageId: "signal-1",
+    });
+    expect(spaceStub.rpcCloseAgentStream).not.toHaveBeenCalled();
     expect(sentFrames).toEqual([]);
   });
 

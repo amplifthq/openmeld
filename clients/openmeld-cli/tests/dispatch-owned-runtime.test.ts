@@ -161,8 +161,10 @@ describe("dispatch-owned runtime env", () => {
     expect(existsSync(`${shimDir}/openmeld`)).toBe(true);
     expect(existsSync(`${shimDir}/openmeld-dev`)).toBe(true);
     expect(existsSync(`${shimDir}/openmeld-canary`)).toBe(true);
-    expect(readFileSync(`${shimDir}/openmeld`, "utf8")).toContain(
-      "/tmp/current-openmeld-dev.mjs"
+    const openMeldShim = readFileSync(`${shimDir}/openmeld`, "utf8");
+    expect(openMeldShim).toContain(JSON.stringify(process.execPath));
+    expect(openMeldShim).toContain(
+      JSON.stringify("/tmp/current-openmeld-dev.mjs")
     );
   });
 

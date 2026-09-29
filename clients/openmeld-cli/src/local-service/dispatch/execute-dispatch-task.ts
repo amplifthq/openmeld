@@ -95,11 +95,16 @@ import {
   type DispatchSpaceActionRecord,
   type DispatchSpaceActionRecordReadResult,
   OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV,
+  readDispatchSpaceActionContextForReceiptFromEnv,
   readDispatchSpaceActionRecord,
   supersedeDispatchSpaceActionRecordForReconsideration,
 } from "../../runtime/dispatch-space-action-context";
+import { startDispatchSpaceProgressRelay } from "../../runtime/dispatch-space-progress-relay";
 import type { Presenter } from "../../runtime/presenter/types";
-import { createDispatchSpaceTools } from "../../space/action-mcp-server";
+import {
+  createDispatchSpaceTools,
+  type DispatchPublicProgressResult,
+} from "../../space/action-mcp-server";
 import { fetchSpaceMeta } from "../../space/meta-api";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
@@ -231,6 +236,7 @@ import {
   resolveDispatchMentionSourceContext,
 } from "./parse-dispatch-task";
 import { buildDispatchPromptTrace } from "./prompt-trace";
+import { createDispatchPublicProgressReporter } from "./public-progress-stream";
 import {
   createReasoningStream,
   routeReasoningEvents,
@@ -242,6 +248,7 @@ import {
   sendDispatchLifecycleFrame,
   sendDispatchPreviewEndFrame,
   sendDispatchPreviewFrame,
+  sendDispatchProgressFrame,
   sendDispatchReasoningFrame,
   sendDispatchRuntimeEvidenceFrame,
   sendDispatchToolActivityFrame,
@@ -1024,6 +1031,39 @@ export async function handleDispatchDeliverFrame(input: {
   });
   const runtimeStartedAtMs = Date.now();
   let agentToolActivitySequence = 0;
+  const reportPublicProgress = createDispatchPublicProgressReporter({
+    publish: (progressSnapshot) => {
+      const socket = currentSocketRef.socket;
+      if (!socket || (socket.bufferedAmount ?? 0) > 64 * 1024) {
+        return false;
+      }
+      sendDispatchProgressFrame({
+        socket,
+        progressSnapshot,
+        observedAtMs: Date.now(),
+        sequence: ++agentToolActivitySequence,
+        attemptId: parsedTask.attemptId,
+        dispatchId: parsedTask.dispatchId,
+        daemonSessionId: input.daemonSessionId,
+        connectionGeneration: resolveCurrentConnectionGeneration({
+          currentSocketRef,
+          fallbackConnectionGeneration:
+            input.deliverRequest.connectionGeneration,
+        }),
+        executionIdentityEcho: toRuntimeTransportRuntimeEvidenceIdentityEcho(
+          input.deliverRequest
+        ),
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        sourceSignalId: parsedTask.sourceEventId,
+        spaceId: parsedTask.spaceId,
+        targetProfileId: parsedTask.targetProfileId,
+        taskId: parsedTask.taskId,
+      });
+      return true;
+    },
+  });
   let firstReasoningMs: number | undefined;
   const sendReasoning = (
     thinkingSnapshot: string,
@@ -1839,6 +1879,7 @@ export async function handleDispatchDeliverFrame(input: {
         onInteractionRequest,
         onNativeTurnStarted,
         onNativeTurnCompleted,
+        onPublicProgress: reportPublicProgress,
         onRuntimeEvent,
         onPreview: (preview) => {
           emitDispatchPreviewFrame({
@@ -4895,6 +4936,9 @@ async function runDispatchRuntimeExecution(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
+  onPublicProgress?: (
+    update: string
+  ) => DispatchPublicProgressResult | Promise<DispatchPublicProgressResult>;
   onPreview?: Parameters<typeof runRuntimeTask>[0]["onPreview"];
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   parsedTask: ParsedDispatchTask;
@@ -4916,9 +4960,27 @@ async function runDispatchRuntimeExecution(input: {
     streamingMode:
       input.streamingModeOverride ?? input.parsedTask.streamingMode,
   });
+  const dispatchRuntimeEnv = { ...process.env, ...route.env };
   const spaceActionTools = route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
-    ? createDispatchSpaceTools({ env: { ...process.env, ...route.env } })
+    ? createDispatchSpaceTools({
+        env: dispatchRuntimeEnv,
+        ...(input.onPublicProgress
+          ? { reportProgress: input.onPublicProgress }
+          : {}),
+      })
     : undefined;
+  const progressRelay =
+    input.onPublicProgress &&
+    route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+      ? startDispatchSpaceProgressRelay({
+          context:
+            readDispatchSpaceActionContextForReceiptFromEnv(dispatchRuntimeEnv),
+          contextPath: route.env[
+            OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV
+          ] as string,
+          reportProgress: input.onPublicProgress,
+        })
+      : null;
   try {
     await input.onNativeTurnStarted();
     const result = await runRuntimeTask({
@@ -4950,6 +5012,7 @@ async function runDispatchRuntimeExecution(input: {
     input.onNativeTurnCompleted(result);
     return result;
   } finally {
+    await progressRelay?.close();
     spaceActionTools?.close();
   }
 }
