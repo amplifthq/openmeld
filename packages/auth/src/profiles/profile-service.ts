@@ -1,6 +1,7 @@
 import { resolveAvailableProfileHandle } from "@openmeld/protocol";
 import {
   AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH,
+  agentAvatarStyleSchema,
   authRpcResolveProfilesByIdsInputSchema,
 } from "@openmeld/schemas";
 import type {
@@ -111,7 +112,8 @@ export type UpdateManagedAgentProfileInOrganizationInput = {
   managedRole: OpenMeldProfileManagedRole;
   organizationId: string;
   profileId: string;
-  profileName: string;
+  profileName?: string;
+  avatarStyle?: string;
 };
 
 export type DeleteProfileForOwnerInput = {
@@ -920,6 +922,51 @@ export function createOpenMeldProfileService(
         profileName,
       });
     },
+    updateAgentAvatarStyleForOwner: async (input: {
+      ownerUserId: string;
+      profileId: string;
+      avatarStyle: string;
+    }): Promise<OpenMeldProfileRecord> => {
+      const ownerUserId = normalizeRequiredText(
+        input.ownerUserId,
+        "ownerUserId"
+      );
+      const profileId = normalizeAgentProfileId(input.profileId, "profileId");
+      const avatarStyle = agentAvatarStyleSchema.safeParse(input.avatarStyle);
+      if (
+        !(
+          avatarStyle.success &&
+          ["automatic", "fluid"].includes(avatarStyle.data)
+        )
+      ) {
+        throw new ProfileValidationError("Choose a valid Remote Agent avatar.");
+      }
+      const existing = await repository.findByOwnerAndProfileId(
+        ownerUserId,
+        profileId
+      );
+      if (
+        existing?.status !== "active" ||
+        existing.profileKind !== "agent" ||
+        existing.managedRole !== null
+      ) {
+        throw new ProfileNotFoundError();
+      }
+      if (existing.avatarStyle === avatarStyle.data) {
+        return existing;
+      }
+      await repository.updateAgentAvatarStyle(profileId, avatarStyle.data, {
+        ownerUserId,
+      });
+      const updated = await repository.findByOwnerAndProfileId(
+        ownerUserId,
+        profileId
+      );
+      if (!updated) {
+        throw new ProfileNotFoundError();
+      }
+      return updated;
+    },
     updateAgentProfileDefaultProjectForOwner: async (
       input: UpdateAgentProfileDefaultProjectForOwnerInput
     ): Promise<OpenMeldProfileRecord> => {
@@ -999,10 +1046,20 @@ export function createOpenMeldProfileService(
         "organizationId"
       );
       const profileId = normalizeAgentProfileId(input.profileId, "profileId");
-      const profileName = normalizeRequiredText(
-        input.profileName,
-        "profileName"
-      );
+      const profileName = normalizeOptionalText(input.profileName);
+      const avatarStyle = input.avatarStyle;
+      if (!profileName && avatarStyle === undefined) {
+        throw new ProfileValidationError(
+          "profileName or avatarStyle is required"
+        );
+      }
+      if (
+        avatarStyle !== undefined &&
+        (avatarStyle === "automatic" ||
+          !agentAvatarStyleSchema.safeParse(avatarStyle).success)
+      ) {
+        throw new ProfileValidationError("Choose a valid Center Agent avatar.");
+      }
       const managedRole = normalizeManagedRole(input.managedRole);
       const existing = await repository.findByProfileId(profileId);
 
@@ -1015,18 +1072,25 @@ export function createOpenMeldProfileService(
         throw new ProfileNotFoundError();
       }
 
-      await repository.updateManagedProfileIdentityForOrganization(
-        organizationId,
-        profileId,
-        {
-          profileName,
-          profileHandle: resolveAvailableProfileHandle({
+      if (profileName) {
+        await repository.updateManagedProfileIdentityForOrganization(
+          organizationId,
+          profileId,
+          {
             profileName,
-            profileKind: "agent",
-            takenHandles: [],
-          }),
-        }
-      );
+            profileHandle: resolveAvailableProfileHandle({
+              profileName,
+              profileKind: "agent",
+              takenHandles: [],
+            }),
+          }
+        );
+      }
+      if (avatarStyle !== undefined) {
+        await repository.updateAgentAvatarStyle(profileId, avatarStyle, {
+          organizationId,
+        });
+      }
 
       const updated = await repository.findByProfileId(profileId);
       if (!updated) {

@@ -169,6 +169,7 @@ import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
 import { inboxQueryKeys } from "#/query/organizations/inbox";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { projectsQueryOptions } from "#/query/organizations/projects";
 import {
 	agentProfileControllerChangeEligibilityQueryOptions,
 	agentProfilePrimaryBindingQueryKeys,
@@ -3677,6 +3678,17 @@ function AgentProfileWorkspacePresentation(input: {
 		unbindControllerDisabled: boolean;
 	};
 }) {
+	const projectId = input.input.profile.defaultProjectId;
+	const projectsQuery = useQuery(
+		projectsQueryOptions({
+			organizationId: input.input.organizationId,
+			enabled: Boolean(projectId),
+		})
+	);
+	const workingFolderProjectName = projectId
+		? (projectsQuery.data?.projects.find((project) => project.id === projectId)
+				?.name ?? null)
+		: null;
 	const parsedControllerRef = parseAgentControllerRef(
 		input.input.primaryAgentControllerRef
 	);
@@ -3685,20 +3697,13 @@ function AgentProfileWorkspacePresentation(input: {
 		(parsedControllerRef
 			? formatLocalAgentDisplayName(parsedControllerRef.id)
 			: null);
-	const ownerControllerModelSummary =
-		resolveAgentProfileControllerModelDetail({
-			agentControllerRef: input.input.primaryAgentControllerRef,
-			controllerDisplayName,
-			modelCatalog: input.input.modelCatalog,
-			modelSelection: input.input.editState?.modelSelection
-				? {
-						modelId: input.input.editState.modelSelection.modelId,
-						reasoningLevel:
-							input.input.editState.modelSelection.reasoningLevel || undefined,
-					}
-				: (input.input.publicProfileConfiguration?.modelSelection ?? null),
-		}) ?? "No Controller connected";
+	const modelPresentation = resolveWorkspaceModelPresentation(
+		input.input,
+		controllerDisplayName
+	);
+	const ownerControllerModelSummary = modelPresentation.summary;
 	const controllerModelSummary = ownerControllerModelSummary;
+	const modelIsLoading = modelPresentation.isLoading;
 	const wakeAvailabilityRecoveryActions =
 		input.input.readinessIsMissing &&
 		input.input.readinessErrorMessage ? null : (
@@ -3762,9 +3767,7 @@ function AgentProfileWorkspacePresentation(input: {
 								input.input.pendingState.disablePrimaryBinding
 							}
 							editState={input.input.editState}
-							isLoading={
-								input.input.readinessIsPending && !input.input.editState
-							}
+							isLoading={modelIsLoading}
 							modelCatalog={input.input.modelCatalog}
 							modelCompatibilityContext={input.input.modelCompatibilityContext}
 							onControllerChange={input.input.onControllerChange}
@@ -3790,6 +3793,11 @@ function AgentProfileWorkspacePresentation(input: {
 							runtime={input.runtime}
 							usageCard={usageCard}
 							wakeAvailability={input.input.wakeAvailability}
+							workingFolderProjectName={workingFolderProjectName}
+							workingFolderProjectPending={
+								Boolean(projectId) && projectsQuery.isPending
+							}
+							workingFolderProjectSelected={Boolean(projectId)}
 						/>
 					) : (
 						<AgentProfileReadOnlyConfigurationOverview
@@ -3814,6 +3822,15 @@ function AgentProfileWorkspacePresentation(input: {
 				headerRecoveryActions={wakeAvailabilityRecoveryActions}
 				isDirectMessagePending={input.input.pendingState.directMessage}
 				isRecoveryActionPending={input.input.pendingState.recoveryAction}
+				modelId={
+					input.input.editState?.modelSelection?.modelId ??
+					input.input.publicProfileConfiguration?.modelSelection?.modelId ??
+					input.input.modelCatalog?.agentControllers["center-agent"]
+						?.hostedRuntimePolicy?.personalRemoteAgentDefaultModelId ??
+					null
+				}
+				modelIsLoading={modelIsLoading}
+				onAvatarUpdated={input.input.onProfileUpdated}
 				onOpenDirectMessage={() => {
 					input.input.onOpenDirectMessage().catch((error) => {
 						console.error("Direct Message action failed.", error);
@@ -3883,7 +3900,40 @@ function AgentProfileWorkspacePresentation(input: {
 	);
 }
 
+function resolveWorkspaceModelPresentation(
+	input: AgentProfileRowMoreMenuProps,
+	controllerDisplayName: string | null
+): { isLoading: boolean; summary: string } {
+	const configurationKnown =
+		input.editState !== null || input.publicProfileConfiguration !== null;
+	if (!configurationKnown) {
+		return {
+			isLoading: input.readinessIsPending,
+			summary: "Model unavailable",
+		};
+	}
+	return {
+		isLoading: input.readinessIsPending && !configurationKnown,
+		summary:
+			resolveAgentProfileControllerModelDetail({
+				agentControllerRef: input.primaryAgentControllerRef,
+				controllerDisplayName,
+				modelCatalog: input.modelCatalog,
+				modelSelection: input.editState?.modelSelection
+					? {
+							modelId: input.editState.modelSelection.modelId,
+							reasoningLevel:
+								input.editState.modelSelection.reasoningLevel || undefined,
+						}
+					: (input.publicProfileConfiguration?.modelSelection ?? null),
+			}) ?? "No Controller connected",
+	};
+}
+
 type AgentProfileConfigurationOverviewProps = {
+	workingFolderProjectName?: string | null;
+	workingFolderProjectPending?: boolean;
+	workingFolderProjectSelected?: boolean;
 	usageCard?: ReactNode;
 	isLoading?: boolean;
 	agentControllerRef?: string | null;
@@ -4091,10 +4141,10 @@ export function AgentProfileConfigurationOverview(
 	const workingFolderMissing = isWorkingFolderMissing(
 		input.wakeAvailability?.reasonCode
 	);
-	const workingFolder = workingFolderMissing
-		? "Working folder missing"
-		: (resolveProfileDetailsValue(input.details, "workspace_directory") ??
-			"OpenMeld managed");
+	const workingFolder = resolveWorkingFolderSummary(
+		input,
+		workingFolderMissing
+	);
 	return (
 		<section
 			className="grid min-w-0 gap-3"
@@ -4160,6 +4210,28 @@ export function AgentProfileConfigurationOverview(
 				{input.usageCard}
 			</AgentConfigurationGrid>
 		</section>
+	);
+}
+
+function resolveWorkingFolderSummary(
+	input: AgentProfileConfigurationOverviewProps,
+	missing: boolean
+): string {
+	if (missing) {
+		return "Working folder missing";
+	}
+	if (input.workingFolderProjectName) {
+		return `Project: ${input.workingFolderProjectName}`;
+	}
+	if (input.workingFolderProjectPending) {
+		return "Loading project…";
+	}
+	if (input.workingFolderProjectSelected) {
+		return "Project details unavailable";
+	}
+	return (
+		resolveProfileDetailsValue(input.details, "workspace_directory") ??
+		"Folder details unavailable"
 	);
 }
 

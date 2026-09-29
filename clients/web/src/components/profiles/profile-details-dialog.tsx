@@ -191,6 +191,8 @@ function AgentProfileDetailsHeader(input: {
 				input.isCenterAgent ? (
 					<SpaceProfileIcon
 						agentControllerRef={input.entry.agentControllerRef}
+						avatarModelId={input.entry.avatarModelId}
+						avatarStyle={input.entry.avatarStyle}
 						isCenterAgent
 						profileId={input.entry.profileId}
 						profileKind="agent"
@@ -200,6 +202,8 @@ function AgentProfileDetailsHeader(input: {
 				) : (
 					<AgentProfileControllerAvatar
 						agentControllerRef={input.entry.agentControllerRef}
+						avatarStyle={input.entry.avatarStyle}
+						modelId={input.entry.avatarModelId}
 						profileId={input.entry.profileId}
 						profileName={input.entry.profileName}
 						size={48}

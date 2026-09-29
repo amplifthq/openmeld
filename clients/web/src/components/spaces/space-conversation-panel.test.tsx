@@ -2849,7 +2849,9 @@ describe("SpaceConversationPanel", () => {
 		const centerAgentAvatar = screen.getByTestId(
 			"space-center-agent-profile-avatar-agent-profile-center"
 		);
-		expect(centerAgentAvatar.getAttribute("data-shape")).toBe("circle");
+		expect(
+			centerAgentAvatar.querySelector("canvas[data-bot-avatar]")
+		).toBeTruthy();
 		const intro = introHeading.closest(
 			"[data-center-agent-direct-message-intro]"
 		);
@@ -2893,7 +2895,7 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
-	it("uses circular Fluid avatars for Center Agent messages in an ordinary Space", () => {
+	it("uses Bot avatars for Center Agent messages in an ordinary Space", () => {
 		renderSpaceConversationPanel({
 			centerAgentProfileId: "agent-profile-center",
 			isCenterAgentDirectMessage: false,
@@ -2913,7 +2915,7 @@ describe("SpaceConversationPanel", () => {
 		const avatar = screen.getByTestId(
 			"space-center-agent-profile-avatar-agent-profile-center"
 		);
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 
@@ -3960,6 +3962,204 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
 		).not.toBeNull();
+	});
+
+	it("keeps a selected thread Wake's status and Stop on the Open thread entrance", () => {
+		const progress = {
+			...createWakeProgressItem(),
+			targetLabel: "Center Agent",
+		};
+		const agentStreams = [
+			{
+				createdAtMs: progress.startedAtMs ?? 0,
+				dispatchId: "dispatch-1",
+				observedRevision: 1,
+				profileId: TARGET_PROFILE_ID,
+				reasonCode: null,
+				replyThreadRootSignalId: "sig-source",
+				sequence: 1,
+				spaceId: "space-1",
+				status: "streaming" as const,
+				streamId: "stream-1",
+				text: "",
+				textSequence: 0,
+				triggerMessageId: "sig-source",
+				updatedAtMs: progress.updatedAtMs,
+			},
+		];
+		const props = createSpaceConversationPanelProps({
+			agentStreams,
+			centerAgentProfileId: TARGET_PROFILE_ID,
+			ephemeralActivityItems: [progress],
+			onWakeStopRequest: vi.fn(),
+			readOnly: false,
+			threads: [
+				{
+					createdAt: "2026-04-11T00:00:00.000Z",
+					createdByProfileId: "human-profile-1",
+					rootSignalId: "sig-source",
+					spaceId: "space-1",
+					threadId: "thread-1",
+					updatedAt: "2026-04-11T00:00:00.000Z",
+				},
+			],
+			timelineItems: [
+				createTimelineItem({
+					id: "sig-source",
+					text: "@Center Agent please investigate",
+					wakeClientMessageId: "client-message-1",
+					wakeSourceSignalId: "sig-source",
+					wakeTargetProfileIds: [TARGET_PROFILE_ID],
+				}),
+			],
+		});
+		const view = render(
+			<SpaceConversationPanel {...props} agentStreams={[]} />
+		);
+
+		const source = screen
+			.getByText("@Center Agent please investigate")
+			.closest("[data-message-row-id='sig-source']");
+		expect(source).not.toBeNull();
+		expect(
+			within(source as HTMLElement).queryByLabelText("Center Agent is working")
+		).toBeNull();
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
+
+		view.rerender(
+			<SpaceConversationPanel
+				{...props}
+				agentStreams={agentStreams.map((stream) => ({
+					...stream,
+					replyThreadRootSignalId: null,
+				}))}
+			/>
+		);
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).not.toBeNull();
+		expect(
+			within(source as HTMLElement).queryByLabelText("Center Agent is working")
+		).toBeNull();
+
+		view.rerender(<SpaceConversationPanel {...props} />);
+		const status = within(source as HTMLElement).getByLabelText(
+			"Center Agent is working"
+		);
+		const entrance = status.parentElement;
+		expect(entrance).not.toBeNull();
+		expect(
+			within(entrance as HTMLElement).getByRole("button", {
+				name: "Open thread",
+			})
+		).toBeTruthy();
+		expect(
+			within(entrance as HTMLElement).getByRole("button", {
+				name: "Stop Wake for Center Agent",
+			})
+		).toBeTruthy();
+		expect(
+			(source as HTMLElement).querySelector(
+				'[data-slot="space-wake-thinking-row"]'
+			)
+		).toBeNull();
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
+
+		const finalReply = {
+			...createThreadPreviewSignal(),
+			data: {
+				meta: { dispatchId: "dispatch-1", purpose: "agent_reply_final" },
+				text: "Here is the answer.",
+			},
+			profile: {
+				kind: "agent" as const,
+				profileId: TARGET_PROFILE_ID,
+				profileName: "Center Agent",
+			},
+		};
+		view.rerender(
+			<SpaceConversationPanel
+				{...props}
+				threadPreviews={[
+					{
+						placements: [],
+						replyCount: 1,
+						signals: [finalReply],
+						threadId: "thread-1",
+					},
+				]}
+			/>
+		);
+		expect(
+			within(source as HTMLElement).getByText("Here is the answer.")
+		).toBeTruthy();
+		expect(
+			within(source as HTMLElement).queryByLabelText("Center Agent is working")
+		).toBeNull();
+		expect(
+			within(source as HTMLElement).queryByRole("button", {
+				name: "Stop Wake for Center Agent",
+			})
+		).toBeNull();
+	});
+
+	it("keeps an undecided Center Agent stream out of the main conversation", () => {
+		const progress = createWakeProgressItem();
+		const streamId = "stream-undecided";
+		renderSpaceConversationPanel({
+			agentStreams: [
+				{
+					createdAtMs: progress.startedAtMs ?? 0,
+					dispatchId: "dispatch-1",
+					observedRevision: 1,
+					profileId: TARGET_PROFILE_ID,
+					reasonCode: null,
+					sequence: 1,
+					spaceId: "space-1",
+					status: "streaming",
+					streamId,
+					text: "",
+					textSequence: 0,
+					triggerMessageId: "sig-source",
+					updatedAtMs: progress.updatedAtMs,
+				},
+			],
+			centerAgentProfileId: TARGET_PROFILE_ID,
+			ephemeralActivityItems: [progress],
+			timelineItems: [
+				createTimelineItem({
+					id: "sig-source",
+					text: "Please investigate",
+					wakeTargetProfileIds: [TARGET_PROFILE_ID],
+				}),
+				createTimelineItem({
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 1,
+						status: "streaming",
+						streamId,
+					},
+					actorProfileId: TARGET_PROFILE_ID,
+					actorProfileKind: "agent",
+					id: streamId,
+					isAgentFinalReply: true,
+					replyToSignalId: "sig-source",
+					text: "",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Please investigate")).toBeTruthy();
+		expect(
+			document.querySelector(`[data-message-id="${streamId}"]`)
+		).toBeNull();
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
 	});
 
 	it("replaces the optimistic Center Agent reply shell with the first real stream projection", () => {

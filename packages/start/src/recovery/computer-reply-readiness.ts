@@ -30,6 +30,7 @@ export type ComputerReplyReadinessReasonCode =
   | "execution_target.not_ready"
   | "execution_target.stale"
   | "execution_target.unknown"
+  | "execution_host.unavailable"
   | "device_projection.missing"
   | "device_projection.unavailable"
   | "device_projection.stale"

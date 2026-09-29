@@ -28,6 +28,7 @@ export type SignalPublishContext = {
   agentReplyObservation?: {
     observedThroughSignalId: string;
     sourceSignalId: string;
+    sourceThreadId?: string | null;
     targetProfileId: string;
   };
   agentStreamId?: string;

@@ -4,6 +4,7 @@ import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import { openMeldRuntimeProfileIdSchema } from "../protocol/profile";
 import { trimmedStringFromUnknown } from "../protocol/shared";
 import { MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH } from "../protocol/signal-reply-to";
+import { agentReplyPlacementSchema } from "./agent-reply-placement";
 import { spaceStatusSchema } from "./signal-status";
 import { spaceThreadActionRefSchema } from "./space-thread";
 
@@ -35,6 +36,7 @@ export const openMeldSpaceActionReadResultBySchema = z.union([
 
 export const openMeldSpacePostMessageActionSchema = z.strictObject({
   type: z.literal("post_message"),
+  placement: agentReplyPlacementSchema.optional(),
   observedThroughSignalId: z
     .preprocess(trimmedStringFromUnknown, z.string().min(1))
     .optional(),

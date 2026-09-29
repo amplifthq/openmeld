@@ -1,4 +1,5 @@
 import {
+  agentAvatarStyleSchema,
   updateAgentProfileDefaultProjectBodySchema,
   updateAgentProfileDefaultProjectResponseSchema,
   updateProfileResponseSchema,
@@ -10,10 +11,32 @@ import {
 import type {
   CreateProfilesApi,
   RenameProfileInput,
+  UpdateAgentAvatarInput,
   UpdateAgentProfileDefaultProjectInput,
 } from "./types";
 
 export const createProfilesApi: CreateProfilesApi = (client) => ({
+  updateAgentAvatar: async (input: UpdateAgentAvatarInput) => {
+    const avatarStyle = agentAvatarStyleSchema.safeParse(input.avatarStyle);
+    const profileId = normalizeRequiredText(input.profileId, "profileId");
+    if (
+      !(
+        avatarStyle.success && ["automatic", "fluid"].includes(avatarStyle.data)
+      )
+    ) {
+      throw new Error("Invalid Remote Agent avatar.");
+    }
+    return await client.requestJson({
+      body: JSON.stringify({ avatarStyle: avatarStyle.data }),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "Invalid Remote Agent avatar response.",
+      method: "PATCH",
+      operation: "profile.updateAgentAvatar",
+      requestContext: input.requestContext,
+      schema: updateProfileResponseSchema,
+      url: `/v1/profiles/agents/${encodeURIComponent(profileId)}/avatar`,
+    });
+  },
   rename: async (input) => {
     const request = requireValidRenameProfileInput(input);
 

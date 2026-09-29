@@ -3,6 +3,7 @@ import type {
 	ModelCatalog,
 	SignalEnvelope,
 	SpaceInboxUnreadTarget,
+	SpaceMemberAgentSnapshot,
 	SpaceMembersSnapshot,
 	SpaceThread,
 } from "@openmeld/schemas/types";
@@ -612,7 +613,9 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					isLoading={input.signalsIsLoading}
 					isPersonalContext={input.isPersonalContext === true}
 					items={threadTimelineItems}
+					membersSnapshot={input.membersSnapshot}
 					messageScrollActionRef={messageScrollActionRef}
+					modelCatalog={input.modelCatalog}
 					onAgentInteractionResponse={input.onAgentInteractionResponse}
 					onJumpToMessage={jumpToMessage}
 					onOpenMessageDetails={onOpenMessageDetails}
@@ -1116,6 +1119,8 @@ function resolveThreadComputerSetupPresentation(input: {
 }
 
 function ThreadTimeline(input: {
+	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
 	isDirectMessage: boolean;
 	messageScrollActionRef: { current: SpaceMessageScrollAction | null };
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -1266,6 +1271,18 @@ function ThreadTimeline(input: {
 										anchoredOutcomeNoticesBySourceSignalId={
 											input.anchoredOutcomeNoticesBySourceSignalId
 										}
+										avatarModelId={
+											input.membersSnapshot?.agents.find(
+												(agent) => agent.profileId === item.actorProfileId
+											)?.avatarModelId ??
+											input.modelCatalog?.agentControllers["center-agent"]
+												?.hostedRuntimePolicy?.personalRemoteAgentDefaultModelId
+										}
+										avatarStyle={
+											input.membersSnapshot?.agents.find(
+												(agent) => agent.profileId === item.actorProfileId
+											)?.avatarStyle
+										}
 										centerAgentProfileId={input.centerAgentProfileId}
 										computerSetupActionSignalId={
 											input.computerSetupActionSignalId
@@ -1315,6 +1332,8 @@ function ThreadTimeline(input: {
 }
 
 const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
+	avatarStyle?: SpaceMemberAgentSnapshot["avatarStyle"];
+	avatarModelId?: string | null;
 	isDirectMessage: boolean;
 	centerAgentProfileId: string | null;
 	computerSetupActionSignalId: string | null;
@@ -1529,6 +1548,8 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										selfAvatarImageUrl: input.selfAvatarImageUrl,
 										selfProfileId: input.selfProfileId,
 									})}
+									avatarModelId={input.avatarModelId}
+									avatarStyle={input.avatarStyle}
 									displayName={input.item.actorName}
 									isCenterAgent={
 										input.item.actorProfileKind === "agent" &&

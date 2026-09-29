@@ -186,16 +186,14 @@ describe("CenterAgentSettingsContent", () => {
 	afterEach(cleanup);
 
 	it("shows Center Agent essentials first and loads the audit log on demand", async () => {
-		renderSettings({ canManage: false });
+		const view = renderSettings({ canManage: false });
 
 		expect(
 			await screen.findByRole("heading", { name: "Center Agent" })
 		).toBeTruthy();
 		expect(
-			screen
-				.getByTestId(`center-agent-profile-avatar-${CENTER_AGENT_ID}`)
-				.getAttribute("data-shape")
-		).toBe("circle");
+			view.container.querySelector("canvas[data-bot-avatar]")
+		).toBeTruthy();
 		expect(screen.getByText("How this Agent works")).toBeTruthy();
 		expect(screen.getByText("Identity")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Usage" })).toBeTruthy();
@@ -643,7 +641,13 @@ describe("CenterAgentSettingsContent", () => {
 	it("opens the Center Agent DM and pauses all current Center Agent tasks after confirmation", async () => {
 		renderSettings({ canManage: true });
 
-		fireEvent.click(await screen.findByRole("button", { name: "Message" }));
+		const messageButton = await screen.findByRole("button", {
+			name: "Message",
+		});
+		await waitFor(() =>
+			expect(messageButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(messageButton);
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
 				to: "/o/acme/spaces/space-dm-1",

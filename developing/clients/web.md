@@ -512,6 +512,11 @@ errors, unhandled rejections, and resource failures share the same bounded
 reporter. Reporting does not decide recovery, mutate application state, or
 retry a failed diagnostic request. See `docs/web-application-errors.md` for
 the privacy, coverage, and operator query contract.
+React update-depth reports capture bounded fixed labels at the Space history
+cache, timeline, and Wake projection writers, including whether an existing
+signal's Agent controller presentation changed. A later manual report for the
+same Error retains that failure-time snapshot. No message, Profile value, or
+Space identity is added to the update trace.
 
 The Space composer isolates a rich-editor failure from the conversation shell.
 Its plain-text fallback keeps the draft and send action available, while edits
@@ -5355,10 +5360,15 @@ input-waiting Orbs are paused.
 Unfinished Agent replies follow the latest message in their owning conversation.
 The server-selected `replyThreadRootSignalId` takes precedence over the trigger
 message's location once reply placement is known. Before selection, progress
-keeps its source context. A Thread-bound reply has a compact progress marker on
-the main entrance; its complete progress and authorized Stop control stay in the
-Thread. Durable outcomes fetched in Thread history or previews reconcile the
-same Wake presentation as live outcomes.
+keeps its source context, except a shared-Space Center Agent Wake waits for its
+selected destination instead of showing a provisional main-conversation status.
+For a Thread-bound reply, the main message's **Open thread** entrance shows the
+compact current phase and authorized Stop control in place. The Thread shows the
+complete progress and its Stop control. The main message does not show a second
+working row or Stop. A durable Thread reply preview replaces the compact phase,
+including when an older active-progress snapshot has not refreshed yet. Durable
+outcomes fetched in Thread history or previews reconcile the same Wake
+presentation as live outcomes.
 
 Thread entrances retain the viewer's existing Inbox unread targets. Their
 preview rows support pointer and keyboard activation without intercepting real

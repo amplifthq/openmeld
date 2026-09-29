@@ -37,14 +37,18 @@ function useDesktopSignOutAction() {
 	};
 }
 
-export function DesktopAccountLogOutButton() {
+export function DesktopAccountLogOutButton({
+	variant = "destructive",
+}: {
+	variant?: "destructive" | "outline";
+}) {
 	const signOut = useDesktopSignOutAction();
 	return (
 		<Button
 			disabled={signOut.isPending}
 			onClick={signOut.run}
 			size="sm"
-			variant="destructive"
+			variant={variant}
 		>
 			<SignOutIcon aria-hidden="true" data-icon="inline-start" />
 			{signOut.isPending ? "Logging out…" : "Log out"}

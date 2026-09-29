@@ -342,10 +342,14 @@ frames. Static frames are cached by color with a 64-frame limit. Idle instances
 do not subscribe to animation frames. Context failure preserves a rendered
 frame or the supplied fallback without repeatedly allocating GPU contexts.
 
-Web's `RemoteAgentAvatar` supplies a normalized Profile name as the color seed,
-so creation previews and saved Profiles use the same restrained 36-color
-palette. Renaming changes the color; identical names share a color. Personal
-Remote Agents use rounded squares, Center Agents use circles, and Local Agents
+Web's `RemoteAgentAvatar` uses the stable Profile ID as the saved fluid avatar
+seed. Hosted Remote Agents default to the current model vendor's mark and can
+keep an explicitly selected fluid avatar across model changes. Center Agents
+default to one of the 18 Bot avatars, selected from the managed Profile ID;
+authorized admins can explicitly select another Bot or the fluid avatar. Bot avatars
+do not hop when idle, animate for real working state, and jump once on an
+explicit click. Reduced-motion preference suppresses their animation.
+Personal Remote Agents use rounded squares, Center Agents use circles, and Local Agents
 retain their harness logos. Web supplies authoritative working state; the
 primitive never infers work from presence or starts its own status queries.
 

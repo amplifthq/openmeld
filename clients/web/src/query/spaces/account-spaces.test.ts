@@ -8,6 +8,7 @@ import {
 	accountSpaceActiveWakeSummaryQueryOptions,
 	accountSpaceItemsQueryOptions,
 	selectUsableAccountSpaceActiveWakeSummaryItems,
+	useAccountSpaceActiveWakeSummaryDisplay,
 	useUsableAccountSpaceActiveWakeSummaryItems,
 } from "./account-spaces";
 import {
@@ -264,6 +265,19 @@ describe("account Space active Wake summary", () => {
 			vi.advanceTimersByTime(ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS + 1)
 		);
 		expect(result.current).toEqual([]);
+	});
+
+	it("marks an expired activity snapshot unavailable instead of confirmed empty", () => {
+		vi.useFakeTimers();
+		const data = createPresentationSnapshot(performance.now());
+		const { result } = renderHook(() =>
+			useAccountSpaceActiveWakeSummaryDisplay({ data, isError: false })
+		);
+		expect(result.current).toEqual({ available: true, items: ITEMS });
+		act(() =>
+			vi.advanceTimersByTime(ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS + 1)
+		);
+		expect(result.current).toEqual({ available: false, items: [] });
 	});
 
 	it("fails closed for an SSR snapshot until the browser refetches it", () => {

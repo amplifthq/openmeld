@@ -893,6 +893,7 @@ function buildAuthProfileViewFromOrganizationAgentProfile(
 	profile: OrganizationProfileDirectoryResponse["agentProfiles"][number]
 ): AuthProfileView {
 	return {
+		avatarStyle: profile.avatarStyle,
 		avatarUrl: profile.avatarUrl,
 		createdAt: profile.createdAt,
 		createdByUserId: profile.createdByUserId,

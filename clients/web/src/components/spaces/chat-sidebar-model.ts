@@ -75,4 +75,6 @@ export type Chat = {
 	peer?: ReturnType<typeof resolveDirectMessagePeer>;
 	session?: boolean;
 	centerAgentProfileName?: string;
+	centerAgentProfileId?: string;
+	centerAgentAvatarStyle?: import("@openmeld/schemas/types").AuthProfileView["avatarStyle"];
 };

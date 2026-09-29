@@ -55,31 +55,45 @@ describe("browser application error reporting", () => {
 
 	it("attaches only recent fixed update labels to a React depth report", async () => {
 		const { recordReactUpdate } = await import("./react-update-trace");
-		const { reportClientApplicationError } = await import(
-			"./application-error-client"
-		);
+		const { reportClientApplicationError, submitApplicationErrorReport } =
+			await import("./application-error-client");
 		vi.spyOn(performance, "now")
 			.mockReturnValueOnce(100)
 			.mockReturnValueOnce(110)
+			.mockReturnValueOnce(120)
 			.mockReturnValue(130);
 		recordReactUpdate("composer_draft_set");
 		recordReactUpdate("composer_editor_external_value");
-		reportClientApplicationError(
-			new Error("Minified React error #185; private token"),
-			"react_caught"
-		);
+		recordReactUpdate("space_timeline_agent_controller_changed");
+		const error = new Error("Minified React error #185; private token");
+		reportClientApplicationError(error, "react_caught");
 		const body = String(vi.mocked(fetch).mock.calls[0]?.[1]?.body);
 		expect(JSON.parse(body)).toMatchObject({
 			error: { code: "react_update_depth" },
 			reactUpdateTrace: [
 				{ event: "composer_draft_set", ageMs: 30 },
 				{ event: "composer_editor_external_value", ageMs: 20 },
+				{ event: "space_timeline_agent_controller_changed", ageMs: 10 },
 			],
 		});
 		expect(body).not.toMatch(PRIVATE_CONTENT);
+		vi.spyOn(performance, "now").mockReturnValue(6200);
+		await submitApplicationErrorReport(error);
+		const manual = JSON.parse(
+			String(vi.mocked(fetch).mock.calls[1]?.[1]?.body)
+		);
+		expect(manual.submission).toBe("user");
+		expect(manual.reactUpdateTrace).toEqual(JSON.parse(body).reactUpdateTrace);
+		await submitApplicationErrorReport(
+			new Error("Minified React error #185; a later private token")
+		);
+		expect(
+			JSON.parse(String(vi.mocked(fetch).mock.calls[2]?.[1]?.body))
+				.reactUpdateTrace
+		).toBeUndefined();
 		reportClientApplicationError(new Error("ordinary failure"), "route");
 		expect(
-			JSON.parse(String(vi.mocked(fetch).mock.calls[1]?.[1]?.body))
+			JSON.parse(String(vi.mocked(fetch).mock.calls[3]?.[1]?.body))
 				.reactUpdateTrace
 		).toBeUndefined();
 	});
