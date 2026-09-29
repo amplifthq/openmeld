@@ -983,6 +983,7 @@ function runCommand(input: {
       env: process.env,
       shell: input.shell ?? false,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     let stdout = "";
     let stderr = "";
@@ -1090,6 +1091,7 @@ function probeCodexAppServer(
       env: process.env,
       shell: invocation.shell ?? false,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
     const pending = new Map<
       number,
