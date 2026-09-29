@@ -280,8 +280,8 @@ describe("dispatch runtime working folder", () => {
         isDefault: false,
         organizationId: "organization-1",
         ownerUserId: "user-1",
-        projectId: "project-1",
-        projectSlug: "payments",
+        projectId: "project-2",
+        projectSlug: "selected-project",
         repositoryFingerprint: selectedFingerprint,
         repositoryPath: "/tmp/repository-b",
         status: "available",
@@ -293,7 +293,10 @@ describe("dispatch runtime working folder", () => {
         ...createDispatchIdentityInput(routeConfig),
         defaultProjectId: "project-1",
         defaultProjectIdWasProvided: true,
-        executionContext: createProjectExecutionContext(selectedFingerprint),
+        executionContext: createProjectExecutionContext(
+          selectedFingerprint,
+          "project-2"
+        ),
         ownerUserId: "user-1",
         nowMs: 10_000,
         routeConfig,
@@ -304,6 +307,55 @@ describe("dispatch runtime working folder", () => {
     });
     expect(listProjectConnectionsWithStatus).toHaveBeenCalledWith({
       organizationId: "organization-1",
+    });
+  });
+
+  it("accepts selected Project work when the Default Project folder is missing while ordinary work remains blocked", async () => {
+    const selectedFingerprint = `sha256:${"a".repeat(64)}`;
+    const routeConfig = createCurrentRoute();
+    routeConfig.workingFolderRuntime = createMissingDefaultFolder(9000);
+    resolveCurrentEffectiveProfileWorkingFolderRuntime.mockResolvedValue(
+      createMissingDefaultFolder(10_000)
+    );
+    listProjectConnectionsWithStatus.mockResolvedValue([
+      {
+        bindingGeneration: "selected-generation",
+        boundAtMs: 1,
+        isDefault: true,
+        organizationId: "organization-1",
+        ownerUserId: "user-1",
+        projectId: "project-2",
+        projectSlug: "selected-project",
+        repositoryFingerprint: selectedFingerprint,
+        repositoryPath: "/tmp/selected-repository",
+        status: "available",
+      },
+    ]);
+    const request = {
+      ...createDispatchIdentityInput(routeConfig),
+      defaultProjectId: "project-1",
+      defaultProjectIdWasProvided: true,
+      nowMs: 10_000,
+      ownerUserId: "user-1",
+      routeConfig,
+      targetProfileId: "agt-1",
+    };
+
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext({
+        ...request,
+        executionContext: createProjectExecutionContext(
+          selectedFingerprint,
+          "project-2"
+        ),
+      })
+    ).resolves.toEqual({
+      providerRuntimeWorkingDirectory: "/tmp/selected-repository",
+    });
+    await expect(
+      resolveDispatchWorkingFolderRuntimeContext(request)
+    ).rejects.toMatchObject({
+      code: "project.local_connection.folder_missing",
     });
   });
 
@@ -439,7 +491,10 @@ describe("dispatch runtime working folder", () => {
   });
 });
 
-function createProjectExecutionContext(repositoryFingerprint: string) {
+function createProjectExecutionContext(
+  repositoryFingerprint: string,
+  projectId = "project-1"
+) {
   return executionContextTaskSchema.parse({
     version: 1,
     id: "11111111-1111-4111-8111-111111111111",
@@ -451,7 +506,7 @@ function createProjectExecutionContext(repositoryFingerprint: string) {
       threadId: null,
     },
     access: "workspace",
-    projectWork: { projectId: "project-1", repositoryFingerprint },
+    projectWork: { projectId, repositoryFingerprint },
     workspace: "current",
     nativeConversationId: null,
     runtimeWorkspaceFingerprint: null,
@@ -529,6 +584,29 @@ function createCurrentWorkingFolder(
       reasonCode: null,
       source: "default_project" as const,
       status: "ready" as const,
+    },
+    workingFolderSource: "default_project" as const,
+    workspaceMode: null,
+  };
+}
+
+function createMissingDefaultFolder(observedAtMs: number) {
+  return {
+    configPath: null,
+    configuredWorkspacePath: "/tmp/missing-default-project",
+    defaultProjectBindingGeneration: "generation-1",
+    defaultProjectFailureReason: "folder_missing" as const,
+    defaultProjectId: "project-1",
+    reasonCode: "workspace.missing" as const,
+    reasonText: "missing",
+    status: "missing" as const,
+    workingFolderFact: {
+      defaultProjectId: "project-1",
+      localProjectBindingGeneration: "generation-1",
+      observedAtMs,
+      reasonCode: "project.local_connection.folder_missing" as const,
+      source: "default_project" as const,
+      status: "missing" as const,
     },
     workingFolderSource: "default_project" as const,
     workspaceMode: null,

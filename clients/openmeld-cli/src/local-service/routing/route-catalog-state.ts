@@ -305,12 +305,13 @@ function buildRouteCatalogFingerprint(routeCatalog: RouteCatalog): string {
             status: route.workingFolderRuntime.workingFolderFact.status,
           }
         : null,
-      workingFolderPathFingerprint: route?.workingFolderRuntime
-        ?.effectiveRuntimeWorkingDirectory
-        ? buildRuntimeWorkspaceFingerprint(
-            route.workingFolderRuntime.effectiveRuntimeWorkingDirectory
-          )
-        : null,
+      workingFolderPathFingerprint:
+        route?.workingFolderRuntime?.status === "ready" &&
+        route.workingFolderRuntime.effectiveRuntimeWorkingDirectory
+          ? buildRuntimeWorkspaceFingerprint(
+              route.workingFolderRuntime.effectiveRuntimeWorkingDirectory
+            )
+          : null,
     };
   });
   const skippedProfiles = routeCatalog.skippedProfiles.map((profile) => ({

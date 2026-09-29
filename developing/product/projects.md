@@ -142,7 +142,10 @@ report Agent Activity.
 Default Project is an Organization-scoped cloud preference on a local Agent
 Profile. It tells OpenMeld which Project future Wakes and new sessions should
 use by default. It is not a local path, is not a permanent assignment, and does
-not move an existing session.
+not move an existing session. An explicit Project and repository on a new
+Execution Context can use its own verified local connection even when this
+preference has no usable folder. An ordinary Wake still requires the Default
+Project folder to be available.
 
 ### Working Folder
 

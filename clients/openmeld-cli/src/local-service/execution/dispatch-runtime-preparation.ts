@@ -168,15 +168,18 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
       openMeldProfileId: input.targetProfileId,
     });
   const currentFact = currentWorkingFolder.workingFolderFact;
+  const observedFact = workingFolderRuntime.workingFolderFact;
   if (
-    currentWorkingFolder.status !== "ready" ||
-    currentFact.source !== workingFolderRuntime.workingFolderFact.source ||
-    currentFact.defaultProjectId !==
-      workingFolderRuntime.workingFolderFact.defaultProjectId ||
+    currentFact.status !== observedFact.status ||
+    currentFact.source !== observedFact.source ||
+    currentFact.defaultProjectId !== observedFact.defaultProjectId ||
     currentFact.localProjectBindingGeneration !==
-      workingFolderRuntime.workingFolderFact.localProjectBindingGeneration ||
-    currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
-      workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory
+      observedFact.localProjectBindingGeneration ||
+    currentFact.reasonCode !== observedFact.reasonCode ||
+    (workingFolderRuntime.status === "ready" &&
+      (currentWorkingFolder.status !== "ready" ||
+        currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
+          workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory))
   ) {
     rejectCurrentWorkingFolderFact(
       input,
@@ -184,13 +187,21 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
       "the effective working folder changed after this route was observed"
     );
   }
-  if (!input.executionContext?.projectWork) {
-    return workingFolderRuntime.runtimeContext;
+  if (input.executionContext?.projectWork) {
+    return await resolveSelectedProjectWorkingFolder(
+      input.executionContext,
+      input.ownerUserId
+    );
   }
-  return await resolveSelectedProjectWorkingFolder(
-    input.executionContext,
-    input.ownerUserId
-  );
+  if (workingFolderRuntime.status !== "ready") {
+    const reasonCode =
+      observedFact.reasonCode ??
+      (workingFolderRuntime.status === "missing"
+        ? "profile.workspace.missing"
+        : "profile.workspace.invalid");
+    throw new DaemonServiceRunError({ code: reasonCode, message: reasonCode });
+  }
+  return workingFolderRuntime.runtimeContext;
 }
 
 async function resolveSelectedProjectWorkingFolder(

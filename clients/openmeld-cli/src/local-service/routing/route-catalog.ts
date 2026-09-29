@@ -613,23 +613,6 @@ async function resolveCatalogRouteWorkspaceState(input: {
       workingFolderObservation,
     };
   }
-  if (workspace.status === "missing") {
-    return {
-      profileId: input.profileId,
-      skipReason: "workspace.missing",
-      status: "skipped",
-      workingFolderObservation,
-    };
-  }
-  if (workspace.status === "invalid") {
-    return {
-      profileId: input.profileId,
-      skipReason: "workspace.invalid",
-      status: "skipped",
-      workingFolderObservation,
-    };
-  }
-
   return {
     profileId: input.profileId,
     route: {

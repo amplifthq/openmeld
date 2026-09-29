@@ -145,10 +145,7 @@ export type DaemonProfileRouteConfig = {
   profileId: string;
   streamingMode: RuntimeAgentStreamingMode;
   transportMode: RuntimeAgentTransportMode;
-  workingFolderRuntime?: Extract<
-    import("../../profile-workspace/effective-runtime-resolution").CurrentEffectiveProfileWorkingFolderRuntimeResolution,
-    { status: "ready" }
-  >;
+  workingFolderRuntime?: import("../../profile-workspace/effective-runtime-resolution").CurrentEffectiveProfileWorkingFolderRuntimeResolution;
 };
 
 export type DaemonProfileRouteResolution =

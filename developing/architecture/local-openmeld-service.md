@@ -1621,9 +1621,17 @@ Binding configuration, Default Project, local binding generation, or effective
 folder fingerprint as a new fact. The route cache may preserve routing metadata
 for offline startup, but it never restores a cached working-folder observation
 as current; the new Service session must observe and report it again.
+An otherwise eligible route remains registered with a missing or invalid
+default working-folder fact (Default Project or Profile workspace) so an
+explicitly selected Project/repository can be delivered. The observation still
+blocks ordinary Wake readiness and launch.
+The inherited execution Host catalog IPC carries ready, missing, and invalid
+current working-folder resolutions; it cannot require a ready path merely to
+register a route with a precise unavailable fact.
 Dispatch admission compares the route's observed source, Default Project and
-local binding generation when applicable, and effective directory with the
-current durable local configuration. Once a connection or Profile workspace
+local binding generation when applicable, status and reason, and effective
+directory when ready with the current durable local configuration. Once a
+connection or Profile workspace
 mutation is durable, an older route cannot launch new work; catalog refresh
 only controls how quickly the new route becomes available again.
 For an accepted Execution Context with `projectWork`, the Service first

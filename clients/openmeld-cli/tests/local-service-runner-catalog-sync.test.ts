@@ -337,10 +337,14 @@ describe("local service route catalog sync", () => {
 
     expect(result.status).toBe("changed");
     expect(registerCatalog).toHaveBeenCalledOnce();
-    expect(
-      catalogState.routeByProfileId.get("agt-a")?.workingFolderRuntime
-        ?.effectiveRuntimeWorkingDirectory
-    ).toBe("/tmp/workspace-b");
+    const workspace =
+      catalogState.routeByProfileId.get("agt-a")?.workingFolderRuntime;
+    expect(workspace?.status).toBe("ready");
+    if (workspace?.status === "ready") {
+      expect(workspace.effectiveRuntimeWorkingDirectory).toBe(
+        "/tmp/workspace-b"
+      );
+    }
   });
 
   it("registers removed profiles diff and prunes leases to accepted set", async () => {

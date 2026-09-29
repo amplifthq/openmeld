@@ -1055,6 +1055,17 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Missing or invalid facts use the precise Project/workspace reason codes from
   the shared schema; local folder paths never cross the Service boundary.
   Historical Wake outcomes never substitute for this current observation.
+  A Service route remains registered when only its default working-folder fact
+  (Default Project or Profile workspace) is missing or invalid. Current
+  Wakeability still reports that fact as blocked
+  for ordinary Wakes. For one dispatch whose Space-frozen new-Context selection
+  includes `projectWork`, Core may pass this specific default-folder blocker
+  only when the current Binding, Service, route, controller, and other readiness
+  facts permit execution. This does not change the public Wakeability
+  projection. RuntimeCoordinator resolves the selected Context before
+  execution. Core checks that its Project/repository association is still
+  current; the Service verifies the exact owner-local connection before local
+  execution. A missing or ambiguous selected connection fails closed.
   Space member/status and Organization directory readiness use the same Core
   decision. Profiles in one request share existing Runtime registry and
   Controller report reads; no result survives into another request. Each

@@ -1,3 +1,4 @@
+import type { AgentExecutionStatusProjection } from "@openmeld/agent-runtime";
 import {
   DEFAULT_DISPATCH_FINALIZATION_TIMEOUT_MS,
   DEFAULT_DISPATCH_START_TIMEOUT_MS,
@@ -3499,6 +3500,16 @@ function resolveCanonicalDispatchPreflight(input: {
   const blockReasonCode = resolveAgentWakeAdmissionBlockReasonCode(
     input.readiness.agentExecutionReadiness
   );
+  if (
+    blockReasonCode &&
+    canAdmitSelectedProjectWorkWithUnavailableDefaultFolder({
+      blockReasonCode,
+      message,
+      readiness: input.readiness.agentExecutionReadiness,
+    })
+  ) {
+    return null;
+  }
   if (blockReasonCode) {
     const preparationPending =
       isAgentWakeAdmissionPreparationPendingReason(blockReasonCode);
@@ -3518,6 +3529,81 @@ function resolveCanonicalDispatchPreflight(input: {
     };
   }
   return null;
+}
+
+const DEFAULT_FOLDER_UNAVAILABLE_REASONS = new Set([
+  "workspace.missing",
+  "workspace.invalid",
+  "profile.workspace.missing",
+  "profile.workspace.invalid",
+  "project.local_connection.missing",
+  "project.local_connection.folder_missing",
+  "project.local_connection.invalid",
+]);
+const POSITIVE_RUNTIME_READINESS_REASONS = new Set([
+  "runtime.ready",
+  "capability.ready",
+  "service.ready",
+]);
+
+function canAdmitSelectedProjectWorkWithUnavailableDefaultFolder(input: {
+  blockReasonCode: string;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  readiness: AgentExecutionStatusProjection;
+}): boolean {
+  if (
+    !(
+      (input.message.executionContext?.projectWork ||
+        (input.message.contextSelection?.mode === "new" &&
+          input.message.contextSelection.projectWork)) &&
+      DEFAULT_FOLDER_UNAVAILABLE_REASONS.has(input.blockReasonCode)
+    )
+  ) {
+    return false;
+  }
+  const { facts } = input.readiness;
+  if (
+    facts.runtime.ready ||
+    !facts.runtime.reasonCodes.some((code) =>
+      DEFAULT_FOLDER_UNAVAILABLE_REASONS.has(code)
+    ) ||
+    facts.runtime.reasonCodes.some(
+      (code) =>
+        !(
+          DEFAULT_FOLDER_UNAVAILABLE_REASONS.has(code) ||
+          POSITIVE_RUNTIME_READINESS_REASONS.has(code)
+        )
+    )
+  ) {
+    return false;
+  }
+  return (
+    facts.profile.active &&
+    facts.binding.routable &&
+    facts.binding.reasonCodes.every(
+      (code) =>
+        code === "agent_profile_binding.enabled_primary" ||
+        code === "agent_profile_binding.command_eligible"
+    ) &&
+    !facts.claim.executionBlocked &&
+    !facts.providerAccount.blocked &&
+    (!facts.providerConversation.required ||
+      facts.providerConversation.ready) &&
+    !facts.readinessImpact.blocked &&
+    facts.localService.reachable &&
+    facts.service.executionCompatible &&
+    facts.route.online &&
+    [
+      ...facts.profile.reasonCodes,
+      ...facts.claim.reasonCodes,
+      ...facts.providerAccount.reasonCodes,
+      ...facts.providerConversation.reasonCodes,
+      ...facts.readinessImpact.reasonCodes,
+      ...facts.localService.reasonCodes,
+      ...facts.service.reasonCodes,
+      ...facts.route.reasonCodes,
+    ].length === 0
+  );
 }
 
 export const applyEffectiveTargetBindingSnapshotToMessage = (input: {

@@ -92,27 +92,75 @@ const readyWorkingFolder = {
   workingFolderFact: profileWorkingFolderFactSchema,
 };
 
+const workingFolderRuntimeSchema = z.union([
+  z.strictObject({
+    ...readyWorkingFolder,
+    configPath: z.string().min(1),
+    workspaceMode: z.enum(["openmeld_managed", "custom"]),
+    workingFolderSource: z.literal("profile_workspace"),
+  }),
+  z.strictObject({
+    configPath: z.string().min(1),
+    configuredWorkspacePath: z.null().optional(),
+    reasonCode: z.literal("workspace.missing"),
+    reasonText: z.string().min(1),
+    status: z.literal("missing"),
+    workingFolderFact: profileWorkingFolderFactSchema,
+    workingFolderSource: z.literal("profile_workspace"),
+    workspaceMode: z.null().optional(),
+  }),
+  z.strictObject({
+    configPath: z.string().min(1),
+    configuredWorkspacePath: z.string().min(1).nullable().optional(),
+    reasonCode: z.literal("workspace.invalid"),
+    reasonText: z.string().min(1),
+    status: z.literal("invalid"),
+    workingFolderFact: profileWorkingFolderFactSchema,
+    workingFolderSource: z.literal("profile_workspace"),
+    workspaceMode: z.enum(["openmeld_managed", "custom"]).nullable().optional(),
+  }),
+  z.strictObject({
+    ...readyWorkingFolder,
+    configPath: z.null(),
+    workspaceMode: z.null(),
+    defaultProjectId: identityString,
+    defaultProjectBindingGeneration: identityString,
+    workingFolderSource: z.literal("default_project"),
+  }),
+  z.strictObject({
+    configPath: z.null(),
+    configuredWorkspacePath: z.string().min(1).nullable(),
+    defaultProjectBindingGeneration: identityString.optional(),
+    defaultProjectFailureReason: z.enum([
+      "folder_missing",
+      "missing_connection",
+    ]),
+    defaultProjectId: identityString,
+    reasonCode: z.literal("workspace.missing"),
+    reasonText: z.string().min(1),
+    status: z.literal("missing"),
+    workingFolderFact: profileWorkingFolderFactSchema,
+    workingFolderSource: z.literal("default_project"),
+    workspaceMode: z.null(),
+  }),
+  z.strictObject({
+    configPath: z.null(),
+    configuredWorkspacePath: z.string().min(1),
+    defaultProjectBindingGeneration: identityString,
+    defaultProjectId: identityString,
+    reasonCode: z.literal("workspace.invalid"),
+    reasonText: z.string().min(1),
+    status: z.literal("invalid"),
+    workingFolderFact: profileWorkingFolderFactSchema,
+    workingFolderSource: z.literal("default_project"),
+    workspaceMode: z.null(),
+  }),
+]);
+
 export const serviceExecutionHostRouteSchema =
   cachedDaemonRouteConfigSchema.extend({
     agentControllerConversationId: identityString.nullable().optional(),
-    workingFolderRuntime: z
-      .discriminatedUnion("workingFolderSource", [
-        z.strictObject({
-          ...readyWorkingFolder,
-          configPath: z.string().min(1),
-          workspaceMode: z.enum(["openmeld_managed", "custom"]),
-          workingFolderSource: z.literal("profile_workspace"),
-        }),
-        z.strictObject({
-          ...readyWorkingFolder,
-          configPath: z.null(),
-          workspaceMode: z.null(),
-          defaultProjectId: identityString,
-          defaultProjectBindingGeneration: identityString,
-          workingFolderSource: z.literal("default_project"),
-        }),
-      ])
-      .optional(),
+    workingFolderRuntime: workingFolderRuntimeSchema.optional(),
   });
 
 export const serviceExecutionHostCatalogSchema = z
