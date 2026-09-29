@@ -1428,6 +1428,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
+      body: "This task did not start because Custom (config.toml) cannot be combined with OpenMeld's task file boundary. Choose another permission mode in this Agent's settings, then wake the Agent again.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.custom_config_file_access_unverified"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
       body: "OpenMeld couldn't verify this task's project file boundary. Check this computer's file-access settings and use a task workspace outside system temporary folders, then start a new task.",
       kind: "local_agent_prepare",
       patterns: [
