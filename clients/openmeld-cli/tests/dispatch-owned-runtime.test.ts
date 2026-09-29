@@ -126,6 +126,32 @@ describe("dispatch-owned runtime env", () => {
     expect(openMeldShim).not.toContain("process.argv");
   });
 
+  it("uses the managed Windows executable directly for a dispatch Space Action MCP", () => {
+    const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
+    tempDirs.push(openMeldHome);
+    const managedCli = join(openMeldHome, "bin", "openmeld.exe");
+    const contextPath = join(openMeldHome, "action", "context.json");
+    const env = buildDispatchOwnedRuntimeEnv({
+      cliEntryPath: managedCli,
+      dispatchId: "dispatch-windows-wake",
+      targetProfileId: "agent-windows-wake",
+      distribution: "binary",
+      platform: "win32",
+      env: { OPENMELD_HOME: openMeldHome },
+      spaceActionContextPath: contextPath,
+    });
+
+    expect(env.OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH).toBe(managedCli);
+    expect(env.PATH?.split(delimiter)[0]).toBe(join(openMeldHome, "bin"));
+    expect(env.OPENMELD_SPACE_ACTION_CONTEXT_PATH).toBe(contextPath);
+    expect(env.OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID).toBe(
+      "dispatch-windows-wake"
+    );
+    expect(existsSync(join(openMeldHome, "action", "bin", "openmeld"))).toBe(
+      false
+    );
+  });
+
   it("targets the managed CLI when a background binary Service creates a shim", () => {
     const openMeldHome = mkdtempSync(`${tmpdir()}/dispatch-owned-runtime-`);
     tempDirs.push(openMeldHome);
