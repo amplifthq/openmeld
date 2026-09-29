@@ -512,6 +512,11 @@ errors, unhandled rejections, and resource failures share the same bounded
 reporter. Reporting does not decide recovery, mutate application state, or
 retry a failed diagnostic request. See `docs/web-application-errors.md` for
 the privacy, coverage, and operator query contract.
+React update-depth reports capture bounded fixed labels at the Space history
+cache, timeline, and Wake projection writers, including whether an existing
+signal's Agent controller presentation changed. A later manual report for the
+same Error retains that failure-time snapshot. No message, Profile value, or
+Space identity is added to the update trace.
 
 The Space composer isolates a rich-editor failure from the conversation shell.
 Its plain-text fallback keeps the draft and send action available, while edits

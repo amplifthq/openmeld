@@ -358,6 +358,7 @@ export type ParsedDaemonFrame = {
     | "daemon.dispatch.runtime_evidence"
     | "daemon.dispatch.tool_activity"
     | "daemon.dispatch.reasoning"
+    | "daemon.dispatch.progress"
     | "daemon.reasoning.preferences"
     | "daemon.error"
     | "daemon.computer_file_access.read_policy"

@@ -417,7 +417,9 @@ describe("space-mesh", () => {
         noticeType: "terminal_failure",
         variant: "local_runtime_lost",
       })
-    ).toBe("Codex Agent was interrupted when its computer reconnected.");
+    ).toBe(
+      "OpenMeld Service stopped or disconnected while Codex Agent was working on this Wake. Start OpenMeld again before retrying."
+    );
 
     expect(
       buildSystemNoticeText({

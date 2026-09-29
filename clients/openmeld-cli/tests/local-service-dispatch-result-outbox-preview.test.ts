@@ -709,6 +709,94 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
+  it("reports Custom config as the reason a scoped Codex task cannot start", async () => {
+    await withTempHome(async (home) => {
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
+      const workingDirectory = join(home, "custom-config-workspace");
+      mkdirSync(workingDirectory, { recursive: true });
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: workingDirectory,
+      };
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        status: "ready",
+      });
+      prepareProviderRuntimeMock.mockResolvedValue({
+        envOverrides: undefined,
+        preparationDetails: { kind: "none" },
+        runtimeContext,
+      });
+      const deliverRequest = createDeliverRequest();
+      deliverRequest.payload.transportMode = "codex-app-server";
+      deliverRequest.payload.executionContext = {
+        version: 1,
+        id: "22222222-2222-4222-8222-222222222222",
+        access: "workspace",
+        workspace: "current",
+        nativeConversationId: null,
+        runtimeWorkspaceFingerprint: null,
+        scope: {
+          organizationId: "org-1",
+          requesterProfileId: "user-profile-1",
+          spaceId: "space-1",
+          targetProfileId: "agent-profile-1",
+          threadId: null,
+        },
+      };
+      const routes = createCurrentRouteByProfileId(workingDirectory);
+      const route = routes.get("agent-profile-1");
+      if (!route) {
+        throw new Error("Expected route fixture");
+      }
+      route.transportMode = "codex-app-server";
+      route.agentControllerPermissionMode = "codex:customConfig";
+
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath: join(home, "computer-policy.json"),
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest,
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({
+            adapter: {
+              verifyComputerFileAccessBoundary: async () => ({
+                reasonCode: "computer.file_access.controller_unsupported",
+                supported: false,
+              }),
+            },
+          }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: routes,
+        socket,
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "execution_context.custom_config_file_access_unverified",
+        result: "failed",
+      });
+      expect(readSentTaskResultPayload(socket)).toMatchObject({
+        errorCode: "execution_context.custom_config_file_access_unverified",
+        status: "failed",
+      });
+      expect(runRuntimeTaskMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("does not start the controller when a legacy dispatch has no current route working-folder fact", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();

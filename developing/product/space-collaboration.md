@@ -411,9 +411,11 @@ Agent work stays above the answer in both the main conversation and Threads,
 from live output through the settled reply. The shared bounded viewport opens
 for live work and lets the reader pause following by scrolling up. It collapses
 after a successful final reply and remains available for manual inspection.
-Hosted Center and Remote Agents show explicitly authored public Agent updates
-alongside automatic tool steps. These updates explain meaningful phases; they
-are not a continuous activity signal. Provider thinking stays private.
+Hosted Center and Remote Agents, and supported Local Agent controllers, can show
+explicitly authored public updates alongside automatic tool steps. These
+updates explain meaningful phases; they are not a continuous activity signal,
+a Space message, or a final reply. Exact Local Agent retries are idempotent and
+do not resume a parent task. Provider thinking stays private.
 Disabled local streaming is explicitly
 attributed to the Agent owner; an unsupported connection is distinguished from
 waiting for a provider that has not emitted reasoning. Absence of reasoning is
