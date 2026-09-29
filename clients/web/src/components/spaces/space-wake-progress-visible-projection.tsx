@@ -9,6 +9,7 @@ import {
 	useLayoutEffect,
 	useState,
 } from "react";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 
 type VisibleWakeProgressSnapshot = readonly WakeProgressItem[] | null;
 
@@ -40,6 +41,9 @@ export function usePublishSpaceWakeProgressVisibleProjection(
 ): void {
 	const publish = useContext(PublishVisibleWakeProgressContext);
 	useLayoutEffect(() => {
+		if (publish) {
+			recordReactUpdate("space_wake_visible_publish");
+		}
 		publish?.(items);
 	}, [items, publish]);
 }

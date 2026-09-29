@@ -10,7 +10,7 @@
     "dev:isolated": "node ./scripts/dev-runtime-preflight.mjs && vite dev",
     "dev:prod": "CLOUDFLARE_ENV=prod vite dev --port 3434",
     "build": "vite build",
-    "build:prod": "pnpm -C ../.. exec turbo run build --filter=openmeld-web^... && CLOUDFLARE_ENV=prod vite build",
+    "build:prod": "pnpm -C ../.. exec turbo run build --filter=openmeld-web^... && CLOUDFLARE_ENV=prod node ./scripts/build-production.mjs",
     "build:stg": "pnpm -C ../.. exec turbo run build --filter=openmeld-web^... && VITE_OPENMELD_SETUP_USER_FACING_COMMAND=openmeld-canary CLOUDFLARE_ENV=stg vite build",
     "favicon:generate": "node ./scripts/generate-favicon.mjs",
     "cf-typegen": "wrangler types --env-interface=CloudflareBindings && pnpm run typecheck",
