@@ -11,9 +11,13 @@ import type {
 	SpaceAgentStreamSnapshot,
 	SpaceInboxUnreadTarget,
 } from "@openmeld/schemas/types";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	QueryClient,
+	QueryClientProvider,
+	useQuery,
+} from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
@@ -26,9 +30,14 @@ import {
 	readSpaceHistory,
 	readSpaceUpdates,
 	type SpaceHistorySnapshot,
+	spaceHistoryQueryOptions,
 } from "#/query/spaces/history";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	SpaceWakeProgressVisibleProjectionProvider,
+	usePublishSpaceWakeProgressVisibleProjection,
+} from "./space-wake-progress-visible-projection";
 import { useSpaceLandingFeed } from "./use-space-landing-feed";
 
 vi.mock("#/query/spaces/history", async () => {
@@ -949,6 +958,88 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		);
 
 		expect(view.result.current.timelineEnvelopes).toEqual(envelopes);
+	});
+
+	it("settles a subscribed history refresh when equal-revision agent details change", async () => {
+		const queryClient = new QueryClient();
+		const options = spaceHistoryQueryOptions({
+			spaceId: "space-123",
+			openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+			enabled: false,
+		});
+		const signal = createTextSignal({ id: "sig-1", ts: 10 });
+		const before: SignalEnvelope = {
+			...signal,
+			profile: {
+				...signal.profile,
+				kind: "agent",
+				agentControllerRef: "codex",
+			},
+		};
+		const refreshed: SignalEnvelope = {
+			...before,
+			profile: { ...before.profile, agentControllerRef: "claude-code" },
+		};
+		queryClient.setQueryData(options.queryKey, {
+			envelopes: [before],
+			nextCursor: null,
+		});
+		const refetch = vi.fn(async () => undefined);
+		const initialAgentStreams: readonly SpaceAgentStreamSnapshot[] = [];
+		const readinessScope = {
+			organizationId: "org-1",
+			storageScope: "account-1",
+		};
+		const view = renderHook(
+			() => {
+				const history = useQuery(options);
+				const feed = useSpaceLandingFeed({
+					spaceId: "space-123",
+					openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+					participationEnabled: false,
+					statusReady: false,
+					statusRefetch: refetch,
+					membersRefetch: refetch,
+					initialAgentStreams,
+					readinessScope,
+					history: {
+						data: history.data,
+						isPending: history.isPending,
+						isSuccess: history.isSuccess,
+						isError: history.isError,
+					},
+				});
+				// The controller republishes derived Wake items when the timeline changes,
+				// including when no Wake is visible. Keep that real feedback edge here.
+				// biome-ignore lint/correctness/useExhaustiveDependencies: Preserve the controller's timeline-dependent projection in this reduced regression.
+				const visibleWakeItems = useMemo(() => [], [feed.timelineEnvelopes]);
+				usePublishSpaceWakeProgressVisibleProjection(visibleWakeItems);
+				return feed;
+			},
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						<SpaceWakeProgressVisibleProjectionProvider>
+							{children}
+						</SpaceWakeProgressVisibleProjectionProvider>
+					</QueryClientProvider>
+				),
+			}
+		);
+		await act(async () => {
+			queryClient.setQueryData(options.queryKey, {
+				envelopes: [refreshed],
+				nextCursor: null,
+			});
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(view.result.current.timelineEnvelopes).toEqual([refreshed]);
+		expect(
+			queryClient.getQueryData<SpaceHistorySnapshot>(options.queryKey)
+				?.envelopes
+		).toEqual([refreshed]);
+		view.unmount();
+		queryClient.clear();
 	});
 
 	it("reconciles cached history on mount before the live socket opens", async () => {

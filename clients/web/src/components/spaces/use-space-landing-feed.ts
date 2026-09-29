@@ -690,15 +690,6 @@ export function useSpaceLandingFeed(input: {
 
 		const incoming = input.history.data?.envelopes ?? [];
 		confirmedCatchUpCursorRef.current ??= getLatestSignalEnvelopeId(incoming);
-		writeSpaceHistoryEnvelopesToCache({
-			envelopes: mergeSpaceTimelineEnvelopes({
-				current: incoming,
-				incoming: timelineEnvelopesRef.current,
-			}),
-			queryClient,
-			spaceId: input.spaceId,
-			openMeldProfileId: input.openMeldProfileId,
-		});
 		const newSignals =
 			timelineEnvelopesRef.current.length > 0
 				? listNewSignals({
@@ -706,10 +697,18 @@ export function useSpaceLandingFeed(input: {
 						incoming,
 					})
 				: [];
-		mergeIncomingSignals({
+		const mergedEnvelopes = mergeIncomingSignals({
 			currentRef: timelineEnvelopesRef,
 			incoming,
 			setState: setTimelineEnvelopes,
+		});
+		// Publish the same reconciliation to the feed and its history cache. Reversing
+		// merge precedence here swaps equal-revision snapshots on every cache update.
+		writeSpaceHistoryEnvelopesToCache({
+			envelopes: mergedEnvelopes,
+			queryClient,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.openMeldProfileId,
 		});
 		if (input.statusReady) {
 			scheduleRefetchesForSignals({
