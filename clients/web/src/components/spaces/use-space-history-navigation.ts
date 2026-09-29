@@ -3,7 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readSpaceConversationPosition } from "#/lib/space-conversation-position";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
-import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
+import {
+	listVisibleTimelineEnvelopes,
+	mergeSpaceTimelineEnvelopes,
+} from "#/lib/spaces/timeline";
 import { PERSISTED_DISPLAY_QUERY_GC_TIME_MS } from "#/query/query-config";
 import {
 	SPACE_HISTORY_SIGNAL_KINDS,
@@ -25,6 +28,10 @@ export function useSpaceHistoryNavigation(input: {
 }) {
 	const queryClient = useQueryClient();
 	const identity = `${input.spaceId}:${input.profileId}`;
+	const visibleSignals = useMemo(
+		() => listVisibleTimelineEnvelopes(input.liveEnvelopes),
+		[input.liveEnvelopes]
+	);
 	const [window, setWindow] = useState<HistoryWindow | null>(null);
 	const [liveBoundary, setLiveBoundary] = useState<{
 		identity: string;
@@ -32,26 +39,25 @@ export function useSpaceHistoryNavigation(input: {
 	} | null>(null);
 	// Keep a stable entry boundary as live messages arrive. An empty bootstrap
 	// must not pin the boundary before the persisted history has been restored.
-	if (liveBoundary?.identity !== identity && input.liveEnvelopes.length > 0) {
-		const first =
-			input.liveEnvelopes[Math.max(0, input.liveEnvelopes.length - 60)];
+	if (liveBoundary?.identity !== identity && visibleSignals.length > 0) {
+		const first = visibleSignals[Math.max(0, visibleSignals.length - 60)];
 		if (first) {
 			setLiveBoundary({ identity, signalId: first.id });
 			const saved = readSpaceConversationPosition(
 				`${input.profileId}:${buildSpaceConversationScrollRestorationId(input.spaceId)}`
 			);
-			const anchor = input.liveEnvelopes.findIndex(
+			const anchor = visibleSignals.findIndex(
 				(item) => item.id === saved?.anchorSignalId
 			);
 			if (
 				window?.identity !== identity &&
 				anchor >= 0 &&
-				anchor < input.liveEnvelopes.length - 60
+				anchor < visibleSignals.length - 60
 			) {
 				setWindow({
 					identity,
 					confirmedAtLiveTail: false,
-					envelopes: input.liveEnvelopes.slice(
+					envelopes: visibleSignals.slice(
 						Math.max(0, anchor - 30),
 						anchor + 31
 					),
@@ -68,14 +74,12 @@ export function useSpaceHistoryNavigation(input: {
 		liveBoundary?.identity === identity
 			? Math.max(
 					0,
-					input.liveEnvelopes.findIndex(
-						(item) => item.id === liveBoundary.signalId
-					)
+					visibleSignals.findIndex((item) => item.id === liveBoundary.signalId)
 				)
-			: Math.max(0, input.liveEnvelopes.length - 60);
+			: Math.max(0, visibleSignals.length - 60);
 	const visibleLiveEnvelopes = useMemo(
-		() => input.liveEnvelopes.slice(liveStartIndex),
-		[input.liveEnvelopes, liveStartIndex]
+		() => visibleSignals.slice(liveStartIndex),
+		[visibleSignals, liveStartIndex]
 	);
 	const [pending, setPending] = useState(false);
 	const [pendingDirection, setPendingDirection] = useState<
@@ -119,7 +123,7 @@ export function useSpaceHistoryNavigation(input: {
 				? window
 				: initialHistoryWindow({
 						anchorSignalId: input.initialWindowAnchorSignalId,
-						envelopes: input.liveEnvelopes,
+						envelopes: visibleSignals,
 						identity,
 					});
 		if (!selectedWindow) {
@@ -159,6 +163,7 @@ export function useSpaceHistoryNavigation(input: {
 		window,
 		input.initialWindowAnchorSignalId,
 		input.liveEnvelopes,
+		visibleSignals,
 		visibleLiveEnvelopes,
 	]);
 	const readWindow = async (
@@ -236,7 +241,7 @@ export function useSpaceHistoryNavigation(input: {
 		}
 	};
 	const latest = () => {
-		const first = input.liveEnvelopes.at(-60);
+		const first = visibleSignals.at(-60);
 		setLiveBoundary(first ? { identity, signalId: first.id } : null);
 		flight.current?.abort();
 		flight.current = null;
@@ -249,7 +254,7 @@ export function useSpaceHistoryNavigation(input: {
 	const { earlierSignal, newerSignal } = continuationSignals({
 		activeWindow,
 		directoryTotal: directory.data?.total ?? 0,
-		fetchedCount: input.liveEnvelopes.length,
+		fetchedCount: visibleSignals.length,
 		liveStartIndex,
 		visibleLiveEnvelopes,
 	});
@@ -267,7 +272,8 @@ export function useSpaceHistoryNavigation(input: {
 		visibleLiveEnvelopes,
 		hasHiddenLiveHistory: liveStartIndex > 0,
 		revealCachedBefore: (envelopes = input.liveEnvelopes) => {
-			const first = envelopes[Math.max(0, liveStartIndex - 60)];
+			const signals = listVisibleTimelineEnvelopes(envelopes);
+			const first = signals[Math.max(0, liveStartIndex - 60)];
 			setLiveBoundary(first ? { identity, signalId: first.id } : null);
 		},
 		directory: directory.data,

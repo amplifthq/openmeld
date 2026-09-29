@@ -23,8 +23,15 @@ vi.mock("#/lib/spaces/api", () => ({
 	createUnscopedWebSpaceApi: () => historyApi,
 }));
 
-// Only identity is consumed when selecting the cached rendering window.
-const message = (id: string) => ({ id }) as SignalEnvelope;
+const message = (id: string): SignalEnvelope => ({
+	v: 1,
+	id,
+	spaceId: "test-space",
+	ts: 0,
+	type: "signal.text",
+	profile: { kind: "human", profileId: "viewer", profileName: "Viewer" },
+	data: { text: id },
+});
 
 describe("returning to the live Space history", () => {
 	beforeEach(() => {
@@ -324,5 +331,32 @@ describe("returning to the live Space history", () => {
 		rerender({ liveEnvelopes: [], spaceId: "space-c" });
 		rerender({ liveEnvelopes: history, spaceId: "space-c" });
 		expect(result.current.visibleLiveEnvelopes[0]?.id).toBe("420");
+	});
+	it("keeps the latest messages visible when newer presence events outnumber the live window", () => {
+		const messages = Array.from({ length: 80 }, (_, index) => ({
+			...message(String(index)),
+			ts: index,
+		}));
+		const presence = Array.from(
+			{ length: 126 },
+			(_, index) =>
+				({
+					id: `presence-${String(index)}`,
+					ts: 80 + index,
+					type: index % 2 === 0 ? "presence.join" : "presence.quit",
+				}) as SignalEnvelope
+		);
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				liveEnvelopes: [...messages, ...presence],
+				spaceId: "space-presence",
+				profileId: "viewer",
+				enabled: false,
+				accessRejected: false,
+			})
+		);
+		expect(result.current.visibleLiveEnvelopes).toHaveLength(60);
+		expect(result.current.visibleLiveEnvelopes[0]?.id).toBe("20");
+		expect(result.current.visibleLiveEnvelopes.at(-1)?.id).toBe("79");
 	});
 });
