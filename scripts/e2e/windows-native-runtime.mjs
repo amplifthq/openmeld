@@ -42,6 +42,7 @@ for (const name of [
   "windows-native-runtime",
   "windows-native-codex",
   "windows-managed-launcher",
+  "windows-dispatch-mcp",
   "windows-direct-task",
 ]) {
   const outFile = path.join(evidence, `${name}.exe`);
@@ -162,6 +163,12 @@ console.log(
 );
 await exerciseManagedLauncher();
 await exerciseManagedInstallation();
+await exerciseOwnedComponent({
+  executable: binaries["windows-dispatch-mcp"].path,
+  args: [],
+  log: "dispatch-space-action-mcp.log",
+  stages: ["windows_dispatch_space_action_mcp"],
+});
 await exerciseDirectTask();
 await exerciseOwnedComponent({
   executable: binaries["windows-native-runtime"].path,
