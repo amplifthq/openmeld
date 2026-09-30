@@ -230,7 +230,10 @@ export function AppRailLink(input: {
 				tier={input.tier}
 			/>
 			{isIcon ? (
-				<span className="max-w-full whitespace-normal text-center text-[10px] leading-tight">
+				<span
+					className="max-w-full whitespace-normal text-center text-[10px] leading-tight"
+					data-slot="app-rail-label"
+				>
 					{input.destination.label}
 				</span>
 			) : (
@@ -264,6 +267,7 @@ export function AppRailLink(input: {
 			aria-current={input.active ? "page" : undefined}
 			aria-label={accessibleLabel}
 			className={className}
+			data-app-rail-link
 			onClick={(event) => {
 				if (
 					!(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
@@ -283,7 +287,10 @@ export function AppRailLink(input: {
 
 	if (isIcon) {
 		return (
-			<SidebarMenuItem className="mx-auto h-[3.25rem] w-full">
+			<SidebarMenuItem
+				className="mx-auto h-[3.25rem] w-full"
+				data-app-rail-item
+			>
 				<CollapsedRailTooltip anchor={iconRef} label={accessibleLabel}>
 					<SidebarMenuButton isActive={input.active} render={link}>
 						{children}

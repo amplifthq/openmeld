@@ -118,7 +118,6 @@ import {
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
-import { SpaceMessageAddressingBadges } from "./space-message-addressing-badges";
 import {
 	hasSpaceMessageAttachments,
 	SpaceMessageAttachments,
@@ -132,6 +131,7 @@ import {
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
+import { SpaceMessageContinuationNotice } from "./space-message-continuation-notice";
 import {
 	copySpaceTimelineItemWithFeedback,
 	isSpaceMessageCopyPending,
@@ -1619,9 +1619,8 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										status={showProgressInAnswerArea ? progressStatus : null}
 									/>
 								) : null}
-								<SpaceMessageAddressingBadges
+								<SpaceMessageContinuationNotice
 									item={input.item}
-									profilePresentationsById={input.profilePresentationsById}
 									wakeProgressItems={input.ephemeralActivityItems}
 								/>
 								<SpaceMessageBody

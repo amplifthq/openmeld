@@ -1157,7 +1157,7 @@ describe("SpaceConversationPanel", () => {
 			timelineItems: [childResult],
 		});
 
-		expect(screen.getByTestId("space-message-addressing").textContent).toBe(
+		expect(screen.getByTestId("space-message-continuation").textContent).toBe(
 			"Auto resumes Amplift Center Agent"
 		);
 	});
@@ -1627,7 +1627,7 @@ describe("SpaceConversationPanel", () => {
 		["Wake", "wakeTargetProfileIds"],
 		["Mention", "mentionTargetProfileIds"],
 		["Reference", "referenceTargetProfileIds"],
-	] as const)("shows the %s badge from structured Agent addressing", (label, field) => {
+	] as const)("shows structured Agent %s once as an inline token", (label, field) => {
 		renderSpaceConversationPanel({
 			membersSnapshot: createWakeReceiptMembersSnapshot(),
 			timelineItems: [
@@ -1642,9 +1642,8 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(
-			screen.getByTestId("space-message-addressing").textContent
-		).toContain(`${label} Codex 5.6 Sol`);
+		expect(screen.queryByText(`${label} Codex 5.6 Sol`)).toBeNull();
+		expect(screen.queryByTestId("space-message-continuation")).toBeNull();
 		expect(
 			screen.getByRole("button", {
 				name: `Open Codex 5.6 Sol profile (${label === "Mention" ? "Mention only" : label})`,
