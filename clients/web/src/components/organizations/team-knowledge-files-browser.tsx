@@ -27,7 +27,6 @@ import {
 	ArrowLeftIcon,
 	CaretRightIcon,
 	FileTextIcon,
-	FolderOpenIcon,
 	FolderPlusIcon,
 	PlusIcon,
 } from "@phosphor-icons/react";
@@ -35,6 +34,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { lazy, type ReactNode, Suspense, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import type { FileSystemItem } from "#/components/extend/file-system";
 import { organizationDocumentDisplayTitle } from "#/components/organization-documents/organization-document-browser-model";
 import {
@@ -142,6 +142,17 @@ export function TeamKnowledgeFilesBrowser(input: {
 					badge: entry.document.hasDraft ? "Review" : undefined,
 				}
 	);
+	const selectedEntry = selectedPath ? entries.get(selectedPath) : undefined;
+	const selectedHref = selectedEntry
+		? `${buildOrganizationFilesPath(currentOrganization.slug)}?${new URLSearchParams(
+				{
+					view: "knowledge",
+					...(selectedEntry.kind === "folder"
+						? { folder: selectedEntry.folder.id }
+						: { document: selectedEntry.document.id }),
+				}
+			)}`
+		: undefined;
 	const navigateToFolder = (folderId?: string) => {
 		setSelectedPath(null);
 		navigate({
@@ -281,12 +292,10 @@ export function TeamKnowledgeFilesBrowser(input: {
 				{selectedPath || canCreate ? (
 					<ContextMenuContent className="min-w-40 p-1">
 						{selectedPath ? (
-							<ContextMenuItem
-								index={0}
-								onClick={() => openEntry(entries.get(selectedPath))}
-							>
-								<FolderOpenIcon aria-hidden="true" /> Open
-							</ContextMenuItem>
+							<ObjectMenuItems
+								href={selectedHref}
+								onOpen={() => openEntry(selectedEntry)}
+							/>
 						) : (
 							<>
 								<ContextMenuItem index={1} onClick={openNewDocument}>

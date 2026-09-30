@@ -5,11 +5,11 @@ import {
 	DropdownMenuGroup,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { FluidContextMenuContent } from "@openmeld/ui/fluid/context-menu";
 import {
+	FluidDropdownMenuSubTrigger as DropdownMenuSubTrigger,
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
@@ -741,6 +741,8 @@ type MessageFooterMoreMenuProps = {
 
 function resolveMessageFooterMoreActionIds(input: MessageFooterMoreMenuProps) {
 	return [
+		input.showToolbarActions && input.onAddReaction && "add-reaction",
+		input.onCopyLink && "copy-link",
 		input.edit && "edit",
 		input.pin && "pin",
 		input.onViewReactions && "reactions",
@@ -749,6 +751,7 @@ function resolveMessageFooterMoreActionIds(input: MessageFooterMoreMenuProps) {
 		input.showToolbarActions && input.reply && "reply",
 		input.showToolbarActions && input.thread && "thread",
 		input.task && "task",
+		input.addressingTargets.length > 0 && "addressing",
 		input.recall && "recall",
 	].filter(Boolean);
 }
@@ -787,13 +790,19 @@ function MessageFooterMoreMenuItems(
 	return (
 		<DropdownMenuGroup className="flex w-full flex-col">
 			{input.showToolbarActions && input.onAddReaction ? (
-				<FluidDropdownMenuItem index={-3} onClick={input.onAddReaction}>
+				<FluidDropdownMenuItem
+					index={actionIds.indexOf("add-reaction")}
+					onClick={input.onAddReaction}
+				>
 					<SmileyIcon aria-hidden="true" />
 					Add reaction
 				</FluidDropdownMenuItem>
 			) : null}
 			{input.onCopyLink && (
-				<FluidDropdownMenuItem index={-1} onClick={input.onCopyLink}>
+				<FluidDropdownMenuItem
+					index={actionIds.indexOf("copy-link")}
+					onClick={input.onCopyLink}
+				>
 					<CopyIcon aria-hidden="true" />
 					Copy link
 				</FluidDropdownMenuItem>
@@ -877,7 +886,7 @@ function MessageFooterMoreMenuItems(
 			) : null}
 			{input.addressingTargets.length > 0 ? (
 				<DropdownMenuSub>
-					<DropdownMenuSubTrigger>
+					<DropdownMenuSubTrigger index={actionIds.indexOf("addressing")}>
 						<TargetIcon aria-hidden="true" />
 						Message addressing
 					</DropdownMenuSubTrigger>

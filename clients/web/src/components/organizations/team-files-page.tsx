@@ -770,7 +770,7 @@ function TeamFilesBrowser(input: {
 								<>
 									{view === "active" && selectedEntry.kind === "folder" ? (
 										<ContextMenuItem
-											index={-2}
+											index={0}
 											onClick={() => setParentId(selectedEntry.id)}
 										>
 											Open
@@ -779,7 +779,7 @@ function TeamFilesBrowser(input: {
 									{view === "active" && selectedEntry.kind === "file" ? (
 										<ContextMenuItem
 											disabled={busy}
-											index={-1}
+											index={0}
 											onClick={() =>
 												runAction(async () => {
 													const content = await api.download({

@@ -25,13 +25,13 @@ export function ObjectMenuItems(input: { href?: string; onOpen?: () => void }) {
 		});
 	return (
 		<FluidDropdownMenuGroup>
-			<FluidDropdownMenuItem index={-2} onClick={open}>
+			<FluidDropdownMenuItem index={0} onClick={open}>
 				<ArrowSquareOutIcon aria-hidden="true" />
 				Open
 			</FluidDropdownMenuItem>
 			{href && (
 				<FluidDropdownMenuItem
-					index={-1}
+					index={1}
 					onClick={() => copyAppLinkWithFeedback(href)}
 				>
 					<LinkIcon aria-hidden="true" />
