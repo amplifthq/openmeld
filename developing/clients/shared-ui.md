@@ -84,6 +84,15 @@ instead of introducing a second Fluid context-menu visual or hover engine.
 Base UI retains roles, keyboard navigation, selection, positioning, dismissal,
 and focus restoration; Fluid Hover does not own those responsibilities.
 
+`fluid/context-menu` composes these same slots. `FluidContextMenuScope` renders
+the existing row/card through its trigger slot; an action owner supplies
+`FluidContextMenuContent` beside its ordinary dropdown and reuses the same
+items. `useFluidContextMenuOpen` exposes that root's controlled open state for
+eligibility reads. Nested scopes open only the nearest menu. Inputs, editable
+content, selected text, and disabled scopes retain native context menus.
+`FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
+`FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
+
 Prefer this primitive for stable, closely spaced clickable alternatives in
 menus, navigation, tabs, and grids. Use one list per semantic group; split at
 dividers and register only real click targets. Skip proximity or gap activation

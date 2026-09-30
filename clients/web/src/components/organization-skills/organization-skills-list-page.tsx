@@ -14,6 +14,7 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
@@ -41,6 +42,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import { ReadPausedState } from "#/components/app/read-paused-state";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSkillPath } from "#/lib/organizations/organization-routes";
@@ -369,52 +371,64 @@ function SkillsListContent(input: {
 			role="list"
 		>
 			{input.filteredSkills.map((skill) => (
-				<FluidCardItem
-					className="border border-border"
-					itemId={skill.id}
+				<FluidContextMenu
 					key={skill.id}
-					role="listitem"
+					target={
+						<FluidCardItem
+							className="border border-border"
+							itemId={skill.id}
+							key={skill.id}
+							role="listitem"
+						>
+							<Link
+								className="flex h-full min-h-36 flex-col rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+								to={buildOrganizationSkillPath({
+									orgSlug: input.orgSlug,
+									skillId: skill.id,
+								})}
+							>
+								<div className="flex min-w-0 items-start gap-3">
+									<FileTextIcon
+										aria-hidden="true"
+										className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+									/>
+									<div className="min-w-0 flex-1">
+										<div className="flex min-w-0 items-start justify-between gap-3">
+											<h2 className="min-w-0 truncate font-medium text-sm">
+												{skill.name}
+											</h2>
+											<Badge
+												className="shrink-0"
+												variant={skill.enabled ? "secondary" : "outline"}
+											>
+												{skill.enabled ? "Enabled" : "Disabled"}
+											</Badge>
+										</div>
+										<p className="mt-2 line-clamp-2 text-muted-foreground text-sm">
+											{skill.description}
+										</p>
+									</div>
+								</div>
+								<span className="mt-auto pt-4 pl-8 text-muted-foreground text-xs">
+									{skill.source.kind === "github" ? "GitHub" : "OpenMeld"}
+									{" · "}
+									<time dateTime={skill.updatedAt}>
+										{new Intl.DateTimeFormat("en-US", {
+											dateStyle: "medium",
+										}).format(new Date(skill.updatedAt))}
+									</time>
+								</span>
+							</Link>
+						</FluidCardItem>
+					}
 				>
-					<Link
-						className="flex h-full min-h-36 flex-col rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-						to={buildOrganizationSkillPath({
+					<ObjectMenuItems
+						href={buildOrganizationSkillPath({
 							orgSlug: input.orgSlug,
 							skillId: skill.id,
 						})}
-					>
-						<div className="flex min-w-0 items-start gap-3">
-							<FileTextIcon
-								aria-hidden="true"
-								className="mt-0.5 size-5 shrink-0 text-muted-foreground"
-							/>
-							<div className="min-w-0 flex-1">
-								<div className="flex min-w-0 items-start justify-between gap-3">
-									<h2 className="min-w-0 truncate font-medium text-sm">
-										{skill.name}
-									</h2>
-									<Badge
-										className="shrink-0"
-										variant={skill.enabled ? "secondary" : "outline"}
-									>
-										{skill.enabled ? "Enabled" : "Disabled"}
-									</Badge>
-								</div>
-								<p className="mt-2 line-clamp-2 text-muted-foreground text-sm">
-									{skill.description}
-								</p>
-							</div>
-						</div>
-						<span className="mt-auto pt-4 pl-8 text-muted-foreground text-xs">
-							{skill.source.kind === "github" ? "GitHub" : "OpenMeld"}
-							{" · "}
-							<time dateTime={skill.updatedAt}>
-								{new Intl.DateTimeFormat("en-US", {
-									dateStyle: "medium",
-								}).format(new Date(skill.updatedAt))}
-							</time>
-						</span>
-					</Link>
-				</FluidCardItem>
+					/>
+				</FluidContextMenu>
 			))}
 		</FluidCardGroup>
 	);

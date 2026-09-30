@@ -17,6 +17,7 @@ import {
   useRef,
 } from "react";
 
+import { FluidContextMenuScope } from "#fluid/context-menu";
 import { useProximityHover } from "#hooks/use-proximity-hover";
 import { fontWeights } from "#lib/font-weight";
 import { springs } from "#lib/springs";
@@ -169,12 +170,20 @@ function TableFooter({ className, ...props }: ComponentProps<"tfoot">) {
   );
 }
 
-type TableRowProps = ComponentProps<"tr"> & {
+type TableRowProps = Omit<ComponentProps<"tr">, "contextMenu"> & {
+  contextMenu?: boolean;
   /** Zero-based body-row position used by the proximity hover indicator. */
   index?: number;
 };
 
-function TableRow({ className, index, ref, style, ...props }: TableRowProps) {
+function TableRow({
+  contextMenu,
+  className,
+  index,
+  ref,
+  style,
+  ...props
+}: TableRowProps) {
   const internalRef = useRef<HTMLTableRowElement>(null);
   const context = useContext(TableContext);
   const registerItem = context?.registerItem;
@@ -196,7 +205,7 @@ function TableRow({ className, index, ref, style, ...props }: TableRowProps) {
       ? index === activeIndex || index === activeIndex - 1
       : activeIndex === 0);
 
-  return (
+  const row = (
     <tr
       className={cn(
         "group/row relative z-10 border-b transition-[border-color,background-color] duration-80",
@@ -222,6 +231,7 @@ function TableRow({ className, index, ref, style, ...props }: TableRowProps) {
       {...props}
     />
   );
+  return contextMenu ? <FluidContextMenuScope target={row} /> : row;
 }
 
 function TableHead({ className, style, ...props }: ComponentProps<"th">) {

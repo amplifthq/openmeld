@@ -612,7 +612,10 @@ describe("canonical Inbox attention page", () => {
 		expect(screen.queryByText("Ended")).toBeNull();
 	});
 
-	it("allows cancelling group removal and freezes the confirmed group before live refresh", async () => {
+	it.each([
+		"button",
+		"context",
+	])("allows cancelling %s group removal and freezes the confirmed group before live refresh", async (entry) => {
 		const first = item({ id: "first", title: "Conversation" });
 		const original = row(first, {
 			itemCount: 12,
@@ -620,7 +623,19 @@ describe("canonical Inbox attention page", () => {
 			groupKey: "frozen-group",
 		});
 		const { queryClient, queryKey } = renderPage({ rows: [original] });
-		fireEvent.click(screen.getByRole("button", { name: "Remove from Inbox" }));
+		if (entry === "context") {
+			fireEvent.contextMenu(screen.getByText("Conversation"), {
+				clientX: 10,
+				clientY: 10,
+			});
+			fireEvent.click(
+				await screen.findByRole("menuitem", { name: "Remove from Inbox" })
+			);
+		} else {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Remove from Inbox" })
+			);
+		}
 		fireEvent.click(
 			within(screen.getByRole("alertdialog")).getByRole("button", {
 				name: "Cancel",
@@ -628,7 +643,19 @@ describe("canonical Inbox attention page", () => {
 		);
 		expect(mocks.selection).not.toHaveBeenCalled();
 		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-		fireEvent.click(screen.getByRole("button", { name: "Remove from Inbox" }));
+		if (entry === "context") {
+			fireEvent.contextMenu(screen.getByText("Conversation"), {
+				clientX: 10,
+				clientY: 10,
+			});
+			fireEvent.click(
+				await screen.findByRole("menuitem", { name: "Remove from Inbox" })
+			);
+		} else {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Remove from Inbox" })
+			);
+		}
 		act(() =>
 			queryClient.setQueryData(queryKey, {
 				pageParams: [undefined],

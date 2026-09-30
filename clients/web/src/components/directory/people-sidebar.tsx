@@ -41,6 +41,7 @@ import {
 	peopleConnectionFilter,
 	removeSidebarPeopleGroup,
 	resolvePeopleSections,
+	toggleSidebarPersonStar,
 } from "./people-sidebar-order";
 import { TeamSidebarHeaderAction } from "./team-sidebar-header";
 
@@ -128,22 +129,8 @@ export function PeopleSidebar(input: {
 		input.selectedProfileId ?? ""
 	);
 	const visible = new Map<string, readonly string[]>();
-	const toggleStar = (id: string) => {
-		if (starred.has(id)) {
-			save(
-				moveSidebarPerson(preferences, "people", id, preferences.people.itemIds)
-			);
-		} else {
-			save(
-				moveSidebarPerson(
-					preferences,
-					"starred",
-					id,
-					preferences.starred.itemIds
-				)
-			);
-		}
-	};
+	const toggleStar = (id: string) =>
+		save(toggleSidebarPersonStar(preferences, id));
 	const groups = sections
 		.filter(
 			(section) =>

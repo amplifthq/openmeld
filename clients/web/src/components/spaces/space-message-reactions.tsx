@@ -190,6 +190,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 	const inFlight = useRef(new Set<string>());
 	const [error, setError] = useState<string | null>(null);
 	const [viewerOpen, setViewerOpen] = useState(false);
+	const [pickerOpen, setPickerOpen] = useState(false);
 	const groups = reactions.groups
 		.map((group) => {
 			const change = pending[group.emoji];
@@ -273,6 +274,8 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		},
 		viewerOpen,
 		setViewerOpen,
+		pickerOpen,
+		setPickerOpen,
 		snapshot: reactions,
 	};
 }
@@ -296,8 +299,9 @@ export function MessageReactionPicker({
 	state: MessageReactionsState;
 	buttonClassName: string;
 }) {
-	const [open, setOpen] = useState(false),
-		[expanded, setExpanded] = useState(false);
+	const open = state.pickerOpen;
+	const setOpen = state.setPickerOpen;
+	const [expanded, setExpanded] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		if (!open) {
@@ -316,7 +320,7 @@ export function MessageReactionPicker({
 		document.addEventListener("scroll", closeOnMessageScroll, true);
 		return () =>
 			document.removeEventListener("scroll", closeOnMessageScroll, true);
-	}, [open]);
+	}, [open, setOpen]);
 	return (
 		<Popover
 			onOpenChange={(value) => {

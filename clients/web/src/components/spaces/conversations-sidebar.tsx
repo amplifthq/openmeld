@@ -1,5 +1,9 @@
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
+	ContextMenu,
+	ContextMenuTrigger,
+} from "@openmeld/ui/components/context-menu";
+import {
 	Dialog,
 	DialogContent,
 	DialogHeader,
@@ -8,8 +12,6 @@ import {
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuRadioGroup,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
@@ -18,7 +20,9 @@ import {
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import {
+	FluidDropdownMenuContent as DropdownMenuContent,
 	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
 	FluidDropdownMenuRadioItem,
 	FluidDropdownMenuSubContent,
 } from "@openmeld/ui/fluid/dropdown-menu";
@@ -413,20 +417,22 @@ export function ConversationsSidebar(
 	};
 	const creationMenu = (
 		<>
-			<DropdownMenuItem onClick={() => newMessage()}>
+			<FluidDropdownMenuItem index={0} onClick={() => newMessage()}>
 				<ChatCircleTextIcon />
 				New message
-			</DropdownMenuItem>
-			<DropdownMenuItem
-				render={
-					<Link
-						onClick={onNavigate}
-						to={buildOrganizationNewSpacePath(dm.org.slug)}
-					/>
-				}
+			</FluidDropdownMenuItem>
+			<FluidDropdownMenuItem
+				index={1}
+				onClick={() => {
+					dismiss();
+					navigate({ to: buildOrganizationNewSpacePath(dm.org.slug) }).catch(
+						console.error
+					);
+				}}
 			>
-				<PlusIcon /> New Space
-			</DropdownMenuItem>
+				<PlusIcon />
+				New Space
+			</FluidDropdownMenuItem>
 		</>
 	);
 	const viewMenu = (
@@ -661,188 +667,202 @@ export function ConversationsSidebar(
 					Loading older direct messages…
 				</p>
 			)}
-			<SidebarDrag
-				canDrop={(id, section) =>
-					view === "grouped"
-						? model.canMove(id, section)
-						: section === "pinned" && model.canMove(id, section)
-				}
-				groupIds={
-					view === "grouped" && !model.disabled
-						? model.sections
-								.filter((section) => section.groupId)
-								.map((section) => section.id)
-						: []
-				}
-				onMove={move}
-				onMoveGroup={(id, before) => {
-					const section = model.sections.find((item) => item.id === id);
-					const target = model.sections.find((item) => item.id === before);
-					if (
-						!section?.groupId ||
-						(target && target.kind !== section.kind) ||
-						!dm.store.preferences
-					) {
-						return;
-					}
-					if (section.kind === "space") {
-						dm.store.save({
-							...dm.store.preferences,
-							groups: moveSidebarGroup(
-								dm.store.preferences.groups,
-								section.groupId,
-								target?.groupId
-							),
-						});
-					} else {
-						dm.save({
-							...dm.preferences,
-							groups: moveSidebarGroup(
-								dm.preferences.groups,
-								section.groupId,
-								target?.groupId
-							),
-						});
-					}
-				}}
-			>
-				<ControlledSidebarGroupStateProvider value={disclosure}>
-					<AppContextualSidebarNav
-						activeItemId={model.selected}
-						ariaLabel="Conversations"
-						groups={visible.map((section) => ({
-							id: section.id,
-							label: section.name,
-							ariaLabel: section.name,
-							onRename: section.groupId
-								? (value: string) =>
-										model.updateSection(section, { name: value })
-								: undefined,
-							labelAccessory: (
-								<>
-									{!disclosure.isOpen(section.id) &&
-										unreadCount(section) > 0 && (
-											<span className="mr-1 text-muted-foreground text-xs">
-												{unreadCount(section)} unread
-											</span>
-										)}
-									{view === "grouped" && section.id !== "pinned" && (
-										<SidebarSectionActions
-											addLabel={
-												section.kind === "space"
-													? "Add Space or group"
-													: "Add direct message or group"
-											}
-											disabled={model.disabled}
-											label={section.name}
-											newItemLabel={
-												section.kind === "space"
-													? "New Space"
-													: "New direct message"
-											}
-											onDelete={
-												section.groupId
-													? () => model.updateSection(section, null)
-													: undefined
-											}
-											onNewGroup={(value) => {
-												if (section.kind !== "pinned") {
-													model.addGroup(section.kind, value);
-												}
-											}}
-											onNewItem={() => newItem(section)}
-											onSort={(sort) => model.updateSection(section, { sort })}
-											sort={section.sort}
-										/>
-									)}
-								</>
-							),
-							content: (
-								<SidebarDropSection
-									ids={rows(section).map((item) => item.spaceId)}
-									section={section.id}
-								>
-									<SpaceSidebarEmptyState
-										onNavigate={onNavigate}
-										orgSlug={dm.org.slug}
-										sectionId={section.id}
-										visible={showSpaceEmptyState}
-									/>
-									<FluidNavMenu
-										activeLayoutId="conversation-selection"
-										activeValue={model.selected}
-										aria-label={section.name}
-									>
-										{rows(section).map((item, index) => (
-											<ConversationSidebarRow
-												activeWakeSummary={dm.indicators.activeWakeSummaryBySpaceId.get(
-													item.spaceId
+			<ContextMenu>
+				<ContextMenuTrigger
+					className="select-auto"
+					render={<div className="contents" />}
+				>
+					<SidebarDrag
+						canDrop={(id, section) =>
+							view === "grouped"
+								? model.canMove(id, section)
+								: section === "pinned" && model.canMove(id, section)
+						}
+						groupIds={
+							view === "grouped" && !model.disabled
+								? model.sections
+										.filter((section) => section.groupId)
+										.map((section) => section.id)
+								: []
+						}
+						onMove={move}
+						onMoveGroup={(id, before) => {
+							const section = model.sections.find((item) => item.id === id);
+							const target = model.sections.find((item) => item.id === before);
+							if (
+								!section?.groupId ||
+								(target && target.kind !== section.kind) ||
+								!dm.store.preferences
+							) {
+								return;
+							}
+							if (section.kind === "space") {
+								dm.store.save({
+									...dm.store.preferences,
+									groups: moveSidebarGroup(
+										dm.store.preferences.groups,
+										section.groupId,
+										target?.groupId
+									),
+								});
+							} else {
+								dm.save({
+									...dm.preferences,
+									groups: moveSidebarGroup(
+										dm.preferences.groups,
+										section.groupId,
+										target?.groupId
+									),
+								});
+							}
+						}}
+					>
+						<ControlledSidebarGroupStateProvider value={disclosure}>
+							<AppContextualSidebarNav
+								activeItemId={model.selected}
+								ariaLabel="Conversations"
+								groups={visible.map((section) => ({
+									id: section.id,
+									label: section.name,
+									ariaLabel: section.name,
+									onRename: section.groupId
+										? (value: string) =>
+												model.updateSection(section, { name: value })
+										: undefined,
+									labelAccessory: (
+										<>
+											{!disclosure.isOpen(section.id) &&
+												unreadCount(section) > 0 && (
+													<span className="mr-1 text-muted-foreground text-xs">
+														{unreadCount(section)} unread
+													</span>
 												)}
-												archived={archived}
-												attentionTone={resolveInboxAttentionTone(
-													dm.attentionById.get(item.spaceId) ?? {}
-												)}
-												conversation={item}
-												disabled={model.disabled}
-												dragDisabled={
-													view === "recent" && section.id !== "pinned"
-												}
-												groups={model.sections.filter(
-													(target) =>
-														target.kind === "pinned" ||
-														target.kind === item.kind
-												)}
-												index={index}
-												key={item.spaceId}
-												memberAppearances={memberAppearances}
-												onArchive={
-													item.kind === "direct-message"
-														? () =>
-																dm.save({
-																	...dm.preferences,
-																	archivedIds: archived
-																		? dm.preferences.archivedIds.filter(
-																				(id) => id !== item.spaceId
-																			)
-																		: [
-																				...dm.preferences.archivedIds,
-																				item.spaceId,
-																			],
-																})
-														: undefined
-												}
-												onMove={(target) =>
-													move(target, item.spaceId).catch(console.error)
-												}
-												onRename={
-													item.kind === "direct-message"
-														? () => {
-																setRenaming(item);
-																setName(item.title);
-															}
-														: undefined
-												}
-												onUnpin={() => model.unpin(item).catch(console.error)}
-												profileId={item.profileId}
-												section={section.id}
-												selected={model.selected === item.spaceId}
-												title={item.title}
-												unreadCount={
-													dm.indicators.unreadBySpaceId.get(item.spaceId)
-														?.unreadCount ?? 0
-												}
-												url={item.url}
+											{view === "grouped" && section.id !== "pinned" && (
+												<SidebarSectionActions
+													addLabel={
+														section.kind === "space"
+															? "Add Space or group"
+															: "Add direct message or group"
+													}
+													disabled={model.disabled}
+													label={section.name}
+													newItemLabel={
+														section.kind === "space"
+															? "New Space"
+															: "New direct message"
+													}
+													onDelete={
+														section.groupId
+															? () => model.updateSection(section, null)
+															: undefined
+													}
+													onNewGroup={(value) => {
+														if (section.kind !== "pinned") {
+															model.addGroup(section.kind, value);
+														}
+													}}
+													onNewItem={() => newItem(section)}
+													onSort={(sort) =>
+														model.updateSection(section, { sort })
+													}
+													sort={section.sort}
+												/>
+											)}
+										</>
+									),
+									content: (
+										<SidebarDropSection
+											ids={rows(section).map((item) => item.spaceId)}
+											section={section.id}
+										>
+											<SpaceSidebarEmptyState
+												onNavigate={onNavigate}
+												orgSlug={dm.org.slug}
+												sectionId={section.id}
+												visible={showSpaceEmptyState}
 											/>
-										))}
-									</FluidNavMenu>
-								</SidebarDropSection>
-							),
-						}))}
-						placement="main"
-						title="Conversations"
-					/>
-				</ControlledSidebarGroupStateProvider>
-			</SidebarDrag>
+											<FluidNavMenu
+												activeLayoutId="conversation-selection"
+												activeValue={model.selected}
+												aria-label={section.name}
+											>
+												{rows(section).map((item, index) => (
+													<ConversationSidebarRow
+														activeWakeSummary={dm.indicators.activeWakeSummaryBySpaceId.get(
+															item.spaceId
+														)}
+														archived={archived}
+														attentionTone={resolveInboxAttentionTone(
+															dm.attentionById.get(item.spaceId) ?? {}
+														)}
+														conversation={item}
+														disabled={model.disabled}
+														dragDisabled={
+															view === "recent" && section.id !== "pinned"
+														}
+														groups={model.sections.filter(
+															(target) =>
+																target.kind === "pinned" ||
+																target.kind === item.kind
+														)}
+														index={index}
+														key={item.spaceId}
+														memberAppearances={memberAppearances}
+														onArchive={
+															item.kind === "direct-message"
+																? () =>
+																		dm.save({
+																			...dm.preferences,
+																			archivedIds: archived
+																				? dm.preferences.archivedIds.filter(
+																						(id) => id !== item.spaceId
+																					)
+																				: [
+																						...dm.preferences.archivedIds,
+																						item.spaceId,
+																					],
+																		})
+																: undefined
+														}
+														onMove={(target) =>
+															move(target, item.spaceId).catch(console.error)
+														}
+														onRename={
+															item.kind === "direct-message"
+																? () => {
+																		setRenaming(item);
+																		setName(item.title);
+																	}
+																: undefined
+														}
+														onUnpin={() =>
+															model.unpin(item).catch(console.error)
+														}
+														profileId={item.profileId}
+														section={section.id}
+														selected={model.selected === item.spaceId}
+														title={item.title}
+														unreadCount={
+															dm.indicators.unreadBySpaceId.get(item.spaceId)
+																?.unreadCount ?? 0
+														}
+														url={item.url}
+													/>
+												))}
+											</FluidNavMenu>
+										</SidebarDropSection>
+									),
+								}))}
+								placement="main"
+								title="Conversations"
+							/>
+						</ControlledSidebarGroupStateProvider>
+					</SidebarDrag>
+				</ContextMenuTrigger>
+				<FluidDropdownMenuContent className="w-52">
+					{creationMenu}
+				</FluidDropdownMenuContent>
+			</ContextMenu>
 			{creating && (
 				<NewChatDialog
 					groupId={creatingGroup?.slice(5)}
