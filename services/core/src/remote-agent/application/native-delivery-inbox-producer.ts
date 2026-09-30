@@ -7,9 +7,65 @@ import {
   readInboxItemBySource,
   replaceInboxSourceTargetsIfCurrent,
 } from "../../inbox/infrastructure/d1/inbox-item-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
 import type { SlackInboxSourceTarget } from "./slack-inbox-source-target";
 
 type SlackTerminalStatus = AgentTaskTerminalOutcome["status"];
+
+export async function projectTaskContinuationAdmissionExhaustedInboxItem(input: {
+  attempts: number;
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  occurredAtMs: number;
+}): Promise<void> {
+  const recipientUserId = input.delivery.onBehalfOfUserId?.trim() ?? "";
+  const trigger = input.delivery.workerSubmitRequest?.turnEnvelope.trigger;
+  if (
+    input.delivery.conversationKind !== "space" ||
+    input.delivery.routineRunId ||
+    !recipientUserId ||
+    (trigger?.source !== "task_continuation" &&
+      trigger?.source !== "task_watch_continuation")
+  ) {
+    return;
+  }
+  const resultSignalId =
+    "publishedSignalId" in trigger.outcome
+      ? trigger.outcome.publishedSignalId?.trim()
+      : null;
+  await ensureInboxItem({
+    candidate: {
+      attention: "action_required",
+      contextLabel: "Center Agent",
+      importance: "urgent",
+      kind: "system_issue",
+      occurredAtMs: input.occurredAtMs,
+      organizationId: input.delivery.organizationId,
+      preview: `OpenMeld made ${input.attempts} startup attempts. Open the linked original result in its Space thread and retry from there.`,
+      recipientUserId,
+      sourceFacts: {
+        recipientReasons: ["requester"],
+        requestCategory: "action",
+        version: 1,
+      },
+      sourceKey: `${input.delivery.deliveryId}:admission_retry_exhausted`,
+      sourceKind: "remote_agent_native_delivery",
+      sourceTarget: {
+        kind: "space",
+        signalId: resultSignalId || input.delivery.triggerMessageId,
+        spaceId: input.delivery.spaceId,
+        ...(input.delivery.threadContext?.rootSignalId
+          ? {
+              threadRootSignalId: input.delivery.threadContext.rootSignalId,
+            }
+          : {}),
+      },
+      title: "Center Agent could not continue a task",
+    },
+    db: input.db,
+    nowMs: input.occurredAtMs,
+  });
+}
 
 export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
   db: D1Database;

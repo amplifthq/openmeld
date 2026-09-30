@@ -769,6 +769,15 @@ idempotent item instead of creating Inbox noise. Reading or Dismissing it does
 not resolve the recovery gate. The owner may skip the interrupted work; that
 action is idempotent and allows the oldest later Wake to continue.
 
+A hosted Center Agent task continuation that remains unacknowledged after all
+three admission attempts creates one urgent, action-required `system_issue`
+item for the represented member. Its stable source identity is the continuation
+Native Delivery plus `admission_retry_exhausted`, and its target opens the exact
+child-result Signal in the observer's original Space or thread. Queue redelivery
+and terminal-effect replay update the same item rather than creating duplicate
+alerts. Reading or Dismissing the item does not claim that the continuation ran;
+the member follows the linked result and retries from that context.
+
 ## Delivery channels and preferences
 
 ### Message notification preferences

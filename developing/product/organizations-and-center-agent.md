@@ -969,6 +969,19 @@ turn and its new Native Delivery from the observer delivery's frozen locator;
 the subscription never copies or overrides that destination. This also permits
 one Space parent to watch work in another Space without making either Space the
 coordination owner.
+
+If a Space continuation receives no worker ACK during its admission window,
+Core retries that same Native Delivery at most twice after the initial attempt,
+with 15-second and 30-second backoff. Every attempt reuses the frozen worker
+request, delivery id, dispatch id, and idempotency key; it never creates a new
+continuation or consumes the subscription again. A real worker ACK, including
+an already-observed idempotent ACK, closes retry eligibility immediately.
+After three unacknowledged attempts, Core publishes one explicit failure in the
+original result thread and creates one urgent, action-required Inbox item for
+the represented member linked to that result. The member does not need to poll
+or remember to Wake the parent, and accepted or running work is never replayed
+by this admission recovery.
+
 Stopping the parent cancels pending continuations and planned fallbacks, and
 forwards the existing exact Wake Stop request to every active Space Wake child.
 Every cancellation target is attempted even when one fails. Hosted

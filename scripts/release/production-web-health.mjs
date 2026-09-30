@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 const BODY = /<body[\s>]/iu;
 const SCRIPT = /<script[\s>]/iu;
 const SOURCE_SHA = /^[a-f0-9]{40}$/u;
+const SSR_ROUTES = ["/", "/login", "/forgot-password", "/check-email"];
 const BUILD_META =
   /<meta\s+[^>]*name="(openmeld-[a-z-]+)"[^>]*content="([^"]*)"[^>]*>/gu;
 
@@ -62,21 +63,32 @@ export async function checkProductionWeb({
   if (!SOURCE_SHA.test(sourceSha)) {
     throw new Error("An exact Web source SHA is required.");
   }
-  const target = new URL("/", url);
-  target.searchParams.set("release-health", sourceSha);
-  const response = await fetchImpl(target, {
-    redirect: "error",
-    signal: AbortSignal.timeout(30_000),
-    headers: { accept: "text/html", "cache-control": "no-cache" },
-  });
-  return validateSsrPage({
-    status: response.status,
-    contentType: response.headers.get("content-type"),
-    html: await response.text(),
-    sourceSha,
-    expectedBuildId,
-    allowDirty,
-  });
+  let rootPage;
+  for (const route of SSR_ROUTES) {
+    const target = new URL(route, url);
+    target.searchParams.set("release-health", sourceSha);
+    const response = await fetchImpl(target, {
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+      headers: { accept: "text/html", "cache-control": "no-cache" },
+    });
+    const html = await response.text();
+    if (html.includes("Server function info not found")) {
+      throw new Error(`Web SSR ${route} has an unresolved server function.`);
+    }
+    const page = validateSsrPage({
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      html,
+      sourceSha,
+      expectedBuildId,
+      allowDirty,
+    });
+    if (route === "/") {
+      rootPage = page;
+    }
+  }
+  return rootPage;
 }
 
 export async function waitForProductionWeb({

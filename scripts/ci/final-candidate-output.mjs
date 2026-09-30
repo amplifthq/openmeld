@@ -197,10 +197,6 @@ export function describeFinalCandidateFailure(headSha, baseSha, evidence) {
   return `Failed @ ${shortSha(headSha)} on ${shortSha(baseSha)}; inspect evidence`;
 }
 
-export function shouldFailPublisherJob(success, evidence) {
-  return !(success || isTrustedControlRefuse(evidence));
-}
-
 function formatDuration(durationMs) {
   if (!Number.isFinite(durationMs)) {
     return "unknown";
