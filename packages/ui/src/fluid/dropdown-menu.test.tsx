@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ContextMenu, ContextMenuTrigger } from "#components/context-menu";
 import {
   DropdownMenu,
   DropdownMenuRadioGroup,
@@ -84,27 +85,38 @@ describe("FluidDropdownMenu", () => {
       expect(editItem.getAttribute("data-hovered")).toBe("true");
     });
     expect(
-      menu.querySelectorAll('[data-slot="fluid-action-list-hover-indicator"]')
+      menu.querySelectorAll('[data-slot="fluid-hover-highlight"]')
     ).toHaveLength(1);
   });
 
-  it("preserves keyboard navigation and Escape focus restoration", async () => {
+  it.each([
+    "dropdown",
+    "context",
+  ])("preserves keyboard navigation and Escape focus restoration for %s menus", async (kind) => {
+    const Root = kind === "context" ? ContextMenu : DropdownMenu;
+    const Trigger =
+      kind === "context" ? ContextMenuTrigger : DropdownMenuTrigger;
     render(
-      <DropdownMenu>
-        <DropdownMenuTrigger>Profile options</DropdownMenuTrigger>
+      <Root>
+        <Trigger render={<button type="button" />}>Profile options</Trigger>
         <FluidDropdownMenuContent>
           <FluidDropdownMenuItem index={0}>View profile</FluidDropdownMenuItem>
           <FluidDropdownMenuItem index={1}>Edit profile</FluidDropdownMenuItem>
         </FluidDropdownMenuContent>
-      </DropdownMenu>
+      </Root>
     );
 
     const trigger = screen.getByRole("button", { name: "Profile options" });
-    fireEvent.click(trigger);
+    trigger.focus();
+    if (kind === "context") {
+      fireEvent.contextMenu(trigger, { clientX: 10, clientY: 10 });
+    } else {
+      fireEvent.click(trigger);
+    }
     const viewItem = await screen.findByRole("menuitem", {
       name: "View profile",
     });
-
+    act(() => viewItem.focus());
     fireEvent.keyDown(viewItem, { key: "ArrowDown" });
     expect(document.activeElement).toBe(
       screen.getByRole("menuitem", { name: "Edit profile" })
@@ -148,7 +160,7 @@ describe("FluidDropdownMenu", () => {
     fireEvent.mouseMove(list, { clientY: 50 });
     await waitFor(() => expect(mute.getAttribute("data-hovered")).toBe("true"));
     expect(
-      menu.querySelectorAll('[data-slot="fluid-action-list-hover-indicator"]')
+      menu.querySelectorAll('[data-slot="fluid-hover-highlight"]')
     ).toHaveLength(1);
     act(() => all.focus());
     fireEvent.keyDown(all, { key: "ArrowDown" });

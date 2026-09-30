@@ -8,11 +8,12 @@ import {
   DropdownMenuSubContent,
 } from "#components/dropdown-menu";
 import { FluidActionList, FluidActionListItem } from "#fluid/action-list";
+import type { UseFluidHoverOptions } from "#hooks/use-fluid-hover";
 import { cn } from "#lib/utils";
 
 type FluidDropdownMenuContentProps = React.ComponentProps<
   typeof DropdownMenuContent
->;
+> & { gapClick?: UseFluidHoverOptions["gapClick"] };
 
 type FluidDropdownMenuItemProps = Omit<
   React.ComponentProps<typeof DropdownMenuItem>,
@@ -31,14 +32,20 @@ type FluidDropdownMenuRadioItemProps = Omit<
 function FluidDropdownMenuContent({
   children,
   className,
+  gapClick,
   ...props
 }: FluidDropdownMenuContentProps) {
   return (
     <DropdownMenuContent
       {...props}
-      className={cn("motion-reduce:animate-none", className)}
+      className={cn(
+        "motion-reduce:animate-none! motion-reduce:transition-none!",
+        className
+      )}
     >
       <FluidActionList
+        className="-m-1 max-w-none p-1"
+        gapClick={gapClick}
         hoverIndicatorClassName="bg-interaction-hover"
         role="presentation"
       >
@@ -99,9 +106,13 @@ function FluidDropdownMenuSubContent({
   return (
     <DropdownMenuSubContent
       {...props}
-      className={cn("motion-reduce:animate-none", className)}
+      className={cn(
+        "motion-reduce:animate-none! motion-reduce:transition-none!",
+        className
+      )}
     >
       <FluidActionList
+        className="-m-1 max-w-none p-1"
         hoverIndicatorClassName="bg-interaction-hover"
         role="presentation"
       >

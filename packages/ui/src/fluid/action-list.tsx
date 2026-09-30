@@ -8,17 +8,19 @@ import {
   type HTMLAttributes,
   type ReactNode,
   use,
-  useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { useProximityHover } from "#hooks/use-proximity-hover";
+import {
+  type UseFluidHoverOptions,
+  useFluidHover,
+  useRegisterFluidHoverItem,
+} from "#hooks/use-fluid-hover";
 import { useShape } from "#lib/shape-context";
 import { springs } from "#lib/springs";
 import { cn } from "#lib/utils";
-import { FluidHoverHighlight } from "./hover-highlight";
+import { FluidHoverHighlight } from "./fluid-hover-highlight";
 
 type FluidActionListContextValue = {
   activeIndex: number | null;
@@ -29,6 +31,7 @@ type FluidActionListProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
   focusIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
+  gapClick?: UseFluidHoverOptions["gapClick"];
 };
 
 type FluidActionListItemProps = useRender.ComponentProps<"button"> & {
@@ -37,9 +40,6 @@ type FluidActionListItemProps = useRender.ComponentProps<"button"> & {
 
 const FluidActionListContext =
   createContext<FluidActionListContextValue | null>(null);
-
-const useIsomorphicLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function useFluidActionList() {
   const context = use(FluidActionListContext);
@@ -64,30 +64,25 @@ export function FluidActionList({
   className,
   focusIndicatorClassName,
   hoverIndicatorClassName,
+  gapClick = false,
   ...props
 }: FluidActionListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
-  const {
-    activeIndex,
-    handlers,
-    itemRects,
-    measureItems,
-    registerItem,
-    sessionRef,
-    setActiveIndex,
-  } = useProximityHover(containerRef, { axis: "y" });
+  const hover = useFluidHover(containerRef, {
+    axis: "y",
+    gapClick,
+    isItemDisabled: isDisabledItem,
+  });
+  const { activeIndex, handlers, itemRects, registerItem, setActiveIndex } =
+    hover;
   const shape = useShape();
   const reduceMotion = useReducedMotion() === true;
 
-  useIsomorphicLayoutEffect(() => {
-    measureItems();
-  });
-
-  const activeRect =
-    activeIndex === null ? null : (itemRects[activeIndex] ?? null);
   const focusRect =
-    focusedIndex === null ? null : (itemRects[focusedIndex] ?? null);
+    !hover.isMeasured || focusedIndex === null
+      ? null
+      : (itemRects[focusedIndex] ?? null);
   const contextValue = useMemo(
     () => ({ activeIndex, registerItem }),
     [activeIndex, registerItem]
@@ -97,6 +92,7 @@ export function FluidActionList({
     <FluidActionListContext.Provider value={contextValue}>
       {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: the group owns shared hover and focus geometry for its child action buttons. */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the group delegates all activation semantics to native child buttons. */}
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: only pointer gaps delegate activation; native buttons and Base UI retain keyboard activation. */}
       <div
         {...props}
         className={cn(
@@ -110,6 +106,12 @@ export function FluidActionList({
           }
           setFocusedIndex(null);
           setActiveIndex(null);
+        }}
+        onClick={(event) => {
+          props.onClick?.(event);
+          if (!event.defaultPrevented) {
+            handlers.onClick(event);
+          }
         }}
         onFocus={(event) => {
           if (
@@ -149,16 +151,10 @@ export function FluidActionList({
         ref={containerRef}
         role={props.role ?? "group"}
       >
-        <AnimatePresence>
-          {activeRect ? (
-            <FluidHoverHighlight
-              className={cn(shape.bg, hoverIndicatorClassName)}
-              key={sessionRef.current}
-              rect={activeRect}
-              slot="fluid-action-list-hover-indicator"
-            />
-          ) : null}
-        </AnimatePresence>
+        <FluidHoverHighlight
+          className={cn(shape.bg, hoverIndicatorClassName)}
+          hover={hover}
+        />
 
         <AnimatePresence>
           {focusRect ? (
@@ -206,12 +202,11 @@ export function FluidActionListItem({
   const itemRef = useRef<HTMLButtonElement>(null);
   const { activeIndex, registerItem } = useFluidActionList();
 
-  useIsomorphicLayoutEffect(() => {
-    registerItem(index, disabled ? null : itemRef.current);
-    return () => {
-      registerItem(index, null);
-    };
-  }, [disabled, index, registerItem]);
+  useRegisterFluidHoverItem(
+    disabled ? undefined : registerItem,
+    index,
+    itemRef
+  );
 
   const renderedItem = useRender({
     defaultTagName: "button",
@@ -238,3 +233,11 @@ export function FluidActionListItem({
 }
 
 export type { FluidActionListItemProps, FluidActionListProps };
+
+function isDisabledItem(element: HTMLElement) {
+  return (
+    element.hasAttribute("disabled") ||
+    element.hasAttribute("data-disabled") ||
+    element.getAttribute("aria-disabled") === "true"
+  );
+}
