@@ -7,6 +7,7 @@ import type {
 	SpaceMembersSnapshot,
 	SpaceThread,
 } from "@openmeld/schemas/types";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import type { ReactNode } from "react";
 import {
@@ -1331,6 +1332,12 @@ function ThreadTimeline(input: {
 	);
 }
 
+function isThreadProgressOnlyMessage(item: SpaceTimelineItem) {
+	return (
+		item.transientActivityPurpose !== null || Boolean(item.activeWakeProgress)
+	);
+}
+
 const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 	avatarStyle?: SpaceMemberAgentSnapshot["avatarStyle"];
 	avatarModelId?: string | null;
@@ -1515,182 +1522,195 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 					input.readOnly
 				)}
 			>
-				<Message
-					align={messageAlign}
-					className={cn(
-						"group/message-row",
-						resolveSpaceMessageRowLayoutClassName({
-							isFirstInGroup: true,
-							isLastInGroup: true,
-						}),
-						SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
-					)}
-					data-message-row-id={input.item.id}
-					data-space-self-message={String(isSelfMessage)}
-					data-thread-message
-				>
-					<MessageContent
-						className={cn(
-							"w-full min-w-0 gap-0",
-							SPACE_MESSAGE_SURFACE_WIDTH_CLASS
-						)}
-						directMessage={input.isDirectMessage}
-					>
-						<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
-							<span data-slot="message-speaker-avatar">
-								<SpaceMessageProfileAvatar
-									agentControllerPending={
-										input.item.actorAgentControllerPending
-									}
-									agentControllerRef={input.item.actorAgentControllerRef}
-									avatarImageUrl={resolveThreadMessageAvatarImageUrl({
-										item: input.item,
-										selfAvatarImageUrl: input.selfAvatarImageUrl,
-										selfProfileId: input.selfProfileId,
-									})}
-									avatarModelId={input.avatarModelId}
-									avatarStyle={input.avatarStyle}
-									displayName={input.item.actorName}
-									isCenterAgent={
-										input.item.actorProfileKind === "agent" &&
-										input.item.actorProfileId === input.centerAgentProfileId
-									}
-									profileId={input.item.actorProfileId}
-									profileKind={input.item.actorProfileKind}
-									working={isSpaceMessageAgentWorking(input.item)}
-								/>
-							</span>
-							{!input.isDirectMessage && (
-								<>
-									<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">
-										{input.item.actorName}
-									</span>
-									{agentAttribution ? (
-										<>
-											<span className="shrink-0 text-muted-foreground">·</span>
-											<span className="min-w-0 text-muted-foreground">
-												{agentAttribution}
-											</span>
-										</>
-									) : null}
-								</>
+				<FluidContextMenuScope
+					disabled={isThreadProgressOnlyMessage(input.item)}
+					target={
+						<Message
+							align={messageAlign}
+							className={cn(
+								"group/message-row",
+								resolveSpaceMessageRowLayoutClassName({
+									isFirstInGroup: true,
+									isLastInGroup: true,
+								}),
+								SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
 							)}
-							<SpaceMessageTime
-								createdAtMs={input.item.createdAtMs}
-								isDirectMessage={input.isDirectMessage}
-								placement="header"
-							/>
-						</MessageHeader>
-						<Bubble
-							align={messageAlign}
-							className={
-								hasSpaceMessageAttachments(input.item) ? "w-full" : undefined
-							}
+							data-message-row-id={input.item.id}
+							data-space-self-message={String(isSelfMessage)}
+							data-thread-message
 						>
-							<SpaceMessageSurface
-								attachments={
-									<SpaceMessageAttachments
-										align={messageAlign}
-										item={input.item}
-										onOpenSpaceFile={input.onOpenSpaceFile}
-										openMeldProfileId={input.selfProfileId}
-										organizationSlug={input.orgSlug}
-										spaceId={input.item.spaceId}
-									/>
-								}
-								bubbleClassName={cn(
-									"transition-colors motion-reduce:transition-none",
-									selfMessageContentLayoutClassName,
-									resolveSpaceMessageBubblePresentationClass({
-										isSelf: isSelfMessage,
-									})
+							<MessageContent
+								className={cn(
+									"w-full min-w-0 gap-0",
+									SPACE_MESSAGE_SURFACE_WIDTH_CLASS
 								)}
-								className="group/thread-message relative"
-								data-signal-id={input.item.id}
-								edited={Boolean(input.item.editedAt) && !input.item.recalledAt}
-								ref={(element) => {
-									input.registerMessageElement(input.item.id, element);
-								}}
-								tabIndex={-1}
+								directMessage={input.isDirectMessage}
 							>
-								{input.item.actorProfileKind === "agent" ? (
-									<SpaceMessageWork
-										item={input.item}
-										status={showProgressInAnswerArea ? progressStatus : null}
-									/>
-								) : null}
-								<SpaceMessageContinuationNotice
-									item={input.item}
-									wakeProgressItems={input.ephemeralActivityItems}
-								/>
-								<SpaceMessageBody
-									computerSetupContext={computerSetupPresentation.context}
-									computerSetupSourceSignalId={input.item.id}
-									containerClassName={selfMessageContentLayoutClassName}
-									includeAttachments={false}
-									item={input.item}
-									onOpenProfile={input.onOpenProfile}
-									onOpenSpaceFile={input.onOpenSpaceFile}
-									openMeldProfileId={input.selfProfileId}
-									orgSlug={input.orgSlug}
-									profilePresentationsById={input.profilePresentationsById}
-									renderProfileTrigger={input.renderProfileTrigger}
-									spaceReferencesById={input.spaceReferencesById}
-								/>
-								<SpaceMessageInteractionSource
-									source={input.item.centerAgentInteractionSource}
-								/>
-								{agentInteractionItems.map((interactionItem) =>
-									input.actionableAgentInteractionPlacement ===
-										"pending-surface" &&
-									interactionItem.pendingInteraction?.canRespond ? null : (
-										<SpaceAgentInteractionCard
-											item={interactionItem}
-											key={resolveSpacePendingAgentActionIdentity(
-												interactionItem
-											)}
-											onRespond={
-												input.readOnly
-													? undefined
-													: input.onAgentInteractionResponse
+								<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
+									<span data-slot="message-speaker-avatar">
+										<SpaceMessageProfileAvatar
+											agentControllerPending={
+												input.item.actorAgentControllerPending
 											}
+											agentControllerRef={input.item.actorAgentControllerRef}
+											avatarImageUrl={resolveThreadMessageAvatarImageUrl({
+												item: input.item,
+												selfAvatarImageUrl: input.selfAvatarImageUrl,
+												selfProfileId: input.selfProfileId,
+											})}
+											avatarModelId={input.avatarModelId}
+											avatarStyle={input.avatarStyle}
+											displayName={input.item.actorName}
+											isCenterAgent={
+												input.item.actorProfileKind === "agent" &&
+												input.item.actorProfileId === input.centerAgentProfileId
+											}
+											profileId={input.item.actorProfileId}
+											profileKind={input.item.actorProfileKind}
+											working={isSpaceMessageAgentWorking(input.item)}
 										/>
-									)
-								)}
-								{input.item.actorProfileKind !== "agent" &&
-								showProgressInAnswerArea
-									? progressStatus
-									: null}
-								{renderAnchoredThreadOutcomeRows({
-									notices: anchoredOutcomeNotices,
-									onOpenMessageDetails: input.onOpenMessageDetails,
-									onRecoverExecution: input.onRecoverExecution,
-									readOnly: input.readOnly,
-									sourceItem: input.item,
-									spaceReferencesById: input.spaceReferencesById,
-									targetLabelsByProfileId:
-										input.wakeStopTargetLabelsByProfileId,
-								})}
-								<MessageBubbleReactions />
-							</SpaceMessageSurface>
-						</Bubble>
-						{showProgressInAnswerArea ? null : progressStatus}
-						<ThreadTimelineMessageFooter
-							addressingTargets={addressingTargets}
-							align={messageAlign}
-							anchoredOutcomeNotices={anchoredOutcomeNotices}
-							failureSummary={failureSummary}
-							hasWakeProblem={hasWakeProblem}
-							isDirectMessage={input.isDirectMessage}
-							item={input.item}
-							messageDetailsItem={messageDetailsItem}
-							onOpenMessageDetails={input.onOpenMessageDetails}
-							openMeldProfileId={input.selfProfileId}
-							organizationSlug={input.orgSlug}
-							readOnly={input.readOnly}
-						/>
-					</MessageContent>
-				</Message>
+									</span>
+									{!input.isDirectMessage && (
+										<>
+											<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">
+												{input.item.actorName}
+											</span>
+											{agentAttribution ? (
+												<>
+													<span className="shrink-0 text-muted-foreground">
+														·
+													</span>
+													<span className="min-w-0 text-muted-foreground">
+														{agentAttribution}
+													</span>
+												</>
+											) : null}
+										</>
+									)}
+									<SpaceMessageTime
+										createdAtMs={input.item.createdAtMs}
+										isDirectMessage={input.isDirectMessage}
+										placement="header"
+									/>
+								</MessageHeader>
+								<Bubble
+									align={messageAlign}
+									className={
+										hasSpaceMessageAttachments(input.item)
+											? "w-full"
+											: undefined
+									}
+								>
+									<SpaceMessageSurface
+										attachments={
+											<SpaceMessageAttachments
+												align={messageAlign}
+												item={input.item}
+												onOpenSpaceFile={input.onOpenSpaceFile}
+												openMeldProfileId={input.selfProfileId}
+												organizationSlug={input.orgSlug}
+												spaceId={input.item.spaceId}
+											/>
+										}
+										bubbleClassName={cn(
+											"transition-colors motion-reduce:transition-none",
+											selfMessageContentLayoutClassName,
+											resolveSpaceMessageBubblePresentationClass({
+												isSelf: isSelfMessage,
+											})
+										)}
+										className="group/thread-message relative"
+										data-signal-id={input.item.id}
+										edited={
+											Boolean(input.item.editedAt) && !input.item.recalledAt
+										}
+										ref={(element) => {
+											input.registerMessageElement(input.item.id, element);
+										}}
+										tabIndex={-1}
+									>
+										{input.item.actorProfileKind === "agent" ? (
+											<SpaceMessageWork
+												item={input.item}
+												status={
+													showProgressInAnswerArea ? progressStatus : null
+												}
+											/>
+										) : null}
+										<SpaceMessageContinuationNotice
+											item={input.item}
+											wakeProgressItems={input.ephemeralActivityItems}
+										/>
+										<SpaceMessageBody
+											computerSetupContext={computerSetupPresentation.context}
+											computerSetupSourceSignalId={input.item.id}
+											containerClassName={selfMessageContentLayoutClassName}
+											includeAttachments={false}
+											item={input.item}
+											onOpenProfile={input.onOpenProfile}
+											onOpenSpaceFile={input.onOpenSpaceFile}
+											openMeldProfileId={input.selfProfileId}
+											orgSlug={input.orgSlug}
+											profilePresentationsById={input.profilePresentationsById}
+											renderProfileTrigger={input.renderProfileTrigger}
+											spaceReferencesById={input.spaceReferencesById}
+										/>
+										<SpaceMessageInteractionSource
+											source={input.item.centerAgentInteractionSource}
+										/>
+										{agentInteractionItems.map((interactionItem) =>
+											input.actionableAgentInteractionPlacement ===
+												"pending-surface" &&
+											interactionItem.pendingInteraction?.canRespond ? null : (
+												<SpaceAgentInteractionCard
+													item={interactionItem}
+													key={resolveSpacePendingAgentActionIdentity(
+														interactionItem
+													)}
+													onRespond={
+														input.readOnly
+															? undefined
+															: input.onAgentInteractionResponse
+													}
+												/>
+											)
+										)}
+										{input.item.actorProfileKind !== "agent" &&
+										showProgressInAnswerArea
+											? progressStatus
+											: null}
+										{renderAnchoredThreadOutcomeRows({
+											notices: anchoredOutcomeNotices,
+											onOpenMessageDetails: input.onOpenMessageDetails,
+											onRecoverExecution: input.onRecoverExecution,
+											readOnly: input.readOnly,
+											sourceItem: input.item,
+											spaceReferencesById: input.spaceReferencesById,
+											targetLabelsByProfileId:
+												input.wakeStopTargetLabelsByProfileId,
+										})}
+										<MessageBubbleReactions />
+									</SpaceMessageSurface>
+								</Bubble>
+								{showProgressInAnswerArea ? null : progressStatus}
+								<ThreadTimelineMessageFooter
+									addressingTargets={addressingTargets}
+									align={messageAlign}
+									anchoredOutcomeNotices={anchoredOutcomeNotices}
+									failureSummary={failureSummary}
+									hasWakeProblem={hasWakeProblem}
+									isDirectMessage={input.isDirectMessage}
+									item={input.item}
+									messageDetailsItem={messageDetailsItem}
+									onOpenMessageDetails={input.onOpenMessageDetails}
+									openMeldProfileId={input.selfProfileId}
+									organizationSlug={input.orgSlug}
+									readOnly={input.readOnly}
+								/>
+							</MessageContent>
+						</Message>
+					}
+				/>
 			</MessageReactionsProvider>
 		</MessageScrollerItem>
 	);
@@ -1712,10 +1732,7 @@ function ThreadTimelineMessageFooter(input: {
 	openMeldProfileId: string;
 	organizationSlug?: string;
 }) {
-	if (
-		input.item.transientActivityPurpose !== null ||
-		input.item.activeWakeProgress
-	) {
+	if (isThreadProgressOnlyMessage(input.item)) {
 		return null;
 	}
 	const details = input.messageDetailsItem

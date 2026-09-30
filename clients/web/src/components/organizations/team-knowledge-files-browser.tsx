@@ -11,8 +11,6 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import {
 	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
 import {
@@ -20,6 +18,8 @@ import {
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
+	FluidDropdownMenuContent as ContextMenuContent,
+	FluidDropdownMenuItem as ContextMenuItem,
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
@@ -282,16 +282,17 @@ export function TeamKnowledgeFilesBrowser(input: {
 					<ContextMenuContent className="min-w-40 p-1">
 						{selectedPath ? (
 							<ContextMenuItem
+								index={0}
 								onClick={() => openEntry(entries.get(selectedPath))}
 							>
 								<FolderOpenIcon aria-hidden="true" /> Open
 							</ContextMenuItem>
 						) : (
 							<>
-								<ContextMenuItem onClick={openNewDocument}>
+								<ContextMenuItem index={1} onClick={openNewDocument}>
 									<FileTextIcon aria-hidden="true" /> New Markdown file
 								</ContextMenuItem>
-								<ContextMenuItem onClick={openFolderDialog}>
+								<ContextMenuItem index={2} onClick={openFolderDialog}>
 									<FolderPlusIcon aria-hidden="true" /> New folder
 								</ContextMenuItem>
 							</>

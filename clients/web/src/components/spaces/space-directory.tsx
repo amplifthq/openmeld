@@ -575,6 +575,7 @@ function JoinedRow(input: {
 	return (
 		<TableRow
 			className="group/directory-row border-0"
+			contextMenu
 			data-space-id={item.spaceId}
 			index={input.index}
 		>
@@ -621,6 +622,7 @@ function JoinedRow(input: {
 						{ id: "spaces", name: "Spaces" },
 						...(input.preferences?.groups ?? []),
 					]}
+					href={`${route.to}?profileId=${encodeURIComponent(route.search.profileId)}`}
 					moveDisabledReason={
 						item.pinnedAt !== null
 							? "Unpin this Space to move it to a group."

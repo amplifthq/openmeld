@@ -23,8 +23,6 @@ import {
 import { Button } from "@openmeld/ui/components/button";
 import {
 	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
 import {
@@ -42,6 +40,8 @@ import {
 } from "@openmeld/ui/components/dropdown-menu";
 import { Textarea } from "@openmeld/ui/components/textarea";
 import {
+	FluidDropdownMenuContent as ContextMenuContent,
+	FluidDropdownMenuItem as ContextMenuItem,
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
@@ -754,6 +754,8 @@ function TeamFilesBrowser(input: {
 						<ContextMenuContent className="min-w-40 p-1">
 							{selectedKnowledgeFolder ? (
 								<ContextMenuItem
+									disabled={busy}
+									index={0}
 									onClick={() =>
 										navigate({
 											to: buildOrganizationFilesPath(currentOrganization.slug),
@@ -766,8 +768,35 @@ function TeamFilesBrowser(input: {
 							) : null}
 							{!selectedKnowledgeFolder && selectedEntry ? (
 								<>
+									{view === "active" && selectedEntry.kind === "folder" ? (
+										<ContextMenuItem
+											index={-2}
+											onClick={() => setParentId(selectedEntry.id)}
+										>
+											Open
+										</ContextMenuItem>
+									) : null}
+									{view === "active" && selectedEntry.kind === "file" ? (
+										<ContextMenuItem
+											disabled={busy}
+											index={-1}
+											onClick={() =>
+												runAction(async () => {
+													const content = await api.download({
+														location,
+														fileId: selectedEntry.id,
+													});
+													downloadContent(selectedEntry.name, content);
+												}).catch(console.error)
+											}
+										>
+											Download
+										</ContextMenuItem>
+									) : null}
 									{view === "active" ? (
 										<ContextMenuItem
+											disabled={busy}
+											index={1}
 											onClick={() => setMovingEntry(selectedEntry)}
 										>
 											<FolderOpenIcon aria-hidden="true" />
@@ -778,6 +807,8 @@ function TeamFilesBrowser(input: {
 										<>
 											{isEditableRootTextFile(selectedEntry) ? (
 												<ContextMenuItem
+													disabled={busy}
+													index={2}
 													onClick={() => setEditingEntry(selectedEntry)}
 												>
 													<PencilSimpleIcon aria-hidden="true" />
@@ -785,12 +816,16 @@ function TeamFilesBrowser(input: {
 												</ContextMenuItem>
 											) : null}
 											<ContextMenuItem
+												disabled={busy}
+												index={3}
 												onClick={() => setHistoryEntry(selectedEntry)}
 											>
 												<ClockCounterClockwiseIcon aria-hidden="true" />
 												Version history
 											</ContextMenuItem>
 											<ContextMenuItem
+												disabled={busy}
+												index={4}
 												onClick={() =>
 													setCopyToSpaceEntry({
 														entry: selectedEntry,
@@ -808,6 +843,8 @@ function TeamFilesBrowser(input: {
 									selectedEntry.kind === "file" &&
 									!currentOrganization.isPersonal ? (
 										<ContextMenuItem
+											disabled={busy}
+											index={5}
 											onClick={() => {
 												setCopyError(null);
 												setCopyingEntry({
@@ -824,6 +861,8 @@ function TeamFilesBrowser(input: {
 									) : null}
 									{view === "active" ? (
 										<ContextMenuItem
+											disabled={busy}
+											index={6}
 											onClick={() => setRenamingEntry(selectedEntry)}
 										>
 											<PencilSimpleIcon aria-hidden="true" />
@@ -831,6 +870,8 @@ function TeamFilesBrowser(input: {
 										</ContextMenuItem>
 									) : null}
 									<ContextMenuItem
+										disabled={busy}
+										index={7}
 										onClick={() =>
 											runAction(() =>
 												view === "trash"
@@ -858,12 +899,18 @@ function TeamFilesBrowser(input: {
 							) : null}
 							{selectedKnowledgeFolder || selectedEntry ? null : (
 								<>
-									<ContextMenuItem onClick={() => setFolderDialogOpen(true)}>
+									<ContextMenuItem
+										disabled={busy}
+										index={8}
+										onClick={() => setFolderDialogOpen(true)}
+									>
 										<FolderPlusIcon aria-hidden="true" />
 										New folder
 									</ContextMenuItem>
-									{(["markdown", "text", "csv"] as const).map((kind) => (
+									{(["markdown", "text", "csv"] as const).map((kind, index) => (
 										<ContextMenuItem
+											disabled={busy}
+											index={9 + index}
 											key={kind}
 											onClick={() => setNewTextFileKind(kind)}
 										>
@@ -871,7 +918,11 @@ function TeamFilesBrowser(input: {
 											{NEW_TEXT_FILE_CONTEXT_LABELS[kind]}
 										</ContextMenuItem>
 									))}
-									<ContextMenuItem onClick={() => inputRef.current?.click()}>
+									<ContextMenuItem
+										disabled={busy}
+										index={12}
+										onClick={() => inputRef.current?.click()}
+									>
 										<UploadSimpleIcon aria-hidden="true" />
 										Upload file…
 									</ContextMenuItem>

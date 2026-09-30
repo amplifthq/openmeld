@@ -5,6 +5,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import {
 	SidebarGroup as FluidSidebarGroup,
 	SidebarGroupContent,
@@ -37,6 +38,7 @@ import {
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
 import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
 import type { useInboxAttention } from "#/components/inbox/use-inbox-attention";
@@ -292,9 +294,15 @@ export function AppRailLink(input: {
 				data-app-rail-item
 			>
 				<CollapsedRailTooltip anchor={iconRef} label={accessibleLabel}>
-					<SidebarMenuButton isActive={input.active} render={link}>
-						{children}
-					</SidebarMenuButton>
+					<FluidContextMenu
+						target={
+							<SidebarMenuButton isActive={input.active} render={link}>
+								{children}
+							</SidebarMenuButton>
+						}
+					>
+						<ObjectMenuItems href={input.destination.to} />
+					</FluidContextMenu>
 				</CollapsedRailTooltip>
 			</SidebarMenuItem>
 		);
@@ -302,9 +310,15 @@ export function AppRailLink(input: {
 
 	return (
 		<SidebarMenuItem className="group/destination relative">
-			<SidebarMenuButton isActive={input.active} render={link}>
-				{children}
-			</SidebarMenuButton>
+			<FluidContextMenu
+				target={
+					<SidebarMenuButton isActive={input.active} render={link}>
+						{children}
+					</SidebarMenuButton>
+				}
+			>
+				<ObjectMenuItems href={input.destination.to} />
+			</FluidContextMenu>
 			{(input.destination.id === "directMessages" ||
 				input.destination.id === "home" ||
 				input.destination.id === "people" ||
