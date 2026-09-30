@@ -42,9 +42,15 @@ patchedDependencies:
   '@flue/runtime@2.1.0':
     hash: d74fade719b816ae25c34a3644e55e616b8e3d4f6e75f946e0f2789199811684
     path: patches/@flue__runtime@2.1.0.patch
+  '@tailwindcss/vite@4.2.1':
+    hash: d5776a5397c18293d625eadd895bc63cbf260d59a7df05001dd36759ec11af2b
+    path: patches/@tailwindcss__vite.patch
   '@tanstack/history@1.162.1':
     hash: 576e51acd5b407f38327f77a5c1caf792bf0f33da44e94d449e905c6e33afcf8
     path: patches/@tanstack__history@1.162.1.patch
+  '@tanstack/start-plugin-core@1.171.39':
+    hash: 315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715
+    path: patches/@tanstack__start-plugin-core.patch
   better-sqlite3@13.0.3:
     hash: 74420479c01f8102174bc66a4f86231957cbee7c327adfd18a7bbd8f6d0a27bc
     path: patches/better-sqlite3@13.0.3.patch
@@ -163,7 +169,7 @@ importers:
         version: link:../../runtime/local-service
       '@tailwindcss/vite':
         specifier: ^4.1.18
-        version: 4.2.1(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
+        version: 4.2.1(patch_hash=d5776a5397c18293d625eadd895bc63cbf260d59a7df05001dd36759ec11af2b)(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
       '@testing-library/dom':
         specifier: ^10.4.0
         version: 10.4.1
@@ -572,7 +578,7 @@ importers:
         version: 3.41.1(react@19.2.4)
       '@tailwindcss/vite':
         specifier: ^4.1.18
-        version: 4.2.1(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.2.1(patch_hash=d5776a5397c18293d625eadd895bc63cbf260d59a7df05001dd36759ec11af2b)(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/query-async-storage-persister':
         specifier: 5.102.8
         version: 5.102.8
@@ -18990,14 +18996,14 @@ snapshots:
       postcss-selector-parser: 6.0.10
       tailwindcss: 4.1.18
 
-  '@tailwindcss/vite@4.2.1(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))':
+  '@tailwindcss/vite@4.2.1(patch_hash=d5776a5397c18293d625eadd895bc63cbf260d59a7df05001dd36759ec11af2b)(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))':
     dependencies:
       '@tailwindcss/node': 4.2.1
       '@tailwindcss/oxide': 4.2.1
       tailwindcss: 4.2.1
       vite: 7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2)
 
-  '@tailwindcss/vite@4.2.1(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@tailwindcss/vite@4.2.1(patch_hash=d5776a5397c18293d625eadd895bc63cbf260d59a7df05001dd36759ec11af2b)(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@tailwindcss/node': 4.2.1
       '@tailwindcss/oxide': 4.2.1
@@ -19082,7 +19088,7 @@ snapshots:
       '@tanstack/router-utils': 1.162.2
       '@tanstack/start-client-core': 1.170.27
       '@tanstack/start-fn-stubs': 1.162.0
-      '@tanstack/start-plugin-core': 1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
+      '@tanstack/start-plugin-core': 1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
       '@tanstack/start-storage-context': 1.167.29
       pathe: 2.0.3
       react: 19.2.4
@@ -19103,7 +19109,7 @@ snapshots:
       '@tanstack/router-utils': 1.162.2
       '@tanstack/start-client-core': 1.170.27
       '@tanstack/start-fn-stubs': 1.162.0
-      '@tanstack/start-plugin-core': 1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/start-plugin-core': 1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/start-storage-context': 1.167.29
       pathe: 2.0.3
       react: 19.2.4
@@ -19123,7 +19129,7 @@ snapshots:
       '@tanstack/router-utils': 1.162.2
       '@tanstack/start-client-core': 1.170.27
       '@tanstack/start-fn-stubs': 1.162.0
-      '@tanstack/start-plugin-core': 1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/start-plugin-core': 1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/start-storage-context': 1.167.29
       pathe: 2.0.3
       react: 19.2.4
@@ -19144,7 +19150,7 @@ snapshots:
       '@tanstack/router-utils': 1.162.2
       '@tanstack/start-client-core': 1.170.27
       '@tanstack/start-fn-stubs': 1.162.0
-      '@tanstack/start-plugin-core': 1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/start-plugin-core': 1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/start-storage-context': 1.167.29
       pathe: 2.0.3
       react: 19.2.4
@@ -19176,7 +19182,7 @@ snapshots:
       '@tanstack/react-start-server': 1.167.37(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@tanstack/router-utils': 1.162.2
       '@tanstack/start-client-core': 1.170.27
-      '@tanstack/start-plugin-core': 1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
+      '@tanstack/start-plugin-core': 1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
       '@tanstack/start-server-core': 1.169.31
       pathe: 2.0.3
       react: 19.2.4
@@ -19200,7 +19206,7 @@ snapshots:
       '@tanstack/react-start-server': 1.167.37(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@tanstack/router-utils': 1.162.2
       '@tanstack/start-client-core': 1.170.27
-      '@tanstack/start-plugin-core': 1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/start-plugin-core': 1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/start-server-core': 1.169.31
       pathe: 2.0.3
       react: 19.2.4
@@ -19223,7 +19229,7 @@ snapshots:
       '@tanstack/react-start-server': 1.167.37(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@tanstack/router-utils': 1.162.2
       '@tanstack/start-client-core': 1.170.27
-      '@tanstack/start-plugin-core': 1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/start-plugin-core': 1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/start-server-core': 1.169.31
       pathe: 2.0.3
       react: 19.2.4
@@ -19247,7 +19253,7 @@ snapshots:
       '@tanstack/react-start-server': 1.167.37(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@tanstack/router-utils': 1.162.2
       '@tanstack/start-client-core': 1.170.27
-      '@tanstack/start-plugin-core': 1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
+      '@tanstack/start-plugin-core': 1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/start-server-core': 1.169.31
       pathe: 2.0.3
       react: 19.2.4
@@ -19402,7 +19408,7 @@ snapshots:
 
   '@tanstack/start-fn-stubs@1.162.0': {}
 
-  '@tanstack/start-plugin-core@1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))':
+  '@tanstack/start-plugin-core@1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))':
     dependencies:
       '@babel/code-frame': 7.27.1
       '@babel/core': 7.29.0
@@ -19434,7 +19440,7 @@ snapshots:
       - webpack
     optional: true
 
-  '@tanstack/start-plugin-core@1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@tanstack/start-plugin-core@1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@babel/code-frame': 7.27.1
       '@babel/core': 7.29.0
@@ -19465,7 +19471,7 @@ snapshots:
       - vite-plugin-solid
       - webpack
 
-  '@tanstack/start-plugin-core@1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@tanstack/start-plugin-core@1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@babel/code-frame': 7.27.1
       '@babel/core': 7.29.0
@@ -19497,7 +19503,7 @@ snapshots:
       - webpack
     optional: true
 
-  '@tanstack/start-plugin-core@1.171.39(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
+  '@tanstack/start-plugin-core@1.171.39(patch_hash=315f740b1868b22ccbd1be56db1c4fc7044ea3392abedfb61ce9ea56cc05f715)(@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.1.3(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
       '@babel/code-frame': 7.27.1
       '@babel/core': 7.29.0
