@@ -136,7 +136,7 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger render={rail} />
-			<ContextMenuContent>
+			<ContextMenuContent className="motion-reduce:animate-none! motion-reduce:transition-none!">
 				<ContextMenuGroup>
 					<ContextMenuLabel>Show</ContextMenuLabel>
 					<ContextMenuRadioGroup

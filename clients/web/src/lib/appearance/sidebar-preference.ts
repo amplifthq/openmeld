@@ -1,3 +1,4 @@
+import { readBrowserPreference } from "../spaces/browser-preference-storage";
 import { useBrowserPreference } from "../use-browser-preference";
 
 const STORAGE_KEY = "openmeld.appearance.sidebar-display";
@@ -23,8 +24,13 @@ export function useSidebarDisplayPreference() {
 	return {
 		display,
 		setDisplay: (next: SidebarDisplay) => {
-			document.documentElement.setAttribute(ATTRIBUTE, next);
 			write(next);
+			document.documentElement.setAttribute(
+				ATTRIBUTE,
+				readBrowserPreference(STORAGE_KEY) === "icons-only"
+					? "icons-only"
+					: "icons-and-text"
+			);
 		},
 	};
 }
