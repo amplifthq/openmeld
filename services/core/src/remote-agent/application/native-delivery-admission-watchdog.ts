@@ -9,6 +9,10 @@ import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 export const REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS = 240;
 export const REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS = 300;
 const REMOTE_AGENT_ADMISSION_WATCHDOG_SUBMISSION_PREFIX = "admission_watchdog:";
+const REMOTE_AGENT_ADMISSION_RETRY_SUBMISSION_PREFIX = "admission_retry:";
+
+export const REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS = 3;
+export const REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_RETRY_BASE_DELAY_SECONDS = 15;
 
 export type RemoteAgentDeadlineProbeTarget = {
   dispatchId: string;
@@ -20,17 +24,49 @@ export type RemoteAgentDeadlineProbeTarget = {
 
 export async function enqueueRemoteAgentAdmissionWatchdog(input: {
   ack: { submissionId: string };
+  attempt?: number;
   env: CoreBindings;
   nowMs: number;
   target: RemoteAgentDeadlineProbeTarget;
 }): Promise<boolean> {
   return await enqueueRemoteAgentNativeDeliveryProbe({
     ...input,
+    ack: {
+      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+        input.target.idempotencyKey,
+        input.attempt ?? 1
+      ),
+    },
     delaySeconds: REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
     enqueueFailedLog:
       "[core.remote_agent.native_delivery.admission_watchdog_enqueue_failed]",
     queueMissingLog:
       "[core.remote_agent.native_delivery.admission_watchdog_queue_missing]",
+  });
+}
+
+export async function enqueueRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  delaySeconds: number;
+  env: CoreBindings;
+  nowMs: number;
+  target: RemoteAgentDeadlineProbeTarget;
+}): Promise<boolean> {
+  return await enqueueRemoteAgentNativeDeliveryProbe({
+    ack: {
+      submissionId: buildRemoteAgentAdmissionRetrySubmissionId(
+        input.target.idempotencyKey,
+        input.attempt
+      ),
+    },
+    delaySeconds: input.delaySeconds,
+    enqueueFailedLog:
+      "[core.remote_agent.task_continuation.admission_retry_enqueue_failed]",
+    env: input.env,
+    nowMs: input.nowMs,
+    queueMissingLog:
+      "[core.remote_agent.task_continuation.admission_retry_queue_missing]",
+    target: input.target,
   });
 }
 
@@ -100,18 +136,72 @@ async function enqueueRemoteAgentNativeDeliveryProbe(input: {
 }
 
 export function buildRemoteAgentAdmissionWatchdogSubmissionId(
-  idempotencyKey: string
+  idempotencyKey: string,
+  attempt = 1
 ): string {
-  return `${REMOTE_AGENT_ADMISSION_WATCHDOG_SUBMISSION_PREFIX}${idempotencyKey}`;
+  const base = `${REMOTE_AGENT_ADMISSION_WATCHDOG_SUBMISSION_PREFIX}${idempotencyKey}`;
+  return attempt === 1 ? base : `${base}:attempt:${attempt}`;
 }
 
 export function isRemoteAgentAdmissionWatchdogProbe(
   probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage
 ): boolean {
-  return (
-    probe.submissionId ===
-    buildRemoteAgentAdmissionWatchdogSubmissionId(probe.idempotencyKey)
+  return resolveRemoteAgentAdmissionProbe(probe) !== null;
+}
+
+export function resolveRemoteAgentAdmissionProbe(
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage
+): { attempt: number; kind: "retry" | "watchdog" } | null {
+  const initialWatchdog = buildRemoteAgentAdmissionWatchdogSubmissionId(
+    probe.idempotencyKey
   );
+  if (probe.submissionId === initialWatchdog) {
+    return { attempt: 1, kind: "watchdog" };
+  }
+  const watchdogAttempt = parseAdmissionAttemptSuffix(
+    probe.submissionId,
+    `${initialWatchdog}:attempt:`
+  );
+  if (watchdogAttempt !== null) {
+    return { attempt: watchdogAttempt, kind: "watchdog" };
+  }
+  const retryAttempt = parseAdmissionAttemptSuffix(
+    probe.submissionId,
+    `${REMOTE_AGENT_ADMISSION_RETRY_SUBMISSION_PREFIX}${probe.idempotencyKey}:attempt:`
+  );
+  return retryAttempt === null
+    ? null
+    : { attempt: retryAttempt, kind: "retry" };
+}
+
+export function resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds(
+  attempt: number
+): number {
+  if (!(Number.isSafeInteger(attempt) && attempt >= 2)) {
+    throw new TypeError("Admission retry attempt must be at least 2");
+  }
+  return (
+    REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_RETRY_BASE_DELAY_SECONDS *
+    2 ** (attempt - 2)
+  );
+}
+
+function buildRemoteAgentAdmissionRetrySubmissionId(
+  idempotencyKey: string,
+  attempt: number
+): string {
+  return `${REMOTE_AGENT_ADMISSION_RETRY_SUBMISSION_PREFIX}${idempotencyKey}:attempt:${attempt}`;
+}
+
+function parseAdmissionAttemptSuffix(
+  submissionId: string,
+  prefix: string
+): number | null {
+  if (!submissionId.startsWith(prefix)) {
+    return null;
+  }
+  const attempt = Number(submissionId.slice(prefix.length));
+  return Number.isSafeInteger(attempt) && attempt >= 2 ? attempt : null;
 }
 
 function toErrorMessage(error: unknown): string {

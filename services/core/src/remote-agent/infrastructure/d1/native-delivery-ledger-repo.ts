@@ -260,6 +260,8 @@ export type RemoteAgentNativeDeliveryRecord = {
   createdAtMs: number;
   updatedAtMs: number;
   submittedAtMs: number | null;
+  admissionAttemptCount: number;
+  admissionRetryDueAtMs: number | null;
   acceptedAtMs: number | null;
   callbackReceivedAtMs: number | null;
   completedAtMs: number | null;
@@ -359,6 +361,8 @@ type RemoteAgentNativeDeliveryRow = {
   created_at_ms: number;
   updated_at_ms: number;
   submitted_at_ms: number | null;
+  admission_attempt_count: number;
+  admission_retry_due_at_ms: number | null;
   accepted_at_ms: number | null;
   callback_received_at_ms: number | null;
   completed_at_ms: number | null;
@@ -440,6 +444,8 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
     created_at_ms,
     updated_at_ms,
     submitted_at_ms,
+    admission_attempt_count,
+    admission_retry_due_at_ms,
     accepted_at_ms,
     callback_received_at_ms,
     completed_at_ms,
@@ -2493,6 +2499,7 @@ export async function markRemoteAgentNativeDeliveryAck(input: {
             ELSE NULL
           END,
           accepted_at_ms = COALESCE(accepted_at_ms, ?),
+          admission_retry_due_at_ms = NULL,
           execution_evidence_at_ms = COALESCE(execution_evidence_at_ms, ?),
           updated_at_ms = ?
         WHERE idempotency_key = ?
@@ -3886,6 +3893,91 @@ export async function claimRemoteAgentNativeDeliveryAdmissionWatchdog(input: {
     idempotencyKey: input.idempotencyKey,
   });
   return record?.finalPublicationClaimId === input.claimId ? record : null;
+}
+
+export async function scheduleRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  db: D1Database;
+  dueAtMs: number;
+  idempotencyKey: string;
+  nowMs: number;
+}): Promise<RemoteAgentNativeDeliveryRecord | null> {
+  const result = await input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET
+          admission_retry_due_at_ms = ?,
+          updated_at_ms = ?
+        WHERE idempotency_key = ?
+          AND submission_id IS NULL
+          AND accepted_at_ms IS NULL
+          AND status = 'submitted'
+          AND final_publication_state IS NULL
+          AND admission_attempt_count = ?
+          AND admission_retry_due_at_ms IS NULL
+          AND worker_submit_request_json IS NOT NULL
+      `
+    )
+    .bind(input.dueAtMs, input.nowMs, input.idempotencyKey, input.attempt)
+    .run();
+  const record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (
+    record?.status === "submitted" &&
+    record.admissionAttemptCount === input.attempt &&
+    record.admissionRetryDueAtMs !== null
+  ) {
+    return record;
+  }
+  return didD1Write(result) ? record : null;
+}
+
+export async function claimRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  db: D1Database;
+  dueAtMs: number;
+  idempotencyKey: string;
+  nowMs: number;
+}): Promise<RemoteAgentNativeDeliveryRecord | null> {
+  const result = await input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET
+          admission_attempt_count = ?,
+          admission_retry_due_at_ms = NULL,
+          submitted_at_ms = ?,
+          updated_at_ms = ?
+        WHERE idempotency_key = ?
+          AND submission_id IS NULL
+          AND accepted_at_ms IS NULL
+          AND status = 'submitted'
+          AND final_publication_state IS NULL
+          AND admission_attempt_count = ?
+          AND admission_retry_due_at_ms = ?
+          AND worker_submit_request_json IS NOT NULL
+      `
+    )
+    .bind(
+      input.attempt,
+      input.nowMs,
+      input.nowMs,
+      input.idempotencyKey,
+      input.attempt - 1,
+      input.dueAtMs
+    )
+    .run();
+  if (!didD1Write(result)) {
+    return null;
+  }
+  const record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+  return record?.admissionAttemptCount === input.attempt ? record : null;
 }
 
 export async function releaseRemoteAgentNativeDeliveryAdmissionWatchdog(input: {
@@ -5987,6 +6079,8 @@ function mapNativeDeliveryRow(
     createdAtMs: row.created_at_ms,
     updatedAtMs: row.updated_at_ms,
     submittedAtMs: row.submitted_at_ms,
+    admissionAttemptCount: row.admission_attempt_count,
+    admissionRetryDueAtMs: row.admission_retry_due_at_ms,
     acceptedAtMs: row.accepted_at_ms,
     callbackReceivedAtMs: row.callback_received_at_ms,
     completedAtMs: row.completed_at_ms,

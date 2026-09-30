@@ -58,7 +58,10 @@ import {
   createMessageChannelProviderRegistry,
   type MessageChannelProviderAdapter,
 } from "../src/remote-agent/application/message-channel-adapters";
-import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-agent/application/native-delivery-admission-watchdog";
+import {
+  REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
+  REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+} from "../src/remote-agent/application/native-delivery-admission-watchdog";
 import { stopRemoteAgentNativeDelivery } from "../src/remote-agent/application/native-delivery-cancellation-service";
 import {
   completeRemoteAgentNativeDelivery,
@@ -2839,6 +2842,334 @@ describe("Remote Agent native delivery callback service", () => {
         reasonCode: "remote_agent.admission_watchdog_terminal_delivery",
         status: "skipped",
       });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("retries a timed-out task continuation and records the later admission", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("admission response was lost"))
+      .mockResolvedValueOnce({
+        accepted: true,
+        createdAt: 1200,
+        requestId: "request-retried-continuation",
+        status: "pending" as const,
+        submissionId: "submission-retried-continuation",
+      });
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const idempotencyKey = "agent-task-continuation:retry-success";
+
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const initialWatchdog = requireAdmissionProbe(probes, "watchdog", 1);
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: initialWatchdog.deadlineAtMs,
+          probe: initialWatchdog,
+        })
+      ).resolves.toMatchObject({
+        reasonCode: "remote_agent.task_continuation.admission_retry_scheduled",
+        status: "skipped",
+      });
+      const retry = requireAdmissionProbe(probes, "retry", 2);
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        })
+      ).resolves.toMatchObject({
+        reasonCode:
+          "remote_agent.task_continuation.admission_retry_acknowledged",
+        status: "skipped",
+      });
+
+      expect(workerSubmit).toHaveBeenCalledTimes(2);
+      expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
+        dispatchId: idempotencyKey,
+        idempotencyKey,
+      });
+      expect(workerSubmit.mock.calls[1]?.[0]).toMatchObject({
+        dispatchId: idempotencyKey,
+        idempotencyKey,
+      });
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        acceptedAtMs: retry.deadlineAtMs,
+        admissionAttemptCount: 2,
+        admissionRetryDueAtMs: null,
+        status: "accepted",
+        submissionId: "submission-retried-continuation",
+      });
+      expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("alerts the requester after task continuation admission retries are exhausted", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    applyDrizzleMigrationsForTables(harness, [
+      "inbox_items",
+      "inbox_email_deliveries",
+    ]);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi.fn(() =>
+      Promise.reject(new Error("admission response was lost"))
+    );
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const idempotencyKey = "agent-task-continuation:retry-exhausted";
+
+    try {
+      const delivery = await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      for (
+        let attempt = 1;
+        attempt <= REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS;
+        attempt += 1
+      ) {
+        const watchdog = requireAdmissionProbe(probes, "watchdog", attempt);
+        const outcome = await processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: watchdog.deadlineAtMs,
+          probe: watchdog,
+        });
+        if (attempt === REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS) {
+          expect(outcome).toEqual({ status: "expired" });
+          break;
+        }
+        expect(outcome).toMatchObject({
+          reasonCode:
+            "remote_agent.task_continuation.admission_retry_scheduled",
+          status: "skipped",
+        });
+        const retry = requireAdmissionProbe(probes, "retry", attempt + 1);
+        await expect(
+          processRemoteAgentNativeDeliveryDeadlineProbe({
+            db: harness.db,
+            env,
+            nowMs: retry.deadlineAtMs,
+            probe: retry,
+          })
+        ).resolves.toMatchObject({
+          reasonCode:
+            "remote_agent.task_continuation.admission_retry_outcome_unknown",
+          status: "skipped",
+        });
+      }
+
+      expect(workerSubmit).toHaveBeenCalledTimes(
+        REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        admissionAttemptCount:
+          REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+        failureCode: "remote_agent.admission_timeout",
+        status: "failed",
+      });
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining("after 3 startup attempts"),
+        })
+      );
+      expect(
+        harness.queryAll<{
+          attention: string;
+          importance: string;
+          preview: string;
+          recipient_user_id: string;
+          source_key: string;
+          source_target_json: string;
+        }>({
+          sql: `
+            SELECT
+              attention,
+              importance,
+              preview,
+              recipient_user_id,
+              source_key,
+              source_target_json
+            FROM inbox_items
+          `,
+        })
+      ).toEqual([
+        expect.objectContaining({
+          attention: "action_required",
+          importance: "urgent",
+          preview: expect.stringContaining("3 startup attempts"),
+          recipient_user_id: "user_1",
+          source_key: `${delivery.deliveryId}:admission_retry_exhausted`,
+          source_target_json: expect.stringContaining(
+            '"signalId":"signal-task-result"'
+          ),
+        }),
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not retry a task continuation accepted before the retry wake", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("admission response was lost"));
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const idempotencyKey = "agent-task-continuation:accepted-before-retry";
+
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const initialWatchdog = requireAdmissionProbe(probes, "watchdog", 1);
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: initialWatchdog.deadlineAtMs,
+        probe: initialWatchdog,
+      });
+      const retry = requireAdmissionProbe(probes, "retry", 2);
+      await markRemoteAgentNativeDeliveryAck({
+        accepted: true,
+        db: harness.db,
+        idempotencyKey,
+        nowMs: retry.deadlineAtMs - 1,
+        submissionId: "submission-late-original-ack",
+        workerRequestId: "request-late-original-ack",
+      });
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        })
+      ).resolves.toMatchObject({
+        reasonCode: "remote_agent.admission_watchdog_already_acknowledged",
+        status: "skipped",
+      });
+      expect(workerSubmit).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("claims a duplicate task continuation retry only once", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[] = [];
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("admission response was lost"))
+      .mockResolvedValue({
+        accepted: true,
+        createdAt: 1300,
+        requestId: "request-single-retry",
+        status: "pending" as const,
+        submissionId: "submission-single-retry",
+      });
+    const env = buildEnv(harness.db, {
+      deadlineProbeQueueSend: vi.fn((probe) => {
+        probes.push(probe);
+        return Promise.resolve(probe);
+      }),
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const idempotencyKey = "agent-task-continuation:duplicate-retry";
+
+    try {
+      await stageAmbiguousTaskContinuationAdmission({
+        db: harness.db,
+        env,
+        idempotencyKey,
+      });
+      const initialWatchdog = requireAdmissionProbe(probes, "watchdog", 1);
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: initialWatchdog.deadlineAtMs,
+        probe: initialWatchdog,
+      });
+      const retry = requireAdmissionProbe(probes, "retry", 2);
+
+      const outcomes = await Promise.all([
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        }),
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs: retry.deadlineAtMs,
+          probe: retry,
+        }),
+      ]);
+
+      expect(workerSubmit).toHaveBeenCalledTimes(2);
+      expect(outcomes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            reasonCode:
+              "remote_agent.task_continuation.admission_retry_acknowledged",
+          }),
+          expect.objectContaining({
+            reasonCode:
+              "remote_agent.task_continuation.admission_retry_lost_race",
+          }),
+        ])
+      );
     } finally {
       harness.close();
     }
@@ -11073,6 +11404,108 @@ function createDeadlineProbe(input: {
     enqueuedAtMs: 1000,
     deadlineAtMs: 1000 + REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS * 1000,
   };
+}
+
+function requireAdmissionProbe(
+  probes: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage[],
+  kind: "retry" | "watchdog",
+  attempt: number
+): RemoteAgentNativeDeliveryDeadlineProbeQueueMessage {
+  let marker = `:attempt:${attempt}`;
+  if (kind === "retry") {
+    marker = "admission_retry:";
+  } else if (attempt === 1) {
+    marker = "admission_watchdog:";
+  }
+  const probe = probes.find((candidate) => {
+    if (!candidate.submissionId.includes(marker)) {
+      return false;
+    }
+    if (kind === "retry") {
+      return candidate.submissionId.endsWith(`:attempt:${attempt}`);
+    }
+    if (attempt === 1) {
+      return !candidate.submissionId.includes(":attempt:");
+    }
+    return candidate.submissionId.startsWith("admission_watchdog:");
+  });
+  if (!probe) {
+    throw new Error(`expected admission ${kind} probe for attempt ${attempt}`);
+  }
+  return probe;
+}
+
+async function stageAmbiguousTaskContinuationAdmission(input: {
+  db: D1Database;
+  env: CoreBindings;
+  idempotencyKey: string;
+}) {
+  await createAcceptedDelivery({
+    db: input.db,
+    idempotencyKey: `parent:${input.idempotencyKey}`,
+    modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+    onBehalfOfProfileId: HUMAN_PROFILE_ID,
+    onBehalfOfUserId: "user_1",
+    spaceId: SPACE_ID,
+    submissionId: `parent-submission:${input.idempotencyKey}`,
+    threadContext: THREAD_CONTEXT,
+  });
+  const observerDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: input.db,
+    submissionId: `parent-submission:${input.idempotencyKey}`,
+  });
+  if (!observerDelivery) {
+    throw new Error("expected task continuation parent fixture");
+  }
+  let submissionError: unknown;
+  try {
+    await submitRemoteAgentTaskContinuationDelivery({
+      db: input.db,
+      env: input.env,
+      idempotencyKey: input.idempotencyKey,
+      instruction: "Continue after the exact task.",
+      isAuthorized: async () => true,
+      nowMs: 1100,
+      observerDelivery,
+      outcome: {
+        errorCode: null,
+        eventId: "terminal-task-result",
+        occurredAtMs: 1050,
+        publishedSignalId: "signal-task-result",
+        status: "succeeded",
+      },
+      settlementNowMs: () => 1200,
+      subscriptionId: `subscription:${input.idempotencyKey}`,
+      watchedTask: {
+        deliveryId: `child:${input.idempotencyKey}`,
+        kind: "native_delivery",
+        v: 1,
+      },
+      watchId: `watch:${input.idempotencyKey}`,
+    });
+  } catch (error) {
+    submissionError = error;
+  }
+  if (
+    !(
+      submissionError instanceof Error &&
+      submissionError.message.includes(
+        "remote_agent.task_continuation.submit_outcome_unknown"
+      )
+    )
+  ) {
+    throw new Error("expected an ambiguous task continuation admission", {
+      cause: submissionError,
+    });
+  }
+  const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (!delivery) {
+    throw new Error("expected staged task continuation delivery");
+  }
+  return delivery;
 }
 
 function createFailedCallbackBody(input: {
