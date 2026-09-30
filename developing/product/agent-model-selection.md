@@ -143,7 +143,7 @@ becomes a first-class, user-selectable property of an Agent Profile.
     The authored catalog's optional controller `creationDefaults` contains
     `{modelId, reasoningLevel}`; `null` reasoning means use the model default.
     The model must be available and any reasoning level supported. It currently
-    preserves Codex's GPT-5.6 Sol / `high` recommendation. Once the user creates an Agent, the
+    recommends Codex's GPT-6.1 Sol / `medium`. Once the user creates an Agent, the
     existing per-user, per-controller creation defaults remember explicit model
     and reasoning choices, including `Use model default`. The public model
     catalog's public projection omits `creationDefaults`: Core supplies the
