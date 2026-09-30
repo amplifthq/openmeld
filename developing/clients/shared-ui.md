@@ -57,6 +57,45 @@ Space Agent work and reasoning share `fluid/thinking-steps` as their disclosure;
 client code supplies the private reasoning, public progress, and admitted work
 content without a second shared disclosure component.
 
+### Fluid Hover reuse
+
+`hooks/use-fluid-hover` and `fluid/fluid-hover-highlight` are installed from the
+official Fluid Functionalism registry. The import retains the vendor's nearest
+enabled-item picking, coalesced measurement, pointer-session reset, optional
+gap activation, and reduced-motion fade without travel. Package imports,
+`interaction-hover`, and the existing shared spring tokens are the local
+adaptations. Installation source:
+
+```sh
+pnpm dlx shadcn@latest add https://www.fluidfunctionalism.com/r/use-fluid-hover.json --overwrite
+```
+
+Review registry imports in an isolated directory before transferring them into
+this package; do not overwrite existing shared tokens or adapted primitives.
+`FluidActionList` composes this hook and highlight for shared action menus.
+Gap activation is opt-in because generic menus can contain destructive actions;
+the Sidebar display menu enables it for its reversible alternatives.
+
+For context menus, use Base UI's ContextMenu root and trigger with
+`FluidDropdownMenuContent` and `FluidDropdownMenuItem` or
+`FluidDropdownMenuRadioItem`. The installed Base UI version shares its popup,
+positioner, and item primitives between Menu and ContextMenu. Reuse these slots
+instead of introducing a second Fluid context-menu visual or hover engine.
+Base UI retains roles, keyboard navigation, selection, positioning, dismissal,
+and focus restoration; Fluid Hover does not own those responsibilities.
+
+Prefer this primitive for stable, closely spaced clickable alternatives in
+menus, navigation, tabs, and grids. Use one list per semantic group; split at
+dividers and register only real click targets. Skip proximity or gap activation
+when a wrong click would hurt, clickability is mixed, empty space is large, or
+rows move while scrolling. Disabled rows and intervening controls must retain
+their own semantics. Existing specialized sidebar and tab geometry remains
+owned by those components; clients must not recreate it. Verify travel across
+rows and gaps, gap activation, keyboard operation, reopening, disabled states,
+touch behavior, and reduced motion in the complete surface. Official reference:
+[Fluid Hover](https://www.fluidfunctionalism.com/docs/fluid-hover).
+
+
 ## Import Rule
 
 `fluid/tooltip` adapts Fluid Functionalism's Base UI Tooltip registry. The

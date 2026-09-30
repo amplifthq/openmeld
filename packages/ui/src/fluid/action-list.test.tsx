@@ -66,11 +66,17 @@ describe("FluidActionList", () => {
     vi.unstubAllGlobals();
   });
 
-  it("moves one shared hover background between semantic action buttons", () => {
+  it.each([
+    false,
+    true,
+  ])("shares hover feedback and routes gap activation only when opted in (%s)", (gapClick) => {
+    const onSelect = vi.fn();
     render(
-      <FluidActionList aria-label="Starting points">
+      <FluidActionList aria-label="Starting points" gapClick={gapClick}>
         <FluidActionListItem index={0}>Show me around</FluidActionListItem>
-        <FluidActionListItem index={1}>Start something new</FluidActionListItem>
+        <FluidActionListItem index={1} onClick={onSelect}>
+          Start something new
+        </FluidActionListItem>
       </FluidActionList>
     );
 
@@ -84,8 +90,10 @@ describe("FluidActionList", () => {
 
     expect(secondAction.getAttribute("data-hovered")).toBe("true");
     expect(
-      group.querySelectorAll('[data-slot="fluid-action-list-hover-indicator"]')
+      group.querySelectorAll('[data-slot="fluid-hover-highlight"]')
     ).toHaveLength(1);
+    fireEvent.click(group);
+    expect(onSelect).toHaveBeenCalledTimes(gapClick ? 1 : 0);
   });
 
   it("keeps disabled actions out of the proximity interaction", () => {

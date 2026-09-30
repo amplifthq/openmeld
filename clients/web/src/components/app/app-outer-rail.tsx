@@ -1,13 +1,17 @@
 "use client";
 import {
 	ContextMenu,
-	ContextMenuContent,
-	ContextMenuGroup,
-	ContextMenuLabel,
-	ContextMenuRadioGroup,
-	ContextMenuRadioItem,
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
+import {
+	DropdownMenuGroup,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuRadioItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
@@ -141,25 +145,32 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger render={rail} />
-			<ContextMenuContent className="motion-reduce:animate-none! motion-reduce:transition-none!">
-				<ContextMenuGroup>
-					<ContextMenuLabel>Show</ContextMenuLabel>
-					<ContextMenuRadioGroup
+			<FluidDropdownMenuContent
+				alignOffset={4}
+				className="w-44"
+				gapClick
+				side="right"
+				sideOffset={0}
+			>
+				<DropdownMenuGroup>
+					<DropdownMenuLabel>Show</DropdownMenuLabel>
+					<DropdownMenuRadioGroup
 						onValueChange={(value) => setDisplay(value as SidebarDisplay)}
 						value={display}
 					>
-						{SIDEBAR_DISPLAY_CHOICES.map((choice) => (
-							<ContextMenuRadioItem
+						{SIDEBAR_DISPLAY_CHOICES.map((choice, index) => (
+							<FluidDropdownMenuRadioItem
 								closeOnClick
+								index={index}
 								key={choice.value}
 								value={choice.value}
 							>
 								{choice.label}
-							</ContextMenuRadioItem>
+							</FluidDropdownMenuRadioItem>
 						))}
-					</ContextMenuRadioGroup>
-				</ContextMenuGroup>
-			</ContextMenuContent>
+					</DropdownMenuRadioGroup>
+				</DropdownMenuGroup>
+			</FluidDropdownMenuContent>
 		</ContextMenu>
 	);
 }
