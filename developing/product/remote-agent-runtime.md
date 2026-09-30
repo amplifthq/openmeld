@@ -3057,7 +3057,23 @@ but not trigger.
    terminal projection as every other Native Delivery ending. Replaying a
    durable `published` or `outcome_unknown` watchdog result must rerun that
    projection idempotently so a crash cannot leave an observer waiting
-   forever. Historic
+   forever.
+
+   A pre-ACK admission timeout for a Space task continuation is the bounded
+   exception to immediate terminalization. Core records the attempt and next
+   retry due time in the existing Native Delivery Ledger, then replays the exact
+   frozen worker request after 15 seconds and 30 seconds, for three attempts
+   total. The delivery id, dispatch id, and worker idempotency key never change;
+   one compare-and-set claim admits each retry, while the Remote Agent's durable
+   receipt is the final duplicate-execution fence. Any ACK or accepted/running
+   evidence ends retry eligibility. After the third unacknowledged attempt,
+   Core publishes an actionable failure in the original thread, projects the
+   terminal task outcome, and creates one urgent Inbox alert linked to the
+   original child result. Ordinary Space Wakes, Routines, Slack, Message
+   Channels, deterministic admission rejection, and post-ACK execution keep
+   their existing behavior.
+
+   Historic
    `remote_agent.delivery_expired` rows are not execution truth: a matching
    late callback reopens that retired false failure, preserves the old notice as
    reconciliation evidence, and publishes the authoritative result once.
