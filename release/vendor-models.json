@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-29T08:31:31Z",
+  "updatedAt": "2026-09-30T01:12:59.582Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -112,6 +112,21 @@
         "reasoningLevel": "high"
       },
       "models": [
+        {
+          "id": "gpt-6.1-sol",
+          "displayName": "GPT-6.1 Sol",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.153.0"
+        },
         {
           "id": "gpt-6-astra",
           "displayName": "GPT-6 Astra",
