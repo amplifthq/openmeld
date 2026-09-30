@@ -136,4 +136,3 @@ function formatOutdatedComponentSentence(input: {
 		: "a newer version";
 	return `This computer reports ${input.label} ${installed}; its update status still calls for ${required}.`;
 }
-

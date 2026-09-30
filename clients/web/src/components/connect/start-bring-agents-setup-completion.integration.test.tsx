@@ -2749,7 +2749,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			vi.useRealTimers();
 		});
 
-		it.each(["update_required", "update_available", "unknown"] as const)("keeps confirming instead of showing complete while the reported version is %s", async (status) => {
+		it.each([
+			"update_required",
+			"update_available",
+			"unknown",
+		] as const)("keeps confirming instead of showing complete while the reported version is %s", async (status) => {
 			useBringAgentsSetupContextMock.mockReturnValue(
 				createSetupContext(
 					{
@@ -2764,9 +2768,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 									installedVersion: "0.2.20",
 									latestVersion: "0.2.21",
 									reasonCodes: ["service.version_outdated"],
-									requiredVersion: "0.2.21",
+									requiredVersion:
+										status === "update_required" ? "0.2.21" : null,
 									status,
-									updatePolicy: status === "update_required" ? "required" : "available",
+									updatePolicy:
+										status === "update_required" ? "required" : "available",
 									wakeBlocked: status === "update_required",
 								},
 							}),
@@ -2845,13 +2851,15 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 				)
 			).toBeTruthy();
 			expect(
-				screen.getByText((content) => content.includes("Check this computer's connection and update status"))
+				screen.getByText((content) =>
+					content.includes("Check this computer's connection and update status")
+				)
 			).toBeTruthy();
 			expect(refetch.mock.calls.length).toBeGreaterThan(0);
 			expect(navigateMock).not.toHaveBeenCalled();
 		});
 
-		it("shows the confirmed version once the projection clears update_required", async () => {
+		it("shows the confirmed version once the projection confirms both installed components", async () => {
 			useBringAgentsSetupContextMock.mockReturnValue(
 				createSetupContext(
 					{
@@ -2943,7 +2951,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			expect(navigateMock).not.toHaveBeenCalled();
 		});
 
-		it.each(["update_required", "update_available", "unknown"] as const)("recovers to confirmed after %s times out", async (status) => {
+		it.each([
+			"update_required",
+			"update_available",
+			"unknown",
+		] as const)("recovers to confirmed after %s times out", async (status) => {
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
 			const refetch = vi.fn().mockResolvedValue(undefined);
@@ -2961,9 +2973,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 									installedVersion: "0.2.20",
 									latestVersion: "0.2.21",
 									reasonCodes: ["service.version_outdated"],
-									requiredVersion: "0.2.21",
+									requiredVersion:
+										status === "update_required" ? "0.2.21" : null,
 									status,
-									updatePolicy: status === "update_required" ? "required" : "available",
+									updatePolicy:
+										status === "update_required" ? "required" : "available",
 									wakeBlocked: status === "update_required",
 								},
 							}),
