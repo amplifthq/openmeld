@@ -269,6 +269,7 @@ import {
   buildRemoteAgentAdmissionWatchdogSubmissionId,
   enqueueRemoteAgentAdmissionWatchdog,
   enqueueRemoteAgentTaskContinuationAdmissionRetry,
+  REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
   REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
   resolveRemoteAgentAdmissionProbe,
   resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds,
@@ -9688,7 +9689,7 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
 }
 
 async function processRemoteAgentAdmissionDeadlineProbe(input: {
-  admissionProbe: { attempt: number; kind: "retry" | "watchdog" };
+  admissionProbe: { kind: "admission" };
   db: D1Database;
   env: CoreBindings;
   messageChannelNowMs?: () => number;
@@ -9709,16 +9710,36 @@ async function processRemoteAgentAdmissionDeadlineProbe(input: {
   if (!remoteAgentDeadlineProbeTargetsDelivery(input.probe, delivery)) {
     throw new Error("remote_agent.admission_watchdog_delivery_mismatch");
   }
-  if (input.admissionProbe.kind === "retry") {
+  const settled = await resolveAlreadySettledRemoteAgentAdmissionWatchdog({
+    db: input.db,
+    delivery,
+    env: input.env,
+    nowMs: input.nowMs,
+  });
+  if (settled) {
+    return settled;
+  }
+  if (delivery.admissionRetryDueAtMs === input.probe.deadlineAtMs) {
     return await processRemoteAgentTaskContinuationAdmissionRetry({
       ...input,
-      attempt: input.admissionProbe.attempt,
+      attempt: delivery.admissionAttemptCount + 1,
       delivery,
     });
   }
+  const expectedWatchdogDeadlineAtMs =
+    delivery.submittedAtMs === null
+      ? null
+      : delivery.submittedAtMs +
+        REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS * 1000;
+  if (expectedWatchdogDeadlineAtMs !== input.probe.deadlineAtMs) {
+    return {
+      reasonCode: "remote_agent.admission_watchdog_stale",
+      status: "skipped",
+    };
+  }
   return await processRemoteAgentAdmissionWatchdog({
     ...input,
-    admissionAttempt: input.admissionProbe.attempt,
+    admissionAttempt: delivery.admissionAttemptCount,
     delivery,
   });
 }
@@ -10458,16 +10479,6 @@ async function processRemoteAgentTaskContinuationAdmissionRetry(input: {
       status: "skipped",
     };
   }
-  const settled =
-    await resolveAlreadySettledRemoteAgentAdmissionWatchdog(input);
-  if (settled) {
-    return {
-      reasonCode:
-        settled.reasonCode ??
-        "remote_agent.task_continuation.admission_retry_settled",
-      status: "skipped",
-    };
-  }
   if (
     !isRetryableTaskContinuationAdmission(input.delivery) ||
     input.attempt < 2 ||
@@ -10483,11 +10494,9 @@ async function processRemoteAgentTaskContinuationAdmissionRetry(input: {
   const watchdogEnqueued = await enqueueRemoteAgentAdmissionWatchdog({
     ack: {
       submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
-        input.delivery.idempotencyKey,
-        input.attempt
+        input.delivery.idempotencyKey
       ),
     },
-    attempt: input.attempt,
     env: input.env,
     nowMs: input.nowMs,
     target: {

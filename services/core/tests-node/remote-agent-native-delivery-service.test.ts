@@ -2890,6 +2890,7 @@ describe("Remote Agent native delivery callback service", () => {
         status: "skipped",
       });
       const retry = requireAdmissionProbe(probes, "retry", 2);
+      expect(retry.submissionId).toBe(initialWatchdog.submissionId);
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
@@ -2902,6 +2903,9 @@ describe("Remote Agent native delivery callback service", () => {
           "remote_agent.task_continuation.admission_retry_acknowledged",
         status: "skipped",
       });
+      expect(requireAdmissionProbe(probes, "watchdog", 2).submissionId).toBe(
+        initialWatchdog.submissionId
+      );
 
       expect(workerSubmit).toHaveBeenCalledTimes(2);
       expect(workerSubmit.mock.calls[0]?.[0]).toMatchObject({
@@ -11411,24 +11415,11 @@ function requireAdmissionProbe(
   kind: "retry" | "watchdog",
   attempt: number
 ): RemoteAgentNativeDeliveryDeadlineProbeQueueMessage {
-  let marker = `:attempt:${attempt}`;
-  if (kind === "retry") {
-    marker = "admission_retry:";
-  } else if (attempt === 1) {
-    marker = "admission_watchdog:";
-  }
-  const probe = probes.find((candidate) => {
-    if (!candidate.submissionId.includes(marker)) {
-      return false;
-    }
-    if (kind === "retry") {
-      return candidate.submissionId.endsWith(`:attempt:${attempt}`);
-    }
-    if (attempt === 1) {
-      return !candidate.submissionId.includes(":attempt:");
-    }
-    return candidate.submissionId.startsWith("admission_watchdog:");
-  });
+  const admissionProbes = probes.filter((candidate) =>
+    candidate.submissionId.startsWith("admission_watchdog:")
+  );
+  const index = kind === "watchdog" ? (attempt - 1) * 2 : (attempt - 2) * 2 + 1;
+  const probe = admissionProbes[index];
   if (!probe) {
     throw new Error(`expected admission ${kind} probe for attempt ${attempt}`);
   }

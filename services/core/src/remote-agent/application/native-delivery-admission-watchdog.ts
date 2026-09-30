@@ -9,7 +9,6 @@ import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 export const REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS = 240;
 export const REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS = 300;
 const REMOTE_AGENT_ADMISSION_WATCHDOG_SUBMISSION_PREFIX = "admission_watchdog:";
-const REMOTE_AGENT_ADMISSION_RETRY_SUBMISSION_PREFIX = "admission_retry:";
 
 export const REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS = 3;
 export const REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_RETRY_BASE_DELAY_SECONDS = 15;
@@ -24,7 +23,6 @@ export type RemoteAgentDeadlineProbeTarget = {
 
 export async function enqueueRemoteAgentAdmissionWatchdog(input: {
   ack: { submissionId: string };
-  attempt?: number;
   env: CoreBindings;
   nowMs: number;
   target: RemoteAgentDeadlineProbeTarget;
@@ -33,8 +31,7 @@ export async function enqueueRemoteAgentAdmissionWatchdog(input: {
     ...input,
     ack: {
       submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
-        input.target.idempotencyKey,
-        input.attempt ?? 1
+        input.target.idempotencyKey
       ),
     },
     delaySeconds: REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
@@ -54,9 +51,8 @@ export async function enqueueRemoteAgentTaskContinuationAdmissionRetry(input: {
 }): Promise<boolean> {
   return await enqueueRemoteAgentNativeDeliveryProbe({
     ack: {
-      submissionId: buildRemoteAgentAdmissionRetrySubmissionId(
-        input.target.idempotencyKey,
-        input.attempt
+      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+        input.target.idempotencyKey
       ),
     },
     delaySeconds: input.delaySeconds,
@@ -136,11 +132,9 @@ async function enqueueRemoteAgentNativeDeliveryProbe(input: {
 }
 
 export function buildRemoteAgentAdmissionWatchdogSubmissionId(
-  idempotencyKey: string,
-  attempt = 1
+  idempotencyKey: string
 ): string {
-  const base = `${REMOTE_AGENT_ADMISSION_WATCHDOG_SUBMISSION_PREFIX}${idempotencyKey}`;
-  return attempt === 1 ? base : `${base}:attempt:${attempt}`;
+  return `${REMOTE_AGENT_ADMISSION_WATCHDOG_SUBMISSION_PREFIX}${idempotencyKey}`;
 }
 
 export function isRemoteAgentAdmissionWatchdogProbe(
@@ -151,27 +145,11 @@ export function isRemoteAgentAdmissionWatchdogProbe(
 
 export function resolveRemoteAgentAdmissionProbe(
   probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage
-): { attempt: number; kind: "retry" | "watchdog" } | null {
-  const initialWatchdog = buildRemoteAgentAdmissionWatchdogSubmissionId(
-    probe.idempotencyKey
-  );
-  if (probe.submissionId === initialWatchdog) {
-    return { attempt: 1, kind: "watchdog" };
-  }
-  const watchdogAttempt = parseAdmissionAttemptSuffix(
-    probe.submissionId,
-    `${initialWatchdog}:attempt:`
-  );
-  if (watchdogAttempt !== null) {
-    return { attempt: watchdogAttempt, kind: "watchdog" };
-  }
-  const retryAttempt = parseAdmissionAttemptSuffix(
-    probe.submissionId,
-    `${REMOTE_AGENT_ADMISSION_RETRY_SUBMISSION_PREFIX}${probe.idempotencyKey}:attempt:`
-  );
-  return retryAttempt === null
-    ? null
-    : { attempt: retryAttempt, kind: "retry" };
+): { kind: "admission" } | null {
+  return probe.submissionId ===
+    buildRemoteAgentAdmissionWatchdogSubmissionId(probe.idempotencyKey)
+    ? { kind: "admission" }
+    : null;
 }
 
 export function resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds(
@@ -184,24 +162,6 @@ export function resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds(
     REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_RETRY_BASE_DELAY_SECONDS *
     2 ** (attempt - 2)
   );
-}
-
-function buildRemoteAgentAdmissionRetrySubmissionId(
-  idempotencyKey: string,
-  attempt: number
-): string {
-  return `${REMOTE_AGENT_ADMISSION_RETRY_SUBMISSION_PREFIX}${idempotencyKey}:attempt:${attempt}`;
-}
-
-function parseAdmissionAttemptSuffix(
-  submissionId: string,
-  prefix: string
-): number | null {
-  if (!submissionId.startsWith(prefix)) {
-    return null;
-  }
-  const attempt = Number(submissionId.slice(prefix.length));
-  return Number.isSafeInteger(attempt) && attempt >= 2 ? attempt : null;
 }
 
 function toErrorMessage(error: unknown): string {
