@@ -28,6 +28,7 @@ import { beforeDesktopLoad } from "#/desktop/auth-boundary";
 import { DesktopFrame } from "#/desktop/desktop-frame";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
+import { SIDEBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/sidebar-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
 import { FAVICON_32_URL, FAVICON_VERSION } from "#/lib/favicon";
 import {
@@ -211,6 +212,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				<script
 					dangerouslySetInnerHTML={{
 						__html: TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT,
+					}}
+					suppressHydrationWarning
+				/>
+				<script
+					dangerouslySetInnerHTML={{
+						__html: SIDEBAR_PREFERENCE_BOOTSTRAP_SCRIPT,
 					}}
 					suppressHydrationWarning
 				/>

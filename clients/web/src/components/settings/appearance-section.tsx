@@ -9,7 +9,14 @@ import {
 	type ShapeVariant,
 	useShapeContext,
 } from "@openmeld/ui/lib/shape-context";
-import { DesktopIcon, MoonIcon, SunDimIcon } from "@phosphor-icons/react";
+import {
+	ChatCircleTextIcon,
+	DesktopIcon,
+	MoonIcon,
+	SunDimIcon,
+	TrayIcon,
+	UsersThreeIcon,
+} from "@phosphor-icons/react";
 import { useTheme } from "next-themes";
 import {
 	type CSSProperties,
@@ -18,6 +25,11 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import {
+	SIDEBAR_DISPLAY_CHOICES,
+	type SidebarDisplay,
+	useSidebarDisplayPreference,
+} from "#/lib/appearance/sidebar-preference";
 import {
 	TOOLBAR_SHORTCUTS,
 	useToolbarPreference,
@@ -126,6 +138,7 @@ const getClientHydrationSnapshot = () => true;
 const getServerHydrationSnapshot = () => false;
 
 export function AppearanceSection() {
+	const sidebar = useSidebarDisplayPreference();
 	const toolbar = useToolbarPreference();
 	const historySlider = useHistorySliderPreference();
 	const { setTheme, theme } = useTheme();
@@ -240,6 +253,43 @@ export function AppearanceSection() {
 				<SettingsRow
 					control={
 						<RadioGroup
+							aria-label="Sidebar display"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? SIDEBAR_DISPLAY_CHOICES.findIndex(
+											(choice) => choice.value === sidebar.display
+										)
+									: -1
+							}
+						>
+							{SIDEBAR_DISPLAY_CHOICES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex min-w-0 flex-col gap-2">
+											<span>{choice.description}</span>
+											<SidebarDisplayPreview display={choice.value} />
+										</span>
+									}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => sidebar.setDisplay(choice.value)}
+									selected={mounted && sidebar.display === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
+					description="Choose how the main navigation appears on larger screens. Saved in this browser."
+					label="Sidebar"
+					layout="stacked"
+					showDivider
+				/>
+				<SettingsRow
+					control={
+						<RadioGroup
 							aria-label="Conversation layout"
 							className="w-full"
 							orientation={choiceOrientation}
@@ -347,6 +397,44 @@ export function AppearanceSection() {
 				/>
 			</section>
 		</>
+	);
+}
+
+function SidebarDisplayPreview(input: { display: SidebarDisplay }) {
+	return (
+		<span
+			aria-hidden="true"
+			className="flex h-20 w-full overflow-hidden rounded-lg border border-border bg-background"
+			data-sidebar-display-preview={input.display}
+		>
+			<span
+				className={`flex shrink-0 flex-col items-center justify-center gap-1 bg-muted/60 py-1 ${input.display === "icons-only" ? "w-8" : "w-12"}`}
+			>
+				{[
+					{ icon: TrayIcon, label: "Inbox" },
+					{ icon: ChatCircleTextIcon, label: "Spaces" },
+					{ icon: UsersThreeIcon, label: "Team" },
+				].map(({ icon: Icon, label }) => (
+					<span className="flex flex-col items-center gap-0.5" key={label}>
+						<Icon className="size-3 text-muted-foreground" />
+						<span
+							className={
+								input.display === "icons-only"
+									? "hidden"
+									: "text-[6px] text-muted-foreground leading-none"
+							}
+						>
+							{label}
+						</span>
+					</span>
+				))}
+			</span>
+			<span className="flex min-w-0 flex-1 flex-col gap-2 p-3">
+				<span className="h-2 w-1/2 rounded-sm bg-muted-foreground/25" />
+				<span className="h-2 w-4/5 rounded-sm bg-muted-foreground/15" />
+				<span className="mt-auto h-4 rounded-md border border-border bg-muted/40" />
+			</span>
+		</span>
 	);
 }
 
