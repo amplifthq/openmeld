@@ -13,6 +13,8 @@
 
 /* Both display choices keep the same Fluid rows and indicator targets. */
 html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presentation="inline"] {
+	width: var(--app-rail-icon-width);
+
 	[data-slot="app-rail-label"] {
 		display: none;
 	}

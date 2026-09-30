@@ -8,9 +8,11 @@ import {
 	ContextMenuRadioItem,
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
+import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { useMatches } from "@tanstack/react-router";
+import type { CSSProperties } from "react";
 import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { useAccountAvatar } from "#/hooks/account.hooks";
@@ -84,6 +86,9 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 			data-presentation={presentation}
 			data-slot="app-outer-rail"
 			data-testid="app-outer-rail"
+			style={
+				{ "--app-rail-icon-width": `${SIDEBAR_ICON_WIDTH}px` } as CSSProperties
+			}
 		>
 			<AppCommandCenter />
 			<SidebarDestinationActionsProvider>

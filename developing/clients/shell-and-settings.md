@@ -32,8 +32,7 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 
 ## 1. Goal and current owner
 
-Current Web uses the fixed
-76px **Center Agent / Spaces / Team** application rail, with a separate
+Current Web uses a 76px application rail (52px in **Icons only**), with a separate
 **New Agent** creation action and contextual lists in a collapsible middle column.
 **Settings** remains a separated utility. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
@@ -412,9 +411,8 @@ The Web shell is a stable two-layer composition built from the shared
 Responsive presentation does not create a second navigation model or change
 the route topology:
 
-- At `lg` and wider, the outer app rail stays inline on the app canvas with its
-  existing persisted width, tier, collapsed groups, inset surface gutters, and
-  resize behavior.
+- At `lg` and wider, the outer app rail stays inline on the app canvas. Its
+  width follows the browser-local display preference.
 - Below `lg`, the outer rail opens as a modal left drawer from the shared app
   header. The drawer always shows full destination labels and must not write a
   transient width or tier back to the desktop rail preference.
@@ -422,7 +420,8 @@ the route topology:
   through its context menu and Appearance's **Sidebar** group. Both controls
   share one browser-local preference. The same Fluid navigation rows, icon
   targets, indicators, and accessible labels remain mounted in both modes;
-  only text visibility and row height change. The drawer keeps full labels.
+  Icons only uses the shared Fluid `SIDEBAR_ICON_WIDTH` (52px), hides text, and
+  uses shorter rows while retaining 36px icon targets. The drawer keeps full labels.
 - At `md` and wider, a route family's inner contextual sidebar stays inline
   inside the app surface with its existing persisted family width. Below `md`,
   the same contextual navigation opens from the shared header as a modal left

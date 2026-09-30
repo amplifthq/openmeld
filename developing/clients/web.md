@@ -175,7 +175,7 @@ conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
-Web uses three navigation levels: a fixed 76px application rail, a contextual
+Web uses three navigation levels: a 76px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
 Team are the rail's destinations, in that order. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
@@ -1466,8 +1466,9 @@ Appearance's **Sidebar** group offers **Icons and text** and **Icons only**
 preview cards for the outer app rail. The rail's **Show** context menu changes
 the same `openmeld.appearance.sidebar-display` preference. Web restores its
 document-root CSS projection before paint and synchronizes changes across
-tabs. Both presentations reuse the existing Fluid menu rows without changing
-the rail width, navigation destinations, or inner sidebar geometry. Narrow
+tabs. Both presentations reuse the existing Fluid menu rows. Icons only uses
+the shared 52px Fluid icon width, giving the work area 24px more room while
+preserving navigation destinations and the inner sidebar's width. Narrow
 screen drawers always show full labels.
 
 Appearance also owns the browser-local **Your messages** placement used by

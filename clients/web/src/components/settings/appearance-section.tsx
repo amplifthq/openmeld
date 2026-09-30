@@ -407,7 +407,9 @@ function SidebarDisplayPreview(input: { display: SidebarDisplay }) {
 			className="flex h-20 w-full overflow-hidden rounded-lg border border-border bg-background"
 			data-sidebar-display-preview={input.display}
 		>
-			<span className="flex w-12 shrink-0 flex-col items-center justify-center gap-1 bg-muted/60 py-1">
+			<span
+				className={`flex shrink-0 flex-col items-center justify-center gap-1 bg-muted/60 py-1 ${input.display === "icons-only" ? "w-8" : "w-12"}`}
+			>
 				{[
 					{ icon: TrayIcon, label: "Inbox" },
 					{ icon: ChatCircleTextIcon, label: "Spaces" },
