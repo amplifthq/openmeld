@@ -258,10 +258,17 @@ command wrapper also forces a trusted `script-shell` so a candidate `.npmrc`
 cannot rewrite how later `pnpm run` checks execute. Those pull requests use
 the documented local explicit bootstrap. When that refuse happens, the
 required `OpenMeld Final Candidate` status names the control refuse and the
-bootstrap path. The Final Candidate Runner job also stays red because the
-runner still exits after the control check. The publisher job does not add a
-third lookalike product-test failure. The merge gate remains that one required
-status; this is not a second delivery process.
+bootstrap path. Trusted current-main control classifies that case before
+candidate dependencies or validation run, so the `Final Candidate Runner`
+check is skipped instead of showing a product-test failure. Its check output
+explains that protected local validation is required and links back to this
+fallback. [GitHub treats a skipped check as non-blocking](https://docs.github.com/en/pull-requests/reference/status-checks),
+so the Runner is not the merge authority: the repository ruleset requires only the separate
+`OpenMeld Final Candidate` commit status, which remains failed until the exact
+candidate passes the protected local bootstrap. Any ordinary test, build,
+runner, classifier, or publisher failure remains a failure and cannot publish
+green. This changes the presentation of an expected trust refusal without
+creating a second delivery process or weakening the merge gate.
 
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a

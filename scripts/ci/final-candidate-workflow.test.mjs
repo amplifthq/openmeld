@@ -146,6 +146,7 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(!candidateJob.includes("--publish-status"));
   assert.ok(pendingJob.includes("statuses: write"));
   assert.ok(finalJob.includes("statuses: write"));
+  assert.ok(finalJob.includes("checks: write"));
   assert.ok(!workflow.includes("pnpm candidate run"));
   assert.ok(
     candidateJob.includes("Checkout trusted runner from the exact current base")
@@ -208,6 +209,9 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(candidateJob.includes('--plan-source "$CANDIDATE_BASE_SHA"'));
   assert.ok(finalJob.includes("final-candidate-publisher.mjs"));
   assert.ok(
+    finalJob.includes('--hosted-disposition "$CANDIDATE_HOSTED_DISPOSITION"')
+  );
+  assert.ok(
     finalJob.includes("Checkout trusted publisher from the exact current base")
   );
   assert.ok(finalJob.includes("path: trusted-control"));
@@ -245,6 +249,46 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(finalizer.includes("gh api --method POST"));
   assert.ok(!finalizer.includes("actions/checkout"));
   assert.ok(!finalizer.includes("pnpm"));
+});
+
+test("skips only the hosted Runner when trusted control requires local validation", () => {
+  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const pendingJob = readJob(workflow, "publish_pending", "candidate");
+  const candidateJob = readJob(workflow, "candidate", "publish_final");
+
+  assert.ok(
+    pendingJob.includes(
+      `hosted_disposition: ${GITHUB_EXPRESSION_PREFIX} steps.classify_hosted_candidate.outputs.disposition }}`
+    )
+  );
+  assert.ok(
+    pendingJob.includes(
+      `run_candidate: ${GITHUB_EXPRESSION_PREFIX} steps.classify_hosted_candidate.outputs.run_candidate }}`
+    )
+  );
+  assert.ok(
+    pendingJob.includes(
+      "node trusted-control/scripts/ci/final-candidate-hosted-disposition.mjs"
+    )
+  );
+  assert.ok(
+    pendingJob.includes(
+      "Checkout trusted classifier from the exact current base"
+    )
+  );
+  assert.ok(
+    pendingJob.includes(
+      "Checkout exact candidate source for control classification"
+    )
+  );
+  assert.ok(!pendingJob.includes("untrusted-candidate/scripts/ci/"));
+  assert.ok(
+    candidateJob.includes(
+      "if: needs.publish_pending.outputs.run_candidate == 'true'"
+    )
+  );
+  assert.ok(candidateJob.includes("name: Final Candidate Runner"));
+  assert.ok(!candidateJob.includes("statuses: write"));
 });
 
 test("rejects premature release stamps before dependency setup", () => {

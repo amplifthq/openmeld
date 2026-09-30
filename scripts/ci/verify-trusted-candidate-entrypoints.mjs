@@ -12,25 +12,30 @@ import { projectFinalCandidateControl } from "./final-candidate-control-projecti
 const LINE_SPLIT_PATTERN = /\r?\n/u;
 
 export function verifyTrustedCandidateEntrypoints(input) {
-  const trustedRoot = path.resolve(input.trustedRoot);
-  const candidateRoot = path.resolve(input.candidateRoot);
-  const paths = input.paths ?? collectControlPaths(trustedRoot, candidateRoot);
-  const drifted = paths.filter(
-    (relativePath) =>
-      controlProjection(trustedRoot, relativePath) !==
-      controlProjection(candidateRoot, relativePath)
-  );
-  if (drifted.length > 0) {
+  const result = inspectTrustedCandidateEntrypoints(input);
+  if (result.driftedPaths.length > 0) {
     throw new Error(
       [
         "Hosted Final Candidate cannot let the candidate rewrite its own test-control entrypoints.",
         "Run the guarded local Final Candidate for an intentional package-script or task-graph change.",
         "Drifted controls:",
-        ...drifted.map((relativePath) => `- ${relativePath}`),
+        ...result.driftedPaths.map((relativePath) => `- ${relativePath}`),
       ].join("\n")
     );
   }
-  return { checkedPaths: paths };
+  return { checkedPaths: result.checkedPaths };
+}
+
+export function inspectTrustedCandidateEntrypoints(input) {
+  const trustedRoot = path.resolve(input.trustedRoot);
+  const candidateRoot = path.resolve(input.candidateRoot);
+  const paths = input.paths ?? collectControlPaths(trustedRoot, candidateRoot);
+  const driftedPaths = paths.filter(
+    (relativePath) =>
+      controlProjection(trustedRoot, relativePath) !==
+      controlProjection(candidateRoot, relativePath)
+  );
+  return { checkedPaths: paths, driftedPaths };
 }
 
 function collectControlPaths(trustedRoot, candidateRoot) {

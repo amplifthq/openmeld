@@ -1,0 +1,37 @@
+{
+  "capturedAt": "2026-09-30T02:11:06Z",
+  "source": "GET /repos/amplifthq/openmeld/commits/aad673e489c07807662579f70b65b7bc9ad781ee/check-runs?filter=all&per_page=100",
+  "response": {
+    "total_count": 2,
+    "check_runs": [
+      {
+        "app": { "slug": "github-actions" },
+        "conclusion": "failure",
+        "details_url": "https://github.com/amplifthq/openmeld/actions/runs/36658275713/job/109707217119",
+        "id": 109707217119,
+        "name": "Final Candidate Runner",
+        "output": {
+          "annotations_count": 3,
+          "summary": null,
+          "text": null,
+          "title": null
+        },
+        "status": "completed"
+      },
+      {
+        "app": { "slug": "github-actions" },
+        "conclusion": "skipped",
+        "details_url": "https://github.com/amplifthq/openmeld/actions/runs/36658263159/job/109707146679",
+        "id": 109707146679,
+        "name": "Final Candidate Runner",
+        "output": {
+          "annotations_count": 0,
+          "summary": null,
+          "text": null,
+          "title": null
+        },
+        "status": "completed"
+      }
+    ]
+  }
+}
