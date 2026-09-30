@@ -1312,14 +1312,14 @@ function resolveReadyStepDisplaySummary(input: {
 	serviceUpdateVerification: ServiceUpdateVerificationState;
 }): string {
 	if (input.serviceUpdateVerification.status === "confirming") {
-		return "Confirming the update reached the required version on this computer...";
+		return "Confirming the installed versions on this computer...";
 	}
 	if (input.serviceUpdateVerification.status === "timed_out") {
 		// Kept distinct from SERVICE_UPDATE_VERIFICATION_FAILURE_TITLE, which
 		// this same "ready" step already renders as the notice block's
 		// headline below -- the row summary only needs to flag that something
 		// needs attention, not repeat the full headline verbatim.
-		return "The update did not finish. See the details below.";
+		return "Couldn't verify the update. See the details below.";
 	}
 	return input.baseSummary;
 }
