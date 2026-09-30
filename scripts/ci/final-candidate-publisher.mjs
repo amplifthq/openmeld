@@ -3,15 +3,22 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
+import {
+  FINAL_CANDIDATE_RUNNER_CHECK_NAME,
+  HOSTED_CONTROL_REFUSE_DISPOSITION,
+  HOSTED_CONTROL_REFUSE_SUMMARY,
+  HOSTED_CONTROL_REFUSE_TITLE,
+  HOSTED_RUN_DISPOSITION,
+  resolveHostedFinalCandidateDisposition,
+} from "./final-candidate-hosted-disposition.mjs";
 import {
   appendWorkflowSummary,
   describeFinalCandidateFailure,
   readEvidence,
   shortSha,
-  shouldFailPublisherJob,
 } from "./final-candidate-output.mjs";
 import {
   assertCandidateSnapshot,
@@ -23,10 +30,16 @@ import {
   publishCommitStatus,
   resolveCandidateState,
   resolveChangedPaths,
+  updateSkippedCheckRunOutput,
 } from "./final-candidate-state.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const GITHUB_REPOSITORY_PATTERN = /^[^/\s]+\/[^/\s]+$/u;
+const TRUSTED_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  ".."
+);
 
 function run() {
   const options = parseOptions(process.argv.slice(2));
@@ -42,16 +55,14 @@ function run() {
   const targetUrl = requireTargetUrl(options.targetUrl);
   const candidateRoot = path.resolve(options.candidateRoot);
   const branchName = requireBranch(options.branch);
+  const claimedDisposition = requireHostedDisposition(
+    options.hostedDisposition
+  );
 
   let evidence = null;
   let validationError = null;
+  let trustedDisposition = null;
   try {
-    if (!existsSync(options.evidence)) {
-      throw new Error(
-        `Candidate evidence artifact is missing at ${options.evidence}.`
-      );
-    }
-    evidence = readEvidence(options.evidence);
     const liveState = resolveCandidateState({
       cwd: candidateRoot,
       expectedBaseSha: expected.baseSha,
@@ -85,22 +96,49 @@ function run() {
       planSourceSha: expected.baseSha,
       treeSha: expected.treeSha,
     });
-    assertEvidenceMatchesExecution({
-      candidateJobResult,
-      confidence,
-      evidence,
-      expected,
-      pullRequestNumber,
-      repository,
-      trustedPlan,
+    trustedDisposition = resolveHostedFinalCandidateDisposition({
+      candidateRoot,
+      trustedRoot: TRUSTED_ROOT,
     });
+    if (trustedDisposition.disposition !== claimedDisposition) {
+      throw new Error(
+        `Hosted Final Candidate disposition drifted: expected ${claimedDisposition}, found ${trustedDisposition.disposition}.`
+      );
+    }
+    if (trustedDisposition.disposition === HOSTED_CONTROL_REFUSE_DISPOSITION) {
+      if (candidateJobResult !== "skipped") {
+        throw new Error(
+          `Control-changing candidates must skip the hosted runner, found ${candidateJobResult}.`
+        );
+      }
+    } else {
+      if (!existsSync(options.evidence)) {
+        throw new Error(
+          `Candidate evidence artifact is missing at ${options.evidence}.`
+        );
+      }
+      evidence = readEvidence(options.evidence);
+      assertEvidenceMatchesExecution({
+        candidateJobResult,
+        confidence,
+        evidence,
+        expected,
+        pullRequestNumber,
+        repository,
+        trustedPlan,
+      });
+    }
   } catch (error) {
     validationError = error instanceof Error ? error : new Error(String(error));
   }
 
-  const success = validationError === null;
+  const controlRefuse =
+    validationError === null &&
+    trustedDisposition?.disposition === HOSTED_CONTROL_REFUSE_DISPOSITION;
+  const success = validationError === null && !controlRefuse;
   const summary = renderPublisherSummary({
     candidateJobResult,
+    controlRefuse,
     evidence,
     expected,
     success,
@@ -109,21 +147,33 @@ function run() {
   process.stdout.write(`${summary}\n`);
   appendWorkflowSummary(summary);
 
+  if (controlRefuse) {
+    updateSkippedCheckRunOutput({
+      checkName: FINAL_CANDIDATE_RUNNER_CHECK_NAME,
+      headSha: expected.headSha,
+      repository,
+      summary: HOSTED_CONTROL_REFUSE_SUMMARY,
+      targetUrl,
+      title: HOSTED_CONTROL_REFUSE_TITLE,
+    });
+  }
+
   publishCommitStatus({
-    description: success
-      ? `Passed ${confidence} @ ${shortSha(expected.headSha)} on ${shortSha(expected.baseSha)}`
-      : describeFinalCandidateFailure(
-          expected.headSha,
-          expected.baseSha,
-          evidence
-        ),
+    description: resolveStatusDescription({
+      baseSha: expected.baseSha,
+      confidence,
+      controlRefuse,
+      evidence,
+      headSha: expected.headSha,
+      success,
+    }),
     headSha: expected.headSha,
     repository,
     state: success ? "success" : "failure",
     targetUrl,
   });
 
-  if (shouldFailPublisherJob(success, evidence)) {
+  if (validationError) {
     throw validationError;
   }
 }
@@ -187,7 +237,7 @@ function renderPublisherSummary(input) {
     "## OpenMeld Final Candidate Publisher",
     "",
     `- Status context: \`${FINAL_CANDIDATE_STATUS_CONTEXT}\``,
-    `- Publication result: **${input.success ? "success" : "failure"}**`,
+    `- Publication result: **${resolvePublicationResult(input)}**`,
     `- Candidate job: \`${input.candidateJobResult}\``,
     `- Head: \`${input.expected.headSha}\``,
     `- Base: \`${input.expected.baseSha}\``,
@@ -197,6 +247,29 @@ function renderPublisherSummary(input) {
       ? [`- Validation error: ${input.validationError.message}`]
       : []),
   ].join("\n");
+}
+
+function resolveStatusDescription(input) {
+  if (input.success) {
+    return `Passed ${input.confidence} @ ${shortSha(input.headSha)} on ${shortSha(input.baseSha)}`;
+  }
+  if (input.controlRefuse) {
+    return `Control changed @ ${shortSha(input.headSha)}; protected local validation required`;
+  }
+  return describeFinalCandidateFailure(
+    input.headSha,
+    input.baseSha,
+    input.evidence
+  );
+}
+
+function resolvePublicationResult(input) {
+  if (input.success) {
+    return "success";
+  }
+  return input.controlRefuse
+    ? "protected local validation required"
+    : "failure";
 }
 
 function parseOptions(args) {
@@ -220,6 +293,7 @@ function parseOptions(args) {
       evidence: "evidence",
       head: "head",
       job_result: "jobResult",
+      hosted_disposition: "hostedDisposition",
       pr: "pr",
       repository: "repository",
       target_url: "targetUrl",
@@ -238,6 +312,7 @@ function parseOptions(args) {
     "evidence",
     "head",
     "jobResult",
+    "hostedDisposition",
     "pr",
     "repository",
     "targetUrl",
@@ -300,6 +375,18 @@ function requireTargetUrl(value) {
   } catch {
     throw new Error("Final Candidate publisher requires a valid target URL.");
   }
+}
+
+function requireHostedDisposition(value) {
+  if (
+    !(
+      value === HOSTED_RUN_DISPOSITION ||
+      value === HOSTED_CONTROL_REFUSE_DISPOSITION
+    )
+  ) {
+    throw new Error(`Unknown hosted Final Candidate disposition: ${value}`);
+  }
+  return value;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -12,6 +12,13 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { projectFinalCandidateControl } from "./final-candidate-control-projection.mjs";
+import {
+  HOSTED_CONTROL_REFUSE_DISPOSITION,
+  HOSTED_CONTROL_REFUSE_SUMMARY,
+  HOSTED_CONTROL_REFUSE_TITLE,
+  HOSTED_RUN_DISPOSITION,
+  resolveHostedFinalCandidateDisposition,
+} from "./final-candidate-hosted-disposition.mjs";
 import { verifyTrustedCandidateEntrypoints } from "./verify-trusted-candidate-entrypoints.mjs";
 
 const REPO_ROOT = path.resolve(
@@ -22,6 +29,8 @@ const REPO_ROOT = path.resolve(
 
 const SELF_REWRITE_PATTERN =
   /cannot let the candidate rewrite its own test-control entrypoints/u;
+const PROTECTED_BOOTSTRAP_PATTERN = /protected local bootstrap/u;
+const DELIVERY_DOCUMENT_PATTERN = /agent-native-delivery\.md/u;
 
 test("rejects a candidate that rewrites the package script used to validate itself", () => {
   const fixture = createFixture();
@@ -74,6 +83,50 @@ test("rejects a candidate that rewrites the trusted Final Candidate runner", () 
         }),
       SELF_REWRITE_PATTERN
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("skips hosted validation with actionable copy when trusted control changes", () => {
+  const fixture = createFixture();
+  try {
+    writeManifest(fixture.candidateRoot, {
+      candidate: "node scripts/ci/forged-runner.mjs",
+      "verify:pr": "node scripts/dev/turbo-affected.mjs check test",
+    });
+
+    const result = resolveHostedFinalCandidateDisposition({
+      candidateRoot: fixture.candidateRoot,
+      paths: ["package.json"],
+      trustedRoot: fixture.trustedRoot,
+    });
+
+    assert.equal(result.disposition, HOSTED_CONTROL_REFUSE_DISPOSITION);
+    assert.equal(result.runCandidate, false);
+    assert.equal(result.conclusion, "skipped");
+    assert.equal(result.title, HOSTED_CONTROL_REFUSE_TITLE);
+    assert.equal(result.summary, HOSTED_CONTROL_REFUSE_SUMMARY);
+    assert.match(result.summary, PROTECTED_BOOTSTRAP_PATTERN);
+    assert.match(result.summary, DELIVERY_DOCUMENT_PATTERN);
+    assert.deepEqual(result.driftedPaths, ["package.json"]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("runs hosted validation when trusted control is unchanged", () => {
+  const fixture = createFixture();
+  try {
+    const result = resolveHostedFinalCandidateDisposition({
+      candidateRoot: fixture.candidateRoot,
+      paths: ["package.json"],
+      trustedRoot: fixture.trustedRoot,
+    });
+
+    assert.equal(result.disposition, HOSTED_RUN_DISPOSITION);
+    assert.equal(result.runCandidate, true);
+    assert.deepEqual(result.driftedPaths, []);
   } finally {
     fixture.cleanup();
   }
