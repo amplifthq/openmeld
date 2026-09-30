@@ -418,6 +418,11 @@ the route topology:
 - Below `lg`, the outer rail opens as a modal left drawer from the shared app
   header. The drawer always shows full destination labels and must not write a
   transient width or tier back to the desktop rail preference.
+- The inline outer rail offers **Icons and text** (default) and **Icons only**
+  through its context menu and Appearance's **Sidebar** group. Both controls
+  share one browser-local preference. The same Fluid navigation rows, icon
+  targets, indicators, and accessible labels remain mounted in both modes;
+  only text visibility and row height change. The drawer keeps full labels.
 - At `md` and wider, a route family's inner contextual sidebar stays inline
   inside the app surface with its existing persisted family width. Below `md`,
   the same contextual navigation opens from the shared header as a modal left

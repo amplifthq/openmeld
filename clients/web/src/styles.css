@@ -11,6 +11,17 @@
 @source "../../../packages/ui/src";
 @source "../node_modules/streamdown/dist";
 
+/* Both display choices keep the same Fluid rows and indicator targets. */
+html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presentation="inline"] {
+	[data-slot="app-rail-label"] {
+		display: none;
+	}
+	[data-app-rail-item],
+	[data-app-rail-link] {
+		height: 2.5rem;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-sd-animate] {
     animation: none;

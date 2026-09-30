@@ -1462,6 +1462,14 @@ Rounded-default rollout uses a versioned browser preference key so existing
 users receive the new default once; a Square selection made afterward remains
 explicit and persistent.
 
+Appearance's **Sidebar** group offers **Icons and text** and **Icons only**
+preview cards for the outer app rail. The rail's **Show** context menu changes
+the same `openmeld.appearance.sidebar-display` preference. Web restores its
+document-root CSS projection before paint and synchronizes changes across
+tabs. Both presentations reuse the existing Fluid menu rows without changing
+the rail width, navigation destinations, or inner sidebar geometry. Narrow
+screen drawers always show full labels.
+
 Appearance also owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
