@@ -2127,6 +2127,22 @@ terminal coordination must not reconstruct it from Dispatch Ledger. The ledger
 exists so trace and diagnostics cover native delivery with the same
 deterministic-evidence rule as wakes.
 
+For pre-ACK Space task-continuation recovery, the same row stores
+`admission_attempt_count` and the nullable `admission_retry_due_at_ms`. D1 is the
+retry authority: scheduling compare-and-sets the due time for the current
+attempt, and claiming compare-and-sets the next attempt before worker admission.
+The Queue message is only a delayed wake and may be duplicated or redelivered;
+it never increments attempts by itself. Every retry reuses the row's frozen
+worker request and unchanged delivery, dispatch, and idempotency identities.
+Retry and watchdog wakes also retain the legacy admission-watchdog Queue
+identity. D1 timestamps distinguish their phase, while an older Core therefore
+still recognizes the wake and fails closed during rollback instead of leaving a
+pending retry stranded.
+An ACK clears the due time and makes every pending retry wake stale. Exhaustion
+uses the existing terminal publication and Agent Task Coordination projections,
+plus an idempotent Inbox item keyed by delivery id, so replay cannot execute the
+continuation or alert the requester twice.
+
 For legacy Slack result surfaces, the ledger also records an optional shared
 Working-status turn identity used only to derive provider presentation. One
 ordinary delivery derives its effective identity from its idempotency key and

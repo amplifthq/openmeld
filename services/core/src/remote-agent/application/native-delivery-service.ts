@@ -171,6 +171,7 @@ import {
   claimRemoteAgentRoutineSubmissionFailure,
   claimRemoteAgentRoutineSubmissionRecoveryAttempt,
   claimRemoteAgentSlackAdmissionFailurePublication,
+  claimRemoteAgentTaskContinuationAdmissionRetry,
   clearPreviousRoutineWorkerSubmitRequest,
   countRemoteAgentWorkLoopAttempts,
   expireRemoteAgentFinalPublicationClaim,
@@ -218,6 +219,7 @@ import {
   releaseRemoteAgentNativeDeliveryAdmissionWatchdog,
   releaseRemoteAgentSlackAdmissionFailureClaim,
   reopenRetiredDeadlineFailureForLateCallback,
+  scheduleRemoteAgentTaskContinuationAdmissionRetry,
   skipRemoteAgentRoutineSubmissionRecovery,
   suppressLinkedSlackNativeDeliveryInboxProjectionIfRecipientMissing,
   upsertRemoteAgentNativeDeliveryRecord,
@@ -266,7 +268,11 @@ import {
 import {
   buildRemoteAgentAdmissionWatchdogSubmissionId,
   enqueueRemoteAgentAdmissionWatchdog,
-  isRemoteAgentAdmissionWatchdogProbe,
+  enqueueRemoteAgentTaskContinuationAdmissionRetry,
+  REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
+  REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS,
+  resolveRemoteAgentAdmissionProbe,
+  resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds,
 } from "./native-delivery-admission-watchdog";
 import {
   requestRemoteAgentWorkerCancellation as forwardRemoteAgentWorkerCancellation,
@@ -274,7 +280,10 @@ import {
 } from "./native-delivery-cancellation-service";
 import { buildRemoteAgentFinalPublicationMetadata } from "./native-delivery-final-publication-identity";
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
-import { projectLinkedSlackNativeDeliveryInboxItem } from "./native-delivery-inbox-producer";
+import {
+  projectLinkedSlackNativeDeliveryInboxItem,
+  projectTaskContinuationAdmissionExhaustedInboxItem,
+} from "./native-delivery-inbox-producer";
 import {
   isPersonalRemoteAgentBinding,
   requirePersonalRemoteAgentBinding,
@@ -422,6 +431,7 @@ type RemoteAgentSpaceNativeDeliveryResult = {
 
 type NativeDeliveryPublishRecord = Pick<
   RemoteAgentNativeDeliveryRecord,
+  | "admissionAttemptCount"
   | "anonymousMemberSpeaker"
   | "bindingId"
   | "conversationKind"
@@ -517,6 +527,7 @@ const REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE =
   "remote_agent.admission_timeout";
 const REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT =
   "Center Agent did not accept this request in time. Please try again.";
+const REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_EXHAUSTED_FAILURE_TEXT = `Center Agent could not continue this task after ${REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS} startup attempts. Open the original task result in this Space and try the continuation again.`;
 const CENTER_AGENT_ROUTINE_PREPARATION_FAILED_PUBLIC_COPY =
   "Center Agent couldn't prepare this Routine. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
 const CENTER_AGENT_ROUTINE_UNAVAILABLE_PUBLIC_COPY =
@@ -9525,33 +9536,22 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
   reasonCode?: string;
   status: "expired" | "skipped";
 }> {
-  const isAdmissionWatchdog = isRemoteAgentAdmissionWatchdogProbe(input.probe);
-  const delivery = isAdmissionWatchdog
-    ? await readRemoteAgentNativeDeliveryByIdempotencyKey({
-        db: input.db,
-        idempotencyKey: input.probe.idempotencyKey,
-      })
-    : await readRemoteAgentNativeDeliveryBySubmissionId({
-        db: input.db,
-        submissionId: input.probe.submissionId,
-      });
-  if (isAdmissionWatchdog && !delivery) {
-    throw new Error("remote_agent.admission_watchdog_delivery_missing");
+  const admissionProbe = resolveRemoteAgentAdmissionProbe(input.probe);
+  if (admissionProbe) {
+    return await processRemoteAgentAdmissionDeadlineProbe({
+      ...input,
+      admissionProbe,
+    });
   }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: input.db,
+    submissionId: input.probe.submissionId,
+  });
   if (!remoteAgentDeadlineProbeTargetsDelivery(input.probe, delivery)) {
-    if (isAdmissionWatchdog) {
-      throw new Error("remote_agent.admission_watchdog_delivery_mismatch");
-    }
     return {
       reasonCode: "remote_agent.delivery_deadline_probe_unknown_submission",
       status: "skipped",
     };
-  }
-  if (isAdmissionWatchdog) {
-    return await processRemoteAgentAdmissionWatchdog({
-      ...input,
-      delivery,
-    });
   }
   if (
     await blockRoutineDeliveryForTargetMismatch({
@@ -9686,6 +9686,62 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
     nowMs: input.nowMs,
   });
   return { status: "expired" };
+}
+
+async function processRemoteAgentAdmissionDeadlineProbe(input: {
+  admissionProbe: { kind: "admission" };
+  db: D1Database;
+  env: CoreBindings;
+  messageChannelNowMs?: () => number;
+  messageChannelProviderRegistry?: MessageChannelProviderRegistry;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{
+  reasonCode?: string;
+  status: "expired" | "skipped";
+}> {
+  const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.db,
+    idempotencyKey: input.probe.idempotencyKey,
+  });
+  if (!delivery) {
+    throw new Error("remote_agent.admission_watchdog_delivery_missing");
+  }
+  if (!remoteAgentDeadlineProbeTargetsDelivery(input.probe, delivery)) {
+    throw new Error("remote_agent.admission_watchdog_delivery_mismatch");
+  }
+  const settled = await resolveAlreadySettledRemoteAgentAdmissionWatchdog({
+    db: input.db,
+    delivery,
+    env: input.env,
+    nowMs: input.nowMs,
+  });
+  if (settled) {
+    return settled;
+  }
+  if (delivery.admissionRetryDueAtMs === input.probe.deadlineAtMs) {
+    return await processRemoteAgentTaskContinuationAdmissionRetry({
+      ...input,
+      attempt: delivery.admissionAttemptCount + 1,
+      delivery,
+    });
+  }
+  const expectedWatchdogDeadlineAtMs =
+    delivery.submittedAtMs === null
+      ? null
+      : delivery.submittedAtMs +
+        REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS * 1000;
+  if (expectedWatchdogDeadlineAtMs !== input.probe.deadlineAtMs) {
+    return {
+      reasonCode: "remote_agent.admission_watchdog_stale",
+      status: "skipped",
+    };
+  }
+  return await processRemoteAgentAdmissionWatchdog({
+    ...input,
+    admissionAttempt: delivery.admissionAttemptCount,
+    delivery,
+  });
 }
 
 async function resolveRemoteAgentDeadlineProbePublication(input: {
@@ -10274,6 +10330,7 @@ function remoteAgentDeadlineProbeTargetsDelivery(
 }
 
 async function processRemoteAgentAdmissionWatchdog(input: {
+  admissionAttempt: number;
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -10331,7 +10388,211 @@ async function processRemoteAgentAdmissionWatchdog(input: {
     return await reconcilePendingSpaceWakeStop(input);
   }
 
+  const continuationRetry =
+    await scheduleTaskContinuationAdmissionRetryAfterTimeout(input);
+  if (continuationRetry) {
+    return continuationRetry;
+  }
+
   return await finalizeRemoteAgentAdmissionTimeout(input);
+}
+
+async function scheduleTaskContinuationAdmissionRetryAfterTimeout(
+  input: Parameters<typeof processRemoteAgentAdmissionWatchdog>[0]
+): Promise<{
+  reasonCode: string;
+  status: "skipped";
+} | null> {
+  if (!isRetryableTaskContinuationAdmission(input.delivery)) {
+    return null;
+  }
+  if (input.delivery.admissionAttemptCount !== input.admissionAttempt) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_watchdog_stale",
+      status: "skipped",
+    };
+  }
+  if (
+    input.admissionAttempt >=
+    REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS
+  ) {
+    return null;
+  }
+  const nextAttempt = input.admissionAttempt + 1;
+  const defaultDelaySeconds =
+    resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds(nextAttempt);
+  const scheduled = await scheduleRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: input.admissionAttempt,
+    db: input.db,
+    dueAtMs: input.nowMs + defaultDelaySeconds * 1000,
+    idempotencyKey: input.delivery.idempotencyKey,
+    nowMs: input.nowMs,
+  });
+  if (!scheduled?.admissionRetryDueAtMs) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_lost_race",
+      status: "skipped",
+    };
+  }
+  const delaySeconds = Math.max(
+    0,
+    Math.ceil((scheduled.admissionRetryDueAtMs - input.nowMs) / 1000)
+  );
+  const enqueued = await enqueueRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: nextAttempt,
+    delaySeconds,
+    env: input.env,
+    nowMs: input.nowMs,
+    target: {
+      dispatchId: scheduled.dispatchId,
+      idempotencyKey: scheduled.idempotencyKey,
+      organizationId: scheduled.organizationId,
+      profileId: scheduled.profileId,
+      spaceId: scheduled.spaceId,
+    },
+  });
+  if (!enqueued) {
+    throw new Error(
+      "remote_agent.task_continuation.admission_retry_queue_unavailable"
+    );
+  }
+  return {
+    reasonCode: "remote_agent.task_continuation.admission_retry_scheduled",
+    status: "skipped",
+  };
+}
+
+async function processRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  db: D1Database;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+  nowMs: number;
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+}): Promise<{
+  reasonCode: string;
+  status: "skipped";
+}> {
+  if (input.nowMs < input.probe.deadlineAtMs) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_not_due",
+      status: "skipped",
+    };
+  }
+  if (
+    !isRetryableTaskContinuationAdmission(input.delivery) ||
+    input.attempt < 2 ||
+    input.attempt > REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS ||
+    input.delivery.admissionAttemptCount !== input.attempt - 1 ||
+    input.delivery.admissionRetryDueAtMs !== input.probe.deadlineAtMs
+  ) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_stale",
+      status: "skipped",
+    };
+  }
+  const watchdogEnqueued = await enqueueRemoteAgentAdmissionWatchdog({
+    ack: {
+      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+        input.delivery.idempotencyKey
+      ),
+    },
+    env: input.env,
+    nowMs: input.nowMs,
+    target: {
+      dispatchId: input.delivery.dispatchId,
+      idempotencyKey: input.delivery.idempotencyKey,
+      organizationId: input.delivery.organizationId,
+      profileId: input.delivery.profileId,
+      spaceId: input.delivery.spaceId,
+    },
+  });
+  if (!watchdogEnqueued) {
+    throw new Error(
+      "remote_agent.task_continuation.admission_retry_watchdog_unavailable"
+    );
+  }
+  const claimed = await claimRemoteAgentTaskContinuationAdmissionRetry({
+    attempt: input.attempt,
+    db: input.db,
+    dueAtMs: input.probe.deadlineAtMs,
+    idempotencyKey: input.delivery.idempotencyKey,
+    nowMs: input.nowMs,
+  });
+  if (!claimed?.workerSubmitRequest) {
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_lost_race",
+      status: "skipped",
+    };
+  }
+  const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+  if (!worker) {
+    return {
+      reasonCode:
+        "remote_agent.task_continuation.admission_retry_receiver_unavailable",
+      status: "skipped",
+    };
+  }
+  const admission = await submitRemoteAgentWorkerAdmission({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    organizationId: claimed.organizationId,
+    request: claimed.workerSubmitRequest,
+    worker,
+  });
+  if (admission.status === "acknowledged") {
+    await markRemoteAgentNativeDeliveryAckWithProbe({
+      accepted: admission.ack.accepted,
+      db: input.db,
+      env: input.env,
+      idempotencyKey: claimed.idempotencyKey,
+      nowMs: input.nowMs,
+      submissionId: admission.ack.submissionId,
+      workerRequestId: admission.ack.requestId ?? null,
+    });
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_acknowledged",
+      status: "skipped",
+    };
+  }
+  if (admission.status === "rejected") {
+    await settleTaskContinuationPreExecutionFailure({
+      continuationDelivery: claimed,
+      db: input.db,
+      env: input.env,
+      failureCode: admission.response.reasonCode,
+      failureDetail: admission.response.message,
+      failureMessage: resolveRemoteAgentAdmissionPublicCopy({
+        conversationKind: claimed.conversationKind,
+        reasonCode: admission.response.reasonCode,
+      }),
+      nowMs: input.nowMs,
+      status: "failed",
+    });
+    return {
+      reasonCode: "remote_agent.task_continuation.admission_retry_rejected",
+      status: "skipped",
+    };
+  }
+  return {
+    reasonCode: `remote_agent.task_continuation.admission_retry_${admission.status}`,
+    status: "skipped",
+  };
+}
+
+function isRetryableTaskContinuationAdmission(delivery: {
+  conversationKind: RemoteAgentNativeDeliveryRecord["conversationKind"];
+  routineRunId?: string | null;
+  workerSubmitRequest?: RemoteAgentNativeDeliveryRecord["workerSubmitRequest"];
+}): boolean {
+  const trigger = delivery.workerSubmitRequest?.turnEnvelope.trigger;
+  return (
+    delivery.conversationKind === "space" &&
+    delivery.routineRunId === null &&
+    (trigger?.source === "task_continuation" ||
+      trigger?.source === "task_watch_continuation")
+  );
 }
 
 async function finalizeRemoteAgentAdmissionTimeout(
@@ -10396,6 +10657,9 @@ async function finalizeRemoteAgentAdmissionTimeout(
     return messageChannelOutcome;
   }
 
+  const failureMessage = isRetryableTaskContinuationAdmission(claimed)
+    ? REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_EXHAUSTED_FAILURE_TEXT
+    : REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT;
   let publishedSignalId: string | null;
   try {
     const publishedSignal = await publishRemoteAgentCallbackFailureText({
@@ -10404,7 +10668,7 @@ async function finalizeRemoteAgentAdmissionTimeout(
         bindingId: claimed.bindingId,
         dispatchId: claimed.dispatchId,
         failureCode: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE,
-        failureMessage: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT,
+        failureMessage,
         idempotencyKey: claimed.idempotencyKey,
         organizationId: claimed.organizationId,
         spaceId: claimed.spaceId,
@@ -10460,7 +10724,7 @@ async function finalizeRemoteAgentAdmissionTimeout(
       attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
       db: input.db,
       errorCode: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE,
-      errorMessage: REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT,
+      errorMessage: failureMessage,
       idempotencyKey: published.idempotencyKey,
       nowMs: input.nowMs,
       status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
@@ -11653,10 +11917,16 @@ async function publishRemoteAgentCallbackFailureText(input: {
     agentControllerConversationId: input.body.submissionId,
   });
   // Name the Agent that failed, not the Center Agent, in user-facing copy.
-  const failureText = resolveCenterAgentCallbackFailureMessage({
-    ...input.body,
-    agentLabel: profileName,
-  });
+  const failureText =
+    input.body.failureCode === REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
+    input.delivery.admissionAttemptCount >=
+      REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
+    isRetryableTaskContinuationAdmission(input.delivery)
+      ? input.body.failureMessage
+      : resolveCenterAgentCallbackFailureMessage({
+          ...input.body,
+          agentLabel: profileName,
+        });
   const context = buildRemoteAgentCallbackContext({
     delivery: input.delivery,
     profile,
@@ -12871,6 +13141,26 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
     env: input.env,
     outcome,
   });
+  if (
+    input.delivery.failureCode ===
+      REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
+    input.delivery.admissionAttemptCount >=
+      REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
+    isRetryableTaskContinuationAdmission(input.delivery)
+  ) {
+    const ownerInboxDb = inboxDb(input.env);
+    if (!ownerInboxDb) {
+      throw new Error(
+        "remote_agent.task_continuation.admission_alert_store_unavailable"
+      );
+    }
+    await projectTaskContinuationAdmissionExhaustedInboxItem({
+      attempts: input.delivery.admissionAttemptCount,
+      db: ownerInboxDb,
+      delivery: input.delivery,
+      occurredAtMs: outcome.occurredAtMs,
+    });
+  }
 
   for (const task of watchedTasks) {
     await recordAndEnqueueAgentTaskTerminalOutcome({

@@ -1,0 +1,2 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `admission_attempt_count` integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `admission_retry_due_at_ms` integer;
