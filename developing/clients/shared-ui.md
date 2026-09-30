@@ -30,6 +30,14 @@
 - reusable motion mechanics such as pointer-proximity magnification, with
   stable interaction hit areas and reduced-motion behavior
 
+`lib/utils` re-exports `cn` from shadcn's zero-dependency `cn` package. Keep
+client imports through `@openmeld/ui/lib/utils`; the shared package owns this
+dependency. It combines conditional class joining and Tailwind v4 conflict
+resolution without a local `clsx` / `tailwind-merge` wrapper. See the official
+[cn migration](https://ui.shadcn.com/docs/cli#migrate-cn). Do not add a second
+client-local implementation or a class-table build plugin without a measured
+need.
+
 This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
