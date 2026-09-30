@@ -106,10 +106,10 @@
       ]
     },
     "codex": {
-      "defaultModelId": "gpt-5.6-sol",
+      "defaultModelId": "gpt-6.1-sol",
       "creationDefaults": {
-        "modelId": "gpt-5.6-sol",
-        "reasoningLevel": "high"
+        "modelId": "gpt-6.1-sol",
+        "reasoningLevel": "medium"
       },
       "models": [
         {
