@@ -3,10 +3,10 @@ import type {
 	LocalServiceComponentUpdateProjection,
 } from "@openmeld/schemas/types";
 import type { SetupFlowMode } from "@openmeld/start";
-import { isOpenMeldToolsComponentUpdateRequired } from "#/lib/openmeld-tools-update";
+import { isOpenMeldToolsComponentUpdateActionable } from "#/lib/openmeld-tools-update";
 
 export const SERVICE_UPDATE_VERIFICATION_FAILURE_TITLE =
-	"Update did not reach the required version";
+	"Couldn't verify the update";
 
 export type ServiceUpdateVerificationStatus =
 	| "confirmed"
@@ -23,7 +23,7 @@ export type ServiceUpdateVerificationState = {
 // update_service completion must mean more than "the terminal session
 // reported the setup steps finished" -- that only proves the CLI ran to
 // completion, not that the daemon actually reconnected and reported the
-// required OpenMeld Service/CLI version. This combines the terminal-complete
+// current OpenMeld Service/CLI version. This combines the terminal-complete
 // signal with the same local-components update projection Settings Computers
 // reads, so a stale release channel cannot present a false "Update complete"
 // checkmark. Non-update_service setup is always "not_applicable" and keeps
@@ -64,18 +64,20 @@ export function resolveServiceUpdateVerificationState(input: {
 // useServiceUpdateVerification hook in start-bring-agents-setup-page.tsx,
 // which uses it to decide whether to arm the refetch-interval/timeout
 // watchdog. A readiness projection that has never arrived (cli or service
-// still null/undefined) counts as still required, exactly like a
-// projection that arrived but still reports update_required -- both must
+// still null/undefined), an optional update, or an unknown version counts
+// as unresolved, exactly like update_required. Each must
 // keep the watchdog running instead of quietly doing nothing forever.
 export function isServiceUpdateStillRequired(
 	cli: LocalCliComponentUpdateProjection | null | undefined,
 	service: LocalServiceComponentUpdateProjection | null | undefined
 ): boolean {
-	const hasProjectionData = cli != null && service != null;
 	return (
-		!hasProjectionData ||
-		isOpenMeldToolsComponentUpdateRequired(service) ||
-		isOpenMeldToolsComponentUpdateRequired(cli)
+		cli?.status !== "current" ||
+		service?.status !== "current" ||
+		cli.wakeBlocked ||
+		service.wakeBlocked ||
+		!cli.installedPackageVersion?.trim() ||
+		!service.installedVersion?.trim()
 	);
 }
 
@@ -85,14 +87,14 @@ export function formatServiceUpdateVerificationFailureDetail(
 	const outdatedComponentSentences = [
 		formatOutdatedComponentSentence({
 			installedVersion: input.service?.installedVersion ?? null,
-			isOutdated: isOpenMeldToolsComponentUpdateRequired(input.service),
+			isOutdated: isOpenMeldToolsComponentUpdateActionable(input.service),
 			label: "OpenMeld Service",
 			requiredVersion:
-				input.service?.requiredVersion ?? input.service?.latestVersion ?? null,
+				input.service?.latestVersion ?? input.service?.requiredVersion ?? null,
 		}),
 		formatOutdatedComponentSentence({
 			installedVersion: input.cli?.installedPackageVersion ?? null,
-			isOutdated: isOpenMeldToolsComponentUpdateRequired(input.cli),
+			isOutdated: isOpenMeldToolsComponentUpdateActionable(input.cli),
 			label: "OpenMeld CLI",
 			requiredVersion: input.cli?.latestPackageVersion ?? null,
 		}),
@@ -100,18 +102,21 @@ export function formatServiceUpdateVerificationFailureDetail(
 	const versionSentence =
 		outdatedComponentSentences.length > 0
 			? outdatedComponentSentences.join(" ")
-			: "Could not confirm this computer reached the required version.";
+			: "Could not confirm the installed OpenMeld Service and CLI versions.";
 
-	return `${versionSentence} The OpenMeld release channel may not have shipped the required version yet. This is a problem on OpenMeld's release side, not something you did. Running setup again will not fix this. Please try again later.`;
+	return `${versionSentence} Check this computer's connection and update status before trying again.`;
 }
 
 export function formatServiceUpdateVerificationSuccessDetail(
 	input: ServiceUpdateVerificationState
 ): string | null {
-	if (!input.service?.installedVersion) {
+	if (
+		input.status !== "confirmed" ||
+		isServiceUpdateStillRequired(input.cli, input.service)
+	) {
 		return null;
 	}
-	return `Update complete. This computer now reports v${input.service.installedVersion}.`;
+	return `Update complete. This computer now reports v${input.service?.installedVersion}.`;
 }
 
 function formatOutdatedComponentSentence(input: {
@@ -129,5 +134,6 @@ function formatOutdatedComponentSentence(input: {
 	const required = input.requiredVersion
 		? `v${input.requiredVersion}`
 		: "a newer version";
-	return `This computer reports ${input.label} ${installed}, but ${required} is required.`;
+	return `This computer reports ${input.label} ${installed}; its update status still calls for ${required}.`;
 }
+

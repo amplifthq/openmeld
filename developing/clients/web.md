@@ -6083,10 +6083,12 @@ success or failure of the underlying installation.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both
-the CLI and Service projections arrive and neither still requires an update.
-Missing projection data is not success. If the bounded verification window
-expires, Web shows an explicit OpenMeld release-side failure instead of a false
-completion checkmark or an endless spinner.
+the CLI and Service projections both report current, unblocked, installed
+versions. An optional update still available is not a completed update.
+Missing or unknown projection data is not success. If the bounded
+verification window expires, Web shows an explicit unverified outcome instead of
+a completion checkmark or an endless spinner. Missing evidence alone must not
+be attributed to a release-side failure.
 
 The human-facing command is the Web-generated setup command. On supported macOS
 and Windows x64 it selects binary setup. For explicit `?dist=npm` or npm recovery,
