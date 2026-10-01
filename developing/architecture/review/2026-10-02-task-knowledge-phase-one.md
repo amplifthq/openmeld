@@ -9,7 +9,7 @@
 - Source of truth: The linked source owners, executable tests, and exact observations below.
 - Removal condition: Remove this review record after independent acceptance; retain stable contracts in the product owner documents and final evidence in the PR.
 
-Status: Draft implementation; independent review and full three-runtime acceptance pending.
+Status: Draft implementation; Local setup blocked and full three-runtime acceptance pending.
 
 ## Scope And Ownership
 
@@ -70,8 +70,8 @@ answers. Passing a deterministic boundary test does not certify model behavior.
 | An old process self-report does not justify suppressing all team context | Final-envelope noisy personal candidate control; no semantic extractor claim |
 | A short recurring private preference can persist | Private callback tests; real Center turn observed; subsequent search recorded separately below |
 | Long casual conversation may produce no useful new facts | Not established by this PR's live sample; no forced minimum extraction count |
-| Plans and unadopted suggestions are not completion/decisions | Shared task guidance; model holdout still pending |
-| Current approved document B outranks remembered A; historical A remains historical | Guidance plus noncached current reads; model conflict holdout pending |
+| Plans and unadopted suggestions are not completion/decisions | Center and personal Remote correctly classified planned migrations; unadopted-suggestion holdout remains pending |
+| Current approved document B outranks remembered A; historical A remains historical | Center and personal Remote read and applied updated B; separate historical-A question remains pending |
 | Shared Space/Channel chat writes neither scope | Memory service tests across trusted environment/source variants |
 | Explicit team save works when enabled and does not enable itself when disabled | Existing writer tests retained and passed |
 | Mid-query deletion or opt-out prevents injection | Real Workerd/D1 integration tests; persisted rows remain unchanged by recall |
@@ -138,9 +138,66 @@ Normal seeded-account sign-in and onboarding were completed. No production
 private conversations, memory, or organization knowledge were used.
 
 At approximately `2026-10-01T16:35Z`, the synthetic Northstar Product Studio Center
-chat accepted a Maple Lantern three-bullet update preference and replied. The
-reply alone is not persistence evidence. Subsequent search and runtime outcomes
-must be recorded before full acceptance.
+chat accepted a Maple Lantern three-bullet update preference and replied. At
+`16:57:59.938Z`, a new normal Web turn produced a successful tool result with three
+matching member-memory items, all attributed to original message
+`c8276a26-d8ff-43b6-a8cf-1b5628785be6` at `16:35:18.139Z`, capture method
+`automatic_turn`. Submission: `53919d9c-b039-4294-b0d0-e97debf19178`.
+Read-only inspection of the isolated Flue tool-outcome record corroborated the
+visible reply; no reasoning records were used. One returned item was an
+"Assistant confirmed" process summary. This is observed extraction noise, not
+fixed or hidden by the budget correction.
+
+At `17:00:27.054Z`, an explicitly authorized normal chat turn successfully saved
+the new approved document `org_document_3c71981e-5d53-477b-ac4e-852a8cc65d7e`, then
+read its exact body at `17:00:30.169Z`. The approved `updatedAt` was
+`2026-10-01T17:00:27.016Z`. Submission:
+`226b4b9e-247c-4451-826a-8fb8203ee96a`. There was no second approval request.
+These are synthetic dev objects, not changes to official organization knowledge.
+
+The same normal Center chat authored and installed `maple-status-check` at
+`17:03:42.478Z`: release `org_skill_release_129c4c63eaf948dd05c303ee49b07a1b`, digest
+`973c7d6e1e4d4721a2da57b47eca08b1a27d71ef5bd997c4c7a07e7f85f58d96`.
+Center holdout submission `74fb0ff3-746c-4b05-b987-0e24a6b5c752` activated it, read
+`references/example.md`, read the approved document, and correctly reported the
+completed accessibility review, unrun Friday migration, and unknown vendor date.
+The tool outcomes occurred at `17:05:15.794Z` through `17:05:15.869Z`; the visible
+answer used the new facts rather than the resource's sample facts.
+
+A personal Remote Agent was created through **Team > Agents > Create Agent >
+Remote Agent** in the same synthetic organization. Its first Web DM submission
+`da2b9a3b-1e52-4631-b12e-dff4ff1196ef` activated the same release, read the same
+resource (`17:09:20.727Z`), and used ordinary document list/get
+(`17:09:24.274Z`). It correctly classified a different held-out case: completed
+backup rehearsal, unrun Monday migration, and unconfirmed vendor delivery. Its
+reply cited the exact same document revision and Skill release/digest. A local
+screenshot is `dev-tmp/personal-remote-skill-smoke.png`; the tool outcomes, not
+the screenshot alone, establish the reads.
+
+Observed Flue stream durations were 12.414 seconds for the Center holdout and
+14.584 seconds for the personal Remote holdout, excluding admission and final
+publication. Summed per-response token telemetry was respectively 91,386 and
+32,273 tokens including cache reads/writes across model steps; these are not
+unique context sizes or billable-token estimates. Runtime cost fields reported
+zero, which is not verified billing. Monetary cost remains unmeasured.
+
+Center then saved 32 explicitly requested synthetic directory-padding documents
+through the existing save tool. With 33 documents, the shared display renderer
+omits Maple Lantern from the bounded directory while the full member list still
+contains it. This controlled display check supplements the subsequent normal
+list/get smoke; it does not by itself prove a model discovered the omitted entry.
+
+The document was updated through normal Center chat to B at
+`2026-10-01T17:12:21.131Z`: a two-column State/Detail table replaces the older
+three-bullet preference. Personal Remote submission
+`a6377668-ffab-4277-9311-0156ae04c7f5` searched the full 33-document list at
+`17:14:25.807Z`, read B at `17:14:28.308Z`, and returned a table separating a
+completed security review from an unrun Tuesday migration and unspecified risk.
+Center submission `3e9e43c5-271e-44c8-8be8-f844603a67e2` also found the omitted
+document through the full list and read B at `17:15:27.440Z`. These tool outcomes
+confirm current body retrieval; the personal Remote visible answer confirms the
+new format was applied. The Remote chat entry is
+`/o/northstar-product-studio-n6akyf/chats/0f184e44dcef51b979b56bd62e6984b78bdd2bb823b8785ef30be160c7317551`.
 
 Chrome Plugin and in-app browser were unavailable, so the prescribed Agent Browser
 fallback was used. Rebuilding dependencies while Web was running triggered repeated
@@ -148,12 +205,24 @@ HMR restarts; the Web process exited with a 4 GiB JavaScript heap exhaustion.
 Only this worktree's dev stack was stopped and restarted after builds completed.
 Other worktrees and production `~/.openmeld` were not modified.
 
+Local runtime acceptance is blocked at the normal Web-generated dev-lane Setup
+entry. Two commands, the second obtained with **Get a new setup command**, both
+reported `computer authorization failed: Client ID mismatch`. Web reported
+`prepare.authorization_failed`. Effective home was the isolated worktree home
+above, not `~/.openmeld`. No credential copying, private token edit, or
+authorization workaround was attempted. Reproduce from the dev lane's
+`/o/northstar-product-studio-n6akyf/connect` page with the current binary server;
+use a fresh generated command and never reuse the expired credentials from logs.
+
 ## Remaining Acceptance
 
-Do not mark ready on these boundary tests alone. Complete normal-entry Center,
-Local, and personal Remote checks for a directory-omitted document body, one exact
-frozen Skill with a new input, document A-to-B across tasks, publication during a
-task, and revocation before a new read. Complete private capture/search/injection/
-correct-use and guidance holdouts; report any concrete environment blocker.
+Do not mark ready on these tests alone. Resolve the normal Local dev Setup blocker
+and complete Local directory/body/Skill acceptance. Center and personal Remote
+body discovery, exact resource use with new inputs, and document A-to-B checks
+passed as recorded above. Publication during an active model task and revocation
+before a new model read have persisted-contract tests but no full live runtime
+smoke yet. Private callback and fresh retained search passed; this run does not
+isolate automatic injection from existing chat history as the cause of model use.
+Complete the remaining semantic/privacy holdouts listed in the scenario table.
 No claim is made about production ontology, long-run extraction quality, concurrent
 model quality, or model forgetting.
