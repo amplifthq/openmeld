@@ -1,6 +1,7 @@
 import { remoteAiUsageWriteResponseSchema } from "@openmeld/schemas";
 import type { AiUsageRecord } from "@openmeld/schemas/types";
-import { z } from "zod/v4";
+// biome-ignore lint/performance/noNamespaceImport: Worker-safe Zod imports avoid bundling unused locales.
+import * as z from "zod/v4";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
