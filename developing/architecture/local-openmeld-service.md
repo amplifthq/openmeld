@@ -796,6 +796,11 @@ Once Core knows the conversation is occupied, repeated same-phase keepalives
 only confirm liveness and do not extend the progress deadline. Availability or
 provider-accepted advancement to `running` restores normal progress tracking;
 the Coordinator's admission record remains the occupancy authority.
+Every registration on one socket reports its original `socketConnectedAtMs`.
+Core also preserves the first connection time on same-socket re-registration,
+so older Services that report the registration time cannot manufacture a
+reconnect. A genuinely new socket retains the existing communication-recovery
+semantics, including after Core restores persisted state.
 
 If Codex explicitly reports that an existing controller conversation is
 missing, the adapter starts one fresh thread and delivers the complete current

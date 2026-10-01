@@ -524,7 +524,10 @@ Important execution rules:
   that baseline; fresh accepted progress from the same token run ends the old
   uncertainty. A reconnection after the last accepted progress also retains that
   window when the watchdog missed the offline interval; registration alone does
-  not prove that execution evidence has caught up. A continuously connected
+  not prove that execution evidence has caught up. Re-registering a route catalog
+  on the same socket preserves its original connection time and cannot manufacture
+  a communication-recovery window. A new socket still starts a new connection
+  interval; adopting a hibernated socket retains its stored interval. A continuously connected
   controller with stale progress keeps the ordinary
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
   reconciliation take precedence. At window expiry, a missing/stopped delivery

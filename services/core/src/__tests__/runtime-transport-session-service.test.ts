@@ -154,6 +154,50 @@ function createLocalComponentsStatus(input: {
 }
 
 describe("runtime transport session service", () => {
+  it("keeps the connection start through catalog registration but replaces it for a new socket", () => {
+    const state = createRuntimeTransportMutableState();
+    const firstSocket = new FakeSocket() as unknown as WebSocket;
+    const register = (
+      socket: WebSocket,
+      connectedAtMs: number,
+      connectionGeneration: number
+    ) =>
+      handleRegisterSession(
+        state,
+        {
+          request: {
+            v: 1,
+            ownerUserId: "owner-1",
+            deviceId: "device-1",
+            lane: "dev-local",
+            daemonSessionId: "session-1",
+            connectionGeneration,
+            connectedAtMs,
+            profileIds: [],
+            capabilities: {},
+            runtimeContract: { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+          },
+          verifiedOwnerUserId: "owner-1",
+          webSocket: socket,
+        },
+        {
+          persistRuntimeRecords: () => undefined,
+          cleanupExpiredPendingDispatches: () => undefined,
+          failPendingDispatchResultWaitersForConnectionGeneration: () =>
+            undefined,
+          closeSocket: () => undefined,
+        }
+      );
+    register(firstSocket, 1000, 1);
+    register(firstSocket, 2000, 1);
+    expect(state.sessionsById.get("session-1")?.connectedAtMs).toBe(1000);
+    register(new FakeSocket() as unknown as WebSocket, 3000, 2);
+    expect(state.sessionsById.get("session-1")).toMatchObject({
+      connectedAtMs: 3000,
+      connectionGeneration: 2,
+    });
+  });
+
   it("preserves storage failures instead of returning empty restoration or successful persistence", async () => {
     const storage = new FakeStorage();
     const ctx = {
@@ -1983,6 +2027,10 @@ describe("runtime transport session service", () => {
     expect(
       restoredState.sessionsById.get("daemon-session-adopt-restored")?.socket
     ).toBe(socket);
+    expect(
+      restoredState.sessionsById.get("daemon-session-adopt-restored")
+        ?.connectedAtMs
+    ).toBe(heartbeatAtMs);
     vi.useRealTimers();
   });
 

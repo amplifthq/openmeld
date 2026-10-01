@@ -4635,6 +4635,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           harness.storageRecords
         )?.terminalOutcome
       ).toBeNull();
+      expect(
+        findRuntimeCoordinatorRunCommandState(harness.storageRecords)
+          ?.communicationRecoveryBaselineAtMs
+      ).toBe(startedAtMs + 300);
       await lifecycle(session.lastHeartbeatMs);
       expect(
         findRuntimeCoordinatorExecutionTokenAuthorityRecord(
@@ -20239,6 +20243,28 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ].entries()) {
         nowSpy.mockReturnValue(atMs);
         liveSession.lastHeartbeatMs = atMs;
+        // Published Services refresh the route catalog on this same socket
+        // with a new timestamp. That is not a transport reconnection.
+        (
+          hub as unknown as {
+            handleRegisterSessionFrame: (
+              socket: WebSocket,
+              payload: unknown
+            ) => void;
+          }
+        ).handleRegisterSessionFrame(socket, {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          capabilities: liveSession.capabilities,
+          connectedAtMs: atMs,
+          connectionGeneration: liveSession.connectionGeneration,
+          daemonSessionId: liveSession.daemonSessionId,
+          deviceId: liveSession.deviceId,
+          lane: liveSession.lane,
+          ownerUserId: "owner-1",
+          profileIds: [TARGET_AGENT_PROFILE_ID],
+          runtimeContract: { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        });
+        await Promise.allSettled([...waitUntilTasks]);
         await lifecycleHub.handleDispatchLifecycleFrame(
           socket,
           buildLifecycleRequest({

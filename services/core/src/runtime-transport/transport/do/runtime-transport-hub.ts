@@ -16632,9 +16632,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   /**
    * Names the cause behind a stale-progress terminal.
    *
-   * Same watchdog, different cause: an occupied native conversation produces
-   * exactly one lifecycle event and then nothing, so it reaches the stale
-   * threshold looking like a lost computer. Core still holds the occupancy flag
+   * Same watchdog, different cause: repeated occupied lifecycle keepalives
+   * prove liveness without advancing work, so the wait reaches the stale
+   * threshold. Core still holds the occupancy flag
    * the Adapter reported, and naming it here is what lets the Wake fail with
    * its real reason and settle into an owner decision instead of a "reconnect
    * the computer" dead end.

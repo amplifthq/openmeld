@@ -1125,7 +1125,7 @@ export async function runDaemonSocketSession(input: {
         runtimeContract: {
           epoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
         },
-        connectedAtMs: Date.now(),
+        connectedAtMs: socketConnectedAtMs,
       });
     if (!registerPayload.success) {
       throw new DaemonServiceRunError({

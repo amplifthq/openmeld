@@ -1692,9 +1692,9 @@ export async function markRuntimeCoordinatorAgentProfileWorkControllerConversati
  * Answers whether Core still sees this dispatch blocked on a native
  * conversation another app owns.
  *
- * The stale-progress watchdog cannot tell an occupied wait from a lost computer
- * on its own: both look like a run with one piece of lifecycle evidence and no
- * refresh. The occupancy flag the adapter reported is the discriminator, and it
+ * Occupied keepalives prove liveness but do not advance the progress baseline.
+ * The occupancy flag the adapter reported distinguishes that blocked wait from
+ * an ordinary execution stall, and it
  * lives in the admission record in Durable Object storage, which is the only
  * authority on in-flight execution.
  */
