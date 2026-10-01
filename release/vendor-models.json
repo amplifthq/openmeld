@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-01T04:06:58.140Z",
+  "updatedAt": "2026-10-01T05:05:17.000Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -130,7 +130,6 @@
         {
           "id": "gpt-6-astra",
           "displayName": "GPT-6 Astra",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "low",
@@ -145,7 +144,6 @@
         {
           "id": "gpt-6-sol",
           "displayName": "GPT-6 Sol",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "low",
@@ -160,7 +158,6 @@
         {
           "id": "gpt-6-luna",
           "displayName": "GPT-6 Luna",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": "0.155.1"
@@ -287,7 +284,6 @@
         {
           "id": "claude-opus-5-5",
           "displayName": "Claude Opus 5.5",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": "2.1.280"
@@ -295,7 +291,6 @@
         {
           "id": "claude-fable-5-1",
           "displayName": "Claude Fable 5.1",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": "2.1.257"
@@ -350,7 +345,6 @@
         {
           "id": "grok-4.7",
           "displayName": "Grok 4.7",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
           "minCliVersion": null
@@ -358,7 +352,6 @@
         {
           "id": "grok-4.7-build-fast",
           "displayName": "Grok 4.7 Fast",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
           "minCliVersion": null
@@ -385,7 +378,6 @@
         {
           "id": "claude-opus-5-5[context=300k,effort=medium,fast=false]",
           "displayName": "Claude Opus 5.5",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -400,8 +392,7 @@
         },
         {
           "id": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
-          "displayName": "Grok 4.7 — High Fast",
-          "badgeLabel": "New",
+          "displayName": "Grok 4.7 \u2014 High Fast",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -409,15 +400,13 @@
         {
           "id": "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
           "displayName": "Claude Opus 5",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
         },
         {
           "id": "grok-4.6[effort=high,fast=true]",
-          "displayName": "Grok 4.6 — High Fast",
-          "badgeLabel": "New",
+          "displayName": "Grok 4.6 \u2014 High Fast",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -425,7 +414,6 @@
         {
           "id": "muse-spark-1.3[context=300k,effort=high]",
           "displayName": "Muse Spark 1.3",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -433,7 +421,6 @@
         {
           "id": "claude-fable-5-1[thinking=true,context=300k,effort=high]",
           "displayName": "Claude Fable 5.1",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -441,7 +428,6 @@
         {
           "id": "gemini-3.8-flash[reasoning_effort=high]",
           "displayName": "Gemini 3.8 Flash",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -685,7 +671,6 @@
         {
           "id": "opencode-go/gpt-6-luna",
           "displayName": "GPT-6 Luna",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "none",
@@ -708,7 +693,6 @@
         {
           "id": "opencode-go/space-bunny-free",
           "displayName": "Space Bunny Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -716,7 +700,6 @@
         {
           "id": "openai/gpt-6-astra-ultrafast",
           "displayName": "GPT-6 Astra Ultrafast",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -724,7 +707,6 @@
         {
           "id": "openai/gpt-6-luna",
           "displayName": "GPT-6 Luna",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "none",
@@ -739,7 +721,6 @@
         {
           "id": "openai/gpt-6-luna-fast",
           "displayName": "GPT-6 Luna Fast",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "none",
@@ -754,7 +735,6 @@
         {
           "id": "openai/gpt-6-sol",
           "displayName": "GPT-6 Sol",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "none",
@@ -769,7 +749,6 @@
         {
           "id": "openai/gpt-6-sol-fast",
           "displayName": "GPT-6 Sol Fast",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "none",
@@ -800,7 +779,6 @@
         {
           "id": "opencode/mimo-v2.6-flash-free",
           "displayName": "OpenCode MiMo V2.6 Flash Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -808,7 +786,6 @@
         {
           "id": "opencode-go/grok-4.7",
           "displayName": "Grok 4.7",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
           "minCliVersion": null
@@ -816,7 +793,6 @@
         {
           "id": "opencode-go/mimo-v2.6-flash",
           "displayName": "MiMo V2.6 Flash",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -824,7 +800,6 @@
         {
           "id": "opencode-go/mimo-v2.6-pro",
           "displayName": "MiMo V2.6 Pro",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -832,7 +807,6 @@
         {
           "id": "opencode-go/deepseek-v4.1-flash",
           "displayName": "DeepSeek V4.1 Flash",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "high", "max"],
           "minCliVersion": null
@@ -840,7 +814,6 @@
         {
           "id": "opencode-go/hy4-preview",
           "displayName": "Hy4 Preview",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["none", "high"],
           "minCliVersion": null
@@ -848,7 +821,6 @@
         {
           "id": "opencode/ling-3.0-flash-fin-free",
           "displayName": "OpenCode Ling 3.0 Flash Fin Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
           "minCliVersion": null
@@ -864,7 +836,6 @@
         {
           "id": "opencode/space-bunny-free",
           "displayName": "OpenCode Space Bunny Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": "1.18.33"
@@ -872,7 +843,6 @@
         {
           "id": "openai/gpt-6-astra",
           "displayName": "GPT-6 Astra",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -880,7 +850,6 @@
         {
           "id": "openai/gpt-6-astra-fast",
           "displayName": "GPT-6 Astra Fast",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -888,7 +857,6 @@
         {
           "id": "opencode/muse-spark-1.3-contributor-free",
           "displayName": "OpenCode Muse Spark 1.3 Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "minimal",
@@ -902,7 +870,6 @@
         {
           "id": "opencode-go/muse-spark-1.3-contributor",
           "displayName": "Muse Spark 1.3 Contributor",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "minimal",
@@ -916,7 +883,6 @@
         {
           "id": "opencode-go/omen-alpha",
           "displayName": "Omen Alpha",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "high"],
           "minCliVersion": null
@@ -1337,7 +1303,7 @@
       "models": [
         {
           "id": "openai/gpt-6.1-sol-pro",
-          "displayName": "GPT-6.1 Sol Pro",
+          "displayName": "GPT-6.1 Sol (Pro mode)",
           "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
@@ -1407,6 +1373,20 @@
           "unavailable": false,
           "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-astra-pro",
+          "displayName": "GPT-6 Astra (Pro mode)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null,
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          }
         },
         {
           "id": "openai/gpt-6-astra",
@@ -1607,7 +1587,6 @@
         {
           "id": "z-ai/glm-5.3-flash",
           "displayName": "GLM 5.3 Flash",
-          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["text", "image"],
