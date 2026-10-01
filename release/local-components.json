@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-30T02:43:28.415Z",
+  "updatedAt": "2026-10-01T06:55:32.433Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.232",
+      "packageVersion": "0.3.233",
       "updatePolicy": "available",
-      "reason": "Current and new cloud accept the existing CLI command and transport contracts; this release does not require a new CLI to continue."
+      "reason": "Installation-channel reporting and usage inspection are additive; existing commands remain compatible with old and new cloud receivers."
     },
     "service": {
-      "bundleHash": "4163b77b2c02554d8ed79fa1f908ac84fb0ed27cf5dae524314d1ca479fad458",
-      "portableBundleHash": "8b1ad1d275ed9f1c9c5fe516a3af337d4c3d34a2af9849f8fafa2f14d7654a9b",
-      "bundleVersion": "0.3.232",
+      "bundleHash": "a181175ee4a26b318771a4a7188c1affa230d222620ddc3500d832fc584ca96d",
+      "portableBundleHash": "0fe4091d66ccb7458ebdfd68bbfb25a711d0927b74334c0b19bd8d5b4216c9f2",
+      "bundleVersion": "0.3.233",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "The new Service adds local safety and execution fixes while the current cloud still accepts the previous Service contract; older Services remain usable during automatic update."
+      "reason": "Usage observations add optional fields after compatible cloud receivers deploy; existing Services retain their Wake and runtime contracts and the current required floor."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
