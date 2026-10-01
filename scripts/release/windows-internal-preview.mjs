@@ -19,6 +19,7 @@ import {
 } from "../../packages/schemas/dist/index.js";
 import { inspectWindowsInternalPreview } from "../desktop/windows-artifact.mjs";
 import { buildCliBinary } from "./build-cli-binary.mjs";
+import { resolveWindowsPreviewComponentPolicy } from "./windows-preview-policy.mjs";
 import { verifyWindowsProcessArtifact } from "./windows-process-artifact.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -98,6 +99,12 @@ function buildCli() {
   const version = JSON.parse(
     readFileSync(join(root, "clients/openmeld-cli/package.json"), "utf8")
   ).version;
+  const componentPolicy = resolveWindowsPreviewComponentPolicy({
+    version,
+    releaseManifest: JSON.parse(
+      readFileSync(join(root, "release/local-components.json"), "utf8")
+    ),
+  });
   mkdirSync(evidenceDir, { recursive: true });
   try {
     verifyWindowsProcessArtifact(cliDist, root);
@@ -138,6 +145,7 @@ function buildCli() {
     channels: {
       stable: {
         version,
+        componentPolicy,
         minRequiredCliVersion: packageJson.openmeld.minRequiredCliVersion,
         platforms: { "windows-x64": releaseArtifact(cli, helper) },
         service: serviceSelection,

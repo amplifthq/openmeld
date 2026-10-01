@@ -11,12 +11,16 @@ import {
   runCoreStartupAdmission,
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
+import {
+  describeLocalComponentsAvailabilityCatalog,
+  readLocalComponentsAvailabilityCatalog,
+} from "./local-components-availability.mjs";
 import { resolveCoreProjectionTag } from "./release-cli-resume.mjs";
 import { recordCoreDeploymentOutput } from "./worker-deployment-evidence.mjs";
 
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
-export function deployCoreWorker(input = {}) {
+export async function deployCoreWorker(input = {}) {
   const cwd = input.cwd ?? process.cwd();
   const env = {
     ...(input.env ?? process.env),
@@ -25,6 +29,15 @@ export function deployCoreWorker(input = {}) {
       : {}),
   };
   const adapters = {
+    readReleaseManifest:
+      input.adapters?.readReleaseManifest ??
+      (() =>
+        JSON.parse(
+          readFileSync(path.join(cwd, "release/local-components.json"), "utf8")
+        )),
+    readAvailabilityCatalog:
+      input.adapters?.readAvailabilityCatalog ??
+      readLocalComponentsAvailabilityCatalog,
     readCoreWranglerConfig:
       input.adapters?.readCoreWranglerConfig ??
       (() =>
@@ -70,8 +83,16 @@ export function deployCoreWorker(input = {}) {
     (env.OPENMELD_RELEASE_RECEIPT_CONTEXT
       ? resolveCoreProjectionTag({ cwd })
       : undefined);
-  const evidence = adapters.runStartupAdmission({
+  const catalog = await adapters.readAvailabilityCatalog({
+    releaseManifest: adapters.readReleaseManifest(),
+  });
+  const availability = describeLocalComponentsAvailabilityCatalog(catalog);
+  process.stdout.write(
+    `[production-release] availabilityCatalogSha256=${availability.sha256}\n`
+  );
+  const evidence = await adapters.runStartupAdmission({
     cwd,
+    defines: [availability.define],
     env,
     releaseSha,
     tag: projectionTag,
@@ -150,5 +171,10 @@ function requireArgumentValue(argument, value) {
 }
 
 if (pathToFileURL(process.argv[1] ?? "").href === import.meta.url) {
-  deployCoreWorker(parseArguments(process.argv.slice(2)));
+  deployCoreWorker(parseArguments(process.argv.slice(2))).catch((error) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exitCode = 1;
+  });
 }

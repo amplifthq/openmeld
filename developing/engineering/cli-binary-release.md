@@ -576,5 +576,35 @@ pnpm run release:deploy:local -- --scope cli
   same names with different values. This does not require Node.js or jq.
 - The dev-local setup script also defaults to binary distribution. Use
   `?dist=npm` to force the npm lane during local testing.
-- Windows setup commands remain on `?dist=npm` until Windows binary artifacts
-  exist.
+- Windows binary setup selects the public Windows preview entrypoint when the
+  signed stable channel lacks Windows artifacts. Its channel choice must remain
+  attached to the managed installation; a newer macOS stable version is not a
+  Windows update target.
+
+## Source-specific binary update projection
+
+Binary publishers include `componentPolicy` from the exact source release manifest.
+Each policy version must match its selected CLI or Service artifact; never rewrite
+a bundle hash to an executable SHA-256. Both guarded Core deployment paths compile
+the same availability mechanism. Stable snapshot reuse avoids conflicting mutable
+reads in receiver deployment. A Windows-preview 404 means channel absence; malformed
+metadata or network failure aborts compilation. Catalogue SHA-256 is logged for the
+exact define passed to startup admission and is associated with the newly admitted
+Worker version. The global projection tag proves compatibility identity only,
+not catalogue freshness.
+
+Windows preview publication is not release closeout by itself. After the preview
+manifest becomes public, the release owner must run the guarded Core release with
+`--redeploy` so a new correlated Worker activation compiles that manifest, retain
+its catalogue digest/admission evidence, and verify Windows status on that Worker.
+Do not reuse a tag-only no-op/resume receipt as availability proof. Deploy all strict
+Gateway/Core/Web report receivers before publishing the new CLI/Service source field.
+This code-only change uses base-aware deferred release readiness; version and
+release manifest stamping remain a separate authorized publication action.
+
+The native Windows preview builder currently builds a fresh GUI Service carrier
+at the CLI version. It rejects a retained older Service policy before compilation;
+prepare the corresponding Service release rather than relabelling the new image.
+The stable publisher supports verified separately retained Service artifacts.
+Staging/custom binary versions omit production component policy unless the caller
+supplies an exact-artifact policy; they never inherit production version identity.

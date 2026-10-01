@@ -166,6 +166,7 @@ describe("local component update projection", () => {
   });
   it("keeps advisory Service updates from blocking Wake work", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion("0.7.27"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "available",
@@ -384,6 +385,7 @@ describe("local component update projection", () => {
     wakeBlocked,
   }) => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion(installedVersion),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceBundleVersion: latestVersion,
@@ -414,6 +416,7 @@ describe("local component update projection", () => {
     reasonCode,
   }) => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion(installedVersion),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceBundleVersion: "0.3.217",
@@ -439,6 +442,7 @@ describe("local component update projection", () => {
 
   it("fails closed when a connected Service cannot prove the minimum version", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion(null),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "available",
@@ -462,6 +466,7 @@ describe("local component update projection", () => {
 
   it("fails closed when a connected Service reports a non-SemVer version", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion("unknown"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "available",
@@ -484,6 +489,8 @@ describe("local component update projection", () => {
 
   it("keeps a prerelease Service below the stable minimum version", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus:
+        createNpmStatusForServiceVersion("0.3.126-alpha.1"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "available",
@@ -506,6 +513,7 @@ describe("local component update projection", () => {
 
   it("blocks Wake work only when the release policy is required", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion("0.7.27"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "required",
@@ -758,7 +766,10 @@ describe("local component update projection", () => {
     expect(projection).toMatchObject({
       cli: {
         installedPackageVersion: null,
-        reasonCodes: ["cli.status_unavailable"],
+        reasonCodes: [
+          "cli.status_unavailable",
+          "cli.release_target_unavailable",
+        ],
         status: "update_required",
         updatePolicy: "required",
       },
@@ -826,6 +837,11 @@ function createLocalComponentsStatus(input: {
     schemaVersion: 1,
     generatedAt: "2026-06-04T00:00:00.000Z",
     entrypoint: "setup",
+    installationSource: {
+      distribution: "npm",
+      channel: "stable",
+      platform: "darwin-arm64",
+    },
     summaryLabel: "Everything is up to date",
     summaryDescription:
       "OpenMeld local components are aligned for this computer.",
@@ -900,4 +916,262 @@ function createLocalComponentsStatus(input: {
       targetCount: 1,
     },
   };
+}
+
+describe("installation-source availability", () => {
+  const global = createReleaseManifest({});
+  global.components.cli.packageVersion = "0.3.232";
+  global.components.service.bundleVersion = "0.3.232";
+  const previewPolicy = {
+    cli: { ...global.components.cli, packageVersion: "0.3.231" },
+    service: { ...global.components.service, bundleVersion: "0.3.231" },
+  };
+  const catalog = {
+    schemaVersion: 1 as const,
+    entries: [
+      {
+        channel: "windows-preview" as const,
+        platform: "windows-x64",
+        policy: previewPolicy,
+      },
+      {
+        channel: "stable" as const,
+        platform: "darwin-arm64",
+        policy: global.components,
+      },
+    ],
+  };
+  function project(
+    input: {
+      source?: LocalComponentsStatus["installationSource"];
+      installed?: string;
+      catalog?: typeof catalog | null;
+      policy?: LocalComponentsReleaseManifest;
+    } = {}
+  ) {
+    const status = createLocalComponentsStatus({
+      cliPackageVersion: input.installed ?? "0.3.231",
+    });
+    status.installationSource = input.source;
+    return resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      localComponentsStatus: status,
+      releaseManifest: input.policy ?? global,
+      availabilityCatalog:
+        input.catalog === undefined ? catalog : input.catalog,
+      serviceConnected: true,
+      serviceVersion: input.installed ?? "0.3.231",
+    });
+  }
+  const previewSource = {
+    distribution: "binary" as const,
+    channel: "windows-preview" as const,
+    platform: "windows-x64",
+  };
+
+  it("does not offer stable232 to a preview231 installation", () => {
+    expect(project({ source: previewSource })).toMatchObject({
+      cli: { status: "current", latestPackageVersion: "0.3.231" },
+      service: {
+        status: "current",
+        latestVersion: "0.3.231",
+        wakeBlocked: false,
+      },
+    });
+  });
+  it.each([
+    { installed: "0.3.231", available: true, status: "update_required" },
+    { installed: "0.3.231", available: false, status: "update_required" },
+    { installed: "invalid", available: false, status: "update_required" },
+    { installed: "0.3.232", available: true, status: "unknown" },
+    { installed: "0.3.233", available: false, status: "unknown" },
+  ])("preserves required CLI232 policy for $installed with preview availability=$available", ({
+    installed,
+    available,
+    status,
+  }) => {
+    const required = {
+      ...global,
+      components: {
+        ...global.components,
+        cli: { ...global.components.cli, updatePolicy: "required" as const },
+      },
+    };
+    expect(
+      project({
+        source: previewSource,
+        policy: required,
+        installed,
+        catalog: available ? catalog : null,
+      })
+    ).toMatchObject({
+      cli: {
+        status,
+        latestPackageVersion: null,
+        updatePolicy: "required",
+        reasonCodes: expect.arrayContaining([
+          "cli.release_target_unavailable",
+          ...(status === "update_required"
+            ? ["cli.package_update_available"]
+            : []),
+        ]),
+        wakeBlocked: false,
+      },
+    });
+  });
+  it.each([
+    undefined,
+    { ...previewSource, channel: "stable" as const },
+    { ...previewSource, platform: "windows-arm64" },
+  ])("keeps unavailable or unreported selectors unknown: %j", (source) => {
+    expect(project({ source })).toMatchObject({
+      cli: { status: "unknown", latestPackageVersion: null },
+      service: { status: "unknown", latestVersion: null, wakeBlocked: false },
+    });
+  });
+  it("updates a preview230 computer only to its preview231 pair", () => {
+    expect(
+      project({ source: previewSource, installed: "0.3.230" })
+    ).toMatchObject({
+      cli: { status: "update_available", latestPackageVersion: "0.3.231" },
+      service: {
+        status: "update_available",
+        latestVersion: "0.3.231",
+        wakeBlocked: false,
+      },
+    });
+  });
+  it("keeps the226 safety floor while offering an installable231 recovery", () => {
+    expect(
+      project({ source: previewSource, installed: "0.3.224" })
+    ).toMatchObject({
+      service: {
+        status: "update_required",
+        requiredVersion: "0.3.231",
+        latestVersion: "0.3.231",
+        wakeBlocked: true,
+      },
+    });
+  });
+  it("blocks unsafe versions even when no recovery artifact is available", () => {
+    expect(project({ installed: "0.3.224", catalog: null })).toMatchObject({
+      service: {
+        status: "update_required",
+        requiredVersion: null,
+        latestVersion: null,
+        wakeBlocked: true,
+      },
+    });
+  });
+  it("does not weaken a required stable232 safety policy to preview231", () => {
+    const required = createReleaseManifest({
+      serviceUpdatePolicy: "required",
+      serviceBundleVersion: "0.3.232",
+    });
+    const requiredPreview = {
+      ...catalog,
+      entries: [
+        {
+          channel: "windows-preview" as const,
+          platform: previewSource.platform,
+          policy: {
+            ...previewPolicy,
+            service: {
+              ...previewPolicy.service,
+              updatePolicy: "required" as const,
+            },
+          },
+        },
+      ],
+    };
+    expect(
+      project({
+        source: previewSource,
+        policy: required,
+        catalog: requiredPreview,
+      })
+    ).toMatchObject({
+      service: {
+        status: "update_required",
+        latestVersion: null,
+        requiredVersion: null,
+        wakeBlocked: true,
+      },
+    });
+    expect(project({ source: previewSource, policy: required })).toMatchObject({
+      service: {
+        status: "update_required",
+        latestVersion: null,
+        wakeBlocked: true,
+      },
+    });
+  });
+  it("preserves npm policy without borrowing binary platform availability", () => {
+    expect(
+      project({
+        source: { ...previewSource, distribution: "npm", channel: "stable" },
+      })
+    ).toMatchObject({
+      cli: { latestPackageVersion: "0.3.232", status: "update_available" },
+      service: { latestVersion: "0.3.232", status: "update_available" },
+    });
+  });
+  it("keeps healthy Service231 eligible without offering obsolete Service225", () => {
+    const obsolete = {
+      ...catalog,
+      entries: [
+        {
+          channel: "windows-preview" as const,
+          platform: previewSource.platform,
+          policy: {
+            ...previewPolicy,
+            service: { ...previewPolicy.service, bundleVersion: "0.3.225" },
+          },
+        },
+      ],
+    };
+    expect(project({ source: previewSource, catalog: obsolete })).toMatchObject(
+      {
+        service: {
+          status: "unknown",
+          latestVersion: null,
+          requiredVersion: null,
+          wakeBlocked: false,
+        },
+      }
+    );
+  });
+  it("supports a separately retained preview Service", () => {
+    const retained = {
+      ...catalog,
+      entries: [
+        {
+          channel: "windows-preview" as const,
+          platform: previewSource.platform,
+          policy: {
+            ...previewPolicy,
+            service: { ...previewPolicy.service, bundleVersion: "0.3.230" },
+          },
+        },
+      ],
+    };
+    expect(
+      project({
+        source: previewSource,
+        catalog: retained,
+        installed: "0.3.230",
+      })
+    ).toMatchObject({
+      cli: { latestPackageVersion: "0.3.231", status: "update_available" },
+      service: { latestVersion: "0.3.230", status: "current" },
+    });
+  });
+});
+
+function createNpmStatusForServiceVersion(
+  version: string | null
+): LocalComponentsStatus {
+  const status = createLocalComponentsStatus({});
+  status.service.installedBundleVersion = version;
+  return status;
 }
