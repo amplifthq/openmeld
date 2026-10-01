@@ -176,8 +176,12 @@ function resolveSourceAwareCliProjection(input: {
   const globalRequired = input.globalPolicy.updatePolicy === "required";
   const policy =
     globalRequired &&
-    input.selectedPolicy?.commandContractVersion !==
-      input.globalPolicy.commandContractVersion
+    (input.selectedPolicy?.commandContractVersion !==
+      input.globalPolicy.commandContractVersion ||
+      !isLocalComponentVersionAtLeast(
+        input.selectedPolicy.packageVersion,
+        input.globalPolicy.packageVersion
+      ))
       ? null
       : input.selectedPolicy;
   if (policy) {
@@ -194,21 +198,30 @@ function resolveSourceAwareCliProjection(input: {
       status: input.status,
     });
   }
-  const required =
-    globalRequired &&
-    input.status?.commandContractVersion !==
-      input.globalPolicy.commandContractVersion;
+  // Required package drift remains a fact even when this channel cannot
+  // supply a compatible target. Reuse the owning CLI policy decision.
+  const requiredProjection = globalRequired
+    ? resolveCliUpdateProjection({
+        policy: input.globalPolicy,
+        status: input.status,
+      })
+    : null;
   return buildCliUpdateProjection({
     commandContractVersion: input.status?.commandContractVersion ?? null,
     installedPackageVersion: input.status?.packageVersion ?? null,
     latestPackageVersion: null,
-    reasonCodes: input.status
-      ? ["cli.release_target_unavailable"]
-      : ["cli.status_unavailable", "cli.release_target_unavailable"],
+    reasonCodes: [
+      ...(requiredProjection?.reasonCodes ??
+        (input.status ? [] : ["cli.status_unavailable"])),
+      "cli.release_target_unavailable",
+    ],
     requiredCommandContractVersion: globalRequired
       ? input.globalPolicy.commandContractVersion
       : null,
-    status: required ? "update_required" : "unknown",
+    status:
+      requiredProjection?.status === "update_required"
+        ? "update_required"
+        : "unknown",
     updatePolicy: input.globalPolicy.updatePolicy,
   });
 }

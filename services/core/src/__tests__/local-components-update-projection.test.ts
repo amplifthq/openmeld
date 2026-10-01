@@ -980,6 +980,46 @@ describe("installation-source availability", () => {
     });
   });
   it.each([
+    { installed: "0.3.231", available: true, status: "update_required" },
+    { installed: "0.3.231", available: false, status: "update_required" },
+    { installed: "invalid", available: false, status: "update_required" },
+    { installed: "0.3.232", available: true, status: "unknown" },
+    { installed: "0.3.233", available: false, status: "unknown" },
+  ])("preserves required CLI232 policy for $installed with preview availability=$available", ({
+    installed,
+    available,
+    status,
+  }) => {
+    const required = {
+      ...global,
+      components: {
+        ...global.components,
+        cli: { ...global.components.cli, updatePolicy: "required" as const },
+      },
+    };
+    expect(
+      project({
+        source: previewSource,
+        policy: required,
+        installed,
+        catalog: available ? catalog : null,
+      })
+    ).toMatchObject({
+      cli: {
+        status,
+        latestPackageVersion: null,
+        updatePolicy: "required",
+        reasonCodes: expect.arrayContaining([
+          "cli.release_target_unavailable",
+          ...(status === "update_required"
+            ? ["cli.package_update_available"]
+            : []),
+        ]),
+        wakeBlocked: false,
+      },
+    });
+  });
+  it.each([
     undefined,
     { ...previewSource, channel: "stable" as const },
     { ...previewSource, platform: "windows-arm64" },

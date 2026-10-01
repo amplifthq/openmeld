@@ -8007,6 +8007,11 @@ Windows preview from OS, or stable provenance from the JSON member
 `channels.stable`. Missing installation source, platform, catalogue, or release
 policy leaves binary latest versions null and availability unknown. Unsafe
 Service versions remain blocked independently of artifact availability.
+Required CLI package versions and command contracts also remain independent of
+availability: an older channel target cannot satisfy either requirement.
+When the installed CLI is below the required package version or has an
+incompatible command contract, Core preserves `update_required` and its
+diagnostic reason even without a compatible installable target.
 
 `LocalComponentsStatus.installationSource` is optional strict metadata containing
 only distribution, channel and product platform. The managed CLI installation
