@@ -886,6 +886,7 @@ describe("accepted dispatch finalization", () => {
     const message = buildAcceptedDispatchFinalizationQueueMessage({
       fact: baseFact,
       inboxRecord: baseInboxRecord,
+      organizationId: "org-1",
       sourceSignal,
       spaceContract: buildDefaultSpaceContract(),
       threadContext: {
@@ -896,6 +897,7 @@ describe("accepted dispatch finalization", () => {
 
     expect(message).toMatchObject({
       dispatchId: "dispatch-1",
+      organizationId: "org-1",
       dispatchOwner: {
         id: "owner-1",
         kind: "owner_account",
@@ -2909,6 +2911,9 @@ describe("accepted dispatch finalization", () => {
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
       },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
+      },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
     });
@@ -2985,6 +2990,9 @@ describe("accepted dispatch finalization", () => {
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
       },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
+      },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
     });
@@ -3042,6 +3050,9 @@ describe("accepted dispatch finalization", () => {
       },
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
+      },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
       },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
