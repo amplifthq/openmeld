@@ -660,4 +660,3 @@ function createLocalComponentsStatus(): LocalComponentsStatus {
     summaryLabel: "Everything is up to date",
   };
 }
-

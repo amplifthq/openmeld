@@ -976,4 +976,3 @@ function comparePrereleaseIdentifier(left: string, right: string): number {
   }
   return left > right ? 1 : -1;
 }
-

@@ -375,4 +375,3 @@ describe("local component release provenance", () => {
     ).toEqual({ schemaVersion: 1, entries: [] });
   });
 });
-

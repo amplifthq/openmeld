@@ -95,4 +95,3 @@ export function describeLocalComponentsAvailabilityCatalog(catalog) {
     sha256: createHash("sha256").update(json).digest("hex"),
   };
 }
-

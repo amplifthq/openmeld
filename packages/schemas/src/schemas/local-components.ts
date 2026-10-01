@@ -497,4 +497,3 @@ export function formatLocalSetupActionDescription(
     }
   }
 }
-

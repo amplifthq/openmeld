@@ -135,4 +135,3 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdate(
   const decision = resolveReleaseTriggeredOpenMeldToolsUpdateDecision(input);
   return decision.status === "request" ? decision.update : null;
 }
-

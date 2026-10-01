@@ -230,4 +230,3 @@ export const cliBinaryManifestSchema = z.object({
   }),
   schemaVersion: z.literal(1),
 });
-

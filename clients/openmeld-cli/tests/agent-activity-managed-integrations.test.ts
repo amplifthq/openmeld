@@ -644,4 +644,3 @@ it("upgrades an exact pre-console-hiding managed OpenCode plugin without replaci
     `${old}\n// user modification\n`
   );
 });
-

@@ -94,4 +94,3 @@ describe("local component installation source", () => {
     });
   });
 });
-

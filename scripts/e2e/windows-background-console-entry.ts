@@ -38,4 +38,3 @@ await writeFile(
     2
   )
 );
-

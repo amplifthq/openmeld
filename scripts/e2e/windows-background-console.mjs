@@ -77,4 +77,3 @@ if (observed.actualGitVerifier !== "no-console") {
   throw new Error("Git verifier allocated a console");
 }
 process.stdout.write(`${JSON.stringify(observed)}\n`);
-

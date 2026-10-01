@@ -285,4 +285,3 @@ function incrementPatch(version) {
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
-

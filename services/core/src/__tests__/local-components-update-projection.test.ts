@@ -1132,4 +1132,3 @@ function createNpmStatusForServiceVersion(
   status.service.installedBundleVersion = version;
   return status;
 }
-

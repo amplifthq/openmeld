@@ -172,4 +172,3 @@ test("uses the receiver stable snapshot without a second mutable stable read", a
     "https://openmeld.ai/cli/manifest.json?channel=windows-preview",
   ]);
 });
-

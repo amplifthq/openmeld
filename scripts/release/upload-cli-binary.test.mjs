@@ -51,7 +51,10 @@ test("publishes the proven CLI compatibility floor without forcing every older s
   );
   const minRequiredCliVersion = resolveCliMinRequiredVersion();
 
-  assert.equal(minRequiredCliVersion, packageJson.openmeld.minRequiredCliVersion);
+  assert.equal(
+    minRequiredCliVersion,
+    packageJson.openmeld.minRequiredCliVersion
+  );
   assert.notEqual(
     minRequiredCliVersion,
     packageJson.version,
@@ -544,4 +547,3 @@ test("native preview refuses retained policy before rebuilding or relabelling a 
     WINDOWS_SERVICE_POLICY_PATTERN
   );
 });
-

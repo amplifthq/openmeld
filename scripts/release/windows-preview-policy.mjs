@@ -16,4 +16,3 @@ export function resolveWindowsPreviewComponentPolicy(input) {
   }
   return { cli: release.components.cli, service: release.components.service };
 }
-

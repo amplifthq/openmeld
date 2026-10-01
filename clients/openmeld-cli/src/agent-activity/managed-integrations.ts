@@ -1140,4 +1140,3 @@ function isNodeError(error: unknown, code: string) {
     error instanceof Error && "code" in error && String(error.code) === code
   );
 }
-

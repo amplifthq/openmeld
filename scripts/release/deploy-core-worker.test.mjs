@@ -136,4 +136,3 @@ test("checks published channel alignment before any recovery deployment", async 
     [["run", "deploy:release-ready"]]
   );
 });
-
