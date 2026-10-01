@@ -702,10 +702,10 @@ describe("SpaceThreadPanel", () => {
 
 		const firstMessage = screen
 			.getByText("First consecutive thread message")
-			.closest("[data-slot='message']");
+			.closest("[data-message-row-id='sig-thread-first']");
 		const secondMessage = screen
 			.getByText("Second consecutive thread message")
-			.closest("[data-slot='message']");
+			.closest("[data-message-row-id='sig-thread-second']");
 		expect(firstMessage?.querySelector("time")?.textContent).toMatch(
 			COMPACT_TIME_PATTERN
 		);
@@ -1036,11 +1036,7 @@ describe("SpaceThreadPanel", () => {
 		let sourceMessage = screen
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
-		expect(
-			sourceMessage
-				?.closest('[data-slot="message"]')
-				?.getAttribute("data-align")
-		).toBe("end");
+		expect(sourceMessage?.getAttribute("data-align")).toBe("end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -1062,11 +1058,7 @@ describe("SpaceThreadPanel", () => {
 		sourceMessage = screen
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
-		expect(
-			sourceMessage
-				?.closest('[data-slot="message"]')
-				?.getAttribute("data-align")
-		).toBe("start");
+		expect(sourceMessage?.getAttribute("data-align")).toBe("start");
 	});
 
 	it("gives a stopped Wake a muted outcome row in the thread instead of a destructive one", () => {

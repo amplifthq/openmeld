@@ -4644,6 +4644,9 @@ working label may wrap and increase the header height; the supporting summary
 truncates, and Stop remains within the bubble. Long work-step names wrap instead
 of widening their scroll viewport. Code, tables, and attachment strips retain
 their own horizontal scrolling without widening the message.
+Unchanged work steps retain their rendered motion trees during streaming text
+updates. The shared step uses React's default prop comparison so status, label,
+icon, and content changes still render immediately.
 While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never

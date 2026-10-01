@@ -101,6 +101,34 @@ describe("Fluid ThinkingSteps", () => {
     ).toBeNull();
   });
 
+  it("updates an existing step as live work completes or fails", () => {
+    const view = render(
+      <ThinkingStep label="Reading files…" status="active" />
+    );
+    for (const status of ["complete", "failed"] as const) {
+      view.rerender(
+        <ThinkingStep
+          description={
+            status === "failed" ? "The file is unavailable" : "2 files"
+          }
+          icon={status === "failed" ? WarningCircleIcon : CheckCircleIcon}
+          label={status === "failed" ? "Couldn't read files" : "Read files"}
+          status={status}
+        />
+      );
+      const step = view.container.querySelector("[data-slot=thinking-step]");
+      expect(step?.getAttribute("data-status")).toBe(status);
+      expect(step?.textContent).toContain(
+        status === "failed" ? "Couldn't read files" : "Read files"
+      );
+      expect(step?.textContent).toContain(
+        status === "failed" ? "The file is unavailable" : "2 files"
+      );
+      expect(step?.querySelector("svg")).toBeTruthy();
+      expect(screen.queryByText("Reading files…")).toBeNull();
+    }
+  });
+
   it("supports nested details, sources, and accessible images", () => {
     render(
       <ThinkingSteps defaultOpen>

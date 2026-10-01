@@ -8,6 +8,7 @@ import {
   forwardRef,
   type HTMLAttributes,
   type ImgHTMLAttributes,
+  memo,
   type ReactNode,
 } from "react";
 import { Badge } from "#components/badge";
@@ -155,7 +156,8 @@ type ThinkingStepProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
   status?: ThinkingStepStatus;
 };
 
-function ThinkingStep({
+// Streaming text updates should not rerender unchanged step motion trees.
+const ThinkingStep = memo(function ThinkingStep({
   children,
   className,
   delay = 0.08,
@@ -235,7 +237,7 @@ function ThinkingStep({
       </div>
     </motion.div>
   );
-}
+});
 ThinkingStep.displayName = "ThinkingStep";
 
 type ThinkingStepDetailsProps = Omit<
