@@ -41,6 +41,13 @@ const colors = [
 	"#cb87d0",
 	"#569ecb",
 ];
+function modelColor(model: string | null) {
+	let hash = 0;
+	for (const character of model ?? "unattributed") {
+		hash = (hash * 31 + character.charCodeAt(0)) % 4_294_967_296;
+	}
+	return colors[hash % colors.length] ?? "#869fff";
+}
 export function usageModelSeries(
 	models: AiUsageQueryResponse["models"],
 	catalog?: ModelCatalog
@@ -50,6 +57,6 @@ export function usageModelSeries(
 		provider: model.provider,
 		model: model.model,
 		...usageModel(model.model, catalog),
-		color: colors[index % colors.length] ?? "#869fff",
+		color: modelColor(model.model),
 	}));
 }
