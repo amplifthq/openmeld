@@ -403,10 +403,6 @@ describe("runtime transport session service", () => {
             daemonSessionId: "daemon-session-new",
             serviceVersion: "0.7.75",
           },
-          {
-            daemonSessionId: "daemon-session-old",
-            serviceVersion: "0.7.74",
-          },
         ],
       });
     } finally {
@@ -414,7 +410,7 @@ describe("runtime transport session service", () => {
     }
   });
 
-  it("treats an explicit user stop as offline without hiding a controlled update", () => {
+  it("treats an explicit user stop as offline without hiding a later controlled update", () => {
     vi.useFakeTimers();
     const nowMs = Date.UTC(2026, 7, 7, 5, 30, 0);
     vi.setSystemTime(nowMs);
@@ -447,6 +443,7 @@ describe("runtime transport session service", () => {
     });
     state.sessionsById.set("daemon-session-update", {
       ...baseSession,
+      lastHeartbeatMs: nowMs,
       acceptingDispatches: false,
       daemonSessionId: "daemon-session-update",
       stopCause: "controlled_service_update",
@@ -478,6 +475,103 @@ describe("runtime transport session service", () => {
       online: false,
       reasonCode: "daemon.session.not_found",
     });
+  });
+
+  it.each([
+    "user_stop",
+    "controlled_service_update",
+  ] as const)("uses the current session's %s after replacement, including a cold restore", async (stopCause) => {
+    vi.useFakeTimers();
+    const nowMs = Date.UTC(2026, 8, 1);
+    vi.setSystemTime(nowMs);
+    const state = createRuntimeTransportMutableState();
+    const storage = new FakeStorage();
+    const ctx = { storage } as unknown as DurableObjectState;
+    const deps = {
+      persistRuntimeRecords: () => undefined,
+      cleanupExpiredPendingDispatches: () => undefined,
+      failPendingDispatchResultWaitersForConnectionGeneration: () => undefined,
+      closeSocket: () => undefined,
+    };
+    const register = (daemonSessionId: string, deviceId = "device-a") => {
+      const webSocket = new FakeSocket() as unknown as WebSocket;
+      handleRegisterSession(
+        state,
+        {
+          verifiedOwnerUserId: "owner-a",
+          webSocket,
+          request: {
+            v: 1,
+            ownerUserId: "owner-a",
+            deviceId,
+            lane: "dev-local",
+            daemonSessionId,
+            connectionGeneration: 1,
+            connectedAtMs: Date.now(),
+            profileIds: [],
+            capabilities: {},
+            runtimeContract: { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+          },
+        },
+        deps
+      );
+      return webSocket;
+    };
+    const heartbeat = (daemonSessionId: string, cause?: typeof stopCause) =>
+      handleHeartbeat(
+        state,
+        {
+          verifiedOwnerUserId: "owner-a",
+          request: {
+            v: 1,
+            ownerUserId: "owner-a",
+            deviceId: "device-a",
+            lane: "dev-local",
+            daemonSessionId,
+            acceptingDispatches: cause === undefined,
+            sentAtMs: Date.now(),
+            ...(cause ? { stopCause: cause } : {}),
+            leases: [],
+            runtimeContract: { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+          },
+        },
+        deps
+      );
+    const oldSocket = register("old");
+    heartbeat("old", "controlled_service_update");
+    detachSocket(state, oldSocket, deps);
+    vi.setSystemTime(nowMs + 1000);
+    const currentSocket = register("current");
+    heartbeat("current", stopCause);
+    detachSocket(state, currentSocket, deps);
+    register("other-device", "device-b");
+    const query = (targetState: typeof state) =>
+      lookupOwnerService(targetState, { v: 1, ownerUserId: "owner-a" }, deps);
+    const expectedSessions =
+      stopCause === "user_stop"
+        ? ["other-device"]
+        : ["current", "other-device"];
+    const ids = (targetState: typeof state) => {
+      const response = query(targetState);
+      return response.online
+        ? response.sessions.map((session) => session.daemonSessionId).sort()
+        : [];
+    };
+    expect(ids(state)).toEqual(expectedSessions);
+    // Hibernated sockets can be adopted in a different order than registration.
+    const sessions = [...state.sessionsById.entries()].reverse();
+    state.sessionsById.clear();
+    for (const [id, session] of sessions) {
+      state.sessionsById.set(id, session);
+    }
+    await persistServiceRuntimeRecordsNow(ctx, state);
+    const restored = createRuntimeTransportMutableState();
+    await restoreServiceRuntimeRecords(ctx, restored);
+    expect(ids(restored)).toEqual(expectedSessions);
+    vi.setSystemTime(nowMs + 2000);
+    register("resumed");
+    heartbeat("resumed");
+    expect(ids(state)).toEqual(["other-device", "resumed"]);
   });
 
   it("does not report owner service online after Wake route leases expire", () => {
