@@ -3352,6 +3352,14 @@ Core-owned hosted readiness has exactly two product states in MVP:
   production). The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
+- Organization-scoped OpenRouter Claude routes explicitly retain pi-ai's native
+  Anthropic prompt-cache capability, including models absent from its bundled
+  catalog. The adapter marks reusable instructions, tools, and conversation
+  prefixes using its default five-minute retention; explicit per-call cache
+  opt-out remains supported. Caching does not change the selected model,
+  reasoning, context content, authorization, or same-model provider failover.
+  Actual savings require provider-reported cache reads; missing prices and
+  estimated costs are not proof of the provider's charged amount.
 
 Failure copy examples belong to Core, not the worker. Runtime policy blocks
 must explain whether the Remote Agent is disabled globally or blocked for the

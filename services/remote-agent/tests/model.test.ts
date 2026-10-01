@@ -272,6 +272,110 @@ describe("remote agent model routing", () => {
     }
   });
 
+  it.each([
+    ["anthropic/claude-opus-5.5", undefined, true],
+    ["anthropic/claude-sonnet-4.6", undefined, true],
+    ["anthropic/claude-opus-5.5", "none", false],
+    ["x-ai/grok-4.6", undefined, false],
+  ] as const)("preserves native prompt caching for scoped %s with retention %s", async (modelId, cacheRetention, cacheEnabled) => {
+    resetProviderRuntime();
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId,
+          preference: { kind: "selected_model", modelId },
+        },
+        organizationId: "org_prompt_cache",
+      });
+      const model = resolveModel(runtime.modelSpecifier);
+      let capturedPayload: unknown;
+      const stream = streamRegisteredModel(
+        model,
+        {
+          systemPrompt: "Stable system instruction.",
+          messages: [
+            { role: "user", content: "Current question.", timestamp: 1 },
+          ],
+          tools: [
+            {
+              name: "read_example",
+              description: "Read an example.",
+              parameters: { type: "object", properties: {} },
+            },
+          ],
+        },
+        {
+          apiKey: "unused",
+          cacheRetention,
+          reasoningEffort: "high",
+          onPayload: (payload) => {
+            capturedPayload = payload;
+            throw new Error(
+              "Request payload captured before network dispatch."
+            );
+          },
+        }
+      );
+
+      await stream.result();
+
+      expect(capturedPayload).toMatchObject({
+        model: modelId,
+        reasoning: { effort: "high" },
+        tools: [
+          {
+            function: {
+              name: "read_example",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+        ],
+      });
+      if (cacheEnabled) {
+        expect(capturedPayload).toMatchObject({
+          messages: [
+            {
+              role: "developer",
+              content: [
+                {
+                  type: "text",
+                  text: "Stable system instruction.",
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Current question.",
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+            },
+          ],
+          tools: [{ cache_control: { type: "ephemeral" } }],
+        });
+      } else {
+        expect(capturedPayload).toMatchObject({
+          messages: [
+            { content: "Stable system instruction." },
+            { role: "user", content: "Current question." },
+          ],
+        });
+        expect(JSON.stringify(capturedPayload)).not.toContain("cache_control");
+      }
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
   it("preserves OpenRouter reasoning for a scoped Grok provider", async () => {
     resetProviderRuntime();
     try {

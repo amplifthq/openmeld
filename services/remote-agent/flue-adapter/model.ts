@@ -190,6 +190,10 @@ export async function registerRemoteAgentCloudflareProvider(input: {
       supportsDeveloperRole:
         modelId.startsWith("anthropic/") || modelId.startsWith("openai/"),
       ...openRouterModel?.compat,
+      // Scoped provider IDs bypass pi-ai's OpenRouter cache detection.
+      cacheControlFormat: modelId.startsWith("anthropic/")
+        ? "anthropic"
+        : openRouterModel?.compat?.cacheControlFormat,
       thinkingFormat: "openrouter",
     },
     contextCapacity: resolveRemoteAgentProviderContextCapacity({
