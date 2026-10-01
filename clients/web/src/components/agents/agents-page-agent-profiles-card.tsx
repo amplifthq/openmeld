@@ -1379,8 +1379,8 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			if (
 				typeof error === "object" &&
 				error !== null &&
-				"code" in error &&
-				error.code === "agent_profile_work_recovery.not_pending"
+				"upstreamCode" in error &&
+				error.upstreamCode === "agent_profile_work_recovery.not_pending"
 			) {
 				try {
 					await refreshRecovery();

@@ -1245,13 +1245,33 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("tells the owner their choice was kept while the original request is still being checked", async () => {
-		executeAgentProfileWorkRecoveryMock.mockRejectedValueOnce(
-			Object.assign(new Error("awaiting original stop"), {
-				code: "agent_profile_work_recovery.awaiting_original_stop",
-			})
-		);
-		renderAgentProfilesCard(
+	it.each([
+		{
+			upstreamCode: "agent_profile_work_recovery.awaiting_original_stop",
+			message:
+				"OpenMeld kept your choice for Research Agent and is checking whether the original request stopped on your computer. Nothing new has started yet.",
+			refresh: false,
+		},
+		{
+			upstreamCode: "agent_profile_work_recovery.not_pending",
+			message:
+				"This Agent’s paused work has changed. Review its current work before trying again.",
+			refresh: true,
+		},
+	])("handles the Gateway recovery response $upstreamCode without replaying it", async ({
+		upstreamCode,
+		message,
+		refresh,
+	}) => {
+		// Gateway puts Core's reason in upstreamCode, as captured in localhost smoke.
+		executeAgentProfileWorkRecoveryMock.mockRejectedValueOnce({
+			code: "upstream_error",
+			upstreamCode,
+			status: 409,
+			requestId: "smoke-recovery",
+			message: "This recovery action is no longer needed.",
+		});
+		const { queryClient } = renderAgentProfilesCard(
 			{},
 			createPrimaryBindingResponse("codex:approveForMe").binding,
 			{
@@ -1272,16 +1292,23 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			}
 		);
 
+		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Continue interrupted work" })
 		);
 
 		await waitFor(() => {
-			expect(toastMock.info).toHaveBeenCalledWith(
-				"OpenMeld kept your choice for Research Agent and is checking whether the original request stopped on your computer. Nothing new has started yet."
-			);
+			expect(toastMock.info).toHaveBeenCalledWith(message);
 		});
 		expect(toastMock.error).not.toHaveBeenCalled();
+		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledTimes(1);
+		if (refresh) {
+			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+				queryKey: organizationQueryKeys.agentRuntimeOverview("org-acme"),
+			});
+		} else {
+			expect(invalidateQueriesSpy).not.toHaveBeenCalled();
+		}
 	});
 
 	it("lets the owner skip interrupted work before queued work can continue", async () => {
