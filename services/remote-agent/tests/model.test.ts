@@ -276,6 +276,26 @@ describe("remote agent model routing", () => {
     ["anthropic/claude-opus-5.5", undefined, true],
     ["anthropic/claude-sonnet-4.6", undefined, true],
     ["anthropic/claude-opus-5.5", "none", false],
+    ["deepseek/deepseek-v3.2", undefined, true],
+    ["qwen/qwen-plus", undefined, true],
+    ["qwen/qwen3-max", undefined, true],
+    ["qwen/qwen3.6-plus", undefined, true],
+    ["qwen/qwen3-coder-plus", undefined, true],
+    ["qwen/qwen3-coder-flash", undefined, true],
+    ["qwen/qwen3.6-flash", undefined, true],
+    ["qwen/qwen3.7-max", undefined, true],
+    ["qwen/qwen3.7-plus", undefined, true],
+    ["qwen/qwen3.7-flash", undefined, true],
+    ["qwen/qwen3.8-max-0902", undefined, true],
+    ["qwen/qwen3.8-flash", undefined, true],
+    ["qwen/qwen3-coder-plus", "none", false],
+    ["qwen/qwen3.5-plus-02-15", undefined, false],
+    ["qwen/qwen3.5-flash-02-23", undefined, false],
+    ["qwen/qwen3-coder", undefined, false],
+    ["google/gemini-2.5-pro", undefined, false],
+    ["openai/gpt-6-sol", undefined, false],
+    ["deepseek/deepseek-v4-flash", undefined, false],
+    ["z-ai/glm-5.3-flash", undefined, false],
     ["x-ai/grok-4.6", undefined, false],
   ] as const)("preserves native prompt caching for scoped %s with retention %s", async (modelId, cacheRetention, cacheEnabled) => {
     resetProviderRuntime();
@@ -312,9 +332,11 @@ describe("remote agent model routing", () => {
         {
           apiKey: "unused",
           cacheRetention,
+          maxRetries: 0,
           reasoningEffort: "high",
-          onPayload: (payload) => {
-            capturedPayload = payload;
+          sessionId: "conversation_prompt_cache",
+          fetch: (_url, init) => {
+            capturedPayload = JSON.parse(String(init?.body));
             throw new Error(
               "Request payload captured before network dispatch."
             );
@@ -327,6 +349,8 @@ describe("remote agent model routing", () => {
       expect(capturedPayload).toMatchObject({
         model: modelId,
         reasoning: { effort: "high" },
+        session_id: "conversation_prompt_cache",
+        provider: { allow_fallbacks: true },
         tools: [
           {
             function: {
@@ -340,7 +364,6 @@ describe("remote agent model routing", () => {
         expect(capturedPayload).toMatchObject({
           messages: [
             {
-              role: "developer",
               content: [
                 {
                   type: "text",
@@ -360,8 +383,18 @@ describe("remote agent model routing", () => {
               ],
             },
           ],
-          tools: [{ cache_control: { type: "ephemeral" } }],
         });
+        if (modelId.startsWith("anthropic/")) {
+          expect(capturedPayload).toMatchObject({
+            tools: [{ cache_control: { type: "ephemeral" } }],
+          });
+        } else {
+          expect(capturedPayload).toMatchObject({
+            tools: [
+              expect.not.objectContaining({ cache_control: expect.anything() }),
+            ],
+          });
+        }
       } else {
         expect(capturedPayload).toMatchObject({
           messages: [
