@@ -8,6 +8,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Accordion,
@@ -24,11 +25,16 @@ import {
 } from "@openmeld/ui/fluid/select";
 import { ArrowClockwiseIcon, CalendarBlankIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense, useState } from "react";
+import { type CSSProperties, lazy, Suspense, useState } from "react";
 import {
 	organizationAiUsageQueryOptions,
 	organizationUsageCalendarPeriod,
 } from "#/query/organizations/organization-usage";
+import {
+	type LocalAgentTokenSeries,
+	localAgentTokenSeries,
+	recordedTokenValue,
+} from "./local-agent-token-series";
 
 const AreaChart = lazy(() => import("./computer-token-area-chart"));
 const number = new Intl.NumberFormat("en-US");
@@ -67,28 +73,39 @@ function ComputerTokenUsageCard(input: {
 				...period,
 				computerId: input.computerId,
 				runtime: "local",
+				groupTimeSeriesBy: "controller",
 			},
 		})
 	);
 	const total =
 		query.data?.models.reduce((sum, model) => sum + model.totalTokens, 0) ?? 0;
 	const series = query.data?.timeSeries;
+	const agents = localAgentTokenSeries(series ?? []);
 	if (!(query.isPending || query.isError) && total === 0) {
 		return null;
 	}
 	const data =
 		series?.map((bucket) => ({
 			date: date.format(bucket.fromMs),
-			tokens:
-				bucket.requests > 0 && bucket.missingTokenRequests === bucket.requests
-					? null
-					: bucket.totalTokens,
+			...Object.fromEntries(
+				agents.map((agent) => [
+					agent.key,
+					recordedTokenValue(
+						bucket.controllers?.find(
+							(row) => row.controller === agent.controller
+						)
+					),
+				])
+			),
 		})) ?? [];
-	const unavailable = query.isError || (query.isSuccess && !series);
+	const unavailable =
+		query.isError ||
+		(query.isSuccess &&
+			(!series || series.some((bucket) => !bucket.controllers)));
 	return (
 		<Card aria-label="Computer token usage">
 			<CardHeader>
-				<CardTitle>Token usage</CardTitle>
+				<CardTitle>Local Agent token usage</CardTitle>
 				<CardDescription>Last {days} days</CardDescription>
 				<CardAction>
 					{query.isPending ? (
@@ -114,10 +131,26 @@ function ComputerTokenUsageCard(input: {
 						role="img"
 					>
 						<Suspense fallback={<Skeleton className="h-44 w-full" />}>
-							<AreaChart data={data} loading={query.isPending} />
+							<AreaChart
+								agents={agents}
+								data={data}
+								loading={query.isPending}
+							/>
 						</Suspense>
 					</div>
 				)}
+				{!unavailable && agents.length > 0 ? (
+					<ul
+						aria-label="Local Agents"
+						className="flex flex-wrap items-center gap-x-4 gap-y-2 text-muted-foreground text-xs"
+					>
+						{agents.map((agent) => (
+							<li key={agent.key}>
+								<TokenAgentLabel agent={agent} />
+							</li>
+						))}
+					</ul>
+				) : null}
 				<Accordion>
 					<AccordionItem value="details">
 						<AccordionTrigger
@@ -188,7 +221,9 @@ function ComputerTokenUsageCard(input: {
 										tokens only.
 									</p>
 								) : null}
-								{series ? <DailyTokenTable series={series} /> : null}
+								{series && !unavailable ? (
+									<DailyTokenTable agents={agents} series={series} />
+								) : null}
 							</div>
 						</AccordionContent>
 					</AccordionItem>
@@ -198,7 +233,34 @@ function ComputerTokenUsageCard(input: {
 	);
 }
 
-function DailyTokenTable({ series }: { series: Series }) {
+function TokenAgentLabel({ agent }: { agent: LocalAgentTokenSeries }) {
+	return (
+		<span className="inline-flex items-center gap-2 whitespace-nowrap">
+			<span
+				aria-hidden="true"
+				className="size-2 shrink-0 rounded-full bg-(--agent-light) dark:bg-(--agent-dark)"
+				style={
+					{
+						"--agent-light": agent.colors.light[0],
+						"--agent-dark": agent.colors.dark[0],
+					} as CSSProperties
+				}
+			/>
+			{agent.controller ? (
+				<LocalAgentLogo agentId={agent.controller} size="xs" />
+			) : null}
+			{agent.label}
+		</span>
+	);
+}
+
+function DailyTokenTable({
+	series,
+	agents,
+}: {
+	series: Series;
+	agents: LocalAgentTokenSeries[];
+}) {
 	return (
 		<ScrollArea
 			className="max-h-56"
@@ -213,6 +275,9 @@ function DailyTokenTable({ series }: { series: Series }) {
 						<th className="py-2 text-left font-normal" scope="col">
 							Date
 						</th>
+						<th className="text-left font-normal" scope="col">
+							Local Agent
+						</th>
 						<th className="text-right font-normal" scope="col">
 							Input
 						</th>
@@ -225,30 +290,49 @@ function DailyTokenTable({ series }: { series: Series }) {
 					</tr>
 				</thead>
 				<tbody>
-					{series.toReversed().map((bucket) => {
-						const unknown =
-							bucket.requests > 0 &&
-							bucket.missingTokenRequests === bucket.requests;
-						return (
-							<tr className="border-border/50 border-t" key={bucket.fromMs}>
-								<th className="py-2 text-left font-normal" scope="row">
-									{date.format(bucket.fromMs)}
-								</th>
-								<td className="text-right text-muted-foreground">
-									{unknown ? "—" : number.format(bucket.inputTokens)}
-								</td>
-								<td className="text-right text-muted-foreground">
-									{unknown ? "—" : number.format(bucket.outputTokens)}
-								</td>
-								<td className="text-right">
-									{unknown ? "—" : number.format(bucket.totalTokens)}
-									{bucket.missingTokenRequests > 0 ? (
-										<span className="sr-only"> (incomplete)</span>
-									) : null}
-								</td>
-							</tr>
-						);
-					})}
+					{series.toReversed().flatMap((day) =>
+						(day.controllers?.length
+							? day.controllers
+							: [{ ...day, controller: null }]
+						).map((bucket) => {
+							const unknown =
+								bucket.requests > 0 &&
+								bucket.missingTokenRequests === bucket.requests;
+							return (
+								<tr
+									className="border-border/50 border-t"
+									key={`${day.fromMs}/${bucket.controller}`}
+								>
+									<th className="py-2 text-left font-normal" scope="row">
+										{date.format(day.fromMs)}
+									</th>
+									<td className="text-muted-foreground">
+										{bucket.requests > 0
+											? agents
+													.filter(
+														(agent) => agent.controller === bucket.controller
+													)
+													.map((agent) => (
+														<TokenAgentLabel agent={agent} key={agent.key} />
+													))
+											: "—"}
+									</td>
+									<td className="text-right text-muted-foreground">
+										{unknown ? "—" : number.format(bucket.inputTokens)}
+									</td>
+									<td className="text-right text-muted-foreground">
+										{unknown ? "—" : number.format(bucket.outputTokens)}
+									</td>
+									<td className="text-right">
+										{unknown ? "—" : number.format(bucket.totalTokens)}
+										{bucket.missingTokenRequests > 0 ? (
+											<span className="sr-only"> (incomplete)</span>
+										) : null}
+									</td>
+								</tr>
+							);
+						})
+					)}
 				</tbody>
 			</table>
 		</ScrollArea>

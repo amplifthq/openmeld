@@ -800,6 +800,7 @@ type OptionBuildContext = {
   categories: string[];
   brushRange: BrushRange; // zoom window carried through rebuilds
   getHoveredKey: () => string | null; // read per tooltip render — hover never repushes the option
+  getIconMarkup: (key: string) => string;
 };
 
 // Grid insets plus the footer band reserved for the brush. ECharts 6 contains
@@ -999,7 +1000,8 @@ function createTooltipFormatter(ctx: OptionBuildContext) {
             : String(p.value ?? "");
 
         return tooltipRow({
-          indicatorHtml: tooltipIndicatorHtml(key, colorsCount),
+          indicatorHtml:
+            tooltipIndicatorHtml(key, colorsCount) + ctx.getIconMarkup(key),
           labelText,
           valueText: value,
           dimmed,
@@ -1659,6 +1661,7 @@ export function EChartsAreaChart<TData extends Record<string, unknown>>({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
+  const tooltipIcons = useRef(new Map<string, HTMLSpanElement>());
   const echartsRef = useRef<EChartsInstance | null>(null);
 
   // The single imperative surface (see LiveState). `resolved` lives here rather
@@ -1891,6 +1894,7 @@ export function EChartsAreaChart<TData extends Record<string, unknown>>({
       categories,
       brushRange: live.brushRange,
       getHoveredKey: () => live.hoveredKey,
+      getIconMarkup: (key) => tooltipIcons.current.get(key)?.innerHTML ?? "",
       revealSink,
     };
 
@@ -2469,6 +2473,26 @@ export function EChartsAreaChart<TData extends Record<string, unknown>>({
       ref={containerRef}
     >
       <style dangerouslySetInnerHTML={{ __html: css }} />
+      {/* Render configured React icons once. Serialize only this component-owned,
+          React-escaped markup for ECharts' HTML tooltip; never accept raw API HTML. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute size-0 overflow-hidden opacity-0"
+      >
+        {Object.entries(config).map(([key, item]) =>
+          item.icon ? (
+            <span
+              key={key}
+              ref={(node) => {
+                if (node) tooltipIcons.current.set(key, node);
+                else tooltipIcons.current.delete(key);
+              }}
+            >
+              <item.icon />
+            </span>
+          ) : null
+        )}
+      </div>
 
       <div className="relative min-h-0 w-full flex-1">
         <div className="h-full min-h-0 w-full" ref={mountRef} />

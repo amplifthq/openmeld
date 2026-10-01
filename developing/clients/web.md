@@ -1709,11 +1709,16 @@ statistics remain separate from provider account Usage Limits and do not
 present Local usage as free or as spending the organization allowance.
 Owner and teammate views read the same organization-scoped consumption query.
 
-Computer details place a compact Token usage card directly below Computer
+Computer details place a compact Local Agent token usage card directly below Computer
 Connection. It combines recorded Local Agent tokens on that enrolled Computer
 in the current Organization. The default seven-day area chart uses calendar
 days in the viewer's time zone, including today so far. Details contains the
 7/30-day selector, refresh, and an accessible daily input/output/total table.
+Each controller has an unstacked series, a labelled legend, and its existing
+Local Agent icon in tooltips and table rows. Colors reuse the shared controller
+brand accents; monochrome Cursor and OpenCode logos use fixed amber and teal
+chart accents. Unknown attribution remains explicitly labelled. Daily controller
+rows and curves use the same scoped time-series query.
 Initial loading uses the shared Evil Charts skeleton; no recorded tokens hides
 the card. Explicit missing-token receipts produce gaps instead of known-zero
 points, and partial totals are disclosed in Details. No provider polling or

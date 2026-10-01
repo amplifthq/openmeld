@@ -19,7 +19,7 @@ renderer lifecycle, ResizeObserver, theme observation, and loading effects.
 Keep application data, period selection, and access scope in the client owner.
 Lazy-load chart consumers. Use existing Fluid surfaces, Select, and Accordion
 for surrounding UI. The first consumer adapts the official Audience Growth
-block to daily token totals with one gradient area, linear segments, a zero
+block to daily token totals with one gradient area per controller, linear segments, a zero
 baseline, SVG, and an accessible daily table. It does not use decorative
 multicolor fills, brush, selectable legends, or continuous stroke animation.
 
@@ -29,6 +29,8 @@ Local adaptations to preserve when updating registry source:
 - Strict indexed-access typing and bounded color interpolation.
 - Null input values remain chart gaps rather than becoming fabricated zeros.
 - Tooltip labels/values are escaped before entering ECharts HTML.
+- Configured tooltip icons reuse markup rendered by React in the chart root;
+  no API-provided HTML or additional React roots are introduced.
 - Reduced motion stops loading and dashed-stroke loops, and the loading spinner.
 
 The vendored source retains upstream structure and formatting, with lint rules

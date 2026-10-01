@@ -2,15 +2,13 @@ import {
 	type ChartConfig,
 	EChartsAreaChart,
 } from "@openmeld/ui/components/evilcharts/charts/echarts-area-chart";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { RobotIcon } from "@phosphor-icons/react";
+import { useMemo } from "react";
+import type { LocalAgentTokenSeries } from "./local-agent-token-series";
 
 // Audience Growth block composition, adapted to recorded daily token consumption.
 // Keep the baseline at zero and use linear segments: these are daily totals, not a forecast.
-const config = {
-	tokens: {
-		label: "Tokens",
-		colors: { light: ["#059669"], dark: ["#34d399"] },
-	},
-} satisfies ChartConfig;
 const compact = new Intl.NumberFormat("en-US", {
 	notation: "compact",
 	maximumFractionDigits: 1,
@@ -20,9 +18,29 @@ const options = {
 };
 
 export default function ComputerTokenAreaChart(input: {
-	data: { date: string; tokens: number | null }[];
+	data: Record<string, string | number | null>[];
+	agents: LocalAgentTokenSeries[];
 	loading: boolean;
 }) {
+	const config = useMemo(
+		() =>
+			Object.fromEntries(
+				input.agents.map((agent) => [
+					agent.key,
+					{
+						label: agent.label,
+						colors: agent.colors,
+						icon: () =>
+							agent.controller ? (
+								<LocalAgentLogo agentId={agent.controller} />
+							) : (
+								<RobotIcon className="size-4" />
+							),
+					},
+				])
+			) satisfies ChartConfig,
+		[input.agents]
+	);
 	return (
 		<EChartsAreaChart
 			animation={false}
@@ -42,14 +60,17 @@ export default function ComputerTokenAreaChart(input: {
 				tickFormatter={(value) => compact.format(Number(value))}
 			/>
 			<EChartsAreaChart.Tooltip roundness="md" variant="default" />
-			<EChartsAreaChart.Area
-				dataKey="tokens"
-				strokeVariant="solid"
-				strokeWidth={1.5}
-				variant="gradient"
-			>
-				<EChartsAreaChart.ActiveDot variant="colored-border" />
-			</EChartsAreaChart.Area>
+			{input.agents.map((agent) => (
+				<EChartsAreaChart.Area
+					dataKey={agent.key}
+					key={agent.key}
+					strokeVariant="solid"
+					strokeWidth={1.5}
+					variant="gradient"
+				>
+					<EChartsAreaChart.ActiveDot variant="colored-border" />
+				</EChartsAreaChart.Area>
+			))}
 		</EChartsAreaChart>
 	);
 }
