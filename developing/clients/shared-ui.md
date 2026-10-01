@@ -42,6 +42,14 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`components/evilcharts` owns the official registry-installed Apache ECharts
+area primitive and its theme, tooltip, legend, dot, and brush modules. Its
+README records source provenance and local adaptations. Consumers compose
+the compound API and lazy-load the rendering module; product scope, queries,
+and surrounding interactions remain outside the chart primitive. Use Fluid
+surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
+and reduced-motion loading behavior when refreshing registry source.
+
 `VideoPlayer` composes Media Chrome's controls with shared design tokens and solid
 surfaces. It owns no file fetching, credentials, cache, or Space identity. Global
 media hotkeys are disabled so the chat composer retains its keys.

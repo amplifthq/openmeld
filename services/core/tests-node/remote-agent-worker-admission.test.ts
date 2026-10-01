@@ -1,8 +1,11 @@
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { submitRemoteAgentWorkerAdmission } from "../src/remote-agent/application/remote-agent-worker-admission";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  applyDrizzleMigrationForTable,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Remote Agent worker admission", () => {
   it("rolls a current conversation into one new runtime generation without surfacing the history limit", async () => {
@@ -237,6 +240,8 @@ describe("Remote Agent worker admission", () => {
 function createRolloverAdmissionTables(
   harness: ReturnType<typeof createSqliteD1Harness>
 ): void {
+  applyDrizzleMigrationForTable(harness, "ai_usage_records");
+  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
   harness.run({
     sql: `
       CREATE TABLE openMeldRemoteAgent_native_delivery_ledger (
@@ -398,8 +403,13 @@ function pausedCenterAgentDb(): D1Database {
 }
 
 function centerAgentPauseRaceDb(): D1Database {
+  const harness = createSqliteD1Harness();
+  onTestFinished(() => harness.close());
+  applyDrizzleMigrationForTable(harness, "ai_usage_records");
+  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
   let designationReadCount = 0;
   return {
+    batch: harness.db.batch.bind(harness.db),
     prepare: vi.fn((sql: string) => {
       const normalizedSql = sql.replace(/\s+/gu, " ").trim().toLowerCase();
       if (normalizedSql.includes("from center_agent_designations")) {
@@ -425,16 +435,7 @@ function centerAgentPauseRaceDb(): D1Database {
           })),
         };
       }
-      if (normalizedSql.includes("select daily_admission_day_utc")) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn(() => ({
-              daily_admission_day_utc: "2026-07-29",
-            })),
-          })),
-        };
-      }
-      throw new Error(`Unexpected SQL in admission race test: ${sql}`);
+      return harness.db.prepare(sql);
     }),
   } as unknown as D1Database;
 }

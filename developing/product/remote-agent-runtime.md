@@ -1530,17 +1530,18 @@ the task, so Core keeps the submission recoverable and replays the exact durable
 request with the same idempotency key. Member research does not advance to the
 next member until the current task reaches a confirmed terminal outcome.
 
-After runtime availability succeeds and before calling the worker, Core applies
-one Organization-wide daily admission limit to `web_dm`, `space_wake`, legacy
-`slack`, `message_channel`, `routine`, and `member_research`. The default is 200
-admitted requests per UTC day and Worker configuration may override it. The
-Core-owned counter and the native-delivery idempotency marker are committed
-atomically, so an ambiguous submit replay does not consume a second admission,
-even after UTC midnight.
-Once admitted, a downstream worker or publication failure does not refund the
-count. Rejection uses `remote_agent.daily_quota_exceeded`, explains that the
-limit resets at 00:00 UTC, and follows the entry point's existing visible
-failure path. This Core decision does not widen the worker RPC rejection enum.
+After runtime availability succeeds, Core checks the Organization's optional
+daily AI allowance on every submission surface. There is no default cap.
+The old 200-admission counter is inactive. Center Agent and Remote Agents share
+provider-reported OpenRouter costs; Local Agent consumption is informational.
+The provider fetch boundary checks again before each paid request, including
+research, image understanding, titles, and activity digests. Once recorded
+spend reaches the configured amount, new calls are rejected. Already-started
+requests may finish above the allowance: this is a spend threshold, not prepaid
+reservation or a guaranteed invoice ceiling. Unknown costs remain visible and
+are not invented as zero. Rejection retains `remote_agent.daily_quota_exceeded`
+at admission and follows the existing visible failure path with the 00:00 UTC
+reset time. No worker RPC rejection enum is widened.
 
 Member research receives only Organization-directory/document reads, Slack
 workspace directory metadata, bounded joined-channel membership/history reads,
@@ -3334,9 +3335,9 @@ Core-owned hosted readiness has exactly two product states in MVP:
   gates. Historical database columns and migrations remain because old rows
   are durable evidence, but Core no longer reads or writes them.
 - Operator containment remains a global runtime kill switch and an optional
-  per-organization blocklist. Both are operational controls. The separate
-  Organization daily admission limit is a uniform product guardrail with no
-  official-organization exemption.
+  per-organization blocklist. Both are operational controls. An optional
+  Organization daily AI allowance defaults to unlimited and is managed by
+  operators through `scripts/ops/ai-usage-policy.mjs`; members cannot raise it.
 - Per-turn usage is recorded by the Remote Agent worker from Flue prompt
   usage, emitted to Analytics Engine, and exposed through
   `readUsageDiagnostics`. Core does not add usage fields to the native

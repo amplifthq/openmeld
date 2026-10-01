@@ -3830,7 +3830,7 @@ describe("Remote Agent native delivery callback service", () => {
             WHERE organization_id = ?
           `,
         })
-      ).toEqual([{ admitted_count: 1, day_utc: "2026-07-12" }]);
+      ).toEqual([]);
       expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
     } finally {
       harness.close();
@@ -4001,21 +4001,15 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("rejects the 201st daily Space admission with a visible UTC reset message", async () => {
+  it("rejects a Space admission when its AI allowance is exhausted with a visible UTC reset message", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     const nowMs = Date.parse("2026-07-12T12:00:00.000Z");
     harness.run({
-      params: ["org_1", "2026-07-12", 200, "seeded_admission", nowMs, nowMs],
+      params: ["org_1", 0, nowMs],
       sql: `
-        INSERT INTO openMeldRemoteAgent_daily_admissions (
-          organization_id,
-          day_utc,
-          admitted_count,
-          last_admission_idempotency_key,
-          created_at_ms,
-          updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO organization_ai_usage_policies
+          (organization_id, daily_limit_nano_usd, updated_at_ms) VALUES (?, ?, ?)
       `,
     });
     const workerSubmit = vi.fn();
@@ -4091,7 +4085,7 @@ describe("Remote Agent native delivery callback service", () => {
             ORDER BY day_utc
           `,
         })
-      ).toEqual([{ admitted_count: 200, day_utc: "2026-07-12" }]);
+      ).toEqual([]);
     } finally {
       harness.close();
     }
@@ -10298,6 +10292,8 @@ function applyRemoteAgentLedgerMigration(
     "openMeldRemoteAgent_work_loop_attempts",
   ]);
   applyMigrationForTable(input, "openMeldRemoteAgent_daily_admissions");
+  applyMigrationForTable(input, "ai_usage_records");
+  applyMigrationForTable(input, "organization_ai_usage_policies");
   applyMigrationForTable(input, "openMeldRemoteAgent_conversation_generations");
   applyMigrationForTable(input, "slack_workspace_tokens");
   applyMigrationForTable(input, "openMeldDaemon_dispatch_ledger");
@@ -10875,7 +10871,6 @@ type BuildEnvOptions = {
   postSignalFailuresBeforeSuccess?: number;
   postSignalId?: string;
   remoteAgentBlockedOrganizationIds?: string;
-  remoteAgentDailyAdmissionLimit?: string;
   remoteAgentRuntimeEnabled?: string;
   remoteAgentWorker?: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"];
   slackBotToken?: string;
@@ -11059,8 +11054,6 @@ function buildEnv(
     SLACK_OPENMELD_BOT_TOKEN: options.slackBotToken,
     OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS:
       options.remoteAgentBlockedOrganizationIds ?? "",
-    OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT:
-      options.remoteAgentDailyAdmissionLimit,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED:
       options.remoteAgentRuntimeEnabled ?? "true",
     ...(options.webAppUrl ? { WEB_APP_URL: options.webAppUrl } : {}),

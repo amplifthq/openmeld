@@ -146,6 +146,7 @@ import {
   readDispatchAgentReplyObservation,
 } from "./dispatch-agent-reply-observation";
 import { settleAgentReplyProposals } from "./dispatch-agent-reply-settlement";
+import { createDispatchAiUsageCollector } from "./dispatch-ai-usage";
 import {
   type DispatchImageAttachmentPreparation,
   downloadDispatchImageAttachment,
@@ -1170,6 +1171,7 @@ export async function handleDispatchDeliverFrame(input: {
   let completedTurnId: string | null = null;
   let completedTurnConversationId: string | null = null;
   let completedNativeResult: RuntimeTaskResult | null = null;
+  const aiUsage = createDispatchAiUsageCollector();
   let executionContextCompletion: ExecutionContextCompletion | undefined;
   const invalidStateStrategy = executionContextLedgerPolicy(
     parsedTask.executionContext
@@ -1730,6 +1732,7 @@ export async function handleDispatchDeliverFrame(input: {
     };
     const onNativeTurnCompleted = (result: RuntimeTaskResult) => {
       completedNativeResult = result;
+      aiUsage.observe(result.resultPayload.telemetry);
     };
     const onRuntimeEvent = routeReasoningEvents(observeReasoning, (event) => {
       observeWorkspaceProcess(event);
@@ -2076,9 +2079,9 @@ export async function handleDispatchDeliverFrame(input: {
       agentControllerConversationOverride ?? null;
     const buildCurrentResultPayload =
       async (): Promise<OpenMeldDaemonTaskResultPayload> => {
-        if (parsedTask.executionContext) {
-          await controllerTurnCompletion;
-        }
+        // A recorded CLI reply is a proposal, not the native turn's completion.
+        // Its final usage belongs in the same durable result submission.
+        await controllerTurnCompletion;
         const currentContextDelta =
           resolveDispatchContextDeltaFromRuntimeResult(
             runtimeResult.dispatchResult
@@ -2125,7 +2128,7 @@ export async function handleDispatchDeliverFrame(input: {
           observedAgentControllerConversation,
           plannedAgentControllerConversation,
         });
-        return {
+        return aiUsage.apply({
           ...resolveDispatchResultPayload({
             attemptId: parsedTask.attemptId,
             contextDelta: currentContextDelta,
@@ -2151,7 +2154,7 @@ export async function handleDispatchDeliverFrame(input: {
           }),
           executionContextId: parsedTask.executionContext?.id,
           executionContextCompletion,
-        };
+        });
       };
     resultPayload = await buildCurrentResultPayload();
     const replySettlement = await settleAgentReplyProposals({
@@ -2317,11 +2320,11 @@ export async function handleDispatchDeliverFrame(input: {
     pendingAgentInteractionRegistry.removeTask(parsedTask.taskId);
   }
 
-  resultPayload = {
+  resultPayload = aiUsage.apply({
     ...resultPayload,
     executionContextId: parsedTask.executionContext?.id,
     executionContextCompletion,
-  };
+  });
 
   emitDispatchRuntimeEvidenceTransition({
     currentSocketRef,

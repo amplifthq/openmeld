@@ -13,7 +13,10 @@
 // - non-trivial parser/codec logic
 // - provider-specific failure/diagnostics mapping
 
-import { openMeldDaemonProviderAccessEvidenceSchema } from "@openmeld/schemas";
+import {
+  aiUsageObservationSchema,
+  openMeldDaemonProviderAccessEvidenceSchema,
+} from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
   AgentControllerPermissionMode,
@@ -21,6 +24,7 @@ import type {
   AgentControllerUsageLimit,
   AgentInteractionRequest,
   AgentInteractionResponse,
+  AiUsageObservation,
   ComputerFileAccessPolicy,
   ConversationPolicy,
   ExecutionContextTask,
@@ -357,6 +361,7 @@ export type AdapterDispatchContextDelta = {
 };
 
 export type AdapterDispatchTelemetry = {
+  aiUsage?: AiUsageObservation[];
   completedAtMs: number;
   contextCompactionObserved?: boolean;
   contextHealed?: boolean;
@@ -376,6 +381,13 @@ export type AdapterDispatchTelemetry = {
   timeoutTriggeredAtMs?: number;
   tokenUsage?: AdapterTokenUsage;
 };
+
+export function readAdapterAiUsageObservation(
+  value: unknown
+): AiUsageObservation | null {
+  const result = aiUsageObservationSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
 
 export type AdapterModelNegotiationDiagnostics = {
   checkAttempt: 1 | 2;
@@ -1094,8 +1106,16 @@ const extractDispatchTelemetry = (
       ? { timeoutTriggeredAtMs: telemetry.timeoutTriggeredAtMs }
       : {}),
     ...(tokenUsage ? { tokenUsage } : {}),
+    ...extractAiUsageTelemetry(telemetry.aiUsage),
   };
 };
+
+function extractAiUsageTelemetry(
+  value: unknown
+): Pick<AdapterDispatchTelemetry, "aiUsage"> {
+  const result = aiUsageObservationSchema.array().safeParse(value);
+  return result.success ? { aiUsage: result.data } : {};
+}
 
 function extractAdapterTokenUsage(value: unknown): AdapterTokenUsage | null {
   const usage = toUnknownRecord(value);

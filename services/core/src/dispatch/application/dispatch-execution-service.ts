@@ -105,6 +105,7 @@ import { truncateSpaceTextToProtocolLimit } from "../../space/application/space-
 import type { FinalOutcomeWriteAuthority } from "../../space/application/types";
 import { readForgottenDeviceRecord } from "../../start/infrastructure/d1/forgotten-device-repo";
 import { RUNTIME_TRANSPORT_WAIT_RESULT_TIMEOUT_MS } from "../../strategy-constants";
+import { recordAcceptedLocalAiUsage } from "../../usage/local-ai-usage";
 import {
   claimFinalReplyEmission,
   claimReplyingHintEmission,
@@ -1612,6 +1613,15 @@ export const finalizeAcceptedDispatchResult = async (input: {
   targetProfileMentionLabel?: string | null;
   targetProfileName?: string | null;
 }): Promise<AcceptedDispatchFinalizationResult> => {
+  const usageIdentityDb = localStateDb(input.env);
+  if (usageIdentityDb) {
+    await recordAcceptedLocalAiUsage({
+      db: input.db,
+      identityDb: usageIdentityDb,
+      dispatchMessage: input.dispatchMessage,
+      inboxRecord: input.inboxRecord,
+    });
+  }
   const existingResult = await getDispatchResultByDispatchId({
     db: input.db,
     dispatchId: input.dispatchMessage.dispatchId,

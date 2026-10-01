@@ -274,6 +274,16 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_list_agent_activity_sessions"],
     namespace: "agents_and_computers",
   },
+  openmeld_read_ai_usage: {
+    aliases: [
+      "AI token usage",
+      "model spend",
+      "Local Agent consumption",
+      "组织 AI 用量",
+      "Computer token usage",
+    ],
+    namespace: "organization",
+  },
   openmeld_list_routine_runs: {
     aliases: [
       "Routine run history",

@@ -106,6 +106,9 @@ function projectMemberComputers(input: {
     });
     return {
       computerId: device.deviceId,
+      ...(device.connectedComputerId
+        ? { connectedComputerId: device.connectedComputerId }
+        : {}),
       deviceDisplayName:
         device.userDisplayName ?? device.observedDisplayName ?? "Computer",
       deviceType: device.deviceType ?? "unknown",

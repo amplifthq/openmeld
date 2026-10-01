@@ -10,6 +10,16 @@ import {
   resolveModel,
 } from "@flue/runtime/internal";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// These tests exercise routing and native provider payloads in Node. The
+// Durable Object attribution boundary is exercised by localhost metering smoke.
+vi.mock("../flue-adapter/ai-usage", () => ({
+  createFlueMeteredFetch:
+    (input: { fetch?: typeof fetch }) =>
+    (...args: Parameters<typeof fetch>) =>
+      (input.fetch ?? fetch)(...args),
+}));
+
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,

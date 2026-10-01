@@ -1326,25 +1326,18 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("fails a Routine visibly when the Organization daily admission limit is reached", async () => {
+  it("fails a Routine visibly when the Organization AI allowance is exhausted", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     await env.OPENMELD_DB.prepare(
       `
-        INSERT INTO openMeldRemoteAgent_daily_admissions (
-          organization_id,
-          day_utc,
-          admitted_count,
-          last_admission_idempotency_key,
-          created_at_ms,
-          updated_at_ms
-        ) VALUES (?, ?, 1, 'seeded_admission', ?, ?)
+        INSERT INTO organization_ai_usage_policies
+          (organization_id, daily_limit_nano_usd, updated_at_ms) VALUES (?, 0, ?)
       `
     )
-      .bind(fixture.organizationId, "2026-07-12", fixture.nowMs, fixture.nowMs)
+      .bind(fixture.organizationId, fixture.nowMs)
       .run();
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({
-      dailyAdmissionLimit: "1",
       fixture,
       workerSubmit,
     });
@@ -1368,7 +1361,7 @@ describe("Remote Agent Routine native delivery", () => {
           errorCode: "remote_agent.daily_quota_exceeded",
         }),
         text: expect.stringContaining(
-          "Routine “Daily feedback review” could not run because the Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC."
+          "Routine “Daily feedback review” could not run because the Organization has used its daily AI allowance. It resets at 00:00 UTC."
         ),
       })
     );
@@ -4625,7 +4618,6 @@ async function seedRoutineDeliveryFixture() {
 function buildEnv(input: {
   additionalSpaceIds?: string[];
   continuitySignals?: SignalEnvelope[];
-  dailyAdmissionLimit?: string;
   fixture: Awaited<ReturnType<typeof seedRoutineDeliveryFixture>>;
   routineWorkflowSendEvent?: ReturnType<typeof vi.fn>;
   runtimeEnabled?: string;
@@ -4709,7 +4701,6 @@ function buildEnv(input: {
     } as unknown as CoreBindings["OPENMELD_DAEMON_DISPATCH_QUEUE"],
     OPENMELD_DB: env.OPENMELD_DB,
     OPENMELD_LOCAL_STATE_DB: env.OPENMELD_DB,
-    OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT: input.dailyAdmissionLimit,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: input.runtimeEnabled ?? "true",
     WEB_APP_URL: input.webAppUrl,
     OPENMELD_REMOTE_AGENT_WORKER: {

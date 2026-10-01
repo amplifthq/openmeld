@@ -4038,6 +4038,7 @@ export class Space extends DurableObject<CoreBindings> {
     const dispatchMessage = buildAcceptedDispatchFinalizationQueueMessage({
       fact: command.dispatchFact,
       inboxRecord,
+      organizationId: this.readSpaceMetaRecord()?.organizationId,
       sourceSignal,
       sourceProfileNameSnapshot,
       spaceContract,

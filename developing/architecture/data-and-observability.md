@@ -2894,15 +2894,137 @@ schema and historical migrations because old rows are durable evidence. Active
 Core code no longer reads or writes those fields, does not refresh AI Gateway
 REST Logs, and does not add usage columns to the native delivery ledger. Runtime
 containment is the global Remote Agent kill switch plus the optional
-per-organization blocklist in Worker configuration. The active daily admission
-counter is separate storage and must never read from or write to the retired
-guardrail table.
+per-organization blocklist in Worker configuration. Historical daily admission
+counters are also inactive; neither table is the AI consumption ledger.
 
 Usage evidence for the Flue Remote Agent lives in the Remote Agent worker:
 per-turn usage records are normalized from model usage, stored in the worker's
 OpenMeld-owned records, emitted to Analytics Engine, and exposed to operators
 through `readUsageDiagnostics`. Analytics and usage diagnostics are read models;
 they do not decide route ownership, retry, timeout, or final execution state.
+
+Organization AI consumption has a separate Core-owned durable ledger,
+`ai_usage_records`. Its shared contract is `aiUsageRecordSchema` in
+`packages/schemas`. Each record identifies one provider request and its
+Organization, runtime, model, Agent Profile, Space, task, attempt, and Computer
+when available. Native event identity deduplicates transport retries. Records
+contain numeric usage and correlation identifiers, never prompts, completions,
+reasoning content, credentials, or local paths. Missing provider evidence is
+null and appears in missing-evidence counts; it is never fabricated as zero.
+
+Input includes cached input and output includes reasoning, so detail counters
+must not be added to the total again. Costs use integer nano-USD and distinguish
+provider-reported charges from provider estimates. Local consumption is
+informational and never contributes to OpenMeld's shared allowance. Queries
+always bind the authorized Organization and accept bounded time and execution
+filters; the same read model serves people, Center Agent, and later Computer
+and evaluation views.
+
+The query can rank observed tasks or Agent Profiles by known provider charges
+or native tokens, with a bounded limit and explicit `hasMore`. Model totals
+still cover the full selected window. Tasks without a task ID may be grouped
+by their dispatch identity; unattributed auxiliary costs remain in totals.
+Observed execution attempts count distinct attempt IDs, not model requests or
+provider retries. Missing attempt attribution stays visible. Agent rankings do
+not infer a retry count across unrelated tasks. All values describe the query
+window, not necessarily a task's lifetime.
+
+Coverage describes observed requests only. It separates reported, pending,
+provider-unavailable, and collection-failed records, with missing-token/cost
+counts. Pending receipts older than one hour are flagged for investigation;
+this read-time age classification never changes execution state or stops work.
+`includeIssues` returns a bounded list of the original safe usage receipts for
+diagnosis, without prompts, output, or credentials. No records is not proof of
+no usage by an unreported controller or interrupted local process.
+
+Task rankings enrich at most twenty dispatches per query through the existing
+RuntimeCoordinator projection or native delivery and task-terminal repositories.
+Outcome evidence is nullable and truncation is explicit. Usage does not infer
+success from a nonzero count, copy task text into the ledger, or become an
+execution authority. Organization membership grants usage visibility, not new
+access to private conversation content.
+
+`organization_ai_usage_policies` owns the optional daily allowance independently
+of consumption. No policy row or a null limit means unlimited; production does
+not receive an implicit cap. Better Auth continues to own Organization identity,
+membership, and roles. Usage records do not introduce another identity system,
+payment processor, execution authority, or historical backfill.
+
+Remote requests create a pending receipt before contacting OpenRouter and
+settle from its existing JSON response or final SSE usage chunk. Provider
+request IDs are retained. A pending receipt can become reported or unavailable;
+settlement cannot rewrite execution attribution. Terminal replay is idempotent.
+Model, research, and image calls persist settlement in the existing worker
+storage and reuse callback reconciliation for delivery retries. Session titles
+and activity digests run through the same existing Durable Object class so
+their settlement uses that durable outbox too; a dedicated organization digest
+instance carries delivery only, never a second consumption ledger. Inference
+is never replayed merely to recover usage. Missing final provider usage is
+`unavailable`; request/stream/response collection failures are
+`collection_failed` with a bounded reason code. Cancellation preserves already
+observed native usage. Requests interrupted before reporting usage remain
+explicitly incomplete; no extra provider polling is introduced to invent or
+recover unknown charges.
+No supplier polling or extra inference request is added.
+
+Codex uses changed current-turn token events and native request counters,
+ignoring resume history and rate-limit-only repeats. Claude uses unique native
+assistant message IDs; OpenCode uses completed assistant messages from the
+accepted session tree. Core derives local attribution from the accepted result
+inbox and execution registry, including the connected Computer identity rather
+than its device ID. Only newly reported OpenMeld executions are included.
+The Service waits for the native turn to settle before submitting a CLI reply
+proposal, then includes its receipts in the existing durable result outbox.
+Receipts from repair and reconsideration turns are accumulated by native event
+ID. Space supplies Organization attribution when rebuilding finalization facts.
+Controllers without native usage reporting remain unreported. SDK estimates
+remain distinct from invoiced provider charges.
+
+The public `POST /v1/organizations/current/usage/query` and
+`openmeld_read_ai_usage` Center Agent tool share the same Core query owner.
+Every Organization member may read Organization-wide usage. Cross-Organization
+access is still rejected. Settings Usage exposes organization costs and Local
+tokens, plus the signed-in member's Remote Agent subset. Routines retains its
+independent 50-item limit; the daily allowance is optional.
+
+Optional `agentProfileIds` intersects the existing organization and query scope.
+An explicitly empty list matches no receipts. Settings derives owned non-Center
+Profiles from the organization directory; this display filter is not a new
+authorization boundary. Every member retains organization-wide visibility.
+
+Computer Local Agent consumption reads use the same query with `runtime=local`,
+the enrolled `connectedComputerId`, and the exact `controller` reference. The
+organization Computer projection carries that enrollment identity separately
+from its existing device route ID; a missing enrollment identity never falls
+back to a device ID or an unfiltered organization query. The same controller
+filter is available to Center Agent. No new consumption ledger is introduced.
+
+Optional `bucketBoundariesMs` requests at most 31 time buckets from that same
+query. Boundaries must strictly increase and exactly cover `[fromMs, toMs)`;
+explicit boundaries preserve local calendar days across daylight-saving changes.
+Core returns dense `timeSeries` rows with token totals, request counts, and
+missing-token counts in the same D1 batch snapshot as the model totals. Empty
+buckets mean no recorded receipts, not proof of no activity. Only callers that
+request buckets receive the new response field; the Center Agent tool accepts
+the same boundaries. Optional `groupTimeSeriesBy: "controller"` requires bucket
+boundaries and adds per-controller totals to each bucket using the same scoped
+SQL aggregation. Bucket totals equal the sum of those controller rows; null
+attribution remains a separate group. Queries without this option retain the
+ungrouped response. `groupTimeSeriesBy: "model"` instead groups by provider and
+model. Only these new model-grouped queries add provider-reported cost, estimated
+cost, and missing-cost counts to buckets and model rows. Existing ungrouped and
+controller-grouped token responses retain their shape; new bucket cost fields
+are optional for readers. Core/Gateway receivers must accept the new model
+grouping before Web or Center Agent callers request it. This read projection
+introduces no migration, writer, or execution authority.
+
+Operators can inspect or preview changes with
+`node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
+Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets
+only the current running worktree lane; staging and production require an
+explicit environment and authorized Wrangler access. No deploy is needed to
+adjust this policy. Enforcement uses confirmed UTC-day costs and may overshoot
+for in-flight requests; it is not a concurrent reservation system.
 
 Successful Flue conversation compaction is operational evidence, not a second
 conversation or memory store. During compaction, the worker may retain one

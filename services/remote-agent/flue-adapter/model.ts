@@ -22,6 +22,7 @@ import {
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
+import { createFlueMeteredFetch } from "./ai-usage";
 import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import {
@@ -102,6 +103,7 @@ const openRouterModelMetadataResponseSchema = z.object({
 });
 
 type RemoteAgentModelEnv = {
+  OPENMELD_CORE_WORKER?: unknown;
   OPENMELD_CENTER_AGENT_PERFORMANCE?: AnalyticsEngineDataset;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?: string;
@@ -150,6 +152,7 @@ type FetchModelMetadata = (
 
 const modelRuntimeConfigCache = new Map<string, CachedModelRuntimeConfig>();
 type RegisteredRemoteAgentModelCapabilities = {
+  meterFetch: (fetch?: typeof globalThis.fetch) => typeof globalThis.fetch;
   reportCompletion: (
     completion: ReturnType<typeof projectProviderCompletion>
   ) => void;
@@ -188,6 +191,12 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     (model) => model.id === modelId && model.api === "openai-completions"
   ) as Model<"openai-completions"> | undefined;
   registeredRemoteAgentModelCapabilities.set(providerId, {
+    meterFetch: (fetch) =>
+      createFlueMeteredFetch({
+        coreWorker: input.env.OPENMELD_CORE_WORKER,
+        model: modelId,
+        fetch,
+      }),
     reportCompletion: (completion) => {
       const succeeded = providerCompletionSucceeded(completion);
       if (succeeded) {
@@ -772,7 +781,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
         createAttempt: () =>
-          base.stream(resolvedModel, context, resolvedOptions),
+          base.stream(resolvedModel, context, {
+            ...resolvedOptions,
+            fetch: capabilities?.meterFetch(options?.fetch),
+          }),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });
@@ -796,7 +808,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
         createAttempt: () =>
-          base.streamSimple(resolvedModel, context, resolvedOptions),
+          base.streamSimple(resolvedModel, context, {
+            ...resolvedOptions,
+            fetch: capabilities?.meterFetch(options?.fetch),
+          }),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });

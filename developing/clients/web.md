@@ -1413,12 +1413,13 @@ The Settings secondary sidebar always shows these two groups:
   Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
   the existing feedback dialog rather than creating a route or a second
   submission contract.
-- **Current Organization name** — **General**, **Center Agent**, **Members**,
+- **Current Organization name** — **General**, **Center Agent**, **Usage**, **Members**,
   **Invitations**, and **Security**. General owns identity and lifecycle, Center
-  Agent owns coordinator identity, connection, model, usage, and audit history,
+  Agent owns coordinator identity, connection, model, and audit history,
   Members owns roles, Invitations owns requests and invitation delivery, and
   Security owns information protection. Security is visible only to owners and
-  admins. A personal workspace shows General only: organization membership
+  admins. Usage owns organization consumption and the signed-in member's Remote
+  Agent view. A personal workspace shows General and Usage: organization membership
   and invitation management do not apply there, and its coordinator belongs to
   Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
@@ -1584,7 +1585,7 @@ unavailable.
 global App Settings destination (grouped under the current Organization's name,
 or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
 The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
-It contains Model, Usage, the Audit Log, and the reversible
+It contains Model, the Audit Log, and the reversible
 Organization-wide operating control in **Danger Zone**. Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and
@@ -1701,6 +1702,33 @@ resolution waits for the initial Organization projection refresh before using
 cached identity evidence. Stale local-agent checks display **Status out of date**:
 current availability is unknown until the Computer reports a new check. This
 does not mean that the Agent version is outdated or that repair is required.
+
+Local Agent cards show quiet tokens-today text after the account usage ring only when the current
+workspace has recorded positive token consumption for that controller on that
+enrolled Computer. The existing Details dialog includes an OpenMeld usage
+section with Today/Last 7 days, input/output totals, models, and an optional
+top-task disclosure. Periods use the viewer's local calendar days. When only
+the last seven days contain usage, Details starts there; periods without
+recorded tokens are unavailable. No usage records or unsupported collection
+produce no consumption copy, badge, placeholder, or reserved space. These
+statistics remain separate from provider account Usage Limits and do not
+present Local usage as free or as spending the organization allowance.
+Owner and teammate views read the same organization-scoped consumption query.
+
+Computer details place a compact Local Agent token usage card directly below Computer
+Connection. It combines recorded Local Agent tokens on that enrolled Computer
+in the current Organization. The default seven-day area chart uses calendar
+days in the viewer's time zone, including today so far. Details contains the
+7/30-day selector, refresh, and an accessible daily input/output/total table.
+Each controller has an unstacked series, a labelled legend, and its existing
+Local Agent icon in tooltips and table rows. Colors reuse the shared controller
+brand accents; monochrome Cursor and OpenCode logos use fixed amber and teal
+chart accents. Unknown attribution remains explicitly labelled. Daily controller
+rows and curves use the same scoped time-series query.
+Initial loading uses the shared Evil Charts skeleton; no recorded tokens hides
+the card. Explicit missing-token receipts produce gaps instead of known-zero
+points, and partial totals are disclosed in Details. No provider polling or
+inference is performed to load the chart.
 
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
@@ -1837,15 +1865,23 @@ File access card. Other owned Computers remain visible with guidance to open
 OpenMeld on that Computer; Web does not imply that their local policy can be
 managed remotely. This page never reads, stores, or edits a policy itself.
 
-The **Usage** section on **Center Agent → Center Agent settings** is a read-only
-Organization overview available to every
-active member. It shows today's Organization-wide Center Agent wake admissions,
-the next UTC reset in both local and UTC time, and one current Routine count
-against the shared 50-definition limit. It does not present separate enabled and
-total quotas because every definition may be enabled. It reads the Core-owned
-projections through the shared Web → Gateway → Core contract and does not introduce usage
-history, export, per-user attribution, administrator controls, token counts, or
-billing concepts.
+**Settings → Usage** is a read-only destination available to every active member.
+Its text-only navigation matches the other Settings items. Fluid **Organization /
+My agents** tabs share the current Organization scope. Organization shows recorded
+Center Agent and Remote Agent costs by model, separately recorded Local Agent
+tokens, and the existing 50-definition Routine limit. My agents selects the
+signed-in member's non-Center Agent Profiles from the organization directory and
+shows their Remote runtime consumption; it is a subset of organization usage,
+not another allowance. Empty ownership selects no receipts.
+
+Both cost views reuse the shared chart, model brand icons, and Fluid controls.
+They start at seven local calendar days, with a 30-day selector, refresh, model
+totals, and personal Agent totals in Details. Costs carry a green **Free** badge;
+provider estimates and missing costs are not presented as invoiced charges.
+Local token charts reuse the Computer chart without a Computer filter and remain
+separate from costs. A daily allowance appears only when explicitly configured,
+with the existing UTC reset. No billing controls, export, or task drilldown is
+introduced. These views read the existing Web → Gateway → Core projections.
 
 For a non-personal Organization, **Settings → General** shows the current
 Organization logo as a separate autonomous section before Organization

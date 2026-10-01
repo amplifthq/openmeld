@@ -10,6 +10,7 @@ import { OpenMeldServiceCard } from "#/components/agents/agents-page-openmeld-se
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveOrganizationComputerSummaryStatus } from "#/lib/computer-summary-status";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
+import { ComputerTokenUsage } from "./computer-token-usage";
 import {
 	formatOrganizationComputerLastSeen,
 	formatOrganizationComputerPlatform,
@@ -61,6 +62,7 @@ export function OrganizationComputerPickerCard(input: {
 }
 
 export function OrganizationComputerDetail(input: {
+	organizationId?: string;
 	computer: OrganizationComputer;
 }) {
 	return (
@@ -77,12 +79,17 @@ export function OrganizationComputerDetail(input: {
 				}}
 				view="team"
 			/>
+			<ComputerTokenUsage
+				computerId={input.computer.connectedComputerId}
+				organizationId={input.organizationId}
+			/>
 			<LocalAgentsCard
 				computer={{
 					deviceDisplayName: input.computer.deviceDisplayName,
 					localAgents: input.computer.localAgents.map((agent) => {
 						const parsed = parseAgentControllerRef(agent.agentControllerRef);
 						return {
+							controller: agent.agentControllerRef,
 							agentId: parsed?.id ?? agent.agentControllerRef,
 							details: agent.details,
 							displayName: formatLocalAgentDisplayName(
@@ -93,6 +100,14 @@ export function OrganizationComputerDetail(input: {
 						};
 					}),
 				}}
+				usageScope={
+					input.organizationId && input.computer.connectedComputerId
+						? {
+								organizationId: input.organizationId,
+								computerId: input.computer.connectedComputerId,
+							}
+						: undefined
+				}
 				view="team"
 			/>
 		</div>
