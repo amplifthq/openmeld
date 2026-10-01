@@ -2986,6 +2986,13 @@ Every Organization member may read Organization-wide usage. Cross-Organization
 access is still rejected. Settings only exposes today's platform model cost
 and optional allowance; Routines retains its independent 50-item limit.
 
+Computer Local Agent consumption reads use the same query with `runtime=local`,
+the enrolled `connectedComputerId`, and the exact `controller` reference. The
+organization Computer projection carries that enrollment identity separately
+from its existing device route ID; a missing enrollment identity never falls
+back to a device ID or an unfiltered organization query. The same controller
+filter is available to Center Agent. No new consumption ledger is introduced.
+
 Operators can inspect or preview changes with
 `node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
 Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets

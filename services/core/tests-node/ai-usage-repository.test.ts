@@ -38,6 +38,47 @@ const record: AiUsageRecord = {
 const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
 
 describe("Organization AI consumption", () => {
+  it("isolates one local controller on one enrolled computer across model and task reads", async () => {
+    const harness = createHarness();
+    try {
+      for (const [eventId, organizationId, computerId, controller] of [
+        ["codex", "org-1", "computer-1", "builtin:codex"],
+        ["claude", "org-1", "computer-1", "builtin:claude-code"],
+        ["other-computer", "org-1", "computer-2", "builtin:codex"],
+        ["other-org", "org-2", "computer-1", "builtin:codex"],
+      ]) {
+        await recordAiUsage(harness.db, {
+          ...record,
+          eventId,
+          organizationId,
+          computerId,
+          controller,
+          runtime: "local",
+          cost: null,
+        });
+      }
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: {
+          ...query,
+          runtime: "local",
+          computerId: "computer-1",
+          controller: "builtin:codex",
+          groupBy: "task",
+        },
+      });
+      expect(result.models).toMatchObject([
+        { requests: 1, totalTokens: 120, missingCostRequests: 1 },
+      ]);
+      expect(result.breakdown?.groups).toMatchObject([
+        { taskId: "task-1", requests: 1, totalTokens: 120 },
+      ]);
+      expect(result.coverage?.reportedRequests).toBe(1);
+    } finally {
+      harness.close();
+    }
+  });
   it("ranks observed tasks and Agents without conflating retries, unknown cost, or other organizations", async () => {
     const harness = createHarness();
     try {

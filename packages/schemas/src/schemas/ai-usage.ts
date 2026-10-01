@@ -82,6 +82,7 @@ export const aiUsageQuerySchema = z
     taskId: identifier.optional(),
     dispatchId: identifier.optional(),
     computerId: identifier.optional(),
+    controller: identifier.optional(),
     groupBy: z.enum(["model", "task", "agent"]).optional(),
     sortBy: z.enum(["cost", "tokens"]).optional(),
     limit: z.number().int().min(1).max(50).optional(),

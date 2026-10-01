@@ -103,6 +103,7 @@ export async function queryAiUsage(input: {
     taskId: "task_id",
     dispatchId: "json_extract(record_json, '$.dispatchId')",
     computerId: "computer_id",
+    controller: "controller",
   } as const;
   for (const [key, column] of Object.entries(filters)) {
     const value = query[key as keyof typeof filters];

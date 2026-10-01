@@ -3438,6 +3438,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         taskId: optionalNonEmptyStringSchema,
         dispatchId: optionalNonEmptyStringSchema,
         computerId: optionalNonEmptyStringSchema,
+        controller: optionalNonEmptyStringSchema,
         groupBy: optional(picklist(["model", "task", "agent"])),
         sortBy: optional(picklist(["cost", "tokens"])),
         limit: optional(pipe(number(), integer(), minValue(1), maxValue(50))),
