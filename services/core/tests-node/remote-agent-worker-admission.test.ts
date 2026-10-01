@@ -1,5 +1,5 @@
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { submitRemoteAgentWorkerAdmission } from "../src/remote-agent/application/remote-agent-worker-admission";
 import {
@@ -403,8 +403,13 @@ function pausedCenterAgentDb(): D1Database {
 }
 
 function centerAgentPauseRaceDb(): D1Database {
+  const harness = createSqliteD1Harness();
+  onTestFinished(() => harness.close());
+  applyDrizzleMigrationForTable(harness, "ai_usage_records");
+  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
   let designationReadCount = 0;
   return {
+    batch: harness.db.batch.bind(harness.db),
     prepare: vi.fn((sql: string) => {
       const normalizedSql = sql.replace(/\s+/gu, " ").trim().toLowerCase();
       if (normalizedSql.includes("from center_agent_designations")) {
@@ -430,17 +435,7 @@ function centerAgentPauseRaceDb(): D1Database {
           })),
         };
       }
-      if (normalizedSql.includes("from organization_ai_usage_policies")) {
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn(() => null),
-          })),
-        };
-      }
-      if (normalizedSql.includes("from ai_usage_records")) {
-        return { bind: vi.fn(() => ({ all: vi.fn(() => ({ results: [] })) })) };
-      }
-      throw new Error(`Unexpected SQL in admission race test: ${sql}`);
+      return harness.db.prepare(sql);
     }),
   } as unknown as D1Database;
 }
