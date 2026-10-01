@@ -38,6 +38,97 @@ const record: AiUsageRecord = {
 const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
 
 describe("Organization AI consumption", () => {
+  it("buckets native receipts at calendar boundaries without losing missing usage or crossing scope", async () => {
+    const harness = createHarness();
+    // New York's spring transition contains a 23-hour day, followed by two full days.
+    const edges: [number, number, number, number] = [
+      Date.parse("2026-03-08T05:00:00Z"),
+      Date.parse("2026-03-09T04:00:00Z"),
+      Date.parse("2026-03-10T04:00:00Z"),
+      Date.parse("2026-03-11T04:00:00Z"),
+    ];
+    try {
+      for (const [index, receipt] of [
+        { occurredAtMs: edges[0] - 1 },
+        { occurredAtMs: edges[0] },
+        { occurredAtMs: edges[1] - 1 },
+        {
+          occurredAtMs: edges[1],
+          tokens: null,
+          status: "unavailable" as const,
+        },
+        { occurredAtMs: edges[3] },
+        { occurredAtMs: edges[0], organizationId: "org-2" },
+        { occurredAtMs: edges[0], computerId: "computer-2" },
+      ].entries()) {
+        await recordAiUsage(harness.db, {
+          ...record,
+          runtime: "local",
+          computerId: "computer-1",
+          ...receipt,
+          eventId: `bucket-${index}`,
+        });
+      }
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: {
+          fromMs: edges[0],
+          toMs: edges[3],
+          runtime: "local",
+          computerId: "computer-1",
+          bucketBoundariesMs: edges,
+          groupBy: "task",
+          includeIssues: true,
+        },
+      });
+      expect(result.timeSeries).toEqual([
+        {
+          fromMs: edges[0],
+          toMs: edges[1],
+          requests: 2,
+          inputTokens: 200,
+          outputTokens: 40,
+          totalTokens: 240,
+          missingTokenRequests: 0,
+        },
+        {
+          fromMs: edges[1],
+          toMs: edges[2],
+          requests: 1,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          missingTokenRequests: 1,
+        },
+        {
+          fromMs: edges[2],
+          toMs: edges[3],
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          missingTokenRequests: 0,
+        },
+      ]);
+      expect(result.models[0]?.totalTokens).toBe(240);
+      expect(result.breakdown?.groups[0]?.totalTokens).toBe(240);
+      expect(result.issues?.records).toHaveLength(1);
+      await expect(
+        queryAiUsage({
+          db: harness.db,
+          organizationId: "org-1",
+          query: {
+            fromMs: edges[0],
+            toMs: edges[3],
+            bucketBoundariesMs: [edges[0], edges[0], edges[3]],
+          },
+        })
+      ).rejects.toThrow("Buckets must increase strictly");
+    } finally {
+      harness.close();
+    }
+  });
   it("isolates one local controller on one enrolled computer across model and task reads", async () => {
     const harness = createHarness();
     try {

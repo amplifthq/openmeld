@@ -87,6 +87,8 @@ export const aiUsageQuerySchema = z
     sortBy: z.enum(["cost", "tokens"]).optional(),
     limit: z.number().int().min(1).max(50).optional(),
     includeIssues: z.boolean().optional(),
+    // Explicit calendar boundaries also support 23/25-hour daylight-saving days.
+    bucketBoundariesMs: z.array(count).min(2).max(32).optional(),
   })
   .refine(
     (value) =>
@@ -94,6 +96,16 @@ export const aiUsageQuerySchema = z
     {
       message: "Choose a period of up to 31 days.",
     }
+  )
+  .refine(
+    ({ bucketBoundariesMs: edges, fromMs, toMs }) =>
+      !edges ||
+      (edges[0] === fromMs &&
+        edges.at(-1) === toMs &&
+        edges.every(
+          (edge, index) => index === 0 || edge > (edges[index - 1] ?? -1)
+        )),
+    { message: "Buckets must increase strictly and cover the query period." }
   );
 
 export const aiUsageSummarySchema = z.strictObject({
@@ -168,6 +180,20 @@ export const aiUsageQueryResponseSchema = z.strictObject({
   fromMs: count,
   toMs: count,
   models: z.array(aiUsageSummarySchema),
+  timeSeries: z
+    .array(
+      z.strictObject({
+        fromMs: count,
+        toMs: count,
+        requests: count,
+        inputTokens: count,
+        outputTokens: count,
+        totalTokens: count,
+        missingTokenRequests: count,
+      })
+    )
+    .max(31)
+    .optional(),
   coverage: aiUsageCoverageSchema.optional(),
   issues: z
     .strictObject({

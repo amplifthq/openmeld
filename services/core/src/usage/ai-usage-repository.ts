@@ -179,10 +179,36 @@ export async function queryAiUsage(input: {
         .bind(...values, limit + 1)
     );
   }
+  const seriesIndex = statements.length;
+  const edges = query.bucketBoundariesMs;
+  if (edges) {
+    // Bound edges precede the shared scope predicates. No client SQL enters this query.
+    const buckets = edges
+      .slice(1)
+      .map((_, index) => `WHEN occurred_at_ms < ? THEN ${index}`)
+      .join(" ");
+    statements.push(
+      input.db
+        .prepare(`
+      SELECT CASE ${buckets} END AS bucketIndex,
+        COUNT(*) AS requests,
+        COALESCE(SUM(input_tokens), 0) AS inputTokens,
+        COALESCE(SUM(output_tokens), 0) AS outputTokens,
+        COALESCE(SUM(total_tokens), 0) AS totalTokens,
+        COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests
+      FROM ai_usage_records WHERE ${where}
+      GROUP BY bucketIndex ORDER BY bucketIndex
+    `)
+        .bind(...edges.slice(1), ...values)
+    );
+  }
   const results = await input.db.batch<Record<string, unknown>>(statements);
   const [models, coverage] = results;
   if (!(models && coverage?.results[0])) {
     throw new Error("AI usage query returned an incomplete snapshot.");
+  }
+  if (edges && !results[seriesIndex]) {
+    throw new Error("AI usage query returned an incomplete time series.");
   }
   const groups = groupBy === "model" ? undefined : results[2];
   const issues = query.includeIssues ? results[issuesIndex] : undefined;
@@ -190,6 +216,24 @@ export async function queryAiUsage(input: {
     fromMs: query.fromMs,
     toMs: query.toMs,
     models: models.results,
+    ...(edges
+      ? {
+          timeSeries: edges.slice(0, -1).map((fromMs, index) => {
+            const row = results[seriesIndex]?.results.find(
+              (entry) => entry.bucketIndex === index
+            );
+            return {
+              fromMs,
+              toMs: edges[index + 1],
+              requests: row?.requests ?? 0,
+              inputTokens: row?.inputTokens ?? 0,
+              outputTokens: row?.outputTokens ?? 0,
+              totalTokens: row?.totalTokens ?? 0,
+              missingTokenRequests: row?.missingTokenRequests ?? 0,
+            };
+          }),
+        }
+      : {}),
     ...(issues
       ? {
           issues: {

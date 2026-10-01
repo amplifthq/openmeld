@@ -12,7 +12,12 @@ const TEST_EXECUTION_CONTEXT = {
 describe("Organization Usage routes", () => {
   it("queries the authenticated organization and rejects caller-supplied organization identity", async () => {
     const { coreRpc, env } = makeEnv();
-    const query = { fromMs: 1000, toMs: 2000, computerId: "computer-1" };
+    const query = {
+      fromMs: 1000,
+      toMs: 2000,
+      computerId: "computer-1",
+      bucketBoundariesMs: [1000, 1500, 2000],
+    };
     const request = (body: unknown) =>
       app.fetch(
         new Request("http://local/v1/organizations/current/usage/query", {
@@ -37,6 +42,9 @@ describe("Organization Usage routes", () => {
       (await request({ ...query, toMs: 1000 + 32 * 86_400_000 })).status
     ).toBe(400);
     expect(coreRpc.readOrganizationAiUsage).toHaveBeenCalledTimes(1);
+    expect(
+      (await request({ ...query, bucketBoundariesMs: [1000, 2001] })).status
+    ).toBe(400);
   });
 
   it("forwards the active member context and returns the strict overview", async () => {

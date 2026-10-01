@@ -2993,6 +2993,15 @@ from its existing device route ID; a missing enrollment identity never falls
 back to a device ID or an unfiltered organization query. The same controller
 filter is available to Center Agent. No new consumption ledger is introduced.
 
+Optional `bucketBoundariesMs` requests at most 31 time buckets from that same
+query. Boundaries must strictly increase and exactly cover `[fromMs, toMs)`;
+explicit boundaries preserve local calendar days across daylight-saving changes.
+Core returns dense `timeSeries` rows with token totals, request counts, and
+missing-token counts in the same D1 batch snapshot as the model totals. Empty
+buckets mean no recorded receipts, not proof of no activity. Only callers that
+request buckets receive the new response field; the Center Agent tool accepts
+the same boundaries. This read projection introduces no migration or writer.
+
 Operators can inspect or preview changes with
 `node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
 Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets

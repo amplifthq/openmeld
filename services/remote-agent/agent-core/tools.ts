@@ -3443,6 +3443,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         sortBy: optional(picklist(["cost", "tokens"])),
         limit: optional(pipe(number(), integer(), minValue(1), maxValue(50))),
         includeIssues: optional(boolean()),
+        bucketBoundariesMs: optional(
+          pipe(
+            array(pipe(number(), integer(), minValue(0))),
+            minLength(2),
+            maxLength(32)
+          )
+        ),
       }),
       execute: async (payload) => {
         const context = await buildOrganizationMemberToolContext({
