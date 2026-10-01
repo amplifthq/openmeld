@@ -1209,6 +1209,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 							currentWorkLocation: "Launch planning",
 							queuedWorkLocations: [],
 							recoveryAction: { kind: "continue_interrupted_work" },
+							recoveryTargetWakeLifecycleId: "twl_interrupted",
 							status: "paused",
 							waitingCount: 0,
 						},
@@ -1224,6 +1225,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 
 		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledWith({
 			action: "continue_interrupted_work",
+			expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
 			agentProfileId: AGENT_PROFILE_ID,
 			organizationId: "org-acme",
 		});
@@ -1260,6 +1262,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 							currentWorkLocation: "Launch planning",
 							queuedWorkLocations: [],
 							recoveryAction: { kind: "continue_interrupted_work" },
+							recoveryTargetWakeLifecycleId: "twl_interrupted",
 							status: "paused",
 							waitingCount: 0,
 						},

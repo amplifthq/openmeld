@@ -7932,11 +7932,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       (
         hub as unknown as {
           rpcApproveAgentProfileWorkQueue: (input: {
+            expectedInterruptedTargetWakeLifecycleId: string;
             ownerUserId: string;
             targetProfileId: string;
           }) => Promise<unknown>;
         }
       ).rpcApproveAgentProfileWorkQueue({
+        expectedInterruptedTargetWakeLifecycleId: (
+          storageRecords.get(admissionKey) as {
+            recoveryGate: AgentProfileWorkRecoveryGate;
+          }
+        ).recoveryGate.interruptedWork.targetWakeLifecycleId,
         ownerUserId: "owner-1",
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       })
@@ -9528,11 +9534,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (
           hub as unknown as {
             rpcApproveAgentProfileWorkQueue: (input: {
+              expectedInterruptedTargetWakeLifecycleId: string;
               ownerUserId: string;
               targetProfileId: string;
             }) => Promise<unknown>;
           }
         ).rpcApproveAgentProfileWorkQueue({
+          expectedInterruptedTargetWakeLifecycleId: (
+            storageRecords.get(admissionKey) as {
+              recoveryGate: AgentProfileWorkRecoveryGate;
+            }
+          ).recoveryGate.interruptedWork.targetWakeLifecycleId,
           ownerUserId: "owner-1",
           targetProfileId: TARGET_AGENT_PROFILE_ID,
         })
@@ -9632,11 +9644,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       (
         hub as unknown as {
           rpcApproveAgentProfileWorkQueue: (input: {
+            expectedInterruptedTargetWakeLifecycleId: string;
             ownerUserId: string;
             targetProfileId: string;
           }) => Promise<unknown>;
         }
       ).rpcApproveAgentProfileWorkQueue({
+        expectedInterruptedTargetWakeLifecycleId: (
+          storageRecords.get(admissionKey) as {
+            recoveryGate: AgentProfileWorkRecoveryGate;
+          }
+        ).recoveryGate.interruptedWork.targetWakeLifecycleId,
         ownerUserId: "owner-1",
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       })
@@ -9710,7 +9728,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(storageRecords.has(interruptedHeadKey)).toBe(false);
   });
 
-  it("atomically approves and redrives queued work after the interrupted continuation succeeds", async () => {
+  it("approves only the observed recovery and redrives queued work once", async () => {
     const { hub, spaceFetchRequests, storageRecords } = createHarness();
     const queuedIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-recovery-approved",
@@ -9775,19 +9793,91 @@ describe("runtime transport runtime coordinator transport contract", () => {
       workItems: [queuedWork],
     });
 
-    await expect(
-      (
-        hub as unknown as {
-          rpcApproveAgentProfileWorkQueue: (input: {
-            ownerUserId: string;
-            targetProfileId: string;
-          }) => Promise<unknown>;
+    const recovery = hub as unknown as {
+      rpcApproveAgentProfileWorkQueue: (input: {
+        expectedInterruptedTargetWakeLifecycleId?: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const beforeStaleApproval = structuredClone(storageRecords);
+    const beforeRedrives = structuredClone(spaceFetchRequests);
+    for (const expectedInterruptedTargetWakeLifecycleId of [
+      undefined,
+      "twl_previous_recovery",
+    ]) {
+      await expect(
+        recovery.rpcApproveAgentProfileWorkQueue({
+          ...(expectedInterruptedTargetWakeLifecycleId
+            ? { expectedInterruptedTargetWakeLifecycleId }
+            : {}),
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({
+        status: expectedInterruptedTargetWakeLifecycleId
+          ? "not_pending"
+          : "unavailable",
+      });
+      expect(storageRecords).toEqual(beforeStaleApproval);
+      expect(spaceFetchRequests).toEqual(beforeRedrives);
+    }
+    const approvalRequest = {
+      expectedInterruptedTargetWakeLifecycleId:
+        interruptedWork.targetWakeLifecycleId,
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    // Exercise concurrent writes through the platform's real transaction
+    // isolation, not the in-memory harness's unsynchronized transaction mock.
+    const transport = (env as unknown as CoreBindings)
+      .OPENMELD_RUNTIME_TRANSPORT;
+    if (!transport) {
+      throw new Error("Expected runtime transport binding");
+    }
+    await runInDurableObject(
+      transport.get(transport.newUniqueId()),
+      async (_instance, durableState) => {
+        await durableState.storage.put(Object.fromEntries(storageRecords));
+        try {
+          const results = await Promise.all(
+            [0, 1].map(() =>
+              executionAdmission.approveRuntimeCoordinatorAgentProfileWorkQueue(
+                {
+                  ...approvalRequest,
+                  nowMs: Date.now() + 60_000,
+                  storage: durableState.storage,
+                }
+              )
+            )
+          );
+          expect(results.map((result) => result.status).sort()).toEqual([
+            "approved",
+            "not_pending",
+          ]);
+          expect(await durableState.storage.get(admissionKey)).toMatchObject({
+            recoveryGate: null,
+            workItems: [
+              expect.objectContaining({
+                dispatchId: "dispatch-recovery-approved",
+              }),
+            ],
+          });
+        } finally {
+          await durableState.storage.deleteAlarm();
         }
-      ).rpcApproveAgentProfileWorkQueue({
-        ownerUserId: "owner-1",
-        targetProfileId: TARGET_AGENT_PROFILE_ID,
-      })
+      }
+    );
+    await expect(
+      recovery.rpcApproveAgentProfileWorkQueue(approvalRequest)
     ).resolves.toEqual({ status: "approved" });
+    const afterApproval = structuredClone(storageRecords);
+    const afterRedrives = structuredClone(spaceFetchRequests);
+    await expect(
+      recovery.rpcApproveAgentProfileWorkQueue(approvalRequest)
+    ).resolves.toEqual({ status: "not_pending" });
+    expect(storageRecords).toEqual(afterApproval);
+    expect(spaceFetchRequests).toEqual(afterRedrives);
     expect(
       storageRecords.get(
         buildRuntimeCoordinatorHeadLifecycleStorageKey(

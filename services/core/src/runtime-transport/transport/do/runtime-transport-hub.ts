@@ -2180,6 +2180,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return { status: "unavailable" };
     }
     const response = await approveRuntimeCoordinatorAgentProfileWorkQueue({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsed.data.expectedInterruptedTargetWakeLifecycleId,
       nowMs: Date.now(),
       ownerUserId: parsed.data.ownerUserId,
       storage: this.ctx.storage,

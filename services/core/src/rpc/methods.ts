@@ -5632,7 +5632,9 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     (recovery.action === parsedBody.data.action ||
       (recovery.action === "fork_interrupted_work" &&
         (parsedBody.data.action === "skip_interrupted_work" ||
-          parsedBody.data.action === "continue_interrupted_work")) ||
+          (parsedBody.data.action === "continue_interrupted_work" &&
+            Boolean(recovery.forkInterruptedConversation) &&
+            recovery.authorizedContinuationClientMessageId !== null))) ||
       (recovery.action === "continue_interrupted_work" &&
         Boolean(recovery.forkInterruptedConversation) &&
         parsedBody.data.action === "fork_interrupted_work"));
@@ -5645,8 +5647,31 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     });
   }
 
+  // Read the caller's observed work identity, never fill it from this fresh
+  // read: an old tab may arrive while a later recovery offers the same action.
+  if (!recovery.interruptedTargetWakeLifecycleId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld is checking this Agent’s paused work. Try again.",
+      status: 503,
+    });
+  }
+  if (
+    parsedBody.data.expectedInterruptedTargetWakeLifecycleId !==
+    recovery.interruptedTargetWakeLifecycleId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_pending",
+      reason:
+        "This Agent’s paused work has changed. Review its current work before trying again.",
+      status: 409,
+    });
+  }
+
   if (parsedBody.data.action === "approve_queued_work") {
     await executeAgentProfileWorkQueueApproval({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
       ownerShard,
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
@@ -5762,11 +5787,14 @@ async function executeAgentProfileInterruptedWorkSkip(input: {
 }
 
 async function executeAgentProfileWorkQueueApproval(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   targetProfileId: string;
 }): Promise<void> {
   const approved = await input.ownerShard.rpcApproveAgentProfileWorkQueue({
+    expectedInterruptedTargetWakeLifecycleId:
+      input.expectedInterruptedTargetWakeLifecycleId,
     ownerUserId: input.ownerUserId,
     targetProfileId: input.targetProfileId,
   });

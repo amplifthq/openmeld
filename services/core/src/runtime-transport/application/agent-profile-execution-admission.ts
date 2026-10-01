@@ -2249,6 +2249,7 @@ export async function markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAtt
 }
 
 export async function approveRuntimeCoordinatorAgentProfileWorkQueue(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
   nowMs: number;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
@@ -2283,7 +2284,11 @@ export async function approveRuntimeCoordinatorAgentProfileWorkQueue(input: {
     if (!admission || admission.targetProfileId !== input.targetProfileId) {
       return { pendingPromotion: null, status: "not_pending" as const };
     }
-    if (admission.recoveryGate?.status !== "awaiting_owner_approval") {
+    if (
+      admission.recoveryGate?.status !== "awaiting_owner_approval" ||
+      admission.recoveryGate.interruptedWork.targetWakeLifecycleId !==
+        input.expectedInterruptedTargetWakeLifecycleId
+    ) {
       return { pendingPromotion: null, status: "not_pending" as const };
     }
     const approvedRecoveryGate = admission.recoveryGate;
