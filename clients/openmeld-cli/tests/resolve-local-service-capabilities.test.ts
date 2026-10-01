@@ -1,36 +1,12 @@
-import type { RuntimeAdapter } from "@openmeld/adapter-core";
-import { createLocalAdapterContainer } from "@openmeld/local-service";
 import { runtimeTransportBaseCapabilitiesSchema } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
-import { resolveDaemonCapabilities } from "../src/local-service/adapters/resolve-daemon-capabilities";
-
-function createStubAdapter(): RuntimeAdapter {
-  return {} as RuntimeAdapter;
-}
+import { resolveDaemonCapabilitiesFromAdapterIds } from "../src/local-service/adapters/resolve-daemon-capabilities";
 
 describe("resolve local service capabilities", () => {
   it("returns sorted runtime adapter capability snapshots for installed adapters", () => {
-    const localAdapterContainer = createLocalAdapterContainer([
-      {
-        adapter: createStubAdapter(),
-        adapterId: "openclaw",
-        transportModes: ["local-cli"],
-      },
-      {
-        adapter: createStubAdapter(),
-        adapterId: "unknown-adapter",
-        transportModes: ["local-cli"],
-      },
-      {
-        adapter: createStubAdapter(),
-        adapterId: "codex",
-        transportModes: ["codex-app-server"],
-      },
-    ]);
-
     expect(
-      resolveDaemonCapabilities({
-        localAdapterContainer,
+      resolveDaemonCapabilitiesFromAdapterIds({
+        adapterIds: ["openclaw", "unknown-adapter", "codex"],
       })
     ).toEqual({
       agentReplyContextReview: true,
@@ -94,18 +70,10 @@ describe("resolve local service capabilities", () => {
     });
   });
 
-  it("returns an empty object when no installed adapter has a registry capability snapshot", () => {
-    const localAdapterContainer = createLocalAdapterContainer([
-      {
-        adapter: createStubAdapter(),
-        adapterId: "unknown-adapter",
-        transportModes: ["local-cli"],
-      },
-    ]);
-
+  it("omits runtime adapters when no reported adapter has a registry capability snapshot", () => {
     expect(
-      resolveDaemonCapabilities({
-        localAdapterContainer,
+      resolveDaemonCapabilitiesFromAdapterIds({
+        adapterIds: ["unknown-adapter"],
       })
     ).toEqual({
       agentReplyContextReview: true,
@@ -142,26 +110,24 @@ describe("resolve local service capabilities", () => {
   });
 
   it("advertises profile configuration revisions only after route support is confirmed", () => {
-    const localAdapterContainer = createLocalAdapterContainer([]);
-
     expect(
-      resolveDaemonCapabilities({
-        localAdapterContainer,
+      resolveDaemonCapabilitiesFromAdapterIds({
+        adapterIds: [],
         profileConfigurationRevision: true,
       })
     ).toMatchObject({
       profileConfigurationRevision: true,
     });
     expect(
-      resolveDaemonCapabilities({
-        localAdapterContainer,
+      resolveDaemonCapabilitiesFromAdapterIds({
+        adapterIds: [],
       })
     ).not.toHaveProperty("profileConfigurationRevision");
   });
 
   it("keeps unscoped Service registration within the base capability contract", () => {
-    const capabilities = resolveDaemonCapabilities({
-      localAdapterContainer: createLocalAdapterContainer([]),
+    const capabilities = resolveDaemonCapabilitiesFromAdapterIds({
+      adapterIds: [],
     });
 
     expect(

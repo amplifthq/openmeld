@@ -2990,6 +2990,21 @@ when that Session is idle.
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
+Each configuration card validates and submits only its visible fields. Unchanged
+permission modes must not require renewed confirmation for unrelated edits;
+selecting a dangerous permission mode or changing controllers still requires the
+applicable confirmation. A non-editable permission capability is read-only.
+Readiness-backed configuration reads collaboration mode from
+`publicProfileConfiguration`; its compact `primaryBinding` omits that field.
+Model, collaboration, and permission cards close on submission and show a
+presentation-only optimistic value marked **Saving…**. The other model,
+collaboration, and permission editors remain usable; writes to the same Binding wait for the current write
+to settle. Failure restores the confirmed summary and preserves that card's
+draft and error for retry. Only a matching server response means **Saved**.
+Cache reads started before that response cannot overwrite it, and follow-up
+status refreshes run in the background without holding the save open. These
+optimistic summaries never grant permissions, change Wakeability, or become
+Binding execution truth.
 Agent identity controls in messages, Threads, and the Members panel open one
 compact Profile Details popover. It shows the Agent identity, current
 availability, and a primary **Chat with {Agent name}** action. The popover omits
@@ -4659,6 +4674,15 @@ the call is invisible instead of falling back to `connected app action`.
 
 The live work disclosure shares the existing progress row instead of adding a
 second row and keeps Stop immediately after the expandable work summary.
+Work disclosures and link previews must fit the containing message, including
+when a desktop Thread is resized without changing the browser viewport. The
+working label may wrap and increase the header height; the supporting summary
+truncates, and Stop remains within the bubble. Long work-step names wrap instead
+of widening their scroll viewport. Code, tables, and attachment strips retain
+their own horizontal scrolling without widening the message.
+Unchanged work steps retain their rendered motion trees during streaming text
+updates. The shared step uses React's default prop comparison so status, label,
+icon, and content changes still render immediately.
 While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never

@@ -13,6 +13,11 @@ import {
   runtimeTransportLocalAgentControlInterruptFramePayloadSchema,
 } from "@openmeld/schemas";
 import type { Presenter } from "../../runtime/presenter/types";
+import { sendDaemonFrame } from "../carrier/daemon-frame-transport";
+import {
+  handleLocalControlPlaneCancel,
+  handleLocalControlPlaneInterrupt,
+} from "../carrier/local-control-handlers";
 import { emitRunLine, toErrorMessage } from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
@@ -21,23 +26,12 @@ import type {
   InflightDispatchMeta,
   LedgerPaths,
   ParsedDaemonFrame,
-  PendingFrameWaiters,
 } from "../core/types";
 import {
   acknowledgeDispatchResultOutboxRecord,
   flushDispatchResultOutbox,
 } from "../dispatch/dispatch-result-outbox";
 import { enqueueDispatchDeliverFrame } from "../dispatch/execute-dispatch-task";
-import {
-  emitDaemonErrorFrame,
-  resolveHeartbeatResponseFrame,
-  resolveRegisterResponseFrame,
-  sendDaemonFrame,
-} from "./daemon-frame-transport";
-import {
-  handleLocalControlPlaneCancel,
-  handleLocalControlPlaneInterrupt,
-} from "./local-control-handlers";
 
 function handleDispatchInteractionResponse(input: {
   currentSocketRef: CurrentDaemonSocketRef;
@@ -176,7 +170,7 @@ function applyReasoningPreference(
   }
 }
 
-export function handleDaemonSocketFrame(input: {
+export function handleExecutionHostFrame(input: {
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
   currentSocketRef: CurrentDaemonSocketRef;
@@ -195,7 +189,6 @@ export function handleDaemonSocketFrame(input: {
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
   socket: DaemonFrameSink;
-  waiters: PendingFrameWaiters;
 }): void {
   switch (input.parsedFrame.code) {
     case "daemon.reasoning.preferences": {
@@ -205,20 +198,6 @@ export function handleDaemonSocketFrame(input: {
       );
       return;
     }
-    case "daemon.session.register":
-      resolveRegisterResponseFrame({
-        payload: input.parsedFrame.payload,
-        presenter: input.presenter,
-        waiters: input.waiters,
-      });
-      return;
-    case "daemon.session.heartbeat":
-      resolveHeartbeatResponseFrame({
-        payload: input.parsedFrame.payload,
-        presenter: input.presenter,
-        waiters: input.waiters,
-      });
-      return;
     case "daemon.dispatch.deliver":
       emitRunLine({
         presenter: input.presenter,
@@ -408,15 +387,6 @@ export function handleDaemonSocketFrame(input: {
         });
       return;
     }
-    case "daemon.error":
-      emitDaemonErrorFrame({
-        payload: input.parsedFrame.payload,
-        presenter: input.presenter,
-        waiters: input.waiters,
-      });
-      return;
-    case "daemon.dispatch.result":
-      return;
     default:
       return;
   }
@@ -436,15 +406,4 @@ function normalizeResultAckStatus(
     value === "retry_later"
     ? value
     : null;
-}
-
-export function emitDispatchQueueError(input: {
-  error: unknown;
-  presenter: Presenter;
-}): void {
-  emitRunLine({
-    presenter: input.presenter,
-    code: "daemon.run.dispatch_unhandled_error",
-    text: `dispatch handling failed: ${toErrorMessage(input.error)}`,
-  });
 }

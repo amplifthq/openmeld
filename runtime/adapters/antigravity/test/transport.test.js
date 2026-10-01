@@ -7,7 +7,6 @@ import {
   buildAntigravityArgs,
   invokeAntigravityCliTransport,
   parseAntigravityOutputLine,
-  parseAntigravityUsageLimits,
 } from "../dist/index.js";
 
 const createNodeScriptLaunchContract = (scriptPath) => ({
@@ -166,39 +165,6 @@ describe("Antigravity CLI transport contract", () => {
           totalTokens: 19,
         },
       }
-    );
-  });
-
-  it("projects both weekly Antigravity quota groups", () => {
-    const limits = parseAntigravityUsageLimits({
-      observedAt: "2026-09-21T00:00:00.000Z",
-      output: [
-        "Gemini Models\tWeekly Limit Remaining\t99%\t2026-09-28T07:03:35Z",
-        "Claude and GPT models\tWeekly Limit Remaining\t75%\t2026-09-28T07:32:37Z",
-      ].join("\n"),
-    });
-
-    assert.deepEqual(
-      limits.map((limit) => ({
-        key: limit.key,
-        provider: limit.provider.id,
-        resetsAt: limit.resetsAt,
-        usedPercent: limit.usedPercent,
-      })),
-      [
-        {
-          key: "antigravity-gemini:weekly",
-          provider: "antigravity-gemini",
-          resetsAt: "2026-09-28T07:03:35.000Z",
-          usedPercent: 1,
-        },
-        {
-          key: "antigravity-other:weekly",
-          provider: "antigravity-other",
-          resetsAt: "2026-09-28T07:32:37.000Z",
-          usedPercent: 25,
-        },
-      ]
     );
   });
 

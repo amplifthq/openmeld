@@ -26,7 +26,7 @@ export function LinkPreviewCard(props: LinkPreviewCardProps) {
     return (
       <a
         className={cn(
-          "flex w-fit max-w-sm items-center gap-1.5 border-border/70 border-l-2 pl-3 text-muted-foreground text-sm leading-5 underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex w-fit min-w-0 max-w-[min(100%,24rem)] items-center gap-1.5 border-border/70 border-l-2 pl-3 text-muted-foreground text-sm leading-5 underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           props.className
         )}
         data-slot="link-preview-card"

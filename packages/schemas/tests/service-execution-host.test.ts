@@ -46,6 +46,8 @@ describe("execution host process boundary", () => {
   it.each([
     "daemon.session.register",
     "daemon.session.heartbeat",
+    "daemon.error",
+    "daemon.dispatch.result",
     "daemon.openmeld_tools_control.request",
     "daemon.local_project_control.connect_declared_path",
   ])("does not let execution IPC impersonate %s", (code) => {

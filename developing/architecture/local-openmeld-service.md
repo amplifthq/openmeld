@@ -86,6 +86,15 @@ Execution Host assembles the existing adapters, execution slots, pending human
 interactions, route discovery, controller reporting, and durable result outbox.
 The Host never owns Core readiness, authorization, scheduling, or Space history.
 
+Connector registration, heartbeat responses, and transport errors are handled
+only by `carrier/daemon-frame-transport.ts`. The inherited IPC contract excludes
+those frames from `execution-host/frame-router.ts`; the Host has no connector
+response waiters. Startup result replay and Agent enable/installation controls
+stay with the Host. The connector derives
+adapter capabilities from the Host's reported adapter IDs, not an in-process
+adapter container. Mixed-version cloud negotiation remains a separate contract
+and is not retired by deleting unused local implementation.
+
 The runner starts its control endpoint and registers without waiting for Agent
 inventory. Host initialization, reporting, and execution cross bounded inherited
 IPC; they cannot block the connector's event loop. Host admission is closed until
@@ -521,15 +530,30 @@ used transiently and never logged, retained, or projected. Other providers are
 Failure to read provider usage produces provider-scoped `unavailable`
 evidence without failing the rest of the Computer inventory.
 
-Antigravity has native Usage support through its signed-in CLI. OpenMeld runs
-`agy --print /usage` as the background ACI probe and parses each reported
-weekly quota independently, preserving the provider label, remaining
-percentage, and reset time supplied by Antigravity. The adapter converts the
-reported remaining percentage into the shared used-percentage contract and
-marks an exact zero remaining as exhausted. Authentication failure becomes the
-existing signed-out ACI state; malformed, timed-out, or otherwise unreadable
-output becomes `unavailable` without failing another Local Agent. The probe
-does not create an OpenMeld Agent Profile, Binding, Wake, or conversation.
+Inventory checks must not initiate interactive sign-in or request interactive
+credential-store access. An explicit status refresh is still a read, not consent
+to sign in. Known signed-out accounts skip quota collection; missing credentials
+or an unreadable credential store must never become zero remaining capacity.
+Only an explicit sign-in action may enter an interactive authorization flow.
+
+Antigravity's `agy --print /usage` can enter authentication and open browser
+login pages or request Keychain access. Until a provider-owned no-interaction
+contract is verified, both fresh and background ACI checks run only `--version`.
+They report authentication as unknown, an explicit warning explaining the
+unavailable checks, and Usage as `unsupported`. They must not claim signed-in
+readiness from installation alone or retain an old numeric quota without current
+account evidence. Status refresh cannot restore Antigravity authentication or
+quota verification in this version; users can inspect them directly in the
+Antigravity CLI. Its existing user-requested execution transport is unchanged.
+The shared Usage support matrix declares Antigravity unsupported so historical
+quota cannot become new capacity authority or authorize automatic recovery.
+
+A completed signed-out check is reusable for the same binary within the normal
+15-minute background TTL. It clears account-bound passive usage, does not arm
+failure retries, and expires normally. A fresh user check bypasses this cache
+to discover an external sign-in immediately. Unknown authentication is not
+proof of sign-out, and transient failed checks retain the existing failure
+policy rather than becoming a permanent negative cache.
 
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards

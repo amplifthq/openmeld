@@ -65,8 +65,6 @@ import {
   toErrorMessage,
 } from "../core/logger";
 import type {
-  CurrentDaemonSocketRef,
-  LedgerPaths,
   MutableRouteCatalogState,
   ParsedDaemonFrame,
   PendingFrameWaiters,
@@ -76,11 +74,6 @@ import type {
 import { DaemonServiceRunError } from "../core/types";
 import { emitReconcileCompletedEvidence } from "../diagnostics/service-evidence-trace";
 import { emitDaemonDispatchJournalEvent } from "../dispatch/daemon-dispatch-journal";
-import {
-  flushDispatchResultOutbox,
-  listDispatchResultOutboxPendingAcknowledgementKeys,
-  waitForDispatchResultOutboxAcknowledgement,
-} from "../dispatch/dispatch-result-outbox";
 import type { ExecutionHostPort } from "../execution-host/port";
 import { createExecutionHostSocketLink } from "../execution-host/socket-link";
 import { handleComputerFileAccessFrame } from "../file-access/computer-file-access-handler";
@@ -256,42 +249,6 @@ function classifyDaemonSocketDisconnect(input: {
     return "possible_deploy_or_edge_restart";
   }
   return "abnormal_socket_close";
-}
-
-function _replayStartupResultsBeforeDispatchAdmission(input: {
-  currentSocketRef: CurrentDaemonSocketRef;
-  ledgerPaths: LedgerPaths;
-  onAdmissionOpen: (replayedResultCount: number) => void;
-  presenter: Presenter;
-  shouldOpenAdmission: () => boolean;
-  waitForClose: Promise<void>;
-}): boolean {
-  const recordKeys = listDispatchResultOutboxPendingAcknowledgementKeys({
-    ledgerPaths: input.ledgerPaths,
-  });
-  const abortController = new AbortController();
-  input.waitForClose.then(() => {
-    abortController.abort();
-  });
-  const replayCompleted = waitForDispatchResultOutboxAcknowledgement({
-    abortSignal: abortController.signal,
-    ledgerPaths: input.ledgerPaths,
-    recordKeys,
-  });
-  flushDispatchResultOutbox({
-    currentSocketRef: input.currentSocketRef,
-    ledgerPaths: input.ledgerPaths,
-    presenter: input.presenter,
-  });
-  if (recordKeys.length === 0) {
-    return true;
-  }
-  replayCompleted.then(() => {
-    if (input.shouldOpenAdmission()) {
-      input.onAdmissionOpen(recordKeys.length);
-    }
-  });
-  return false;
 }
 
 function handleComputerFileAccessSocketFrame(input: {
@@ -2377,15 +2334,6 @@ function normalizeFrameInteger(value: unknown): number | null {
     return null;
   }
   return value;
-}
-
-function _resolveLocalAgentEnabledErrorCode(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "agents.unexpected_error";
-  }
-  const [code] = error.message.split(":", 1);
-  const normalized = code?.trim();
-  return normalized?.includes(".") ? normalized : "agents.unexpected_error";
 }
 
 function resolveProfileWorkspaceControlErrorCode(error: unknown): string {

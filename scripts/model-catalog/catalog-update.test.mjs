@@ -91,6 +91,37 @@ test("retirement handoff rechecks old cataloged models without changing policy",
       "not proof of continued availability"
     )
   );
+  const scan = (data, previous) =>
+    prepareUpdate({
+      catalog: current,
+      controller: "codex",
+      sources: [{ ...evidence.sources[0], data }],
+      observedAt: input.observedAt,
+      previous,
+    });
+  const original = scan("Existing model will retire on October 15.");
+  assert.equal(original.changed, true);
+  for (const [data, expected] of [
+    [
+      "Existing model will retire on October 15.\n\nNew installation instructions.",
+      false,
+    ],
+    ["Existing model will   retire on October 15.", false],
+    ["Existing model will retire on October 20.", true],
+    ["Existing model retirement has been postponed.", true],
+    ["Existing model retirement has been withdrawn.", true],
+    ["Existing model retirement has been extended to October 20.", true],
+    ["Retirement notice removed; verify the official source.", true],
+  ]) {
+    const result = scan(data, original.evidence);
+    assert.equal(result.changed, expected, data);
+    assert.deepEqual(result.catalog, current);
+  }
+  assert.equal(scan("An unrelated model will retire tomorrow.").changed, false);
+  assert.equal(
+    scan("Existing model supports extended context.").changed,
+    false
+  );
 });
 
 test("a real upstream addition becomes a reviewable catalog change without moving either default", () => {
@@ -139,20 +170,61 @@ test("a real upstream addition becomes a reviewable catalog change without movin
   assert.ok(review.includes("No authenticated probe"));
 });
 
-test("acknowledged observations stay quiet despite the next collection timestamp", () => {
+test("acknowledged observations stay quiet after timestamps and unrelated source edits", () => {
   const first = prepareUpdate(input);
-  const second = prepareUpdate({
-    ...input,
-    catalog: first.catalog,
-    previous: first.evidence,
-    observedAt: "2026-09-05T12:00:00.000Z",
-  });
-  assert.equal(second.changed, false);
-  assert.equal(second.catalog.updatedAt, first.catalog.updatedAt);
+  for (const extraSources of [
+    [],
+    [
+      {
+        kind: "official-document",
+        url: "https://example.com/docs",
+        data: "Updated installation instructions.",
+      },
+    ],
+    [
+      {
+        kind: "official-release",
+        url: "https://example.com/release",
+        data: { tag: "v2", notes: "Fix terminal rendering." },
+      },
+    ],
+  ]) {
+    const second = prepareUpdate({
+      ...input,
+      sources: [...sources, ...extraSources],
+      catalog: first.catalog,
+      previous: first.evidence,
+      observedAt: "2026-09-05T12:00:00.000Z",
+    });
+    assert.equal(second.changed, false);
+    assert.deepEqual(second.catalog, first.catalog);
+    const baseline = prepareUpdate({
+      ...input,
+      catalog: first.catalog,
+      previous: first.evidence,
+    });
+    assert.equal(
+      combineUpdates(first.catalog, [second]).fingerprint,
+      combineUpdates(first.catalog, [baseline]).fingerprint
+    );
+  }
 });
 
 test("missing or changed inventory never retires a model or rewrites an existing selection", () => {
   const first = prepareUpdate(input);
+  const reordered = structuredClone(input.codexModels);
+  for (const model of reordered) {
+    model.entry.supportedReasoningLevels.reverse();
+  }
+  assert.equal(
+    prepareUpdate({
+      ...input,
+      catalog: first.catalog,
+      codexModels: reordered,
+      previous: first.evidence,
+    }).changed,
+    false
+  );
   const changed = structuredClone(input.codexModels);
   changed[0].entry.supportedReasoningLevels = ["low"];
   const next = prepareUpdate({
@@ -162,8 +234,19 @@ test("missing or changed inventory never retires a model or rewrites an existing
   });
   assert.deepEqual(next.catalog, first.catalog);
   assert.ok(next.evidence.manual.length);
+  assert.equal(next.changed, true);
+  assert.equal(
+    prepareUpdate({
+      ...input,
+      catalog: first.catalog,
+      codexModels: changed,
+      previous: next.evidence,
+    }).changed,
+    false
+  );
   const missing = prepareUpdate({ ...input, codexModels: [] });
   assert.deepEqual(missing.catalog, catalog);
+  assert.equal(missing.changed, false);
 });
 
 test("unknown upstream reasoning shape fails before publishing a candidate", () => {
@@ -316,6 +399,33 @@ test("one handoff names discovery-only candidates and flags actual source disagr
   assert.ok(review.includes("Discovery only; exact harness ID"));
   assert.ok(review.includes("Different surfaces; verify against the harness"));
   assert.ok(review.includes("ultra"));
+  assert.equal(claude.changed, true);
+  const metadata = structuredClone(claude.evidence.sources);
+  for (const model of Object.values(metadata[0].data.anthropic)) {
+    model.name = `${model.name} updated description`;
+    for (const option of model.reasoning_options ?? []) {
+      option.values.reverse();
+    }
+  }
+  const repeated = prepareUpdate({
+    ...input,
+    controller: "claude-code",
+    codexModels: [],
+    previous: claude.evidence,
+    sources: [
+      ...metadata,
+      {
+        kind: "official-document",
+        url: "https://example.com/docs",
+        data: "New installation instructions.",
+      },
+    ],
+  });
+  assert.equal(repeated.changed, false);
+  assert.equal(
+    combineUpdates(catalog, [repeated]).fingerprint,
+    combineUpdates(catalog, [claude]).fingerprint
+  );
   assert.equal(
     combineUpdates(catalog, [codex, claude]).fingerprint,
     combined.fingerprint

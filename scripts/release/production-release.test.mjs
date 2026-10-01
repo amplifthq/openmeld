@@ -1948,7 +1948,7 @@ test("rejects a strict Local Service runtime release without its Core receiver",
         changedPaths: [
           "packages/schemas/src/schemas/daemon/runtime-transport.ts",
           "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
-          "clients/openmeld-cli/src/local-service/carrier/frame-router.ts",
+          "clients/openmeld-cli/src/local-service/execution-host/frame-router.ts",
         ],
         scope: "cli",
         sourceSha: REMOTE_SOURCE_SHA,

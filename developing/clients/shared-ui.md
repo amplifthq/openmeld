@@ -108,6 +108,10 @@ eligibility reads. Nested scopes open only the nearest menu. Inputs, editable
 content, selected text, and disabled scopes retain native context menus.
 `FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
 `FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
+Menu separators leave one spacing unit (4px) on each side, matching the menu's
+content inset. Both shared menu families own this spacing. Sidebar hover pauses
+for open context-menu trigger slots as well as ordinary popup triggers; Base UI
+context-menu areas expose an open marker without `aria-haspopup`.
 
 Prefer this primitive for stable, closely spaced clickable alternatives in
 menus, navigation, tabs, and grids. Use one list per semantic group; split at

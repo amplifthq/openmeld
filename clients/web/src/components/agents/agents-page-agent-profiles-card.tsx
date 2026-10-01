@@ -605,11 +605,23 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 			NonNullable<GetAgentExecutionReadinessResponse["primaryBinding"]>
 		>();
 		for (const profile of sortedAgentProfiles) {
-			const binding =
-				agentExecutionReadinessByProfileId.get(profile.openMeldProfileId)
-					?.primaryBinding ?? null;
+			const readiness = agentExecutionReadinessByProfileId.get(
+				profile.openMeldProfileId
+			);
+			const binding = readiness?.primaryBinding ?? null;
 			if (binding) {
-				next.set(profile.openMeldProfileId, binding);
+				// Readiness carries collaboration mode in its public configuration,
+				// not in the compact primaryBinding projection.
+				next.set(profile.openMeldProfileId, {
+					...binding,
+					...(readiness?.publicProfileConfiguration
+						? {
+								agentControllerCollaborationMode:
+									readiness.publicProfileConfiguration
+										.agentControllerCollaborationMode ?? undefined,
+							}
+						: {}),
+				});
 			}
 		}
 		return next;
@@ -4026,7 +4038,6 @@ type AgentProfileConfigurationOverviewProps = {
 };
 
 type AgentProfileConfigurationEditorId =
-	| "controller"
 	| "model"
 	| "collaboration"
 	| "permissions";
@@ -4041,6 +4052,22 @@ function useAgentProfileConfigurationEditor(
 	const [savedEditor, setSavedEditor] =
 		useState<AgentProfileConfigurationEditorId | null>(null);
 	const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+	const [pendingEdit, setPendingEdit] = useState<{
+		editor: AgentProfileConfigurationEditorId;
+		summary: string;
+	} | null>(null);
+	const [failedEdits, setFailedEdits] = useState<
+		Partial<
+			Record<
+				AgentProfileConfigurationEditorId,
+				{
+					draft: AgentProfileEditDraft;
+					message: string;
+				}
+			>
+		>
+	>({});
+	const savingRef = useRef(false);
 	const draftInput = useMemo(
 		() =>
 			resolveAgentProfileEditDraftInput({
@@ -4066,12 +4093,16 @@ function useAgentProfileConfigurationEditor(
 	const modelSelection = activeEditState?.modelSelection ?? null;
 	const openCodePermission = activeEditState?.openCodePermission ?? null;
 	const dialogState = resolveAgentProfileEditDialogState({
-		activeDraft: draft,
+		activeDraft: scopeConfigurationDraft(
+			draft,
+			createAgentProfileEditDraft(draftInput),
+			activeEditor
+		),
 		controllerCollaborationMode,
 		controllerChangeEligibilityStatus: input.controllerChangeEligibilityStatus,
 		controllerPermissionMode,
 		currentAgentControllerRef: input.editState?.agentControllerRef ?? null,
-		isPending: input.disabled,
+		isPending: input.disabled || pendingEdit !== null,
 		modelCatalog: input.modelCatalog,
 		modelSelection,
 		openCodePermission,
@@ -4083,14 +4114,34 @@ function useAgentProfileConfigurationEditor(
 	) => {
 		setSaveErrorMessage(null);
 		if (open) {
-			setDraft(createAgentProfileEditDraft(draftInput));
+			setDraft(
+				failedEdits[editor]?.draft ?? createAgentProfileEditDraft(draftInput)
+			);
+			setSaveErrorMessage(failedEdits[editor]?.message ?? null);
 			setActiveEditor(editor);
 			return;
 		}
 		setActiveEditor((current) => (current === editor ? null : current));
 	};
 	const saveEditor = async (editor: AgentProfileConfigurationEditorId) => {
+		if (savingRef.current || dialogState.saveButtonDisabled) {
+			return;
+		}
+		savingRef.current = true;
 		setSaveErrorMessage(null);
+		setFailedEdits((current) => ({ ...current, [editor]: undefined }));
+		setSavedEditor(null);
+		setPendingEdit({
+			editor,
+			summary: resolveConfigurationDraftSummary({
+				draft,
+				editState: activeEditState,
+				editor,
+				modelCatalog: input.modelCatalog,
+				controllerDisplayName: input.controllerDisplayName,
+			}),
+		});
+		setActiveEditor(null);
 		try {
 			await submitAgentProfileEditDialogChanges({
 				controllerChangeEligibilityStatus:
@@ -4102,7 +4153,7 @@ function useAgentProfileConfigurationEditor(
 				onControllerPermissionModeUpdate:
 					input.onControllerPermissionModeUpdate,
 				onModelSelectionUpdate: input.onModelSelectionUpdate,
-				onOpenChange: (open) => setEditorOpen(editor, open),
+				onOpenChange: () => undefined,
 				onOpenCodePermissionUpdate: input.onOpenCodePermissionUpdate,
 				onRenameProfile: input.onRenameProfile,
 			});
@@ -4112,15 +4163,26 @@ function useAgentProfileConfigurationEditor(
 			}, 1600);
 		} catch (error) {
 			console.error("Failed to update Agent Profile setting.", error);
-			setSaveErrorMessage(
+			const message =
 				error instanceof Error
 					? error.message
-					: "OpenMeld couldn’t save this Agent setting."
-			);
+					: "Couldn’t save this setting. Try again.";
+			setFailedEdits((current) => ({
+				...current,
+				[editor]: { draft, message },
+			}));
+		} finally {
+			savingRef.current = false;
+			setPendingEdit(null);
 		}
 	};
 	const editorFooter = (editor: AgentProfileConfigurationEditorId) => (
 		<>
+			{pendingEdit ? (
+				<output className="mb-3 block text-muted-foreground text-xs">
+					Another setting is saving. You can keep editing.
+				</output>
+			) : null}
 			{saveErrorMessage && activeEditor === editor ? (
 				<p className="mb-3 text-destructive text-xs leading-5" role="alert">
 					{saveErrorMessage}
@@ -4128,7 +4190,6 @@ function useAgentProfileConfigurationEditor(
 			) : null}
 			<div className="mt-4 flex justify-end gap-2 border-border/70 border-t pt-3">
 				<Button
-					disabled={input.disabled}
 					onClick={() => setEditorOpen(editor, false)}
 					size="sm"
 					type="button"
@@ -4145,7 +4206,7 @@ function useAgentProfileConfigurationEditor(
 					type="button"
 					variant={dialogState.permissionModeState.buttonVariant}
 				>
-					{input.disabled ? "Saving…" : "Save changes"}
+					Save changes
 				</Button>
 			</div>
 		</>
@@ -4162,11 +4223,88 @@ function useAgentProfileConfigurationEditor(
 		editorFooter,
 		modelSelection,
 		openCodePermission,
+		pendingEdit,
+		failedEdits,
+		controlsDisabled: input.disabled && pendingEdit === null,
 		permissionControlRef,
 		savedEditor,
 		setDraft,
 		setEditorOpen,
 	};
+}
+
+function resolveConfigurationDraftSummary(input: {
+	draft: AgentProfileEditDraft;
+	editState: AgentProfileEditState | null;
+	editor: AgentProfileConfigurationEditorId;
+	modelCatalog: ModelCatalog | null;
+	controllerDisplayName: string | null;
+}): string {
+	if (input.editor === "model") {
+		const catalog =
+			input.modelCatalog?.agentControllers[
+				input.editState?.modelSelection?.agentControllerId ?? ""
+			];
+		const modelId = input.draft.selectedModelId || catalog?.defaultModelId;
+		const model = catalog?.models.find((entry) => entry.id === modelId);
+		return [
+			input.controllerDisplayName,
+			model?.displayName ?? modelId,
+			input.draft.selectedReasoningLevel,
+		]
+			.filter(Boolean)
+			.join(" · ");
+	}
+	if (input.editor === "collaboration") {
+		return (
+			input.editState?.controllerCollaborationMode?.options.find(
+				(option) => option.value === input.draft.selectedCollaborationMode
+			)?.label ?? "Controller default"
+		);
+	}
+	if (input.draft.selectedPolicy && input.editState?.controllerPermissionMode) {
+		return getAgentControllerPermissionModeDisplayMetadata(
+			input.draft.selectedPolicy,
+			{
+				agentControllerRef:
+					input.editState.controllerPermissionMode.agentControllerRef,
+			}
+		).label;
+	}
+	return input.draft.selectedOpenCodePermission
+		? "Custom permissions"
+		: "Controller default";
+}
+
+function scopeConfigurationDraft(
+	draft: AgentProfileEditDraft,
+	current: AgentProfileEditDraft,
+	editor: AgentProfileConfigurationEditorId | null
+): AgentProfileEditDraft {
+	// Validate and submit only the card's visible fields, rebasing hidden fields
+	// onto current server values when another save or refresh completes.
+	if (editor === "model") {
+		return {
+			...current,
+			selectedModelId: draft.selectedModelId,
+			selectedReasoningLevel: draft.selectedReasoningLevel,
+		};
+	}
+	if (editor === "collaboration") {
+		return {
+			...current,
+			selectedCollaborationMode: draft.selectedCollaborationMode,
+		};
+	}
+	if (editor === "permissions") {
+		return {
+			...current,
+			selectedPolicy: draft.selectedPolicy,
+			selectedOpenCodePermission: draft.selectedOpenCodePermission,
+			confirmed: draft.confirmed,
+		};
+	}
+	return draft;
 }
 
 export function AgentProfileConfigurationOverview(
@@ -4483,15 +4621,22 @@ function AgentProfileModelConfigurationCard(input: {
 	if (retirement) {
 		retirementTone = retirement.status === "withdrawn" ? "danger" : "warning";
 	}
+	const retirementDescription = retirement
+		? formatModelRetirementNotice(retirement)
+		: undefined;
 	return (
 		<AgentConfigurationCard
 			actionLabel={retirement ? "Change model" : undefined}
 			attention={Boolean(retirement)}
 			attentionTone={retirementTone}
 			description={
-				retirement ? formatModelRetirementNotice(retirement) : undefined
+				editor.failedEdits.model
+					? "Changes weren’t saved. Open to retry."
+					: retirementDescription
 			}
-			disabled={props.disabled}
+			disabled={
+				editor.controlsDisabled || editor.pendingEdit?.editor === "model"
+			}
 			icon={<BrainIcon aria-hidden="true" />}
 			itemId="model"
 			label="Model"
@@ -4499,15 +4644,19 @@ function AgentProfileModelConfigurationCard(input: {
 			open={editor.activeEditor === "model"}
 			readOnly={!editor.modelSelection}
 			status={resolveAgentConfigurationCardStatus({
-				active: editor.activeEditor === "model",
-				disabled: props.disabled,
+				active: editor.pendingEdit?.editor === "model",
+				disabled: editor.pendingEdit !== null,
 				saved: editor.savedEditor === "model",
 			})}
-			summary={props.controllerModelSummary}
+			summary={
+				editor.pendingEdit?.editor === "model"
+					? editor.pendingEdit.summary
+					: props.controllerModelSummary
+			}
 		>
 			<AgentProfileModelSelectionEditSection
 				activeDraft={editor.draft}
-				disabled={props.disabled}
+				disabled={editor.controlsDisabled}
 				draftKey={editor.draftInput.draftKey}
 				modelCatalog={props.modelCatalog}
 				modelCompatibilityContext={props.modelCompatibilityContext}
@@ -4524,10 +4673,18 @@ function AgentProfileCollaborationConfigurationCard(input: {
 	input: AgentProfileConfigurationOverviewProps;
 	summary: string;
 }) {
-	const { editor, input: props } = input;
+	const { editor } = input;
 	return (
 		<AgentConfigurationCard
-			disabled={props.disabled}
+			description={
+				editor.failedEdits.collaboration
+					? "Changes weren’t saved. Open to retry."
+					: undefined
+			}
+			disabled={
+				editor.controlsDisabled ||
+				editor.pendingEdit?.editor === "collaboration"
+			}
 			icon={<HandIcon aria-hidden="true" />}
 			itemId="collaboration"
 			label="Collaboration mode"
@@ -4535,16 +4692,20 @@ function AgentProfileCollaborationConfigurationCard(input: {
 			open={editor.activeEditor === "collaboration"}
 			readOnly={!editor.controllerCollaborationMode?.editable}
 			status={resolveAgentConfigurationCardStatus({
-				active: editor.activeEditor === "collaboration",
-				disabled: props.disabled,
+				active: editor.pendingEdit?.editor === "collaboration",
+				disabled: editor.pendingEdit !== null,
 				saved: editor.savedEditor === "collaboration",
 			})}
-			summary={input.summary}
+			summary={
+				editor.pendingEdit?.editor === "collaboration"
+					? editor.pendingEdit.summary
+					: input.summary
+			}
 		>
 			<AgentProfileCollaborationModeEditSection
 				activeDraft={editor.draft}
 				controllerCollaborationMode={editor.controllerCollaborationMode}
-				disabled={props.disabled}
+				disabled={editor.controlsDisabled}
 				draftKey={editor.draftInput.draftKey}
 				onDraftChange={editor.setDraft}
 			/>
@@ -4561,26 +4722,41 @@ function AgentProfilePermissionsConfigurationCard(input: {
 	const { editor, input: props } = input;
 	return (
 		<AgentConfigurationCard
-			disabled={props.disabled}
+			description={
+				editor.failedEdits.permissions
+					? "Changes weren’t saved. Open to retry."
+					: undefined
+			}
+			disabled={
+				editor.controlsDisabled || editor.pendingEdit?.editor === "permissions"
+			}
 			icon={<LockKeyIcon aria-hidden="true" />}
 			itemId="permissions"
 			label="Permissions"
 			onOpenChange={(open) => editor.setEditorOpen("permissions", open)}
 			open={editor.activeEditor === "permissions"}
-			readOnly={!(editor.controllerPermissionMode || editor.openCodePermission)}
+			readOnly={
+				!(
+					editor.controllerPermissionMode?.editable || editor.openCodePermission
+				)
+			}
 			status={resolveAgentConfigurationCardStatus({
-				active: editor.activeEditor === "permissions",
-				disabled: props.disabled,
+				active: editor.pendingEdit?.editor === "permissions",
+				disabled: editor.pendingEdit !== null,
 				saved: editor.savedEditor === "permissions",
 			})}
-			summary={input.summary}
+			summary={
+				editor.pendingEdit?.editor === "permissions"
+					? editor.pendingEdit.summary
+					: input.summary
+			}
 		>
 			<div className="grid gap-4">
 				<AgentProfilePermissionModeEditSection
 					activeDraft={editor.draft}
 					confirmationId={editor.confirmationId}
 					controllerPermissionMode={editor.controllerPermissionMode}
-					disabled={props.disabled}
+					disabled={editor.controlsDisabled}
 					draftKey={editor.draftInput.draftKey}
 					focusRef={editor.permissionControlRef}
 					isAgentWorking={props.controllerChangeEligibilityStatus === "blocked"}
@@ -4589,7 +4765,7 @@ function AgentProfilePermissionsConfigurationCard(input: {
 				/>
 				<AgentProfileOpenCodePermissionEditSection
 					activeDraft={editor.draft}
-					disabled={props.disabled}
+					disabled={editor.controlsDisabled}
 					draftKey={editor.draftInput.draftKey}
 					onDraftChange={editor.setDraft}
 					openCodePermission={editor.openCodePermission}
@@ -4912,6 +5088,7 @@ function AgentProfileEditDialogContent(
 	const profileNameInputId = useId();
 	const permissionControlRef = useRef<HTMLButtonElement>(null);
 	const didFocusInitialPermissionsRef = useRef(false);
+	const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 	const draftKey = input.draftInput.draftKey;
 	const [draft, setDraft] = useState<AgentProfileEditDraft>(() =>
 		createAgentProfileEditDraft(input.draftInput)
@@ -5043,6 +5220,11 @@ function AgentProfileEditDialogContent(
 					isLoading={input.isLoading === true}
 					loadErrorMessage={input.loadErrorMessage ?? null}
 				/>
+				{saveErrorMessage ? (
+					<p className="text-destructive text-sm" role="alert">
+						{saveErrorMessage}
+					</p>
+				) : null}
 				<DialogFooter>
 					<DialogClose
 						render={
@@ -5062,6 +5244,7 @@ function AgentProfileEditDialogContent(
 							dialogState.saveButtonDisabled
 						}
 						onClick={() => {
+							setSaveErrorMessage(null);
 							submitAgentProfileEditDialogChanges({
 								dialogState,
 								onControllerCollaborationModeUpdate:
@@ -5078,6 +5261,11 @@ function AgentProfileEditDialogContent(
 								onSaveComplete: input.onSaveComplete,
 							}).catch((error) => {
 								console.error("Failed to update Agent Profile.", error);
+								setSaveErrorMessage(
+									error instanceof Error
+										? error.message
+										: "Couldn’t save these settings. Try again."
+								);
 							});
 						}}
 						type="button"
@@ -5530,6 +5718,10 @@ function resolveAgentProfileEditDialogState(input: {
 	const selectedCollaborationMode = input.activeDraft.selectedCollaborationMode;
 	const permissionModeState = resolveAgentProfileEditPermissionModeState({
 		controllerPermissionMode: input.controllerPermissionMode,
+		isControllerChange:
+			input.activeDraft.selectedAgentControllerRef !== null &&
+			input.activeDraft.selectedAgentControllerRef !==
+				input.currentAgentControllerRef,
 		selectedPolicy,
 	});
 	const selectedModelId = input.activeDraft.selectedModelId;
@@ -5879,7 +6071,10 @@ function AgentProfilePermissionModeEditSection(input: {
 		agentControllerRef: input.controllerPermissionMode.agentControllerRef,
 		field: "permission_mode",
 	});
-	const requiresConfirmation = selectedMetadata.requiresExplicitConfirmation;
+	const requiresConfirmation =
+		selectedMetadata.requiresExplicitConfirmation &&
+		(input.activeDraft.selectedAgentControllerRef !== null ||
+			input.selectedPolicy !== input.controllerPermissionMode.value);
 	return (
 		<div
 			className="grid gap-3"
@@ -5997,6 +6192,7 @@ function AgentProfileOpenCodePermissionEditSection(input: {
 
 function resolveAgentProfileEditPermissionModeState(input: {
 	controllerPermissionMode: AgentProfileControllerPermissionModeEditState | null;
+	isControllerChange: boolean;
 	selectedPolicy: AgentControllerPermissionMode | null;
 }): {
 	buttonVariant: "default" | "destructive";
@@ -6012,10 +6208,13 @@ function resolveAgentProfileEditPermissionModeState(input: {
 		input.selectedPolicy,
 		{ agentControllerRef: input.controllerPermissionMode.agentControllerRef }
 	);
+	const requiresConfirmation =
+		selectedMetadata.requiresExplicitConfirmation &&
+		(input.isControllerChange ||
+			input.selectedPolicy !== input.controllerPermissionMode.value);
 	return {
-		buttonVariant:
-			selectedMetadata.tone === "warning" ? "destructive" : "default",
-		requiresConfirmation: selectedMetadata.requiresExplicitConfirmation,
+		buttonVariant: requiresConfirmation ? "destructive" : "default",
+		requiresConfirmation,
 	};
 }
 
