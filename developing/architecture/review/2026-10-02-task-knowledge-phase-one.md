@@ -9,7 +9,7 @@
 - Source of truth: The linked source owners, executable tests, and exact observations below.
 - Removal condition: Remove this review record after independent acceptance; retain stable contracts in the product owner documents and final evidence in the PR.
 
-Status: Draft implementation; Local setup recovered, live Remote release/revocation checks passed, full three-runtime acceptance still pending.
+Status: Draft implementation; independent-review corrections implemented, Local setup recovered, live Remote release/revocation checks passed, delegated model and Local Wake acceptance still pending.
 
 ## Scope And Ownership
 
@@ -22,7 +22,7 @@ their existing Core owners and authorization. The task directory is a bounded
 read projection, not a stored knowledge object or a new permission service.
 Personal Remote continues to exclude the Center-only protected prompt and
 Computer projection. Its ordinary approved document read uses the existing
-verified-member RPC. Local dispatch reads as its owned active Agent Profile and
+ordinary read RPC with its admitted receiving Agent identity. Local dispatch reads as its owned active Agent Profile and
 never changes an ordinary task's working directory or global Skill installation.
 
 Automatic capture now exits for organization-shared and externally-shared
@@ -42,6 +42,14 @@ is denied; this does not claim to remove material already read by a model.
   `organizationSkillReleases` field in the existing dispatch action context;
   owned-Agent read authorization on existing document/Skill APIs; Remote prompt
   composition and an exact-selection catalog search tool.
+- Review correction: the existing document-read RPC now accepts an omitted
+  `speakerMember` only for Core-verified personal Remote deliveries. Center
+  callers retain the required verified-speaker behavior. Deploy Core before
+  Remote: an older Core rejects the new omitted-speaker request; it does not
+  silently grant access. Existing callers with a speaker remain schema-valid.
+  Responses and document writes are unchanged. The matching CLI/Service bundle
+  owns the full MCP catalog, including both knowledge readers; delivery-only
+  remains exactly reply, silence, and receipt. Arbitrary tools are still rejected.
 - Setup follow-up: the existing device-auth client resolver now derives its
   default from the active lane (`dev-local` uses `openmeld-cli-dev`). CLI and
   environment overrides retain precedence. This fixes packaged Setup redemption
@@ -49,7 +57,8 @@ is denied; this does not claim to remove material already read by a model.
   ID, authority, compatibility floor, or epoch is added.
 - Unchanged boundaries: Wake transport, final Space action envelopes,
   RuntimeCoordinator ownership, service status, trace, diagnostics, and rescue
-  commands. No new shared HTTP/RPC schema, database migration, or contract enum.
+  commands. No new RPC method, database migration, or contract enum. The optional
+  read-request field described above is a real shared-schema change.
 - Old cloud with new local: unsupported approved-document Agent reads return a
   visible unavailable directory; ordinary tasks still run. Existing exact Skill
   release reads retain the old API shape. No fallback to a human/Center identity.
@@ -63,6 +72,9 @@ is denied; this does not claim to remove material already read by a model.
 - Architecture check: no scoped architecture owner is displaced and no second
   source of execution, identity, readiness, publication, or authorization truth
   is introduced. Existing member authority remains the owner of knowledge reads.
+  The prior audit missed stale text in shared-contracts: it incorrectly allowed
+  shared automatic organization capture. This PR corrects that owner text to
+  match private-only automatic capture and separate explicit team saves.
 
 ## Independent Behavioral Expectations
 
@@ -361,3 +373,131 @@ existing chat history as the cause of model use.
 Complete the remaining semantic/privacy holdouts listed in the scenario table.
 No claim is made about production ontology, long-run extraction quality, concurrent
 model quality, or model forgetting.
+
+## Independent Review Corrections (2026-10-01 UTC)
+
+Starting head was clean `f5aef3bea06d359c5f702afe403cea86d6e397b0`, matching
+the draft PR. No other worktree or branch was changed. Sol's review was bound to
+`db46a400f83107f2780f5e23a87b598b6c5a6dd8`; the fixes below do not claim his
+approval of newer code.
+
+- `8f5853a92` fixes the shared adapter MCP catalog. The actual CLI server's two
+  knowledge readers are now in the exact allowed set used by Codex and OpenClaw.
+  The packaged discovery test compares actual stdio MCP discovery with that
+  shared contract and independently checks the three-tool delivery-only set.
+  The stale discovery expectation also omitted the existing `report_progress`;
+  that expectation is corrected without changing progress behavior.
+- `05f43a3c6` fixes personal Remote delegated document reads. Both task directory
+  and body tool use `buildOrganizationDocumentReadContext`. Personal callers
+  send their receiving identity, not a forged human speaker. Core uses the
+  existing active native-delivery verifier, frozen audience policy, and owned
+  active Agent ordinary-member read. Center/member and anonymous-member paths
+  retain their existing authorization. No protected prompt, draft, or write
+  permission is added.
+- The same commit fixes the shared-capture owner contradiction and stale
+  Brief/title-cache descriptions in shared contracts and the Remote owner.
+  Earlier blanket "no owner conflict" evidence was incomplete; the corrected
+  contracts now describe the implemented behavior. Setup code is unchanged.
+
+### Focused Evidence
+
+All following times are UTC; terminal display dates use Asia/Taipei.
+
+- At 18:16:52, the complete Organization document integration suite passed
+  39/39. The extended existing owned-Agent test creates actual isolated D1
+  profiles, a personal binding, a real Space and memberships, and a schema-valid
+  accepted native delivery with `sender.kind=agent_profile` and
+  `trigger.source=space_wake`. Directory and body RPCs return approved B while
+  draft C stays absent; mismatched owner, external requester, and disabled
+  receiving Profile are rejected. This is workerd/DO/D1 boundary evidence,
+  **not** a running model or real-user Wake.
+- Remote tools/materialization/fresh-context suites passed 208/208. The added
+  delegated read test uses the real callback storage and tool implementation;
+  only the Core RPC response is a typed boundary substitute. It covers both
+  directory context and body/list calls with the receiving identity.
+- Adapter owner tests passed 4/4. Codex scoped-MCP and OpenClaw tool/denial suites
+  passed 13, with 5 pre-existing opt-in native-install cases skipped. Their
+  strict extra/missing/malformed-tool controls remain in place; this does not
+  certify a native OpenClaw installation.
+- Packaged CLI stdio MCP integration passed 4/4, including complete and
+  delivery-only catalogs, reply receipt, and expired-receipt recovery. This is
+  an actual packaged process; it does not prove a Local Agent model used a
+  document or Skill. CLI, Core, and Remote typechecks passed.
+
+Commands (from this worktree):
+
+```sh
+pnpm --filter @openmeld/core exec vitest run --config vitest.config.ts tests/organization-documents.integration.test.ts
+pnpm --filter @openmeld/remote-agent exec vitest run tests/tools.test.ts tests/center-agent-runtime-materialization.test.ts tests/organization-document-prompt-context.test.ts
+node --test runtime/adapters/core/test/dispatch-space-action-mcp.test.js
+node --test runtime/adapters/codex/test/scoped-mcp.test.js runtime/adapters/openclaw/test/space-action-tools.test.js runtime/adapters/openclaw/test/delivery-only-native.test.js
+pnpm exec turbo run build --filter=openmeld
+pnpm --filter openmeld exec vitest run --config vitest.integration.config.ts tests/space-action-entry.integration.test.ts
+pnpm --filter openmeld typecheck
+pnpm --filter @openmeld/core typecheck
+pnpm --filter @openmeld/remote-agent typecheck
+```
+
+Logs: `dev-tmp/knowledge-review-doc-suite.log`, `knowledge-review-remote-suite.log`,
+`knowledge-review-mcp-owner.log`, `knowledge-review-adapter-tests.log`,
+`knowledge-review-packaged-tools.log`, and `knowledge-review-*-types.log`.
+
+Final closeout passed: affected checks **53/53** (51 cached on the final run),
+the unchanged Setup argument/environment/lane regression **37/37**, packaged
+build and release-ready **65/65**, manifest verification, strict docs, changelog,
+and `git diff --check`. The first affected run caught a nullable callback in the
+new test fixture; an explicit fixture assertion fixed it, and the focused test,
+Remote check and final affected run passed. No production behavior was changed
+to silence a check.
+
+```sh
+pnpm --filter openmeld exec vitest run tests/auth-computer-handoff.test.ts tests/computer-auth-handoff.test.ts
+pnpm release:local-components stamp --next --base 7864a7641beb30377a28578c8163400361450fd3 --cli available --cli-reason 'Task knowledge readers match the strict controller catalog' --service available --service-reason 'Task-scoped knowledge readers in the carrier adapter catalog'
+OPENMELD_AFFECTED_BASE=7864a7641beb30377a28578c8163400361450fd3 pnpm verify:release-ready
+OPENMELD_AFFECTED_BASE=7864a7641beb30377a28578c8163400361450fd3 pnpm check:affected -- --concurrency=2
+pnpm verify:docs -- --strict
+pnpm changelog:build
+pnpm changelog:check
+git diff --check
+```
+
+Closeout logs: `dev-tmp/knowledge-review-setup-regression.log`,
+`knowledge-review-stamp.log`, `knowledge-review-release-ready.log`,
+`knowledge-review-affected-final.log`, `knowledge-review-docs.log`, and
+`knowledge-review-changelog.log`. The manifest was rebuilt against the stated
+base, not hand-edited. CLI/Service remain 0.3.234 available; floor stays 0.3.224.
+
+### Remaining Runtime Boundary
+
+The Local send previously failed before admission under the production Wake's
+dispatch scope. This round did not retry it, clear dispatch environment, change
+transport to evade it, or send dev IDs through production Core. The existing
+main-journeys harness calls the same `space send` at
+`scripts/e2e/openmeld-main-journeys-smoke.sh:316`. Service-readiness smoke is
+explicitly read-only (`scripts/e2e/service-readiness-smoke.mjs:144`). The
+work-coordinator fixture targets Staging and requires its own credentials; it
+is not an isolated-dev admission entry. No applicable supported dev admission
+harness was found in these existing owners.
+
+The missing condition is an authorized invocation whose dispatch/action scope
+actually targets the isolated dev Space (or an authorized dev test runner
+outside this production dispatch). This does not require a production login,
+weaker authentication, a rewritten boundary, or fake binding rows. Once that
+invocation is available, send one ordinary Local Wake in the retained dev Space
+and one Agent-source Remote Wake using the existing fixtures. Read the omitted
+document and pinned resource, then record actual model output and selectors.
+
+| Claim | Code boundary | Actual model/runtime |
+| --- | --- | --- |
+| Local full tool discovery and delivery-only restriction | Packaged MCP + strict adapters pass | Local directory/body/Skill Wake not admitted; still unverified |
+| Agent-source personal Remote directory/body | Callback/tool + real D1/DO authorization pass | Not run this round; prior human-DM smoke is not a substitute |
+| Human-source Remote approved B and frozen Skill/revocation | Prior boundaries retained; document suite rerun | Prior dated live evidence remains; human-source personal reads now need a representative follow-up because their identity selection changed |
+| Center blank-session automatic memory use | Existing capture/recall boundaries unchanged | Still not isolated from history |
+| Unadopted C versus approved B | Actual document read returns B, never C | No new model semantic holdout this round |
+| Private content not shared | Existing scope/privacy checks unchanged | Prior fresh Remote negative isolation only; no new positive Center recall claim |
+
+The dev stack and Service were not restarted. No new live-provider, browser,
+Local model, or Remote model success is claimed. The packaged CLI and boundary
+tests above do not replace these gaps. Independent latest-diff review and the
+remaining representative runtime evidence are still due before any Ready
+decision. The PR remains draft; no merge, deploy, or binary publication.

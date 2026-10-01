@@ -166,6 +166,9 @@ describe("remote agent OpenMeld tool catalog", () => {
       storage,
       ACK.submissionId
     );
+    if (!callback) {
+      throw new Error("Expected the admitted callback fixture.");
+    }
     const directoryContext = buildOrganizationDocumentReadContext({
       context: buildRemoteAgentCoreContext(callback, "directory"),
       turnEnvelope: callback.turnEnvelope,

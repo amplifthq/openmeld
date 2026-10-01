@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-01T17:32:08.675Z",
+  "updatedAt": "2026-10-01T18:21:06.334Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.234",
       "updatePolicy": "available",
-      "reason": "Task knowledge reads and lane-correct setup authorization"
+      "reason": "Task knowledge readers match the strict controller catalog"
     },
     "service": {
-      "bundleHash": "2bda3bc5de67a1f5bb36e1f9a759bcb0d017d8729e8c1795735ec6dff63b28b5",
-      "portableBundleHash": "25b5c089d37d9ca68052ffe428f8e42621157924c3b1f0f8c9f9a070101b5ae7",
+      "bundleHash": "563e33a9e3e12a2a97b9fa34bed131efcc6623bbce9329a91e40a7096b68630c",
+      "portableBundleHash": "3aa4b7c03dea04d650b14e042834f68f5fed25098c33de6a88e213871a5227a3",
       "bundleVersion": "0.3.234",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Task-scoped knowledge dispatch readers"
+      "reason": "Task-scoped knowledge readers in the carrier adapter catalog"
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
