@@ -201,8 +201,8 @@ describe("model catalog schema", () => {
 
       for (const [id, displayName, minCliVersion, badgeLabel] of [
         ["claude-sonnet-5-5", "Claude Sonnet 5.5", "2.1.284", "New"],
-        ["claude-opus-5-5", "Claude Opus 5.5", "2.1.280", "New"],
-        ["claude-fable-5-1", "Claude Fable 5.1", "2.1.257", "New"],
+        ["claude-opus-5-5", "Claude Opus 5.5", "2.1.280", null],
+        ["claude-fable-5-1", "Claude Fable 5.1", "2.1.257", null],
         ["claude-fable-5", "Claude Fable 5", "2.1.170", null],
         ["claude-opus-5", "Claude Opus 5", "2.1.219", null],
         ["claude-opus-4-8", "Claude Opus 4.8", "2.1.154", null],
@@ -266,7 +266,6 @@ describe("model catalog schema", () => {
         ).toEqual({
           id,
           displayName: openCodeDisplayNames[id],
-          badgeLabel: "New",
           unavailable: observedModel.status !== "active",
           supportedReasoningLevels: Object.keys(observedModel.variants),
           minCliVersion: null,
@@ -305,16 +304,18 @@ describe("model catalog schema", () => {
           (model) => model.id === "opencode/hy3-free"
         )?.supportedReasoningLevels
       ).toEqual(["low", "medium", "high"]);
-      for (const [id, displayName, variants] of [
+      for (const [id, displayName, variants, badgeLabel] of [
         [
           "opencode/longcat-2.5-preview-free",
           "OpenCode LongCat 2.5 Preview Free",
           ["low", "medium", "high"],
+          "New",
         ],
         [
           "opencode/space-bunny-free",
           "OpenCode Space Bunny Free",
           ["low", "medium", "high", "xhigh", "max"],
+          null,
         ],
       ] as const) {
         expect(
@@ -324,7 +325,7 @@ describe("model catalog schema", () => {
         ).toEqual({
           id,
           displayName,
-          badgeLabel: "New",
+          ...(badgeLabel ? { badgeLabel } : {}),
           unavailable: false,
           supportedReasoningLevels: [...variants],
           minCliVersion: "1.18.33",
@@ -361,7 +362,6 @@ describe("model catalog schema", () => {
         ).toEqual({
           id,
           displayName: cursorDisplayNamesByUpstreamName[observedOption.name],
-          badgeLabel: "New",
           unavailable: false,
           supportedReasoningLevels: [],
           minCliVersion: null,
@@ -387,6 +387,11 @@ describe("model catalog schema", () => {
         supportedReasoningLevels: [],
       });
 
+      expect(
+        result.data.agentControllers["center-agent"]?.models.find(
+          (model) => model.id === "z-ai/glm-5.3-flash"
+        )?.badgeLabel
+      ).toBeUndefined();
       expect(result.data.agentControllers["center-agent"]).toMatchObject({
         defaultModelId: "anthropic/claude-opus-5.5",
         hostedRuntimePolicy: {
@@ -398,7 +403,6 @@ describe("model catalog schema", () => {
           expect.objectContaining({
             id: "z-ai/glm-5.3-flash",
             displayName: "GLM 5.3 Flash",
-            badgeLabel: "New",
             hostedRuntime: {
               contextWindow: 1_048_576,
               inputModalities: ["text", "image"],

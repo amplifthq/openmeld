@@ -459,8 +459,9 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   `personalRemoteAgentDefault=1`; the legacy response omits the new field so
   published strict-schema CLI clients continue to read the catalog.
 - The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Sol,
+  GPT-6 Astra Pro, GPT-6.1 Sol, GPT-6.1 Sol Pro, GPT-6 Luna,
   GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
-  Claude Opus 5.5, Claude Opus 5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
+  Claude Opus 5.5, Claude Opus 5, Claude Sonnet 5.5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
   Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
   V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
   OpenRouter IDs remain in `release/vendor-models.json`; a preview model remains
@@ -738,6 +739,51 @@ catalog and parameter compatibility, not successful inference or account
 entitlement. Live inference and OpenMeld Wake smoke were explicitly waived by
 the delivery owner for this refresh; Claude Code subscription access was
 unavailable. Delivery selects Core only.
+
+### 5.12 October 1 freshness review and hosted candidate audit
+
+New is manually reviewed catalog metadata. Review the complete catalog when
+adding models, including previous labels in other controllers and the CLI
+offline snapshot. A new channel entry for an older model does not make the
+underlying model new. Provider aliases and speed variants follow the underlying
+model's release; an unknown release date does not justify a New label. Clients
+still do not calculate or expire labels.
+
+This review retains New for the September 25–29 release batch: GPT-6.1 Sol
+(including its Fast and Pro routes), Claude Sonnet 5.5, and LongCat 2.5 Preview
+Free. Remove the earlier labels across Codex, Claude Code, Grok Build, Cursor,
+OpenCode, and the shared hosted catalog. The fixed CLI fallback retains its
+model IDs and capabilities and removes only its stale GLM 5.3 Flash label.
+
+The latest hosted GPT-6.1 Sol, Sol Pro, and Sonnet 5.5 routes were already added
+by PR #1410. The October 1 production catalog inspection still returned
+`updatedAt: 2026-09-30T01:12:59.582Z`, omitted those routes, and labeled GLM 5.3
+Flash New; the authenticated Center Agent settings selector showed the same
+choices. This is a Core catalog delivery gap, not a Web filter or a Claude Code
+subscription requirement. Source support does not establish production delivery.
+
+The hosted candidate audit also adds the existing OpenRouter route
+`openai/gpt-6-astra-pro`. Its captured metadata in
+`services/remote-agent/tests/fixtures/openrouter-models-2026-10-01.json` declares
+tool calling, text/image input, a 1,050,000-token context, and five reasoning
+efforts. It follows the existing Sol Pro registration and tool-continuation
+path, keeps the 16,384 output budget, and defaults to medium. Its September 4
+release does not receive New. The existing Opus 5.5, GPT-6 Astra, Fable 5.1,
+Gemini 3.1 Pro Preview, Grok 4.7, and DeepSeek V4.1 Flash choices remain available;
+the current provider inventory has no newer Google Pro route to substitute.
+
+Contract impact: removing optional presentation metadata from the CLI fallback
+does not change commands, setup, Wake, Space actions, diagnostics, provider
+parameters, or transport payloads. Old and new CLI/Service/Skills work with old
+and new Core/Gateway/Web; no ordering dependency or contract bump is needed.
+The packaged CLI artifact changes; its eventual release policy can be available.
+This unstamped Draft uses the normal deferred release-readiness gate against its
+exact main base. The final release must stamp and verify the packaged artifact.
+Catalog delivery
+still belongs to Core; shipping the offline cleanup also requires CLI delivery.
+No runtime state, readiness, identity, admission, or execution authority changes;
+the scoped architecture contracts remain intact. Live inference and Wake smoke
+remain outside this Draft's evidence, under the delivery owner's prior waiver.
 
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 
