@@ -161,9 +161,6 @@ describe("Organization AI consumption", () => {
           outputTokens: 40,
           totalTokens: 240,
           missingTokenRequests: 0,
-          reportedCostNanoUsd: 1_000_000_000,
-          estimatedCostNanoUsd: 0,
-          missingCostRequests: 0,
         },
         {
           fromMs: edges[1],
@@ -173,9 +170,6 @@ describe("Organization AI consumption", () => {
           outputTokens: 0,
           totalTokens: 0,
           missingTokenRequests: 1,
-          reportedCostNanoUsd: 500_000_000,
-          estimatedCostNanoUsd: 0,
-          missingCostRequests: 0,
         },
         {
           fromMs: edges[2],
@@ -185,9 +179,6 @@ describe("Organization AI consumption", () => {
           outputTokens: 0,
           totalTokens: 0,
           missingTokenRequests: 0,
-          reportedCostNanoUsd: 0,
-          estimatedCostNanoUsd: 0,
-          missingCostRequests: 0,
         },
       ]);
       expect(result.models[0]?.totalTokens).toBe(240);
@@ -213,9 +204,6 @@ describe("Organization AI consumption", () => {
           outputTokens: 20,
           totalTokens: 120,
           missingTokenRequests: 0,
-          reportedCostNanoUsd: 500_000_000,
-          estimatedCostNanoUsd: 0,
-          missingCostRequests: 0,
         },
         {
           controller: "builtin:codex",
@@ -224,9 +212,6 @@ describe("Organization AI consumption", () => {
           outputTokens: 20,
           totalTokens: 120,
           missingTokenRequests: 0,
-          reportedCostNanoUsd: 500_000_000,
-          estimatedCostNanoUsd: 0,
-          missingCostRequests: 0,
         },
       ]);
       expect(grouped.timeSeries?.[1]?.controllers).toEqual([
@@ -237,9 +222,6 @@ describe("Organization AI consumption", () => {
           outputTokens: 0,
           totalTokens: 0,
           missingTokenRequests: 1,
-          reportedCostNanoUsd: 500_000_000,
-          estimatedCostNanoUsd: 0,
-          missingCostRequests: 0,
         },
       ]);
       expect(grouped.timeSeries?.[2]?.controllers).toEqual([]);

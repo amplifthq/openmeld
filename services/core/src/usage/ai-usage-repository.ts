@@ -265,10 +265,14 @@ function buildUsageTimeSeriesSql(
     COALESCE(SUM(input_tokens), 0) AS inputTokens,
     COALESCE(SUM(output_tokens), 0) AS outputTokens,
     COALESCE(SUM(total_tokens), 0) AS totalTokens,
-    COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests,
+    COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests${
+      groupBy === "model"
+        ? `,
     COALESCE(SUM(CASE WHEN cost_kind = 'provider_reported' THEN cost_nano_usd ELSE 0 END), 0) AS reportedCostNanoUsd,
     COALESCE(SUM(CASE WHEN cost_kind = 'provider_estimate' THEN cost_nano_usd ELSE 0 END), 0) AS estimatedCostNanoUsd,
-    COALESCE(SUM(cost_nano_usd IS NULL), 0) AS missingCostRequests
+    COALESCE(SUM(cost_nano_usd IS NULL), 0) AS missingCostRequests`
+        : ""
+    }
     FROM ai_usage_records WHERE ${where}
     GROUP BY bucketIndex${grouping} ORDER BY bucketIndex${grouping}`;
 }
@@ -300,9 +304,13 @@ function projectUsageTimeSeries(
       outputTokens: sum("outputTokens"),
       totalTokens: sum("totalTokens"),
       missingTokenRequests: sum("missingTokenRequests"),
-      reportedCostNanoUsd: sum("reportedCostNanoUsd"),
-      estimatedCostNanoUsd: sum("estimatedCostNanoUsd"),
-      missingCostRequests: sum("missingCostRequests"),
+      ...(groupBy === "model"
+        ? {
+            reportedCostNanoUsd: sum("reportedCostNanoUsd"),
+            estimatedCostNanoUsd: sum("estimatedCostNanoUsd"),
+            missingCostRequests: sum("missingCostRequests"),
+          }
+        : {}),
       ...(groupBy
         ? {
             [groupBy === "controller" ? "controllers" : "models"]:

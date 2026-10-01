@@ -187,9 +187,6 @@ const aiUsageBucketTotalsSchema = z.strictObject({
   outputTokens: count,
   totalTokens: count,
   missingTokenRequests: count,
-  reportedCostNanoUsd: count,
-  estimatedCostNanoUsd: count,
-  missingCostRequests: count,
 });
 
 export const aiUsageQueryResponseSchema = z.strictObject({
@@ -201,6 +198,9 @@ export const aiUsageQueryResponseSchema = z.strictObject({
       aiUsageBucketTotalsSchema.extend({
         fromMs: count,
         toMs: count,
+        reportedCostNanoUsd: count.optional(),
+        estimatedCostNanoUsd: count.optional(),
+        missingCostRequests: count.optional(),
         controllers: z
           .array(
             aiUsageBucketTotalsSchema.extend({
@@ -213,6 +213,9 @@ export const aiUsageQueryResponseSchema = z.strictObject({
             aiUsageBucketTotalsSchema.extend({
               provider: identifier,
               model: identifier.nullable(),
+              reportedCostNanoUsd: count,
+              estimatedCostNanoUsd: count,
+              missingCostRequests: count,
             })
           )
           .optional(),

@@ -3011,10 +3011,12 @@ boundaries and adds per-controller totals to each bucket using the same scoped
 SQL aggregation. Bucket totals equal the sum of those controller rows; null
 attribution remains a separate group. Queries without this option retain the
 ungrouped response. `groupTimeSeriesBy: "model"` instead groups by provider and
-model. Every bucket and grouped row also separates provider-reported cost,
-estimated cost, and missing-cost counts. Receivers and strict response consumers
-must deploy these read-schema changes together. This read projection introduces
-no migration, writer, or execution authority.
+model. Only these new model-grouped queries add provider-reported cost, estimated
+cost, and missing-cost counts to buckets and model rows. Existing ungrouped and
+controller-grouped token responses retain their shape; new bucket cost fields
+are optional for readers. Core/Gateway receivers must accept the new model
+grouping before Web or Center Agent callers request it. This read projection
+introduces no migration, writer, or execution authority.
 
 Operators can inspect or preview changes with
 `node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
