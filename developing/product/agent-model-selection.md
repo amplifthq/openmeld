@@ -704,6 +704,41 @@ The title request omits temperature because that model's captured supported
 parameters do not include it. Live image and title latency remain release
 smoke evidence, not catalog assumptions.
 
+### 5.11 October 1 channel additions
+
+The reviewed online catalog adds Sonnet 5.5 for Claude Code, Sonnet 5.5 and
+Opus 5.5 for Cursor, ten recent OpenCode provider/model choices, and Sonnet 5.5,
+GPT-6.1 Sol, and GPT-6.1 Sol Pro for the shared hosted catalog.
+
+Claude Code's [official model configuration](https://code.claude.com/docs/en/model-config)
+requires version 2.1.284 or later for Sonnet 5.5 and supports the same five
+efforts as Opus 5.5. Cursor 2026.09.28's authenticated ACP model config and
+legacy session inventory agree on the exact compound IDs for both additions.
+Their effort remains embedded in those IDs. OpenCode 1.18.33's provider
+inventory supplies exact active IDs and variant keys for the Go and OpenAI
+additions; its free `opencode` provider reports no additional model. The reduced
+vendor-shaped captures live in
+`packages/schemas/tests/fixtures/local-model-catalog-2026.10.01.json`.
+
+Captured OpenRouter metadata establishes tool calling, text/image input, context
+limits, and five supported efforts for the three hosted additions. They retain
+the existing 16,384 output budget and start at `medium`. OpenRouter's Sol Pro
+model route selects Pro mode upstream; OpenMeld uses the existing exact-model
+route and effort contract. The hosted provider tests serialize a tool
+continuation through that same adapter before network dispatch.
+
+Marketplace candidates that are absent from the selected controller inventory
+are not added. This includes the GPT-6 candidates for Cursor and the paid
+models advertised under OpenCode's free provider. Historical uncurated models
+and asynchronous batch routes remain outside this refresh.
+
+All controller defaults, creation preferences, saved selections, fixed CLI
+offline data, and adapter contracts remain unchanged. These checks establish
+catalog and parameter compatibility, not successful inference or account
+entitlement. Live inference and OpenMeld Wake smoke were explicitly waived by
+the delivery owner for this refresh; Claude Code subscription access was
+unavailable. Delivery selects Core only.
+
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 
 **Problem:** today the Web and CLI create-profile flows are duplicated with no
