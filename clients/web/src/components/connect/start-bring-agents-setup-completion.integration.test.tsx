@@ -2749,7 +2749,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			vi.useRealTimers();
 		});
 
-		it("keeps confirming instead of showing complete while the reported version is still update_required", async () => {
+		it.each([
+			"update_required",
+			"update_available",
+			"unknown",
+		] as const)("keeps confirming instead of showing complete while the reported version is %s", async (status) => {
 			useBringAgentsSetupContextMock.mockReturnValue(
 				createSetupContext(
 					{
@@ -2764,10 +2768,12 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 									installedVersion: "0.2.20",
 									latestVersion: "0.2.21",
 									reasonCodes: ["service.version_outdated"],
-									requiredVersion: "0.2.21",
-									status: "update_required",
-									updatePolicy: "required",
-									wakeBlocked: true,
+									requiredVersion:
+										status === "update_required" ? "0.2.21" : null,
+									status,
+									updatePolicy:
+										status === "update_required" ? "required" : "available",
+									wakeBlocked: status === "update_required",
 								},
 							}),
 							refetch: vi.fn().mockResolvedValue(undefined),
@@ -2780,7 +2786,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 			expect(
 				await screen.findByText(
-					"Confirming the update reached the required version on this computer..."
+					"Confirming the installed versions on this computer..."
 				)
 			).toBeTruthy();
 			expect(
@@ -2840,18 +2846,20 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			expect(
 				screen.getByText((content) =>
 					content.includes(
-						"This computer reports OpenMeld Service v0.2.20, but v0.2.21 is required."
+						"This computer reports OpenMeld Service v0.2.20; its update status still calls for v0.2.21."
 					)
 				)
 			).toBeTruthy();
 			expect(
-				screen.getByText((content) => content.includes("try again later"))
+				screen.getByText((content) =>
+					content.includes("Check this computer's connection and update status")
+				)
 			).toBeTruthy();
 			expect(refetch.mock.calls.length).toBeGreaterThan(0);
 			expect(navigateMock).not.toHaveBeenCalled();
 		});
 
-		it("shows the confirmed version once the projection clears update_required", async () => {
+		it("shows the confirmed version once the projection confirms both installed components", async () => {
 			useBringAgentsSetupContextMock.mockReturnValue(
 				createSetupContext(
 					{
@@ -2893,7 +2901,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 
 			expect(
 				await screen.findByText(
-					"Confirming the update reached the required version on this computer..."
+					"Confirming the installed versions on this computer..."
 				)
 			).toBeTruthy();
 			expect(
@@ -2932,7 +2940,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			).toBeTruthy();
 			expect(
 				screen.queryByText(
-					"Confirming the update reached the required version on this computer..."
+					"Confirming the installed versions on this computer..."
 				)
 			).toBeNull();
 			expect(
@@ -2943,7 +2951,11 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			expect(navigateMock).not.toHaveBeenCalled();
 		});
 
-		it("recovers to confirmed once the projection clears update_required after timing out", async () => {
+		it.each([
+			"update_required",
+			"update_available",
+			"unknown",
+		] as const)("recovers to confirmed after %s times out", async (status) => {
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-05-08T10:00:00.000Z"));
 			const refetch = vi.fn().mockResolvedValue(undefined);
@@ -2961,10 +2973,12 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 									installedVersion: "0.2.20",
 									latestVersion: "0.2.21",
 									reasonCodes: ["service.version_outdated"],
-									requiredVersion: "0.2.21",
-									status: "update_required",
-									updatePolicy: "required",
-									wakeBlocked: true,
+									requiredVersion:
+										status === "update_required" ? "0.2.21" : null,
+									status,
+									updatePolicy:
+										status === "update_required" ? "required" : "available",
+									wakeBlocked: status === "update_required",
 								},
 							}),
 							refetch,
@@ -3142,7 +3156,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			).toBeNull();
 			expect(
 				screen.getByText(
-					"Confirming the update reached the required version on this computer..."
+					"Confirming the installed versions on this computer..."
 				)
 			).toBeTruthy();
 		});
