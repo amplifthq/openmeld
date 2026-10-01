@@ -3434,6 +3434,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         runtime: optional(picklist(["local", "remote"])),
         model: optionalNonEmptyStringSchema,
         agentProfileId: optionalNonEmptyStringSchema,
+        agentProfileIds: optional(
+          pipe(array(nonEmptyStringSchema), maxLength(1000))
+        ),
         spaceId: optionalNonEmptyStringSchema,
         taskId: optionalNonEmptyStringSchema,
         dispatchId: optionalNonEmptyStringSchema,
@@ -3450,7 +3453,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             maxLength(32)
           )
         ),
-        groupTimeSeriesBy: optional(literal("controller")),
+        groupTimeSeriesBy: optional(picklist(["controller", "model"])),
       }),
       execute: async (payload) => {
         const context = await buildOrganizationMemberToolContext({

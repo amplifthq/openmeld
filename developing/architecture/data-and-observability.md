@@ -2983,8 +2983,14 @@ remain distinct from invoiced provider charges.
 The public `POST /v1/organizations/current/usage/query` and
 `openmeld_read_ai_usage` Center Agent tool share the same Core query owner.
 Every Organization member may read Organization-wide usage. Cross-Organization
-access is still rejected. Settings only exposes today's platform model cost
-and optional allowance; Routines retains its independent 50-item limit.
+access is still rejected. Settings Usage exposes organization costs and Local
+tokens, plus the signed-in member's Remote Agent subset. Routines retains its
+independent 50-item limit; the daily allowance is optional.
+
+Optional `agentProfileIds` intersects the existing organization and query scope.
+An explicitly empty list matches no receipts. Settings derives owned non-Center
+Profiles from the organization directory; this display filter is not a new
+authorization boundary. Every member retains organization-wide visibility.
 
 Computer Local Agent consumption reads use the same query with `runtime=local`,
 the enrolled `connectedComputerId`, and the exact `controller` reference. The
@@ -3004,7 +3010,11 @@ the same boundaries. Optional `groupTimeSeriesBy: "controller"` requires bucket
 boundaries and adds per-controller totals to each bucket using the same scoped
 SQL aggregation. Bucket totals equal the sum of those controller rows; null
 attribution remains a separate group. Queries without this option retain the
-ungrouped response. This read projection introduces no migration or writer.
+ungrouped response. `groupTimeSeriesBy: "model"` instead groups by provider and
+model. Every bucket and grouped row also separates provider-reported cost,
+estimated cost, and missing-cost counts. Receivers and strict response consumers
+must deploy these read-schema changes together. This read projection introduces
+no migration, writer, or execution authority.
 
 Operators can inspect or preview changes with
 `node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.

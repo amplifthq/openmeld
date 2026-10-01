@@ -38,6 +38,76 @@ const record: AiUsageRecord = {
 const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
 
 describe("Organization AI consumption", () => {
+  it("keeps selected Agent costs and model buckets inside the organization, including an empty selection", async () => {
+    const harness = createHarness();
+    try {
+      await recordAiUsage(harness.db, record);
+      await recordAiUsage(harness.db, {
+        ...record,
+        eventId: "other-agent",
+        agentProfileId: "agent-2",
+        cost: { kind: "provider_reported", nanoUsd: 900_000_000 },
+      });
+      await recordAiUsage(harness.db, {
+        ...record,
+        eventId: "estimate",
+        model: "estimate-model",
+        cost: { kind: "provider_estimate", nanoUsd: 200_000_000 },
+      });
+      await recordAiUsage(harness.db, {
+        ...record,
+        eventId: "other-org",
+        organizationId: "org-2",
+        cost: { kind: "provider_reported", nanoUsd: 800_000_000 },
+      });
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: {
+          ...query,
+          runtime: "remote",
+          agentProfileIds: ["agent-1"],
+          bucketBoundariesMs: [query.fromMs, query.toMs],
+          groupTimeSeriesBy: "model",
+          groupBy: "agent",
+        },
+      });
+      expect(result.models).toHaveLength(2);
+      expect(result.timeSeries?.[0]).toMatchObject({
+        requests: 2,
+        reportedCostNanoUsd: 500_000_000,
+        estimatedCostNanoUsd: 200_000_000,
+      });
+      expect(result.timeSeries?.[0]?.models).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            model: record.model,
+            reportedCostNanoUsd: 500_000_000,
+            estimatedCostNanoUsd: 0,
+          }),
+          expect.objectContaining({
+            model: "estimate-model",
+            reportedCostNanoUsd: 0,
+            estimatedCostNanoUsd: 200_000_000,
+          }),
+        ])
+      );
+      expect(
+        result.breakdown?.groups.map((group) => group.agentProfileId)
+      ).toEqual(["agent-1"]);
+      expect(
+        (
+          await queryAiUsage({
+            db: harness.db,
+            organizationId: "org-1",
+            query: { ...query, agentProfileIds: [] },
+          })
+        ).models
+      ).toEqual([]);
+    } finally {
+      harness.close();
+    }
+  });
   it("buckets native receipts at calendar boundaries without losing missing usage or crossing scope", async () => {
     const harness = createHarness();
     // New York's spring transition contains a 23-hour day, followed by two full days.
@@ -91,6 +161,9 @@ describe("Organization AI consumption", () => {
           outputTokens: 40,
           totalTokens: 240,
           missingTokenRequests: 0,
+          reportedCostNanoUsd: 1_000_000_000,
+          estimatedCostNanoUsd: 0,
+          missingCostRequests: 0,
         },
         {
           fromMs: edges[1],
@@ -100,6 +173,9 @@ describe("Organization AI consumption", () => {
           outputTokens: 0,
           totalTokens: 0,
           missingTokenRequests: 1,
+          reportedCostNanoUsd: 500_000_000,
+          estimatedCostNanoUsd: 0,
+          missingCostRequests: 0,
         },
         {
           fromMs: edges[2],
@@ -109,6 +185,9 @@ describe("Organization AI consumption", () => {
           outputTokens: 0,
           totalTokens: 0,
           missingTokenRequests: 0,
+          reportedCostNanoUsd: 0,
+          estimatedCostNanoUsd: 0,
+          missingCostRequests: 0,
         },
       ]);
       expect(result.models[0]?.totalTokens).toBe(240);
@@ -134,6 +213,9 @@ describe("Organization AI consumption", () => {
           outputTokens: 20,
           totalTokens: 120,
           missingTokenRequests: 0,
+          reportedCostNanoUsd: 500_000_000,
+          estimatedCostNanoUsd: 0,
+          missingCostRequests: 0,
         },
         {
           controller: "builtin:codex",
@@ -142,6 +224,9 @@ describe("Organization AI consumption", () => {
           outputTokens: 20,
           totalTokens: 120,
           missingTokenRequests: 0,
+          reportedCostNanoUsd: 500_000_000,
+          estimatedCostNanoUsd: 0,
+          missingCostRequests: 0,
         },
       ]);
       expect(grouped.timeSeries?.[1]?.controllers).toEqual([
@@ -152,6 +237,9 @@ describe("Organization AI consumption", () => {
           outputTokens: 0,
           totalTokens: 0,
           missingTokenRequests: 1,
+          reportedCostNanoUsd: 500_000_000,
+          estimatedCostNanoUsd: 0,
+          missingCostRequests: 0,
         },
       ]);
       expect(grouped.timeSeries?.[2]?.controllers).toEqual([]);

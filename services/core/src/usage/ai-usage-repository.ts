@@ -154,11 +154,11 @@ export async function queryAiUsage(input: {
   }
   const seriesIndex = statements.length;
   const edges = query.bucketBoundariesMs;
-  const byController = query.groupTimeSeriesBy === "controller";
+  const seriesGrouping = query.groupTimeSeriesBy;
   if (edges) {
     statements.push(
       input.db
-        .prepare(buildUsageTimeSeriesSql(edges, where, byController))
+        .prepare(buildUsageTimeSeriesSql(edges, where, seriesGrouping))
         .bind(...edges.slice(1), ...values)
     );
   }
@@ -181,7 +181,7 @@ export async function queryAiUsage(input: {
           timeSeries: projectUsageTimeSeries(
             edges,
             results[seriesIndex]?.results ?? [],
-            byController
+            seriesGrouping
           ),
         }
       : {}),
@@ -242,34 +242,51 @@ function usageScope(organizationId: string, query: AiUsageQuery) {
       values.push(value);
     }
   }
+  if (query.agentProfileIds !== undefined) {
+    predicates.push("agent_profile_id IN (SELECT value FROM json_each(?))");
+    values.push(JSON.stringify(query.agentProfileIds));
+  }
   return { where: predicates.join(" AND "), values };
 }
 
 function buildUsageTimeSeriesSql(
   edges: number[],
   where: string,
-  byController: boolean
+  groupBy: AiUsageQuery["groupTimeSeriesBy"]
 ) {
   // Bound edges precede the shared scope predicates. No client SQL enters this query.
   const buckets = edges
     .slice(1)
     .map((_, index) => `WHEN occurred_at_ms < ? THEN ${index}`)
     .join(" ");
-  const grouping = byController ? ", controller" : "";
+  const grouping = usageTimeSeriesGrouping(groupBy);
   return `SELECT CASE ${buckets} END AS bucketIndex${grouping},
     COUNT(*) AS requests,
     COALESCE(SUM(input_tokens), 0) AS inputTokens,
     COALESCE(SUM(output_tokens), 0) AS outputTokens,
     COALESCE(SUM(total_tokens), 0) AS totalTokens,
-    COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests
+    COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests,
+    COALESCE(SUM(CASE WHEN cost_kind = 'provider_reported' THEN cost_nano_usd ELSE 0 END), 0) AS reportedCostNanoUsd,
+    COALESCE(SUM(CASE WHEN cost_kind = 'provider_estimate' THEN cost_nano_usd ELSE 0 END), 0) AS estimatedCostNanoUsd,
+    COALESCE(SUM(cost_nano_usd IS NULL), 0) AS missingCostRequests
     FROM ai_usage_records WHERE ${where}
     GROUP BY bucketIndex${grouping} ORDER BY bucketIndex${grouping}`;
+}
+
+function usageTimeSeriesGrouping(groupBy: AiUsageQuery["groupTimeSeriesBy"]) {
+  if (groupBy === "controller") {
+    return ", controller";
+  }
+  if (groupBy === "model") {
+    return ", provider, model";
+  }
+  return "";
 }
 
 function projectUsageTimeSeries(
   edges: number[],
   rows: Record<string, unknown>[],
-  byController: boolean
+  groupBy: AiUsageQuery["groupTimeSeriesBy"]
 ) {
   return edges.slice(0, -1).map((fromMs, index) => {
     const bucketRows = rows.filter((entry) => entry.bucketIndex === index);
@@ -283,11 +300,13 @@ function projectUsageTimeSeries(
       outputTokens: sum("outputTokens"),
       totalTokens: sum("totalTokens"),
       missingTokenRequests: sum("missingTokenRequests"),
-      ...(byController
+      reportedCostNanoUsd: sum("reportedCostNanoUsd"),
+      estimatedCostNanoUsd: sum("estimatedCostNanoUsd"),
+      missingCostRequests: sum("missingCostRequests"),
+      ...(groupBy
         ? {
-            controllers: bucketRows.map(
-              ({ bucketIndex: _bucketIndex, ...row }) => row
-            ),
+            [groupBy === "controller" ? "controllers" : "models"]:
+              bucketRows.map(({ bucketIndex: _bucketIndex, ...row }) => row),
           }
         : {}),
     };

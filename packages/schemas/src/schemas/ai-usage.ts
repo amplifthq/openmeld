@@ -78,6 +78,7 @@ export const aiUsageQuerySchema = z
     runtime: z.enum(["local", "remote"]).optional(),
     model: identifier.optional(),
     agentProfileId: identifier.optional(),
+    agentProfileIds: z.array(identifier).max(1000).optional(),
     spaceId: identifier.optional(),
     taskId: identifier.optional(),
     dispatchId: identifier.optional(),
@@ -89,7 +90,7 @@ export const aiUsageQuerySchema = z
     includeIssues: z.boolean().optional(),
     // Explicit calendar boundaries also support 23/25-hour daylight-saving days.
     bucketBoundariesMs: z.array(count).min(2).max(32).optional(),
-    groupTimeSeriesBy: z.literal("controller").optional(),
+    groupTimeSeriesBy: z.enum(["controller", "model"]).optional(),
   })
   .refine((value) => !value.groupTimeSeriesBy || !!value.bucketBoundariesMs, {
     message: "Time series grouping requires bucket boundaries.",
@@ -180,29 +181,38 @@ const aiUsageGroupSchema = z.strictObject({
     .optional(),
 });
 
+const aiUsageBucketTotalsSchema = z.strictObject({
+  requests: count,
+  inputTokens: count,
+  outputTokens: count,
+  totalTokens: count,
+  missingTokenRequests: count,
+  reportedCostNanoUsd: count,
+  estimatedCostNanoUsd: count,
+  missingCostRequests: count,
+});
+
 export const aiUsageQueryResponseSchema = z.strictObject({
   fromMs: count,
   toMs: count,
   models: z.array(aiUsageSummarySchema),
   timeSeries: z
     .array(
-      z.strictObject({
+      aiUsageBucketTotalsSchema.extend({
         fromMs: count,
         toMs: count,
-        requests: count,
-        inputTokens: count,
-        outputTokens: count,
-        totalTokens: count,
-        missingTokenRequests: count,
         controllers: z
           .array(
-            z.strictObject({
+            aiUsageBucketTotalsSchema.extend({
               controller: identifier.nullable(),
-              requests: count,
-              inputTokens: count,
-              outputTokens: count,
-              totalTokens: count,
-              missingTokenRequests: count,
+            })
+          )
+          .optional(),
+        models: z
+          .array(
+            aiUsageBucketTotalsSchema.extend({
+              provider: identifier,
+              model: identifier.nullable(),
             })
           )
           .optional(),
