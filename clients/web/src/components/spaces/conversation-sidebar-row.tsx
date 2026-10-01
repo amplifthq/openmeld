@@ -146,6 +146,17 @@ function DirectMessageSidebarRow(input: ConversationSidebarRowProps) {
 	);
 }
 
+function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
+	const nowMs = useNowMs(60_000);
+	return (
+		<SidebarConversationTime
+			hideOlderUntilHover
+			now={new Date(nowMs)}
+			timestamp={timestamp}
+		/>
+	);
+}
+
 function ConversationSidebarRowContent(
 	input: ConversationSidebarRowProps & ConversationRowPreview
 ) {
@@ -154,7 +165,6 @@ function ConversationSidebarRowContent(
 			? input.conversation.chat
 			: null;
 	const { timestamp, previewText } = input;
-	const nowMs = useNowMs(timestamp === null ? null : 60_000);
 	const presentation = input.activeWakeSummary
 		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
 		: null;
@@ -202,7 +212,7 @@ function ConversationSidebarRowContent(
 										.join(", ")}
 									className="absolute inset-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
 									resetScroll={false}
-									to={input.url}
+									{...conversationNavigationTarget(input.url)}
 								/>
 							}
 						/>
@@ -251,11 +261,7 @@ function ConversationSidebarRowContent(
 									</Tooltip>
 								)}
 								{timestamp !== null && !presentation && (
-									<SidebarConversationTime
-										hideOlderUntilHover
-										now={new Date(nowMs)}
-										timestamp={timestamp}
-									/>
+									<ConversationSidebarRowTime timestamp={timestamp} />
 								)}
 								{presentation && input.attentionTone && (
 									<span

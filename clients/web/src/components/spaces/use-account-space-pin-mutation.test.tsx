@@ -318,6 +318,33 @@ it("keeps a confirmed message preview through index lag but accepts convergence 
 	vi.useRealTimers();
 });
 
+it("reuses unchanged directory rows across refreshes and updates changed fields", () => {
+	const sections: AccountSpaceSections = {
+		pinnedItems: [],
+		spaceItems: [
+			createAccountSpaceItem({ spaceId: "planning", spaceName: "Planning" }),
+			createAccountSpaceItem({ spaceId: "design", spaceName: "Design" }),
+		],
+	};
+	const client = createQueryClient(sections);
+	const key = accountSpaceQueryKeys.items("human-1", "account");
+	client.setQueryData(key, structuredClone(sections));
+	expect(readSections(client)).toBe(sections);
+	const refreshed = {
+		...sections,
+		spaceItems: sections.spaceItems.map((item) => ({
+			...item,
+			spaceName: item.spaceId === "design" ? "Design review" : item.spaceName,
+		})),
+	};
+	client.setQueryData(key, refreshed);
+	const changed = readSections(client);
+	expect(changed.spaceItems[0]).toBe(sections.spaceItems[0]);
+	expect(changed.spaceItems[1]?.spaceName).toBe("Design review");
+	expect(changed.spaceItems[1]).not.toBe(sections.spaceItems[1]);
+	client.clear();
+});
+
 function createQueryClient(sections: AccountSpaceSections): QueryClient {
 	const queryClient = new QueryClient({
 		defaultOptions: {

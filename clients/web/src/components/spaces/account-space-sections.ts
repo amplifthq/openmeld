@@ -1,5 +1,6 @@
 import type { SpaceInboxSummaryItem } from "@openmeld/schemas/types";
 import { isDirectMessageSpace } from "@openmeld/space";
+import { replaceEqualDeep } from "@tanstack/react-query";
 import type {
 	AccountSpaceItem,
 	AccountSpaceSections,
@@ -307,7 +308,22 @@ export function preserveOptimisticAccountSpacePinUpdates(
 		}
 		next = applyAccountSpacePinOverlay(next, ownerItem, overlay);
 	}
-	return preserveAcceptedAccountSpaceMessages(previous, next);
+	const reconciled = preserveAcceptedAccountSpaceMessages(previous, next);
+	// Query delegates structural sharing entirely to this function. Keep its
+	// normal no-change reuse unless a snapshot carries non-JSON convergence
+	// receipts: replaceEqualDeep must not drop or resurrect those Symbols.
+	const hasReceipts = [
+		...previous.pinnedItems,
+		...previous.spaceItems,
+		...reconciled.pinnedItems,
+		...reconciled.spaceItems,
+	].some(
+		(item) =>
+			readAccountSpacePinOverlay(item) !== null ||
+			(item as AcceptedMessageItem)[ACCOUNT_SPACE_ACCEPTED_MESSAGE] !==
+				undefined
+	);
+	return hasReceipts ? reconciled : replaceEqualDeep(previous, reconciled);
 }
 
 function applyAccountSpacePinOverlay(
