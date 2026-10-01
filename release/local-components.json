@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-01T06:55:32.433Z",
+  "updatedAt": "2026-10-01T16:52:03.155Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.233",
+      "packageVersion": "0.3.234",
       "updatePolicy": "available",
-      "reason": "Installation-channel reporting and usage inspection are additive; existing commands remain compatible with old and new cloud receivers."
+      "reason": "Add read-only dispatch knowledge tools; existing CLI commands and Space action payloads remain valid with old or new Core."
     },
     "service": {
-      "bundleHash": "a181175ee4a26b318771a4a7188c1affa230d222620ddc3500d832fc584ca96d",
-      "portableBundleHash": "0fe4091d66ccb7458ebdfd68bbfb25a711d0927b74334c0b19bd8d5b4216c9f2",
-      "bundleVersion": "0.3.233",
+      "bundleHash": "c9a4f07720da26b9ee5270ee98c132468c7abc3b0c5902e175fd5092d1bd350c",
+      "portableBundleHash": "31395eca0e7a29826ea131f24ec8cf2d49f6132a995d6345d5e1158488abc603",
+      "bundleVersion": "0.3.234",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Usage observations add optional fields after compatible cloud receivers deploy; existing Services retain their Wake and runtime contracts and the current required floor."
+      "reason": "Add optional frozen Skill selections to dispatch action context; old Services keep existing Wake/setup behavior and new Services report unavailable directories against old Core."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The Plugin playbook adds guidance without changing the existing managed Skill contract."
+      "reason": "Add task-scoped approved document reads and pinned Skill discovery without changing existing Wake or action contracts."
     }
   }
 }
