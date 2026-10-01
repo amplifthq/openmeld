@@ -531,9 +531,15 @@ Important execution rules:
   Service becomes `runtime.local_runtime_lost`; only a still-connected Service
   with no more specific cause remains `runtime.progress_stale`. Both retain the
   existing owner-mediated late-result recovery and never automatically rerun.
-- The five-minute policy names the cause it actually found. An occupied native
-  conversation reports its occupancy once and then goes quiet, so it reaches the
-  same threshold looking like a lost computer. When the blocked work item still
+- The five-minute policy names the cause it actually found. The first occupied
+  report advances the progress baseline. Repeated same-phase occupied reports,
+  recovery retries, and compatibility keepalives that omit occupancy prove only
+  liveness while the Coordinator's admission record still says occupied. They
+  cannot refresh progress or reset watchdog history, including after transport
+  hibernation or a permitted reconnect. An explicit availability transition or
+  advancement to `running` after provider turn acceptance ends that wait; normal
+  running keepalives continue to protect active execution. This is not a total
+  execution deadline. When the blocked work item still
   carries `waitReason = controller_conversation_occupied`, the terminal closes as
   `runtime.controller_conversation_occupied` instead, on the same deadline and
   with the same retained late-result recovery. Occupancy is read from the

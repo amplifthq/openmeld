@@ -20136,7 +20136,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("fails an occupied native conversation with its real cause and opens an owner decision", async () => {
+  it.each([
+    "pending",
+    "hibernated",
+  ] as const)("fails an occupied native conversation despite repeated keepalives (%s)", async (transportState) => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const {
@@ -20155,41 +20158,55 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
-      state.pendingDispatches.clear();
+      if (transportState === "hibernated") {
+        state.pendingDispatches.clear();
+      }
 
-      await (
-        hub as unknown as {
-          handleDispatchLifecycleFrame: (
-            webSocket: WebSocket,
-            payload: unknown
-          ) => Promise<void>;
-        }
-      ).handleDispatchLifecycleFrame(
+      const lifecycleHub = hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      };
+      nowSpy.mockReturnValue(1_700_000_000_100);
+      await lifecycleHub.handleDispatchLifecycleFrame(
         socket,
         buildLifecycleRequest({
           executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          lifecycleAtMs: 1_700_000_000_100,
+          phase: "accepted_local",
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+      nowSpy.mockReturnValue(1_700_000_000_300);
+      await lifecycleHub.handleDispatchLifecycleFrame(
+        socket,
+        buildLifecycleRequest({
+          agentControllerConversationOccupancy: {
+            agentControllerConversationId: "conversation-1",
+            contractVersion: 1,
+            state: "occupied",
+          },
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
           lifecycleAtMs: 1_700_000_000_300,
-          phase: "running",
+          phase: "accepted_local",
           runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
         })
       );
 
-      // The Adapter reports the occupancy exactly once and then goes quiet, so
-      // the watchdog sees the same stale progress a lost computer produces.
-      // This fixture writes that one report directly.
       const admissionKey =
         runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
           TARGET_AGENT_PROFILE_ID
         );
       const admission = storageRecordsAdmission(storageRecords, admissionKey);
-      storageRecords.set(admissionKey, {
-        ...admission,
-        workItems: admission.workItems.map((item) =>
-          item.dispatchId === "dispatch-1"
-            ? { ...item, waitReason: "controller_conversation_occupied" }
-            : item
-        ),
-      });
+      expect(admission.workItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            dispatchId: "dispatch-1",
+            waitReason: "controller_conversation_occupied",
+          }),
+        ])
+      );
       const occupiedTargetWakeLifecycleId =
         admission.workItems.find((item) => item.dispatchId === "dispatch-1")
           ?.targetWakeLifecycleId ?? null;
@@ -20214,6 +20231,43 @@ describe("runtime transport runtime coordinator transport contract", () => {
           }
         ).alarm();
       }
+      // Real Service keepalives alternate between reasserting occupancy and
+      // omitting the optional field. Neither proves the writer was released.
+      liveSession.connectionGeneration += 1;
+      for (const [index, atMs] of [
+        1_700_000_120_300, 1_700_000_240_300, 1_700_000_299_300,
+      ].entries()) {
+        nowSpy.mockReturnValue(atMs);
+        liveSession.lastHeartbeatMs = atMs;
+        await lifecycleHub.handleDispatchLifecycleFrame(
+          socket,
+          buildLifecycleRequest({
+            acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+            connectionGeneration: liveSession.connectionGeneration,
+            ...(index % 2 === 0
+              ? {
+                  agentControllerConversationOccupancy: {
+                    agentControllerConversationId: "conversation-1",
+                    contractVersion: 1,
+                    state: "occupied" as const,
+                  },
+                }
+              : {}),
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: atMs,
+            phase: "accepted_local",
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+        expect(sentFrames.at(-1)).toMatchObject({
+          code: "daemon.dispatch.lifecycle_acknowledged",
+          payload: { accepted: true },
+        });
+      }
+      expect(
+        findRuntimeCoordinatorRunCommandState(storageRecords)?.localProgress
+          .lastLifecycleAtMs
+      ).toBe(1_700_000_000_300);
       liveSession.lastHeartbeatMs = 1_700_000_300_300;
 
       recordingD1.calls.length = 0;
@@ -20493,6 +20547,111 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).not.toMatchObject({
         localAttemptWithdrawal: { status: "withdrawn" },
       });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    ["pending", "release"],
+    ["hibernated", "release"],
+    ["pending", "provider turn"],
+    ["hibernated", "provider turn"],
+  ] as const)("keeps genuine progress alive after occupancy (%s, %s)", async (transportState, releaseEvidence) => {
+    const startMs = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startMs);
+    try {
+      const {
+        hub,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+        spaceFetchRequests,
+      } = createHarness();
+      const executionToken = await issueDeliveryToken({
+        hub,
+        sentFrames,
+        socket,
+        state,
+      });
+      if (transportState === "hibernated") {
+        state.pendingDispatches.clear();
+      }
+      const lifecycleHub = hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+        alarm: () => Promise<void>;
+      };
+      const session = state.sessionsById.get("daemon-session-1");
+      if (!session) {
+        throw new Error("Expected the registered daemon session.");
+      }
+      const report = async (
+        offsetMs: number,
+        phase: "accepted_local" | "running",
+        occupancy?: "available" | "occupied"
+      ) => {
+        nowSpy.mockReturnValue(startMs + offsetMs);
+        session.lastHeartbeatMs = startMs + offsetMs;
+        await lifecycleHub.handleDispatchLifecycleFrame(
+          socket,
+          buildLifecycleRequest({
+            ...(occupancy
+              ? {
+                  agentControllerConversationOccupancy: {
+                    agentControllerConversationId: "conversation-1",
+                    contractVersion: 1,
+                    state: occupancy,
+                  },
+                }
+              : {}),
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: startMs + offsetMs,
+            phase,
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+        await lifecycleHub.alarm();
+      };
+      await report(300, "accepted_local", "occupied");
+      await report(31_000, "accepted_local");
+      await report(61_000, "accepted_local", "occupied");
+      // A provider turn can begin on the retry before an availability callback
+      // arrives. Advancing to running is itself evidence that the wait ended.
+      await report(
+        299_300,
+        releaseEvidence === "release" ? "accepted_local" : "running",
+        releaseEvidence === "release" ? "available" : undefined
+      );
+      const admission = storageRecordsAdmission(
+        storageRecords,
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        )
+      );
+      expect(
+        admission.workItems.find((item) => item.dispatchId === "dispatch-1")
+      ).not.toHaveProperty("waitReason");
+      expect(
+        findRuntimeCoordinatorRunCommandState(storageRecords)?.localProgress
+          .lastLifecycleAtMs
+      ).toBe(startMs + 299_300);
+      // Repeated ordinary running keepalives remain progress, even beyond the
+      // original occupied deadline. There is no total execution time limit.
+      for (const offsetMs of [300_300, 540_300, 780_300]) {
+        await report(offsetMs, "running");
+        expect(
+          findRuntimeCoordinatorRunCommandState(storageRecords)?.localProgress
+            .lastLifecycleAtMs
+        ).toBe(startMs + offsetMs);
+      }
+      expect(spaceFetchRequests).toEqual([]);
+      expect(sentFrames).not.toContainEqual(
+        expect.objectContaining({ code: "daemon.local_agent_control.cancel" })
+      );
     } finally {
       nowSpy.mockRestore();
     }
