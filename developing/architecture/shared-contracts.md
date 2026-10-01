@@ -7995,3 +7995,40 @@ Use scoped owner documents for related rules:
 - Cross-client business rules should be extracted before Web and CLI diverge.
 - Client-specific presentation and platform behavior should stay in clients.
 - Space password normalization must be shared across clients and services.
+
+## Local component installation source and binary availability
+
+Core owns update eligibility and target projection. Global
+`release/local-components.json` remains compatibility/admission authority.
+The binary availability catalogue is a separate build-time input compiled by
+both guarded Core deployment owners from official stable and Windows-preview
+manifest snapshots. It selects exact channel/platform pairs; it never infers a
+Windows preview from OS, or stable provenance from the JSON member
+`channels.stable`. Missing installation source, platform, catalogue, or release
+policy leaves binary latest versions null and availability unknown. Unsafe
+Service versions remain blocked independently of artifact availability.
+Required CLI package versions and command contracts also remain independent of
+availability: an older channel target cannot satisfy either requirement.
+When the installed CLI is below the required package version or has an
+incompatible command contract, Core preserves `update_required` and its
+diagnostic reason even without a compatible installable target.
+
+`LocalComponentsStatus.installationSource` is optional strict metadata containing
+only distribution, channel and product platform. The managed CLI installation
+owns binary provenance, including a retained Service carrier; executable paths,
+arbitrary update URLs and credentials are not report fields. Npm continues using
+the global npm policy. Public binary manifests may carry `componentPolicy` whose
+CLI and Service versions must each match their selected immutable artifact.
+Separate Service versions are supported. Legacy stable metadata may reuse the
+global policy only when both versions match; legacy preview never borrows it.
+
+Contract Impact Audit: producer is CLI/Service local component reporting;
+strict receivers include Gateway runtime transport parsers, Core and Web shared
+schemas. Deploy compatible receivers before publishing a reporter with the
+additive field. Old reports remain accepted but source availability is unknown;
+missing availability must not weaken compatibility floors. Consumers include
+computer status, setup completion, dispatch readiness and automatic maintenance.
+Automatic updates require installable CLI and Service targets and use the
+projected source-specific CLI target. Skills-only drift cannot bootstrap an
+unavailable binary upgrade. Validate schema/report acceptance, source provenance,
+channel/platform/retained-Service matrices, safety floors and automatic dispatch.

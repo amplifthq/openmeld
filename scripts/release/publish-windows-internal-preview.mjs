@@ -10,6 +10,7 @@ import {
   DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   desktopWindowsInternalPreviewLocation,
   desktopWindowsInternalPreviewSchema,
+  localComponentsReleaseManifestSchema,
 } from "../../packages/schemas/dist/index.js";
 import {
   checkDesktopPublisher,
@@ -104,6 +105,29 @@ function validateSourceIdentity(bundle, requireMain) {
   return sourceSha;
 }
 
+function validateSourceComponentPolicy(componentPolicy) {
+  if (!componentPolicy) {
+    throw new Error(
+      "Windows preview requires source-matched CLI and Service component policies."
+    );
+  }
+  const sourcePolicy = localComponentsReleaseManifestSchema.parse(
+    JSON.parse(
+      readFileSync(join(root, "release/local-components.json"), "utf8")
+    )
+  );
+  if (
+    JSON.stringify(componentPolicy.cli) !==
+      JSON.stringify(sourcePolicy.components.cli) ||
+    JSON.stringify(componentPolicy.service) !==
+      JSON.stringify(sourcePolicy.components.service)
+  ) {
+    throw new Error(
+      "Windows preview policies do not match the exact source release manifest."
+    );
+  }
+}
+
 function validateBundle(directory, requireMain, cliOnly = false) {
   const bundle = JSON.parse(
     readFileSync(
@@ -116,6 +140,7 @@ function validateBundle(directory, requireMain, cliOnly = false) {
   );
   const sourceSha = validateSourceIdentity(bundle, requireMain);
   const manifest = cliBinaryManifestSchema.parse(bundle.manifest);
+  validateSourceComponentPolicy(manifest.channels.stable.componentPolicy);
   const pointer = cliOnly
     ? undefined
     : desktopWindowsInternalPreviewSchema.parse(bundle.pointer);
@@ -289,7 +314,7 @@ async function main() {
     });
   }
   process.stdout.write(
-    `Windows ${cliOnly ? "CLI" : "CLI and Desktop"} internal preview published from ${selected.sourceSha}. Verify public Web URLs before sharing them.\n`
+    `Windows ${cliOnly ? "CLI" : "CLI and Desktop"} internal preview published from ${selected.sourceSha}. Publication closeout is pending: verify public URLs, then run guarded Core --redeploy and retain newly admitted Worker/catalogue evidence before sharing completion.\n`
   );
 }
 
