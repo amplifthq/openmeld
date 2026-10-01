@@ -59,8 +59,8 @@ export function CenterAgentUsageSection(input: {
 				<h2 className="font-medium text-foreground text-sm">Usage</h2>
 				<p className="mt-1 text-muted-foreground text-sm">
 					{input.isPersonalWorkspace
-						? "See today's Center Agent usage and current Routine limits."
-						: "See today's organization-wide Center Agent usage and current Routine limits."}
+						? "See today's AI model costs and current Routine limits."
+						: "See today's shared AI model costs and current Routine limits."}
 				</p>
 			</div>
 			<div>
@@ -77,7 +77,7 @@ export function CenterAgentUsageSection(input: {
 				) : null}
 				{usageQuery.data ? (
 					<AgentConfigurationGrid>
-						<CenterAgentWakesCard data={usageQuery.data.centerAgentWakes} />
+						<AiSpendCard data={usageQuery.data.aiSpend} />
 						<RoutinesUsageCard data={usageQuery.data.routines} />
 					</AgentConfigurationGrid>
 				) : null}
@@ -86,42 +86,72 @@ export function CenterAgentUsageSection(input: {
 	);
 }
 
-function CenterAgentWakesCard(input: {
+function AiSpendCard(input: {
 	data: {
-		dailyLimit: number;
+		dailyLimitNanoUsd: number | null;
 		resetsAt: string;
-		usedToday: number;
+		usedNanoUsd: number;
+		missingCostRequests: number;
+		exhausted: boolean;
 	};
 }) {
 	const resetTime = useUsageResetTime(input.data.resetsAt);
 
 	return (
-		<AgentConfigurationReadoutCard
-			itemId="center-agent-wakes"
-			label="Center Agent wakes"
-		>
+		<AgentConfigurationReadoutCard itemId="ai-spend" label="AI usage">
 			<div className="flex flex-col gap-3">
 				<div>
 					<p className="font-medium text-2xl text-foreground tabular-nums">
-						{input.data.usedToday} / {input.data.dailyLimit}
+						{formatAiSpend(input.data.usedNanoUsd)}
+						{input.data.dailyLimitNanoUsd === null
+							? null
+							: ` / ${formatAiSpend(input.data.dailyLimitNanoUsd)}`}
 					</p>
-					<p className="mt-1 text-muted-foreground text-xs">used today</p>
+					<p className="mt-1 text-muted-foreground text-xs">
+						in model costs today
+					</p>
 				</div>
-				<Progress
-					aria-label="Center Agent wakes used today"
-					aria-valuetext={`${input.data.usedToday} of ${input.data.dailyLimit}`}
-					max={input.data.dailyLimit}
-					value={input.data.usedToday}
-				/>
+				{input.data.dailyLimitNanoUsd !== null &&
+				input.data.dailyLimitNanoUsd > 0 ? (
+					<Progress
+						aria-label="Shared AI allowance used today"
+						max={input.data.dailyLimitNanoUsd}
+						value={Math.min(
+							input.data.usedNanoUsd,
+							input.data.dailyLimitNanoUsd
+						)}
+					/>
+				) : null}
 				<div className="space-y-1 text-muted-foreground text-xs">
+					<p>Shared by Center Agent and Remote Agents.</p>
+					<p>
+						{input.data.dailyLimitNanoUsd === null
+							? "Free during preview. No daily limit."
+							: "Free during preview."}
+					</p>
 					<p>{resetTime}</p>
-					{input.data.usedToday === 0 ? (
-						<p>No Center Agent wakes used today.</p>
+					{input.data.missingCostRequests > 0 ? (
+						<p>Some model costs are not yet available.</p>
+					) : null}
+					{input.data.exhausted ? (
+						<p>Daily AI allowance used. New requests resume after the reset.</p>
 					) : null}
 				</div>
 			</div>
 		</AgentConfigurationReadoutCard>
 	);
+}
+
+function formatAiSpend(nanoUsd: number): string {
+	const usd = nanoUsd / 1_000_000_000;
+	return usd > 0 && usd < 0.0001
+		? "<$0.0001"
+		: new Intl.NumberFormat("en-US", {
+				style: "currency",
+				currency: "USD",
+				minimumFractionDigits: 2,
+				maximumFractionDigits: 4,
+			}).format(usd);
 }
 
 function RoutinesUsageCard(input: {
@@ -174,7 +204,7 @@ function UsageLoadingState() {
 		<section aria-busy="true" aria-live="polite" className="space-y-3">
 			<p className="text-muted-foreground text-sm">Loading usage.</p>
 			<AgentConfigurationGrid>
-				{["center-agent-wakes", "routines"].map((key) => (
+				{["ai-spend", "routines"].map((key) => (
 					<AgentConfigurationReadoutCard
 						itemId={key}
 						key={key}

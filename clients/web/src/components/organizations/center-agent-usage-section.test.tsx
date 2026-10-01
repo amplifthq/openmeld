@@ -26,12 +26,12 @@ describe("CenterAgentUsageSection", () => {
 		expect(screen.getByText("Loading usage.")).toBeTruthy();
 	});
 
-	it("shows current Wake and Routine usage with local and UTC reset time", async () => {
+	it("shows current model costs and Routine usage with local and UTC reset time", async () => {
 		readOverviewMock.mockResolvedValue(usageOverview());
 
 		renderUsagePage();
 
-		expect(await screen.findByText("12 / 200")).toBeTruthy();
+		expect(await screen.findByText("$0.12")).toBeTruthy();
 		expect(screen.getByText("7 / 50")).toBeTruthy();
 		expect(screen.getByText("All 50 Routines can be enabled.")).toBeTruthy();
 		const expectedLocalResetTime = new Date(
@@ -44,22 +44,23 @@ describe("CenterAgentUsageSection", () => {
 		expect(
 			screen.getByText(`Resets at ${expectedLocalResetTime} (00:00 UTC)`)
 		).toBeTruthy();
-		expect(screen.getAllByRole("progressbar")).toHaveLength(2);
+		expect(
+			screen.getByText("Free during preview. No daily limit.")
+		).toBeTruthy();
+		expect(screen.getAllByRole("progressbar")).toHaveLength(1);
 	});
 
 	it("explains the zero-usage state instead of rendering an empty card", async () => {
 		readOverviewMock.mockResolvedValue(
 			usageOverview({
-				centerAgentWakes: { usedToday: 0 },
+				aiSpend: { usedNanoUsd: 0 },
 				routines: { count: 0 },
 			})
 		);
 
 		renderUsagePage();
 
-		expect(
-			await screen.findByText("No Center Agent wakes used today.")
-		).toBeTruthy();
+		expect(await screen.findByText("$0.00")).toBeTruthy();
 		expect(screen.getByText("No routines created yet.")).toBeTruthy();
 	});
 
@@ -73,7 +74,7 @@ describe("CenterAgentUsageSection", () => {
 		);
 		readOverviewMock.mockResolvedValue(usageOverview());
 		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-		expect(await screen.findByText("12 / 200")).toBeTruthy();
+		expect(await screen.findByText("$0.12")).toBeTruthy();
 	});
 });
 
@@ -90,15 +91,17 @@ function renderUsagePage() {
 
 function usageOverview(
 	overrides: {
-		centerAgentWakes?: { usedToday: number };
+		aiSpend?: { usedNanoUsd: number };
 		routines?: { count: number };
 	} = {}
 ): OrganizationUsageOverviewResponse {
 	return {
-		centerAgentWakes: {
-			dailyLimit: 200,
+		aiSpend: {
+			dailyLimitNanoUsd: null,
 			resetsAt: "2026-07-17T00:00:00.000Z",
-			usedToday: overrides.centerAgentWakes?.usedToday ?? 12,
+			usedNanoUsd: overrides.aiSpend?.usedNanoUsd ?? 120_000_000,
+			missingCostRequests: 0,
+			exhausted: false,
 		},
 		routines: {
 			count: overrides.routines?.count ?? 7,

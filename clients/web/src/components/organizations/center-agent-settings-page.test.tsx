@@ -127,10 +127,12 @@ describe("CenterAgentSettingsContent", () => {
 				updatedByUserId: "member-1",
 			});
 		readCurrentOrganizationUsageOverviewMock.mockReset().mockResolvedValue({
-			centerAgentWakes: {
-				dailyLimit: 200,
+			aiSpend: {
+				dailyLimitNanoUsd: null,
 				resetsAt: "2026-07-17T00:00:00.000Z",
-				usedToday: 12,
+				usedNanoUsd: 120_000_000,
+				missingCostRequests: 0,
+				exhausted: false,
 			},
 			routines: { count: 7, limit: 50 },
 		});
@@ -212,7 +214,7 @@ describe("CenterAgentSettingsContent", () => {
 			screen.queryByRole("combobox", { name: "Primary model" })
 		).toBeNull();
 		expect(screen.queryByRole("combobox", { name: "Provider" })).toBeNull();
-		expect(screen.getByText("12 / 200")).toBeTruthy();
+		expect(screen.getByText("$0.12")).toBeTruthy();
 		const audit = screen.getByRole("button", { name: AUDIT_LOG_BUTTON_NAME });
 		expect(audit.getAttribute("aria-expanded")).toBe("false");
 		expect(listCurrentCenterAgentAuditJournalMock).not.toHaveBeenCalled();
@@ -571,12 +573,12 @@ describe("CenterAgentSettingsContent", () => {
 		).toBeTruthy();
 		expect(
 			await screen.findByText(
-				"See today's Center Agent usage and current Routine limits."
+				"See today's AI model costs and current Routine limits."
 			)
 		).toBeTruthy();
 		expect(
 			screen.queryByText(
-				"See today's organization-wide Center Agent usage and current Routine limits."
+				"See today's shared AI model costs and current Routine limits."
 			)
 		).toBeNull();
 		expect(

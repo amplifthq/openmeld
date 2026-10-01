@@ -2894,9 +2894,8 @@ schema and historical migrations because old rows are durable evidence. Active
 Core code no longer reads or writes those fields, does not refresh AI Gateway
 REST Logs, and does not add usage columns to the native delivery ledger. Runtime
 containment is the global Remote Agent kill switch plus the optional
-per-organization blocklist in Worker configuration. The active daily admission
-counter is separate storage and must never read from or write to the retired
-guardrail table.
+per-organization blocklist in Worker configuration. Historical daily admission
+counters are also inactive; neither table is the AI consumption ledger.
 
 Usage evidence for the Flue Remote Agent lives in the Remote Agent worker:
 per-turn usage records are normalized from model usage, stored in the worker's
@@ -2926,6 +2925,43 @@ of consumption. No policy row or a null limit means unlimited; production does
 not receive an implicit cap. Better Auth continues to own Organization identity,
 membership, and roles. Usage records do not introduce another identity system,
 payment processor, execution authority, or historical backfill.
+
+Remote requests create a pending receipt before contacting OpenRouter and
+settle from its existing JSON response or final SSE usage chunk. Provider
+request IDs are retained. A pending receipt can become reported or unavailable;
+settlement cannot rewrite execution attribution. Terminal replay is idempotent.
+DO-backed model and research calls persist settlement in the existing worker
+storage and reuse callback reconciliation for delivery retries. Auxiliary
+Worker calls retain a pending Core receipt if settlement fails; missing cost
+coverage remains explicit rather than silently claiming a complete total.
+No supplier polling or extra inference request is added.
+
+Codex uses changed current-turn token events and native request counters,
+ignoring resume history and rate-limit-only repeats. Claude uses unique native
+assistant message IDs; OpenCode uses completed assistant messages from the
+accepted session tree. Core derives local attribution from the accepted result
+inbox and execution registry, including the connected Computer identity rather
+than its device ID. Only newly reported OpenMeld executions are included.
+The Service waits for the native turn to settle before submitting a CLI reply
+proposal, then includes its receipts in the existing durable result outbox.
+Receipts from repair and reconsideration turns are accumulated by native event
+ID. Space supplies Organization attribution when rebuilding finalization facts.
+Controllers without native usage reporting remain unreported. SDK estimates
+remain distinct from invoiced provider charges.
+
+The public `POST /v1/organizations/current/usage/query` and
+`openmeld_read_ai_usage` Center Agent tool share the same Core query owner.
+Every Organization member may read Organization-wide usage. Cross-Organization
+access is still rejected. Settings only exposes today's platform model cost
+and optional allowance; Routines retains its independent 50-item limit.
+
+Operators can inspect or preview changes with
+`node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
+Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets
+only the current running worktree lane; staging and production require an
+explicit environment and authorized Wrangler access. No deploy is needed to
+adjust this policy. Enforcement uses confirmed UTC-day costs and may overshoot
+for in-flight requests; it is not a concurrent reservation system.
 
 Successful Flue conversation compaction is operational evidence, not a second
 conversation or memory store. During compaction, the worker may retain one
