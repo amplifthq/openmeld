@@ -52,14 +52,25 @@ function ResolvedComputerConnectionHistory(input: {
 	});
 	return (
 		<details
-			className="border-t pt-3 text-sm"
+			className="relative border-t pt-3 text-sm"
 			onToggle={(event) => setOpen(event.currentTarget.open)}
 		>
-			<summary className="cursor-pointer text-muted-foreground">
+			<summary className="cursor-pointer pr-36 text-muted-foreground leading-8">
 				Connection history
 			</summary>
 			{open ? (
 				<div className="mt-3 space-y-3">
+					<Button
+						className="absolute top-3 right-0"
+						disabled={history.isFetching}
+						onClick={() => {
+							history.refetch().catch(() => undefined);
+						}}
+						size="sm"
+						variant="ghost"
+					>
+						Refresh history
+					</Button>
 					<p className="text-muted-foreground">
 						Private to your account. Connection details upload when this
 						computer reconnects.
@@ -136,16 +147,6 @@ function ResolvedComputerConnectionHistory(input: {
 							))}
 						</ScrollArea>
 					) : null}
-					<Button
-						disabled={history.isFetching}
-						onClick={() => {
-							history.refetch().catch(() => undefined);
-						}}
-						size="sm"
-						variant="ghost"
-					>
-						Refresh history
-					</Button>
 				</div>
 			) : null}
 		</details>
