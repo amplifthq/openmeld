@@ -17,12 +17,14 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import type { Agent } from "agents";
+import { summarizeAgentActivityDigest } from "../../agent-core/agent-activity-digest";
 import { flushRemoteAiUsage } from "../../agent-core/ai-usage";
 import {
   listRemoteAgentUsageRecords,
   type RemoteAgentCoreWorkerBinding,
   waitForRemoteAgentCallbackContext,
 } from "../../agent-core/callback-context";
+import { generateCenterAgentSessionTitle } from "../../agent-core/center-agent-session-title";
 import { callCoreRpc } from "../../agent-core/core-rpc";
 import {
   assertRemoteAgentExecutionCanContinue,
@@ -393,6 +395,30 @@ CenterAgentV2.steeringSource = (_submissionId: string) => {
 export const cloudflare = extend<Agent<CloudflareBindings>>({
   base: (Base) =>
     class extends Base {
+      async generateCenterAgentSessionTitle(request: unknown) {
+        return await generateCenterAgentSessionTitle({
+          env: this.env as CloudflareBindings,
+          request,
+          usageDurability: {
+            storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+            scheduleRetry: () => this.armRemoteAgentCallbackRetry(),
+          },
+        });
+      }
+
+      async summarizeAgentActivityDigest(
+        request: Parameters<typeof summarizeAgentActivityDigest>[0]["request"]
+      ) {
+        return await summarizeAgentActivityDigest({
+          env: this.env as CloudflareBindings,
+          request,
+          usageDurability: {
+            storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+            scheduleRetry: () => this.armRemoteAgentCallbackRetry(),
+          },
+        });
+      }
+
       async receiveExecutionInput(input: unknown) {
         const request =
           remoteAgentWorkerExecutionInputRequestSchema.parse(input);
@@ -562,6 +588,17 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
                 ...imageInput,
                 env: this.env as CloudflareBindings,
                 prepareImage: prepareImageForContext,
+                usageDurability: {
+                  storage,
+                  scheduleRetry: () => this.armRemoteAgentCallbackRetry(),
+                },
+                usageScope: {
+                  agentProfileId: request.agentProfileId,
+                  spaceId: request.spaceId,
+                  taskId: request.taskId ?? null,
+                  dispatchId: request.dispatchId,
+                  attemptId: request.idempotencyKey,
+                },
               }),
           });
           let ack: RemoteAgentWorkerSubmitMessagesResult;

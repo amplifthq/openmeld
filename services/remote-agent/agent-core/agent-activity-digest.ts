@@ -6,7 +6,10 @@ import type {
   SummarizeAgentActivityDigestRpcInput,
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
-import { createMeteredRemoteFetch } from "./ai-usage";
+import {
+  createMeteredRemoteFetch,
+  type RemoteAiUsageDurability,
+} from "./ai-usage";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -27,6 +30,7 @@ const DIGEST_MODEL_RESPONSE_MAX_BYTES = 64 * 1024;
 export async function summarizeAgentActivityDigest(input: {
   env: DigestEnv;
   fetch?: typeof globalThis.fetch;
+  usageDurability?: RemoteAiUsageDurability;
   request: SummarizeAgentActivityDigestRpcInput;
 }): Promise<SummarizeAgentActivityDigestRpcResponse> {
   const request = summarizeAgentActivityDigestRpcInputSchema.parse(
@@ -41,6 +45,7 @@ export async function summarizeAgentActivityDigest(input: {
     }),
   });
   const response = await createMeteredRemoteFetch({
+    ...input.usageDurability,
     coreWorker: input.env.OPENMELD_CORE_WORKER,
     fetch: input.fetch,
     model,

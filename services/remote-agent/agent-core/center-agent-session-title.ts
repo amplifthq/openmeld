@@ -5,7 +5,10 @@ import {
 } from "@openmeld/schemas";
 import type { GenerateCenterAgentSessionTitleResponse } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
-import { createMeteredRemoteFetch } from "./ai-usage";
+import {
+  createMeteredRemoteFetch,
+  type RemoteAiUsageDurability,
+} from "./ai-usage";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -32,6 +35,7 @@ export async function generateCenterAgentSessionTitle(input: {
   env: RemoteAgentModelEnv;
   request: unknown;
   fetch?: typeof globalThis.fetch;
+  usageDurability?: RemoteAiUsageDurability;
 }): Promise<GenerateCenterAgentSessionTitleResponse> {
   const parsed = generateCenterAgentSessionTitleInputSchema.safeParse(
     input.request
@@ -51,6 +55,7 @@ export async function generateCenterAgentSessionTitle(input: {
     },
   });
   const response = await createMeteredRemoteFetch({
+    ...input.usageDurability,
     coreWorker: input.env.OPENMELD_CORE_WORKER,
     fetch: input.fetch,
     model: CENTER_AGENT_SESSION_TITLE_MODEL,

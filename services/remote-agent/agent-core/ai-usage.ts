@@ -43,6 +43,11 @@ export type RemoteAiUsageScope = Pick<
   | "dispatchId"
 >;
 
+export type RemoteAiUsageDurability = {
+  storage: RemoteAgentStorage;
+  scheduleRetry?: () => Promise<void>;
+};
+
 async function writeUsage(
   coreWorker: unknown,
   phase: "begin" | "settle",
@@ -103,8 +108,23 @@ export function createMeteredRemoteFetch(input: {
         "ai_usage.daily_limit_reached: This Organization has used its daily AI allowance. It resets at 00:00 UTC."
       );
     }
-    const settle = async (value: unknown) => {
+    let settlement: Promise<void> | undefined;
+    const settle = (
+      value: unknown,
+      failure?: AiUsageRecord["collectionFailure"]
+    ) => {
+      settlement ??= persistSettlement(value, failure);
+      return settlement;
+    };
+    const persistSettlement = async (
+      value: unknown,
+      failure?: AiUsageRecord["collectionFailure"]
+    ) => {
       const settled = projectProviderUsage(record, value);
+      if (failure && settled.status !== "reported") {
+        settled.status = "collection_failed";
+        settled.collectionFailure = failure;
+      }
       const key = `${OUTBOX_PREFIX}${record.eventId}`;
       try {
         if (input.storage) {
@@ -124,18 +144,23 @@ export function createMeteredRemoteFetch(input: {
         });
       }
     };
-    const response = await (input.fetch ?? globalThis.fetch)(url, init);
+    let response: Response;
+    try {
+      response = await (input.fetch ?? globalThis.fetch)(url, init);
+    } catch (error) {
+      await settle(null, "request_failed");
+      throw error;
+    }
     if (!response.body) {
       await settle(null);
       return response;
     }
     if (!response.headers.get("content-type")?.includes("text/event-stream")) {
-      await settle(
-        await response
-          .clone()
-          .json()
-          .catch(() => null)
-      );
+      try {
+        await settle(await readBoundedUsageJson(response.clone()));
+      } catch {
+        await settle(null, "invalid_response");
+      }
       return response;
     }
     return observeUsageStream(response, settle);
@@ -144,7 +169,10 @@ export function createMeteredRemoteFetch(input: {
 
 function observeUsageStream(
   response: Response,
-  settle: (value: unknown) => Promise<void>
+  settle: (
+    value: unknown,
+    failure?: AiUsageRecord["collectionFailure"]
+  ) => Promise<void>
 ): Response {
   const decoder = new TextDecoder();
   let buffer = "";
@@ -164,49 +192,96 @@ function observeUsageStream(
       // SSE control frames (including [DONE]) are not usage evidence.
     }
   };
-  const body = response.body?.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      async transform(chunk, controller) {
-        const text = decoder.decode(chunk, { stream: true });
-        for (const part of text.split(SSE_LINE_PARTS)) {
-          if (!droppingLine) {
-            buffer += part;
-            if (buffer.length > 262_144) {
-              buffer = "";
-              droppingLine = true;
-            }
-          }
-          if (part.endsWith("\n")) {
-            if (!droppingLine) {
-              observeLine(buffer.trim());
-            }
-            buffer = "";
-            droppingLine = false;
-          }
+  const observeChunk = (chunk: Uint8Array) => {
+    const text = decoder.decode(chunk, { stream: true });
+    for (const part of text.split(SSE_LINE_PARTS)) {
+      if (!droppingLine) {
+        buffer += part;
+        if (buffer.length > 262_144) {
+          buffer = "";
+          droppingLine = true;
         }
-        // Consumers may cancel at [DONE], so flush alone is insufficient.
-        // Persist the final native usage before exposing that chunk.
-        if (observed !== null && !settled) {
-          await settle(observed);
-          settled = true;
+      }
+      if (part.endsWith("\n")) {
+        if (!droppingLine) {
+          observeLine(buffer.trim());
         }
-        controller.enqueue(chunk);
-      },
-      async flush() {
+        buffer = "";
+        droppingLine = false;
+      }
+    }
+  };
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return response;
+  }
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let next: ReadableStreamReadResult<Uint8Array>;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        await settle(observed, "stream_interrupted");
+        controller.error(error);
+        return;
+      }
+      if (next.done) {
         if (!droppingLine) {
           observeLine(buffer + decoder.decode());
         }
         if (!settled) {
           await settle(observed);
         }
-      },
-    })
-  );
+        controller.close();
+        return;
+      }
+      const chunk = next.value;
+      observeChunk(chunk);
+      // Consumers may cancel at [DONE], so flush alone is insufficient.
+      // Persist the final native usage before exposing that chunk.
+      if (observed !== null && !settled) {
+        await settle(observed);
+        settled = true;
+      }
+      controller.enqueue(chunk);
+    },
+    async cancel(reason) {
+      await settle(observed, "stream_interrupted");
+      await reader.cancel(reason);
+    },
+  });
   return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,
   });
+}
+
+async function readBoundedUsageJson(response: Response): Promise<unknown> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return null;
+  }
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        return JSON.parse(text + decoder.decode());
+      }
+      bytes += chunk.value.byteLength;
+      if (bytes > 2 * 1024 * 1024) {
+        // Cancel the observer branch without waiting for the consumer's tee.
+        reader.cancel().catch(() => undefined);
+        throw new Error("AI usage response exceeds 2 MiB.");
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function projectProviderUsage(

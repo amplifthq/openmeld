@@ -34,6 +34,104 @@ const providerResponse = {
 
 describe("Remote AI consumption at the provider boundary", () => {
   it.each([
+    "request_failed",
+    "stream_interrupted",
+    "provider_missing",
+  ])("keeps %s distinct from zero consumption", async (scenario) => {
+    const records: AiUsageRecord[] = [];
+    const coreWorker = {
+      recordRemoteAiUsage: ({ record }: RemoteAiUsageWrite) => {
+        records.push(record);
+        return Promise.resolve({ status: "accepted" });
+      },
+    };
+    const fetch = vi.fn(() => {
+      if (scenario === "request_failed") {
+        throw new Error("connection lost");
+      }
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              if (scenario === "stream_interrupted") {
+                controller.error(new Error("connection lost"));
+              } else {
+                controller.close();
+              }
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } }
+        )
+      );
+    });
+    const run = async () =>
+      (
+        await createMeteredRemoteFetch({
+          coreWorker,
+          scope,
+          model: "requested",
+          fetch,
+        })("https://provider.example/chat/completions")
+      ).text();
+    if (scenario === "provider_missing") {
+      await run();
+    } else {
+      await expect(run()).rejects.toThrow("connection lost");
+    }
+    expect(records).toHaveLength(2);
+    expect(records[1]).toMatchObject({
+      status:
+        scenario === "provider_missing" ? "unavailable" : "collection_failed",
+      tokens: null,
+      cost: null,
+      ...(scenario === "provider_missing"
+        ? {}
+        : { collectionFailure: scenario }),
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("records interruption when the consumer cancels before native usage arrives", async () => {
+    const records: AiUsageRecord[] = [];
+    const cancelled = vi.fn();
+    const response = await createMeteredRemoteFetch({
+      coreWorker: {
+        recordRemoteAiUsage: ({ record }: RemoteAiUsageWrite) => {
+          records.push(record);
+          return Promise.resolve({ status: "accepted" });
+        },
+      },
+      scope,
+      model: "requested",
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode('data: {"choices":[]}\n\n')
+              );
+            },
+            cancel: cancelled,
+          }),
+          { headers: { "content-type": "text/event-stream" } }
+        ),
+    })("https://provider.example/chat/completions");
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("Missing response stream");
+    }
+    await reader.read();
+    await reader.cancel();
+    expect(records[1]).toMatchObject({
+      status: "collection_failed",
+      collectionFailure: "stream_interrupted",
+      tokens: null,
+      cost: null,
+    });
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it.each([
     "json",
     "sse",
   ])("records native %s usage without another provider request", async (format) => {
@@ -119,14 +217,17 @@ describe("Remote AI consumption at the provider boundary", () => {
       },
     };
     const fetch = vi.fn(async () => Response.json(providerResponse));
+    const scheduleRetry = vi.fn(async () => undefined);
     await createMeteredRemoteFetch({
       coreWorker,
       scope,
       model: "requested",
       fetch,
       storage,
+      scheduleRetry,
     })("https://provider.example/chat/completions");
     expect(settled).toHaveLength(0);
+    expect(scheduleRetry).toHaveBeenCalledOnce();
     unavailable = false;
     await flushRemoteAiUsage({ coreWorker, storage });
     await flushRemoteAiUsage({ coreWorker, storage });

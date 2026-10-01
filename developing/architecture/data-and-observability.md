@@ -2930,10 +2930,17 @@ Remote requests create a pending receipt before contacting OpenRouter and
 settle from its existing JSON response or final SSE usage chunk. Provider
 request IDs are retained. A pending receipt can become reported or unavailable;
 settlement cannot rewrite execution attribution. Terminal replay is idempotent.
-DO-backed model and research calls persist settlement in the existing worker
-storage and reuse callback reconciliation for delivery retries. Auxiliary
-Worker calls retain a pending Core receipt if settlement fails; missing cost
-coverage remains explicit rather than silently claiming a complete total.
+Model, research, and image calls persist settlement in the existing worker
+storage and reuse callback reconciliation for delivery retries. Session titles
+and activity digests run through the same existing Durable Object class so
+their settlement uses that durable outbox too; a dedicated organization digest
+instance carries delivery only, never a second consumption ledger. Inference
+is never replayed merely to recover usage. Missing final provider usage is
+`unavailable`; request/stream/response collection failures are
+`collection_failed` with a bounded reason code. Cancellation preserves already
+observed native usage. Requests interrupted before reporting usage remain
+explicitly incomplete; no extra provider polling is introduced to invent or
+recover unknown charges.
 No supplier polling or extra inference request is added.
 
 Codex uses changed current-turn token events and native request counters,

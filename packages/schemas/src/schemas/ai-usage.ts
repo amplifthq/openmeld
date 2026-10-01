@@ -39,7 +39,10 @@ export const aiUsageObservationSchema = z.strictObject({
 });
 
 export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
-  status: z.enum(["pending", "reported", "unavailable"]),
+  status: z.enum(["pending", "reported", "unavailable", "collection_failed"]),
+  collectionFailure: z
+    .enum(["request_failed", "stream_interrupted", "invalid_response"])
+    .optional(),
   providerRequestId: identifier.nullable(),
   organizationId: identifier,
   runtime: z.enum(["local", "remote"]),

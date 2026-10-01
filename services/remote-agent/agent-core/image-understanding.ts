@@ -1,6 +1,10 @@
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
-import { createMeteredRemoteFetch } from "./ai-usage";
+import {
+  createMeteredRemoteFetch,
+  type RemoteAiUsageDurability,
+  type RemoteAiUsageScope,
+} from "./ai-usage";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -63,6 +67,8 @@ export type RemoteAgentImagePreparer = (
 ) => Promise<RemoteAgentPreparedContextImage>;
 
 export async function understandRemoteAgentImages(input: {
+  usageDurability?: RemoteAiUsageDurability;
+  usageScope?: Omit<RemoteAiUsageScope, "organizationId" | "purpose">;
   env: RemoteAgentModelEnv;
   fetch?: typeof globalThis.fetch;
   images: readonly RemoteAgentAdmissionImage[];
@@ -103,6 +109,8 @@ export async function understandRemoteAgentImages(input: {
     }
     descriptions.push(
       await requestRemoteAgentImageUnderstandingBatch({
+        usageDurability: input.usageDurability,
+        usageScope: input.usageScope,
         batch,
         env: input.env,
         fetch: input.fetch,
@@ -152,6 +160,8 @@ export async function understandRemoteAgentImages(input: {
 }
 
 async function requestRemoteAgentImageUnderstandingBatch(input: {
+  usageDurability?: RemoteAiUsageDurability;
+  usageScope?: Omit<RemoteAiUsageScope, "organizationId" | "purpose">;
   organizationId: string;
   batch: ReadonlyArray<{
     image: RemoteAgentPreparedContextImage;
@@ -170,6 +180,7 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
     ].join(": ")
   );
   const response = await createMeteredRemoteFetch({
+    ...input.usageDurability,
     coreWorker: input.env.OPENMELD_CORE_WORKER,
     fetch: input.fetch,
     model: input.model.modelId,
@@ -180,6 +191,7 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
       spaceId: null,
       taskId: null,
       attemptId: null,
+      ...input.usageScope,
     },
   })(
     `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env)}/chat/completions`,

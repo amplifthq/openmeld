@@ -3998,6 +3998,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           metadata.revision.sizeBytes
         );
         const imageDescription = await understandRemoteAgentImages({
+          usageDurability: { storage: input.storage },
+          usageScope: await readImageUsageScope(
+            input.storage,
+            input.submissionId
+          ),
           env: input.env,
           fetch: input.fetch,
           images: [
@@ -6973,6 +6978,11 @@ async function describeSlackImage(input: {
     );
   }
   return await understandRemoteAgentImages({
+    usageDurability: { storage: input.definitionInput.storage },
+    usageScope: await readImageUsageScope(
+      input.definitionInput.storage,
+      input.definitionInput.submissionId
+    ),
     env: input.definitionInput.env,
     fetch: input.definitionInput.fetch,
     images: [
@@ -6987,6 +6997,23 @@ async function describeSlackImage(input: {
     organizationId: input.response.organizationId,
     prepareImage: input.definitionInput.prepareImage,
   });
+}
+
+async function readImageUsageScope(
+  storage: RemoteAgentStorage,
+  submissionId: string
+) {
+  const context = await readRemoteAgentCallbackContext(storage, submissionId);
+  if (!context) {
+    throw new Error("Image usage requires durable execution attribution.");
+  }
+  return {
+    agentProfileId: context.agentProfileId,
+    spaceId: context.spaceId,
+    taskId: context.taskId ?? null,
+    dispatchId: context.dispatchId,
+    attemptId: context.submissionId,
+  };
 }
 
 async function readBoundedSpaceImage(

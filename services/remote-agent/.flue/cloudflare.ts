@@ -19,8 +19,6 @@ import {
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
-import { summarizeAgentActivityDigest } from "../agent-core/agent-activity-digest";
-import { generateCenterAgentSessionTitle } from "../agent-core/center-agent-session-title";
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
@@ -30,6 +28,7 @@ import {
   readUsageDiagnosticsFromCenterAgent,
   receiveExecutionInputInCenterAgent,
   reconcileExecutionInCenterAgent,
+  runDurableAuxiliaryInference,
   submitConversationTurnToCenterAgent,
 } from "../flue-adapter/cloudflare-entrypoint";
 import {
@@ -41,7 +40,11 @@ const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
   async generateCenterAgentSessionTitle(input: unknown) {
-    return await generateCenterAgentSessionTitle({ env, request: input });
+    return await runDurableAuxiliaryInference({
+      namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+      operation: "generateCenterAgentSessionTitle",
+      request: input,
+    });
   },
   async pluginRuntime(input: unknown) {
     return await executePluginRuntime(input, {
@@ -120,13 +123,10 @@ export default {
     return await observeRemoteAgentRpc({
       env,
       execute: () =>
-        summarizeAgentActivityDigest({
-          env: env as unknown as Parameters<
-            typeof summarizeAgentActivityDigest
-          >[0]["env"],
-          request: input as Parameters<
-            typeof summarizeAgentActivityDigest
-          >[0]["request"],
+        runDurableAuxiliaryInference({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          operation: "summarizeAgentActivityDigest",
+          request: input,
         }),
       operation: "summarizeAgentActivityDigest",
     });
