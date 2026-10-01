@@ -1832,13 +1832,13 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
               {status.label}
             </span>
             {row.summaryAccessory}
+            {row.summarySupplement}
           </div>
           {row.summaryMeta ? (
             <p className="truncate text-muted-foreground text-xs">
               {row.summaryMeta}
             </p>
           ) : null}
-          {row.summarySupplement}
         </div>
         {row.advisory ? (
           <div className="absolute top-3.5 right-4 flex justify-end">

@@ -68,9 +68,9 @@ export function LocalAgentConsumptionPreview(input: Props) {
 		return null;
 	}
 	return (
-		<p className="text-muted-foreground text-xs tabular-nums">
+		<span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
 			{compactTokens.format(total)} tokens today
-		</p>
+		</span>
 	);
 }
 
