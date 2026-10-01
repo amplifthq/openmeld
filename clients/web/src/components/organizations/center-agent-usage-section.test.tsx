@@ -44,9 +44,6 @@ describe("CenterAgentUsageSection", () => {
 		expect(
 			screen.getByText(`Resets at ${expectedLocalResetTime} (00:00 UTC)`)
 		).toBeTruthy();
-		expect(
-			screen.getByText("Free during preview. No daily limit.")
-		).toBeTruthy();
 		expect(screen.getAllByRole("progressbar")).toHaveLength(1);
 	});
 

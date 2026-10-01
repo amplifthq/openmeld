@@ -136,11 +136,6 @@ function AiSpendCard(input: {
 				) : null}
 				<div className="space-y-1 text-muted-foreground text-xs">
 					<p>Shared by Center Agent and Remote Agents.</p>
-					<p>
-						{input.data.dailyLimitNanoUsd === null
-							? "Free during preview. No daily limit."
-							: "Free during preview."}
-					</p>
 					<p>{resetTime}</p>
 					{input.data.missingCostRequests > 0 ? (
 						<p>Some model costs are not yet available.</p>
