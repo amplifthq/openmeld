@@ -161,12 +161,16 @@ describe("agent controller interface schema", () => {
     expect(
       agentControllerInterfaceSnapshotSchema.safeParse(snapshot).success
     ).toBe(true);
-    snapshot.usageLimits[0].reason = "private upstream error";
+    const limit = snapshot.usageLimits[0];
+    if (!limit) {
+      throw new Error("Expected the usage limit fixture");
+    }
+    limit.reason = "private upstream error";
     expect(
       agentControllerInterfaceSnapshotSchema.safeParse(snapshot).success
     ).toBe(false);
-    snapshot.usageLimits[0].reason = "not_reported";
-    snapshot.usageLimits[0].status = "unsupported";
+    limit.reason = "not_reported";
+    limit.status = "unsupported";
     expect(
       agentControllerInterfaceSnapshotSchema.safeParse(snapshot).success
     ).toBe(false);
