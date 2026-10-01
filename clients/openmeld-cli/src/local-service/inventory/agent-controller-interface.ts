@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
-import { parseAntigravityUsageLimits } from "@openmeld/adapter-antigravity";
 import { probeClaudeCodeUsageLimits } from "@openmeld/adapter-claude-code";
 import {
   probeCodexAppServerAccount,
@@ -64,16 +63,15 @@ const CODEX_AUX_INVENTORY_GRACE_MS = 2500;
 const PROBE_OUTPUT_LIMIT = 32_000;
 const CODEX_USER_AGENT_VERSION_RE = /\/([^\s]+)/u;
 const CLI_SEMVER_RE = /\b(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
-const ANTIGRAVITY_AUTH_FAILURE_RE =
-  /auth(?:entication)? required|not signed in|sign in/iu;
 const SEMVER_CORE_RE = /^v?(\d+)\.(\d+)\.(\d+)/u;
 const WHITESPACE_RE = /\s+/u;
 
 // "fresh" always runs the controller probe and reports its real outcome; it is
 // the default for user-driven paths (setup, prepare, explicit checks).
 // "background" is the periodic report-sync policy on machines we do not want
-// to burden: it reuses a completed, reusable snapshot within a TTL. A failed
-// or unauthenticated probe invalidates that reuse so the next pass probes again.
+// to burden: it reuses completed checks, including signed-out results, within
+// a TTL. A failed probe invalidates reuse so the next pass probes again.
+// Neither policy authorizes interactive authentication.
 export type AgentControllerInterfaceProbePolicy = "background" | "fresh";
 
 type AgentControllerInterfaceProbeOutcome = {
@@ -107,60 +105,28 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
 async function resolveAntigravityInterfaceSnapshot(
   input: InventoryProbeInput
 ): Promise<AgentControllerInterfaceProbeOutcome> {
-  const [versionProbe, usageProbe] = await Promise.all([
-    runLaunchContractCommand({
-      workingDirectory: input.workingDirectory,
-      args: ["--version"],
-      launchContract: input.launchContract,
-    }),
-    runLaunchContractCommand({
-      workingDirectory: input.workingDirectory,
-      allowNonZeroExit: true,
-      args: ["--print", "/usage"],
-      launchContract: input.launchContract,
-      timeoutMs: 15_000,
-    }),
-  ]);
+  // /usage may enter interactive authentication even in print mode. A status
+  // read (including an explicit refresh) must never initiate browser login or
+  // Keychain authorization. Keep only the credential-free version probe until
+  // the provider offers a verified no-interaction account/usage contract.
+  const versionProbe = await runLaunchContractCommand({
+    workingDirectory: input.workingDirectory,
+    args: ["--version"],
+    launchContract: input.launchContract,
+  });
   const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
-  const observedAt = new Date().toISOString();
-  const providerMessage = `${usageProbe.stdout}\n${usageProbe.stderr}`.trim();
-  const unauthenticated =
-    usageProbe.code !== 0 && ANTIGRAVITY_AUTH_FAILURE_RE.test(providerMessage);
-  const usageLimits =
-    usageProbe.code === 0
-      ? parseAntigravityUsageLimits({
-          observedAt,
-          output: usageProbe.stdout,
-        })
-      : createUnavailableProviderUsageLimits(observedAt);
-  const probeCompleted = usageProbe.code === 0 || unauthenticated;
-  let authStatus: AgentControllerInterfaceAuthSnapshot["status"] = "unknown";
-  let message: string | null =
-    "OpenMeld could not read Antigravity CLI authentication or usage status.";
-  let status: AgentControllerInterfaceStatus = "warning";
-  if (unauthenticated) {
-    authStatus = "unauthenticated";
-    message = requireControllerSignInInterfaceDescription("antigravity");
-    status = "unavailable";
-  } else if (usageProbe.code === 0) {
-    authStatus = "authenticated";
-    message = null;
-    status = "ready";
-  }
-
   return {
-    probeCompleted,
+    probeCompleted: versionProbe.ok,
     snapshot: {
       ...input.baseSnapshot,
-      auth: {
-        ...(usageProbe.code === 0
-          ? { label: "Antigravity account connected" }
-          : {}),
-        status: authStatus,
-      },
-      message,
-      status,
-      usageLimits,
+      auth: { status: "unknown" },
+      message: versionProbe.ok
+        ? "Antigravity is installed. OpenMeld cannot safely check its sign-in status or usage limits. Check them directly in Antigravity."
+        : "OpenMeld could not read the Antigravity CLI version.",
+      status: "warning",
+      usageLimits: createUnsupportedProviderUsageLimits(
+        input.baseSnapshot.checkedAt
+      ),
       version,
     },
   };

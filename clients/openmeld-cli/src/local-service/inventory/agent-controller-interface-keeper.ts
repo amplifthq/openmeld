@@ -143,12 +143,9 @@ export function recordAgentControllerInterfaceProbeSuccess(input: {
       existingEntry?.passiveUsageLimitsAuth,
       input.snapshot.auth
     );
-  let authenticatedSnapshot: AgentControllerInterfaceSnapshot | null =
-    input.snapshot;
-  if (input.snapshot.auth.status === "unauthenticated") {
-    authenticatedSnapshot = null;
-  } else if (canBindPassiveUsageLimits && passiveUsageLimits.length > 0) {
-    authenticatedSnapshot = {
+  let completedSnapshot = input.snapshot;
+  if (canBindPassiveUsageLimits && passiveUsageLimits.length > 0) {
+    completedSnapshot = {
       ...input.snapshot,
       usageLimits: mergeObservedUsageLimits({
         existing: input.snapshot.usageLimits,
@@ -156,25 +153,21 @@ export function recordAgentControllerInterfaceProbeSuccess(input: {
       }),
     };
   }
-  // A completed probe clears the re-probe lifecycle and establishes current
-  // controller evidence again.
+  // Signed out is a completed check, not a retryable failure. Reuse it under
+  // the normal TTL; fresh checks still bypass reuse after an external sign-in.
   keeperEntries.set(input.keeperKey, {
     commandFingerprint: input.commandFingerprint,
-    lastGoodSnapshot: authenticatedSnapshot,
+    lastGoodSnapshot: completedSnapshot,
     lastSuccessfulCheckAt: input.snapshot.checkedAt,
     lastSuccessAtMs: input.nowMs,
-    passiveUsageLimits:
-      authenticatedSnapshot && canBindPassiveUsageLimits
-        ? passiveUsageLimits
-        : [],
-    passiveUsageLimitsAuth:
-      authenticatedSnapshot && canBindPassiveUsageLimits
-        ? input.snapshot.auth
-        : null,
+    passiveUsageLimits: canBindPassiveUsageLimits ? passiveUsageLimits : [],
+    passiveUsageLimitsAuth: canBindPassiveUsageLimits
+      ? input.snapshot.auth
+      : null,
     reuseInvalidatedByProbeFailure: false,
     reprobe: "idle",
   });
-  return authenticatedSnapshot ?? input.snapshot;
+  return completedSnapshot;
 }
 
 export function recordAgentControllerUsageLimitsObservation(input: {

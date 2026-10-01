@@ -1,6 +1,6 @@
 import { parseAgentControllerRef } from "./agent-controller-ref";
 
-export const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION = 4;
+export const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION = 5;
 
 export type AgentControllerUsageLimitSupport =
   | "native"
@@ -10,7 +10,7 @@ export type AgentControllerUsageLimitSupport =
   | "unsupported";
 
 const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX = {
-  antigravity: "native",
+  antigravity: "unsupported",
   "claude-code": "observational",
   codex: "native",
   cursor: "observational",
