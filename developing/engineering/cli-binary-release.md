@@ -594,10 +594,13 @@ Worker version. The global projection tag proves compatibility identity only,
 not catalogue freshness.
 
 Windows preview publication is not release closeout by itself. After the preview
-manifest becomes public, the release owner must run the guarded Core release with
-`--redeploy` so a new correlated Worker activation compiles that manifest, retain
-its catalogue digest/admission evidence, and verify Windows status on that Worker.
-Do not reuse a tag-only no-op/resume receipt as availability proof. Deploy all strict
+manifest becomes public, a fresh guarded Core activation must compile that
+manifest. The Core stage of a CLI publication or another guarded Core release
+can already satisfy this requirement: retain its exact-source catalogue
+digest/admission evidence and verify Windows status on that Worker. Do not
+redeploy again when that proof already exists. Otherwise run the guarded Core
+release with `--redeploy`. A tag-only no-op/resume receipt or an activation before
+preview publication does not prove catalogue freshness. Deploy all strict
 Gateway/Core/Web report receivers before publishing the new CLI/Service source field.
 This code-only change uses base-aware deferred release readiness; version and
 release manifest stamping remain a separate authorized publication action.
