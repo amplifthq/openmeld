@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-01T16:52:03.155Z",
+  "updatedAt": "2026-10-01T17:32:08.675Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.234",
       "updatePolicy": "available",
-      "reason": "Add read-only dispatch knowledge tools; existing CLI commands and Space action payloads remain valid with old or new Core."
+      "reason": "Task knowledge reads and lane-correct setup authorization"
     },
     "service": {
-      "bundleHash": "c9a4f07720da26b9ee5270ee98c132468c7abc3b0c5902e175fd5092d1bd350c",
-      "portableBundleHash": "31395eca0e7a29826ea131f24ec8cf2d49f6132a995d6345d5e1158488abc603",
+      "bundleHash": "2bda3bc5de67a1f5bb36e1f9a759bcb0d017d8729e8c1795735ec6dff63b28b5",
+      "portableBundleHash": "25b5c089d37d9ca68052ffe428f8e42621157924c3b1f0f8c9f9a070101b5ae7",
       "bundleVersion": "0.3.234",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Add optional frozen Skill selections to dispatch action context; old Services keep existing Wake/setup behavior and new Services report unavailable directories against old Core."
+      "reason": "Task-scoped knowledge dispatch readers"
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",

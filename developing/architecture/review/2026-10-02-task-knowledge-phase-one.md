@@ -9,7 +9,7 @@
 - Source of truth: The linked source owners, executable tests, and exact observations below.
 - Removal condition: Remove this review record after independent acceptance; retain stable contracts in the product owner documents and final evidence in the PR.
 
-Status: Draft implementation; Local setup blocked and full three-runtime acceptance pending.
+Status: Draft implementation; Local setup recovered, live Remote release/revocation checks passed, full three-runtime acceptance still pending.
 
 ## Scope And Ownership
 
@@ -42,7 +42,12 @@ is denied; this does not claim to remove material already read by a model.
   `organizationSkillReleases` field in the existing dispatch action context;
   owned-Agent read authorization on existing document/Skill APIs; Remote prompt
   composition and an exact-selection catalog search tool.
-- Unchanged boundaries: setup, Wake transport, final Space action envelopes,
+- Setup follow-up: the existing device-auth client resolver now derives its
+  default from the active lane (`dev-local` uses `openmeld-cli-dev`). CLI and
+  environment overrides retain precedence. This fixes packaged Setup redemption
+  against the already-existing Web/Auth contract; no wire field, accepted client
+  ID, authority, compatibility floor, or epoch is added.
+- Unchanged boundaries: Wake transport, final Space action envelopes,
   RuntimeCoordinator ownership, service status, trace, diagnostics, and rescue
   commands. No new shared HTTP/RPC schema, database migration, or contract enum.
 - Old cloud with new local: unsupported approved-document Agent reads return a
@@ -81,7 +86,7 @@ answers. Passing a deterministic boundary test does not certify model behavior.
 | Document refresh failure never uses cached protected content | Concurrent caller, denied refresh, malformed/wrong-org tests |
 | Ordinary Agent can read approved body, not draft or management capability | Core document integration tests; personal Remote's Center-only context remains disabled |
 | Directory omission does not uninstall an admitted Skill | Bounded display test, exact catalog search test, existing Flue activation test |
-| Publishing a new Skill does not replace a frozen release; disablement denies reads | Core persisted-release integration plus current catalog read tests |
+| Publishing a new Skill does not replace a frozen release; disablement denies reads | Core persisted-release integration, catalog read tests, and live personal Remote observations below; live Center/Local pending |
 | Explicit authorized saves need no repeated approval; unadopted proposals do not take effect | Existing tools retained, shared guidance; full natural-language holdout pending |
 | Private data and handoff references do not grant unrelated action authority | Existing identity/audience boundaries retained; full three-runtime privacy/action holdout pending |
 
@@ -205,7 +210,7 @@ HMR restarts; the Web process exited with a 4 GiB JavaScript heap exhaustion.
 Only this worktree's dev stack was stopped and restarted after builds completed.
 Other worktrees and production `~/.openmeld` were not modified.
 
-Local runtime acceptance is blocked at the normal Web-generated dev-lane Setup
+The initial Local runtime acceptance was blocked at the normal Web-generated dev-lane Setup
 entry. Two commands, the second obtained with **Get a new setup command**, both
 reported `computer authorization failed: Client ID mismatch`. Web reported
 `prepare.authorization_failed`. Effective home was the isolated worktree home
@@ -213,16 +218,146 @@ above, not `~/.openmeld`. No credential copying, private token edit, or
 authorization workaround was attempted. Reproduce from the dev lane's
 `/o/northstar-product-studio-n6akyf/connect` page with the current binary server;
 use a fresh generated command and never reuse the expired credentials from logs.
+The follow-up below resolves this specific Setup failure.
+
+## Follow-up: Setup Recovery And Live Release Boundaries
+
+All times below are UTC on **2026-10-01**, independently of this file's date.
+The starting reviewed head was `db46a400f83107f2780f5e23a87b598b6c5a6dd8`.
+The additional product correction is commit `e3a247c69`.
+
+### Setup Root Cause And Normal Entry
+
+Web already issued `openmeld-cli-dev` device grants in the development lane
+(`clients/web/src/query/auth-query.ts`). The shared CLI device-token client
+defaulted to `openmeld-cli` even when the packaged binary ran with the correct
+`dev-local` preset, isolated home and development endpoints. The source
+`openmeld-dev` wrapper supplied the client environment variable; packaged Setup
+did not. A new grant therefore repeated the same mismatch.
+
+`clients/openmeld-cli/src/commands/auth-device-session-client.ts` now uses the
+existing preset resolver for its default. The existing independent-session
+handoff test was extended with production, development, canary and explicit
+client cases. Before the correction, exactly the development case failed with
+the observed wrong token-request body; afterward all 37 tests in the two handoff
+test files passed. CLI typecheck passed.
+
+After a base-aware stamp and current binary-server build, a **fresh Web-generated
+Setup command** completed normally. Service installation was recorded at
+17:35:22.453, its runtime started at 17:35:33.257, and local Codex registration
+completed at 17:35:43.447. The Web page showed “Computer connected”; terminal Setup
+exited 0. No credentials were copied, no database binding was inserted, and no
+production login or home was changed.
+
+- Computer: `e32de781-9280-4a40-96d2-9352e651ffb6`, connected in the synthetic account.
+- Local Profile: `agt_1fe138e9-4557-4f28-8863-92b364c86515`, Codex / gpt-6-astra / high.
+- Project: `project_fd27b595-e214-4a68-a979-43330ed0fc01`.
+- Test Space: `ce723534e003094c2040c7b19e27d9ac8609485808f66d855ae420178d19dc84`.
+- Local Project Connection: this worktree, available and default, generation
+  `01f06401-647f-4f40-b4da-87e51a8d1f68`.
+
+The packaged `projects bind` command exited 0 without output or a connection on
+repeated attempts. The repository-supported `pnpm openmeld:dev projects bind ...`
+entry established the connection at 17:40:23.066; observer installation separately
+reported `ZodError` / `needs_attention`. These are follow-up observations, not a
+diagnosed authentication failure or proof of successful Wake. No additional
+observer repair or unrelated refactor was attempted.
+
+The subsequent normal `space send --wake ... --new-task --task-access read_only
+--task-workspace current` was **rejected before sending** by the enclosing dispatch:
+“openmeld space send is blocked inside a dispatch-owned runtime ... Public space
+writes must be returned through OpenMeld Space structured actions.” The dispatch
+Action is scoped to the actual implementation Space, not the synthetic test
+Space. No environment stripping, alternate Web send, or authentication bypass
+was used to evade that rejection. There is therefore **no Local Wake/dispatch
+selector or Local document/Skill result** for this attempt. The missing condition
+is an authorized execution surface able to send that synthetic Space Wake.
+
+Logs: `dev-tmp/knowledge-setup-fixed.log`, `knowledge-project-bind.log`,
+`knowledge-local-wake-send.jsonl`, `knowledge-service-status.jsonl`.
+
+### Remote Frozen Release And Revocation
+
+Normal Web private-chat entry:
+`/o/northstar-product-studio-n6akyf/chats/69061b6a224b76dbae4eb1b5421055798de4921fb0b174e711b40cb7521375d4`.
+Agent: `agt_119359a4-3a94-4a08-b1ce-0d5274fa1583` (Cedar Blank Memory Remote).
+All documents and the Skill remained synthetic development fixtures.
+
+1. Submission `2a4c1841-55f0-41e7-b1b2-f086014fef3a` activated the original Skill
+   at 17:47:33.721, then read eight directory fixtures sequentially. Normal Web
+   **Save** published release `a98db3c2-0ec6-4e25-9d0a-da85b1146720`, digest
+   `8a2e3d01c3628cd77600372f28573ea4ac51aaf54c9ff9b37555bb20b086c137`,
+   at 17:48:06.521. The same task's resource call at **17:48:13.927** still returned
+   the original 84-byte text; its catalog call at 17:48:20.195 returned original
+   release `org_skill_release_129c4c63eaf948dd05c303ee49b07a1b` and original digest.
+   The published result `364de750-5001-4f72-9671-4c9c593361b9` correctly used the
+   current document's table: localization completed, Thursday migration not run,
+   rollback capacity unknown. It did not copy the example's facts.
+2. New submission `1c885b88-87b0-4d07-a028-35a4f1f80b8a` activated version two at
+   17:49:36.611. Normal Web **Disable skill** completed at 17:49:57.827. After its
+   intervening document reads, the actual resource call at **17:50:08.129** failed
+   with HTTP 403 / `organization_skill.release_unavailable`. Published result
+   `f1cf0f2a-79d0-4b32-b767-d8f2f39d06b2` reported the denied new read and did not
+   present cached text as a successful retrieval. The fixture is left disabled.
+
+These are actual model/tool/publication observations, corroborated by read-only
+isolated Flue tool-outcome records, not mocked E2E. They prove this personal
+Remote path; Center and Local live revocation remain separate unverified seams.
+Logs: `dev-tmp/knowledge-frozen-live-evidence.jsonl`, `knowledge-followup-selectors.json`,
+`knowledge-skill-v2.json`, `knowledge-skill-disabled.json`. The inspected screenshot
+`knowledge-revocation-live.png` proves visible reporting only; the tool outcome
+proves the 403.
+
+### Blank Personal Remote And Private Memory Boundary
+
+Center private turn `30fc6813-3491-42a9-8dba-b0166e3f95f3`, source
+`a3fbdd9b-916b-45da-a39f-2f5768264ff3`, received a new synthetic Cedar Lantern
+personal preference at 17:42:18.819. A newly created Remote Profile had **No
+messages yet** before its first question; submission
+`f804b93b-9ff9-48d7-aab2-e1a3db16c0c0` began at 17:44:44.833 and accurately
+answered that the preference was unavailable, without tools or invented details.
+
+This is a negative same-owner sharing check, **not** a successful private-memory
+recall test. `native-delivery-service.ts` deliberately skips Center memory
+attachment for `personalAgent`; no new scope was enabled to make the test pass.
+The established Center capture/search evidence remains valid, but a genuinely
+blank authorized Center task using automatic injection remains unverified.
+
+The owned development Service and stack were stopped after the checks. The
+isolated data, installed development binary and worktree remain for continuation;
+production state and other worktrees were not changed.
+
+### Follow-up Validation
+
+```sh
+pnpm --filter openmeld exec vitest run tests/auth-computer-handoff.test.ts tests/computer-auth-handoff.test.ts
+pnpm --filter openmeld typecheck
+pnpm release:local-components stamp --next --base 7864a7641beb30377a28578c8163400361450fd3 --cli available --cli-reason 'Task knowledge reads and lane-correct setup authorization' --service available --service-reason 'Task-scoped knowledge dispatch readers'
+OPENMELD_AFFECTED_BASE=7864a7641beb30377a28578c8163400361450fd3 pnpm verify:release-ready
+OPENMELD_AFFECTED_BASE=7864a7641beb30377a28578c8163400361450fd3 pnpm check:affected -- --concurrency=2
+pnpm verify:docs -- --strict
+pnpm changelog:check
+git diff --check
+```
+
+Results: 37 focused handoff tests passed; CLI typecheck passed; base-aware stamp
+rebuilt and verified 0.3.234 without raising a floor; release-ready rebuilt the
+packaged CLI, passed all 65 release contract tests and verified the manifest;
+affected checks passed 33/33 tasks (29 cached). Strict docs, changelog and diff
+checks passed. Logs: `dev-tmp/knowledge-setup-typecheck.log`,
+`knowledge-setup-stamp.log`, `knowledge-setup-release-ready.log`,
+`knowledge-setup-affected-check.log`. No production deploy or binary publication.
 
 ## Remaining Acceptance
 
-Do not mark ready on these tests alone. Resolve the normal Local dev Setup blocker
-and complete Local directory/body/Skill acceptance. Center and personal Remote
-body discovery, exact resource use with new inputs, and document A-to-B checks
-passed as recorded above. Publication during an active model task and revocation
-before a new model read have persisted-contract tests but no full live runtime
-smoke yet. Private callback and fresh retained search passed; this run does not
-isolate automatic injection from existing chat history as the cause of model use.
+Do not mark ready on these tests alone. Setup is repaired; resolve the dispatch
+test-send boundary and complete Local directory/body/Skill acceptance. Center and
+personal Remote body discovery, exact resource use with new inputs, and document
+A-to-B checks passed as recorded above. Publication during an active model task
+and revocation before a new model read now also pass through the personal Remote
+runtime; live Center/Local equivalence remains unverified. Private callback and
+fresh retained search passed; this run does not isolate automatic injection from
+existing chat history as the cause of model use.
 Complete the remaining semantic/privacy holdouts listed in the scenario table.
 No claim is made about production ontology, long-run extraction quality, concurrent
 model quality, or model forgetting.
