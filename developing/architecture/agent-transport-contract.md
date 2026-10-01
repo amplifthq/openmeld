@@ -1343,6 +1343,12 @@ controlled Service update and an unexpected network disconnect keep the normal
 freshness window so update handoff and transient transport loss do not recreate
 connected/offline flicker.
 
+For owner-Service connectivity, select the current session by Runtime Transport
+freshness for each device and lane before applying the online predicate. An old
+maintenance session cannot replace a newer explicitly stopped session in that
+projection. The existing per-device durable record likewise retains the freshest
+session, including its admission and stop facts, across cold restoration.
+
 Socket presence is delivery evidence, not online evidence. Delivery (route
 lookup for an actual Wake dispatch) requires a live socket; the online verdict
 must not, because hibernation makes socket references transient by design.

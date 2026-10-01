@@ -6,8 +6,8 @@ import {
 
 const LOCAL_GATEWAY_URL = DEV_LOCAL_GATEWAY_BASE_URL;
 const LOCAL_AUTH_URL = DEV_LOCAL_AUTH_BASE_URL;
-const LOCAL_AUTH_CLIENT_ID = "openmeld-cli-dev";
-const PRODUCTION_AUTH_CLIENT_ID = "openmeld-cli";
+export const LOCAL_AUTH_CLIENT_ID = "openmeld-cli-dev";
+export const PRODUCTION_AUTH_CLIENT_ID = "openmeld-cli";
 const LOCAL_DEV_ENV_PRESET = "dev-local";
 const LOCAL_DEV_ENTRY_COMMAND = "openmeld-dev";
 

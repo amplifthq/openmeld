@@ -17,6 +17,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { RUNTIME_TRANSPORT_LEASE_TTL_MS } from "../../strategy-constants";
 import { writeRuntimeTransportSocketAttachment } from "../infrastructure/runtime-transport-socket-attachment";
+import { selectCurrentSessionsByDeviceLane } from "./current-owner-service-sessions";
 import {
   createMissingDaemonExecutionCompatibility,
   isDaemonExecutionCompatible,
@@ -867,13 +868,12 @@ export const lookupOwnerService = (
   // not a socket-reference question. The socket only matters for delivery
   // (lookupRoute); requiring it here made hibernation timing flap the
   // user-facing connected/not-connected verdict.
-  const sessions = [...state.sessionsById.values()]
-    .filter(
-      (session) =>
-        session.ownerUserId === request.ownerUserId &&
-        isRuntimeTransportSessionOnline(session, nowMs)
-    )
-    .sort(compareRuntimeTransportSessionsByFreshness)
+  const sessions = selectCurrentSessionsByDeviceLane(
+    [...state.sessionsById.values()]
+      .filter((session) => session.ownerUserId === request.ownerUserId)
+      .sort(compareRuntimeTransportSessionsByFreshness)
+  )
+    .filter((session) => isRuntimeTransportSessionOnline(session, nowMs))
     .map((session) => ({
       daemonSessionId: session.daemonSessionId,
       deviceId: session.deviceId,
