@@ -1,6 +1,15 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
 export {
+  aiUsageObservationSchema,
+  aiUsageQueryResponseSchema,
+  aiUsageQuerySchema,
+  aiUsageRecordSchema,
+  aiUsageSummarySchema,
+  aiUsageTokensSchema,
+} from "./ai-usage";
+
+export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
   serviceConnectionDiagnosticIdSchema,
 } from "./daemon/service-connection-correlation";

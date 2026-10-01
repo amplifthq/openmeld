@@ -2904,6 +2904,29 @@ OpenMeld-owned records, emitted to Analytics Engine, and exposed to operators
 through `readUsageDiagnostics`. Analytics and usage diagnostics are read models;
 they do not decide route ownership, retry, timeout, or final execution state.
 
+Organization AI consumption has a separate Core-owned durable ledger,
+`ai_usage_records`. Its shared contract is `aiUsageRecordSchema` in
+`packages/schemas`. Each record identifies one provider request and its
+Organization, runtime, model, Agent Profile, Space, task, attempt, and Computer
+when available. Native event identity deduplicates transport retries. Records
+contain numeric usage and correlation identifiers, never prompts, completions,
+reasoning content, credentials, or local paths. Missing provider evidence is
+null and appears in missing-evidence counts; it is never fabricated as zero.
+
+Input includes cached input and output includes reasoning, so detail counters
+must not be added to the total again. Costs use integer nano-USD and distinguish
+provider-reported charges from provider estimates. Local consumption is
+informational and never contributes to OpenMeld's shared allowance. Queries
+always bind the authorized Organization and accept bounded time and execution
+filters; the same read model serves people, Center Agent, and later Computer
+and evaluation views.
+
+`organization_ai_usage_policies` owns the optional daily allowance independently
+of consumption. No policy row or a null limit means unlimited; production does
+not receive an implicit cap. Better Auth continues to own Organization identity,
+membership, and roles. Usage records do not introduce another identity system,
+payment processor, execution authority, or historical backfill.
+
 Successful Flue conversation compaction is operational evidence, not a second
 conversation or memory store. During compaction, the worker may retain one
 conversation-scoped start record containing only submission identity, event

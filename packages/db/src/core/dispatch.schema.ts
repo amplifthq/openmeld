@@ -38,6 +38,10 @@ import {
   centerAgentWakePublications,
 } from "./agent-task-coordination.schema.ts";
 import {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
+} from "./ai-usage.schema.ts";
+import {
   centerAgentAttentionRequests,
   centerAgentAuditJournal,
   centerAgentConnectorActionOperations,
@@ -1673,6 +1677,8 @@ export const agentActivityExecutionLinks = sqliteTable(
 );
 
 export const coreSchema = {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
   spaceInvitations,
   organizationJoinRequests,
   inboxCenterAgentReadWatermarks,

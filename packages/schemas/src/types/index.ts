@@ -28,6 +28,13 @@ export type {
   GenerateCenterAgentSessionTitleResponse,
 } from "../schemas/runtime/center-agent-session-title";
 export type { MessageChannelCardHistory } from "../schemas/runtime/message-channel-card-history";
+export type {
+  AiUsageObservation,
+  AiUsageQuery,
+  AiUsageQueryResponse,
+  AiUsageRecord,
+  AiUsageSummary,
+} from "./ai-usage";
 export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
 export type {
   CenterAgentReadAuditJournalResponse,
