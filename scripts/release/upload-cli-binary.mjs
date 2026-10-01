@@ -90,6 +90,16 @@ export function buildCliManifest(input) {
   });
 }
 
+// Staging/custom carriers must not be labelled with production release policy.
+// Production and retained pairs carry metadata only when both identities match.
+export function resolveCliBinaryComponentPolicy(input) {
+  const release = localComponentsReleaseManifestSchema.parse(input.releaseManifest);
+  return release.components.cli.packageVersion === input.cliVersion &&
+    release.components.service.bundleVersion === input.serviceVersion
+      ? { cli: release.components.cli, service: release.components.service }
+      : undefined;
+}
+
 export function createCompressedCliBinary(input) {
   const archive = {
     artifactName: `${input.artifactName}.gz`,
@@ -199,7 +209,11 @@ export async function uploadCliBinary(input = {}) {
     readFileSync(path.join(input.repoRoot ?? REPO_ROOT, LOCAL_COMPONENTS_MANIFEST_PATH), "utf8")
   ));
   const manifest = buildCliManifest({
-    componentPolicy: { cli: releasePolicy.components.cli, service: releasePolicy.components.service },
+    componentPolicy: input.componentPolicy ?? resolveCliBinaryComponentPolicy({
+      releaseManifest: releasePolicy,
+      cliVersion: built.version,
+      serviceVersion: service?.version ?? built.version,
+    }),
     archiveArtifactName: archive.artifactName,
     archiveSha256: archive.sha256,
     archiveSizeBytes: archive.sizeBytes,

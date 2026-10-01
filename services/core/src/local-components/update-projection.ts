@@ -130,7 +130,19 @@ export function resolveLocalComponentUpdateProjection(input: {
       ? resolveCoreLocalComponentsAvailabilityCatalog()
       : input.availabilityCatalog,
   });
-  const servicePolicy = selectedPolicy?.service ?? null;
+  const installableServiceThreshold = maxServiceVersion(
+    manifest.components.service.updatePolicy === "required"
+      ? manifest.components.service.bundleVersion : null,
+    resolveMinimumRecoveryTargetVersion({
+      installedVersion: null,
+      publishedVersion: manifest.components.service.bundleVersion,
+    })
+  );
+  const candidateServicePolicy = selectedPolicy?.service ?? null;
+  const servicePolicy = candidateServicePolicy &&
+    (!installableServiceThreshold ||
+      isLocalComponentVersionAtLeast(candidateServicePolicy.bundleVersion, installableServiceThreshold))
+      ? candidateServicePolicy : null;
   const candidateCliPolicy = selectedPolicy?.cli ?? null;
   const cliPolicy = manifest.components.cli.updatePolicy === "required" &&
     candidateCliPolicy?.commandContractVersion !== manifest.components.cli.commandContractVersion
@@ -152,7 +164,7 @@ export function resolveLocalComponentUpdateProjection(input: {
           commandContractVersion: input.localComponentsStatus?.cli.commandContractVersion ?? null,
           installedPackageVersion: input.localComponentsStatus?.cli.packageVersion ?? null,
           latestPackageVersion: null,
-          reasonCodes: ["cli.release_target_unavailable"],
+          reasonCodes: input.localComponentsStatus ? ["cli.release_target_unavailable"] : ["cli.status_unavailable", "cli.release_target_unavailable"],
           requiredCommandContractVersion: manifest.components.cli.updatePolicy === "required"
             ? manifest.components.cli.commandContractVersion : null,
           status: manifest.components.cli.updatePolicy === "required" &&
@@ -216,7 +228,7 @@ export function resolveLocalComponentUpdateProjection(input: {
   const effectiveServicePolicy = safetyBlocked
     ? "required" : servicePolicy?.updatePolicy ?? manifest.components.service.updatePolicy;
   const decision: ServiceUpdateDecision = safetyBlocked && !safeTarget
-    ? { reasonCodes: ["service.version_outdated", "service.release_target_unavailable"],
+    ? { reasonCodes: [!installedServiceVersion ? "service.version_not_reported" : parseSemver(installedServiceVersion) === null ? "service.version_invalid" : "service.version_outdated", "service.release_target_unavailable"],
         status: "update_required", wakeBlocked: true }
     : servicePolicy
       ? resolveServiceUpdateDecision({

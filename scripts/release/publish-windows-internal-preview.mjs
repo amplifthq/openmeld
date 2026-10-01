@@ -10,6 +10,7 @@ import {
   DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   desktopWindowsInternalPreviewLocation,
   desktopWindowsInternalPreviewSchema,
+  localComponentsReleaseManifestSchema,
 } from "../../packages/schemas/dist/index.js";
 import {
   checkDesktopPublisher,
@@ -118,6 +119,14 @@ function validateBundle(directory, requireMain, cliOnly = false) {
   const manifest = cliBinaryManifestSchema.parse(bundle.manifest);
   if (!manifest.channels.stable.componentPolicy) {
     throw new Error("Windows preview requires source-matched CLI and Service component policies.");
+  }
+  const sourcePolicy = localComponentsReleaseManifestSchema.parse(JSON.parse(
+    readFileSync(join(root, "release/local-components.json"), "utf8")
+  ));
+  const componentPolicy = manifest.channels.stable.componentPolicy;
+  if (JSON.stringify(componentPolicy.cli) !== JSON.stringify(sourcePolicy.components.cli) ||
+      JSON.stringify(componentPolicy.service) !== JSON.stringify(sourcePolicy.components.service)) {
+    throw new Error("Windows preview policies do not match the exact source release manifest.");
   }
   const pointer = cliOnly
     ? undefined

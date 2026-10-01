@@ -106,6 +106,7 @@ const readOpenMeldContext = (directory) => new Promise((resolve) => {
   let stdout = "";
   const child = spawn("${input.cliEntryCommand}", ["activity", "context", "--path", directory, "--json"], {
     stdio: ["ignore", "pipe", "ignore"],
+    windowsHide: true,
   });
   const finish = () => {
     try {
@@ -213,7 +214,7 @@ export const OpenMeldAgentActivityPlugin = async ({ client, directory }) => {
       const child = spawn(
         "${input.cliEntryCommand}",
         ["activity", "hook", "--provider", "opencode", "--owner", "${input.owner}"],
-        { stdio: ["pipe", "ignore", "ignore"] }
+        { stdio: ["pipe", "ignore", "ignore"], windowsHide: true }
       );
       const finish = () => resolve(undefined);
       const timeout = setTimeout(() => {
@@ -960,7 +961,11 @@ function isKnownOpenCodePlugin(
       artifacts.preSessionIdFallbackLegacyOpenCodePlugin,
       artifacts.preDirectoryFallbackOpenCodePlugin,
       artifacts.preDirectoryFallbackLegacyOpenCodePlugin,
-    ].includes(value ?? "")
+    ].flatMap((content) => [
+      content,
+      // Preserve ownership of exact pre-console-hiding generated artifacts.
+      content.replace("\n    windowsHide: true,", "").replace(", windowsHide: true }", " }"),
+    ]).includes(value ?? "")
   );
 }
 

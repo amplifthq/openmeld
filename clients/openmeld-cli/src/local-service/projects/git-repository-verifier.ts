@@ -341,6 +341,7 @@ const runGitCommand: RunGitCommand = async (input) =>
       input.args,
       {
         encoding: "utf8",
+        windowsHide: true,
         maxBuffer: 1024 * 1024,
         timeout: input.timeoutMs,
       },

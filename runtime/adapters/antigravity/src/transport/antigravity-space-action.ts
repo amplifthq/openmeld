@@ -161,6 +161,7 @@ async function runActionWriter(input: {
     const child = spawn(input.commandPath, [...input.args], {
       env: { ...process.env, ...input.env },
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
     let stderr = "";
     child.stderr.setEncoding("utf8");

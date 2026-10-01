@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { resolveWindowsPreviewComponentPolicy } from "./windows-preview-policy.mjs";
 import { createCliBinaryDelta } from "./cli-binary-delta.mjs";
 import {
   buildCliManifest,
+  resolveCliBinaryComponentPolicy,
   buildWranglerObjectPutArgs,
   CLI_MANIFEST_OBJECT_KEY,
   CLI_R2_OBJECT_PREFIX,
@@ -462,4 +464,27 @@ test("rejects a signed binary when the secure storage smoke fails", async () => 
     }),
     SECURE_STORAGE_SMOKE_FAILURE_PATTERN
   );
+});
+
+test("policy provenance does not attach production identity to custom staging artifacts", () => {
+  const releaseManifest = JSON.parse(readFileSync(new URL("../../release/local-components.json", import.meta.url), "utf8"));
+  const cliVersion = releaseManifest.components.cli.packageVersion;
+  const serviceVersion = releaseManifest.components.service.bundleVersion;
+  assert.deepEqual(resolveCliBinaryComponentPolicy({ releaseManifest, cliVersion, serviceVersion }),
+    { cli: releaseManifest.components.cli, service: releaseManifest.components.service });
+  assert.equal(resolveCliBinaryComponentPolicy({ releaseManifest,
+    cliVersion: cliVersion + "-staging.fixture", serviceVersion }), undefined);
+  assert.equal(resolveCliBinaryComponentPolicy({ releaseManifest,
+    cliVersion, serviceVersion: "0.0.0" }), undefined);
+});
+test("native preview refuses retained policy before rebuilding or relabelling a Service", () => {
+  const releaseManifest = JSON.parse(readFileSync(new URL("../../release/local-components.json", import.meta.url), "utf8"));
+  const version = releaseManifest.components.cli.packageVersion;
+  const matching = { ...releaseManifest, components: { ...releaseManifest.components,
+    service: { ...releaseManifest.components.service, bundleVersion: version } } };
+  assert.equal(resolveWindowsPreviewComponentPolicy({ releaseManifest: matching, version }).service.bundleVersion, version);
+  const retained = { ...matching, components: { ...matching.components,
+    service: { ...matching.components.service, bundleVersion: "0.0.0" } } };
+  assert.throws(() => resolveWindowsPreviewComponentPolicy({ releaseManifest: retained, version }),
+    /Prepare a Service release/u);
 });

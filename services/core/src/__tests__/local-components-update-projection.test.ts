@@ -166,6 +166,7 @@ describe("local component update projection", () => {
   });
   it("keeps advisory Service updates from blocking Wake work", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion("0.7.27"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "available",
@@ -384,6 +385,7 @@ describe("local component update projection", () => {
     wakeBlocked,
   }) => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion(installedVersion),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceBundleVersion: latestVersion,
@@ -414,6 +416,7 @@ describe("local component update projection", () => {
     reasonCode,
   }) => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion(installedVersion),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceBundleVersion: "0.3.217",
@@ -439,6 +442,7 @@ describe("local component update projection", () => {
 
   it("fails closed when a connected Service cannot prove the minimum version", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion(null),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "available",
@@ -462,6 +466,7 @@ describe("local component update projection", () => {
 
   it("fails closed when a connected Service reports a non-SemVer version", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion("unknown"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "available",
@@ -484,6 +489,7 @@ describe("local component update projection", () => {
 
   it("keeps a prerelease Service below the stable minimum version", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion("0.3.126-alpha.1"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "available",
@@ -506,6 +512,7 @@ describe("local component update projection", () => {
 
   it("blocks Wake work only when the release policy is required", () => {
     const projection = resolveLocalComponentUpdateProjection({
+      localComponentsStatus: createNpmStatusForServiceVersion("0.7.27"),
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
         serviceUpdatePolicy: "required",
@@ -758,7 +765,7 @@ describe("local component update projection", () => {
     expect(projection).toMatchObject({
       cli: {
         installedPackageVersion: null,
-        reasonCodes: ["cli.status_unavailable"],
+        reasonCodes: ["cli.status_unavailable", "cli.release_target_unavailable"],
         status: "update_required",
         updatePolicy: "required",
       },
@@ -968,6 +975,13 @@ describe("installation-source availability", () => {
   });
   it("does not weaken a required stable232 safety policy to preview231", () => {
     const required = createReleaseManifest({ serviceUpdatePolicy: "required", serviceBundleVersion: "0.3.232" });
+    const requiredPreview = { ...catalog, entries: [{
+      ...catalog.entries[0], policy: { ...previewPolicy,
+        service: { ...previewPolicy.service, updatePolicy: "required" as const } },
+    }] };
+    expect(project({ source: previewSource, policy: required, catalog: requiredPreview })).toMatchObject({
+      service: { status: "update_required", latestVersion: null, requiredVersion: null, wakeBlocked: true },
+    });
     expect(project({ source: previewSource, policy: required })).toMatchObject({
       service: { status: "update_required", latestVersion: null, wakeBlocked: true },
     });
@@ -989,3 +1003,9 @@ describe("installation-source availability", () => {
     });
   });
 });
+
+function createNpmStatusForServiceVersion(version: string | null): LocalComponentsStatus {
+  const status = createLocalComponentsStatus({});
+  status.service.installedBundleVersion = version;
+  return status;
+}
