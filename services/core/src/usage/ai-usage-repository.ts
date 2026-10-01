@@ -25,7 +25,23 @@ export async function recordAiUsage(
       occurred_at_ms, input_tokens, output_tokens, total_tokens,
       cost_nano_usd, cost_kind, record_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (organization_id, runtime, event_id) DO NOTHING
+    ON CONFLICT (organization_id, runtime, event_id) DO UPDATE SET
+      model = excluded.model,
+      input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
+      total_tokens = excluded.total_tokens, cost_nano_usd = excluded.cost_nano_usd,
+      cost_kind = excluded.cost_kind, record_json = excluded.record_json
+    WHERE json_extract(ai_usage_records.record_json, '$.status') = 'pending'
+      AND json_extract(excluded.record_json, '$.status') <> 'pending'
+      AND ai_usage_records.provider = excluded.provider
+      AND ai_usage_records.purpose = excluded.purpose
+      AND ai_usage_records.agent_profile_id IS excluded.agent_profile_id
+      AND ai_usage_records.space_id IS excluded.space_id
+      AND ai_usage_records.task_id IS excluded.task_id
+      AND ai_usage_records.attempt_id IS excluded.attempt_id
+      AND ai_usage_records.computer_id IS excluded.computer_id
+      AND ai_usage_records.controller IS excluded.controller
+      AND ai_usage_records.occurred_at_ms = excluded.occurred_at_ms
+      AND json_extract(ai_usage_records.record_json, '$.dispatchId') IS json_extract(excluded.record_json, '$.dispatchId')
   `)
     .bind(
       record.organizationId,
@@ -84,6 +100,7 @@ export async function queryAiUsage(input: {
     agentProfileId: "agent_profile_id",
     spaceId: "space_id",
     taskId: "task_id",
+    dispatchId: "json_extract(record_json, '$.dispatchId')",
     computerId: "computer_id",
   } as const;
   for (const [key, column] of Object.entries(filters)) {

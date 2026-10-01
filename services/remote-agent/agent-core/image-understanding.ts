@@ -1,5 +1,6 @@
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
+import { createMeteredRemoteFetch } from "./ai-usage";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -107,6 +108,7 @@ export async function understandRemoteAgentImages(input: {
         fetch: input.fetch,
         headers,
         model: input.model,
+        organizationId: input.organizationId,
         totalImageCount: input.images.length,
       })
     );
@@ -150,6 +152,7 @@ export async function understandRemoteAgentImages(input: {
 }
 
 async function requestRemoteAgentImageUnderstandingBatch(input: {
+  organizationId: string;
   batch: ReadonlyArray<{
     image: RemoteAgentPreparedContextImage;
     index: number;
@@ -166,7 +169,19 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
       image.filename ? JSON.stringify(image.filename) : "unnamed image",
     ].join(": ")
   );
-  const response = await (input.fetch ?? globalThis.fetch)(
+  const response = await createMeteredRemoteFetch({
+    coreWorker: input.env.OPENMELD_CORE_WORKER,
+    fetch: input.fetch,
+    model: input.model.modelId,
+    scope: {
+      organizationId: input.organizationId,
+      purpose: "image_understanding",
+      agentProfileId: null,
+      spaceId: null,
+      taskId: null,
+      attemptId: null,
+    },
+  })(
     `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env)}/chat/completions`,
     {
       body: JSON.stringify({

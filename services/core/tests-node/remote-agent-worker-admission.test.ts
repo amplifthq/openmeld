@@ -2,7 +2,10 @@ import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { submitRemoteAgentWorkerAdmission } from "../src/remote-agent/application/remote-agent-worker-admission";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  applyDrizzleMigrationForTable,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Remote Agent worker admission", () => {
   it("rolls a current conversation into one new runtime generation without surfacing the history limit", async () => {
@@ -237,6 +240,8 @@ describe("Remote Agent worker admission", () => {
 function createRolloverAdmissionTables(
   harness: ReturnType<typeof createSqliteD1Harness>
 ): void {
+  applyDrizzleMigrationForTable(harness, "ai_usage_records");
+  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
   harness.run({
     sql: `
       CREATE TABLE openMeldRemoteAgent_native_delivery_ledger (
@@ -425,14 +430,15 @@ function centerAgentPauseRaceDb(): D1Database {
           })),
         };
       }
-      if (normalizedSql.includes("select daily_admission_day_utc")) {
+      if (normalizedSql.includes("from organization_ai_usage_policies")) {
         return {
           bind: vi.fn(() => ({
-            first: vi.fn(() => ({
-              daily_admission_day_utc: "2026-07-29",
-            })),
+            first: vi.fn(() => null),
           })),
         };
+      }
+      if (normalizedSql.includes("from ai_usage_records")) {
+        return { bind: vi.fn(() => ({ all: vi.fn(() => ({ results: [] })) })) };
       }
       throw new Error(`Unexpected SQL in admission race test: ${sql}`);
     }),

@@ -6,6 +6,14 @@ import { defineSkill, init, useModel, useSkill, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
 import { strictObject } from "valibot";
 import { expect, it, vi } from "vitest";
+
+vi.mock("../flue-adapter/ai-usage", () => ({
+  createFlueMeteredFetch:
+    (input: { fetch?: typeof fetch }) =>
+    (...args: Parameters<typeof fetch>) =>
+      (input.fetch ?? fetch)(...args),
+}));
+
 import { registerRemoteAgentCloudflareProvider } from "../flue-adapter/model";
 import {
   projectRemoteAgentResourceSignal,

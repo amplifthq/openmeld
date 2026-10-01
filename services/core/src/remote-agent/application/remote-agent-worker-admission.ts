@@ -18,18 +18,17 @@ import type { CoreBindings } from "../../lib/bindings";
 import { identityDb } from "../../lib/bindings";
 import { isRpcReceiverMethodNotImplementedError } from "../../rpc/errors";
 import {
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE,
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
+  readAiUsageAllowance,
+} from "../../usage/ai-usage-policy";
+import {
   advanceRemoteAgentConversationGeneration,
   markRemoteAgentConversationGenerationStarted,
   type RemoteAgentConversationGeneration,
   readRemoteAgentConversationGeneration,
 } from "../infrastructure/d1/conversation-generation-repo";
-import { admitRemoteAgentDailyDelivery } from "../infrastructure/d1/daily-admission-repo";
 import { replaceRemoteAgentWorkerSubmitRequestForGeneration } from "../infrastructure/d1/native-delivery-ledger-repo";
-import {
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE,
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
-  resolveRemoteAgentDailyAdmissionLimit,
-} from "./daily-admission-policy";
 import { requirePersonalRemoteAgentBinding } from "./personal-remote-agent-binding";
 import {
   buildRemoteAgentConversationContinuityContext,
@@ -208,16 +207,12 @@ export async function submitRemoteAgentWorkerAdmission(input: {
   } catch (error) {
     return resolveWorkerSubmitFailure(error);
   }
-  const dailyAdmission = await admitRemoteAgentDailyDelivery({
+  const allowance = await readAiUsageAllowance({
     db: input.db,
-    idempotencyKey: input.request.idempotencyKey,
-    limit: resolveRemoteAgentDailyAdmissionLimit(
-      input.env.OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT
-    ),
     nowMs: input.nowMs,
     organizationId: input.organizationId,
   });
-  if (dailyAdmission.status === "rejected") {
+  if (allowance.exhausted) {
     return {
       response: {
         message: REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE,

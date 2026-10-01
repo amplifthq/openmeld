@@ -1,5 +1,12 @@
 import { queryAiUsage } from "./ai-usage-repository";
 
+export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE =
+  "remote_agent.daily_quota_exceeded";
+export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE =
+  "This Organization has used its daily AI allowance. It resets at 00:00 UTC.";
+export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON =
+  "the Organization has used its daily AI allowance. It resets at 00:00 UTC.";
+
 export function aiUsageDay(nowMs: number) {
   const fromMs = Math.floor(nowMs / 86_400_000) * 86_400_000;
   return { fromMs, toMs: fromMs + 86_400_000 };

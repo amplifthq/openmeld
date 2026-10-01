@@ -9,7 +9,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import { REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE } from "../src/remote-agent/application/daily-admission-policy";
 import {
   createMessageChannelProviderRegistry,
   type MessageChannelProviderAdapter,
@@ -27,6 +26,7 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import { readPluginChannelMetadata } from "../src/remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
+import { REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE } from "../src/usage/ai-usage-policy";
 import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./helpers/center-agent-model-route.test-support";
 import {
   applyDrizzleMigrationForTable,
@@ -773,9 +773,9 @@ describe("Remote Agent Message Channel native delivery", () => {
       expect(attachmentDelete).not.toHaveBeenCalled();
       expect(
         harness.queryAll<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldRemoteAgent_daily_admissions",
+          sql: "SELECT COUNT(*) AS count FROM ai_usage_records",
         })
-      ).toEqual([{ count: 1 }]);
+      ).toEqual([{ count: 0 }]);
     } finally {
       harness.close();
     }
@@ -1002,7 +1002,6 @@ describe("Remote Agent Message Channel native delivery", () => {
     const attachmentDelete = vi.fn(async () => undefined);
     const env = buildEnv({
       attachmentDelete,
-      dailyAdmissionLimit: "1",
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
     });
     try {
@@ -1017,6 +1016,10 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       ).resolves.toMatchObject({ status: "submitted" });
 
+      harness.run({
+        sql: "INSERT INTO organization_ai_usage_policies VALUES (?, ?, ?)",
+        params: ["org_1", 0, 1000],
+      });
       const secondRequest = createMessageChannelDeliveryInput({
         locator: createLocator({
           connectionId: "connection_lark_2",
@@ -1248,6 +1251,8 @@ describe("Remote Agent Message Channel native delivery", () => {
 function applyMessageChannelNativeDeliveryMigrations(
   harness: Parameters<typeof applyDrizzleMigrationForTable>[0]
 ): void {
+  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
+  harness.run({ sql: "INSERT INTO organizations VALUES ('org_1')" });
   applyDrizzleMigrationsForTables(harness, [
     "organization_skill_releases",
     "organization_skills",
@@ -1260,6 +1265,8 @@ function applyMessageChannelNativeDeliveryMigrations(
     harness,
     "openMeldRemoteAgent_daily_admissions"
   );
+  applyDrizzleMigrationForTable(harness, "ai_usage_records");
+  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
   applyDrizzleMigrationForTable(
     harness,
     "openMeldRemoteAgent_conversation_generations"
@@ -1270,13 +1277,7 @@ function seedEnabledOrganizationSkill(
   harness: ReturnType<typeof createSqliteD1Harness>
 ): void {
   harness.run({
-    sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)",
-  });
-  harness.run({
     sql: "CREATE TABLE users (id TEXT PRIMARY KEY)",
-  });
-  harness.run({
-    sql: "INSERT INTO organizations (id) VALUES ('org_1')",
   });
   harness.run({
     sql: "INSERT INTO users (id) VALUES ('user_1')",
@@ -1367,7 +1368,6 @@ function createWorkingCardRegistry(
 
 function buildEnv(input: {
   attachmentDelete?: ReturnType<typeof vi.fn>;
-  dailyAdmissionLimit?: string;
   queueSend?: ReturnType<typeof vi.fn>;
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"];
   spaceGet?: ReturnType<typeof vi.fn>;
@@ -1376,7 +1376,6 @@ function buildEnv(input: {
     OPENMELD_DAEMON_DISPATCH_QUEUE: {
       send: input.queueSend ?? vi.fn(async () => undefined),
     } as unknown as CoreBindings["OPENMELD_DAEMON_DISPATCH_QUEUE"],
-    OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT: input.dailyAdmissionLimit,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
     OPENMELD_REMOTE_AGENT_WORKER: input.remoteAgentWorker,
     OPENMELD_SPACE_ATTACHMENTS: input.attachmentDelete

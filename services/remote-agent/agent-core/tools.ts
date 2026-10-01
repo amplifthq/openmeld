@@ -12,6 +12,7 @@ import {
   agentProfileCreationRequestMutationResponseSchema,
   agentReplyPlacementSchema,
   agentTaskHandleSchema,
+  aiUsageQueryResponseSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
@@ -37,6 +38,7 @@ import {
   CONNECTOR_SERVICES,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceResponseSchema,
+  centerAgentAiUsageRpcInputSchema,
   centerAgentAuthorizeAnonymousMemberToolResponseSchema,
   centerAgentAuthorizeAnonymousMemberToolRpcInputSchema,
   centerAgentCheckAgentProfileReadinessResponseSchema,
@@ -1448,6 +1450,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_set_agent_profile_default_project",
   "openmeld_prepare_remove_project",
   "openmeld_remove_project",
+  "openmeld_read_ai_usage",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -1556,6 +1559,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_list_projects",
   "openmeld_read_agent_profile_creation_defaults",
   "openmeld_list_hosted_models",
+  "openmeld_read_ai_usage",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -3418,6 +3422,47 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           "Project removal response"
         );
         return parsedResponse;
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_ai_usage",
+      description:
+        "Read the current Organization's AI consumption by model, including Center/Remote platform spend and informational Local Agent tokens. Defaults to today (UTC). Filter by Space, task, Computer, Agent Profile, model, or runtime. Times are Unix milliseconds, up to 31 days. Money is integer nano-USD: divide by 1,000,000,000 for dollars. Reported provider charges, estimates, and missing evidence are separate. Local usage never spends the Organization allowance. An empty result does not prove that unreported requests consumed no tokens.",
+      input: object({
+        fromMs: optional(pipe(number(), integer(), minValue(0))),
+        toMs: optional(pipe(number(), integer(), minValue(0))),
+        runtime: optional(picklist(["local", "remote"])),
+        model: optionalNonEmptyStringSchema,
+        agentProfileId: optionalNonEmptyStringSchema,
+        spaceId: optionalNonEmptyStringSchema,
+        taskId: optionalNonEmptyStringSchema,
+        dispatchId: optionalNonEmptyStringSchema,
+        computerId: optionalNonEmptyStringSchema,
+      }),
+      execute: async (payload) => {
+        const context = await buildOrganizationMemberToolContext({
+          missingSpeakerMessage:
+            "AI usage requires a current Organization member.",
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_ai_usage",
+        });
+        const today = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+        return aiUsageQueryResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadAiUsage",
+            centerAgentAiUsageRpcInputSchema.parse({
+              ...context,
+              query: {
+                ...payload,
+                fromMs: payload.fromMs ?? today,
+                toMs: payload.toMs ?? today + 86_400_000,
+              },
+            }),
+            (binding, request) => binding.centerAgentReadAiUsage?.(request)
+          )
+        );
       },
     }),
     toolDefinition({

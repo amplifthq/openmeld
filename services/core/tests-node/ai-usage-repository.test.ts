@@ -9,6 +9,8 @@ import {
 
 const nowMs = Date.parse("2026-10-01T12:00:00Z");
 const record: AiUsageRecord = {
+  status: "reported",
+  providerRequestId: "request-1",
   eventId: "openrouter:request-1",
   provider: "openrouter",
   model: "openai/test",
@@ -36,6 +38,39 @@ const record: AiUsageRecord = {
 const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
 
 describe("Organization AI consumption", () => {
+  it("settles a pending receipt once without changing its execution attribution", async () => {
+    const harness = createHarness();
+    try {
+      await recordAiUsage(harness.db, {
+        ...record,
+        status: "pending",
+        tokens: null,
+        cost: null,
+        providerRequestId: null,
+      });
+      await expect(
+        recordAiUsage(harness.db, { ...record, taskId: "wrong-task" })
+      ).rejects.toThrow("identity conflicts");
+      await recordAiUsage(harness.db, record);
+      await recordAiUsage(harness.db, record);
+      const usage = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query,
+      });
+      expect(usage.models).toMatchObject([
+        {
+          requests: 1,
+          totalTokens: 120,
+          reportedCostNanoUsd: 500_000_000,
+          missingCostRequests: 0,
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("deduplicates delivery, preserves missing evidence, and isolates organization and task queries", async () => {
     const harness = createHarness();
     try {

@@ -5,6 +5,7 @@ import {
 } from "@openmeld/schemas";
 import type { GenerateCenterAgentSessionTitleResponse } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
+import { createMeteredRemoteFetch } from "./ai-usage";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -49,7 +50,19 @@ export async function generateCenterAgentSessionTitle(input: {
       operation: "session_title",
     },
   });
-  const response = await (input.fetch ?? globalThis.fetch)(
+  const response = await createMeteredRemoteFetch({
+    coreWorker: input.env.OPENMELD_CORE_WORKER,
+    fetch: input.fetch,
+    model: CENTER_AGENT_SESSION_TITLE_MODEL,
+    scope: {
+      organizationId: request.organizationId,
+      purpose: "session_title",
+      agentProfileId: null,
+      spaceId: request.spaceId,
+      taskId: null,
+      attemptId: null,
+    },
+  })(
     `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env)}/chat/completions`,
     {
       method: "POST",

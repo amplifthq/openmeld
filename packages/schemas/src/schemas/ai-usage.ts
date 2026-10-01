@@ -1,4 +1,6 @@
 import * as z from "zod/v4";
+import { openMeldRequestContextSchema } from "./daemon/profile-identity";
+import { centerAgentToolSpeakerSchema } from "./http/center-agent-speaker";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const identifier = z.string().trim().min(1).max(256);
@@ -37,6 +39,8 @@ export const aiUsageObservationSchema = z.strictObject({
 });
 
 export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
+  status: z.enum(["pending", "reported", "unavailable"]),
+  providerRequestId: identifier.nullable(),
   organizationId: identifier,
   runtime: z.enum(["local", "remote"]),
   purpose: z.enum([
@@ -49,9 +53,19 @@ export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
   agentProfileId: identifier.nullable(),
   spaceId: identifier.nullable(),
   taskId: identifier.nullable(),
+  dispatchId: identifier.nullable().optional(),
   attemptId: identifier.nullable(),
   computerId: identifier.nullable(),
   controller: identifier.nullable(),
+});
+
+export const remoteAiUsageWriteSchema = z.strictObject({
+  phase: z.enum(["begin", "settle"]),
+  record: aiUsageRecordSchema,
+});
+
+export const remoteAiUsageWriteResponseSchema = z.strictObject({
+  status: z.enum(["accepted", "limit_reached"]),
 });
 
 export const aiUsageQuerySchema = z
@@ -63,6 +77,7 @@ export const aiUsageQuerySchema = z
     agentProfileId: identifier.optional(),
     spaceId: identifier.optional(),
     taskId: identifier.optional(),
+    dispatchId: identifier.optional(),
     computerId: identifier.optional(),
   })
   .refine(
@@ -92,3 +107,13 @@ export const aiUsageQueryResponseSchema = z.strictObject({
   toMs: count,
   models: z.array(aiUsageSummarySchema),
 });
+
+export const organizationAiUsageRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  query: aiUsageQuerySchema.optional(),
+});
+
+export const centerAgentAiUsageRpcInputSchema =
+  organizationAiUsageRpcInputSchema.extend({
+    speakerMember: centerAgentToolSpeakerSchema,
+  });

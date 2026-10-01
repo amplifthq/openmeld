@@ -160,6 +160,10 @@ import {
   readSpaceIndexOrganizationJoinTarget,
 } from "../../space-index/space-index-repository";
 import {
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
+  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON,
+} from "../../usage/ai-usage-policy";
+import {
   blockRemoteAgentRoutineRecoveryForTargetMismatch,
   claimRemoteAgentAcceptedDeliveryProbeSchedule,
   claimRemoteAgentFinalPublication,
@@ -240,10 +244,6 @@ import {
   discardFrozenContextScopeForNewTurn,
   parseCoreOwnedRemoteAgentTurnEnvelope,
 } from "./center-agent-context-scope";
-import {
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
-  REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON,
-} from "./daily-admission-policy";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
 import { publishRemoteAgentMessageChannelAdmissionFailure } from "./message-channel-admission-watchdog-publication";
 import { createConfiguredMessageChannelProviderRegistry } from "./message-channel-provider-runtime";
@@ -1047,6 +1047,7 @@ export async function submitRemoteAgentNativeDelivery(
       bindingId: input.binding.bindingId,
       triggerMessageId: input.message.sourceEventId,
       dispatchId: input.message.dispatchId,
+      taskId: input.message.taskId,
       sourceClientMessageId: input.message.sourceClientMessageId ?? null,
       idempotencyKey: input.message.idempotencyKey,
       messages: [

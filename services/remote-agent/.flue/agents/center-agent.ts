@@ -17,6 +17,7 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import type { Agent } from "agents";
+import { flushRemoteAiUsage } from "../../agent-core/ai-usage";
 import {
   listRemoteAgentUsageRecords,
   type RemoteAgentCoreWorkerBinding,
@@ -623,6 +624,19 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
 
       async retryRemoteAgentCallbacks(): Promise<void> {
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
+        try {
+          const morePending = await flushRemoteAiUsage({
+            storage,
+            coreWorker: this.env
+              .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
+          });
+          if (morePending) {
+            await this.armRemoteAgentCallbackRetry();
+          }
+        } catch (error) {
+          console.error("[remote_agent.ai_usage.retry_failed]", error);
+          await this.armRemoteAgentCallbackRetry();
+        }
         const readSubmission = requireFlueSubmissionReader(this);
         await reconcileAndRedeliverRemoteAgentCallbacks({
           env: this.env,

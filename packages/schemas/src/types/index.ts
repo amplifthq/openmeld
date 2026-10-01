@@ -34,6 +34,10 @@ export type {
   AiUsageQueryResponse,
   AiUsageRecord,
   AiUsageSummary,
+  CenterAgentAiUsageRpcInput,
+  OrganizationAiUsageRpcInput,
+  RemoteAiUsageWrite,
+  RemoteAiUsageWriteResponse,
 } from "./ai-usage";
 export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
 export type {
