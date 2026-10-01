@@ -3352,6 +3352,22 @@ Core-owned hosted readiness has exactly two product states in MVP:
   production). The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
+- Organization-scoped OpenRouter routes retain native prompt-cache capabilities
+  even when a selected Claude model is absent from pi-ai's bundled catalog.
+  The worker also enables message-prefix markers for the exact Alibaba routes
+  documented by OpenRouter and current Model Studio support: DeepSeek V3.2,
+  Qwen Plus, Qwen3 Max, Qwen3.6 Plus/Flash, Qwen3 Coder Plus/Flash, Qwen3.7
+  Max/Plus/Flash, and Qwen3.8 Max 0902/Flash. This support is an explicit model
+  capability, not a blanket rule for the Qwen namespace; snapshot and open-weight
+  endpoints do not inherit it. Alibaba caches tools through the message prefix,
+  so the worker removes Claude-only tool markers and retains five-minute TTLs.
+  The adapter owns prefix placement and per-call cache opt-out. OpenAI, Grok,
+  DeepSeek V4, Z.AI, Moonshot, and current Gemini routes retain provider automatic
+  caching; the worker does not force optional Gemini storage or OpenAI explicit
+  cache modes. Caching does not change the selected model, reasoning, context
+  content, authorization, or same-model provider failover. Actual savings require
+  provider-reported cache reads; missing prices and estimated costs are not proof
+  of the provider's charged amount.
 
 Failure copy examples belong to Core, not the worker. Runtime policy blocks
 must explain whether the Remote Agent is disabled globally or blocked for the

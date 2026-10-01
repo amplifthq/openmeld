@@ -272,6 +272,143 @@ describe("remote agent model routing", () => {
     }
   });
 
+  it.each([
+    ["anthropic/claude-opus-5.5", undefined, true],
+    ["anthropic/claude-sonnet-4.6", undefined, true],
+    ["anthropic/claude-opus-5.5", "none", false],
+    ["deepseek/deepseek-v3.2", undefined, true],
+    ["qwen/qwen-plus", undefined, true],
+    ["qwen/qwen3-max", undefined, true],
+    ["qwen/qwen3.6-plus", undefined, true],
+    ["qwen/qwen3-coder-plus", undefined, true],
+    ["qwen/qwen3-coder-flash", undefined, true],
+    ["qwen/qwen3.6-flash", undefined, true],
+    ["qwen/qwen3.7-max", undefined, true],
+    ["qwen/qwen3.7-plus", undefined, true],
+    ["qwen/qwen3.7-flash", undefined, true],
+    ["qwen/qwen3.8-max-0902", undefined, true],
+    ["qwen/qwen3.8-flash", undefined, true],
+    ["qwen/qwen3-coder-plus", "none", false],
+    ["qwen/qwen3.5-plus-02-15", undefined, false],
+    ["qwen/qwen3.5-flash-02-23", undefined, false],
+    ["qwen/qwen3-coder", undefined, false],
+    ["google/gemini-2.5-pro", undefined, false],
+    ["openai/gpt-6-sol", undefined, false],
+    ["deepseek/deepseek-v4-flash", undefined, false],
+    ["z-ai/glm-5.3-flash", undefined, false],
+    ["x-ai/grok-4.6", undefined, false],
+  ] as const)("preserves native prompt caching for scoped %s with retention %s", async (modelId, cacheRetention, cacheEnabled) => {
+    resetProviderRuntime();
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId,
+          preference: { kind: "selected_model", modelId },
+        },
+        organizationId: "org_prompt_cache",
+      });
+      const model = resolveModel(runtime.modelSpecifier);
+      let capturedPayload: unknown;
+      const stream = streamRegisteredModel(
+        model,
+        {
+          systemPrompt: "Stable system instruction.",
+          messages: [
+            { role: "user", content: "Current question.", timestamp: 1 },
+          ],
+          tools: [
+            {
+              name: "read_example",
+              description: "Read an example.",
+              parameters: { type: "object", properties: {} },
+            },
+          ],
+        },
+        {
+          apiKey: "unused",
+          cacheRetention,
+          maxRetries: 0,
+          reasoningEffort: "high",
+          sessionId: "conversation_prompt_cache",
+          fetch: (_url, init) => {
+            capturedPayload = JSON.parse(String(init?.body));
+            throw new Error(
+              "Request payload captured before network dispatch."
+            );
+          },
+        }
+      );
+
+      await stream.result();
+
+      expect(capturedPayload).toMatchObject({
+        model: modelId,
+        reasoning: { effort: "high" },
+        session_id: "conversation_prompt_cache",
+        provider: { allow_fallbacks: true },
+        tools: [
+          {
+            function: {
+              name: "read_example",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+        ],
+      });
+      if (cacheEnabled) {
+        expect(capturedPayload).toMatchObject({
+          messages: [
+            {
+              content: [
+                {
+                  type: "text",
+                  text: "Stable system instruction.",
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Current question.",
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+            },
+          ],
+        });
+        if (modelId.startsWith("anthropic/")) {
+          expect(capturedPayload).toMatchObject({
+            tools: [{ cache_control: { type: "ephemeral" } }],
+          });
+        } else {
+          expect(capturedPayload).toMatchObject({
+            tools: [
+              expect.not.objectContaining({ cache_control: expect.anything() }),
+            ],
+          });
+        }
+      } else {
+        expect(capturedPayload).toMatchObject({
+          messages: [
+            { content: "Stable system instruction." },
+            { role: "user", content: "Current question." },
+          ],
+        });
+        expect(JSON.stringify(capturedPayload)).not.toContain("cache_control");
+      }
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
   it("preserves OpenRouter reasoning for a scoped Grok provider", async () => {
     resetProviderRuntime();
     try {
