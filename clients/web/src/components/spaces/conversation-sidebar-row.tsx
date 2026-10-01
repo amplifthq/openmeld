@@ -25,7 +25,6 @@ import {
 	ArchiveIcon,
 	ArrowUUpLeftIcon,
 	ChatCircleTextIcon,
-	CloudIcon,
 	DotsThreeIcon,
 	FolderIcon,
 	PencilSimpleIcon,
@@ -160,10 +159,6 @@ function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
 function ConversationSidebarRowContent(
 	input: ConversationSidebarRowProps & ConversationRowPreview
 ) {
-	const chat =
-		input.conversation.kind === "direct-message"
-			? input.conversation.chat
-			: null;
 	const { timestamp, previewText } = input;
 	const presentation = input.activeWakeSummary
 		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
@@ -244,22 +239,6 @@ function ConversationSidebarRowContent(
 										{input.title}
 									</span>
 								</span>
-								{chat?.session && (
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<span
-													aria-label="Agent direct message"
-													className="inline-flex shrink-0 text-muted-foreground"
-													role="img"
-												/>
-											}
-										>
-											<CloudIcon aria-hidden="true" className="size-3" />
-										</TooltipTrigger>
-										<TooltipContent>Agent direct message</TooltipContent>
-									</Tooltip>
-								)}
 								{timestamp !== null && !presentation && (
 									<ConversationSidebarRowTime timestamp={timestamp} />
 								)}
