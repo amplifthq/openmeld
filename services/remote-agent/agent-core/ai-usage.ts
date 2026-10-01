@@ -290,6 +290,18 @@ function projectProviderUsage(
 ): AiUsageRecord {
   const parsed = responseUsage.safeParse(value);
   if (!parsed.success) {
+    if (
+      value &&
+      typeof value === "object" &&
+      "usage" in value &&
+      value.usage != null
+    ) {
+      return {
+        ...record,
+        status: "collection_failed",
+        collectionFailure: "invalid_response",
+      };
+    }
     return { ...record, status: "unavailable" };
   }
   const { usage, id, model } = parsed.data;

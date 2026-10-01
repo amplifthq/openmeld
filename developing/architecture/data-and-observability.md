@@ -2920,6 +2920,30 @@ always bind the authorized Organization and accept bounded time and execution
 filters; the same read model serves people, Center Agent, and later Computer
 and evaluation views.
 
+The query can rank observed tasks or Agent Profiles by known provider charges
+or native tokens, with a bounded limit and explicit `hasMore`. Model totals
+still cover the full selected window. Tasks without a task ID may be grouped
+by their dispatch identity; unattributed auxiliary costs remain in totals.
+Observed execution attempts count distinct attempt IDs, not model requests or
+provider retries. Missing attempt attribution stays visible. Agent rankings do
+not infer a retry count across unrelated tasks. All values describe the query
+window, not necessarily a task's lifetime.
+
+Coverage describes observed requests only. It separates reported, pending,
+provider-unavailable, and collection-failed records, with missing-token/cost
+counts. Pending receipts older than one hour are flagged for investigation;
+this read-time age classification never changes execution state or stops work.
+`includeIssues` returns a bounded list of the original safe usage receipts for
+diagnosis, without prompts, output, or credentials. No records is not proof of
+no usage by an unreported controller or interrupted local process.
+
+Task rankings enrich at most twenty dispatches per query through the existing
+RuntimeCoordinator projection or native delivery and task-terminal repositories.
+Outcome evidence is nullable and truncation is explicit. Usage does not infer
+success from a nonzero count, copy task text into the ledger, or become an
+execution authority. Organization membership grants usage visibility, not new
+access to private conversation content.
+
 `organization_ai_usage_policies` owns the optional daily allowance independently
 of consumption. No policy row or a null limit means unlimited; production does
 not receive an implicit cap. Better Auth continues to own Organization identity,

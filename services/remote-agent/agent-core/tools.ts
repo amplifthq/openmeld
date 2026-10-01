@@ -3427,7 +3427,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_ai_usage",
       description:
-        "Read the current Organization's AI consumption by model, including Center/Remote platform spend and informational Local Agent tokens. Defaults to today (UTC). Filter by Space, task, Computer, Agent Profile, model, or runtime. Times are Unix milliseconds, up to 31 days. Money is integer nano-USD: divide by 1,000,000,000 for dollars. Reported provider charges, estimates, and missing evidence are separate. Local usage never spends the Organization allowance. An empty result does not prove that unreported requests consumed no tokens.",
+        "Read Organization AI consumption. Use groupBy=task to rank expensive tasks or groupBy=agent to compare Agents; sortBy=cost ranks known provider charges, sortBy=tokens ranks native tokens (prefer tokens for Local Agents). Defaults to today UTC; times are Unix milliseconds, up to 31 days, limit up to 50. Filter by Space, task, Computer, Agent Profile, model, or runtime. Models always contain full-window totals; breakdown is a bounded ranking and hasMore indicates omitted groups. Money is integer nano-USD: divide by 1,000,000,000 for dollars. Never mix provider charges with estimates or treat missing cost as free. Local usage does not spend the Organization allowance. Coverage distinguishes pending, stale pending (over one hour), provider-unavailable, and collection failures; it covers observed requests only, not all possible work. Task execution status/outcome comes from existing owners, may be unavailable or truncated, and is separate from usage completeness. observedExecutionRetries counts extra distinct execution attempts, not provider retries; model calls include tool iterations, never infer retries from call count. Results cover only the selected time window. Tasks without a task ID may be identified by dispatch ID; no task content is returned.",
       input: object({
         fromMs: optional(pipe(number(), integer(), minValue(0))),
         toMs: optional(pipe(number(), integer(), minValue(0))),
@@ -3438,6 +3438,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         taskId: optionalNonEmptyStringSchema,
         dispatchId: optionalNonEmptyStringSchema,
         computerId: optionalNonEmptyStringSchema,
+        groupBy: optional(picklist(["model", "task", "agent"])),
+        sortBy: optional(picklist(["cost", "tokens"])),
+        limit: optional(pipe(number(), integer(), minValue(1), maxValue(50))),
+        includeIssues: optional(boolean()),
       }),
       execute: async (payload) => {
         const context = await buildOrganizationMemberToolContext({

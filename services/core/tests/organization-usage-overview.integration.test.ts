@@ -34,13 +34,25 @@ describe("Organization Usage overview", () => {
   it("allows an ordinary organization member to query usage but rejects a different organization", async () => {
     const fixture = await seedMemberFixture();
     const other = await seedMemberFixture();
-    const query = { fromMs: FIXED_NOW_MS, toMs: FIXED_NOW_MS + 1000 };
+    const query = {
+      fromMs: FIXED_NOW_MS,
+      toMs: FIXED_NOW_MS + 1000,
+      groupBy: "task" as const,
+      includeIssues: true,
+    };
     await expect(
       rpcReadOrganizationAiUsage(env as CoreBindings, {
         context: fixture.context,
         query,
       })
-    ).resolves.toEqual({ ...query, models: [] });
+    ).resolves.toMatchObject({
+      fromMs: query.fromMs,
+      toMs: query.toMs,
+      models: [],
+      coverage: { pendingRequests: 0, collectionFailedRequests: 0 },
+      breakdown: { groupBy: "task", groups: [], hasMore: false },
+      issues: { records: [], hasMore: false },
+    });
     await expect(
       rpcReadOrganizationAiUsage(env as CoreBindings, {
         context: {

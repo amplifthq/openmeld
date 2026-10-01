@@ -14,3 +14,8 @@ Ask Center Agent for usage by model, Space, or Agent. Supported Local Agents
 report their native token counts separately, without spending the shared
 allowance. Missing costs stay clearly marked. Tracking begins with new
 executions; older activity is not backfilled.
+
+Ask which tasks used the most tokens or had the highest recorded model costs.
+Task summaries include observed execution attempts and available outcomes.
+Usage queries distinguish pending reports, missing provider data, and collection
+failures, so incomplete statistics do not look like zero consumption.

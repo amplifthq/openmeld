@@ -13,6 +13,7 @@ import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/app
 import { type CoreBindings, wakeEvidenceDb } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import { enrichAiUsageExecutions } from "./ai-usage-execution-context";
 import { aiUsageDay, readAiUsageAllowance } from "./ai-usage-policy";
 import { queryAiUsage, recordAiUsage } from "./ai-usage-repository";
 
@@ -73,10 +74,14 @@ export async function rpcReadOrganizationAiUsage(
       status: membership.status,
     });
   }
-  return queryAiUsage({
+  const usageInput = {
     db: requireUsageDb(env),
     organizationId: membership.organizationId,
     query: parsed.data.query ?? aiUsageDay(Date.now()),
+  };
+  return enrichAiUsageExecutions({
+    ...usageInput,
+    usage: await queryAiUsage(usageInput),
   });
 }
 
@@ -93,10 +98,14 @@ export async function rpcCenterAgentReadAiUsage(
     parsed.data.context,
     parsed.data.speakerMember
   );
-  return queryAiUsage({
+  const usageInput = {
     db: requireUsageDb(env),
     organizationId: prepared.authorization.activeOrganization.organizationId,
     query: parsed.data.query ?? aiUsageDay(Date.now()),
+  };
+  return enrichAiUsageExecutions({
+    ...usageInput,
+    usage: await queryAiUsage(usageInput),
   });
 }
 

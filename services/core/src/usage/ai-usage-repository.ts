@@ -82,6 +82,7 @@ export async function queryAiUsage(input: {
   db: D1Database;
   organizationId: string;
   query: AiUsageQuery;
+  nowMs?: number;
 }): Promise<AiUsageQueryResponse> {
   const query = aiUsageQuerySchema.parse(input.query);
   const predicates = [
@@ -110,24 +111,157 @@ export async function queryAiUsage(input: {
       values.push(value);
     }
   }
-  const result = await input.db
-    .prepare(`
-    SELECT runtime, provider, model, COUNT(*) AS requests,
+  const where = predicates.join(" AND ");
+  const aggregate = `COUNT(*) AS requests,
       COALESCE(SUM(input_tokens), 0) AS inputTokens,
       COALESCE(SUM(output_tokens), 0) AS outputTokens,
       COALESCE(SUM(total_tokens), 0) AS totalTokens,
       COALESCE(SUM(CASE WHEN cost_kind = 'provider_reported' THEN cost_nano_usd ELSE 0 END), 0) AS reportedCostNanoUsd,
       COALESCE(SUM(CASE WHEN cost_kind = 'provider_estimate' THEN cost_nano_usd ELSE 0 END), 0) AS estimatedCostNanoUsd,
-      SUM(CASE WHEN total_tokens IS NULL THEN 1 ELSE 0 END) AS missingTokenRequests,
-      SUM(CASE WHEN cost_nano_usd IS NULL THEN 1 ELSE 0 END) AS missingCostRequests
-    FROM ai_usage_records WHERE ${predicates.join(" AND ")}
+      COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests,
+      COALESCE(SUM(cost_nano_usd IS NULL), 0) AS missingCostRequests`;
+  const state = "json_extract(record_json, '$.status')";
+  const dispatch = "json_extract(record_json, '$.dispatchId')";
+  const staleAfterMs = 60 * 60 * 1000;
+  const modelsStatement = input.db
+    .prepare(`
+    SELECT runtime, provider, model, ${aggregate}
+    FROM ai_usage_records WHERE ${where}
     GROUP BY runtime, provider, model ORDER BY runtime, provider, model
   `)
-    .bind(...values)
-    .all();
+    .bind(...values);
+  const coverageStatement = input.db
+    .prepare(`
+    SELECT COALESCE(SUM(${state} = 'reported'), 0) AS reportedRequests,
+      COALESCE(SUM(${state} = 'pending'), 0) AS pendingRequests,
+      COALESCE(SUM(${state} = 'pending' AND occurred_at_ms < ?), 0) AS stalePendingRequests,
+      COALESCE(SUM(${state} = 'unavailable'), 0) AS unavailableRequests,
+      COALESCE(SUM(${state} = 'collection_failed'), 0) AS collectionFailedRequests,
+      COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests,
+      COALESCE(SUM(cost_nano_usd IS NULL), 0) AS missingCostRequests,
+      COALESCE(SUM(task_id IS NULL), 0) AS unassignedTaskRequests,
+      MIN(CASE WHEN ${state} = 'pending' THEN occurred_at_ms END) AS oldestPendingAtMs
+    FROM ai_usage_records WHERE ${where}
+  `)
+    .bind((input.nowMs ?? Date.now()) - staleAfterMs, ...values);
+  const statements = [modelsStatement, coverageStatement];
+  const groupBy = query.groupBy ?? "model";
+  const sortBy =
+    query.sortBy ?? (query.runtime === "local" ? "tokens" : "cost");
+  const limit = query.limit ?? 20;
+  if (groupBy !== "model") {
+    statements.push(
+      input.db
+        .prepare(
+          buildUsageGroupSql({
+            groupBy,
+            sortBy,
+            aggregate,
+            where,
+            state,
+            dispatch,
+          })
+        )
+        .bind(...values, limit + 1)
+    );
+  }
+  // D1 batch provides one consistent snapshot across totals and ranking.
+  const issuesIndex = statements.length;
+  if (query.includeIssues) {
+    statements.push(
+      input.db
+        .prepare(`
+      SELECT record_json FROM ai_usage_records WHERE ${where}
+        AND (${state} <> 'reported' OR total_tokens IS NULL OR cost_nano_usd IS NULL)
+      ORDER BY occurred_at_ms, event_id LIMIT ?
+    `)
+        .bind(...values, limit + 1)
+    );
+  }
+  const results = await input.db.batch<Record<string, unknown>>(statements);
+  const [models, coverage] = results;
+  if (!(models && coverage?.results[0])) {
+    throw new Error("AI usage query returned an incomplete snapshot.");
+  }
+  const groups = groupBy === "model" ? undefined : results[2];
+  const issues = query.includeIssues ? results[issuesIndex] : undefined;
   return aiUsageQueryResponseSchema.parse({
     fromMs: query.fromMs,
     toMs: query.toMs,
-    models: result.results,
+    models: models.results,
+    ...(issues
+      ? {
+          issues: {
+            records: issues.results
+              .slice(0, limit)
+              .map((row) => JSON.parse(String(row.record_json))),
+            hasMore: issues.results.length > limit,
+          },
+        }
+      : {}),
+    coverage: {
+      ...coverage.results[0],
+      scope: "observed_requests",
+      staleAfterMs,
+    },
+    ...(groups
+      ? {
+          breakdown: {
+            groupBy,
+            sortBy,
+            limit,
+            hasMore: groups.results.length > limit,
+            groups: groups.results.slice(0, limit).map(projectUsageGroup),
+          },
+        }
+      : {}),
   });
+}
+
+function buildUsageGroupSql(input: {
+  groupBy: "task" | "agent";
+  sortBy: "cost" | "tokens";
+  aggregate: string;
+  where: string;
+  state: string;
+  dispatch: string;
+}) {
+  const { aggregate, where, state, dispatch, sortBy } = input;
+  const task = input.groupBy === "task";
+  return `
+      SELECT runtime, ${task ? "task_id" : "NULL"} AS taskId,
+        agent_profile_id AS agentProfileId, ${task ? "space_id" : "NULL"} AS spaceId,
+        ${aggregate},
+        SUM(${state} = 'pending') AS pendingRequests,
+        SUM(${state} = 'collection_failed') AS collectionFailedRequests,
+        SUM(${state} = 'unavailable') AS unavailableRequests,
+        COUNT(DISTINCT attempt_id) AS observedExecutionAttempts,
+        ${task ? "MAX(0, COUNT(DISTINCT attempt_id) - 1)" : "NULL"} AS observedExecutionRetries,
+        SUM(attempt_id IS NULL) AS requestsWithoutAttemptId,
+        MIN(occurred_at_ms) AS firstObservedAtMs,
+        MAX(occurred_at_ms) AS lastObservedAtMs,
+        json_group_array(DISTINCT model) AS modelsJson,
+        json_group_array(DISTINCT purpose) AS purposesJson,
+        ${task ? `json_group_array(DISTINCT ${dispatch})` : "'[]'"} AS dispatchIdsJson
+      FROM ai_usage_records WHERE ${where}
+        AND ${task ? `(task_id IS NOT NULL OR ${dispatch} IS NOT NULL)` : "agent_profile_id IS NOT NULL"}
+      GROUP BY runtime, agent_profile_id${task ? `, space_id, COALESCE(task_id, ${dispatch})` : ""}
+      ORDER BY ${sortBy === "tokens" ? "totalTokens" : "reportedCostNanoUsd"} DESC,
+        runtime, agentProfileId, spaceId, taskId, firstObservedAtMs
+      LIMIT ?
+    `;
+}
+
+function projectUsageGroup(row: Record<string, unknown>) {
+  const { modelsJson, purposesJson, dispatchIdsJson, ...summary } = row;
+  const dispatchIds = (JSON.parse(String(dispatchIdsJson)) as (string | null)[])
+    .filter((id): id is string => id !== null)
+    .sort();
+  return {
+    ...summary,
+    models: JSON.parse(String(modelsJson)),
+    purposes: JSON.parse(String(purposesJson)),
+    dispatchIds: dispatchIds.slice(0, 20),
+    dispatchIdsTruncated: dispatchIds.length > 20,
+  };
 }

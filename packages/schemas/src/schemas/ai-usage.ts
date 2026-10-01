@@ -82,6 +82,10 @@ export const aiUsageQuerySchema = z
     taskId: identifier.optional(),
     dispatchId: identifier.optional(),
     computerId: identifier.optional(),
+    groupBy: z.enum(["model", "task", "agent"]).optional(),
+    sortBy: z.enum(["cost", "tokens"]).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+    includeIssues: z.boolean().optional(),
   })
   .refine(
     (value) =>
@@ -105,10 +109,80 @@ export const aiUsageSummarySchema = z.strictObject({
   missingCostRequests: count,
 });
 
+const aiUsageCoverageSchema = z.strictObject({
+  scope: z.literal("observed_requests"),
+  reportedRequests: count,
+  pendingRequests: count,
+  stalePendingRequests: count,
+  unavailableRequests: count,
+  collectionFailedRequests: count,
+  missingTokenRequests: count,
+  missingCostRequests: count,
+  unassignedTaskRequests: count,
+  oldestPendingAtMs: count.nullable(),
+  staleAfterMs: count,
+});
+
+const aiUsageGroupSchema = z.strictObject({
+  runtime: z.enum(["local", "remote"]),
+  taskId: identifier.nullable(),
+  agentProfileId: identifier.nullable(),
+  spaceId: identifier.nullable(),
+  requests: count,
+  inputTokens: count,
+  outputTokens: count,
+  totalTokens: count,
+  reportedCostNanoUsd: count,
+  estimatedCostNanoUsd: count,
+  missingTokenRequests: count,
+  missingCostRequests: count,
+  pendingRequests: count,
+  collectionFailedRequests: count,
+  unavailableRequests: count,
+  observedExecutionAttempts: count,
+  // Counts distinct execution attempts, never inferred provider retries.
+  observedExecutionRetries: count.nullable(),
+  requestsWithoutAttemptId: count,
+  firstObservedAtMs: count,
+  lastObservedAtMs: count,
+  models: z.array(identifier.nullable()),
+  purposes: z.array(aiUsageRecordSchema.shape.purpose),
+  dispatchIds: z.array(identifier),
+  dispatchIdsTruncated: z.boolean(),
+  executionDetailsTruncated: z.boolean().optional(),
+  executions: z
+    .array(
+      z.strictObject({
+        dispatchId: identifier,
+        source: z.enum(["runtime_coordinator", "native_delivery"]),
+        status: identifier.nullable(),
+        outcome: identifier.nullable(),
+        updatedAtMs: count.nullable(),
+      })
+    )
+    .optional(),
+});
+
 export const aiUsageQueryResponseSchema = z.strictObject({
   fromMs: count,
   toMs: count,
   models: z.array(aiUsageSummarySchema),
+  coverage: aiUsageCoverageSchema.optional(),
+  issues: z
+    .strictObject({
+      records: z.array(aiUsageRecordSchema),
+      hasMore: z.boolean(),
+    })
+    .optional(),
+  breakdown: z
+    .strictObject({
+      groupBy: z.enum(["task", "agent"]),
+      sortBy: z.enum(["cost", "tokens"]),
+      limit: count,
+      hasMore: z.boolean(),
+      groups: z.array(aiUsageGroupSchema),
+    })
+    .optional(),
 });
 
 export const organizationAiUsageRpcInputSchema = z.strictObject({
