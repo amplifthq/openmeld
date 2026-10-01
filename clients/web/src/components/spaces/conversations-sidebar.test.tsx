@@ -1,6 +1,7 @@
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -102,6 +103,7 @@ afterEach(() => {
 	localStorage.clear();
 	sidebarState.accountIndexPending = false;
 	navigate.mockClear();
+	vi.useRealTimers();
 });
 function mount() {
 	return render(
@@ -120,6 +122,38 @@ async function selectView(name: "Grouped" | "Recent") {
 	);
 	fireEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
+
+it("refreshes row timestamps across midnight and when the window regains focus", () => {
+	vi.useFakeTimers();
+	const messageDate = new Date(100);
+	vi.setSystemTime(
+		new Date(
+			messageDate.getFullYear(),
+			messageDate.getMonth(),
+			messageDate.getDate(),
+			23,
+			59,
+			30
+		)
+	);
+	mount();
+	const link = screen.getByRole("link", { name: "Release planning" });
+	const time = link.parentElement?.querySelector("time");
+	expect(time?.getAttribute("datetime")).toBe(messageDate.toISOString());
+	expect(time?.classList.contains("hidden")).toBe(false);
+	act(() => vi.advanceTimersByTime(60_000));
+	expect(time?.textContent).toBe("Yesterday");
+	expect(time?.classList.contains("hidden")).toBe(true);
+	vi.setSystemTime(
+		new Date(
+			messageDate.getFullYear(),
+			messageDate.getMonth(),
+			messageDate.getDate() + 2
+		)
+	);
+	fireEvent.focus(window);
+	expect(time?.textContent).toBe("2 days ago");
+});
 
 it("shows Spaces and Direct messages together and keeps the current draft when switching", async () => {
 	mount();
