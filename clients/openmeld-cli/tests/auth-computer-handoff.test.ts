@@ -15,9 +15,29 @@ import { withTempHome } from "./helpers/fs";
 describe("computer authorization handoff", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
-  it("validates an independent computer session without replacing the current local account", async () => {
+  it.each([
+    { preset: "prod", clientId: undefined, expectedClientId: "openmeld-cli" },
+    {
+      preset: "dev-local",
+      clientId: undefined,
+      expectedClientId: "openmeld-cli-dev",
+    },
+    { preset: "canary", clientId: undefined, expectedClientId: "openmeld-cli" },
+    {
+      preset: "dev-local",
+      clientId: "custom-client",
+      expectedClientId: "custom-client",
+    },
+  ])("exchanges the $preset computer grant with $expectedClientId without replacing the current local account", async ({
+    preset,
+    clientId,
+    expectedClientId,
+  }) => {
+    vi.stubEnv("OPENMELD_ENV_PRESET", preset);
+    vi.stubEnv("OPENMELD_AUTH_CLIENT_ID", undefined);
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
       const request = `${init?.method ?? "GET"} ${String(input)}`;
       switch (request) {
@@ -58,7 +78,7 @@ describe("computer authorization handoff", () => {
         await expect(
           exchangeComputerAuthorizationGrant({
             authBaseUrl: "https://auth.openmeld.invalid",
-            clientId: "openmeld-cli",
+            clientId,
             deviceCode: "approved-device-code",
           })
         ).resolves.toMatchObject({
@@ -88,7 +108,7 @@ describe("computer authorization handoff", () => {
         body: JSON.stringify({
           grant_type: "urn:ietf:params:oauth:grant-type:device_code",
           device_code: "approved-device-code",
-          client_id: "openmeld-cli",
+          client_id: expectedClientId,
         }),
         method: "POST",
       })

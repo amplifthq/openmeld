@@ -7,8 +7,8 @@ import {
   betterAuthDeviceAuthorizationTokenResponseSchema,
   betterAuthSessionSnapshotResponseSchema,
 } from "@openmeld/schemas";
+import { resolveOpenMeldEnvPreset } from "../config/paths";
 
-const DEFAULT_DEVICE_CLIENT_ID = "openmeld-cli";
 const DEVICE_CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/;
 
 export type DeviceTokenSuccessResponse =
@@ -224,7 +224,9 @@ export function resolveDeviceAuthClientId(value: string | undefined): string {
   const clientId =
     normalizeOptionalString(value) ??
     normalizeOptionalString(process.env.OPENMELD_AUTH_CLIENT_ID) ??
-    DEFAULT_DEVICE_CLIENT_ID;
+    (resolveOpenMeldEnvPreset() === "dev-local"
+      ? "openmeld-cli-dev"
+      : "openmeld-cli");
   if (!DEVICE_CLIENT_ID_PATTERN.test(clientId)) {
     throw new Error(
       `invalid client_id "${clientId}" (allowed: letters, numbers, . _ : -)`
