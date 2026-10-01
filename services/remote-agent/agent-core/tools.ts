@@ -295,6 +295,7 @@ import {
   parseSlackThreadPublicationTargetKey,
 } from "./slack-thread-publication-evidence";
 import {
+  buildOrganizationDocumentReadContext,
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
   resolveVerifiedTurnEnvelopeProfileId,
@@ -2774,13 +2775,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         if (request.action === "list" && request.documentId) {
           throw new TypeError("Listing documents cannot include documentId.");
         }
-        const toolContext = await buildOrganizationMemberToolContext({
-          missingSpeakerMessage:
-            "Organization document reads require a current Organization member.",
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_read_org_documents",
-        });
+        const toolContext = buildOrganizationDocumentReadContext(
+          await buildOpenMeldToolContext({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_read_org_documents",
+          })
+        );
         const rpcInput =
           request.action === "list"
             ? { action: "list" as const, ...toolContext }

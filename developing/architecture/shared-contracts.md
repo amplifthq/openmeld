@@ -4598,9 +4598,11 @@ Automatic completed-turn writes also consume the frozen Core-owned
 `interactionEnvironment` from the stored native-delivery request. Before
 writing, Core verifies that the stored Organization, conversation, and sender
 still align with the delivery and the owning current-membership projection.
-`requester_private` writes the verified member subject,
-`organization_shared` may write the enabled Organization subject, and
-`externally_shared` writes neither automatically. Source values such as
+`requester_private` writes the verified member subject. Both
+`organization_shared` and `externally_shared` write neither scope automatically;
+shared turns never fall back to personal capture. Explicit authorized team saves
+remain a separate path controlled by the existing Organization memory setting.
+Source values such as
 `slack_conversation` and `message_channel_conversation` remain provenance and
 must not choose the memory subject. Missing or conflicting frozen scope fails
 closed.
@@ -4664,9 +4666,9 @@ Runtime Transport epoch because unsupported peers lose only the optional
 Organization hints, not Wake execution.
 
 Remote Agent fetches the current policy for every model turn. Organization
-Brief and title projections may use their existing bounded cache as an
-availability fallback, but a failed current read must never reuse a cached
-policy. Workstation policy reads are also optional to delivery: a read failure
+Brief, title, and policy reads do not reuse cached content after a current read
+fails. Unavailable context is omitted and reported honestly. Workstation policy
+reads are also optional to delivery: a read failure
 or missing Space Organization projection is observable and omits the custom
 hints while preserving built-in guidance.
 
@@ -4829,6 +4831,13 @@ human HTTP/Core RPC CRUD and draft-review payloads, the Center Agent catalog,
 read, draft, and management payloads, and the bounded prompt-context projection.
 Gateway, Core, API client, Web, and Remote Agent must derive their types from
 these schemas and must not maintain parallel document shapes.
+
+The existing read RPC permits an omitted `speakerMember` for personal Remote
+Agents only. Core verifies the receiving Agent against its active native
+delivery and ordinary owned-Profile/member read contract, plus the stored task
+audience. Center callers still require the verified speaker. This read-only
+path returns approved content without draft, protected-prompt, or management
+authority. Roll out Core before Remote callers that omit the speaker.
 
 The Center Agent draft input is strict and contains `draftContent`, never
 `content`. It targets either an existing document id or a new document identity

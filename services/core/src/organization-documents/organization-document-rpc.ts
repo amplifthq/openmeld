@@ -1,4 +1,8 @@
 import {
+  canMaterializeCenterAgentOrganizationDocuments,
+  resolveCenterAgentContextScopePlan,
+} from "@openmeld/agent-runtime";
+import {
   approveOrganizationDocumentDraftResponseSchema,
   approveOrganizationDocumentDraftRpcInputSchema,
   CENTER_AGENT_PROFILE_REPORT_COMPUTER_ROOT,
@@ -20,6 +24,7 @@ import {
   discardOrganizationDocumentDraftRpcInputSchema,
   getOrganizationDocumentResponseSchema,
   getOrganizationDocumentRpcInputSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   listOrganizationDocumentsResponseSchema,
   listOrganizationDocumentsRpcInputSchema,
   organizationDocumentPromptContextResponseSchema,
@@ -88,6 +93,7 @@ import {
   prepareRequirePreviousStatementChangedOneRow,
 } from "../organizations/organization-working-language-repository";
 import { prepareRemoteAgentMemberRequest } from "../remote-agent/application/remote-agent-member-request";
+import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   createOrganizationDocumentService,
@@ -325,10 +331,9 @@ export async function rpcCenterAgentReadOrganizationDocuments(
     centerAgentReadOrganizationDocumentsRpcInputSchema,
     input
   );
-  const { authorization, member } = await prepareRemoteAgentMemberRequest(
+  const { authorization, member } = await prepareDocumentReadRequest(
     env,
-    request.context,
-    request.speakerMember
+    request
   );
   const service = createOrganizationDocumentService({
     db: requireStore(env),
@@ -390,6 +395,59 @@ export async function rpcCenterAgentReadOrganizationDocuments(
     },
     organizationId: actor.organizationId,
   });
+}
+
+async function prepareDocumentReadRequest(
+  env: CoreBindings,
+  request: CenterAgentReadOrganizationDocumentsRpcInput
+) {
+  if (
+    request.context.actorContext.agentControllerRef !==
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
+    if (!request.speakerMember) {
+      throw createCoreRpcHttpError({
+        code: "organization_document.member_required",
+        reason: "Center document reads require a verified Organization member.",
+        status: 403,
+      });
+    }
+    return await prepareRemoteAgentMemberRequest(
+      env,
+      request.context,
+      request.speakerMember
+    );
+  }
+  const authorization = await requireRemoteAgentToolCaller({
+    env,
+    context: request.context,
+  });
+  if (!("personalExecution" in authorization)) {
+    throw new Error("Expected an admitted personal Remote Agent execution.");
+  }
+  const { request: admitted, delivery } = authorization.personalExecution;
+  if (
+    !canMaterializeCenterAgentOrganizationDocuments(
+      resolveCenterAgentContextScopePlan(admitted.turnEnvelope)
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "organization_document.audience_not_allowed",
+      reason: "Organization documents are unavailable to this task's audience.",
+      status: 403,
+    });
+  }
+  // Read as the receiving owned Agent, never as the sender or as Center.
+  const { actor } = await prepareHumanRequest(env, authorization.context, true);
+  return {
+    authorization,
+    member: {
+      role: actor.role,
+      userId: actor.userId,
+      profileId: authorization.actorProfileId,
+      sourceNativeDeliveryId: delivery.deliveryId,
+    },
+  };
 }
 
 export async function rpcCenterAgentOrganizationDocumentsComputerSnapshot(

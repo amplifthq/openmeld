@@ -2426,8 +2426,12 @@ directory of approved non-empty documents with IDs and `updatedAt` versions.
 Bodies remain on demand. An owned active Local Agent reads through the ordinary
 member API in the Space's Organization; the Agent projection contains no draft
 body or edit/manage permissions. The personal Remote Agent uses the existing
-verified-requester read RPC. Its Center-only protected prompt and Computer
-projection remain disabled: ordinary document access does not confer Center
+read RPC as the receiving Agent, including Wakes sent by another Agent. Core
+verifies the active delivery, current owned Profile and membership, and frozen
+task audience; it does not borrow the sender's human or writing authority.
+Center requests still require the existing verified speaker. The personal
+Remote Agent's Center-only protected prompt and Computer projection remain
+disabled: ordinary document access does not confer Center
 identity, protected information, or a writable document checkout.
 
 The display uses a 6,000-character starting budget, counts only authorized

@@ -46,6 +46,7 @@ import {
   submitRemoteAgentConversationTurn,
 } from "../../agent-core/submission";
 import {
+  buildOrganizationDocumentReadContext,
   buildRemoteAgentCoreContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
 } from "../../agent-core/tool-context";
@@ -157,16 +158,18 @@ async function prepareCenterAgentRender() {
   );
   // Use the ordinary member read, never the Center-only protected prompt RPC.
   const taskDocuments =
-    executionContext && speakerMember && includeTaskDocuments
+    executionContext && (personalAgent || speakerMember) && includeTaskDocuments
       ? await callCoreRpc(
           coreWorker,
           "centerAgentReadOrganizationDocuments",
           {
-            context: buildRemoteAgentCoreContext(
-              executionContext,
-              `task-documents:${executionContext.submissionId}`
-            ),
-            speakerMember,
+            ...buildOrganizationDocumentReadContext({
+              context: buildRemoteAgentCoreContext(
+                executionContext,
+                `task-documents:${executionContext.submissionId}`
+              ),
+              turnEnvelope: turnEnvelope ?? undefined,
+            }),
             action: "list" as const,
           },
           (binding, request) =>

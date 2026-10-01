@@ -1,10 +1,13 @@
 import { env } from "cloudflare:test";
 import {
+  buildPersonalRemoteAgentConversationId,
   centerAgentDraftOrganizationDocumentRpcInputSchema,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import {
   prepareCenterAgentOrganizationMemberRequest,
   rpcCenterAgentAuthorizeAnonymousMemberTool,
@@ -31,6 +34,10 @@ import {
   createOrganizationDocumentService,
   type OrganizationDocumentActor,
 } from "../src/organization-documents/organization-document-service";
+import {
+  createPersonalRemoteAgentBinding,
+  requirePersonalRemoteAgentBinding,
+} from "../src/remote-agent/application/personal-remote-agent-binding";
 // biome-ignore lint/performance/noNamespaceImport: Needed to pause the authorization read at the exact replay race boundary.
 import * as nativeDeliveryLedgerRepo from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
@@ -41,9 +48,11 @@ import {
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
+  rpcAddSpaceMembers,
   rpcCenterAgentGetOrganizationDirectory,
   rpcCenterAgentListComputers,
   rpcCenterAgentReadMemberComputers,
+  rpcCreateSpace,
   rpcListCenterAgentAuditJournal,
 } from "../src/rpc/methods";
 
@@ -118,6 +127,52 @@ describe("Organization documents", () => {
       canManage: false,
       canEditContent: false,
     });
+    const remoteContext = await seedPersonalDocumentReader(fixture, profileId);
+    const remoteList = await rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+      context: remoteContext,
+      action: "list",
+    });
+    expect(remoteList).toMatchObject({
+      action: "list",
+      documents: [expect.objectContaining({ id: approved.id })],
+    });
+    const remoteRead = await rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+      context: remoteContext,
+      action: "get",
+      documentId: approved.id,
+    });
+    expect(remoteRead).toMatchObject({
+      action: "get",
+      document: { content: "Use release B." },
+    });
+    expect(JSON.stringify(remoteRead)).not.toContain("Unadopted release C.");
+    const externalContext = await seedPersonalDocumentReader(
+      fixture,
+      profileId,
+      true
+    );
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: externalContext,
+        action: "list",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "organization_document.audience_not_allowed",
+    });
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: {
+          ...remoteContext,
+          actorContext: {
+            ...remoteContext.actorContext,
+            ownerUserId: fixture.member.userId,
+          },
+        },
+        action: "get",
+        documentId: approved.id,
+      })
+    ).rejects.toMatchObject({ status: 403 });
     await expect(
       rpcCreateOrganizationDocument(coreEnv, {
         context,
@@ -135,6 +190,13 @@ describe("Organization documents", () => {
     await expect(
       rpcGetOrganizationDocument(coreEnv, { context, documentId: approved.id })
     ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      rpcCenterAgentReadOrganizationDocuments(coreEnv, {
+        context: remoteContext,
+        action: "get",
+        documentId: approved.id,
+      })
+    ).rejects.toThrow("remote_agent.personal_profile_unavailable");
   });
   it("projects a maximum-length document title within the Inbox title contract", async () => {
     const fixture = await seedFixture();
@@ -2897,6 +2959,169 @@ async function seedFixture(): Promise<{
     owner: { organizationId, role: "owner", userId: users[0].id },
     ownerHumanProfileId,
     ownerMemberId: `membership_0_${suffix}`,
+  };
+}
+
+async function seedPersonalDocumentReader(
+  fixture: Awaited<ReturnType<typeof seedFixture>>,
+  profileId: string,
+  externalRequester = false
+) {
+  const coreEnv = env as unknown as CoreBindings;
+  const humanContext = humanRequestContext(
+    fixture.organizationId,
+    fixture.ownerHumanProfileId,
+    fixture.owner.userId
+  );
+  const senderId = `agt_${crypto.randomUUID()}`;
+  await env.OPENMELD_DB.prepare(`INSERT INTO openmeld_profiles
+    (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)
+    VALUES (?, 'Delegating Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 1000, 1000)`)
+    .bind(
+      senderId,
+      senderId,
+      fixture.organizationId,
+      fixture.owner.userId,
+      fixture.owner.userId
+    )
+    .run();
+  await createPersonalRemoteAgentBinding({
+    db: env.OPENMELD_DB,
+    agentProfileId: profileId,
+    organizationId: fixture.organizationId,
+    ownerUserId: fixture.owner.userId,
+    createdByProfileId: fixture.ownerHumanProfileId,
+    modelId: null,
+    reasoningLevel: null,
+  });
+  const binding = await requirePersonalRemoteAgentBinding({
+    db: env.OPENMELD_DB,
+    agentProfileId: profileId,
+    organizationId: fixture.organizationId,
+    ownerUserId: fixture.owner.userId,
+  });
+  const { spaceId } = await rpcCreateSpace(coreEnv, {
+    context: humanContext,
+    name: "Delegated document test",
+    visibility: "private",
+  });
+  await rpcAddSpaceMembers(coreEnv, {
+    context: humanContext,
+    spaceId,
+    members: [profileId, senderId].map((id) => ({
+      profileId: id,
+      profileKind: "agent" as const,
+      profileName: "Test Agent",
+      ownerUserId: fixture.owner.userId,
+      ownerName: "Olivia Owner",
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+    })),
+  });
+  const idempotencyKey = crypto.randomUUID();
+  const submissionId = crypto.randomUUID();
+  const base = createSubmitTurnRequestV2();
+  const conversationId = buildPersonalRemoteAgentConversationId({
+    organizationId: fixture.organizationId,
+    agentProfileId: profileId,
+    spaceId,
+  });
+  const workerSubmitRequest = remoteAgentWorkerSubmitTurnRequestSchema.parse({
+    ...base,
+    v: 4,
+    agentProfileId: profileId,
+    agentProfileOwnerUserId: fixture.owner.userId,
+    organizationId: fixture.organizationId,
+    spaceId,
+    bindingId: binding.bindingId,
+    dispatchId: idempotencyKey,
+    idempotencyKey,
+    conversationId,
+    runtimeConversation: { generation: 0, id: conversationId },
+    conversationIdentity: { kind: "personal_agent", agentProfileId: profileId },
+    author: {
+      profileId: senderId,
+      profileKind: "agent",
+      displayName: "Delegating Agent",
+    },
+    spaceDispatchContext: {
+      dispatchChainId: idempotencyKey,
+      autoRelayDepth: 0,
+      visitedProfileIds: [],
+      visitedProfileIdsHash: "fixture",
+    },
+    turnEnvelope: {
+      ...base.turnEnvelope,
+      organization: {
+        ...base.turnEnvelope.organization,
+        id: fixture.organizationId,
+      },
+      sender: {
+        kind: "agent_profile",
+        id: senderId,
+        profileId: senderId,
+        displayName: "Delegating Agent",
+        ownerUserId: fixture.owner.userId,
+        verified: true,
+        ...(externalRequester
+          ? {
+              callerContext: {
+                relationship: "external",
+                spaceRole: "member",
+                audience: "external",
+              },
+            }
+          : {}),
+      },
+      space: {
+        id: spaceId,
+        name: "Delegated document test",
+        kind: "space",
+        isCenterAgentDm: false,
+      },
+      trigger: { source: "space_wake" },
+      interactionEnvironment: "organization_shared",
+    },
+  });
+  await upsertRemoteAgentNativeDeliveryRecord({
+    db: env.OPENMELD_DB,
+    attemptId: null,
+    bindingId: binding.bindingId,
+    dispatchId: idempotencyKey,
+    idempotencyKey,
+    nowMs: 2000,
+    onBehalfOfDisplayName: null,
+    onBehalfOfProfileId: null,
+    onBehalfOfUserId: null,
+    organizationId: fixture.organizationId,
+    profileId,
+    spaceId,
+    status: "submitted",
+    triggerMessageId: idempotencyKey,
+  });
+  await persistRemoteAgentWorkerSubmitRequest({
+    db: env.OPENMELD_DB,
+    idempotencyKey,
+    nowMs: 2001,
+    workerSubmitRequest,
+  });
+  await markRemoteAgentNativeDeliveryAck({
+    db: env.OPENMELD_DB,
+    idempotencyKey,
+    nowMs: 2002,
+    submissionId,
+    accepted: true,
+  });
+  return {
+    activeOrganizationId: fixture.organizationId,
+    agentControllerConversationId: submissionId,
+    actorContext: {
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      callerPrincipalId: fixture.owner.userId,
+      ownerUserId: fixture.owner.userId,
+      profileKind: "agent" as const,
+      openMeldProfileId: profileId,
+      requestId: "delegated-doc-test",
+    },
   };
 }
 
