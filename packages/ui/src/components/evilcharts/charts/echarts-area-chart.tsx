@@ -259,6 +259,7 @@ const YAxis: FC<YAxisProps> = () => null;
 const Grid: FC = () => null;
 
 export interface TooltipProps {
+  valueFormatter?: (value: number | string) => string;
   variant?: TooltipVariant; // visual style of the tooltip surface
   roundness?: TooltipRoundness; // border-radius of the tooltip
   cursor?: boolean; // whether the vertical cursor line follows the pointer
@@ -313,6 +314,7 @@ type YAxisSlot = {
   hideDots: boolean;
 };
 type TooltipSlot = {
+  valueFormatter?: TooltipProps["valueFormatter"];
   present: boolean;
   variant: TooltipVariant;
   roundness: TooltipRoundness;
@@ -417,6 +419,7 @@ function collectConfig(children: ReactNode): CollectedConfig {
       const props = child.props as TooltipProps;
       tooltip = {
         present: true,
+        valueFormatter: props.valueFormatter,
         variant: props.variant ?? "default",
         roundness: props.roundness ?? "lg",
         cursor: props.cursor ?? true,
@@ -994,8 +997,9 @@ function createTooltipFormatter(ctx: OptionBuildContext) {
           (hovered != null && hovered !== key)
             ? " opacity-30"
             : "";
-        const value =
-          typeof p.value === "number"
+        const value = tooltipSlot.valueFormatter
+          ? tooltipSlot.valueFormatter(p.value)
+          : typeof p.value === "number"
             ? p.value.toLocaleString()
             : String(p.value ?? "");
 

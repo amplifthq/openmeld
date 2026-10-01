@@ -52,7 +52,7 @@ export function ComputerTokenUsage(input: {
 		return null;
 	}
 	return (
-		<ComputerTokenUsageCard
+		<LocalAgentTokenUsageCard
 			computerId={input.computerId}
 			key={`${input.organizationId}/${input.computerId}`}
 			organizationId={input.organizationId}
@@ -60,9 +60,9 @@ export function ComputerTokenUsage(input: {
 	);
 }
 
-function ComputerTokenUsageCard(input: {
+export function LocalAgentTokenUsageCard(input: {
 	organizationId: string;
-	computerId: string;
+	computerId?: string;
 }) {
 	const [days, setDays] = useState(7);
 	const period = organizationUsageCalendarPeriod(days);
@@ -103,7 +103,7 @@ function ComputerTokenUsageCard(input: {
 		(query.isSuccess &&
 			(!series || series.some((bucket) => !bucket.controllers)));
 	return (
-		<Card aria-label="Computer token usage">
+		<Card aria-label="Local Agent token usage">
 			<CardHeader>
 				<CardTitle>Local Agent token usage</CardTitle>
 				<CardDescription>Last {days} days</CardDescription>

@@ -20,6 +20,7 @@ export function buildSettingsRoutes(orgSlug: string) {
 		"center-agent": buildOrganizationCenterAgentSettingsPath(orgSlug),
 		connectedApps: buildOrganizationConnectedPluginsSettingsPath(orgSlug),
 		general: buildOrganizationOrgSettingsPath(orgSlug),
+		usage: `${buildOrganizationSettingsRootPath(orgSlug)}/usage`,
 		members: `${buildOrganizationSettingsRootPath(orgSlug)}/members`,
 		invitations: `${buildOrganizationSettingsRootPath(orgSlug)}/invitations`,
 		security: `${buildOrganizationSettingsRootPath(orgSlug)}/security`,

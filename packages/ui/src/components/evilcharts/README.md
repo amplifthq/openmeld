@@ -29,6 +29,8 @@ Local adaptations to preserve when updating registry source:
 - Strict indexed-access typing and bounded color interpolation.
 - Null input values remain chart gaps rather than becoming fabricated zeros.
 - Tooltip labels/values are escaped before entering ECharts HTML.
+- Optional tooltip `valueFormatter` supports currency and other units without
+  moving product formatting into the chart primitive; its result is escaped too.
 - Configured tooltip icons reuse markup rendered by React in the chart root;
   no API-provided HTML or additional React roots are introduced.
 - Reduced motion stops loading and dashed-stroke loops, and the loading spinner.

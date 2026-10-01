@@ -173,6 +173,7 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"center-agent",
+			"usage",
 			"general",
 			"members",
 			"invitations",
@@ -192,6 +193,7 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"center-agent",
+			"usage",
 			"general",
 			"members",
 			"invitations",
@@ -203,6 +205,7 @@ describe("Web Settings capability gating", () => {
 			testSettingsRoutes.notifications,
 			testSettingsRoutes.privacy,
 			testSettingsRoutes["center-agent"],
+			testSettingsRoutes.usage,
 			testSettingsRoutes.general,
 			testSettingsRoutes.members,
 			testSettingsRoutes.invitations,
@@ -222,6 +225,7 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"center-agent",
+			"usage",
 			"general",
 			"members",
 			"invitations",
@@ -363,6 +367,7 @@ describe("Settings grouped navigation", () => {
 		).toEqual([
 			"General",
 			"Center Agent",
+			"Usage",
 			"Members",
 			"Invitations",
 			"Security",
@@ -482,12 +487,13 @@ describe("Settings grouped navigation", () => {
 			"Center Agent",
 			"Send feedback",
 		]);
-		expect(personalItems.organization).toEqual(["General"]);
+		expect(personalItems.organization).toEqual(["General", "Usage"]);
 		expect(organizationItems).toEqual({
 			badges: [],
 			organization: [
 				"General",
 				"Center Agent",
+				"Usage",
 				"Members",
 				"Invitations",
 				"Security",
@@ -504,7 +510,7 @@ describe("Settings grouped navigation", () => {
 		});
 		expect(personalItems).toEqual({
 			badges: [],
-			organization: ["General"],
+			organization: ["General", "Usage"],
 			organizationLabel: "Felix",
 			personal: [
 				"Account",

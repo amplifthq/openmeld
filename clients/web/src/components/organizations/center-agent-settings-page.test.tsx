@@ -198,7 +198,7 @@ describe("CenterAgentSettingsContent", () => {
 		).toBeTruthy();
 		expect(screen.getByText("How this Agent works")).toBeTruthy();
 		expect(screen.getByText("Identity")).toBeTruthy();
-		expect(screen.getByRole("heading", { name: "Usage" })).toBeTruthy();
+		expect(screen.queryByRole("heading", { name: "Usage" })).toBeNull();
 		expect(screen.getByText("Organization memory")).toBeTruthy();
 		expect(screen.getByText("Remember shared conversations")).toBeTruthy();
 		expect(
@@ -214,7 +214,7 @@ describe("CenterAgentSettingsContent", () => {
 			screen.queryByRole("combobox", { name: "Primary model" })
 		).toBeNull();
 		expect(screen.queryByRole("combobox", { name: "Provider" })).toBeNull();
-		expect(screen.getByText("$0.12")).toBeTruthy();
+		expect(screen.queryByText("$0.12")).toBeNull();
 		const audit = screen.getByRole("button", { name: AUDIT_LOG_BUTTON_NAME });
 		expect(audit.getAttribute("aria-expanded")).toBe("false");
 		expect(listCurrentCenterAgentAuditJournalMock).not.toHaveBeenCalled();
@@ -556,7 +556,7 @@ describe("CenterAgentSettingsContent", () => {
 		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
 	});
 
-	it("explains personal Center Agent settings and usage without Organization copy", async () => {
+	it("explains personal Center Agent settings without Organization copy or a duplicate Usage section", async () => {
 		renderSettings({ canManage: true, isPersonalWorkspace: true });
 
 		expect(await screen.findByText("Personal workspace")).toBeTruthy();
@@ -568,19 +568,9 @@ describe("CenterAgentSettingsContent", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Manage your coordinator’s identity and connection, review its usage, and see the actions it has taken."
+				"Manage your coordinator’s identity and connection, and see the actions it has taken."
 			)
 		).toBeTruthy();
-		expect(
-			await screen.findByText(
-				"See today's AI model costs and current Routine limits."
-			)
-		).toBeTruthy();
-		expect(
-			screen.queryByText(
-				"See today's shared AI model costs and current Routine limits."
-			)
-		).toBeNull();
 		expect(
 			screen.queryByRole("heading", { name: "Organization memory" })
 		).toBeNull();

@@ -24,7 +24,7 @@ import { CenterTruncatedText } from "./center-truncated-text";
 
 export type AppContextualNavItem<ItemId extends string = string> = {
 	id: ItemId;
-	icon: Icon;
+	icon?: Icon;
 	label: string;
 	accessory?: ReactNode;
 	/** Include accessory meaning when the visible label alone is insufficient. */
@@ -193,7 +193,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 				resolveContextualNavStatusClassName(input.item.statusTone)
 			)}
 		>
-			<Icon className="size-4 shrink-0" />
+			{Icon ? <Icon className="size-4 shrink-0" /> : null}
 			<CenterTruncatedText className="flex-1" text={input.item.label} />
 			{input.item.accessory}
 		</span>

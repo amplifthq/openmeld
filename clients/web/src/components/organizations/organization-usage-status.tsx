@@ -44,10 +44,7 @@ function getServerEnvironmentSnapshot(): false {
 	return false;
 }
 
-export function CenterAgentUsageSection(input: {
-	isPersonalWorkspace: boolean;
-	organizationId: string;
-}) {
+export function OrganizationUsageStatus(input: { organizationId: string }) {
 	const usageQuery = useQuery(
 		organizationUsageOverviewQueryOptions({
 			organizationId: input.organizationId,
@@ -57,28 +54,22 @@ export function CenterAgentUsageSection(input: {
 	return (
 		<section className="space-y-3">
 			<div>
-				<h2 className="font-medium text-foreground text-sm">Usage</h2>
-				<p className="mt-1 text-muted-foreground text-sm">
-					{input.isPersonalWorkspace
-						? "See today's AI model costs and current Routine limits."
-						: "See today's shared AI model costs and current Routine limits."}
-				</p>
-			</div>
-			<div>
 				{usageQuery.isPending ? <UsageLoadingState /> : null}
 				{usageQuery.isError ? (
 					<UsageErrorState
 						isRetrying={usageQuery.isRefetching}
 						onRetry={() => {
 							usageQuery.refetch().catch((error) => {
-								console.error("Failed to refresh Center Agent usage.", error);
+								console.error("Failed to refresh organization usage.", error);
 							});
 						}}
 					/>
 				) : null}
 				{usageQuery.data ? (
 					<AgentConfigurationGrid>
-						<AiSpendCard data={usageQuery.data.aiSpend} />
+						{usageQuery.data.aiSpend.dailyLimitNanoUsd !== null ? (
+							<AiSpendCard data={usageQuery.data.aiSpend} />
+						) : null}
 						<RoutinesUsageCard data={usageQuery.data.routines} />
 					</AgentConfigurationGrid>
 				) : null}
@@ -109,7 +100,7 @@ function AiSpendCard(input: {
 				</Badge>
 			}
 			itemId="ai-spend"
-			label="AI usage"
+			label="Daily AI allowance"
 		>
 			<div className="flex flex-col gap-3">
 				<div>
