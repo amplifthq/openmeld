@@ -2954,6 +2954,21 @@ when that Session is idle.
 a failed save keeps the draft and its diagnostic visible. Dangerous or
 low-frequency actions remain in the overflow menu. This presentation does not
 create a second Agent Profile, Binding, readiness, request, or edit authority.
+Each configuration card validates and submits only its visible fields. Unchanged
+permission modes must not require renewed confirmation for unrelated edits;
+selecting a dangerous permission mode or changing controllers still requires the
+applicable confirmation. A non-editable permission capability is read-only.
+Readiness-backed configuration reads collaboration mode from
+`publicProfileConfiguration`; its compact `primaryBinding` omits that field.
+Model, collaboration, and permission cards close on submission and show a
+presentation-only optimistic value marked **Saving…**. The other model,
+collaboration, and permission editors remain usable; writes to the same Binding wait for the current write
+to settle. Failure restores the confirmed summary and preserves that card's
+draft and error for retry. Only a matching server response means **Saved**.
+Cache reads started before that response cannot overwrite it, and follow-up
+status refreshes run in the background without holding the save open. These
+optimistic summaries never grant permissions, change Wakeability, or become
+Binding execution truth.
 Agent identity controls in messages, Threads, and the Members panel open one
 compact Profile Details popover. It shows the Agent identity, current
 availability, and a primary **Chat with {Agent name}** action. The popover omits
