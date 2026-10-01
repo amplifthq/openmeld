@@ -4638,6 +4638,12 @@ the call is invisible instead of falling back to `connected app action`.
 
 The live work disclosure shares the existing progress row instead of adding a
 second row and keeps Stop immediately after the expandable work summary.
+Work disclosures and link previews must fit the containing message, including
+when a desktop Thread is resized without changing the browser viewport. The
+working label may wrap and increase the header height; the supporting summary
+truncates, and Stop remains within the bubble. Long work-step names wrap instead
+of widening their scroll viewport. Code, tables, and attachment strips retain
+their own horizontal scrolling without widening the message.
 While the authoritative stream is
 active, that row keeps `Agent is working` as its stable primary state and shows
 the concrete current work as supporting context. Work activity must never
