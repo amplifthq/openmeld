@@ -1749,8 +1749,8 @@ describe("gateway http forwarding", () => {
       ],
     });
     if (!includeAgentAvatars) {
-      expect(body.agentProfiles[0]).not.toHaveProperty("avatarStyle");
-      expect(body.agentProfiles[0]).not.toHaveProperty("avatarModelId");
+      expect(body).not.toHaveProperty("agentProfiles.0.avatarStyle");
+      expect(body).not.toHaveProperty("agentProfiles.0.avatarModelId");
     }
   });
 
