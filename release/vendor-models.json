@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-30T01:12:59.582Z",
+  "updatedAt": "2026-10-01T04:06:58.140Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -205,7 +205,10 @@
           "displayName": "GPT-5.5",
           "retirement": {
             "status": "announced",
-            "date": { "value": "2026-10-14", "kind": "on" },
+            "date": {
+              "value": "2026-10-14",
+              "kind": "on"
+            },
             "scope": {
               "controllerRef": "builtin:codex",
               "authType": "chatgpt"
@@ -222,7 +225,10 @@
           "displayName": "GPT-5.4",
           "retirement": {
             "status": "withdrawn",
-            "date": { "value": "2026-08-31", "kind": "on" },
+            "date": {
+              "value": "2026-08-31",
+              "kind": "on"
+            },
             "scope": {
               "controllerRef": "builtin:codex",
               "authType": "chatgpt"
@@ -239,7 +245,10 @@
           "displayName": "GPT-5.4 Mini",
           "retirement": {
             "status": "withdrawn",
-            "date": { "value": "2026-08-31", "kind": "on" },
+            "date": {
+              "value": "2026-08-31",
+              "kind": "on"
+            },
             "scope": {
               "controllerRef": "builtin:codex",
               "authType": "chatgpt"
@@ -267,6 +276,14 @@
         "reasoningLevel": null
       },
       "models": [
+        {
+          "id": "claude-sonnet-5-5",
+          "displayName": "Claude Sonnet 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "2.1.284"
+        },
         {
           "id": "claude-opus-5-5",
           "displayName": "Claude Opus 5.5",
@@ -365,6 +382,22 @@
     "cursor": {
       "defaultModelId": "default[]",
       "models": [
+        {
+          "id": "claude-opus-5-5[context=300k,effort=medium,fast=false]",
+          "displayName": "Claude Opus 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "claude-sonnet-5-5[context=300k,reasoning_effort=high]",
+          "displayName": "Claude Sonnet 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
           "displayName": "Grok 4.7 — High Fast",
@@ -649,6 +682,121 @@
     "opencode": {
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
+        {
+          "id": "opencode-go/gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/longcat-2.5-preview-free",
+          "displayName": "LongCat 2.5 Preview Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/space-bunny-free",
+          "displayName": "Space Bunny Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-astra-ultrafast",
+          "displayName": "GPT-6 Astra Ultrafast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-luna-fast",
+          "displayName": "GPT-6 Luna Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-sol",
+          "displayName": "GPT-6 Sol",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-sol-fast",
+          "displayName": "GPT-6 Sol Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6.1-sol",
+          "displayName": "GPT-6.1 Sol",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6.1-sol-fast",
+          "displayName": "GPT-6.1 Sol Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
         {
           "id": "opencode/mimo-v2.6-flash-free",
           "displayName": "OpenCode MiMo V2.6 Flash Free",
@@ -1187,6 +1335,51 @@
         "personalRemoteAgentDefaultModelId": "openai/gpt-6-sol"
       },
       "models": [
+        {
+          "id": "openai/gpt-6.1-sol-pro",
+          "displayName": "GPT-6.1 Sol Pro",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["image", "text"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6.1-sol",
+          "displayName": "GPT-6.1 Sol",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["image", "text"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-sonnet-5.5",
+          "displayName": "Claude Sonnet 5.5",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
         {
           "id": "openai/gpt-6-sol",
           "displayName": "GPT-6 Sol",
