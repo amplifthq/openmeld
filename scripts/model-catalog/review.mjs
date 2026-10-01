@@ -138,15 +138,86 @@ function excerpts(evidence, candidates) {
 }
 
 const RETIREMENT =
-  /retir|deprecat|sunset|no longer (available|offered|supported)|postpon|extended/i;
+  /retir|deprecat|sunset|withdrawn|no longer (available|offered|supported)|postpon/i;
 
-export function renderRetirementReview(evidence, current) {
+export function retirementPassages(evidence, current) {
   const models = current.agentControllers[evidence.controller]?.models ?? [];
   const normalize = (value) =>
     value.toLowerCase().replace(NON_ALPHANUMERIC, "");
   const needles = models
     .flatMap((model) => [model.id, model.displayName])
     .map(normalize);
+  return evidence.sources
+    .filter((source) => source.kind === "official-document")
+    .flatMap((source) =>
+      String(source.data)
+        .split(PARAGRAPH_BREAK)
+        .filter(
+          (paragraph) =>
+            RETIREMENT.test(paragraph) &&
+            needles.some((term) => normalize(paragraph).includes(term))
+        )
+        .map((text) => ({ url: source.url, text }))
+    );
+}
+
+function sortedFacts(facts) {
+  return [...new Set(facts.map((fact) => JSON.stringify(fact)))].sort();
+}
+
+export function modelReviewFacts(evidence, current, discoverySince) {
+  const models = current.agentControllers[evidence.controller].models;
+  return {
+    additions: sortedFacts(
+      evidence.changes
+        .filter(
+          (change) => !models.some((model) => model.id === change.modelId)
+        )
+        .map((change) => change.after)
+    ),
+    candidates: sortedFacts(
+      discoveryCandidates(evidence, current, discoverySince)
+        .filter((candidate) => !candidate.matchingExistingIds.length)
+        .map(({ candidateId, model, provider }) => ({
+          provider,
+          id: candidateId,
+          reasoning: sortedFacts(
+            (model.reasoning_options ?? []).map((option) => ({
+              ...option,
+              ...(Array.isArray(option.values)
+                ? { values: [...option.values].sort() }
+                : {}),
+            }))
+          ),
+        }))
+    ),
+    parameters: sortedFacts(
+      evidence.manual.filter((line) =>
+        models.some((model) => line.startsWith(`${model.id}:`))
+      )
+    ),
+    retirement: sortedFacts(
+      retirementPassages(evidence, current).map(({ url, text }) => ({
+        url,
+        text: text.replace(/\s+/g, " ").trim(),
+      }))
+    ),
+  };
+}
+
+export function hasNewReviewFacts(facts, previous) {
+  return (
+    facts.additions.length > 0 ||
+    ["candidates", "parameters"].some((kind) =>
+      facts[kind].some((fact) => !previous?.[kind].includes(fact))
+    ) ||
+    JSON.stringify(facts.retirement) !==
+      JSON.stringify(previous?.retirement ?? [])
+  );
+}
+
+export function renderRetirementReview(evidence, current) {
+  const models = current.agentControllers[evidence.controller]?.models ?? [];
   const reviewed = models
     .filter((model) => model.retirement)
     .map((model) => {
@@ -163,21 +234,10 @@ export function renderRetirementReview(evidence, current) {
         .join(" / ");
       return `| ${cell(model.id)} | ${cell(notice.status)} | ${cell(date)} | ${cell(scope)} | ${cell(notice.verifiedAt)} | ${cell(notice.sourceUrl)} |`;
     });
-  const passages = evidence.sources
-    .filter((source) => source.kind === "official-document")
-    .flatMap((source) =>
-      String(source.data)
-        .split(PARAGRAPH_BREAK)
-        .filter(
-          (paragraph) =>
-            RETIREMENT.test(paragraph) &&
-            needles.some((term) => normalize(paragraph).includes(term))
-        )
-        .map(
-          (paragraph) =>
-            `Source: ${cell(source.url)}\n\n> ${cell(paragraph.slice(0, 1200))}${paragraph.length > 1200 ? " [truncated; read the full snapshot]" : ""}`
-        )
-    );
+  const passages = retirementPassages(evidence, current).map(
+    ({ url, text }) =>
+      `Source: ${cell(url)}\n\n> ${cell(text.slice(0, 1200))}${text.length > 1200 ? " [truncated; read the full snapshot]" : ""}`
+  );
   return `### Retirement evidence and recheck\n\nChecks all ${models.length} currently cataloged models, independently of the new-model discovery date. Dates are advisory, never an automatic shutdown.\n\n${reviewed.length ? `| Model | Reviewed status | Official date meaning | Exact scope | Last verified | Source |\n| --- | --- | --- | --- | --- | --- |\n${reviewed.join("\n")}` : "No reviewed retirement notices yet."}\n\n${passages.slice(0, 12).join("\n\n") || "No matching official retirement passage captured. This is not proof of continued availability."}\n\n${passages.length > 12 ? "Additional passages are in the source snapshot.\n\n" : ""}Reviewer: re-open the official source and record **stopped / postponed / unconfirmed**, exact provider/sign-in scope and verification date. Update a notice or confirm withdrawal explicitly in this PR. Keep existing model identity and user selections. Never infer retirement from missing inventory, a failed scan, a generic 404, or a not-before date.\n`;
 }
 
