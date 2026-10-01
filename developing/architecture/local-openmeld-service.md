@@ -1277,6 +1277,11 @@ materializes committed project content as described above; it does not copy the
 parent's dirty working files or implicitly synchronize parent and child. A
 completion without a verified native checkpoint may
 preserve conversation identity but cannot authorize a fork.
+Codex fork preparation reads the target's effective MCP configuration before
+suppressing a native-tool source's alternate Space carrier. It disables an
+existing reserved server without replacing its transport; when absent, it must
+not create a disabled-only server table. Preparation receives no dispatch action
+credentials. Malformed or unreadable effective configuration rejects the fork.
 The Service observes completed turns across the initial invocation, reply repair,
 and reconsideration. Each invocation clears the previous completion evidence;
 each submitted proposal carries its own final verified turn. A missing final

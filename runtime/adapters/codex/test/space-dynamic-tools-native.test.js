@@ -6,7 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { z } from "zod/v4";
-import { createCodexAdapter, forkCodexAppServerThread } from "../dist/index.js";
+import {
+  createCodexAdapter,
+  forkCodexAppServerThread,
+  resolveCodexAppServerCompletedTurn,
+} from "../dist/index.js";
 
 test(
   "native Codex delivers through the public adapter on start, cold resume and both fork paths",
@@ -220,17 +224,40 @@ test(
     const started = await run("start");
     const resumed = await run("cold-resume", started.conversationId);
     await run("repair-fork", resumed.conversationId, "repair");
-    const fork = await forkCodexAppServerThread({
-      launchContract,
-      codexTimeoutMs: 15_000,
-      codexWorkdir: workdir,
-      env,
-      sourceThreadId: resumed.conversationId,
-      sourceCompletedTurnId: resumed.turnId,
-    });
-    await run("persistent-fork", fork.threadId);
+    // The Service prepares a recovery fork without dispatch credentials. The
+    // old fixture always supplied the MCP transport and hid a disabled-only
+    // table that Codex 0.150.1 rejects with "invalid transport".
+    const preparationEnv = {
+      ...env,
+      OPENMELD_SPACE_ACTION_CONTEXT_PATH: undefined,
+      OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: undefined,
+      OPENMELD_USER_FACING_CLI_COMMAND: undefined,
+    };
+    for (const [name, forkEnv] of [
+      ["persistent-fork", env],
+      ["recovery-fork", preparationEnv],
+    ]) {
+      const fork = await forkCodexAppServerThread({
+        launchContract,
+        codexTimeoutMs: 15_000,
+        codexWorkdir: workdir,
+        env: forkEnv,
+        sourceThreadId: resumed.conversationId,
+        sourceCompletedTurnId: resumed.turnId,
+      });
+      assert.notEqual(fork.threadId, resumed.conversationId);
+      await run(name, fork.threadId);
+      const source = await resolveCodexAppServerCompletedTurn({
+        launchContract,
+        codexTimeoutMs: 15_000,
+        codexWorkdir: workdir,
+        env: preparationEnv,
+        threadId: resumed.conversationId,
+      });
+      assert.equal(source.completedTurnId, resumed.turnId);
+    }
     await run("delivery-only", resumed.conversationId, "repair", true);
-    assert.equal(catalogs.length, 10);
+    assert.equal(catalogs.length, 12);
     for (const entry of catalogs.filter(
       (entry) => entry.phase === "delivery-only"
     )) {
