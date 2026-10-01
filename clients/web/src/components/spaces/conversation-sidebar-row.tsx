@@ -202,7 +202,7 @@ function ConversationSidebarRowContent(
 										.join(", ")}
 									className="absolute inset-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
 									resetScroll={false}
-									to={input.url}
+									{...conversationNavigationTarget(input.url)}
 								/>
 							}
 						/>

@@ -13,6 +13,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ConversationsSidebar } from "./conversations-sidebar";
 
 const sidebarState = vi.hoisted(() => ({ accountIndexPending: false }));
+const navigate = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("./use-conversations", async () => {
 	const { useConversationSidebarFixture } = await import(
 		"#/test-support/conversation-sidebar-fixture"
@@ -39,7 +40,7 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 vi.mock("@tanstack/react-router", () => ({
-	useNavigate: () => vi.fn(),
+	useNavigate: () => navigate,
 	useLocation: ({
 		select,
 	}: {
@@ -100,6 +101,7 @@ afterEach(() => {
 	cleanup();
 	localStorage.clear();
 	sidebarState.accountIndexPending = false;
+	navigate.mockClear();
 });
 function mount() {
 	return render(
@@ -215,11 +217,9 @@ it("keeps the Spaces directory reachable in both views and carries an unmatched 
 	).toHaveProperty("value", "Unfamiliar teammate");
 	fireEvent.click(screen.getByRole("button", { name: "Close picker" }));
 	fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
-	expect(
-		(await screen.findByRole("menuitem", { name: "New Space" })).getAttribute(
-			"href"
-		)
-	).toBe("/o/test/new-space");
+	fireEvent.click(await screen.findByRole("menuitem", { name: "New Space" }));
+	expect(navigate).toHaveBeenCalledWith({ to: "/o/test/new-space" });
+	fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
 	fireEvent.click(screen.getByRole("menuitem", { name: "New message" }));
 	expect(
 		screen.getByRole("textbox", { name: "Search people and agents" })

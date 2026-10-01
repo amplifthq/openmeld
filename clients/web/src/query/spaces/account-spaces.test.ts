@@ -102,14 +102,20 @@ describe("account Space Index refresh", () => {
 		expect(options.refetchIntervalInBackground).toBe(false);
 		expect(options.refetchOnWindowFocus).toBe("always");
 
-		const observer = new QueryObserver(queryClient, options);
-		const unsubscribe = observer.subscribe(() => undefined);
+		const onDataChange = vi.fn();
+		const observer = new QueryObserver(queryClient, {
+			...options,
+			notifyOnChangeProps: ["data"],
+		});
+		const unsubscribe = observer.subscribe(onDataChange);
 		await vi.advanceTimersByTimeAsync(0);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledOnce();
 		await vi.advanceTimersByTimeAsync(ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS - 1);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledOnce();
 		await vi.advanceTimersByTimeAsync(1);
 		expect(listAccountSpaceItemsMock).toHaveBeenCalledTimes(2);
+		// A foreground refresh with identical content must not wake directory readers.
+		expect(onDataChange).toHaveBeenCalledOnce();
 
 		unsubscribe();
 		queryClient.clear();
