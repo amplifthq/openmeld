@@ -2181,6 +2181,93 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toContain("text-destructive");
 	});
 
+	it.each([
+		"accepted",
+		"rejected",
+	] as const)("keeps Full access model edits responsive when the save is %s", async (outcome) => {
+		const initial = createPrimaryBindingResponse(
+			"codex:fullAccess",
+			"builtin:codex",
+			{ modelId: "gpt-5.5", reasoningLevel: "low" }
+		);
+		let finishSave: (value: unknown) => void = () => undefined;
+		updatePrimaryBindingModelSelectionMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishSave = resolve;
+				})
+		);
+		readPrimaryBindingMock.mockResolvedValue(initial);
+		// A slow or failed refresh must not turn an acknowledged save into a failure.
+		let finishRefresh: () => void = () => undefined;
+		refreshReadinessFactsMock.mockImplementation(
+			() =>
+				new Promise<void>((_resolve, reject) => {
+					finishRefresh = () => reject(new Error("Status refresh unavailable"));
+				})
+		);
+		renderAgentProfilesCard({}, initial.binding, { presentation: "detail" });
+		fireEvent.click(await screen.findByLabelText("Edit Model"));
+		fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+		fireEvent.click(screen.getByRole("option", { name: "High" }));
+		const save = screen.getByText("Save changes") as HTMLButtonElement;
+		expect(save.disabled).toBe(false);
+		expect(screen.queryByRole("checkbox")).toBeNull();
+		fireEvent.click(save);
+		const modelCard = screen.getByLabelText("Edit Model");
+		expect(modelCard.getAttribute("aria-expanded")).toBe("false");
+		expect(modelCard.textContent).toContain("high");
+		expect(modelCard.textContent).toContain("Saving…");
+		expect(toastMock.success).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByLabelText("Edit Collaboration mode"));
+		expect(
+			screen.getByText("Another setting is saving. You can keep editing.")
+		).toBeTruthy();
+		fireEvent.click(
+			within(
+				screen.getByRole("dialog", { name: "Collaboration mode" })
+			).getByText("Cancel")
+		);
+		const saved = createEnsureBindingResponse(
+			"codex:fullAccess",
+			"builtin:codex",
+			{ modelId: "gpt-5.5", reasoningLevel: "high" }
+		);
+		readPrimaryBindingMock.mockResolvedValue({ ...saved, status: "found" });
+		await act(() => {
+			finishSave(outcome === "accepted" ? saved : { status: "rejected" });
+		});
+		await waitFor(() => expect(modelCard.textContent).not.toContain("Saving…"));
+		if (outcome === "accepted") {
+			expect(modelCard.textContent).toContain("high");
+			expect(toastMock.success).toHaveBeenCalledWith("Agent settings saved.");
+		} else {
+			expect(modelCard.textContent).toContain("low");
+			expect(modelCard.textContent).toContain(
+				"Changes weren’t saved. Open to retry."
+			);
+			expect(toastMock.success).not.toHaveBeenCalled();
+			fireEvent.click(modelCard);
+			expect(
+				screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
+			).toContain("High");
+			expect(screen.getByRole("alert").textContent).toContain("could not save");
+		}
+		expect(
+			updatePrimaryBindingAgentControllerPermissionModeMock
+		).not.toHaveBeenCalled();
+		await act(() => {
+			finishRefresh();
+		});
+		if (outcome === "accepted") {
+			expect(toastMock.warning).toHaveBeenCalledWith(
+				"Settings saved. Refresh the page to reload the latest status."
+			);
+			expect(toastMock.error).not.toHaveBeenCalled();
+			expect(modelCard.textContent).toContain("high");
+		}
+	});
+
 	it("updates the Agent Controller Permission Mode from the Agent edit menu", async () => {
 		let currentPolicy = "codex:askForApproval";
 		readPrimaryBindingMock.mockImplementation(async () =>
@@ -2320,11 +2407,58 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBe("Codex permissions mode: Approve for me");
 	});
 
-	it("updates Codex Collaboration Mode without changing Permission Mode", async () => {
+	it("reads saved collaboration mode from the readiness public configuration", async () => {
+		const binding = createPrimaryBindingResponse("codex:fullAccess").binding;
+		// Captured from the local runtime-overview HTTP response: readiness omits
+		// collaboration mode from primaryBinding and exposes it in this projection.
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			primaryBinding: {
+				...binding,
+				agentControllerCollaborationMode: undefined,
+			},
+			wakeRouteEvidence: {
+				observedAt: "2026-10-01T15:44:04.199Z",
+				reasonCode: "route.not_registered",
+				status: "offline",
+			},
+			publicProfileConfiguration: {
+				agentControllerRef: "builtin:codex",
+				agentControllerCollaborationMode: "codex:plan" as const,
+				agentControllerPermissionMode: "codex:fullAccess" as const,
+				modelSelection: null,
+			},
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard({}, binding, {
+			presentation: "detail",
+			agentExecutionReadinessByProfileId: new Map([
+				[AGENT_PROFILE_ID, readiness],
+			]),
+		});
+		const card = await screen.findByRole("button", {
+			name: "Edit Collaboration mode",
+		});
+		expect(within(card).getByText("Plan")).toBeTruthy();
+		fireEvent.click(card);
+		expect(
+			screen.getByRole("combobox", { name: "Codex collaboration mode" })
+				.textContent
+		).toBe("Plan");
+		expect(
+			screen
+				.getByRole("button", { name: "Save changes" })
+				.hasAttribute("disabled")
+		).toBe(true);
+	});
+
+	it.each([
+		"codex:askForApproval",
+		"codex:fullAccess",
+	])("updates Codex Collaboration Mode without changing %s Permission Mode", async (permissionMode) => {
 		let currentCollaborationMode = "codex:default";
 		readPrimaryBindingMock.mockImplementation(async () =>
 			createPrimaryBindingResponse(
-				"codex:askForApproval",
+				permissionMode,
 				"builtin:codex",
 				null,
 				currentCollaborationMode
@@ -2335,7 +2469,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				currentCollaborationMode = input.agentControllerCollaborationMode;
 				return Promise.resolve(
 					createEnsureBindingResponse(
-						"codex:askForApproval",
+						permissionMode,
 						"builtin:codex",
 						null,
 						currentCollaborationMode
@@ -2346,7 +2480,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		renderAgentProfilesCard(
 			{},
 			createPrimaryBindingResponse(
-				"codex:askForApproval",
+				permissionMode,
 				"builtin:codex",
 				null,
 				currentCollaborationMode
