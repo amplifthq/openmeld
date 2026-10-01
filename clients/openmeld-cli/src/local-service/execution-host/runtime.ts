@@ -19,7 +19,6 @@ import { startLocalAgentActivitySyncLoop } from "../../agent-activity/local-sync
 import { getConfiguredDaemonDispatchLimits } from "../../config/runtime-config";
 import type { Presenter } from "../../runtime/presenter/types";
 import { parseDaemonFrame } from "../carrier/daemon-frame-transport";
-import { handleDaemonSocketFrame } from "../carrier/frame-router";
 import {
   handleLocalControlPlaneCancel,
   handleLocalControlPlaneInterrupt,
@@ -63,6 +62,7 @@ import {
   isExecutionHostControlFrame,
 } from "./controls";
 import { createExecutionAdmissionConfirmation } from "./execution-admission";
+import { handleExecutionHostFrame } from "./frame-router";
 
 type HostEvent = Exclude<ServiceExecutionHostMessage, { type: "reply" }>;
 
@@ -636,7 +636,7 @@ export function createExecutionHostRuntime(input: {
         }
         input.onWorkStateChange?.(false);
       }
-      handleDaemonSocketFrame({
+      handleExecutionHostFrame({
         computerFileAccessStorePath,
         contextStore,
         currentSocketRef,
@@ -655,12 +655,6 @@ export function createExecutionHostRuntime(input: {
         presenter: input.presenter,
         routeByProfileId: routeCatalogState.routeByProfileId,
         socket,
-        waiters: {
-          registerResolver: null,
-          registerRejecter: null,
-          heartbeatResolver: null,
-          heartbeatRejecter: null,
-        },
       });
       input.onWorkStateChange?.(snapshot().localQuiescent);
       invalidate("execution");
