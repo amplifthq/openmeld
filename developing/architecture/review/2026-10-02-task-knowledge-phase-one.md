@@ -9,7 +9,7 @@
 - Source of truth: The linked source owners, executable tests, and exact observations below.
 - Removal condition: Remove this review record after independent acceptance; retain stable contracts in the product owner documents and final evidence in the PR.
 
-Status: Draft implementation; independent-review corrections implemented, Local setup recovered, live Remote release/revocation checks passed, delegated model and Local Wake acceptance still pending.
+Status: Draft implementation; independent-review corrections implemented, human-source Remote regression and Center blank-session automatic recall verified. Local setup recovered; delegated model and Local Wake acceptance still lack an authorized dev admission context.
 
 ## Scope And Ownership
 
@@ -501,3 +501,114 @@ Local model, or Remote model success is claimed. The packaged CLI and boundary
 tests above do not replace these gaps. Independent latest-diff review and the
 remaining representative runtime evidence are still due before any Ready
 decision. The PR remains draft; no merge, deploy, or binary publication.
+
+## Final Representative Runtime Acceptance
+
+This follow-up ran the unchanged source head
+`e5cdc6be14b927f9ed526b1ffdabd0119b3942c8` on 2026-10-01 UTC (2026-10-02
+in the workstation's UTC+08 timezone). It adds evidence only. It supersedes the
+two pending human-source Remote and blank-session Center entries above, without
+promoting the remaining Local/delegated boundary tests to model E2E.
+
+The normal root `pnpm dev:worktree` and `pnpm dev:web:worktree` commands started
+the retained isolated lane `wt-e7ed328ad1a0`. Chrome control was unavailable
+(`Owl extension-created tabs must be active`), and the in-app browser was not
+available. The named Agent Browser session `knowledge-phase-one-smoke` used
+normal Web login and only the synthetic account. No Local Service was started,
+no production home was used, and no admission-denied Wake was retried.
+
+### Personal Remote Human-Source Regression: Passed
+
+The synthetic Skill was re-enabled through its normal Web **More actions →
+Enable skill** menu. Neither its release nor its body was changed. A normal
+human DM then asked Cedar Blank Memory Remote to list current documents, read
+the omitted Maple Lantern Reporting Rule, activate the Skill, read its resource,
+and classify new facts. The new input supplied facts, not the document format.
+
+- Profile: `agt_119359a4-3a94-4a08-b1ce-0d5274fa1583`.
+- Space: `69061b6a224b76dbae4eb1b5421055798de4921fb0b174e711b40cb7521375d4`.
+- Source message: `70370ad5-950f-403a-91f2-d288c1d038db`.
+- Submission: `37ba6180-a2ed-4b10-9725-48e778b6dba9`; accepted
+  `2026-10-01T18:40:05.125Z`, completed callback `18:40:30.148Z`.
+- The persisted admission records a verified member sender and
+  `requester_private`. This is the human-source regression of the new receiving
+  Agent read identity, not an Agent-source Wake.
+- Actual model tool outcomes: Skill activation at `18:40:09.322Z`; full list of
+  33 documents at `18:40:19.988Z`; approved body at `18:40:22.197Z`; frozen Skill
+  search at `18:40:24.032Z`; successful resource read at `18:40:26.458Z`.
+- Document `org_document_3c71981e-5d53-477b-ac4e-852a8cc65d7e` returned approved
+  B, updated `2026-10-01T17:12:21.131Z`. The selected Skill release remained
+  `a98db3c2-0ec6-4e25-9d0a-da85b1146720`, digest
+  `8a2e3d01c3628cd77600372f28573ea4ac51aaf54c9ff9b37555bb20b086c137`.
+  `references/example.md` returned its actual 252-byte body.
+- The public response used B's State/Detail table: accessibility audit signed
+  off under Completed; unstarted Tuesday translation under Next; unknown vendor
+  ETA under Risk. It reported the matching document time, release, digest and
+  resource size. The normal UI displayed those new facts correctly.
+
+### Center Private Capture → Blank Conversation → Automatic Recall: Passed
+
+In the existing Center private DM, the synthetic user requested one new personal
+preference: Amber Heron updates use **Facts, Next move, Unknowns**, in that order,
+and this is not team policy. No explicit memory writer, document or Skill tool
+was called. The existing private completion callback supplied the capture path.
+
+- Capture source message: `0b76a1fc-0fdb-459d-b244-ab546341ab51` in Space
+  `57ae568797ddea3b843f0bd43871bec0092841fabac9c1e54b867b29bd32654b`.
+  Submission `9fedb80b-b419-4e09-bc22-ff578d9235fc` was admitted at
+  `2026-10-01T18:39:26.504Z` and completed at `18:39:34.620Z`.
+- The user then selected **Open chat history → New chat**. The UI showed a blank
+  conversation before sending: “For my fictional Amber Heron updates, what
+  headings do I personally prefer, and in what order? If you do not have that
+  preference, say so rather than guessing.” The query did not contain the answer.
+- New Space: `4396e917ca30becf7a9fef03bd95fcb42406d0a2f3e4f1134068e1671d13ba76`.
+  Source message: `56ddf5ef-1efa-40ae-8e28-eb355bfcc556`.
+  Submission: `9d5afd17-b659-420e-b619-c5e42e650909`; accepted
+  `2026-10-01T18:41:12.874Z`, completed callback `18:41:16.921Z`.
+- The new runtime session/DO contains exactly one submission, belonging to this
+  new Space. Its persisted `turnEnvelope.memory` contains `source: ca_dm`,
+  `subject: member` items for the exact Amber Heron heading order and personal
+  scope, recorded/valid from `2026-10-01T18:39:34.664Z`. The envelope is
+  `requester_private`, audience `requester_only`, with six items and no truncation.
+- This submission has zero tool outcomes: it did not search old conversations
+  or actively search memory. Its public answer was **Facts → Next move →
+  Unknowns**, explicitly personal rather than team policy. The UI response and
+  callback text agree. Thus the held-out new conversation demonstrates automatic
+  memory injection and correct use without prior conversation history.
+
+This is one positive synthetic example, not a provider-quality or extraction
+latency distribution claim. The same envelope still includes the previously
+reported “Assistant confirmed” noise from an older synthetic turn; this remains
+a nonblocking extraction research observation, not a reason to add a filter
+model. Recall of nearby Cedar Lantern facts did not cause cross-project use in
+this example.
+
+### Evidence, Shutdown And Remaining Gap
+
+Local logs: `dev-tmp/knowledge-acceptance-stack.log` and
+`dev-tmp/knowledge-acceptance-web.log`. A read-only, synthetic-lane diagnostic
+extract is retained at `dev-tmp/knowledge-final-smoke-evidence.json`, generated
+by `dev-tmp/knowledge-final-smoke-read.mjs`. It contains selected ledger fields,
+callback memory/public replies and tool outcomes, excluding reasoning and login
+credentials. These diagnostics corroborate normal Web actions; they did not
+create or mutate the test data. A Center screenshot is retained at
+`dev-tmp/knowledge-center-blank-memory.png`; it is visual evidence only.
+
+The named browser was closed and both owned dev command sessions were stopped
+after callbacks completed. The isolated fixture state is retained, including
+the explicitly re-enabled synthetic Skill. No production process or other
+worktree was stopped. Only this evidence document changed; no release restamp,
+product-code test rerun or changelog change is required for this follow-up.
+`pnpm verify:docs -- --strict` and `git diff --check -- developing` passed.
+`lsof -nP -iTCP:30240-30243 -sTCP:LISTEN` returned no listeners after shutdown.
+
+Local model directory/body/Skill use and Agent-source Remote model use remain
+unverified. No cross-Space Wake or alternate-transport retry was attempted. The
+single next step is still a legitimately authorized isolated-dev admission
+context/test runner, then one representative actual Wake for each missing
+runtime path. This evidence does not provide that authority or change the gate.
+The current Core authorization integration tests remain boundary evidence only.
+Additional semantic holdouts and runtime cross-products were intentionally not
+added. Independent review remains bound to its exact source SHA; a later
+evidence-only commit does not constitute an additional code change or a Ready
+decision. PR #1429 stays draft, with no merge, deployment or binary publication.
