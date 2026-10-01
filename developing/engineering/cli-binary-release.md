@@ -608,4 +608,3 @@ prepare the corresponding Service release rather than relabelling the new image.
 The stable publisher supports verified separately retained Service artifacts.
 Staging/custom binary versions omit production component policy unless the caller
 supplies an exact-artifact policy; they never inherit production version identity.
-
