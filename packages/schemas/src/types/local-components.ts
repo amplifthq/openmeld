@@ -108,3 +108,10 @@ export type OpenMeldToolsMaintenanceMutationResult =
   z.infer<OpenMeldToolsMaintenanceMutationResultSchema>;
 export type OpenMeldToolsUpdateRequestResult =
   z.infer<OpenMeldToolsUpdateRequestResultSchema>;
+
+export type LocalComponentsInstallationSource = z.infer<
+  typeof import("../schemas/local-components")["localComponentsInstallationSourceSchema"]
+>;
+export type LocalComponentsAvailabilityCatalog = z.infer<
+  typeof import("../schemas/local-components")["localComponentsAvailabilityCatalogSchema"]
+>;

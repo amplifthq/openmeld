@@ -213,6 +213,41 @@ export const localComponentsReleaseManifestSchema = z.strictObject({
   }),
 });
 
+// Installation source is reported from the owning managed installation, never
+// inferred from an OS or an arbitrary update URL. Missing means unconfirmed.
+export const localComponentsInstallationSourceSchema = z.strictObject({
+  distribution: z.enum(["binary", "npm"]),
+  channel: z.enum(["stable", "windows-preview"]),
+  platform: nonEmptyStringSchema,
+}).superRefine((source, context) => {
+  if (source.distribution === "npm" && source.channel !== "stable") {
+    context.addIssue({ code: "custom", message: "npm uses the stable channel" });
+  }
+});
+
+export const localComponentsBinaryReleasePolicySchema = z.strictObject({
+  cli: localComponentsReleaseManifestSchema.shape.components.shape.cli,
+  service: localComponentsReleaseManifestSchema.shape.components.shape.service,
+});
+
+export const localComponentsAvailabilityCatalogSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  entries: z.array(z.strictObject({
+    channel: z.enum(["stable", "windows-preview"]),
+    platform: nonEmptyStringSchema,
+    policy: localComponentsBinaryReleasePolicySchema,
+  })),
+}).superRefine((catalog, context) => {
+  const selectors = new Set<string>();
+  for (const entry of catalog.entries) {
+    const selector = `${entry.channel}:${entry.platform}`;
+    if (selectors.has(selector)) {
+      context.addIssue({ code: "custom", message: "duplicate binary release selector" });
+    }
+    selectors.add(selector);
+  }
+});
+
 export const installedLocalComponentsSnapshotSchema = z.strictObject({
   schemaVersion: z.literal(LOCAL_COMPONENTS_SCHEMA_VERSION),
   installedAt: z.iso.datetime({ offset: true }),
@@ -258,6 +293,7 @@ export const localSkillsComponentProjectionSchema =
   });
 
 export const localComponentsStatusSchema = z.strictObject({
+  installationSource: localComponentsInstallationSourceSchema.optional(),
   schemaVersion: z.literal(LOCAL_COMPONENTS_SCHEMA_VERSION),
   generatedAt: z.iso.datetime({ offset: true }),
   entrypoint: localSetupEntrypointSchema,

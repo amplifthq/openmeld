@@ -6,13 +6,15 @@ import {
   DropdownMenuItem,
   DropdownMenuRadioItem,
   DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "#components/dropdown-menu";
 import { FluidActionList, FluidActionListItem } from "#fluid/action-list";
+import type { UseFluidHoverOptions } from "#hooks/use-fluid-hover";
 import { cn } from "#lib/utils";
 
 type FluidDropdownMenuContentProps = React.ComponentProps<
   typeof DropdownMenuContent
->;
+> & { gapClick?: UseFluidHoverOptions["gapClick"] };
 
 type FluidDropdownMenuItemProps = Omit<
   React.ComponentProps<typeof DropdownMenuItem>,
@@ -28,17 +30,36 @@ type FluidDropdownMenuRadioItemProps = Omit<
   index: number;
 };
 
+/** A separate highlight for alternatives on one side of a semantic divider. */
+function FluidDropdownMenuGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <FluidActionList
+      className="max-w-none"
+      hoverIndicatorClassName="bg-interaction-hover"
+      role="presentation"
+    >
+      {children}
+    </FluidActionList>
+  );
+}
+
 function FluidDropdownMenuContent({
   children,
   className,
+  gapClick,
   ...props
 }: FluidDropdownMenuContentProps) {
   return (
     <DropdownMenuContent
       {...props}
-      className={cn("motion-reduce:animate-none", className)}
+      className={cn(
+        "motion-reduce:animate-none! motion-reduce:transition-none!",
+        className
+      )}
     >
       <FluidActionList
+        className="-m-1 max-w-none p-1"
+        gapClick={gapClick}
         hoverIndicatorClassName="bg-interaction-hover"
         role="presentation"
       >
@@ -81,8 +102,31 @@ function FluidDropdownMenuRadioItem({
   );
 }
 
+function FluidDropdownMenuSubTrigger({
+  index,
+  className,
+  ...props
+}: Omit<
+  React.ComponentProps<typeof DropdownMenuSubTrigger>,
+  "render" | "nativeButton"
+> & { index: number }) {
+  return (
+    <DropdownMenuSubTrigger
+      {...props}
+      className={cn(
+        "w-full justify-start text-left focus:bg-transparent data-open:bg-transparent data-popup-open:bg-transparent",
+        className
+      )}
+      nativeButton
+      render={<FluidActionListItem index={index} />}
+    />
+  );
+}
+
 export {
   FluidDropdownMenuSubContent,
+  FluidDropdownMenuGroup,
+  FluidDropdownMenuSubTrigger,
   FluidDropdownMenuContent,
   FluidDropdownMenuItem,
   FluidDropdownMenuRadioItem,
@@ -99,9 +143,13 @@ function FluidDropdownMenuSubContent({
   return (
     <DropdownMenuSubContent
       {...props}
-      className={cn("motion-reduce:animate-none", className)}
+      className={cn(
+        "motion-reduce:animate-none! motion-reduce:transition-none!",
+        className
+      )}
     >
       <FluidActionList
+        className="-m-1 max-w-none p-1"
         hoverIndicatorClassName="bg-interaction-hover"
         role="presentation"
       >

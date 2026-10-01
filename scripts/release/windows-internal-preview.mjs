@@ -16,6 +16,7 @@ import {
   desktopProductionSourceSchema,
   desktopWindowsInternalPreviewLocation,
   desktopWindowsInternalPreviewSchema,
+  localComponentsReleaseManifestSchema,
 } from "../../packages/schemas/dist/index.js";
 import { inspectWindowsInternalPreview } from "../desktop/windows-artifact.mjs";
 import { buildCliBinary } from "./build-cli-binary.mjs";
@@ -133,11 +134,15 @@ function buildCli() {
   const packageJson = JSON.parse(
     readFileSync(join(root, "clients/openmeld-cli/package.json"), "utf8")
   );
+  const policy = localComponentsReleaseManifestSchema.parse(JSON.parse(
+    readFileSync(join(root, "release/local-components.json"), "utf8")
+  ));
   const manifest = cliBinaryManifestSchema.parse({
     schemaVersion: 1,
     channels: {
       stable: {
         version,
+        componentPolicy: { cli: policy.components.cli, service: policy.components.service },
         minRequiredCliVersion: packageJson.openmeld.minRequiredCliVersion,
         platforms: { "windows-x64": releaseArtifact(cli, helper) },
         service: serviceSelection,

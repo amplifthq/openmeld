@@ -826,6 +826,7 @@ function createLocalComponentsStatus(input: {
     schemaVersion: 1,
     generatedAt: "2026-06-04T00:00:00.000Z",
     entrypoint: "setup",
+    installationSource: { distribution: "npm", channel: "stable", platform: "darwin-arm64" },
     summaryLabel: "Everything is up to date",
     summaryDescription:
       "OpenMeld local components are aligned for this computer.",
@@ -901,3 +902,90 @@ function createLocalComponentsStatus(input: {
     },
   };
 }
+
+describe("installation-source availability", () => {
+  const global = createReleaseManifest({});
+  global.components.cli.packageVersion = "0.3.232";
+  global.components.service.bundleVersion = "0.3.232";
+  const previewPolicy = {
+    cli: { ...global.components.cli, packageVersion: "0.3.231" },
+    service: { ...global.components.service, bundleVersion: "0.3.231" },
+  };
+  const catalog = { schemaVersion: 1 as const, entries: [
+    { channel: "windows-preview" as const, platform: "windows-x64", policy: previewPolicy },
+    { channel: "stable" as const, platform: "darwin-arm64", policy: global.components },
+  ] };
+  function project(input: {
+    source?: LocalComponentsStatus["installationSource"];
+    installed?: string;
+    catalog?: typeof catalog | null;
+    policy?: LocalComponentsReleaseManifest;
+  } = {}) {
+    const status = createLocalComponentsStatus({ cliPackageVersion: input.installed ?? "0.3.231" });
+    status.installationSource = input.source;
+    return resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-10-01T00:00:00.000Z",
+      localComponentsStatus: status,
+      releaseManifest: input.policy ?? global,
+      availabilityCatalog: input.catalog === undefined ? catalog : input.catalog,
+      serviceConnected: true,
+      serviceVersion: input.installed ?? "0.3.231",
+    });
+  }
+  const previewSource = { distribution: "binary" as const, channel: "windows-preview" as const, platform: "windows-x64" };
+
+  it("does not offer stable232 to a preview231 installation", () => {
+    expect(project({ source: previewSource })).toMatchObject({
+      cli: { status: "current", latestPackageVersion: "0.3.231" },
+      service: { status: "current", latestVersion: "0.3.231", wakeBlocked: false },
+    });
+  });
+  it.each([
+    undefined,
+    { ...previewSource, channel: "stable" as const },
+    { ...previewSource, platform: "windows-arm64" },
+  ])("keeps unavailable or unreported selectors unknown: %j", (source) => {
+    expect(project({ source })).toMatchObject({
+      cli: { status: "unknown", latestPackageVersion: null },
+      service: { status: "unknown", latestVersion: null, wakeBlocked: false },
+    });
+  });
+  it("updates a preview230 computer only to its preview231 pair", () => {
+    expect(project({ source: previewSource, installed: "0.3.230" })).toMatchObject({
+      cli: { status: "update_available", latestPackageVersion: "0.3.231" },
+      service: { status: "update_available", latestVersion: "0.3.231", wakeBlocked: false },
+    });
+  });
+  it("keeps the226 safety floor while offering an installable231 recovery", () => {
+    expect(project({ source: previewSource, installed: "0.3.224" })).toMatchObject({
+      service: { status: "update_required", requiredVersion: "0.3.231", latestVersion: "0.3.231", wakeBlocked: true },
+    });
+  });
+  it("blocks unsafe versions even when no recovery artifact is available", () => {
+    expect(project({ installed: "0.3.224", catalog: null })).toMatchObject({
+      service: { status: "update_required", requiredVersion: null, latestVersion: null, wakeBlocked: true },
+    });
+  });
+  it("does not weaken a required stable232 safety policy to preview231", () => {
+    const required = createReleaseManifest({ serviceUpdatePolicy: "required", serviceBundleVersion: "0.3.232" });
+    expect(project({ source: previewSource, policy: required })).toMatchObject({
+      service: { status: "update_required", latestVersion: null, wakeBlocked: true },
+    });
+  });
+  it("preserves npm policy without borrowing binary platform availability", () => {
+    expect(project({ source: { ...previewSource, distribution: "npm", channel: "stable" } })).toMatchObject({
+      cli: { latestPackageVersion: "0.3.232", status: "update_available" },
+      service: { latestVersion: "0.3.232", status: "update_available" },
+    });
+  });
+  it("supports a separately retained preview Service", () => {
+    const retained = { ...catalog, entries: [{
+      ...catalog.entries[0],
+      policy: { ...previewPolicy, service: { ...previewPolicy.service, bundleVersion: "0.3.230" } },
+    }] };
+    expect(project({ source: previewSource, catalog: retained, installed: "0.3.230" })).toMatchObject({
+      cli: { latestPackageVersion: "0.3.231", status: "update_available" },
+      service: { latestVersion: "0.3.230", status: "current" },
+    });
+  });
+});

@@ -308,6 +308,7 @@ export function ChatsDirectory() {
 									return (
 										<TableRow
 											className="group/directory-row border-0"
+											contextMenu
 											key={chat.spaceId}
 										>
 											<TableCell className="max-w-0 py-4">
@@ -373,6 +374,7 @@ export function ChatsDirectory() {
 															{ id: "chats", name: "Direct messages" },
 															...model.preferences.groups,
 														]}
+														href={model.chatPath(chat)}
 														name={model.title(chat)}
 														onMove={(groupId) =>
 															model.move(groupId, chat.spaceId)

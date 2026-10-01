@@ -12,6 +12,7 @@ import {
   cliBinaryManifestSchema,
   OPENMELD_MACOS_CLI_SIGNING_IDENTITY,
 } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
+import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
 import { smokeSignedMacOsSecureStorage } from "../e2e/signed-cli-macos-secure-storage-smoke.mjs";
 import {
   buildCliBinary,
@@ -63,6 +64,7 @@ export function buildCliManifest(input) {
     channels: {
       stable: {
         version: input.version,
+        ...(input.componentPolicy ? { componentPolicy: input.componentPolicy } : {}),
         minRequiredCliVersion: input.minRequiredCliVersion,
         ...(input.service ? { service: input.service } : {}),
         platforms: {
@@ -193,7 +195,11 @@ export async function uploadCliBinary(input = {}) {
     manifestObjectKey: CLI_MANIFEST_OBJECT_KEY,
   });
   const minRequiredCliVersion = resolveCliMinRequiredVersion();
+  const releasePolicy = localComponentsReleaseManifestSchema.parse(JSON.parse(
+    readFileSync(path.join(input.repoRoot ?? REPO_ROOT, LOCAL_COMPONENTS_MANIFEST_PATH), "utf8")
+  ));
   const manifest = buildCliManifest({
+    componentPolicy: { cli: releasePolicy.components.cli, service: releasePolicy.components.service },
     archiveArtifactName: archive.artifactName,
     archiveSha256: archive.sha256,
     archiveSizeBytes: archive.sizeBytes,

@@ -295,6 +295,7 @@ function createLocalComponentsStatus(
     schemaVersion: 1,
     generatedAt: "2026-09-01T12:54:00.000Z",
     entrypoint: "setup",
+    installationSource: { distribution: "npm", channel: "stable", platform: "darwin-arm64" },
     summaryLabel: "Everything is up to date",
     summaryDescription: "OpenMeld Tools are ready.",
     setupAction: "none",
@@ -345,3 +346,16 @@ function createLocalComponentsStatus(
     },
   };
 }
+
+it("skips automatic binary upgrades when the source has no installable target, even with skills drift", () => {
+  const input = createDecisionInput();
+  if (!input.capabilities.localComponents) {
+    throw new Error("fixture lacks components");
+  }
+  input.capabilities.localComponents.installationSource = {
+    distribution: "binary", channel: "windows-preview", platform: "windows-x64",
+  };
+  expect(resolveReleaseTriggeredOpenMeldToolsUpdateDecision({
+    ...input, availabilityCatalog: { schemaVersion: 1, entries: [] },
+  })).toEqual({ status: "skipped", reasonCode: "automatic_update.no_actionable_release" });
+});

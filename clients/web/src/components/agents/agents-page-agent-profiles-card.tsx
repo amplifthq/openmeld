@@ -1,6 +1,5 @@
 "use client";
 
-import { Popover } from "@base-ui/react/popover";
 import {
 	type AgentProfileOperationalContextInput,
 	buildProfileDetailsSnapshotFromAuthProfile,
@@ -59,6 +58,10 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import {
+	FluidContextMenuContent,
+	useFluidContextMenuOpen,
+} from "@openmeld/ui/fluid/context-menu";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -111,6 +114,7 @@ import {
 	resolveLocalAgentEntryControllerRef,
 } from "#/components/agents/agent-profile-edit-state";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import {
 	DirectoryCardGrid,
 	DirectoryCardItem,
@@ -2380,6 +2384,7 @@ function AgentProfileExecutionReadinessRow(
 					"min-h-40",
 					resolveFocusedAgentProfileClassName(input.rowState.isFocused)
 				)}
+				contextMenu
 				dimTitle={rowTone === "muted"}
 				footerLeft={
 					<AgentProfileFooterDetail
@@ -2649,6 +2654,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 					"min-h-40",
 					resolveFocusedAgentProfileClassName(input.isFocusedProfile)
 				)}
+				contextMenu
 				footerLeft={
 					<AgentProfileFooterDetail
 						primaryDetail="Loading Wake availability"
@@ -2687,6 +2693,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 					"min-h-40",
 					resolveFocusedAgentProfileClassName(input.isFocusedProfile)
 				)}
+				contextMenu
 				footerLeft={
 					<AgentProfileFooterDetail
 						primaryDetail={input.errorMessage}
@@ -2734,6 +2741,7 @@ function renderAgentProfileReadinessPlaceholderCard(input: {
 					"min-h-40",
 					resolveFocusedAgentProfileClassName(input.isFocusedProfile)
 				)}
+				contextMenu
 				dimTitle={true}
 				footerLeft={
 					<AgentProfileFooterDetail
@@ -3016,7 +3024,7 @@ function isAgentProfileUnbindDisabled(input: {
 	);
 }
 
-function AgentProfileOptionsPopover(input: {
+function AgentProfileOptionsMenu(input: {
 	capabilities: {
 		canManage: boolean;
 		hasEnabledPrimaryBinding: boolean;
@@ -3034,110 +3042,120 @@ function AgentProfileOptionsPopover(input: {
 	onOpenRemove: () => void;
 	onOpenUnbind: () => void;
 	profileName: string;
+	href: string;
+	onEdit?: () => void;
+	editDisabled?: boolean;
+	onMessage: () => void;
+	messageDisabled: boolean;
 	showDetailsAction?: boolean;
 }) {
-	return (
-		<Popover.Root
-			modal={false}
-			onOpenChange={input.onOpenChange}
-			open={input.isOpen}
-		>
-			<Popover.Trigger
-				render={
-					<Button
-						aria-label={`Agent options for ${input.profileName}`}
-						size="icon"
-						type="button"
-						variant="ghost"
-					/>
-				}
+	const items = (
+		<>
+			<ObjectMenuItems href={input.href} />
+			<FluidDropdownMenuItem
+				disabled={input.messageDisabled}
+				index={4}
+				onClick={input.onMessage}
 			>
-				<DotsThreeIcon aria-hidden="true" />
-			</Popover.Trigger>
-			<Popover.Portal>
-				<Popover.Positioner
-					align="end"
-					collisionAvoidance={{
-						align: "shift",
-						fallbackAxisSide: "start",
-						side: "flip",
-					}}
-					collisionPadding={12}
-					side="bottom"
-					sideOffset={8}
+				<ChatCircleTextIcon aria-hidden="true" />
+				Message
+			</FluidDropdownMenuItem>
+			{input.capabilities.canManage && input.onEdit && (
+				<FluidDropdownMenuItem
+					disabled={input.editDisabled}
+					index={5}
+					onClick={input.onEdit}
 				>
-					<Popover.Popup
-						className="z-50 min-w-52 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
-						finalFocus={false}
+					<WrenchIcon aria-hidden="true" />
+					Edit Agent
+				</FluidDropdownMenuItem>
+			)}
+			{input.showDetailsAction !== false && (
+				<FluidDropdownMenuItem
+					index={0}
+					onClick={() => {
+						input.onOpenChange(false);
+						input.onOpenDetails?.();
+					}}
+				>
+					<InfoIcon aria-hidden="true" />
+					More details
+				</FluidDropdownMenuItem>
+			)}
+			{input.capabilities.canManage && (
+				<>
+					{input.capabilities.showProjectSettings && (
+						<FluidDropdownMenuItem
+							index={1}
+							onClick={() => {
+								input.onOpenChange(false);
+								input.onOpenProjectSettings();
+							}}
+						>
+							<WrenchIcon aria-hidden="true" />
+							Default Project and folder
+						</FluidDropdownMenuItem>
+					)}
+					{input.capabilities.hasEnabledPrimaryBinding && (
+						<FluidDropdownMenuItem
+							aria-description={input.controllerChangeStatusLabel ?? undefined}
+							aria-label="Unbind controller"
+							disabled={input.disabledActions.unbindController}
+							index={2}
+							onClick={() => {
+								input.onOpenChange(false);
+								input.onOpenUnbind();
+							}}
+							variant="destructive"
+						>
+							<WrenchIcon aria-hidden="true" />
+							<span className="flex min-w-0 flex-1 justify-between gap-3">
+								<span>Unbind controller</span>
+								<span className="text-muted-foreground text-xs">
+									{input.controllerChangeStatusLabel}
+								</span>
+							</span>
+						</FluidDropdownMenuItem>
+					)}
+					<FluidDropdownMenuItem
+						disabled={input.disabledActions.remove}
+						index={3}
+						onClick={() => {
+							input.onOpenChange(false);
+							input.onOpenRemove();
+						}}
+						variant="destructive"
 					>
-						{input.showDetailsAction === false ? null : (
-							<button
-								className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-								onClick={() => {
-									input.onOpenChange(false);
-									input.onOpenDetails?.();
-								}}
-								type="button"
-							>
-								<InfoIcon aria-hidden="true" className="h-4 w-4" />
-								More details
-							</button>
-						)}
-						{input.capabilities.canManage ? (
-							<>
-								{input.capabilities.showProjectSettings ? (
-									<button
-										className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-										onClick={() => {
-											input.onOpenChange(false);
-											input.onOpenProjectSettings();
-										}}
-										type="button"
-									>
-										<WrenchIcon aria-hidden="true" className="h-4 w-4" />
-										Default Project and folder
-									</button>
-								) : null}
-								{input.capabilities.hasEnabledPrimaryBinding ? (
-									<button
-										className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-destructive text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-										disabled={input.disabledActions.unbindController}
-										onClick={() => {
-											input.onOpenChange(false);
-											input.onOpenUnbind();
-										}}
-										type="button"
-									>
-										<WrenchIcon aria-hidden="true" className="h-4 w-4" />
-										<span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-											<span>Unbind controller</span>
-											<span
-												aria-hidden="true"
-												className="text-muted-foreground text-xs empty:hidden"
-											>
-												{input.controllerChangeStatusLabel}
-											</span>
-										</span>
-									</button>
-								) : null}
-								<button
-									className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-destructive text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-									disabled={input.disabledActions.remove}
-									onClick={() => {
-										input.onOpenChange(false);
-										input.onOpenRemove();
-									}}
-									type="button"
-								>
-									<TrashIcon aria-hidden="true" className="h-4 w-4" />
-									Remove profile
-								</button>
-							</>
-						) : null}
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
+						<TrashIcon aria-hidden="true" />
+						Remove profile
+					</FluidDropdownMenuItem>
+				</>
+			)}
+		</>
+	);
+	return (
+		<>
+			<DropdownMenu onOpenChange={input.onOpenChange} open={input.isOpen}>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							aria-label={`Agent options for ${input.profileName}`}
+							size="icon"
+							type="button"
+							variant="ghost"
+						/>
+					}
+				>
+					<DotsThreeIcon aria-hidden="true" />
+				</DropdownMenuTrigger>
+				<FluidDropdownMenuContent align="end" className="min-w-56">
+					{items}
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+			<FluidContextMenuContent className="min-w-56">
+				{items}
+			</FluidContextMenuContent>
+		</>
 	);
 }
 
@@ -3250,11 +3268,12 @@ function useAgentProfileRowEligibility(input: {
 	dialogState: AgentProfileRowDialogState;
 	input: AgentProfileRowMoreMenuProps;
 }) {
+	const contextMenuOpen = useFluidContextMenuOpen();
 	const controllerChangeEligibilityQuery = useQuery(
 		agentProfileControllerChangeEligibilityQueryOptions({
 			agentProfileId: input.input.profile.openMeldProfileId,
 			enabled: shouldReadControllerChangeEligibility({
-				isMenuOpen: input.dialogState.menuOpen,
+				isMenuOpen: input.dialogState.menuOpen || contextMenuOpen,
 				isProfileEditDialogOpen:
 					input.dialogState.profileEditOpen ||
 					input.input.presentation === "detail",
@@ -3558,6 +3577,7 @@ function AgentProfileCardPresentation(input: {
 function AgentProfileCardActions(input: {
 	input: Parameters<typeof AgentProfileCardPresentation>[0];
 }) {
+	const { currentOrganization } = useAppOrganization();
 	const presentation = input.input;
 	const profile = presentation.input;
 	return (
@@ -3584,7 +3604,7 @@ function AgentProfileCardActions(input: {
 				<TooltipContent side="bottom">Direct Message</TooltipContent>
 			</Tooltip>
 			<AgentProfileCardEditAction input={presentation} />
-			<AgentProfileOptionsPopover
+			<AgentProfileOptionsMenu
 				capabilities={{
 					canManage: profile.capabilities.canManage,
 					hasEnabledPrimaryBinding:
@@ -3597,7 +3617,21 @@ function AgentProfileCardActions(input: {
 					remove: profile.pendingState.remove,
 					unbindController: presentation.unbindControllerDisabled,
 				}}
+				editDisabled={
+					presentation.presentationState.profileEditPending ||
+					profile.pendingState.disablePrimaryBinding
+				}
+				href={`/o/${currentOrganization.slug}/agents?profileId=${encodeURIComponent(profile.profile.openMeldProfileId)}`}
 				isOpen={presentation.presentationState.menuOpen}
+				messageDisabled={profile.pendingState.directMessage}
+				onEdit={() => presentation.onOpenChange.profileEdit(true)}
+				onMessage={() => {
+					profile
+						.onOpenDirectMessage()
+						.catch((error) =>
+							console.error("Direct Message action failed.", error)
+						);
+				}}
 				onOpenChange={presentation.onOpenChange.menu}
 				onOpenDetails={() => presentation.onOpenChange.details(true)}
 				onOpenProjectSettings={() =>
@@ -3678,6 +3712,7 @@ function AgentProfileWorkspacePresentation(input: {
 		unbindControllerDisabled: boolean;
 	};
 }) {
+	const { currentOrganization } = useAppOrganization();
 	const projectId = input.input.profile.defaultProjectId;
 	const projectsQuery = useQuery(
 		projectsQueryOptions({
@@ -3723,7 +3758,7 @@ function AgentProfileWorkspacePresentation(input: {
 		/>
 	);
 	const overflowActions = (
-		<AgentProfileOptionsPopover
+		<AgentProfileOptionsMenu
 			capabilities={{
 				canManage: input.input.capabilities.canManage,
 				hasEnabledPrimaryBinding:
@@ -3736,7 +3771,21 @@ function AgentProfileWorkspacePresentation(input: {
 				remove: input.input.pendingState.remove,
 				unbindController: input.workspaceOptions.unbindControllerDisabled,
 			}}
+			editDisabled={
+				input.presentationState.profileEditPending ||
+				input.input.pendingState.disablePrimaryBinding
+			}
+			href={`/o/${currentOrganization.slug}/agents?profileId=${encodeURIComponent(input.input.profile.openMeldProfileId)}`}
 			isOpen={input.presentationState.menuOpen}
+			messageDisabled={input.input.pendingState.directMessage}
+			onEdit={() => input.onOpenChange.profileEdit(true)}
+			onMessage={() => {
+				input.input
+					.onOpenDirectMessage()
+					.catch((error) =>
+						console.error("Direct Message action failed.", error)
+					);
+			}}
 			onOpenChange={input.onOpenChange.menu}
 			onOpenDetails={() => input.onOpenChange.details(true)}
 			onOpenProjectSettings={() => input.onOpenChange.projectSettings(true)}
@@ -6308,3 +6357,12 @@ function AgentProfileWakeAvailabilityRecoveryActions(input: {
 	}
 	return null;
 }
+
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";

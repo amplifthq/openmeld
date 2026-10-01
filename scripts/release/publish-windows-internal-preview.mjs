@@ -116,6 +116,9 @@ function validateBundle(directory, requireMain, cliOnly = false) {
   );
   const sourceSha = validateSourceIdentity(bundle, requireMain);
   const manifest = cliBinaryManifestSchema.parse(bundle.manifest);
+  if (!manifest.channels.stable.componentPolicy) {
+    throw new Error("Windows preview requires source-matched CLI and Service component policies.");
+  }
   const pointer = cliOnly
     ? undefined
     : desktopWindowsInternalPreviewSchema.parse(bundle.pointer);
@@ -289,7 +292,7 @@ async function main() {
     });
   }
   process.stdout.write(
-    `Windows ${cliOnly ? "CLI" : "CLI and Desktop"} internal preview published from ${selected.sourceSha}. Verify public Web URLs before sharing them.\n`
+    `Windows ${cliOnly ? "CLI" : "CLI and Desktop"} internal preview published from ${selected.sourceSha}. Publication closeout is pending: verify public URLs, then run guarded Core --redeploy and retain newly admitted Worker/catalogue evidence before sharing completion.\n`
   );
 }
 

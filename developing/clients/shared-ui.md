@@ -30,6 +30,14 @@
 - reusable motion mechanics such as pointer-proximity magnification, with
   stable interaction hit areas and reduced-motion behavior
 
+`lib/utils` re-exports `cn` from shadcn's zero-dependency `cn` package. Keep
+client imports through `@openmeld/ui/lib/utils`; the shared package owns this
+dependency. It combines conditional class joining and Tailwind v4 conflict
+resolution without a local `clsx` / `tailwind-merge` wrapper. See the official
+[cn migration](https://ui.shadcn.com/docs/cli#migrate-cn). Do not add a second
+client-local implementation or a class-table build plugin without a measured
+need.
+
 This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
@@ -56,6 +64,54 @@ hover or keyboard focus, with open-menu and touch-device visibility preserved.
 Space Agent work and reasoning share `fluid/thinking-steps` as their disclosure;
 client code supplies the private reasoning, public progress, and admitted work
 content without a second shared disclosure component.
+
+### Fluid Hover reuse
+
+`hooks/use-fluid-hover` and `fluid/fluid-hover-highlight` are installed from the
+official Fluid Functionalism registry. The import retains the vendor's nearest
+enabled-item picking, coalesced measurement, pointer-session reset, optional
+gap activation, and reduced-motion fade without travel. Package imports,
+`interaction-hover`, and the existing shared spring tokens are the local
+adaptations. Installation source:
+
+```sh
+pnpm dlx shadcn@latest add https://www.fluidfunctionalism.com/r/use-fluid-hover.json --overwrite
+```
+
+Review registry imports in an isolated directory before transferring them into
+this package; do not overwrite existing shared tokens or adapted primitives.
+`FluidActionList` composes this hook and highlight for shared action menus.
+Gap activation is opt-in because generic menus can contain destructive actions;
+the Sidebar display menu enables it for its reversible alternatives.
+
+For context menus, use Base UI's ContextMenu root and trigger with
+`FluidDropdownMenuContent` and `FluidDropdownMenuItem` or
+`FluidDropdownMenuRadioItem`. The installed Base UI version shares its popup,
+positioner, and item primitives between Menu and ContextMenu. Reuse these slots
+instead of introducing a second Fluid context-menu visual or hover engine.
+Base UI retains roles, keyboard navigation, selection, positioning, dismissal,
+and focus restoration; Fluid Hover does not own those responsibilities.
+
+`fluid/context-menu` composes these same slots. `FluidContextMenuScope` renders
+the existing row/card through its trigger slot; an action owner supplies
+`FluidContextMenuContent` beside its ordinary dropdown and reuses the same
+items. `useFluidContextMenuOpen` exposes that root's controlled open state for
+eligibility reads. Nested scopes open only the nearest menu. Inputs, editable
+content, selected text, and disabled scopes retain native context menus.
+`FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
+`FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
+
+Prefer this primitive for stable, closely spaced clickable alternatives in
+menus, navigation, tabs, and grids. Use one list per semantic group; split at
+dividers and register only real click targets. Skip proximity or gap activation
+when a wrong click would hurt, clickability is mixed, empty space is large, or
+rows move while scrolling. Disabled rows and intervening controls must retain
+their own semantics. Existing specialized sidebar and tab geometry remains
+owned by those components; clients must not recreate it. Verify travel across
+rows and gaps, gap activation, keyboard operation, reopening, disabled states,
+touch behavior, and reduced motion in the complete surface. Official reference:
+[Fluid Hover](https://www.fluidfunctionalism.com/docs/fluid-hover).
+
 
 ## Import Rule
 

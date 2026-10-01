@@ -1471,6 +1471,34 @@ the shared 52px Fluid icon width, giving the work area 24px more room while
 preserving navigation destinations and the inner sidebar's width. Narrow
 screen drawers always show full labels.
 
+### Product context menus
+
+Right-click entry points reuse `@openmeld/ui/fluid/context-menu` and the same
+action owners as ordinary menus. They do not introduce a second preference,
+permission, confirmation, or mutation path:
+
+| Surface | Actions |
+| --- | --- |
+| Primary rail destinations | Open and copy link; empty rail retains the display menu |
+| Conversation sidebar and directory rows | Open, copy link, pin/unpin, move; rename/archive when offered by the existing owner |
+| Conversation sidebar empty area | New message and new Space |
+| Space and thread messages | Existing reactions, copy, reply, pin, task, details, edit and recall actions, with their original eligibility |
+| Inbox items and groups | Open/copy source link, read/unread, remove; groups retain their exact snapshot and confirmation boundary |
+| Team people | Open/copy profile link, message, star/unstar using the same sidebar preferences |
+| Agent cards and workspace header | Existing details, editing, messaging, Project/folder, unbind and removal actions; opening either menu refreshes eligibility |
+| Plugin and Skill catalog cards | Open and copy the exact detail destination |
+| Skill detail header | Existing copy, usage, properties, history, maintainers, enable/disable and removal operations |
+| Team and Space file browsers | Existing create, open/download, rename, move/copy, pin, trash/restore actions appropriate to the location and permissions |
+| Knowledge folder/document cards | Open/copy authorized navigation links and existing management menus |
+
+`copyAppLink` resolves relative destinations against Web's current origin or
+Desktop's declared public Web origin, never the packaged renderer origin.
+OpenMeld currently has no general resource deep-link protocol. Do not invent
+one or expose a private download URL as a share link. Knowledge document links
+retain normal access checks; files without a public navigation link retain
+their existing download/copy operations. Editors and selected text retain
+native menus; progress-only message rows do not create empty custom menus.
+
 Appearance also owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
