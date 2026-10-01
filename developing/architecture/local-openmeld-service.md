@@ -486,7 +486,7 @@ expired, unavailable, or otherwise unconfirmed Usage does not add a block;
 the separate current Controller readiness and trust requirements still apply.
 Positive fresh capacity remains required for automatic recovery after an
 exhausted execution. A controller that explicitly reports Usage as
-`unsupported`, or whose matrix entry is passive, unsupported, or not evaluated,
+`unsupported`, or whose matrix entry is observational, unsupported, or not evaluated,
 does not use Usage as a Wakeability condition. A separate structured
 provider-access evidence field may be emitted only after an ordinary Wake is
 accepted and returns a definitive account blocker: organization access
@@ -507,11 +507,18 @@ new work under a capability contract they did not implement.
 OpenCode is provider-scoped. Its ordinary provider inventory names connected
 providers but does not expose a universal quota contract. OpenMeld reads the
 official OpenCode Go usage endpoint for that provider's 5-hour, weekly, and
-monthly windows. The OpenCode Go API key is read transiently from OpenCode's
-official local auth input or store, used only for that request, and never
-logged, retained, or projected. Other connected OpenCode providers are
+monthly windows. A Go 403 is an inapplicable account capability, not evidence
+that the signed-in controller or its other providers are broken. OpenRouter's
+official key endpoint supplies independent free-model daily request limits and,
+when bounded, a key budget. Missing reset times remain unknown. OpenRouter
+observations cannot block a paid model or authorize exhausted-work recovery.
+Credentials come from the native provider inventory when exposed, otherwise
+OpenCode's official local auth input or store, then the provider environment
+key. Stored auth takes precedence over environment keys. Custom provider
+endpoints do not send credentials to the default account endpoint. Keys are
+used transiently and never logged, retained, or projected. Other providers are
 `unsupported` until a provider-owned, non-task capacity source is verified.
-Failure to read OpenCode Go usage produces provider-scoped `unavailable`
+Failure to read provider usage produces provider-scoped `unavailable`
 evidence without failing the rest of the Computer inventory.
 
 Antigravity has native Usage support through its signed-in CLI. OpenMeld runs
@@ -538,13 +545,32 @@ Controller Report, so a Service restart followed by a temporary provider
 failure does not erase stored numeric evidence for a proven unchanged account.
 This is an update to the canonical report row, not a second Usage Limit store.
 
-Claude Code is partially supported through public Agent SDK
-`rate_limit_event` messages already present in OpenMeld-launched turns. Only a
-finite native utilization value and its allowlisted window/reset fields become
-capacity evidence; missing ordinary utilization remains unknown. OpenMeld must
-not install or replace the user's global Claude status line, invoke Claude for
-collection, read Claude credentials, call a private OAuth usage endpoint, or
-substitute transcript token/cost estimates.
+Claude Code uses the public Agent SDK control connection on verified CLI
+versions (2.1.285 or newer), without sending a user message. The probe disables
+hooks, tools, MCP connections, session persistence, and IDE connections, and
+requests usage with `skipBehaviors: true` so collection never scans local
+transcripts. Initialization must prove the same first-party account as native
+ACI authentication before reading usage. SDK account windows are percentages;
+ordinary `rate_limit_event` utilization is a fraction. Dynamic model windows
+and independently known reset times are preserved; monetary and behavior fields
+are discarded. Older versions remain observational with unreported capacity.
+OpenMeld must not replace the user's status line, read Claude credentials, call
+a private OAuth endpoint directly, or substitute transcript token/cost estimates.
+This experimental source is observational and never decides Wake admission or
+automatic recovery.
+
+Cursor reads its native CLI login token transiently from the effective
+environment, its official auth file, or the macOS Keychain with interaction
+disabled. Explicit API keys and memory-only stores never borrow a saved account;
+custom API endpoints never send tokens to the default account endpoint. The
+DashboardService percentages include bonus usage and are displayed independently
+of billing dollars. No browser cookies, IDE database fallback, refresh writes,
+or payment information are used. This internal source is observational because
+paid overage and account-specific limits cannot safely decide Wake admission.
+
+Codex also publishes `account/rateLimits/updated` events through this same
+account-bound keeper after native authentication proves the current account.
+Neither event collection nor account queries start a conversation or model call.
 
 ### Agent Instruction Delivery
 

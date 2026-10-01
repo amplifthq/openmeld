@@ -60,6 +60,10 @@ export {
   resolveAgentControllerUsageProviderId,
 } from "./agent-controller-usage-limit-support";
 export {
+  isAgentControllerUsageAccountUnavailable,
+  isAgentControllerUsageRefreshUnavailable,
+} from "./agent-controller-usage-refresh";
+export {
   DUPLICATE_REPLY_CONVERSATION_CONTEXT,
   DUPLICATE_REPLY_CONVERSATION_REASON,
   DUPLICATE_REPLY_CONVERSATION_TOOLTIP,

@@ -5882,6 +5882,15 @@ That owner-only comparison evidence never becomes part of the Usage Limit item
 or crosses into Organization Computers; an unknown or different account fails
 closed instead of reusing the observation.
 
+Support matrix version 4 adds observational Cursor and OpenRouter collection
+alongside Claude's experimental SDK control probe. Observational means display
+evidence only: it cannot block new work or authorize exhausted-work recovery.
+Claude account windows already use 0–100 percentages, unlike its 0–1 stream
+events. The SDK probe sends no prompt and skips local behavior/transcript scans.
+OpenRouter free-model request capacity is not capacity for every model hosted
+by OpenCode. Native Codex rate-limit events use the existing account-bound
+keeper and the same sanitized list. No new polling state or usage store exists.
+
 Version advisory is read-only controller maintenance evidence:
 current version, latest known version, advisory status, and an optional manual
 update command for the install method OpenMeld detected. It must not become an
