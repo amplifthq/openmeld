@@ -10821,6 +10821,27 @@ function createMemoryRepository(input: {
   organizationMemoryOptIn: boolean;
 }): CenterAgentMemoryRepository {
   return {
+    readActiveSubjects: vi.fn(async (readInput) => [
+      ...(readInput.speakerMember
+        ? [
+            {
+              ...buildCenterAgentMemberMemoryRef({
+                organizationId: readInput.organizationId,
+                ...readInput.speakerMember,
+              }),
+              updatedAtMs: 1,
+            },
+          ]
+        : []),
+      ...(input.organizationMemoryOptIn
+        ? [
+            {
+              ...buildCenterAgentOrganizationMemoryRef(readInput),
+              updatedAtMs: 1,
+            },
+          ]
+        : []),
+    ]),
     markMemberDeleted: vi.fn(async () => true),
     markMemberDeleteFailed: vi.fn(async () => undefined),
     markOrganizationDeleted: vi.fn(async () => true),

@@ -2257,12 +2257,11 @@ than by the model provider:
   verified requesting member, whether the private conversation is an OpenMeld
   DM, Slack DM, Lark DM, or Feishu DM. The member can wipe it without deleting
   messages, Spaces, or shared organization memory.
-- **Organization memory** is on by default. Completed Center Agent turns in
-  shared Spaces and Organization-shared Channels can be used as Organization
-  memory until an organization owner or admin turns it off. Requester-private
-  conversations never write to Organization memory automatically. Externally
-  shared Channels also do not write it automatically unless a future explicit
-  owner policy authorizes that environment. The Center Agent may save an
+- **Organization memory** is on by default for recall and explicit saves.
+  Completed turns in shared Spaces and Organization-shared Channels do not
+  automatically write any memory scope. Requester-private conversations retain
+  automatic Member capture; externally shared conversations capture neither.
+  The Center Agent may save an
   explicit Organization fact only from an `organization_shared` conversation
   while Organization memory is enabled. Remote Agent offers that explicit tool
   only when the frozen environment is present, non-conflicting, and
@@ -2272,8 +2271,7 @@ than by the model provider:
 - For automatic completed-turn capture, Core selects the memory subject from
   the frozen `interactionEnvironment` and a currently verified requester/member
   identity. `requester_private` selects Member memory,
-  `organization_shared` selects enabled Organization memory, and
-  `externally_shared` selects neither. A carrier or provenance source such as
+  `organization_shared` and `externally_shared` select neither. A carrier or provenance source such as
   `slack_conversation` or `message_channel_conversation` never selects the
   subject. Missing, conflicting, or mismatched environment and identity
   evidence fails closed without a memory write. Automatic capture runs after
@@ -2283,6 +2281,17 @@ than by the model provider:
   that produced it. Entering through a different DM, Space, Slack, Lark, or
   Feishu conversation must not relabel the memory as if it came from the
   current conversation.
+- Automatic recall reads existing active subjects without provisioning or
+  reviving deleted memory, then rechecks policy and subject state after the
+  provider returns. Selection preserves rank within each scope and shares both
+  the six-item and 1,600-character budgets. Provider fact validity is a bounded
+  text hint, with unknown times marked explicitly; occurrence time is not an
+  approval time. Current approved documents take precedence over old memory
+  for current work, while historical questions may still use historical facts.
+- A personal preference expressed in a shared conversation is not silently
+  saved to either scope. Acknowledge understanding without claiming durable
+  storage or suggesting team sharing as the default. Explicit personal writes
+  in shared conversations are outside this phase.
 - A verified member keeps member-memory continuity across Center Agent DM,
   Space, Slack, Lark, Feishu, Task continuation, and a future Local Agent
   carrier. The current environment changes disclosure behavior, not who the
