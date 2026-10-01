@@ -3450,6 +3450,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             maxLength(32)
           )
         ),
+        groupTimeSeriesBy: optional(literal("controller")),
       }),
       execute: async (payload) => {
         const context = await buildOrganizationMemberToolContext({

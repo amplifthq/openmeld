@@ -89,6 +89,10 @@ export const aiUsageQuerySchema = z
     includeIssues: z.boolean().optional(),
     // Explicit calendar boundaries also support 23/25-hour daylight-saving days.
     bucketBoundariesMs: z.array(count).min(2).max(32).optional(),
+    groupTimeSeriesBy: z.literal("controller").optional(),
+  })
+  .refine((value) => !value.groupTimeSeriesBy || !!value.bucketBoundariesMs, {
+    message: "Time series grouping requires bucket boundaries.",
   })
   .refine(
     (value) =>
@@ -190,6 +194,18 @@ export const aiUsageQueryResponseSchema = z.strictObject({
         outputTokens: count,
         totalTokens: count,
         missingTokenRequests: count,
+        controllers: z
+          .array(
+            z.strictObject({
+              controller: identifier.nullable(),
+              requests: count,
+              inputTokens: count,
+              outputTokens: count,
+              totalTokens: count,
+              missingTokenRequests: count,
+            })
+          )
+          .optional(),
       })
     )
     .max(31)

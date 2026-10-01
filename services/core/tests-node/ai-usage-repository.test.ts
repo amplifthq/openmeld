@@ -50,8 +50,8 @@ describe("Organization AI consumption", () => {
     try {
       for (const [index, receipt] of [
         { occurredAtMs: edges[0] - 1 },
-        { occurredAtMs: edges[0] },
-        { occurredAtMs: edges[1] - 1 },
+        { occurredAtMs: edges[0], controller: "builtin:codex" },
+        { occurredAtMs: edges[1] - 1, controller: "builtin:claude-code" },
         {
           occurredAtMs: edges[1],
           tokens: null,
@@ -114,6 +114,52 @@ describe("Organization AI consumption", () => {
       expect(result.models[0]?.totalTokens).toBe(240);
       expect(result.breakdown?.groups[0]?.totalTokens).toBe(240);
       expect(result.issues?.records).toHaveLength(1);
+      const grouped = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: {
+          fromMs: edges[0],
+          toMs: edges[3],
+          runtime: "local",
+          computerId: "computer-1",
+          bucketBoundariesMs: edges,
+          groupTimeSeriesBy: "controller",
+        },
+      });
+      expect(grouped.timeSeries?.[0]?.controllers).toEqual([
+        {
+          controller: "builtin:claude-code",
+          requests: 1,
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+          missingTokenRequests: 0,
+        },
+        {
+          controller: "builtin:codex",
+          requests: 1,
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+          missingTokenRequests: 0,
+        },
+      ]);
+      expect(grouped.timeSeries?.[1]?.controllers).toEqual([
+        {
+          controller: null,
+          requests: 1,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          missingTokenRequests: 1,
+        },
+      ]);
+      expect(grouped.timeSeries?.[2]?.controllers).toEqual([]);
+      expect(
+        grouped.timeSeries?.map(
+          ({ controllers: _controllers, ...bucket }) => bucket
+        )
+      ).toEqual(result.timeSeries);
       await expect(
         queryAiUsage({
           db: harness.db,

@@ -85,34 +85,7 @@ export async function queryAiUsage(input: {
   nowMs?: number;
 }): Promise<AiUsageQueryResponse> {
   const query = aiUsageQuerySchema.parse(input.query);
-  const predicates = [
-    "organization_id = ?",
-    "occurred_at_ms >= ?",
-    "occurred_at_ms < ?",
-  ];
-  const values: (string | number)[] = [
-    input.organizationId,
-    query.fromMs,
-    query.toMs,
-  ];
-  const filters = {
-    runtime: "runtime",
-    model: "model",
-    agentProfileId: "agent_profile_id",
-    spaceId: "space_id",
-    taskId: "task_id",
-    dispatchId: "json_extract(record_json, '$.dispatchId')",
-    computerId: "computer_id",
-    controller: "controller",
-  } as const;
-  for (const [key, column] of Object.entries(filters)) {
-    const value = query[key as keyof typeof filters];
-    if (value !== undefined) {
-      predicates.push(`${column} = ?`);
-      values.push(value);
-    }
-  }
-  const where = predicates.join(" AND ");
+  const { where, values } = usageScope(input.organizationId, query);
   const aggregate = `COUNT(*) AS requests,
       COALESCE(SUM(input_tokens), 0) AS inputTokens,
       COALESCE(SUM(output_tokens), 0) AS outputTokens,
@@ -181,24 +154,11 @@ export async function queryAiUsage(input: {
   }
   const seriesIndex = statements.length;
   const edges = query.bucketBoundariesMs;
+  const byController = query.groupTimeSeriesBy === "controller";
   if (edges) {
-    // Bound edges precede the shared scope predicates. No client SQL enters this query.
-    const buckets = edges
-      .slice(1)
-      .map((_, index) => `WHEN occurred_at_ms < ? THEN ${index}`)
-      .join(" ");
     statements.push(
       input.db
-        .prepare(`
-      SELECT CASE ${buckets} END AS bucketIndex,
-        COUNT(*) AS requests,
-        COALESCE(SUM(input_tokens), 0) AS inputTokens,
-        COALESCE(SUM(output_tokens), 0) AS outputTokens,
-        COALESCE(SUM(total_tokens), 0) AS totalTokens,
-        COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests
-      FROM ai_usage_records WHERE ${where}
-      GROUP BY bucketIndex ORDER BY bucketIndex
-    `)
+        .prepare(buildUsageTimeSeriesSql(edges, where, byController))
         .bind(...edges.slice(1), ...values)
     );
   }
@@ -218,20 +178,11 @@ export async function queryAiUsage(input: {
     models: models.results,
     ...(edges
       ? {
-          timeSeries: edges.slice(0, -1).map((fromMs, index) => {
-            const row = results[seriesIndex]?.results.find(
-              (entry) => entry.bucketIndex === index
-            );
-            return {
-              fromMs,
-              toMs: edges[index + 1],
-              requests: row?.requests ?? 0,
-              inputTokens: row?.inputTokens ?? 0,
-              outputTokens: row?.outputTokens ?? 0,
-              totalTokens: row?.totalTokens ?? 0,
-              missingTokenRequests: row?.missingTokenRequests ?? 0,
-            };
-          }),
+          timeSeries: projectUsageTimeSeries(
+            edges,
+            results[seriesIndex]?.results ?? [],
+            byController
+          ),
         }
       : {}),
     ...(issues
@@ -260,6 +211,86 @@ export async function queryAiUsage(input: {
           },
         }
       : {}),
+  });
+}
+
+function usageScope(organizationId: string, query: AiUsageQuery) {
+  const predicates = [
+    "organization_id = ?",
+    "occurred_at_ms >= ?",
+    "occurred_at_ms < ?",
+  ];
+  const values: (string | number)[] = [
+    organizationId,
+    query.fromMs,
+    query.toMs,
+  ];
+  const filters = {
+    runtime: "runtime",
+    model: "model",
+    agentProfileId: "agent_profile_id",
+    spaceId: "space_id",
+    taskId: "task_id",
+    dispatchId: "json_extract(record_json, '$.dispatchId')",
+    computerId: "computer_id",
+    controller: "controller",
+  } as const;
+  for (const [key, column] of Object.entries(filters)) {
+    const value = query[key as keyof typeof filters];
+    if (value !== undefined) {
+      predicates.push(`${column} = ?`);
+      values.push(value);
+    }
+  }
+  return { where: predicates.join(" AND "), values };
+}
+
+function buildUsageTimeSeriesSql(
+  edges: number[],
+  where: string,
+  byController: boolean
+) {
+  // Bound edges precede the shared scope predicates. No client SQL enters this query.
+  const buckets = edges
+    .slice(1)
+    .map((_, index) => `WHEN occurred_at_ms < ? THEN ${index}`)
+    .join(" ");
+  const grouping = byController ? ", controller" : "";
+  return `SELECT CASE ${buckets} END AS bucketIndex${grouping},
+    COUNT(*) AS requests,
+    COALESCE(SUM(input_tokens), 0) AS inputTokens,
+    COALESCE(SUM(output_tokens), 0) AS outputTokens,
+    COALESCE(SUM(total_tokens), 0) AS totalTokens,
+    COALESCE(SUM(total_tokens IS NULL), 0) AS missingTokenRequests
+    FROM ai_usage_records WHERE ${where}
+    GROUP BY bucketIndex${grouping} ORDER BY bucketIndex${grouping}`;
+}
+
+function projectUsageTimeSeries(
+  edges: number[],
+  rows: Record<string, unknown>[],
+  byController: boolean
+) {
+  return edges.slice(0, -1).map((fromMs, index) => {
+    const bucketRows = rows.filter((entry) => entry.bucketIndex === index);
+    const sum = (key: string) =>
+      bucketRows.reduce((total, row) => total + Number(row[key]), 0);
+    return {
+      fromMs,
+      toMs: edges[index + 1],
+      requests: sum("requests"),
+      inputTokens: sum("inputTokens"),
+      outputTokens: sum("outputTokens"),
+      totalTokens: sum("totalTokens"),
+      missingTokenRequests: sum("missingTokenRequests"),
+      ...(byController
+        ? {
+            controllers: bucketRows.map(
+              ({ bucketIndex: _bucketIndex, ...row }) => row
+            ),
+          }
+        : {}),
+    };
   });
 }
 

@@ -3000,7 +3000,11 @@ Core returns dense `timeSeries` rows with token totals, request counts, and
 missing-token counts in the same D1 batch snapshot as the model totals. Empty
 buckets mean no recorded receipts, not proof of no activity. Only callers that
 request buckets receive the new response field; the Center Agent tool accepts
-the same boundaries. This read projection introduces no migration or writer.
+the same boundaries. Optional `groupTimeSeriesBy: "controller"` requires bucket
+boundaries and adds per-controller totals to each bucket using the same scoped
+SQL aggregation. Bucket totals equal the sum of those controller rows; null
+attribution remains a separate group. Queries without this option retain the
+ungrouped response. This read projection introduces no migration or writer.
 
 Operators can inspect or preview changes with
 `node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
