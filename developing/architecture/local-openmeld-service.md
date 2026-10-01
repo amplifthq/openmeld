@@ -86,6 +86,15 @@ Execution Host assembles the existing adapters, execution slots, pending human
 interactions, route discovery, controller reporting, and durable result outbox.
 The Host never owns Core readiness, authorization, scheduling, or Space history.
 
+Connector registration, heartbeat responses, and transport errors are handled
+only by `carrier/daemon-frame-transport.ts`. The inherited IPC contract excludes
+those frames from `execution-host/frame-router.ts`; the Host has no connector
+response waiters. Startup result replay and Agent enable/installation controls
+stay with the Host. The connector derives
+adapter capabilities from the Host's reported adapter IDs, not an in-process
+adapter container. Mixed-version cloud negotiation remains a separate contract
+and is not retired by deleting unused local implementation.
+
 The runner starts its control endpoint and registers without waiting for Agent
 inventory. Host initialization, reporting, and execution cross bounded inherited
 IPC; they cannot block the connector's event loop. Host admission is closed until
