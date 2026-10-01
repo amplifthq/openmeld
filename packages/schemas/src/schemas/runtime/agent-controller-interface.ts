@@ -31,6 +31,14 @@ export const agentControllerUsageLimitSchema = z
     label: ACI_BOUNDED_LABEL_SCHEMA,
     observedAt: ACI_ISO_DATE_TIME_SCHEMA,
     provider: agentControllerUsageProviderSchema.optional(),
+    reason: z
+      .enum([
+        "not_authenticated",
+        "not_applicable",
+        "not_reported",
+        "refresh_failed",
+      ])
+      .optional(),
     resetsAt: ACI_ISO_DATE_TIME_SCHEMA.nullable(),
     status: agentControllerUsageLimitStatusSchema,
     usedPercent: z.number().finite().min(0).max(100).nullable(),
@@ -69,11 +77,12 @@ export const agentControllerUsageLimitSchema = z
     }
     if (
       (value.status === "unavailable" || value.status === "unsupported") &&
-      (value.usedPercent !== null || value.resetsAt !== null)
+      (value.usedPercent !== null ||
+        (value.status === "unsupported" && value.resetsAt !== null))
     ) {
       context.addIssue({
         code: "custom",
-        message: `${value.status} usage limits cannot invent usage or reset facts`,
+        message: `${value.status} usage limits require unknown usage; unsupported limits also require unknown reset`,
       });
     }
   });

@@ -5854,6 +5854,13 @@ contract shared by Service reporting, owner reads, Organization Computers, Web,
 Center Agent, and Local Agent JSON. Each item has one stable key and label,
 `usedPercent` with 0–100 used semantics, nullable `resetsAt`, `observedAt`, and
 one of `available`, `exhausted`, `stale`, `unavailable`, or `unsupported`.
+An optional fixed `reason` distinguishes `not_authenticated`, `not_applicable`,
+`not_reported`, and `refresh_failed`. It contains no free-text provider error,
+account identity, subscription tier, or payment facts. An `unavailable` item may
+retain a provider-reported reset time while its percentage remains null;
+`unsupported` cannot carry a reset time. A missing percentage remains unknown
+unless the verified upstream serialization contract explicitly defines its
+default, as Grok's implicit proto3 zero does for an active unified billing period.
 An item may include a strict `provider` descriptor containing only a stable id
 and display name. This optional nesting keeps existing single-provider
 controllers wire-compatible while allowing one controller such as OpenCode to
@@ -5951,6 +5958,14 @@ time and the existing report expiry. Unsupported and never-observed unavailable
 evidence remain distinct; only account-bound last-known percentage evidence
 becomes stale. This projection does not change readiness, Wake, Binding,
 routing, Agent Activity, or RuntimeCoordinator contracts.
+
+Deploy the new Web/Gateway readers and Core report receiver before publishing
+the local producer of optional usage reasons or partial reset evidence. Old
+Services remain valid. If an older Core rejects the extended Usage shape, the
+existing report compatibility retry omits Usage and its support-matrix version
+while preserving the remaining controller report. It must not invent capacity
+or suppress authentication/readiness evidence. Setup, Wake execution, Space
+actions, and Service diagnostics retain their existing contracts.
 
 Hard provider-account failure evidence is a separate optional task-result
 contract, not a reinterpretation of Usage Limits. It uses the shared

@@ -460,7 +460,13 @@ only when the existing owner-only authentication evidence proves the same
 provider account. An account change, signed-out state, or missing stable account
 identity fails closed to the current `unavailable` evidence instead of carrying
 capacity between accounts. A provider that has never returned usable evidence
-is `unavailable`. A controller with no supported native source is explicitly
+is `unavailable`. Its optional bounded reason distinguishes a sign-in gap,
+inapplicable account capability, omitted provider measurement, and a failed
+refresh. Independently reported reset evidence may remain known without a
+percentage. Grok's verified proto3 implicit float default is zero only for a
+successful unified-billing response with a recognized active period; malformed,
+non-unified, or expired responses never acquire guessed capacity.
+A controller with no supported native source is explicitly
 `unsupported`. The Service does not decide Agent Profile Wakeability, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection from these
 states. Core applies the shared versioned capability matrix to the report it
