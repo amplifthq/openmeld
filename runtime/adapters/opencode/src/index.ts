@@ -89,6 +89,7 @@ export {
   type OpenCodeGoUsageResponse,
   parseOpenCodeGoUsageResponse,
 } from "./usage/opencode-go-usage-limits.js";
+export { parseOpenRouterUsageResponse } from "./usage/openrouter-usage-limits.js";
 
 const OPENCODE_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("opencode");
