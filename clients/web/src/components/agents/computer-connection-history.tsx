@@ -67,7 +67,7 @@ function ResolvedComputerConnectionHistory(input: {
 							history.refetch().catch(() => undefined);
 						}}
 						size="sm"
-						variant="ghost"
+						variant="outline"
 					>
 						Refresh history
 					</Button>
