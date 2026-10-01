@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-01T04:32:39.187Z",
+  "updatedAt": "2026-10-01T05:05:17.000Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -1303,7 +1303,7 @@
       "models": [
         {
           "id": "openai/gpt-6.1-sol-pro",
-          "displayName": "GPT-6.1 Sol Pro",
+          "displayName": "GPT-6.1 Sol (Pro mode)",
           "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
@@ -1376,7 +1376,7 @@
         },
         {
           "id": "openai/gpt-6-astra-pro",
-          "displayName": "GPT-6 Astra Pro",
+          "displayName": "GPT-6 Astra (Pro mode)",
           "unavailable": false,
           "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null,

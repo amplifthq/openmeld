@@ -459,7 +459,7 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   `personalRemoteAgentDefault=1`; the legacy response omits the new field so
   published strict-schema CLI clients continue to read the catalog.
 - The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Sol,
-  GPT-6 Astra Pro, GPT-6.1 Sol, GPT-6.1 Sol Pro, GPT-6 Luna,
+  GPT-6 Astra (Pro mode), GPT-6.1 Sol, GPT-6.1 Sol (Pro mode), GPT-6 Luna,
   GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
   Claude Opus 5.5, Claude Opus 5, Claude Sonnet 5.5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
   Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
@@ -777,13 +777,24 @@ does not change commands, setup, Wake, Space actions, diagnostics, provider
 parameters, or transport payloads. Old and new CLI/Service/Skills work with old
 and new Core/Gateway/Web; no ordering dependency or contract bump is needed.
 The packaged CLI artifact changes; its eventual release policy can be available.
-This unstamped Draft uses the normal deferred release-readiness gate against its
+This unstamped feature PR uses the normal deferred release-readiness gate against its
 exact main base. The final release must stamp and verify the packaged artifact.
 Catalog delivery
 still belongs to Core; shipping the offline cleanup also requires CLI delivery.
 No runtime state, readiness, identity, admission, or execution authority changes;
 the scoped architecture contracts remain intact. Live inference and Wake smoke
-remain outside this Draft's evidence, under the delivery owner's prior waiver.
+remain outside this PR's evidence, under the delivery owner's prior waiver.
+
+Display hosted Pro routes as `GPT-6.1 Sol (Pro mode)` and
+`GPT-6 Astra (Pro mode)`. OpenRouter's
+[Sol route](https://openrouter.ai/openai/gpt-6.1-sol-pro) and
+[Astra route](https://openrouter.ai/openai/gpt-6-astra-pro) use the same underlying
+models with Pro reasoning mode. This is a compute mode, not a distinct base model
+or a subscription tier. OpenAI's
+[reasoning contract](https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode)
+keeps mode separate from effort: High, Max, and other effort settings do not
+mean Pro mode. Retain the exact provider route IDs and existing effort controls;
+the display label does not add a Codex option or change provider parameters.
 
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 
