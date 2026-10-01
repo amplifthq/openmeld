@@ -7,6 +7,10 @@ import {
 } from "./local-components-availability.mjs";
 import { cliBinaryManifestSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 
+const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
+const NETWORK_FAILURE_PATTERN = /network unavailable/u;
+const HTTP_FAILURE_PATTERN = /HTTP 503/u;
+
 const policy = {
   cli: { packageVersion: "0.3.232", commandContractVersion: "cli-v1", updatePolicy: "available", reason: "Fixture." },
   service: { bundleVersion: "0.3.232", bundleHash: null, runtimeContractEpoch: "epoch-v1", serviceContractVersion: "service-v1", updatePolicy: "available", reason: "Fixture." },
@@ -36,7 +40,7 @@ test("catalogue preserves exact channel and platform availability", () => {
   assert.deepEqual(catalog.entries.map(x => [x.channel, x.platform, x.policy.cli.packageVersion]),
     [["stable", "darwin-arm64", "0.3.232"], ["windows-preview", "windows-x64", "0.3.231"]]);
   const descriptor = describeLocalComponentsAvailabilityCatalog(catalog);
-  assert.match(descriptor.sha256, /^[a-f0-9]{64}$/u);
+  assert.match(descriptor.sha256, SHA256_PATTERN);
   assert.deepEqual(JSON.parse(JSON.parse(descriptor.define.split(":").slice(1).join(":"))), catalog);
 });
 test("legacy preview never borrows global stable policy", () => {
@@ -65,13 +69,13 @@ test("optional404 is absence, malformed and network failures abort catalog compi
   await assert.rejects(readLocalComponentsAvailabilityCatalog({ ...input,
     fetch: async () => new Response("{}", { status: 200 }) }));
   await assert.rejects(readLocalComponentsAvailabilityCatalog({ ...input,
-    fetch: async () => { throw new Error("network unavailable"); } }), /network unavailable/u);
+    fetch: () => Promise.reject(new Error("network unavailable")) }), NETWORK_FAILURE_PATTERN);
   await assert.rejects(readLocalComponentsAvailabilityCatalog({ ...input,
-    fetch: async () => new Response(null, { status: 503 }) }), /HTTP 503/u);
+    fetch: async () => new Response(null, { status: 503 }) }), HTTP_FAILURE_PATTERN);
 });
 test("uses the receiver stable snapshot without a second mutable stable read", async () => {
   const urls = [];
   await readLocalComponentsAvailabilityCatalog({ releaseManifest: release,
-    stableManifest: stable, fetch: async url => { urls.push(url); return new Response(JSON.stringify(preview)); } });
+    stableManifest: stable, fetch: url => { urls.push(url); return Promise.resolve(Response.json(preview)); } });
   assert.deepEqual(urls, ["https://openmeld.ai/cli/manifest.json?channel=windows-preview"]);
 });

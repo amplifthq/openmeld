@@ -232,9 +232,9 @@ test("the receiver bridge binds candidate source separately from the retained CL
       env: capture.env,
       write: () => undefined,
       adapters: {
-        readAvailabilityCatalog: async (input) => {
+        readAvailabilityCatalog: (input) => {
           assert.equal(input.stableManifest.channels.stable.version, PUBLISHED_VERSION);
-          return { schemaVersion: 1, entries: [] };
+          return Promise.resolve({ schemaVersion: 1, entries: [] });
         },
         fetchChannelManifest: () => {
           events.push("channel");

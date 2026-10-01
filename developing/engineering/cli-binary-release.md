@@ -599,3 +599,10 @@ Do not reuse a tag-only no-op/resume receipt as availability proof. Deploy all s
 Gateway/Core/Web report receivers before publishing the new CLI/Service source field.
 This code-only change uses base-aware deferred release readiness; version and
 release manifest stamping remain a separate authorized publication action.
+
+The native Windows preview builder currently builds a fresh GUI Service carrier
+at the CLI version. It rejects a retained older Service policy before compilation;
+prepare the corresponding Service release rather than relabelling the new image.
+The stable publisher supports verified separately retained Service artifacts.
+Staging/custom binary versions omit production component policy unless the caller
+supplies an exact-artifact policy; they never inherit production version identity.

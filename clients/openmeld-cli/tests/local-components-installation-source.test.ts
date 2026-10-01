@@ -17,15 +17,21 @@ describe("local component installation source", () => {
   });
   it.each(["missing", "mismatched", "invalid"] as const)("keeps %s provenance unreported", async (kind) => {
     expect(await resolveLocalComponentsInstallationSource({ ...input,
-      readWindowsInstallation: async () => {
-        if (kind === "invalid") throw new Error("invalid installation record");
-        return kind === "missing" ? null : { version: "0.3.230", releaseChannel: "windows-preview" };
+      readWindowsInstallation: () => {
+        if (kind === "invalid") return Promise.reject(new Error("invalid installation record"));
+        return Promise.resolve(kind === "missing" ? null : { version: "0.3.230", releaseChannel: "windows-preview" as const });
       },
     })).toBeUndefined();
   });
   it("does not invent a source for an unmanaged binary", async () => {
     expect(await resolveLocalComponentsInstallationSource({ ...input,
       readInstallation: async () => null,
+    })).toBeUndefined();
+  });
+  it("omits provenance when an upgrade changes the selected version during reporting", async () => {
+    expect(await resolveLocalComponentsInstallationSource({ ...input,
+      expectedVersion: "0.3.230",
+      readWindowsInstallation: async () => ({ version: installed.version, releaseChannel: "windows-preview" }),
     })).toBeUndefined();
   });
   it("reports npm independently from binary preview state", async () => {

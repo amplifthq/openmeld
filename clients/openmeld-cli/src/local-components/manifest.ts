@@ -160,16 +160,16 @@ export async function writeInstalledLocalComponentsSnapshot(input: {
 export async function resolveLocalComponentsStatus(
   input: CliUpdateInput = {}
 ): Promise<LocalComponentsStatus> {
-  const [expectedManifest, service, skills, maintenance, updateProjection, installationSource] =
+  const [expectedManifest, service, skills, maintenance, updateProjection] =
     await Promise.all([
       buildExpectedLocalComponentsManifest(),
       resolveServiceComponentState(),
       resolveSkillsComponentState(),
       resolveOpenMeldToolsMaintenanceProjection(),
       resolveOpenMeldToolsUpdateOperationProjection(),
-      resolveLocalComponentsInstallationSource(),
     ]);
   const resolvedCli = await resolveCliComponentStatus(input);
+  const installationSource = await resolveLocalComponentsInstallationSource({ expectedVersion: resolvedCli.packageVersion });
   const cli = updateProjection?.failureCode
     ? {
         ...resolvedCli,

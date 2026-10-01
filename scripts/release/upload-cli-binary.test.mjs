@@ -1,3 +1,4 @@
+const WINDOWS_SERVICE_POLICY_PATTERN = /Prepare a Service release/u;
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -486,5 +487,5 @@ test("native preview refuses retained policy before rebuilding or relabelling a 
   const retained = { ...matching, components: { ...matching.components,
     service: { ...matching.components.service, bundleVersion: "0.0.0" } } };
   assert.throws(() => resolveWindowsPreviewComponentPolicy({ releaseManifest: retained, version }),
-    /Prepare a Service release/u);
+    WINDOWS_SERVICE_POLICY_PATTERN);
 });

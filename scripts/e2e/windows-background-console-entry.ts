@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { createGitRepositoryVerifier } from "../../clients/openmeld-cli/src/local-service/projects/git-repository-verifier";
@@ -12,10 +11,10 @@ const visible = await new Promise<string>((resolve, reject) => {
   execFile(command, [], { windowsHide: false, encoding: "utf8" },
     (error, stdout) => error ? reject(error) : resolve(stdout.trim()));
 });
-assert.equal(visible, "console", "positive control did not allocate a console");
+if (visible !== "console") throw new Error("positive control did not allocate a console");
 const verifier = createGitRepositoryVerifier();
 const hidden = await verifier.runForTest({ command, args: [] });
-assert.equal(hidden.stdout.trim(), "no-console", "background Git allocated a console");
+if (hidden.stdout.trim() !== "no-console") throw new Error("background Git allocated a console");
 await writeFile(evidencePath, JSON.stringify({
   platform: process.platform,
   guiParent: true,

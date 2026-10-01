@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -39,10 +38,10 @@ function subsystem(path) {
   const peOffset = bytes.readUInt32LE(0x3c);
   return bytes.readUInt16LE(peOffset + 24 + 68);
 }
-assert.equal(subsystem(parent), 2, "witness parent must use the GUI subsystem");
-assert.equal(subsystem(command), 3, "probe must use the console subsystem");
+if (subsystem(parent) !== 2) throw new Error("witness parent must use the GUI subsystem");
+if (subsystem(command) !== 3) throw new Error("probe must use the console subsystem");
 run(parent, [command, evidence]);
 const observed = JSON.parse(readFileSync(evidence, "utf8"));
-assert.equal(observed.positiveControl, "console");
-assert.equal(observed.actualGitVerifier, "no-console");
+if (observed.positiveControl !== "console") throw new Error("positive control did not allocate a console");
+if (observed.actualGitVerifier !== "no-console") throw new Error("Git verifier allocated a console");
 process.stdout.write(`${JSON.stringify(observed)}\n`);

@@ -14,6 +14,7 @@ export async function resolveLocalComponentsInstallationSource(input: {
   readInstallation?: typeof readManagedCliInstallation;
   readWindowsInstallation?: typeof readWindowsManagedCliInstallation;
   root?: string;
+  expectedVersion?: string;
 } = {}): Promise<
   LocalComponentsInstallationSource | undefined
 > {
@@ -24,7 +25,7 @@ export async function resolveLocalComponentsInstallationSource(input: {
   }
   try {
     const installed = await (input.readInstallation ?? readManagedCliInstallation)();
-    if (!installed) {
+    if (!installed || (input.expectedVersion && installed.version !== input.expectedVersion)) {
       return undefined;
     }
     if (os === "win32") {

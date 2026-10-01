@@ -992,6 +992,15 @@ describe("installation-source availability", () => {
       service: { latestVersion: "0.3.232", status: "update_available" },
     });
   });
+  it("keeps healthy Service231 eligible without offering obsolete Service225", () => {
+    const obsolete = { ...catalog, entries: [{
+      ...catalog.entries[0],
+      policy: { ...previewPolicy, service: { ...previewPolicy.service, bundleVersion: "0.3.225" } },
+    }] };
+    expect(project({ source: previewSource, catalog: obsolete })).toMatchObject({
+      service: { status: "unknown", latestVersion: null, requiredVersion: null, wakeBlocked: false },
+    });
+  });
   it("supports a separately retained preview Service", () => {
     const retained = { ...catalog, entries: [{
       ...catalog.entries[0],
