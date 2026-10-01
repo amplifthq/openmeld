@@ -1032,7 +1032,8 @@ describe("installation-source availability", () => {
       ...catalog,
       entries: [
         {
-          ...catalog.entries[0],
+          channel: "windows-preview" as const,
+          platform: previewSource.platform,
           policy: {
             ...previewPolicy,
             service: {
@@ -1080,7 +1081,8 @@ describe("installation-source availability", () => {
       ...catalog,
       entries: [
         {
-          ...catalog.entries[0],
+          channel: "windows-preview" as const,
+          platform: previewSource.platform,
           policy: {
             ...previewPolicy,
             service: { ...previewPolicy.service, bundleVersion: "0.3.225" },
@@ -1104,7 +1106,8 @@ describe("installation-source availability", () => {
       ...catalog,
       entries: [
         {
-          ...catalog.entries[0],
+          channel: "windows-preview" as const,
+          platform: previewSource.platform,
           policy: {
             ...previewPolicy,
             service: { ...previewPolicy.service, bundleVersion: "0.3.230" },
