@@ -8,6 +8,7 @@ import { modelRetirementNoticeSchema } from "../../src/schemas/config/model-cata
 import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
 import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22.json";
+import octoberModelCatalogCapture from "../fixtures/local-model-catalog-2026.10.01.json";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
 import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
 
@@ -71,8 +72,14 @@ describe("model catalog schema", () => {
       );
     }
     const { cursor, grokBuild, opencode } = localModelCatalogCapture;
-    for (const model of cursor.availableModels) {
-      expect(cursor.configOptions).toContainEqual({
+    for (const model of [
+      ...cursor.availableModels,
+      ...octoberModelCatalogCapture.cursor.availableModels,
+    ]) {
+      expect([
+        ...cursor.configOptions,
+        ...octoberModelCatalogCapture.cursor.configOptions,
+      ]).toContainEqual({
         value: model.modelId,
         name: model.name,
       });
@@ -94,7 +101,7 @@ describe("model catalog schema", () => {
         model._meta.reasoningEfforts.map((effort) => effort.id).toSorted()
       );
     }
-    for (const model of opencode) {
+    for (const model of [...opencode, ...octoberModelCatalogCapture.opencode]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
           id: `${model.providerID}/${model.id}`,
@@ -122,7 +129,7 @@ describe("model catalog schema", () => {
     if (result.success) {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
-        "gpt-5.6-sol"
+        "gpt-6.1-sol"
       );
       expect(
         result.data.agentControllers.codex?.models.some(
@@ -193,6 +200,7 @@ describe("model catalog schema", () => {
       }
 
       for (const [id, displayName, minCliVersion, badgeLabel] of [
+        ["claude-sonnet-5-5", "Claude Sonnet 5.5", "2.1.284", "New"],
         ["claude-opus-5-5", "Claude Opus 5.5", "2.1.280", "New"],
         ["claude-fable-5-1", "Claude Fable 5.1", "2.1.257", "New"],
         ["claude-fable-5", "Claude Fable 5", "2.1.170", null],
