@@ -15,13 +15,14 @@ import {
 	AccordionItem,
 	AccordionTrigger,
 } from "@openmeld/ui/fluid/accordion";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CalendarBlankIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import {
@@ -119,21 +120,35 @@ function ComputerTokenUsageCard(input: {
 				)}
 				<Accordion>
 					<AccordionItem value="details">
-						<AccordionTrigger className="py-2 text-muted-foreground text-xs">
+						<AccordionTrigger
+							chevronClassName="text-current motion-reduce:transition-none"
+							className="cursor-pointer py-2 text-muted-foreground text-xs hover:text-foreground focus-visible:text-foreground motion-reduce:transition-none"
+							trailing={
+								<span aria-hidden="true">
+									<span className="group-data-[open]/accordion-item:hidden">
+										More
+									</span>
+									<span className="hidden group-data-[open]/accordion-item:inline">
+										Less
+									</span>
+								</span>
+							}
+						>
 							Details
 						</AccordionTrigger>
-						<AccordionContent>
+						<AccordionContent className="motion-reduce:transition-none">
 							<div className="space-y-3 pt-2">
-								<div className="flex items-center justify-between gap-3">
+								<div className="flex items-center justify-end gap-2">
 									<Select
 										onValueChange={(value) => setDays(Number(value))}
 										value={String(days)}
 									>
 										<SelectTrigger
 											aria-label="Token usage period"
-											className="w-auto text-xs"
+											className="w-auto min-w-36 text-xs"
 											displayValue={`Last ${days} days`}
-											variant="borderless"
+											icon={CalendarBlankIcon}
+											variant="bordered"
 										/>
 										<SelectContent>
 											<SelectItem index={0} value="7">
@@ -145,12 +160,21 @@ function ComputerTokenUsageCard(input: {
 										</SelectContent>
 									</Select>
 									<Button
+										aria-busy={query.isFetching}
+										className="max-lg:h-11"
 										disabled={query.isFetching}
 										onClick={() => query.refetch()}
-										size="sm"
-										variant="ghost"
+										size="default"
+										variant="outline"
 									>
-										<ArrowClockwiseIcon aria-hidden="true" />
+										<ArrowClockwiseIcon
+											aria-hidden="true"
+											className={
+												query.isFetching
+													? "motion-safe:animate-spin"
+													: undefined
+											}
+										/>
 										Refresh
 									</Button>
 								</div>
@@ -176,7 +200,12 @@ function ComputerTokenUsageCard(input: {
 
 function DailyTokenTable({ series }: { series: Series }) {
 	return (
-		<div className="max-h-56 overflow-auto">
+		<ScrollArea
+			className="max-h-56"
+			contentClassName="pr-3"
+			viewportClassName="overscroll-contain"
+			viewportProps={{ "aria-label": "Daily token usage", role: "region" }}
+		>
 			<table className="w-full text-xs tabular-nums">
 				<caption className="sr-only">Daily recorded token usage</caption>
 				<thead className="text-muted-foreground">
@@ -222,6 +251,6 @@ function DailyTokenTable({ series }: { series: Series }) {
 					})}
 				</tbody>
 			</table>
-		</div>
+		</ScrollArea>
 	);
 }
