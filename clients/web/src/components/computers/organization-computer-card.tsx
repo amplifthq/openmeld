@@ -10,6 +10,7 @@ import { OpenMeldServiceCard } from "#/components/agents/agents-page-openmeld-se
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveOrganizationComputerSummaryStatus } from "#/lib/computer-summary-status";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
+import { ComputerTokenUsage } from "./computer-token-usage";
 import {
 	formatOrganizationComputerLastSeen,
 	formatOrganizationComputerPlatform,
@@ -77,6 +78,10 @@ export function OrganizationComputerDetail(input: {
 					serviceState: input.computer.serviceState,
 				}}
 				view="team"
+			/>
+			<ComputerTokenUsage
+				computerId={input.computer.connectedComputerId}
+				organizationId={input.organizationId}
 			/>
 			<LocalAgentsCard
 				computer={{

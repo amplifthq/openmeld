@@ -1697,7 +1697,7 @@ cached identity evidence. Stale local-agent checks display **Status out of date*
 current availability is unknown until the Computer reports a new check. This
 does not mean that the Agent version is outdated or that repair is required.
 
-Local Agent cards show a quiet tokens-today line only when the current
+Local Agent cards show quiet tokens-today text after the account usage ring only when the current
 workspace has recorded positive token consumption for that controller on that
 enrolled Computer. The existing Details dialog includes an OpenMeld usage
 section with Today/Last 7 days, input/output totals, models, and an optional
@@ -1708,6 +1708,16 @@ produce no consumption copy, badge, placeholder, or reserved space. These
 statistics remain separate from provider account Usage Limits and do not
 present Local usage as free or as spending the organization allowance.
 Owner and teammate views read the same organization-scoped consumption query.
+
+Computer details place a compact Token usage card directly below Computer
+Connection. It combines recorded Local Agent tokens on that enrolled Computer
+in the current Organization. The default seven-day area chart uses calendar
+days in the viewer's time zone, including today so far. Details contains the
+7/30-day selector, refresh, and an accessible daily input/output/total table.
+Initial loading uses the shared Evil Charts skeleton; no recorded tokens hides
+the card. Explicit missing-token receipts produce gaps instead of known-zero
+points, and partial totals are disclosed in Details. No provider polling or
+inference is performed to load the chart.
 
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand

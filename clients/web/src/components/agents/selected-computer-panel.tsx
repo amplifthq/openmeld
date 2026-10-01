@@ -14,6 +14,7 @@ import {
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { ComputerTokenUsage } from "#/components/computers/computer-token-usage";
 import { DesktopServiceControls } from "#/desktop/desktop-service-controls";
 import { canConfigureLocalComputer } from "#/desktop/platform";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
@@ -178,6 +179,10 @@ export function SelectedComputerPanel(input: {
 				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
+			/>
+			<ComputerTokenUsage
+				computerId={input.computer.connectedComputerId}
+				organizationId={input.organizationId}
 			/>
 			<LocalAgentsCard
 				computer={input.computer}

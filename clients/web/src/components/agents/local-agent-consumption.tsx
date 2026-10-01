@@ -14,7 +14,10 @@ import {
 } from "@openmeld/ui/fluid/select";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { organizationAiUsageQueryOptions } from "#/query/organizations/organization-usage";
+import {
+	organizationAiUsageQueryOptions,
+	organizationUsageCalendarPeriod,
+} from "#/query/organizations/organization-usage";
 
 export type LocalAgentConsumptionScope = {
 	organizationId: string;
@@ -36,20 +39,15 @@ const compactTokens = new Intl.NumberFormat("en-US", {
 const exactTokens = new Intl.NumberFormat("en-US");
 
 function consumptionQuery(input: Props, days: number, tasks = false) {
-	const today = new Date();
-	today.setHours(0, 0, 0, 0);
-	const from = new Date(today);
-	from.setDate(from.getDate() - days + 1);
-	const to = new Date(today);
-	to.setDate(to.getDate() + 1);
+	const { fromMs, toMs } = organizationUsageCalendarPeriod(days);
 	return organizationAiUsageQueryOptions({
 		organizationId: input.organizationId,
 		query: {
 			computerId: input.computerId,
 			controller: input.controller,
 			runtime: "local",
-			fromMs: from.getTime(),
-			toMs: to.getTime(),
+			fromMs,
+			toMs,
 			...(tasks
 				? ({ groupBy: "task", sortBy: "tokens", limit: 5 } as const)
 				: {}),

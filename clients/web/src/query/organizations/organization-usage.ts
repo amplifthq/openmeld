@@ -16,6 +16,27 @@ export const organizationUsageQueryKeys = {
 		[...organizationUsageQueryKeys.all, organizationId, "overview"] as const,
 };
 
+export function organizationUsageCalendarPeriod(
+	days: number,
+	now = new Date()
+) {
+	const start = new Date(now);
+	start.setHours(0, 0, 0, 0);
+	start.setDate(start.getDate() - days + 1);
+	const bucketBoundariesMs = Array.from({ length: days + 1 }, (_, index) => {
+		const boundary = new Date(start);
+		boundary.setDate(boundary.getDate() + index);
+		return boundary.getTime();
+	});
+	const end = new Date(start);
+	end.setDate(end.getDate() + days);
+	return {
+		fromMs: start.getTime(),
+		toMs: end.getTime(),
+		bucketBoundariesMs,
+	};
+}
+
 export function organizationAiUsageQueryOptions(input: {
 	organizationId: string;
 	query: AiUsageQuery;
