@@ -10,6 +10,48 @@ import {
 } from "../src/agent-controller-interface-display";
 
 describe("agent controller interface display", () => {
+  it("explains unavailable automatic account checks after cloud privacy redaction", () => {
+    const snapshot = agentControllerInterfaceSnapshot({
+      controllerId: "antigravity",
+      displayName: "Antigravity",
+      auth: { status: "unknown" },
+      check: {
+        status: "succeeded",
+        lastSucceededAt: "2026-10-01T00:00:00.000Z",
+      },
+      launch: {
+        argsPrefix: [],
+        commandPath: null,
+        installChoiceCount: 1,
+        status: "ready",
+      },
+      message: null,
+      status: "warning",
+      usageLimits: [
+        {
+          key: "provider",
+          label: "Usage limits",
+          observedAt: "2026-10-01T00:00:00.000Z",
+          resetsAt: null,
+          usedPercent: null,
+          status: "unsupported",
+        },
+      ],
+    });
+    expect(
+      resolveAgentControllerInterfaceDescription({
+        displayDescription: "Installed",
+        snapshot,
+      })
+    ).toBe(
+      "OpenMeld cannot automatically check sign-in status or usage limits for Antigravity. Check them directly in the agent's app or CLI."
+    );
+    expect(shouldExpandAgentControllerInterface(snapshot)).toBe(true);
+    expect(createAgentControllerInterfaceDisplayRows(snapshot)).toContainEqual({
+      label: "Account",
+      value: "Unknown",
+    });
+  });
   it("explains a missing selected installation without a private path", () => {
     const snapshot = agentControllerInterfaceSnapshot({
       message: null,
