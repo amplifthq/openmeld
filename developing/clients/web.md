@@ -550,6 +550,11 @@ Existing Composer draft persistence remains the draft owner. Unsaved-change
 guards and pending Space sends register recovery blockers using their existing
 facts; recovery leaves those surfaces and native navigation warnings mounted
 rather than discarding unsaved work to make a deployment look seamless.
+Space creation also blocks automatic recovery while its name, visibility, or
+submission is unfinished. A failed lazy Settings section stays within the
+Settings content boundary, leaving the dialog dismissal, workspace, editable
+owners, and pending sends mounted when recovery is deferred. The error remains
+reportable; the boundary does not retry writes or replace recovery policy.
 
 Recovery accepts only module-fetch and CSS-preload failures, not arbitrary
 exceptions from executing a module. Automatic attempts retain a 30-second
