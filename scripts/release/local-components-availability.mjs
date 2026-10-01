@@ -14,7 +14,9 @@ export const WINDOWS_PREVIEW_MANIFEST_URL =
 // Build from official channel snapshots. The preview document deliberately has
 // channels.stable inside it; the selected source, not that JSON key, owns channel.
 export function buildLocalComponentsAvailabilityCatalog(input) {
-  const release = localComponentsReleaseManifestSchema.parse(input.releaseManifest);
+  const release = localComponentsReleaseManifestSchema.parse(
+    input.releaseManifest
+  );
   const entries = [];
   for (const [channel, source] of [
     ["stable", input.stableManifest],
@@ -27,10 +29,17 @@ export function buildLocalComponentsAvailabilityCatalog(input) {
     let policy = selected.componentPolicy;
     // Only the legacy stable document may reuse the matching global policy.
     // Never borrow stable policy for a preview or mismatched component pair.
-    if (!policy && channel === "stable" &&
+    if (
+      !policy &&
+      channel === "stable" &&
       selected.version === release.components.cli.packageVersion &&
-      (selected.service?.version ?? selected.version) === release.components.service.bundleVersion) {
-      policy = { cli: release.components.cli, service: release.components.service };
+      (selected.service?.version ?? selected.version) ===
+        release.components.service.bundleVersion
+    ) {
+      policy = {
+        cli: release.components.cli,
+        service: release.components.service,
+      };
     }
     if (!policy) {
       continue;
@@ -42,12 +51,16 @@ export function buildLocalComponentsAvailabilityCatalog(input) {
       entries.push({ channel, platform, policy });
     }
   }
-  return localComponentsAvailabilityCatalogSchema.parse({ schemaVersion: 1, entries });
+  return localComponentsAvailabilityCatalogSchema.parse({
+    schemaVersion: 1,
+    entries,
+  });
 }
 
 export async function readLocalComponentsAvailabilityCatalog(input) {
-  const stableManifest = input.stableManifest ??
-    await fetchCliChannelManifest({ fetch: input.fetch });
+  const stableManifest =
+    input.stableManifest ??
+    (await fetchCliChannelManifest({ fetch: input.fetch }));
   const previewManifest = Object.hasOwn(input, "previewManifest")
     ? input.previewManifest
     : await fetchOptionalWindowsPreview(input.fetch ?? fetch);
@@ -66,15 +79,20 @@ async function fetchOptionalWindowsPreview(fetchImpl) {
     return null;
   }
   if (!response.ok) {
-    throw new Error(`Windows preview availability fetch failed: HTTP ${response.status}`);
+    throw new Error(
+      `Windows preview availability fetch failed: HTTP ${response.status}`
+    );
   }
   return cliBinaryManifestSchema.parse(await response.json());
 }
 
 export function describeLocalComponentsAvailabilityCatalog(catalog) {
-  const json = JSON.stringify(localComponentsAvailabilityCatalogSchema.parse(catalog));
+  const json = JSON.stringify(
+    localComponentsAvailabilityCatalogSchema.parse(catalog)
+  );
   return {
     define: `${AVAILABILITY_CATALOG_DEFINE}:${JSON.stringify(json)}`,
     sha256: createHash("sha256").update(json).digest("hex"),
   };
 }
+

@@ -61,7 +61,10 @@ test("forwards exact Core activation for staged and atomic deployment, never upl
         tag: "exact-core-projection",
         env: capture.env,
         adapters: {
-      readAvailabilityCatalog: async () => ({ schemaVersion: 1, entries: [] }),
+          readAvailabilityCatalog: async () => ({
+            schemaVersion: 1,
+            entries: [],
+          }),
           readHeadSha: () => RELEASE_SHA,
           readCoreWranglerConfig: () => "{}",
           runStartupAdmission: () => evidence,
@@ -88,7 +91,10 @@ test("refuses to admit a SHA other than the checked-out Core source", async () =
     () =>
       deployCoreWorker({
         adapters: {
-      readAvailabilityCatalog: async () => ({ schemaVersion: 1, entries: [] }),
+          readAvailabilityCatalog: async () => ({
+            schemaVersion: 1,
+            entries: [],
+          }),
           readHeadSha: () => "b".repeat(40),
           runStartupAdmission: () => {
             throw new Error("must not upload");
@@ -110,7 +116,10 @@ test("checks published channel alignment before any recovery deployment", async 
       verifyLocalComponents: true,
       releaseSha: RELEASE_SHA,
       adapters: {
-      readAvailabilityCatalog: async () => ({ schemaVersion: 1, entries: [] }),
+        readAvailabilityCatalog: async () => ({
+          schemaVersion: 1,
+          entries: [],
+        }),
         readHeadSha: () => RELEASE_SHA,
         runStep(step) {
           steps.push(step);
@@ -127,3 +136,4 @@ test("checks published channel alignment before any recovery deployment", async 
     [["run", "deploy:release-ready"]]
   );
 });
+

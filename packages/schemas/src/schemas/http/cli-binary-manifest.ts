@@ -201,12 +201,18 @@ export const cliBinaryManifestSchema = z.object({
         version: z.string().trim().min(1),
       })
       .superRefine((stable, context) => {
-        if (stable.componentPolicy &&
+        if (
+          stable.componentPolicy &&
           (stable.componentPolicy.cli.packageVersion !== stable.version ||
             stable.componentPolicy.service.bundleVersion !==
-              (stable.service?.version ?? stable.version))) {
-          context.addIssue({ code: "custom", path: ["componentPolicy"],
-            message: "component policies must match their selected CLI and Service artifacts" });
+              (stable.service?.version ?? stable.version))
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["componentPolicy"],
+            message:
+              "component policies must match their selected CLI and Service artifacts",
+          });
         }
         if (!stable.service) {
           return;
@@ -224,3 +230,4 @@ export const cliBinaryManifestSchema = z.object({
   }),
   schemaVersion: z.literal(1),
 });
+

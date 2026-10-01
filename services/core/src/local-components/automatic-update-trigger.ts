@@ -1,7 +1,7 @@
 import type {
   DaemonServiceLane,
-  LocalComponentsReleaseManifest,
   LocalComponentsAvailabilityCatalog,
+  LocalComponentsReleaseManifest,
   OpenMeldToolsControlRequest,
   RuntimeTransportCapabilities,
 } from "@openmeld/schemas/types";
@@ -108,9 +108,10 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdateDecision(
     (status) => status === "update_available" || status === "update_required"
   );
   const targetVersion = projection.cli.latestPackageVersion;
-  const targetsAvailable = targetVersion !== null && projection.service.latestVersion !== null;
+  const targetsAvailable =
+    targetVersion !== null && projection.service.latestVersion !== null;
 
-  if (!updateIsActionable || !targetsAvailable) {
+  if (!(updateIsActionable && targetsAvailable)) {
     return {
       reasonCode: "automatic_update.no_actionable_release",
       status: "skipped",
@@ -134,3 +135,4 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdate(
   const decision = resolveReleaseTriggeredOpenMeldToolsUpdateDecision(input);
   return decision.status === "request" ? decision.update : null;
 }
+

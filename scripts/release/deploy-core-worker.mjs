@@ -11,11 +11,11 @@ import {
   runCoreStartupAdmission,
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
-import { resolveCoreProjectionTag } from "./release-cli-resume.mjs";
 import {
-  readLocalComponentsAvailabilityCatalog,
   describeLocalComponentsAvailabilityCatalog,
+  readLocalComponentsAvailabilityCatalog,
 } from "./local-components-availability.mjs";
+import { resolveCoreProjectionTag } from "./release-cli-resume.mjs";
 import { recordCoreDeploymentOutput } from "./worker-deployment-evidence.mjs";
 
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
@@ -29,9 +29,15 @@ export async function deployCoreWorker(input = {}) {
       : {}),
   };
   const adapters = {
-    readReleaseManifest: input.adapters?.readReleaseManifest ??
-      (() => JSON.parse(readFileSync(path.join(cwd, "release/local-components.json"), "utf8"))),
-    readAvailabilityCatalog: input.adapters?.readAvailabilityCatalog ?? readLocalComponentsAvailabilityCatalog,
+    readReleaseManifest:
+      input.adapters?.readReleaseManifest ??
+      (() =>
+        JSON.parse(
+          readFileSync(path.join(cwd, "release/local-components.json"), "utf8")
+        )),
+    readAvailabilityCatalog:
+      input.adapters?.readAvailabilityCatalog ??
+      readLocalComponentsAvailabilityCatalog,
     readCoreWranglerConfig:
       input.adapters?.readCoreWranglerConfig ??
       (() =>
@@ -81,7 +87,9 @@ export async function deployCoreWorker(input = {}) {
     releaseManifest: adapters.readReleaseManifest(),
   });
   const availability = describeLocalComponentsAvailabilityCatalog(catalog);
-  process.stdout.write(`[production-release] availabilityCatalogSha256=${availability.sha256}\n`);
+  process.stdout.write(
+    `[production-release] availabilityCatalogSha256=${availability.sha256}\n`
+  );
   const evidence = await adapters.runStartupAdmission({
     cwd,
     defines: [availability.define],
@@ -164,7 +172,10 @@ function requireArgumentValue(argument, value) {
 
 if (pathToFileURL(process.argv[1] ?? "").href === import.meta.url) {
   deployCoreWorker(parseArguments(process.argv.slice(2))).catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
     process.exitCode = 1;
   });
 }
+

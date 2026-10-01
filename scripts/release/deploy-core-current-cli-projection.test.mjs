@@ -233,7 +233,10 @@ test("the receiver bridge binds candidate source separately from the retained CL
       write: () => undefined,
       adapters: {
         readAvailabilityCatalog: (input) => {
-          assert.equal(input.stableManifest.channels.stable.version, PUBLISHED_VERSION);
+          assert.equal(
+            input.stableManifest.channels.stable.version,
+            PUBLISHED_VERSION
+          );
           return Promise.resolve({ schemaVersion: 1, entries: [] });
         },
         fetchChannelManifest: () => {
@@ -282,3 +285,4 @@ function incrementPatch(version) {
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
+

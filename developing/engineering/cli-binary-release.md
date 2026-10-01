@@ -576,8 +576,10 @@ pnpm run release:deploy:local -- --scope cli
   same names with different values. This does not require Node.js or jq.
 - The dev-local setup script also defaults to binary distribution. Use
   `?dist=npm` to force the npm lane during local testing.
-- Windows setup commands remain on `?dist=npm` until Windows binary artifacts
-  exist.
+- Windows binary setup selects the public Windows preview entrypoint when the
+  signed stable channel lacks Windows artifacts. Its channel choice must remain
+  attached to the managed installation; a newer macOS stable version is not a
+  Windows update target.
 
 ## Source-specific binary update projection
 
@@ -606,3 +608,4 @@ prepare the corresponding Service release rather than relabelling the new image.
 The stable publisher supports verified separately retained Service artifacts.
 Staging/custom binary versions omit production component policy unless the caller
 supplies an exact-artifact policy; they never inherit production version identity.
+

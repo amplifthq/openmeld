@@ -13,11 +13,11 @@ import {
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
-import {
-  readLocalComponentsAvailabilityCatalog,
-  describeLocalComponentsAvailabilityCatalog,
-} from "./local-components-availability.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
+import {
+  describeLocalComponentsAvailabilityCatalog,
+  readLocalComponentsAvailabilityCatalog,
+} from "./local-components-availability.mjs";
 import {
   probeCliBinaryStage,
   probeCoreProjectionStage,
@@ -49,7 +49,13 @@ export function resolveCurrentCliProjectionReleaseManifest(input) {
     readTagFile: input.readTagFile,
     tagName,
   });
-  return parseReleaseManifest({ channelVersion, source, tagName, serviceVersion: input.channelManifest.channels.stable.service?.version ?? channelVersion });
+  return parseReleaseManifest({
+    channelVersion,
+    source,
+    tagName,
+    serviceVersion:
+      input.channelManifest.channels.stable.service?.version ?? channelVersion,
+  });
 }
 
 export function resolveCurrentCliProjectionTarget(input) {
@@ -74,7 +80,8 @@ export function resolveCurrentCliProjectionTarget(input) {
   });
   const releaseManifest = parseReleaseManifest({
     channelVersion,
-    serviceVersion: input.channelManifest.channels.stable.service?.version ?? channelVersion,
+    serviceVersion:
+      input.channelManifest.channels.stable.service?.version ?? channelVersion,
     source: releaseManifestSource,
     tagName,
   });
@@ -189,7 +196,14 @@ export function buildCoreCurrentCliProjectionDryRunStepSpec(input) {
       input.expectedCoreTag,
       "--define",
       `${RELEASE_MANIFEST_DEFINE}:${JSON.stringify(manifestJson)}`,
-      ...(input.availabilityCatalog ? ["--define", describeLocalComponentsAvailabilityCatalog(input.availabilityCatalog).define] : []),
+      ...(input.availabilityCatalog
+        ? [
+            "--define",
+            describeLocalComponentsAvailabilityCatalog(
+              input.availabilityCatalog
+            ).define,
+          ]
+        : []),
       "--dry-run",
     ],
     command: "pnpm",
@@ -225,7 +239,9 @@ export async function readCurrentCliProjectionTarget(input = {}) {
 
 function createReceiverAdapters(input, cwd, env) {
   return {
-    readAvailabilityCatalog: input.adapters?.readAvailabilityCatalog ?? readLocalComponentsAvailabilityCatalog,
+    readAvailabilityCatalog:
+      input.adapters?.readAvailabilityCatalog ??
+      readLocalComponentsAvailabilityCatalog,
     fetchChannelManifest:
       input.adapters?.fetchChannelManifest ?? fetchCliChannelManifest,
     readTagCommit:
@@ -307,7 +323,8 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     releaseManifest: target.releaseManifest,
     stableManifest: target.channelManifest,
   });
-  const availability = describeLocalComponentsAvailabilityCatalog(availabilityCatalog);
+  const availability =
+    describeLocalComponentsAvailabilityCatalog(availabilityCatalog);
   write(`availabilityCatalogSha256=${availability.sha256}\n`);
   write(
     [
@@ -523,3 +540,4 @@ if (
     process.exitCode = 1;
   });
 }
+

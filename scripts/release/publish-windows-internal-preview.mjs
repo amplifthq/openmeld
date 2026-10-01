@@ -107,14 +107,24 @@ function validateSourceIdentity(bundle, requireMain) {
 
 function validateSourceComponentPolicy(componentPolicy) {
   if (!componentPolicy) {
-    throw new Error("Windows preview requires source-matched CLI and Service component policies.");
+    throw new Error(
+      "Windows preview requires source-matched CLI and Service component policies."
+    );
   }
-  const sourcePolicy = localComponentsReleaseManifestSchema.parse(JSON.parse(
-    readFileSync(join(root, "release/local-components.json"), "utf8")
-  ));
-  if (JSON.stringify(componentPolicy.cli) !== JSON.stringify(sourcePolicy.components.cli) ||
-      JSON.stringify(componentPolicy.service) !== JSON.stringify(sourcePolicy.components.service)) {
-    throw new Error("Windows preview policies do not match the exact source release manifest.");
+  const sourcePolicy = localComponentsReleaseManifestSchema.parse(
+    JSON.parse(
+      readFileSync(join(root, "release/local-components.json"), "utf8")
+    )
+  );
+  if (
+    JSON.stringify(componentPolicy.cli) !==
+      JSON.stringify(sourcePolicy.components.cli) ||
+    JSON.stringify(componentPolicy.service) !==
+      JSON.stringify(sourcePolicy.components.service)
+  ) {
+    throw new Error(
+      "Windows preview policies do not match the exact source release manifest."
+    );
   }
 }
 
@@ -314,3 +324,4 @@ main().catch((error) => {
   );
   process.exitCode = 1;
 });
+

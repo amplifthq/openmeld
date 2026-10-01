@@ -101,7 +101,9 @@ function buildCli() {
   ).version;
   const componentPolicy = resolveWindowsPreviewComponentPolicy({
     version,
-    releaseManifest: JSON.parse(readFileSync(join(root, "release/local-components.json"), "utf8")),
+    releaseManifest: JSON.parse(
+      readFileSync(join(root, "release/local-components.json"), "utf8")
+    ),
   });
   mkdirSync(evidenceDir, { recursive: true });
   try {
@@ -292,3 +294,4 @@ main().catch((error) => {
   );
   process.exitCode = 1;
 });
+

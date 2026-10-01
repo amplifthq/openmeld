@@ -295,7 +295,11 @@ function createLocalComponentsStatus(
     schemaVersion: 1,
     generatedAt: "2026-09-01T12:54:00.000Z",
     entrypoint: "setup",
-    installationSource: { distribution: "npm", channel: "stable", platform: "darwin-arm64" },
+    installationSource: {
+      distribution: "npm",
+      channel: "stable",
+      platform: "darwin-arm64",
+    },
     summaryLabel: "Everything is up to date",
     summaryDescription: "OpenMeld Tools are ready.",
     setupAction: "none",
@@ -353,16 +357,27 @@ it("skips automatic binary upgrades when the source has no installable target, e
     throw new Error("fixture lacks components");
   }
   input.capabilities.localComponents.installationSource = {
-    distribution: "binary", channel: "windows-preview", platform: "windows-x64",
+    distribution: "binary",
+    channel: "windows-preview",
+    platform: "windows-x64",
   };
-  expect(resolveReleaseTriggeredOpenMeldToolsUpdateDecision({
-    ...input, availabilityCatalog: { schemaVersion: 1, entries: [] },
-  })).toEqual({ status: "skipped", reasonCode: "automatic_update.no_actionable_release" });
+  expect(
+    resolveReleaseTriggeredOpenMeldToolsUpdateDecision({
+      ...input,
+      availabilityCatalog: { schemaVersion: 1, entries: [] },
+    })
+  ).toEqual({
+    status: "skipped",
+    reasonCode: "automatic_update.no_actionable_release",
+  });
 });
 
-it.each(["0.3.231", "0.3.225"])("uses only safe preview target %s for automatic maintenance", (serviceTarget) => {
+it.each([
+  "0.3.231",
+  "0.3.225",
+])("uses only safe preview target %s for automatic maintenance", (serviceTarget) => {
   const input = createDecisionInput();
-  if (!input.capabilities.localComponents || !input.releaseManifest) {
+  if (!(input.capabilities.localComponents && input.releaseManifest)) {
     throw new Error("fixture lacks components");
   }
   const manifest = input.releaseManifest;
@@ -373,19 +388,40 @@ it.each(["0.3.231", "0.3.225"])("uses only safe preview target %s for automatic 
   local.cli.packageVersion = "0.3.230";
   local.service.installedBundleVersion = "0.3.231";
   input.serviceVersion = "0.3.231";
-  local.installationSource = { distribution: "binary", channel: "windows-preview", platform: "windows-x64" };
+  local.installationSource = {
+    distribution: "binary",
+    channel: "windows-preview",
+    platform: "windows-x64",
+  };
   const decision = resolveReleaseTriggeredOpenMeldToolsUpdateDecision({
-    ...input, availabilityCatalog: { schemaVersion: 1, entries: [{
-      channel: "windows-preview", platform: "windows-x64",
-      policy: {
-        cli: { ...manifest.components.cli, packageVersion: "0.3.231" },
-        service: { ...manifest.components.service, bundleVersion: serviceTarget },
-      },
-    }] },
+    ...input,
+    availabilityCatalog: {
+      schemaVersion: 1,
+      entries: [
+        {
+          channel: "windows-preview",
+          platform: "windows-x64",
+          policy: {
+            cli: { ...manifest.components.cli, packageVersion: "0.3.231" },
+            service: {
+              ...manifest.components.service,
+              bundleVersion: serviceTarget,
+            },
+          },
+        },
+      ],
+    },
   });
   if (serviceTarget === "0.3.225") {
-    expect(decision).toEqual({ status: "skipped", reasonCode: "automatic_update.no_actionable_release" });
+    expect(decision).toEqual({
+      status: "skipped",
+      reasonCode: "automatic_update.no_actionable_release",
+    });
   } else {
-    expect(decision).toMatchObject({ status: "request", update: { targetVersion: "0.3.231" } });
+    expect(decision).toMatchObject({
+      status: "request",
+      update: { targetVersion: "0.3.231" },
+    });
   }
 });
+

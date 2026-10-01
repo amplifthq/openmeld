@@ -5,9 +5,9 @@ import {
   formatLocalSetupActionDescription,
   formatLocalSetupActionLabel,
   formatOpenMeldToolsUpdateFailureMessage,
-  localComponentsReleaseManifestSchema,
-  localComponentsInstallationSourceSchema,
   localComponentsAvailabilityCatalogSchema,
+  localComponentsInstallationSourceSchema,
+  localComponentsReleaseManifestSchema,
   localComponentsStatusSchema,
   localComponentUpdateProjectionSchema,
   openMeldToolsControlRequestSchema,
@@ -345,12 +345,34 @@ describe("local components schema", () => {
 
 describe("local component release provenance", () => {
   it("accepts explicit managed source and rejects non-contract private fields", () => {
-    const source = { distribution: "binary", channel: "windows-preview", platform: "windows-x64" };
-    expect(localComponentsInstallationSourceSchema.parse(source)).toEqual(source);
-    expect(localComponentsInstallationSourceSchema.safeParse({ ...source, token: "fixture" }).success).toBe(false);
-    expect(localComponentsInstallationSourceSchema.safeParse({ ...source, distribution: "npm" }).success).toBe(false);
+    const source = {
+      distribution: "binary",
+      channel: "windows-preview",
+      platform: "windows-x64",
+    };
+    expect(localComponentsInstallationSourceSchema.parse(source)).toEqual(
+      source
+    );
+    expect(
+      localComponentsInstallationSourceSchema.safeParse({
+        ...source,
+        token: "fixture",
+      }).success
+    ).toBe(false);
+    expect(
+      localComponentsInstallationSourceSchema.safeParse({
+        ...source,
+        distribution: "npm",
+      }).success
+    ).toBe(false);
   });
   it("accepts an empty availability catalog without inventing a release", () => {
-    expect(localComponentsAvailabilityCatalogSchema.parse({ schemaVersion: 1, entries: [] })).toEqual({ schemaVersion: 1, entries: [] });
+    expect(
+      localComponentsAvailabilityCatalogSchema.parse({
+        schemaVersion: 1,
+        entries: [],
+      })
+    ).toEqual({ schemaVersion: 1, entries: [] });
   });
 });
+

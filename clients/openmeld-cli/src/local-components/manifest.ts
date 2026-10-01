@@ -169,7 +169,9 @@ export async function resolveLocalComponentsStatus(
       resolveOpenMeldToolsUpdateOperationProjection(),
     ]);
   const resolvedCli = await resolveCliComponentStatus(input);
-  const installationSource = await resolveLocalComponentsInstallationSource({ expectedVersion: resolvedCli.packageVersion });
+  const installationSource = await resolveLocalComponentsInstallationSource({
+    expectedVersion: resolvedCli.packageVersion,
+  });
   const cli = updateProjection?.failureCode
     ? {
         ...resolvedCli,
@@ -546,3 +548,4 @@ function normalizeOptionalString(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
 }
+

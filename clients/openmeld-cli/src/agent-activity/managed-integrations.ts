@@ -961,11 +961,15 @@ function isKnownOpenCodePlugin(
       artifacts.preSessionIdFallbackLegacyOpenCodePlugin,
       artifacts.preDirectoryFallbackOpenCodePlugin,
       artifacts.preDirectoryFallbackLegacyOpenCodePlugin,
-    ].flatMap((content) => [
-      content,
-      // Preserve ownership of exact pre-console-hiding generated artifacts.
-      content.replace("\n    windowsHide: true,", "").replace(", windowsHide: true }", " }"),
-    ]).includes(value ?? "")
+    ]
+      .flatMap((content) => [
+        content,
+        // Preserve ownership of exact pre-console-hiding generated artifacts.
+        content
+          .replace("\n    windowsHide: true,", "")
+          .replace(", windowsHide: true }", " }"),
+      ])
+      .includes(value ?? "")
   );
 }
 
@@ -1136,3 +1140,4 @@ function isNodeError(error: unknown, code: string) {
     error instanceof Error && "code" in error && String(error.code) === code
   );
 }
+
