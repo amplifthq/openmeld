@@ -23,6 +23,7 @@ import {
   cancelExecutionInCenterAgent,
   readRuntimeDiagnosticsFromCenterAgent,
   readUsageDiagnosticsFromCenterAgent,
+  runDurableAuxiliaryInference,
   submitConversationTurnToCenterAgent,
 } from "../flue-adapter/cloudflare-entrypoint";
 import {
@@ -35,6 +36,31 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const RECEIPT_PREFIX = "openmeld:remote-agent:submission-receipt:";
 
 describe("Flue Cloudflare entrypoints", () => {
+  it("routes auxiliary title inference through durable execution instead of a transient Worker", async () => {
+    const generateCenterAgentSessionTitle = vi.fn(async () => ({
+      title: "Usage review",
+    }));
+    const namespace = {
+      get: vi.fn(() => ({ generateCenterAgentSessionTitle })),
+      idFromName: vi.fn((name: string) => name),
+    } as unknown as CenterAgentNamespace;
+    const request = {
+      organizationId: "org-1",
+      spaceId: "space-1",
+      sourceSignalId: "signal-1",
+      text: "Review usage",
+      attachmentNames: [],
+    };
+    await expect(
+      runDurableAuxiliaryInference({
+        namespace,
+        operation: "generateCenterAgentSessionTitle",
+        request,
+      })
+    ).resolves.toEqual({ title: "Usage review" });
+    expect(namespace.idFromName).toHaveBeenCalledWith("space-1");
+    expect(generateCenterAgentSessionTitle).toHaveBeenCalledWith(request);
+  });
   it("passes the parsed submit request and idempotency key to the Center Agent Durable Object", async () => {
     const request = createSubmitTurnRequest();
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

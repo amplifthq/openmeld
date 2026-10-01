@@ -12,6 +12,7 @@ import {
   agentProfileCreationRequestMutationResponseSchema,
   agentReplyPlacementSchema,
   agentTaskHandleSchema,
+  aiUsageQueryResponseSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
@@ -37,6 +38,7 @@ import {
   CONNECTOR_SERVICES,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceResponseSchema,
+  centerAgentAiUsageRpcInputSchema,
   centerAgentAuthorizeAnonymousMemberToolResponseSchema,
   centerAgentAuthorizeAnonymousMemberToolRpcInputSchema,
   centerAgentCheckAgentProfileReadinessResponseSchema,
@@ -1448,6 +1450,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_set_agent_profile_default_project",
   "openmeld_prepare_remove_project",
   "openmeld_remove_project",
+  "openmeld_read_ai_usage",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -1556,6 +1559,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_list_projects",
   "openmeld_read_agent_profile_creation_defaults",
   "openmeld_list_hosted_models",
+  "openmeld_read_ai_usage",
   "openmeld_read_agent_activity",
   "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
@@ -3421,6 +3425,63 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_read_ai_usage",
+      description:
+        "Read Organization AI consumption. Use groupBy=task to rank expensive tasks or groupBy=agent to compare Agents; sortBy=cost ranks known provider charges, sortBy=tokens ranks native tokens (prefer tokens for Local Agents). Defaults to today UTC; times are Unix milliseconds, up to 31 days, limit up to 50. Filter by Space, task, Computer, Agent Profile, model, or runtime. Models always contain full-window totals; breakdown is a bounded ranking and hasMore indicates omitted groups. Money is integer nano-USD: divide by 1,000,000,000 for dollars. Never mix provider charges with estimates or treat missing cost as free. Local usage does not spend the Organization allowance. Coverage distinguishes pending, stale pending (over one hour), provider-unavailable, and collection failures; it covers observed requests only, not all possible work. Task execution status/outcome comes from existing owners, may be unavailable or truncated, and is separate from usage completeness. observedExecutionRetries counts extra distinct execution attempts, not provider retries; model calls include tool iterations, never infer retries from call count. Results cover only the selected time window. Tasks without a task ID may be identified by dispatch ID; no task content is returned.",
+      input: object({
+        fromMs: optional(pipe(number(), integer(), minValue(0))),
+        toMs: optional(pipe(number(), integer(), minValue(0))),
+        runtime: optional(picklist(["local", "remote"])),
+        model: optionalNonEmptyStringSchema,
+        agentProfileId: optionalNonEmptyStringSchema,
+        agentProfileIds: optional(
+          pipe(array(nonEmptyStringSchema), maxLength(1000))
+        ),
+        spaceId: optionalNonEmptyStringSchema,
+        taskId: optionalNonEmptyStringSchema,
+        dispatchId: optionalNonEmptyStringSchema,
+        computerId: optionalNonEmptyStringSchema,
+        controller: optionalNonEmptyStringSchema,
+        groupBy: optional(picklist(["model", "task", "agent"])),
+        sortBy: optional(picklist(["cost", "tokens"])),
+        limit: optional(pipe(number(), integer(), minValue(1), maxValue(50))),
+        includeIssues: optional(boolean()),
+        bucketBoundariesMs: optional(
+          pipe(
+            array(pipe(number(), integer(), minValue(0))),
+            minLength(2),
+            maxLength(32)
+          )
+        ),
+        groupTimeSeriesBy: optional(picklist(["controller", "model"])),
+      }),
+      execute: async (payload) => {
+        const context = await buildOrganizationMemberToolContext({
+          missingSpeakerMessage:
+            "AI usage requires a current Organization member.",
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_ai_usage",
+        });
+        const today = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+        return aiUsageQueryResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadAiUsage",
+            centerAgentAiUsageRpcInputSchema.parse({
+              ...context,
+              query: {
+                ...payload,
+                fromMs: payload.fromMs ?? today,
+                toMs: payload.toMs ?? today + 86_400_000,
+              },
+            }),
+            (binding, request) => binding.centerAgentReadAiUsage?.(request)
+          )
+        );
+      },
+    }),
+    toolDefinition({
       name: "openmeld_read_agent_activity",
       description:
         "Read a bounded overview of the current Organization's public, privacy-safe coding-agent activity using member, Project, provider, or status filters. Titles and summaries can be shortened; coverage reports omitted records and source limits. This is a current awareness snapshot, not historical usage totals or a complete event stream. For more current sessions use openmeld_list_agent_activity_sessions with its own filters/cursor; that inventory does not continue these digests/events or provide a frozen snapshot. A missing row does not prove no activity, and activity is not a work lock or execution authority.",
@@ -3953,6 +4014,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           metadata.revision.sizeBytes
         );
         const imageDescription = await understandRemoteAgentImages({
+          usageDurability: { storage: input.storage },
+          usageScope: await readImageUsageScope(
+            input.storage,
+            input.submissionId
+          ),
           env: input.env,
           fetch: input.fetch,
           images: [
@@ -6928,6 +6994,11 @@ async function describeSlackImage(input: {
     );
   }
   return await understandRemoteAgentImages({
+    usageDurability: { storage: input.definitionInput.storage },
+    usageScope: await readImageUsageScope(
+      input.definitionInput.storage,
+      input.definitionInput.submissionId
+    ),
     env: input.definitionInput.env,
     fetch: input.definitionInput.fetch,
     images: [
@@ -6942,6 +7013,23 @@ async function describeSlackImage(input: {
     organizationId: input.response.organizationId,
     prepareImage: input.definitionInput.prepareImage,
   });
+}
+
+async function readImageUsageScope(
+  storage: RemoteAgentStorage,
+  submissionId: string
+) {
+  const context = await readRemoteAgentCallbackContext(storage, submissionId);
+  if (!context) {
+    throw new Error("Image usage requires durable execution attribution.");
+  }
+  return {
+    agentProfileId: context.agentProfileId,
+    spaceId: context.spaceId,
+    taskId: context.taskId ?? null,
+    dispatchId: context.dispatchId,
+    attemptId: context.submissionId,
+  };
 }
 
 async function readBoundedSpaceImage(

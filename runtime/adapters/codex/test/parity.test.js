@@ -917,7 +917,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  const failureMessage = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_FAILURE_MESSAGE;",
       "  const turn = status === 'interrupted' ? buildInterruptedTurn() : failureMessage ? buildFailedTurn(failureMessage) : buildCompletedTurn(activeTurn.threadId, activeTurn.prompt, activeTurn.cwd);",
       "  const tokenUsage = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TOKEN_USAGE;",
-      "  if (tokenUsage) write({ jsonrpc: '2.0', method: 'thread/tokenUsage/updated', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, tokenUsage: JSON.parse(tokenUsage) } });",
+      // Codex can rebroadcast unchanged usage during a rate-limit update.
+      "  if (tokenUsage) for (let repeat = 0; repeat < 2; repeat++) write({ jsonrpc: '2.0', method: 'thread/tokenUsage/updated', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, tokenUsage: JSON.parse(tokenUsage) } });",
       "  if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_CONTEXT_COMPACTION === '1') write({ jsonrpc: '2.0', method: 'item/completed', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, item: { id: 'compact-1', type: 'contextCompaction' } } });",
       "  for (const delta of readDeltaOutput()) {",
       "    write({ jsonrpc: '2.0', method: 'item/agentMessage/delta', params: { itemId: 'msg-delta-1', delta } });",
@@ -1975,6 +1976,17 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
       streamingMode: "final",
     });
     assert.equal(result.telemetry.contextCompactionObserved, true);
+    assert.equal(result.telemetry.aiUsage.length, 1);
+    assert.equal(result.telemetry.aiUsage[0].model, "gpt-5.5");
+    assert.deepEqual(result.telemetry.aiUsage[0].tokens, {
+      input: 1000,
+      output: 40,
+      cacheRead: 800,
+      cacheWrite: 0,
+      reasoning: 20,
+      total: 1060,
+    });
+    assert.equal(result.telemetry.aiUsage[0].cost, null);
     assert.deepEqual(result.telemetry.tokenUsage, {
       last: {
         cacheWriteInputTokens: 0,

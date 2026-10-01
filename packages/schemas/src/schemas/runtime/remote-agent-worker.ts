@@ -395,6 +395,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   bindingId: nonEmptyStringSchema,
   triggerMessageId: nonEmptyStringSchema,
   dispatchId: nonEmptyStringSchema,
+  taskId: nonEmptyStringSchema.optional(),
   sourceClientMessageId: nullableNonEmptyStringSchema.optional(),
   idempotencyKey: nonEmptyStringSchema,
   // Deprecated compatibility field. Current workers ignore total execution

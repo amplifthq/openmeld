@@ -72,7 +72,6 @@ import {
 	resolveCenterAgentConnectionStatus,
 	resolveDesignatedCenterAgentProfile,
 } from "./center-agent-profile-presentation";
-import { CenterAgentUsageSection } from "./center-agent-usage-section";
 import { OrganizationMemoryPolicySection } from "./organization-memory-policy-section";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
@@ -363,8 +362,8 @@ export function CenterAgentSettingsContent(input: {
 				<AppPageHeader
 					description={
 						input.isPersonalWorkspace
-							? "Manage your coordinator’s identity and connection, review its usage, and see the actions it has taken."
-							: `Manage the identity and connection for ${input.organizationName}’s coordinator, review its usage, and see the actions it has taken.`
+							? "Manage your coordinator’s identity and connection, and see the actions it has taken."
+							: `Manage the identity and connection for ${input.organizationName}’s coordinator, and see the actions it has taken.`
 					}
 					eyebrow={
 						input.isPersonalWorkspace ? "Personal workspace" : "Organization"
@@ -493,12 +492,6 @@ export function CenterAgentSettingsContent(input: {
 					roleState={input.memoryRoleState}
 				/>
 			) : null}
-			{designationQuery.data && !designation ? (
-				<CenterAgentUsageSection
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					organizationId={input.organizationId}
-				/>
-			) : null}
 			{isCenterAgentIdentityPending({
 				designationPending: designationQuery.isPending,
 				hasDesignation: designation !== null,
@@ -541,10 +534,6 @@ export function CenterAgentSettingsContent(input: {
 			) : null}
 			{designation && designatedProfile ? (
 				<>
-					<CenterAgentUsageSection
-						isPersonalWorkspace={input.isPersonalWorkspace}
-						organizationId={input.organizationId}
-					/>
 					<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
 						<h2>
 							<button

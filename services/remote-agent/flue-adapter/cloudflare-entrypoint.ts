@@ -1,4 +1,5 @@
 import {
+  generateCenterAgentSessionTitleInputSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerCancellationResponseSchema,
@@ -11,6 +12,7 @@ import {
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   remoteAgentWorkerSubmitTurnResponseSchema,
+  summarizeAgentActivityDigestRpcInputSchema,
 } from "@openmeld/schemas";
 import type {
   RemoteAgentWorkerCancellationResponse,
@@ -26,6 +28,8 @@ import {
 } from "../agent-core/submission";
 
 type CenterAgentStub = DurableObjectStub & {
+  generateCenterAgentSessionTitle(input: unknown): Promise<unknown>;
+  summarizeAgentActivityDigest(input: unknown): Promise<unknown>;
   receiveExecutionInput(input: unknown): Promise<unknown>;
   readExecutionInput(input: unknown): Promise<unknown>;
   cancelExecution(input: unknown): Promise<unknown>;
@@ -45,6 +49,29 @@ export type CenterAgentNamespace = {
   get(id: DurableObjectId): CenterAgentStub;
   idFromName(name: string): DurableObjectId;
 };
+
+// Auxiliary inference runs inside the existing DO so settlement survives a
+// Worker restart. The DO is a delivery carrier, not another usage ledger.
+export function runDurableAuxiliaryInference(input: {
+  namespace: CenterAgentNamespace;
+  operation: "generateCenterAgentSessionTitle" | "summarizeAgentActivityDigest";
+  request: unknown;
+}) {
+  if (input.operation === "generateCenterAgentSessionTitle") {
+    const request = generateCenterAgentSessionTitleInputSchema.parse(
+      input.request
+    );
+    return input.namespace
+      .get(input.namespace.idFromName(request.spaceId))
+      .generateCenterAgentSessionTitle(request);
+  }
+  const request = summarizeAgentActivityDigestRpcInputSchema.parse(
+    input.request
+  );
+  return input.namespace
+    .get(input.namespace.idFromName(`usage-digest:${request.organizationId}`))
+    .summarizeAgentActivityDigest(request);
+}
 
 export async function receiveExecutionInputInCenterAgent(input: {
   namespace: CenterAgentNamespace;

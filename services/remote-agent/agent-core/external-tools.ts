@@ -29,10 +29,12 @@ import {
   trim,
 } from "valibot";
 import { emitRemoteAgentToolUsage } from "../flue-adapter/tool-usage-observability";
+import { createMeteredRemoteFetch } from "./ai-usage";
 import {
   appendRemoteAgentOutputAttachment,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
+  readRemoteAgentCallbackContext,
 } from "./callback-context";
 import { callCoreRpc } from "./core-rpc";
 import {
@@ -376,7 +378,28 @@ async function runOpenRouterResearch(input: {
       tools: [input.serverTool],
     });
     inputBytes = requestBody.length;
-    const response = await (input.fetch ?? globalThis.fetch)(
+    const attribution = await readRemoteAgentCallbackContext(
+      input.storage,
+      input.submissionId
+    );
+    if (!attribution) {
+      throw new Error("Web research requires durable AI usage attribution.");
+    }
+    const response = await createMeteredRemoteFetch({
+      coreWorker: env.OPENMELD_CORE_WORKER,
+      fetch: input.fetch,
+      model: modelId,
+      storage: input.storage,
+      scope: {
+        organizationId: attribution.organizationId,
+        purpose: "web_research",
+        agentProfileId: attribution.agentProfileId,
+        spaceId: attribution.spaceId,
+        taskId: attribution.taskId ?? null,
+        dispatchId: attribution.dispatchId,
+        attemptId: attribution.submissionId,
+      },
+    })(
       `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(env)}/chat/completions`,
       {
         method: "POST",
