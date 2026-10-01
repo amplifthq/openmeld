@@ -365,7 +365,8 @@ function useMenuScope(
   // highlighting. Popup triggers are detected by the primitives' open
   // attributes (Radix data-state, Base UI data-popup-open). Require a popup
   // trigger: tooltips also publish data-popup-open, but must not freeze the
-  // traveling background. Collapsible rows have no aria-haspopup either.
+  // traveling background. Context-menu areas have no aria-haspopup, so use
+  // their shared trigger slot with Base UI's open marker explicitly.
   const popupOpen = useCallback(() => {
     const container = containerRef.current;
     if (!container) {
@@ -373,7 +374,7 @@ function useMenuScope(
     }
     const root = container.closest('[data-sidebar="panel"]') ?? container;
     return !!root.querySelector(
-      '[aria-haspopup]:not([aria-haspopup="false"]):is([data-popup-open], [data-state="open"], [aria-expanded="true"])'
+      '[aria-haspopup]:not([aria-haspopup="false"]):is([data-popup-open], [data-state="open"], [aria-expanded="true"]), [data-slot="context-menu-trigger"][data-popup-open]'
     );
   }, [containerRef]);
 
