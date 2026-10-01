@@ -15,9 +15,48 @@ import { withTempHome } from "./helpers/fs";
 describe("computer authorization handoff", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
-  it("validates an independent computer session without replacing the current local account", async () => {
+  it.each([
+    {
+      lane: "prod",
+      clientId: undefined,
+      envClientId: undefined,
+      expectedClientId: "openmeld-cli",
+    },
+    {
+      lane: "canary",
+      clientId: undefined,
+      envClientId: undefined,
+      expectedClientId: "openmeld-cli",
+    },
+    {
+      lane: "dev-local",
+      clientId: undefined,
+      envClientId: undefined,
+      expectedClientId: "openmeld-cli-dev",
+    },
+    {
+      lane: "dev-local",
+      clientId: undefined,
+      envClientId: "custom-env",
+      expectedClientId: "custom-env",
+    },
+    {
+      lane: "dev-local",
+      clientId: "custom-cli",
+      envClientId: "custom-env",
+      expectedClientId: "custom-cli",
+    },
+  ])("validates an independent computer session with $expectedClientId in $lane without replacing the current account", async ({
+    lane,
+    clientId,
+    envClientId,
+    expectedClientId,
+  }) => {
+    vi.stubEnv("OPENMELD_ENV_PRESET", lane);
+    vi.stubEnv("OPENMELD_AUTH_CLIENT_ID", envClientId);
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
       const request = `${init?.method ?? "GET"} ${String(input)}`;
       switch (request) {
@@ -58,7 +97,7 @@ describe("computer authorization handoff", () => {
         await expect(
           exchangeComputerAuthorizationGrant({
             authBaseUrl: "https://auth.openmeld.invalid",
-            clientId: "openmeld-cli",
+            clientId,
             deviceCode: "approved-device-code",
           })
         ).resolves.toMatchObject({
@@ -88,7 +127,7 @@ describe("computer authorization handoff", () => {
         body: JSON.stringify({
           grant_type: "urn:ietf:params:oauth:grant-type:device_code",
           device_code: "approved-device-code",
-          client_id: "openmeld-cli",
+          client_id: expectedClientId,
         }),
         method: "POST",
       })

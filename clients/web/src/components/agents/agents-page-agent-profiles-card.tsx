@@ -1339,31 +1339,29 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		profile: AuthProfileView,
 		recoveryAction: ProfileDetailsRecoveryAction
 	) => {
-		let recoveryRequest: ExecuteAgentProfileWorkRecoveryBody;
-		if (
-			recoveryAction.kind === "skip_interrupted_work" ||
-			recoveryAction.kind === "fork_interrupted_work"
-		) {
-			const expectedInterruptedTargetWakeLifecycleId =
-				recoveryAction.expectedInterruptedTargetWakeLifecycleId;
-			if (!expectedInterruptedTargetWakeLifecycleId) {
-				// Name the action the owner clicked. Telling someone who chose Skip to
-				// refresh "before continuing" is the wrong-cause copy this fence exists
-				// to prevent.
-				toast.error(
-					recoveryAction.kind === "fork_interrupted_work"
-						? "Refresh this page before continuing the interrupted work."
-						: "Refresh this page before skipping the interrupted work."
-				);
-				return;
-			}
-			recoveryRequest = {
-				action: recoveryAction.kind,
-				expectedInterruptedTargetWakeLifecycleId,
-			};
-		} else {
-			recoveryRequest = { action: recoveryAction.kind };
+		const expectedInterruptedTargetWakeLifecycleId =
+			recoveryAction.expectedInterruptedTargetWakeLifecycleId;
+		if (!expectedInterruptedTargetWakeLifecycleId) {
+			toast.error(
+				"Refresh this page to review the Agent’s current paused work."
+			);
+			return;
 		}
+		const recoveryRequest: ExecuteAgentProfileWorkRecoveryBody = {
+			action: recoveryAction.kind,
+			expectedInterruptedTargetWakeLifecycleId,
+		};
+		const refreshRecovery = () =>
+			Promise.all([
+				input.queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.agentRuntimeOverview(
+						currentOrganization.id
+					),
+				}),
+				input.queryClient.invalidateQueries({
+					queryKey: inboxQueryKeys.organization(currentOrganization.id),
+				}),
+			]);
 		setPendingRecoveryActionProfileId(profile.openMeldProfileId);
 		try {
 			await executeAgentProfileWorkRecovery({
@@ -1372,16 +1370,7 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				...recoveryRequest,
 			});
 			try {
-				await Promise.all([
-					input.queryClient.invalidateQueries({
-						queryKey: organizationQueryKeys.agentRuntimeOverview(
-							currentOrganization.id
-						),
-					}),
-					input.queryClient.invalidateQueries({
-						queryKey: inboxQueryKeys.organization(currentOrganization.id),
-					}),
-				]);
+				await refreshRecovery();
 			} catch (refreshError) {
 				console.error(
 					"Agent work recovery was accepted, but its status refresh failed.",
@@ -1399,6 +1388,25 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				)
 			);
 		} catch (error) {
+			if (
+				typeof error === "object" &&
+				error !== null &&
+				"upstreamCode" in error &&
+				error.upstreamCode === "agent_profile_work_recovery.not_pending"
+			) {
+				try {
+					await refreshRecovery();
+				} catch (refreshError) {
+					console.error(
+						"Could not refresh the Agent’s changed recovery state.",
+						refreshError
+					);
+				}
+				toast.info(
+					"This Agent’s paused work has changed. Review its current work before trying again."
+				);
+				return;
+			}
 			if (isAgentProfileWorkAwaitingOriginalStopError(error)) {
 				toast.info(
 					`OpenMeld kept your choice for ${profile.profileName} and is checking whether the original request stopped on your computer. Nothing new has started yet.`

@@ -38,6 +38,7 @@ import {
 	type AppSidebarPersistedStates,
 } from "#/lib/sidebar-width-cookie";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
+import { SettingsContentErrorBoundary } from "./settings-content-error-boundary";
 import { buildSettingsSections } from "./settings-sections";
 
 type SettingsOrganizationRole = "admin" | "member" | "owner";
@@ -179,12 +180,11 @@ function SettingsPageShell(input: {
 		/>
 	);
 	const content = (
-		<Suspense
-			fallback={<SettingsContentSkeleton />}
-			key={input.activeSectionId}
-		>
-			{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
-		</Suspense>
+		<SettingsContentErrorBoundary key={input.activeSectionId}>
+			<Suspense fallback={<SettingsContentSkeleton />}>
+				{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
+			</Suspense>
+		</SettingsContentErrorBoundary>
 	);
 	if (input.presentation === "dialog") {
 		return (

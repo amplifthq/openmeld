@@ -328,7 +328,9 @@ export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
   });
 
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
-  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
 
 export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
   z.strictObject({

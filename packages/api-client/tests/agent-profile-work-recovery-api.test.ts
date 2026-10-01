@@ -7,7 +7,7 @@ import {
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("api-client Agent Profile work recovery API", () => {
-  it("posts only the recovery action to the canonical Agent Profile route", async () => {
+  it("posts the recovery intent to the canonical Agent Profile route", async () => {
     const transport = vi.fn(() =>
       Promise.resolve(
         jsonResponse({
@@ -30,6 +30,7 @@ describe("api-client Agent Profile work recovery API", () => {
     await expect(
       api.execute({
         action: "continue_interrupted_work",
+        expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
         agentProfileId: AGENT_PROFILE_ID,
         requestContext: {
           activeOrganizationId: "org-1",
@@ -50,7 +51,10 @@ describe("api-client Agent Profile work recovery API", () => {
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
         init: expect.objectContaining({
-          body: JSON.stringify({ action: "continue_interrupted_work" }),
+          body: JSON.stringify({
+            action: "continue_interrupted_work",
+            expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
+          }),
           headers: expect.objectContaining({
             "content-type": "application/json",
             "x-openmeld-requested-organization-id": "org-1",
@@ -63,11 +67,14 @@ describe("api-client Agent Profile work recovery API", () => {
     );
   });
 
-  it("posts the exact interrupted Wake identity with Skip", async () => {
+  it.each([
+    "skip_interrupted_work",
+    "fork_interrupted_work",
+  ] as const)("posts the exact interrupted Wake identity with %s", async (action) => {
     const transport = vi.fn(() =>
       Promise.resolve(
         jsonResponse({
-          action: "skip_interrupted_work",
+          action,
           status: "accepted",
         })
       )
@@ -81,12 +88,12 @@ describe("api-client Agent Profile work recovery API", () => {
 
     await expect(
       api.execute({
-        action: "skip_interrupted_work",
+        action,
         agentProfileId: AGENT_PROFILE_ID,
         expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
       })
     ).resolves.toEqual({
-      action: "skip_interrupted_work",
+      action,
       status: "accepted",
     });
 
@@ -94,7 +101,7 @@ describe("api-client Agent Profile work recovery API", () => {
       expect.objectContaining({
         init: expect.objectContaining({
           body: JSON.stringify({
-            action: "skip_interrupted_work",
+            action,
             expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
           }),
         }),
@@ -121,6 +128,7 @@ describe("api-client Agent Profile work recovery API", () => {
     await expect(
       api.execute({
         action: "approve_queued_work",
+        expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
         agentProfileId: AGENT_PROFILE_ID,
       })
     ).resolves.toEqual({
@@ -130,7 +138,10 @@ describe("api-client Agent Profile work recovery API", () => {
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
         init: expect.objectContaining({
-          body: JSON.stringify({ action: "approve_queued_work" }),
+          body: JSON.stringify({
+            action: "approve_queued_work",
+            expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
+          }),
         }),
       })
     );
@@ -166,6 +177,7 @@ describe("api-client Agent Profile work recovery API", () => {
     await expect(
       api.execute({
         action: "retry_everything" as never,
+        expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
         agentProfileId: AGENT_PROFILE_ID,
       })
     ).rejects.toThrow();
@@ -192,6 +204,7 @@ describe("api-client Agent Profile work recovery API", () => {
     await expect(
       api.execute({
         action: "continue_interrupted_work",
+        expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
         agentProfileId: AGENT_PROFILE_ID,
       })
     ).rejects.toThrow("Invalid Agent Profile work recovery response.");

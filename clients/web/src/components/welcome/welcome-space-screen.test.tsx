@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { installClientVersionRecovery } from "#/client-version-recovery";
 import {
 	WelcomeSpaceScreen,
 	type WelcomeSpaceScreenProps,
@@ -48,6 +49,66 @@ beforeAll(() => {
 });
 
 afterEach(cleanup);
+
+it.each([
+	"name",
+	"visibility",
+	"pending",
+])("keeps a Space creation %s across an asset failure", (changed) => {
+	const reload = vi.fn();
+	const dispose = installClientVersionRecovery({
+		window,
+		now: () => 1_000_000,
+		reload,
+	});
+	try {
+		const props: WelcomeSpaceScreenProps = {
+			onCreate: vi.fn(),
+			onJoin: vi.fn(),
+			joinableSpaces: [],
+			joinableStatus: "ready",
+			onRetryJoinable: vi.fn(),
+			isPending: false,
+		};
+		const view = render(<WelcomeSpaceScreen {...props} />);
+		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
+		if (changed === "pending") {
+			view.rerender(<WelcomeSpaceScreen {...props} isPending />);
+		} else if (changed === "name") {
+			fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+				target: { value: "Unsent Space name" },
+			});
+		} else {
+			fireEvent.click(
+				screen.getByRole("combobox", { name: "Who can join this Space" })
+			);
+			fireEvent.click(screen.getByRole("option", { name: EVERYONE_OPTION }));
+		}
+		window.dispatchEvent(
+			Object.assign(new Event("vite:preloadError"), {
+				payload: new Error(
+					"Failed to fetch dynamically imported module: /assets/old-settings.js"
+				),
+			})
+		);
+		expect(reload).not.toHaveBeenCalled();
+		expect(screen.getByRole("textbox", { name: "Name" })).toBeTruthy();
+		// Leaving this form releases its own blocker; recovery must not remain
+		// disabled for later work in the same document.
+		view.unmount();
+		window.dispatchEvent(
+			Object.assign(new Event("vite:preloadError"), {
+				payload: new Error(
+					"Failed to fetch dynamically imported module: /assets/old-settings.js"
+				),
+			})
+		);
+		expect(reload).toHaveBeenCalledTimes(1);
+	} finally {
+		dispose();
+		window.sessionStorage.clear();
+	}
+});
 
 function renderScreen(overrides: Partial<WelcomeSpaceScreenProps> = {}) {
 	const props: WelcomeSpaceScreenProps = {

@@ -803,12 +803,41 @@ export async function forkCodexAppServerThread(input: {
         initialized,
         threadId: sourceThreadId,
       });
+      let disableSpaceMcp = false;
+      if (nativeCarrier) {
+        const configuration = await session.requestControl(
+          "config/read",
+          {
+            cwd: input.targetWorkingDirectory ?? input.codexWorkdir,
+            includeLayers: false,
+          },
+          { code: "runtime.control_timeout", operation: "config/read" }
+        );
+        const servers = toRecord(
+          toRecord(toRecord(configuration)?.config)?.mcp_servers
+        );
+        if (!servers) {
+          throw new CodexAppServerTransportError({
+            code: "context.space_tool_carrier_unverified",
+            errorType: "config",
+            message:
+              "The effective Codex MCP configuration could not be verified.",
+          });
+        }
+        // Preparation has no dispatch bridge. A disabled-only override would
+        // create an invalid transport when that server is absent. If present,
+        // disable it while retaining its native transport definition.
+        disableSpaceMcp = Object.hasOwn(
+          servers,
+          OPENMELD_SPACE_ACTION_MCP_SERVER_ID
+        );
+      }
       const response = await session.requestControl(
         "thread/fork",
         {
           excludeTurns: true,
           threadId: sourceThreadId,
-          ...(nativeCarrier
+          ...(disableSpaceMcp
             ? {
                 config: {
                   [`mcp_servers.${OPENMELD_SPACE_ACTION_MCP_SERVER_ID}.enabled`]: false,

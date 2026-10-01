@@ -1,3 +1,7 @@
+import {
+  runtimeTransportAdmissionEvidenceSchema,
+  runtimeTransportStopCauseSchema,
+} from "@openmeld/schemas";
 import type {
   DaemonExecutionCompatibility,
   DaemonServiceLane,
@@ -7,6 +11,7 @@ import type {
   RuntimeTransportRejectedProfileRegistration,
   RuntimeTransportStopCause,
 } from "@openmeld/schemas/types";
+import { compareRuntimeTransportSessionsByFreshness } from "../application/runtime-transport-session-service";
 import type {
   RuntimeTransportMutableState,
   RuntimeTransportProfileLeaseState,
@@ -138,8 +143,18 @@ export const persistServiceRuntimeRecordsNow = async (
   ctx: DurableObjectState,
   state: RuntimeTransportMutableState
 ): Promise<void> => {
+  // The durable contract has one record per device. Replacement history must
+  // not overwrite its current session merely because it was inserted later.
+  const currentByDevice = new Map<string, RuntimeTransportSessionState>();
+  for (const session of [...state.sessionsById.values()].sort(
+    compareRuntimeTransportSessionsByFreshness
+  )) {
+    if (!currentByDevice.has(session.deviceId)) {
+      currentByDevice.set(session.deviceId, session);
+    }
+  }
   await Promise.all(
-    [...state.sessionsById.values()].map((session) =>
+    [...currentByDevice.values()].map((session) =>
       persistServiceRuntimeRecord(ctx, state, session)
     )
   );
@@ -400,6 +415,11 @@ const parseServiceRuntimeRecord = (
     deliveryDisconnectedAtMs: isFiniteNumber(data.deliveryDisconnectedAtMs)
       ? data.deliveryDisconnectedAtMs
       : null,
+    acceptingDispatches: data.acceptingDispatches !== false,
+    stopCause: runtimeTransportStopCauseSchema.safeParse(data.stopCause).data,
+    admissionEvidence: runtimeTransportAdmissionEvidenceSchema.safeParse(
+      data.admissionEvidence
+    ).data,
     capabilities: data.capabilities as RuntimeTransportCapabilities,
     executionCompatibility:
       data.executionCompatibility as DaemonExecutionCompatibility,

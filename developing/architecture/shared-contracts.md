@@ -7344,7 +7344,31 @@ provider query. Intermediate keepalives omit the additive field for older-Core
 compatibility.
 
 The Agent Profile work-recovery contract exposes only idempotent owner actions
-that change current coordinator state. `skip_interrupted_work` resolves an exact
+that change current coordinator state. Every public recovery action carries the
+`expectedInterruptedTargetWakeLifecycleId` from the owner's displayed recovery
+projection. Approval compares this identity and the approval phase in the same
+owner-shard transaction that advances the queue; continuation and Skip retain
+their exact-source transactional fences. Queue growth, cancellation, and other
+admission revisions do not invalidate a choice about the same interrupted work.
+Missing identities are rejected, never filled from a fresh server read. A
+confirmation for one task closes when its action or task identity changes.
+Repeated queue approval cannot advance another recovery; no historical approval
+receipt is implied by a no-longer-pending response. Continue can retry a saved
+Fork choice for the same task, but cannot make the first Fork choice implicitly.
+
+The public request and internal queue-approval RPC remain strict. During rollout,
+new Web requests may be rejected by old Gateway/Core or old owner shards, and
+old requests without an identity are rejected by new receivers. Recovery writes
+must wait for compatible receivers; ordinary Wake traffic and automatic Usage
+continuation keep their existing contracts. Update Web, Gateway, and Core in the
+normal coordinated cloud order and verify the exact-source request through the
+owner shard before declaring recovery available. Do not fall back to the old
+unfenced body on a mixed-version error. This cloud-only request change does not
+require a CLI or Service contract epoch increase or restart. Existing optional
+projection identity fields stay optional for old readers; new Web refuses an
+action when an older projection cannot supply its identity.
+
+`skip_interrupted_work` resolves an exact
 `continuation_needs_attention` gate and promotes the oldest queued Wake; it does
 not replay the interrupted request. Its strict request carries the current
 interrupted target-Wake lifecycle id, and the owner shard compares that identity

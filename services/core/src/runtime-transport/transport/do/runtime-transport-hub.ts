@@ -541,6 +541,7 @@ import {
   resolveNextRuntimeCoordinatorHeadFailurePublicationRetryAlarmAtMsFromRecords,
   resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMsFromRecords,
   resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMsFromRecords,
+  resolveNextRuntimeCoordinatorRunProgressPhase,
   resolveRuntimeCoordinatorDecisionRun,
   resolveRuntimeCoordinatorDecisionScopeMismatchReason,
   resolveRuntimeCoordinatorExecutionAdmissionValidityMs,
@@ -2180,6 +2181,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return { status: "unavailable" };
     }
     const response = await approveRuntimeCoordinatorAgentProfileWorkQueue({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsed.data.expectedInterruptedTargetWakeLifecycleId,
       nowMs: Date.now(),
       ownerUserId: parsed.data.ownerUserId,
       storage: this.ctx.storage,
@@ -8767,18 +8770,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    await this.syncAgentProfileWorkControllerConversationOccupancy({
-      request: parsed.data,
-      tokenValidationContext,
-    });
+    // Same-run keepalives still pass connection validation and acknowledgement,
+    // but cannot move the occupied wait's progress or watchdog baseline.
+    const { isOccupiedKeepalive } =
+      await this.syncAgentProfileWorkControllerConversationOccupancy({
+        currentPhase: pending?.phase ?? commandState?.localProgress.phase,
+        request: parsed.data,
+        tokenValidationContext,
+      });
     if (!pending && commandState) {
-      await this.writeRuntimeCoordinatorRunCommandState(
-        buildRuntimeCoordinatorRunCommandStateFromLifecycle({
-          commandState,
-          lifecycle: parsed.data,
-          nowMs: Date.now(),
-        })
-      );
+      if (!isOccupiedKeepalive) {
+        await this.writeRuntimeCoordinatorRunCommandState(
+          buildRuntimeCoordinatorRunCommandStateFromLifecycle({
+            commandState,
+            lifecycle: parsed.data,
+            nowMs: Date.now(),
+          })
+        );
+      }
       this.recordRuntimeCoordinatorLifecycleProjectionFromCommandState({
         commandState,
         request: parsed.data,
@@ -8792,7 +8801,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await acknowledge(true, null);
       return;
     }
-    const response = handleDispatchLifecycle(this.state, parsed.data);
+    const response = handleDispatchLifecycle(this.state, parsed.data, {
+      recordProgress: !isOccupiedKeepalive,
+    });
     if (!response.ok) {
       await acknowledge(
         false,
@@ -8814,7 +8825,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const updatedPending = this.state.pendingDispatches.get(
       buildDispatchAttemptKey(parsed.data.dispatchId, parsed.data.attemptId)
     );
-    if (updatedPending) {
+    if (updatedPending && !isOccupiedKeepalive) {
       await this.updateRuntimeCoordinatorRunCommandStateFromPending({
         pending: updatedPending,
       });
@@ -8880,20 +8891,42 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async syncAgentProfileWorkControllerConversationOccupancy(input: {
+    currentPhase: RuntimeCoordinatorRunLocalProgressState["phase"] | undefined;
     request: RuntimeTransportDispatchLifecycleRequest;
     tokenValidationContext: RuntimeCoordinatorTokenValidationContext;
-  }): Promise<void> {
+  }): Promise<{ isOccupiedKeepalive: boolean }> {
+    const advancesPhase =
+      input.currentPhase !== undefined &&
+      resolveNextRuntimeCoordinatorRunProgressPhase({
+        currentPhase: input.currentPhase,
+        requestedPhase: input.request.phase,
+      }) !== input.currentPhase;
+    const wasOccupied =
+      await readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied(
+        {
+          dispatchId: input.request.dispatchId,
+          storage: this.ctx.storage,
+          targetProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+        }
+      );
     const occupancy =
       input.request.agentControllerConversationOccupancy ?? null;
-    if (!occupancy) {
-      return;
+    const isOccupiedKeepalive =
+      wasOccupied && !advancesPhase && occupancy?.state !== "available";
+    const providerTurnStarted =
+      wasOccupied && advancesPhase && input.request.phase === "running";
+    const state =
+      occupancy?.state ?? (providerTurnStarted ? "available" : null);
+    if (!state) {
+      return { isOccupiedKeepalive };
     }
     try {
       await markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy(
         {
           dispatchId: input.request.dispatchId,
           nowMs: Date.now(),
-          state: occupancy.state,
+          state,
           storage: this.ctx.storage,
           targetProfileId:
             input.tokenValidationContext.executionScope.targetProfileId,
@@ -8907,12 +8940,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           errorMessage: error instanceof Error ? error.message : String(error),
           runtimeCoordinatorExecutionId:
             input.tokenValidationContext.runtimeCoordinatorExecutionId,
-          state: occupancy.state,
+          state,
           targetProfileId:
             input.tokenValidationContext.executionScope.targetProfileId,
         }
       );
     }
+    return { isOccupiedKeepalive };
   }
 
   private async readRuntimeCoordinatorRunCommandStateForProgress(input: {
@@ -16598,9 +16632,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   /**
    * Names the cause behind a stale-progress terminal.
    *
-   * Same watchdog, different cause: an occupied native conversation produces
-   * exactly one lifecycle event and then nothing, so it reaches the stale
-   * threshold looking like a lost computer. Core still holds the occupancy flag
+   * Same watchdog, different cause: repeated occupied lifecycle keepalives
+   * prove liveness without advancing work, so the wait reaches the stale
+   * threshold. Core still holds the occupancy flag
    * the Adapter reported, and naming it here is what lets the Wake fail with
    * its real reason and settle into an owner decision instead of a "reconnect
    * the computer" dead end.
