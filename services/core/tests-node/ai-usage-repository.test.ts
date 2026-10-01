@@ -46,7 +46,7 @@ describe("Organization AI consumption", () => {
         ["claude", "org-1", "computer-1", "builtin:claude-code"],
         ["other-computer", "org-1", "computer-2", "builtin:codex"],
         ["other-org", "org-2", "computer-1", "builtin:codex"],
-      ]) {
+      ] as const) {
         await recordAiUsage(harness.db, {
           ...record,
           eventId,

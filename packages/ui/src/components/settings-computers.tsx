@@ -357,6 +357,7 @@ export type SettingsLocalAgentRow = {
   muted?: boolean;
   summaryAccessory?: ReactNode;
   summaryMeta?: ReactNode;
+  summarySupplement?: ReactNode;
   summaryStatus?: SettingsLocalAgentRowSummaryStatus;
   summaryStatuses?: readonly SettingsLocalAgentRowSummaryStatus[];
 };
@@ -1837,6 +1838,7 @@ function SettingsLocalAgentCard({ row }: { row: SettingsLocalAgentRow }) {
               {row.summaryMeta}
             </p>
           ) : null}
+          {row.summarySupplement}
         </div>
         {row.advisory ? (
           <div className="absolute top-3.5 right-4 flex justify-end">

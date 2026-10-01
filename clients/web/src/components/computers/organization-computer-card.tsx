@@ -61,6 +61,7 @@ export function OrganizationComputerPickerCard(input: {
 }
 
 export function OrganizationComputerDetail(input: {
+	organizationId?: string;
 	computer: OrganizationComputer;
 }) {
 	return (
@@ -83,6 +84,7 @@ export function OrganizationComputerDetail(input: {
 					localAgents: input.computer.localAgents.map((agent) => {
 						const parsed = parseAgentControllerRef(agent.agentControllerRef);
 						return {
+							controller: agent.agentControllerRef,
 							agentId: parsed?.id ?? agent.agentControllerRef,
 							details: agent.details,
 							displayName: formatLocalAgentDisplayName(
@@ -93,6 +95,14 @@ export function OrganizationComputerDetail(input: {
 						};
 					}),
 				}}
+				usageScope={
+					input.organizationId && input.computer.connectedComputerId
+						? {
+								organizationId: input.organizationId,
+								computerId: input.computer.connectedComputerId,
+							}
+						: undefined
+				}
 				view="team"
 			/>
 		</div>

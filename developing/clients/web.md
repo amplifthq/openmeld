@@ -1697,6 +1697,18 @@ cached identity evidence. Stale local-agent checks display **Status out of date*
 current availability is unknown until the Computer reports a new check. This
 does not mean that the Agent version is outdated or that repair is required.
 
+Local Agent cards show a quiet tokens-today line only when the current
+workspace has recorded positive token consumption for that controller on that
+enrolled Computer. The existing Details dialog includes an OpenMeld usage
+section with Today/Last 7 days, input/output totals, models, and an optional
+top-task disclosure. Periods use the viewer's local calendar days. When only
+the last seven days contain usage, Details starts there; periods without
+recorded tokens are unavailable. No usage records or unsupported collection
+produce no consumption copy, badge, placeholder, or reserved space. These
+statistics remain separate from provider account Usage Limits and do not
+present Local usage as free or as spending the organization allowance.
+Owner and teammate views read the same organization-scoped consumption query.
+
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
 automatically. In the collapsed row, a compact summary follows the existing

@@ -23,6 +23,7 @@ import { formatRuntimeLane } from "./agents-page-formatters";
 import { LocalAgentsCard } from "./agents-page-local-agents";
 import { OpenMeldServiceCard } from "./agents-page-openmeld-service";
 import { ComputerFileAccessCard } from "./computer-file-access-card";
+import { localAgentConsumptionScope } from "./local-agent-consumption";
 
 type LocalAgentRecoveryController = ReturnType<
 	typeof useLocalAgentRecoveryController
@@ -197,6 +198,10 @@ export function SelectedComputerPanel(input: {
 				key={`local-agents/${target ? computerEnvironmentKey(target) : input.computer.deviceId}`}
 				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
+				usageScope={localAgentConsumptionScope(
+					input.organizationId,
+					input.computer.connectedComputerId
+				)}
 			/>
 			{target && canManageComputerFileAccess ? (
 				<ComputerFileAccessCard
