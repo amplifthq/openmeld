@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { parseAntigravityUsageLimits } from "@openmeld/adapter-antigravity";
-import { projectCodexUsageLimits } from "@openmeld/adapter-codex";
+import { probeClaudeCodeUsageLimits } from "@openmeld/adapter-claude-code";
+import {
+  probeCodexAppServerAccount,
+  projectCodexUsageLimits,
+} from "@openmeld/adapter-codex";
 import {
   buildCliLaunchInvocation,
   createUnavailableProviderUsageLimits,
@@ -13,7 +17,10 @@ import {
   GrokBuildAcpTransportError,
   probeGrokBuildAcpInterface,
 } from "@openmeld/adapter-grok-build";
-import { areAgentControllerInterfaceAccountsSame } from "@openmeld/agent-runtime";
+import {
+  areAgentControllerInterfaceAccountsSame,
+  isAgentControllerUsageRefreshUnavailable,
+} from "@openmeld/agent-runtime";
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceAuthSnapshot,
@@ -47,6 +54,7 @@ import {
   recordAgentControllerInterfaceProbeSuccess,
   resolveAgentControllerCommandFingerprint,
 } from "./agent-controller-interface-keeper";
+import { probeCursorUsageLimits } from "./cursor-usage-probe";
 import { probeOpenCodeReadiness } from "./opencode-readiness-probe";
 import { withProbeWorkingDirectory } from "./probe-working-directory";
 import { resolveLaunchContractCommandPath } from "./runtime-provider-usage-limits";
@@ -162,6 +170,20 @@ export async function probeAgentControllerUsageObservationAuth(input: {
   agentId: string;
   launchContract: RuntimeAgentControllerLaunchContract;
 }): Promise<AgentControllerInterfaceAuthSnapshot> {
+  if (input.agentId === "codex") {
+    try {
+      const account = await probeCodexAppServerAccount({
+        launchContract: input.launchContract,
+        timeoutMs: PROBE_TIMEOUT_MS,
+      });
+      return {
+        status: account.authStatus,
+        ...(account.email ? { email: account.email } : {}),
+      };
+    } catch {
+      return { status: "unknown" };
+    }
+  }
   if (input.agentId !== "claude-code") {
     return { status: "unknown" };
   }
@@ -172,7 +194,7 @@ export async function probeAgentControllerUsageObservationAuth(input: {
     runLaunchContractCommand({
       workingDirectory,
       allowNonZeroExit: true,
-      args: ["auth", "status"],
+      args: ["auth", "status", "--json"],
       launchContract: input.launchContract,
     })
   );
@@ -291,7 +313,6 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       current: outcome.snapshot.usageLimits,
       previous: lastKnownUsageLimits,
       previousAuth: lastKnownAuth,
-      support: controllerDefinition?.usageLimitSupport ?? "not_evaluated",
     });
     const completedSnapshot = withUsageLimits(
       {
@@ -370,7 +391,6 @@ export function resolveUsageLimitsAfterCompletedProbe(input: {
   current: AgentControllerUsageLimits | undefined;
   previous: AgentControllerUsageLimits | null;
   previousAuth: AgentControllerInterfaceAuthSnapshot | null;
-  support: BuiltinAgentControllerUsageLimitSupport;
 }): AgentControllerUsageLimits | undefined {
   if (
     !areAgentControllerInterfaceAccountsSame(
@@ -380,8 +400,8 @@ export function resolveUsageLimitsAfterCompletedProbe(input: {
   ) {
     return input.current;
   }
-  if (input.support === "passive") {
-    return input.previous ?? input.current;
+  if (!input.current) {
+    return input.previous ?? undefined;
   }
   return preserveLastKnownUsageLimitsAfterFailure(input);
 }
@@ -390,8 +410,9 @@ function preserveLastKnownUsageLimitsAfterFailure(input: {
   current: AgentControllerUsageLimits | undefined;
   previous: AgentControllerUsageLimits | null;
 }): AgentControllerUsageLimits | undefined {
-  const currentIsUnavailable =
-    input.current?.length === 1 && input.current[0]?.status === "unavailable";
+  const currentIsUnavailable = isAgentControllerUsageRefreshUnavailable(
+    input.current
+  );
   const previousHasKnownCapacity = input.previous?.some(
     (limit) =>
       limit.status === "available" ||
@@ -431,7 +452,7 @@ function resolveInitialProviderUsageLimits(input: {
   checkedAt: string;
   support: BuiltinAgentControllerUsageLimitSupport;
 }): AgentControllerInterfaceSnapshot["usageLimits"] {
-  if (input.support === "native") {
+  if (input.support === "native" || input.support === "observational") {
     return createUnavailableProviderUsageLimits(input.checkedAt);
   }
   if (input.support === "unsupported") {
@@ -704,6 +725,34 @@ async function resolveClaudeCodeInterfaceSnapshot(
 
   const auth = resolveClaudeAuthSnapshot(authProbe);
   const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  let usageLimits = createUnavailableProviderUsageLimits(
+    input.baseSnapshot.checkedAt,
+    undefined,
+    { reason: "not_reported" }
+  );
+  if (auth.status !== "authenticated") {
+    usageLimits = createUnavailableProviderUsageLimits(
+      input.baseSnapshot.checkedAt,
+      undefined,
+      {
+        reason:
+          auth.status === "unauthenticated"
+            ? "not_authenticated"
+            : "refresh_failed",
+      }
+    );
+  } else if (
+    auth.email &&
+    version &&
+    (compareSemverCore(version, "2.1.285") ?? -1) >= 0
+  ) {
+    usageLimits = await probeClaudeCodeUsageLimits({
+      expectedEmail: auth.email,
+      launchContract: input.launchContract,
+      workingDirectory: input.workingDirectory,
+      observedAt: input.baseSnapshot.checkedAt,
+    });
+  }
   let message = input.baseSnapshot.message;
   let status = input.baseSnapshot.status;
   if (auth.status === "unauthenticated") {
@@ -719,6 +768,7 @@ async function resolveClaudeCodeInterfaceSnapshot(
     snapshot: {
       ...input.baseSnapshot,
       auth,
+      usageLimits,
       message,
       status,
       version,
@@ -750,6 +800,21 @@ async function resolveCursorInterfaceSnapshot(
   ]);
   const auth = resolveCursorAuthSnapshot(authProbe);
   const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  const usageLimits =
+    auth.status === "authenticated"
+      ? await probeCursorUsageLimits({
+          observedAt: input.baseSnapshot.checkedAt,
+        })
+      : createUnavailableProviderUsageLimits(
+          input.baseSnapshot.checkedAt,
+          undefined,
+          {
+            reason:
+              auth.status === "unauthenticated"
+                ? "not_authenticated"
+                : "refresh_failed",
+          }
+        );
   let message = input.baseSnapshot.message;
   let status = input.baseSnapshot.status;
   if (auth.status === "unauthenticated") {
@@ -764,6 +829,7 @@ async function resolveCursorInterfaceSnapshot(
     snapshot: {
       ...input.baseSnapshot,
       auth,
+      usageLimits,
       message,
       status,
       version,
@@ -1489,8 +1555,10 @@ function resolveCursorAuthSnapshot(
     return { status: "unauthenticated" };
   }
   if (payload?.status === "authenticated") {
+    const email = normalizeOptionalText(payload.email);
     return {
-      label: "Signed in",
+      ...(email ? { email } : {}),
+      label: email ?? "Signed in",
       status: "authenticated",
       type: "cursor_login",
     };

@@ -32,6 +32,7 @@ import {
 } from "@openmeld/adapter-core";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
 import { extractCodexToolActivityEvent } from "../output/codex-tool-activity.js";
+import { projectCodexUsageLimits } from "../usage/codex-usage-limits.js";
 import {
   type CodexAppServerControlOperation,
   resolveCodexAppServerControlRequestTimeoutMs,
@@ -92,6 +93,7 @@ export type CodexAppServerThreadProofResult = {
 
 export type CodexAppServerAccountProbeResult = {
   authStatus: "authenticated" | "unauthenticated" | "unknown";
+  email?: string;
   version: string | null;
 };
 
@@ -313,6 +315,9 @@ export async function probeCodexAppServerAccount(input: {
       const account = toRecord(response?.account);
       return {
         authStatus: resolveCodexAppServerAuthStatus({ account, response }),
+        ...(typeof account?.email === "string" && account.email.trim()
+          ? { email: account.email.trim() }
+          : {}),
         version: parseCodexAppServerVersion(initialized),
       };
     }
@@ -2212,6 +2217,18 @@ class CodexAppServerSession {
   }
 
   #handleNotification(message: JsonRpcMessage): void {
+    if (message.method === "account/rateLimits/updated") {
+      const tsMs = Date.now();
+      const usageLimits = projectCodexUsageLimits({
+        response: message.params,
+        observedAt: new Date(tsMs).toISOString(),
+      });
+      this.#emitRuntimeEvent({
+        phase: "provider_usage_limits_observed",
+        tsMs,
+        usageLimits,
+      });
+    }
     this.#startupDiagnostics.observeNotification(
       message.method ?? "",
       message.params

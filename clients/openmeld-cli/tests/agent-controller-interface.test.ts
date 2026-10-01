@@ -73,6 +73,12 @@ vi.mock(
 );
 
 beforeEach(() => {
+  vi.stubEnv("AGENT_CLI_CREDENTIAL_STORE", "memory");
+  vi.stubEnv("CURSOR_AUTH_TOKEN", "");
+  vi.stubEnv("CURSOR_API_KEY", "");
+  vi.stubEnv("OPENCODE_AUTH_CONTENT", "{}");
+  vi.stubEnv("OPENROUTER_API_KEY", "");
+  vi.stubEnv("OPENCODE_API_KEY", "");
   vi.stubGlobal(
     "fetch",
     vi.fn((input: string | URL | Request) => {
@@ -93,6 +99,7 @@ afterEach(() => {
   resetAgentControllerInterfaceKeeperForTests();
   warnDaemonEventMock.mockReset();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("agent controller interface inventory", () => {
@@ -199,7 +206,6 @@ describe("agent controller interface inventory", () => {
           email: "capacity-owner@example.com",
           status: "authenticated",
         },
-        support: "native",
       })
     ).toEqual([
       expect.objectContaining({
@@ -246,7 +252,6 @@ describe("agent controller interface inventory", () => {
           email: "capacity-owner@example.com",
           status: "authenticated",
         },
-        support: "passive",
       })
     ).toEqual(usageLimits);
   });
@@ -345,7 +350,6 @@ describe("agent controller interface inventory", () => {
           email: "capacity-owner@example.com",
           status: "authenticated",
         },
-        support: "native",
       })
     ).toEqual(unavailable);
   });
@@ -383,7 +387,6 @@ describe("agent controller interface inventory", () => {
           email: "previous-capacity-owner@example.com",
           status: "authenticated",
         },
-        support: "native",
       })
     ).toEqual(unavailable);
   });

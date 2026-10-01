@@ -143,6 +143,39 @@ describe("agent controller interface schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("preserves reported reset time with unknown utilization and a bounded reason", () => {
+    const snapshot = {
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimits: [
+        {
+          key: "provider",
+          label: "Usage limits",
+          observedAt: "2026-06-29T12:00:00.000Z",
+          reason: "not_reported",
+          resetsAt: "2026-06-29T15:00:00.000Z",
+          status: "unavailable",
+          usedPercent: null,
+        },
+      ],
+    };
+    expect(
+      agentControllerInterfaceSnapshotSchema.safeParse(snapshot).success
+    ).toBe(true);
+    const limit = snapshot.usageLimits[0];
+    if (!limit) {
+      throw new Error("Expected the usage limit fixture");
+    }
+    limit.reason = "private upstream error";
+    expect(
+      agentControllerInterfaceSnapshotSchema.safeParse(snapshot).success
+    ).toBe(false);
+    limit.reason = "not_reported";
+    limit.status = "unsupported";
+    expect(
+      agentControllerInterfaceSnapshotSchema.safeParse(snapshot).success
+    ).toBe(false);
+  });
+
   it("accepts provider-scoped usage windows without exposing credentials", () => {
     const result = agentControllerInterfaceSnapshotSchema.safeParse({
       ...createValidAgentControllerInterfaceSnapshot(),

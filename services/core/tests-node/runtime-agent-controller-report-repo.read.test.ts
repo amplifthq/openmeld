@@ -245,7 +245,12 @@ describe("runtime agent controller report repo read-side", () => {
     }
   });
 
-  it("keeps the last reported capacity stale when a later provider read is unavailable", async () => {
+  it.each([
+    undefined,
+    "refresh_failed",
+    "not_applicable",
+    "not_authenticated",
+  ] as const)("retains last reported capacity only for a failed refresh (%s)", async (reason) => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
     applyMigrationForTable(
@@ -293,6 +298,7 @@ describe("runtime agent controller report repo read-side", () => {
                 resetsAt: null,
                 status: "unavailable",
                 usedPercent: null,
+                ...(reason ? { reason } : {}),
               },
             ],
           },
@@ -308,18 +314,24 @@ describe("runtime agent controller report repo read-side", () => {
         db: harness.db,
         openMeldServiceRuntimeId: registeredRuntimeId,
       });
-      expect(
-        storedReports[0]?.agentControllerInterface?.usageLimits
-      ).toMatchObject([
-        { key: "codex:primary", status: "stale", usedPercent: 42 },
-        { key: "codex:secondary", status: "stale", usedPercent: 100 },
-        {
-          key: "provider-unavailable",
-          status: "unavailable",
-          usedPercent: null,
-        },
-        { key: "provider", status: "unsupported", usedPercent: null },
-      ]);
+      if (reason === "not_applicable" || reason === "not_authenticated") {
+        expect(
+          storedReports[0]?.agentControllerInterface?.usageLimits
+        ).toMatchObject([{ reason, usedPercent: null, status: "unavailable" }]);
+      } else {
+        expect(
+          storedReports[0]?.agentControllerInterface?.usageLimits
+        ).toMatchObject([
+          { key: "codex:primary", status: "stale", usedPercent: 42 },
+          { key: "codex:secondary", status: "stale", usedPercent: 100 },
+          {
+            key: "provider-unavailable",
+            status: "unavailable",
+            usedPercent: null,
+          },
+          { key: "provider", status: "unsupported", usedPercent: null },
+        ]);
+      }
     } finally {
       harness.close();
     }

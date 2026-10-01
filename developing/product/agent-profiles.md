@@ -1160,7 +1160,7 @@ guess based on recent output.
 Usage participates in Wakeability only when the Local Agent exposes structured,
 reliable Usage Limits. A Local Agent that explicitly reports Usage as
 unsupported, or that has no reliable Usage capability because reporting is
-passive or not evaluated, does not use Usage as an admission condition. Once a
+observational or not evaluated, does not use Usage as an admission condition. Once a
 Local Agent's versioned capability matrix declares native Usage support,
 missing, stale, expired, or currently unavailable Usage remains an observation,
 not an execution prerequisite. Otherwise ready Agents may attempt a new Wake;
@@ -1178,7 +1178,7 @@ provider evidence and a real smoke test.
 
 A structured Wake failure may update future Usage admission only when the
 accepted execution's exact Agent Controller has native Usage support in that
-same matrix. A passive, unsupported, or not-evaluated controller may still
+same matrix. An observational, unsupported, or not-evaluated controller may still
 report `usage_exhausted` for the current Wake and preserve its raw provider
 detail in Message Details, but that result must not create blocking evidence
 for a later Wake.
