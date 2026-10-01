@@ -4,6 +4,9 @@ title: Clearer model labels and another Center Agent option
 kind: improved
 areas: ["agents", "models", "center-agent"]
 audiences: ["users"]
+publishedAt: 2026-10-01
+release: v0.3.233
+evidence: ["pr:1411", "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575", "workflow:36831389174"]
 ---
 
 Model selectors show New for the latest reviewed releases, including GPT-6.1

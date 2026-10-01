@@ -4,6 +4,9 @@ title: More models for local and hosted agents
 kind: new
 areas: ["agents", "models", "center-agent"]
 audiences: ["users"]
+publishedAt: 2026-10-01
+release: v0.3.233
+evidence: ["pr:1410", "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575", "workflow:36829935507"]
 ---
 
 You can choose Claude Sonnet 5.5 for Claude Code and Cursor Agent Profiles,
