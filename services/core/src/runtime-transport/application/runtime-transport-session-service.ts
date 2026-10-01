@@ -134,7 +134,9 @@ export const handleRegisterSession = (
   session.lane = request.lane;
   session.serviceVersion = normalizeServiceVersion(request.serviceVersion);
   session.connectionGeneration = nextConnectionGeneration;
-  session.connectedAtMs = request.connectedAtMs;
+  if (!isSameSocketReRegister) {
+    session.connectedAtMs = request.connectedAtMs;
+  }
   session.lastHeartbeatMs = nowMs;
   session.acceptingDispatches = isSameSocketReRegister
     ? previousAcceptingDispatches

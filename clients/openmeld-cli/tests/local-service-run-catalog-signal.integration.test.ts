@@ -1794,6 +1794,8 @@ describe("local service run catalog signal", () => {
 
   it("re-registers current v4 working-folder facts immediately after a local Project connection changes", async () => {
     vi.useFakeTimers();
+    const connectedAtMs = 1_700_000_000_000;
+    vi.setSystemTime(connectedAtMs);
     const onLocalProjectConnectionsChanged = vi.fn();
     handleLocalProjectControlFrameMock.mockResolvedValue({
       code: "daemon.local_project_control.set_default_connection_result",
@@ -1928,6 +1930,7 @@ describe("local service run catalog signal", () => {
       expect.objectContaining({
         code: "daemon.session.register",
         payload: expect.objectContaining({
+          connectedAtMs,
           localWakeRouteReport: expect.objectContaining({
             expectedRoutesContractVersion: "v4",
             workingFolderObservations: [

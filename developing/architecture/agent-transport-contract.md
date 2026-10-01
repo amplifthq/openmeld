@@ -524,16 +524,25 @@ Important execution rules:
   that baseline; fresh accepted progress from the same token run ends the old
   uncertainty. A reconnection after the last accepted progress also retains that
   window when the watchdog missed the offline interval; registration alone does
-  not prove that execution evidence has caught up. A continuously connected
+  not prove that execution evidence has caught up. Re-registering a route catalog
+  on the same socket preserves its original connection time and cannot manufacture
+  a communication-recovery window. A new socket still starts a new connection
+  interval; adopting a hibernated socket retains its stored interval. A continuously connected
   controller with stale progress keeps the ordinary
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
   reconciliation take precedence. At window expiry, a missing/stopped delivery
   Service becomes `runtime.local_runtime_lost`; only a still-connected Service
   with no more specific cause remains `runtime.progress_stale`. Both retain the
   existing owner-mediated late-result recovery and never automatically rerun.
-- The five-minute policy names the cause it actually found. An occupied native
-  conversation reports its occupancy once and then goes quiet, so it reaches the
-  same threshold looking like a lost computer. When the blocked work item still
+- The five-minute policy names the cause it actually found. The first occupied
+  report advances the progress baseline. Repeated same-phase occupied reports,
+  recovery retries, and compatibility keepalives that omit occupancy prove only
+  liveness while the Coordinator's admission record still says occupied. They
+  cannot refresh progress or reset watchdog history, including after transport
+  hibernation or a permitted reconnect. An explicit availability transition or
+  advancement to `running` after provider turn acceptance ends that wait; normal
+  running keepalives continue to protect active execution. This is not a total
+  execution deadline. When the blocked work item still
   carries `waitReason = controller_conversation_occupied`, the terminal closes as
   `runtime.controller_conversation_occupied` instead, on the same deadline and
   with the same retained late-result recovery. Occupancy is read from the
