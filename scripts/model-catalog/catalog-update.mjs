@@ -6,7 +6,11 @@ import {
   modelCatalogSchema,
   modelCatalogUpdateEvidenceSchema,
 } from "../../packages/schemas/src/schemas/config/model-catalog.ts";
-import { renderBatchReview } from "./review.mjs";
+import {
+  hasNewReviewFacts,
+  modelReviewFacts,
+  renderBatchReview,
+} from "./review.mjs";
 
 export const digest = (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -160,11 +164,17 @@ export async function collectSources(
   return { sources, codexModels };
 }
 
+function sameReasoningLevels(existing, entry) {
+  return digest([...existing].sort()) === digest([...entry].sort());
+}
+
 function describeParameterChanges(existing, entry) {
   const differences = [];
   if (
-    digest(existing.supportedReasoningLevels) !==
-    digest(entry.supportedReasoningLevels)
+    !sameReasoningLevels(
+      existing.supportedReasoningLevels,
+      entry.supportedReasoningLevels
+    )
   ) {
     differences.push(
       `reasoning ${JSON.stringify(existing.supportedReasoningLevels)} → ${JSON.stringify(entry.supportedReasoningLevels)}`
@@ -203,8 +213,10 @@ function proposeCodexAdditions(target, codexModels, sources, discoverySince) {
       }
       changes.push({ modelId: entry.id, before: null, after: entry });
     } else if (
-      digest(existing.supportedReasoningLevels) !==
-        digest(entry.supportedReasoningLevels) ||
+      !sameReasoningLevels(
+        existing.supportedReasoningLevels,
+        entry.supportedReasoningLevels
+      ) ||
       existing.minCliVersion !== entry.minCliVersion
     ) {
       manual.push(
@@ -252,7 +264,10 @@ export function prepareUpdate({
     changes,
     manual,
   });
-  const sourceChanged = previous?.fingerprint !== fingerprint;
+  const reviewFacts = modelReviewFacts(evidence, catalog, discoverySince);
+  const previousFacts = previous
+    ? modelReviewFacts(previous, catalog, discoverySince)
+    : undefined;
   if (changes.length) {
     updated.updatedAt = observedAt;
   }
@@ -260,8 +275,26 @@ export function prepareUpdate({
   return {
     catalog: updated,
     evidence,
-    changed: sourceChanged || changes.length > 0,
+    changed: hasNewReviewFacts(reviewFacts, previousFacts),
   };
+}
+
+export async function readPreviousEvidence(root, controller) {
+  try {
+    return modelCatalogUpdateEvidenceSchema.parse(
+      JSON.parse(
+        await readFile(
+          resolve(root, `release/model-catalog-evidence/${controller}.json`),
+          "utf8"
+        )
+      )
+    );
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+    return undefined;
+  }
 }
 
 export async function runUpdate({ root = process.cwd(), controller, output }) {
@@ -276,21 +309,7 @@ export async function runUpdate({ root = process.cwd(), controller, output }) {
       await readFile(resolve(root, "release/vendor-models.json"), "utf8")
     )
   );
-  let previous;
-  try {
-    previous = modelCatalogUpdateEvidenceSchema.parse(
-      JSON.parse(
-        await readFile(
-          resolve(root, `release/model-catalog-evidence/${controller}.json`),
-          "utf8"
-        )
-      )
-    );
-  } catch (error) {
-    if (error.code !== "ENOENT") {
-      throw error;
-    }
-  }
+  const previous = await readPreviousEvidence(root, controller);
   const collected = await collectSources(config, controller, catalog);
   const result = prepareUpdate({
     catalog,
