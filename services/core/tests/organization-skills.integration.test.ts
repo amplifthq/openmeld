@@ -25,9 +25,11 @@ import {
 } from "../src/organization-skills/organization-skill-import";
 import {
   rpcBeginOrganizationSkillImportBatch,
+  rpcGetOrganizationSkill,
   rpcGetOrganizationSkillImportBatch,
   rpcImportOrganizationSkillFromGitHub,
   rpcListOrganizationSkillImportBatches,
+  rpcListOrganizationSkills,
 } from "../src/organization-skills/organization-skill-rpc";
 import {
   createOrganizationSkillService,
@@ -46,6 +48,74 @@ const GITHUB_SKILL_MARKDOWN = [
 ].join("\n");
 
 describe("Organization Skills", () => {
+  it("keeps an ordinary Agent's selected release after an update and rejects it after disablement", async () => {
+    const fixture = await seedFixture();
+    const profileId = `agt_${crypto.randomUUID()}`;
+    await env.OPENMELD_DB.prepare(`INSERT INTO openmeld_profiles
+      (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)
+      VALUES (?, 'Task reader', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 1000, 1000)`)
+      .bind(
+        profileId,
+        profileId,
+        fixture.organizationId,
+        fixture.owner.userId,
+        fixture.owner.userId
+      )
+      .run();
+    const context: OpenMeldRequestContext = {
+      activeOrganizationId: fixture.organizationId,
+      actorContext: {
+        requestId: crypto.randomUUID(),
+        callerPrincipalId: fixture.owner.userId,
+        ownerUserId: fixture.owner.userId,
+        openMeldProfileId: profileId,
+        profileKind: "agent",
+        profileName: "Task reader",
+      },
+    };
+    const coreEnv = env as unknown as CoreBindings;
+    const service = createService();
+    const initial = await service.create(fixture.owner, {
+      name: "holdout-triage",
+      description: "Classify a new incident.",
+      instructions:
+        "If the customer cannot sign in, classify as access. Otherwise classify as service.",
+    });
+    const list = await rpcListOrganizationSkills(coreEnv, { context });
+    expect(list.skills.find((skill) => skill.id === initial.id)).toMatchObject({
+      permissions: { canEdit: false, canManage: false },
+    });
+    const updated = await service.update(fixture.owner, initial.id, {
+      bundle: {
+        ...initial.bundle,
+        instructions: "A later, different workflow.",
+      },
+      expectedActiveReleaseId: initial.activeRelease.id,
+      expectedVersion: initial.version,
+    });
+    const read = await rpcGetOrganizationSkill(coreEnv, {
+      context,
+      skillId: initial.id,
+      releaseId: initial.activeRelease.id,
+    });
+    expect(read.selectedRelease?.bundle.instructions).toBe(
+      initial.bundle.instructions
+    );
+    expect(read.selectedRelease?.releaseId).not.toBe(updated.activeRelease.id);
+    await service.setEnabled(fixture.owner, initial.id, false, updated.version);
+    await expect(
+      rpcGetOrganizationSkill(coreEnv, {
+        context,
+        skillId: initial.id,
+        releaseId: initial.activeRelease.id,
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    expect(
+      (await rpcListOrganizationSkills(coreEnv, { context })).skills.some(
+        (skill) => skill.id === initial.id
+      )
+    ).toBe(false);
+  });
   it("serves one exact resource to a current member and denies it after revocation", async () => {
     const fixture = await seedFixture();
     const service = createService();

@@ -2421,6 +2421,24 @@ member may edit only the Markdown body of an existing Profile Report about
 them; that exception does not grant creation, title, deletion, approval, folder
 management, report placement, or other-member access.
 
+Task preparation gives Center, personal Remote, and Local Agents a bounded
+directory of approved non-empty documents with IDs and `updatedAt` versions.
+Bodies remain on demand. An owned active Local Agent reads through the ordinary
+member API in the Space's Organization; the Agent projection contains no draft
+body or edit/manage permissions. The personal Remote Agent uses the existing
+verified-requester read RPC. Its Center-only protected prompt and Computer
+projection remain disabled: ordinary document access does not confer Center
+identity, protected information, or a writable document checkout.
+
+The display uses a 6,000-character starting budget, counts only authorized
+entries, and includes a full-list/read entry for omitted documents and Skills.
+Relevant rules must be read before being applied. Current Center prompt reads
+do not share an Organization-only cache or fall back to earlier bodies after
+denial or transport failure. A failed directory read is marked unavailable;
+ordinary conversation can continue, while work depending on unread rules must
+report the missing context. No index is stored in Core, global Skill directories,
+or repository `AGENTS.md` files.
+
 Every human content save carries the Document `updatedAt` and nullable draft
 version that the editor loaded. Core applies the content only when both still
 match. If the Center Agent writes a newer Profile Report draft or another human

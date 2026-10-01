@@ -7,6 +7,7 @@ import type { OrganizationSkillRuntimeReleaseSelection } from "@openmeld/schemas
 import {
   maxLength,
   minLength,
+  optional,
   parse,
   pipe,
   strictObject,
@@ -24,6 +25,61 @@ const readSkillResourceInputSchema = strictObject({
   path: pipe(string(), minLength(1), maxLength(1024)),
   skillName: pipe(string(), minLength(1), maxLength(64)),
 });
+
+const searchSkillCatalogInputSchema = strictObject({
+  query: optional(pipe(string(), maxLength(400))),
+});
+export function createOrganizationSkillCatalogTool(input: {
+  context: RemoteAgentCallbackContext;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+}): RemoteAgentToolDefinition {
+  return {
+    name: "openmeld_search_task_skills",
+    description:
+      "List or search the current task's frozen Skill releases, including entries omitted from the prompt. Returns metadata; activate a matching Skill to read its instructions. Uses current permissions and never substitutes latest.",
+    input: searchSkillCatalogInputSchema,
+    execute: async (payload) => {
+      const { query } = parse(searchSkillCatalogInputSchema, payload);
+      const response = await callCoreRpc(
+        input.coreWorker,
+        "readOrganizationSkillRuntimeCatalog",
+        {
+          context: buildRemoteAgentCoreContext(
+            input.context,
+            `task-skill-search:${input.context.submissionId}`
+          ),
+          releases: input.context.organizationSkillReleases ?? [],
+          skipUnavailableSelectedReleases: true,
+          ...(input.context.conversationIdentity?.kind === "personal_agent"
+            ? { preparationIdempotencyKey: input.context.idempotencyKey }
+            : {}),
+        },
+        (binding, request) =>
+          binding.readOrganizationSkillRuntimeCatalog?.(request)
+      );
+      const catalog =
+        organizationSkillRuntimeCatalogResponseSchema.parse(response);
+      if (catalog.organizationId !== input.context.organizationId) {
+        throw new Error("Skill catalog Organization changed.");
+      }
+      const needle = query?.trim().toLowerCase() ?? "";
+      return {
+        skills: catalog.releases
+          .filter((release) =>
+            `${release.portable.name} ${release.portable.description}`
+              .toLowerCase()
+              .includes(needle)
+          )
+          .map((release) => ({
+            name: release.portable.name,
+            description: release.portable.description,
+            releaseId: release.releaseId,
+            digest: release.digest,
+          })),
+      };
+    },
+  };
+}
 
 export function createOrganizationSkillResourceTool(input: {
   context: RemoteAgentCallbackContext;
@@ -114,7 +170,10 @@ export function materializeOrganizationSkillFlueSkillsFromCatalog(input: {
       .join("\n");
     return defineSkill({
       name: selection.name,
-      description: release.portable.description,
+      description: release.portable.description.slice(
+        0,
+        Math.max(1, Math.floor(2000 / catalog.releases.length))
+      ),
       instructions:
         resources.length > 0
           ? `${release.instructions}\n\nResources in this Skill version:\n${resources}\n\nRead a needed resource with openmeld_read_skill_resource using skillName="${selection.name}" and its exact path.`

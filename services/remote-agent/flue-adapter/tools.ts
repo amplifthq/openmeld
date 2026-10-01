@@ -31,7 +31,10 @@ import {
   createRemoteAgentCodeModeFlueTool,
   type RemoteAgentCodeModeRuntime,
 } from "./code-mode";
-import { createOrganizationSkillResourceTool } from "./organization-skills";
+import {
+  createOrganizationSkillCatalogTool,
+  createOrganizationSkillResourceTool,
+} from "./organization-skills";
 import { createHostedPublicProgressTool } from "./public-progress";
 import {
   createRemoteAgentReadToolResultDefinition,
@@ -80,6 +83,10 @@ export async function getRemoteAgentFlueTools(input: {
     input.organizationSkillContext?.organizationSkillReleases?.length
       ? [
           createOrganizationSkillResourceTool({
+            context: input.organizationSkillContext,
+            coreWorker: input.coreWorker,
+          }),
+          createOrganizationSkillCatalogTool({
             context: input.organizationSkillContext,
             coreWorker: input.coreWorker,
           }),

@@ -345,6 +345,10 @@ export {
   type RuntimeRegistryContractRegistrationStatus,
 } from "./runtime-registry-contract";
 export {
+  renderTaskKnowledgeIndex,
+  TASK_KNOWLEDGE_GUIDANCE,
+} from "./task-knowledge";
+export {
   isTaskResultStatusSuccessLike,
   resolveTaskResultDeliverySemantic,
   type TaskResultDeliverySemantic,

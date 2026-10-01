@@ -37,6 +37,10 @@ import {
 } from "./action-command";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
 import { readDispatchSpaceHistory } from "./dispatch-history-read";
+import {
+  readDispatchDocuments,
+  readDispatchSkill,
+} from "./dispatch-knowledge-read";
 import { DispatchReadResults } from "./dispatch-read-result";
 import {
   createDispatchSpaceTask,
@@ -92,9 +96,13 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
       config.inputSchema instanceof z.ZodObject
         ? config.inputSchema
         : z.strictObject(config.inputSchema);
-    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
-      name
-    );
+    const pagedRead = [
+      "read_history",
+      "read_file",
+      "list_tasks",
+      "read_documents",
+      "read_skills",
+    ].includes(name);
     this.tools.push({
       ...config,
       name,
@@ -146,9 +154,13 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
         );
       }, this.#env);
     }
-    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
-      name
-    );
+    const pagedRead = [
+      "read_history",
+      "read_file",
+      "list_tasks",
+      "read_documents",
+      "read_skills",
+    ].includes(name);
     if (pagedRead || name === "read_result") {
       try {
         readDispatchSpaceActionContextFromEnv(this.#env);
@@ -395,6 +407,50 @@ export function createDispatchSpaceTools(
           isError: true,
         };
       }
+    }
+  );
+
+  server.registerTool(
+    "read_documents",
+    {
+      title: "Read approved task documents",
+      description:
+        "List all approved Organization documents visible to this Wake, or pass documentId to read its current approved body. Uses the current Agent and Space; never returns drafts or grants action permissions. Read relevant bodies before applying rules. This does not complete the Wake.",
+      inputSchema: { documentId: z.string().trim().min(1).optional() },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const result = await readDispatchDocuments({ ...args, env });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result) }],
+      };
+    }
+  );
+
+  server.registerTool(
+    "read_skills",
+    {
+      title: "Read this task's selected Skills",
+      description:
+        "List the task's frozen Skill selections, or pass name to read its exact instructions and resources through current Organization permissions. Includes entries omitted from the prompt. Does not install anything or change the selected release.",
+      inputSchema: { name: z.string().trim().min(1).optional() },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args) => {
+      const result = await readDispatchSkill({ ...args, env });
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result) }],
+      };
     }
   );
 

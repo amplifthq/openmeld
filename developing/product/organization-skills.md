@@ -1,5 +1,22 @@
 # Organization Skills
 
+Task directories are display projections, not release selection or permission
+owners. Remote Agent keeps the complete admitted catalog mounted in Flue even
+when prompt metadata is shortened; `openmeld_search_task_skills` searches those
+same selected releases under current Core authority. Full instructions and
+resources remain on-demand through the existing activation and resource tools.
+Flue description display shares a 2,000-character budget without pruning mounts.
+
+Local dispatch preparation reads enabled Skill metadata as the owned Agent and
+keeps exact release IDs/digests in the existing dispatch action context. Explicit
+handoff selections take precedence and retain the existing disposable
+materializer. The `read_skills` context tool lists those selections or reads a
+named exact release through the existing Skill API; it neither installs globally
+nor changes the working directory of an ordinary repository Wake. Each read
+checks current membership, Agent ownership, and enablement. A later publication
+does not replace a task's selected release; disablement denies future reads.
+Already-read content cannot be removed from a model's context.
+
 ## Agent Context
 
 - Purpose: Define the Organization Skill product, authority, release, runtime,

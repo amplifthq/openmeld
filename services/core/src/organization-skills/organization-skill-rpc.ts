@@ -112,11 +112,24 @@ export async function rpcListOrganizationSkills(
   input: ListOrganizationSkillsRpcInput
 ): Promise<ListOrganizationSkillsResponse> {
   const request = parseRequest(listOrganizationSkillsRpcInputSchema, input);
-  const { actor, service } = await prepareHumanRequest(env, request.context);
+  const { actor, service } = await prepareHumanRequest(
+    env,
+    request.context,
+    true
+  );
+  const agentRead = request.context.actorContext.profileKind === "agent";
+  const skills = await service.list(actor);
   return parseResponse(listOrganizationSkillsResponseSchema, {
     canManage: actor.role === "owner" || actor.role === "admin",
     organizationId: actor.organizationId,
-    skills: await service.list(actor),
+    skills: agentRead
+      ? skills
+          .filter((skill) => skill.enabled)
+          .map((skill) => ({
+            ...skill,
+            permissions: { canEdit: false, canManage: false },
+          }))
+      : skills,
   });
 }
 
@@ -954,7 +967,7 @@ export async function rpcRecordOrganizationSkillActivation(
 export async function prepareHumanRequest(
   env: CoreBindings,
   context: OpenMeldRequestContext,
-  allowAgentReleaseRead = false
+  allowAgentRead = false
 ) {
   const membership = await resolveActiveOrganizationMembership({
     context,
@@ -969,7 +982,7 @@ export async function prepareHumanRequest(
   }
   if (
     context.actorContext.profileKind !== "human" &&
-    !(allowAgentReleaseRead && context.actorContext.profileKind === "agent")
+    !(allowAgentRead && context.actorContext.profileKind === "agent")
   ) {
     throw createCoreRpcHttpError({
       code: "organization_skill.human_actor_required",
@@ -986,6 +999,7 @@ export async function prepareHumanRequest(
         WHERE profile_id = ?
           AND owner_user_id = ?
           AND profile_kind = ?
+          AND (profile_kind = 'human' OR organization_id = ?)
           AND status = 'active'
         LIMIT 1
       `
@@ -993,7 +1007,8 @@ export async function prepareHumanRequest(
     .bind(
       context.actorContext.openMeldProfileId,
       membership.userId,
-      context.actorContext.profileKind
+      context.actorContext.profileKind,
+      membership.organizationId
     )
     .first();
   if (!profile) {

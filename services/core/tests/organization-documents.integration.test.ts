@@ -24,6 +24,8 @@ import {
   rpcCenterAgentOrganizationDocumentsComputerSnapshot,
   rpcCenterAgentReadOrganizationDocuments,
   rpcCreateOrganizationDocument,
+  rpcGetOrganizationDocument,
+  rpcListOrganizationDocuments,
 } from "../src/organization-documents/organization-document-rpc";
 import {
   createOrganizationDocumentService,
@@ -50,6 +52,90 @@ const ORGANIZATION_DOCUMENT_UPDATE_SQL_PATTERN =
 const ISO_CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 
 describe("Organization documents", () => {
+  it("lets an ordinary owned Agent read approved documents without draft or management access", async () => {
+    const coreEnv = env as unknown as CoreBindings;
+    const fixture = await seedFixture();
+    const profileId = `agt_${crypto.randomUUID()}`;
+    await env.OPENMELD_DB.prepare(`INSERT INTO openmeld_profiles
+      (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at)
+      VALUES (?, 'Local reader', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 1000, 1000)`)
+      .bind(
+        profileId,
+        profileId,
+        fixture.organizationId,
+        fixture.owner.userId,
+        fixture.owner.userId
+      )
+      .run();
+    const humanContext = humanRequestContext(
+      fixture.organizationId,
+      profileId,
+      fixture.owner.userId
+    );
+    const context = {
+      ...humanContext,
+      actorContext: {
+        ...humanContext.actorContext,
+        profileKind: "agent" as const,
+      },
+    };
+    const service = createOrganizationDocumentService({ db: env.OPENMELD_DB });
+    const approved = await service.create(fixture.owner, {
+      kind: "knowledge",
+      title: "Review policy",
+      content: "Use release B.",
+    });
+    await service.draft(
+      fixture.organizationId,
+      { documentId: approved.id, draftContent: "Unadopted release C." },
+      []
+    );
+    const draftOnly = await service.draft(
+      fixture.organizationId,
+      {
+        kind: "knowledge",
+        title: "Unadopted proposal",
+        draftContent: "Do not publish.",
+      },
+      []
+    );
+    const listed = await rpcListOrganizationDocuments(coreEnv, { context });
+    expect(listed.documents.map((document) => document.id)).toContain(
+      approved.id
+    );
+    expect(listed.documents.map((document) => document.id)).not.toContain(
+      draftOnly.document.id
+    );
+    expect(listed.canManage).toBe(false);
+    const read = await rpcGetOrganizationDocument(coreEnv, {
+      context,
+      documentId: approved.id,
+    });
+    expect(read.document).toMatchObject({
+      content: "Use release B.",
+      draftContent: null,
+      draftCreatedAt: null,
+      canManage: false,
+      canEditContent: false,
+    });
+    await expect(
+      rpcCreateOrganizationDocument(coreEnv, {
+        context,
+        expectedOrganizationId: fixture.organizationId,
+        kind: "knowledge",
+        title: "Unauthorized",
+        content: "No",
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE openmeld_profiles SET status = 'disabled' WHERE profile_id = ?"
+    )
+      .bind(profileId)
+      .run();
+    await expect(
+      rpcGetOrganizationDocument(coreEnv, { context, documentId: approved.id })
+    ).rejects.toMatchObject({ status: 403 });
+  });
   it("projects a maximum-length document title within the Inbox title contract", async () => {
     const fixture = await seedFixture();
     const documentTitle = `${"A".repeat(149)}😀${"B".repeat(49)}`;
@@ -1937,12 +2023,7 @@ describe("Organization documents", () => {
         speakerMember,
       })
     ).resolves.toMatchObject({
-      documents: [
-        expect.objectContaining({
-          id: drafted.document.id,
-          title: "Operations runbook",
-        }),
-      ],
+      documents: [],
     });
     await expect(
       rpcCenterAgentReadOrganizationDocuments(coreEnv, {

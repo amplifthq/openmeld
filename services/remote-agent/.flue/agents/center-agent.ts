@@ -2,6 +2,7 @@
 
 import { useAgentFinish, useModel, useSkill, useTool } from "@flue/runtime";
 import { extend, getCloudflareContext } from "@flue/runtime/cloudflare";
+import { renderTaskKnowledgeIndex } from "@openmeld/agent-runtime";
 import {
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
@@ -44,7 +45,10 @@ import {
   resolveRemoteAgentTurnEnvelopeForExecution,
   submitRemoteAgentConversationTurn,
 } from "../../agent-core/submission";
-import { buildRemoteAgentCoreContext } from "../../agent-core/tool-context";
+import {
+  buildRemoteAgentCoreContext,
+  resolveOrganizationMemberTurnEnvelopeSpeaker,
+} from "../../agent-core/tool-context";
 import {
   abortFlueCenterAgentSubmission,
   createFlueCenterAgentAdmissionHost,
@@ -137,6 +141,7 @@ async function prepareCenterAgentRender() {
       };
   const personalAgent =
     executionContext?.conversationIdentity?.kind === "personal_agent";
+  const includeTaskDocuments = runtimeContextPlan.includeOrganizationDocuments;
   if (personalAgent) {
     runtimeContextPlan.includeOrganizationDocuments = false;
   }
@@ -147,6 +152,42 @@ async function prepareCenterAgentRender() {
   // Space work handoffs pin explicit Skills. Automatically included Skills are
   // optional and may have been disabled while this delivery waited to start.
   const optionalOrganizationSkills = !executionContext?.workHandoff;
+  const speakerMember = resolveOrganizationMemberTurnEnvelopeSpeaker(
+    turnEnvelope ?? undefined
+  );
+  // Use the ordinary member read, never the Center-only protected prompt RPC.
+  const taskDocuments =
+    executionContext && speakerMember && includeTaskDocuments
+      ? await callCoreRpc(
+          coreWorker,
+          "centerAgentReadOrganizationDocuments",
+          {
+            context: buildRemoteAgentCoreContext(
+              executionContext,
+              `task-documents:${executionContext.submissionId}`
+            ),
+            speakerMember,
+            action: "list" as const,
+          },
+          (binding, request) =>
+            binding.centerAgentReadOrganizationDocuments?.(request)
+        )
+          .then((result) =>
+            result.action === "list" ? result.documents : null
+          )
+          .catch((error: unknown) => {
+            console.warn("[remote_agent.task_documents.unavailable]", {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+            });
+            return null;
+          })
+      : null;
+  const taskKnowledgeIndex = renderTaskKnowledgeIndex({
+    documents: taskDocuments,
+    skills: organizationSkillSelections,
+    readHint:
+      "Use openmeld_read_org_documents action=list for the full authorized directory; action=get with documentId reads the current approved body. Use openmeld_search_task_skills to find omitted Skills in this task's frozen catalog. Activate the named Skill and use openmeld_read_skill_resource for its pinned resources. Never substitute the latest release.",
+  });
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
       executionContext &&
@@ -328,6 +369,7 @@ async function prepareCenterAgentRender() {
     thinkingLevel: executionContext?.modelRoute?.reasoningLevel ?? "high",
     instructions: buildRemoteAgentSystemPrompt({
       personalAgent,
+      taskKnowledgeIndex: `${taskKnowledgeIndex}${runtimeContextPlan.includeOrganizationDocuments && !materialization.documents ? "\nCenter document context could not be refreshed. No cached Brief or rules were supplied; use the document read tool before work that depends on them." : ""}`,
       modelDisplayName: resolveRemoteAgentModelDisplayName(
         env,
         executionContext?.modelRoute

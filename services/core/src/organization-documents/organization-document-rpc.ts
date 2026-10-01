@@ -100,15 +100,27 @@ export async function rpcListOrganizationDocuments(
   input: ListOrganizationDocumentsRpcInput
 ): Promise<ListOrganizationDocumentsResponse> {
   const request = parseRequest(listOrganizationDocumentsRpcInputSchema, input);
-  const { actor, service } = await prepareHumanRequest(env, request.context);
+  const { actor, service } = await prepareHumanRequest(
+    env,
+    request.context,
+    true
+  );
+  const agentRead = request.context.actorContext.profileKind === "agent";
   const [documents, folders] = await Promise.all([
-    service.list(actor),
+    service.list(actor, agentRead),
     service.listFolders(actor),
   ]);
   return parseResponse(listOrganizationDocumentsResponseSchema, {
-    canManage: actor.role === "owner" || actor.role === "admin",
+    canManage: !agentRead && (actor.role === "owner" || actor.role === "admin"),
     currentUserId: actor.userId,
-    documents,
+    documents: agentRead
+      ? documents.map((document) => ({
+          ...document,
+          canEditContent: false,
+          canManage: false,
+          hasDraft: false,
+        }))
+      : documents,
     folders,
     organizationId: actor.organizationId,
   });
@@ -189,9 +201,31 @@ export async function rpcGetOrganizationDocument(
   input: GetOrganizationDocumentRpcInput
 ): Promise<GetOrganizationDocumentResponse> {
   const request = parseRequest(getOrganizationDocumentRpcInputSchema, input);
-  const { actor, service } = await prepareHumanRequest(env, request.context);
+  const { actor, service } = await prepareHumanRequest(
+    env,
+    request.context,
+    true
+  );
+  const document = await service.get(actor, request.documentId);
+  const agentRead = request.context.actorContext.profileKind === "agent";
+  if (agentRead && !document.content.trim()) {
+    throw createCoreRpcHttpError({
+      code: "organization_document.not_found",
+      reason: "No approved document content is available.",
+      status: 404,
+    });
+  }
   return parseResponse(getOrganizationDocumentResponseSchema, {
-    document: await service.get(actor, request.documentId),
+    document: agentRead
+      ? {
+          ...document,
+          canEditContent: false,
+          canManage: false,
+          draftContent: null,
+          draftCreatedAt: null,
+          draftCreatedBy: null,
+        }
+      : document,
   });
 }
 
@@ -306,7 +340,7 @@ export async function rpcCenterAgentReadOrganizationDocuments(
   };
   if (request.action === "list") {
     const [listedDocuments, folders] = await Promise.all([
-      service.list(actor),
+      service.list(actor, true),
       service.listFolders(actor),
     ]);
     const documents = listedDocuments.map(
@@ -728,7 +762,8 @@ export async function rpcReadOrganizationDocumentPromptContext(
 
 async function prepareHumanRequest(
   env: CoreBindings,
-  context: OpenMeldRequestContext
+  context: OpenMeldRequestContext,
+  allowAgentRead = false
 ) {
   const membership = await resolveActiveOrganizationMembership({
     context,
@@ -741,7 +776,10 @@ async function prepareHumanRequest(
       status: membership.status,
     });
   }
-  if (context.actorContext.profileKind !== "human") {
+  if (
+    context.actorContext.profileKind !== "human" &&
+    !(allowAgentRead && context.actorContext.profileKind === "agent")
+  ) {
     throw createCoreRpcHttpError({
       code: "organization_document.human_actor_required",
       reason: "Organization documents must be managed by a human profile.",
@@ -756,12 +794,18 @@ async function prepareHumanRequest(
         FROM openmeld_profiles
         WHERE profile_id = ?
           AND owner_user_id = ?
-          AND profile_kind = 'human'
+          AND profile_kind = ?
+          AND (profile_kind = 'human' OR organization_id = ?)
           AND status = 'active'
         LIMIT 1
       `
     )
-    .bind(context.actorContext.openMeldProfileId, membership.userId)
+    .bind(
+      context.actorContext.openMeldProfileId,
+      membership.userId,
+      context.actorContext.profileKind,
+      membership.organizationId
+    )
     .first();
   if (!profile) {
     throw createCoreRpcHttpError({
@@ -772,7 +816,8 @@ async function prepareHumanRequest(
   }
   const actor: OrganizationDocumentActor = {
     organizationId: membership.organizationId,
-    role: membership.role,
+    role:
+      context.actorContext.profileKind === "agent" ? "member" : membership.role,
     userId: membership.userId,
   };
   return {
