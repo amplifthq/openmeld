@@ -5,6 +5,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -84,39 +85,57 @@ function ResolvedComputerConnectionHistory(input: {
 							No recent connection incidents have been uploaded.
 						</p>
 					) : null}
-					{history.data?.incidents.map((incident) => (
-						<div className="space-y-1 border-t pt-3" key={incident.incidentId}>
-							<p>
-								{incident.outcome === "recovered"
-									? "Recovered automatically"
-									: "Connection interrupted"}{" "}
-								·{" "}
-								{Math.max(
-									1,
-									Math.round((incident.endedAtMs - incident.startedAtMs) / 1000)
-								)}
-								s recorded
-							</p>
-							<p className="text-muted-foreground">
-								{new Date(incident.startedAtMs).toLocaleString()} · Service{" "}
-								{incident.serviceVersion}
-							</p>
-							<details>
-								<summary className="cursor-pointer text-muted-foreground">
-									Technical details
-								</summary>
-								<p className="my-2 break-all text-muted-foreground text-xs">
-									Incident {incident.incidentId}
-									{incident.evidenceTruncated
-										? " · Some repeated events were omitted."
-										: ""}
-								</p>
-								<pre className="max-h-64 overflow-auto rounded border p-3 text-xs">
-									{JSON.stringify(incident, null, 2)}
-								</pre>
-							</details>
-						</div>
-					))}
+					{history.data?.incidents.length ? (
+						<ScrollArea
+							className="max-h-70"
+							contentClassName="space-y-3 pr-3"
+							scrollFade
+							viewportClassName="overscroll-contain"
+							viewportProps={{
+								"aria-label": "Connection history",
+								role: "region",
+							}}
+						>
+							{history.data.incidents.map((incident) => (
+								<div
+									className="space-y-1 border-t pt-3"
+									key={incident.incidentId}
+								>
+									<p>
+										{incident.outcome === "recovered"
+											? "Recovered automatically"
+											: "Connection interrupted"}{" "}
+										·{" "}
+										{Math.max(
+											1,
+											Math.round(
+												(incident.endedAtMs - incident.startedAtMs) / 1000
+											)
+										)}
+										s recorded
+									</p>
+									<p className="text-muted-foreground">
+										{new Date(incident.startedAtMs).toLocaleString()} · Service{" "}
+										{incident.serviceVersion}
+									</p>
+									<details>
+										<summary className="cursor-pointer text-muted-foreground">
+											Technical details
+										</summary>
+										<p className="my-2 break-all text-muted-foreground text-xs">
+											Incident {incident.incidentId}
+											{incident.evidenceTruncated
+												? " · Some repeated events were omitted."
+												: ""}
+										</p>
+										<pre className="max-h-64 overflow-auto rounded border p-3 text-xs">
+											{JSON.stringify(incident, null, 2)}
+										</pre>
+									</details>
+								</div>
+							))}
+						</ScrollArea>
+					) : null}
 					<Button
 						disabled={history.isFetching}
 						onClick={() => {
