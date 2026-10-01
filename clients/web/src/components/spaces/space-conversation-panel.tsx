@@ -15,6 +15,7 @@ import {
 	type SpaceMemberDirectoryEntry,
 } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
@@ -141,6 +142,7 @@ import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { buildSpaceTaskSources } from "./space-composer-task-menu";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import { resolveLocalDateKey } from "./space-conversation-date";
 import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
@@ -166,7 +168,6 @@ import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
-import { SpaceMessageAddressingBadges } from "./space-message-addressing-badges";
 import {
 	hasSpaceMessageAttachments,
 	SpaceMessageAttachments,
@@ -180,6 +181,7 @@ import {
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
 	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 } from "./space-message-bubble-style";
+import { SpaceMessageContinuationNotice } from "./space-message-continuation-notice";
 import {
 	copySpaceTimelineItemWithFeedback,
 	isSpaceMessageCopyPending,
@@ -3018,64 +3020,72 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 									)}
 								>
 									<BubbleGroup className="w-full gap-0">
-										<div
-											className={cn(
-												"group/message-row relative flex w-full min-w-0 max-w-full flex-col gap-0",
-												SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
-											)}
-											data-message-row-id={item.id}
-										>
-											<Bubble
-												align={messageAlign}
-												className={cn(
-													messageBubbleVisibilityClassName,
-													hasSpaceMessageAttachments(item) && "w-full"
-												)}
-											>
-												<ConversationBubbleContent
-													agentInteractionItems={agentInteractionItems}
-													anchoredOutcomeNotices={anchoredOutcomeNotices}
-													answerProgressStatus={answerProgressStatus}
-													bubblePresentationClass={bubblePresentationClass}
-													canUseMessageActions={canUseMessageActions}
-													computerSetupContext={
-														computerSetupPresentation.context
-													}
-													detailsDialog={detailsDialog}
-													isHighlighted={isHighlighted}
-													item={item}
-													messageAlign={messageAlign}
-													parent={input}
-													selfMessageContentLayoutClassName={
-														selfMessageContentLayoutClassName
-													}
-												/>
-											</Bubble>
-											{rowProgressStatus}
-											{renderConversationMessageFooter({
-												anchoredOutcomeNotices,
-												canUseMessageActions,
-												hasWakeProblem,
-												isDirectMessage: input.isDirectMessage,
-												isCreatingThread: input.isCreatingThread,
-												item,
-												messageAlign,
-												messageDetailsItem,
-												onCreateThread: input.onCreateThread,
-												onOpenMessageDetails: input.onOpenMessageDetails,
-												onOpenThread: input.onOpenThread,
-												onAddMessageToTasks: input.onAddMessageToTasks,
-												onReplyToMessage: input.onReplyToMessage,
-												orgSlug: input.orgSlug,
-												profileEntriesById: input.profileEntriesById,
-												profilePresentationsById:
-													input.profilePresentationsById,
-												selfProfileId: input.selfProfileId,
-												taskCreationSourceSignalId:
-													input.taskCreationSourceSignalId,
-												threadsByRootSignalId: input.threadsByRootSignalId,
-											})}
-										</div>
+										<FluidContextMenuScope
+											disabled={
+												item.transientActivityPurpose !== null ||
+												Boolean(item.activeWakeProgress)
+											}
+											target={
+												<div
+													className={cn(
+														"group/message-row relative flex w-full min-w-0 max-w-full flex-col gap-0",
+														SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
+													)}
+													data-message-row-id={item.id}
+												>
+													<Bubble
+														align={messageAlign}
+														className={cn(
+															messageBubbleVisibilityClassName,
+															hasSpaceMessageAttachments(item) && "w-full"
+														)}
+													>
+														<ConversationBubbleContent
+															agentInteractionItems={agentInteractionItems}
+															anchoredOutcomeNotices={anchoredOutcomeNotices}
+															answerProgressStatus={answerProgressStatus}
+															bubblePresentationClass={bubblePresentationClass}
+															canUseMessageActions={canUseMessageActions}
+															computerSetupContext={
+																computerSetupPresentation.context
+															}
+															detailsDialog={detailsDialog}
+															isHighlighted={isHighlighted}
+															item={item}
+															messageAlign={messageAlign}
+															parent={input}
+															selfMessageContentLayoutClassName={
+																selfMessageContentLayoutClassName
+															}
+														/>
+													</Bubble>
+													{rowProgressStatus}
+													{renderConversationMessageFooter({
+														anchoredOutcomeNotices,
+														canUseMessageActions,
+														hasWakeProblem,
+														isDirectMessage: input.isDirectMessage,
+														isCreatingThread: input.isCreatingThread,
+														item,
+														messageAlign,
+														messageDetailsItem,
+														onCreateThread: input.onCreateThread,
+														onOpenMessageDetails: input.onOpenMessageDetails,
+														onOpenThread: input.onOpenThread,
+														onAddMessageToTasks: input.onAddMessageToTasks,
+														onReplyToMessage: input.onReplyToMessage,
+														orgSlug: input.orgSlug,
+														profileEntriesById: input.profileEntriesById,
+														profilePresentationsById:
+															input.profilePresentationsById,
+														selfProfileId: input.selfProfileId,
+														taskCreationSourceSignalId:
+															input.taskCreationSourceSignalId,
+														threadsByRootSignalId: input.threadsByRootSignalId,
+													})}
+												</div>
+											}
+										/>
 									</BubbleGroup>
 								</MessageReactionsProvider>
 							</MessageContent>
@@ -3169,9 +3179,8 @@ function ConversationBubbleContent(input: {
 				)}
 				spaceReferencesById={parent.spaceReferencesById}
 			/>
-			<SpaceMessageAddressingBadges
+			<SpaceMessageContinuationNotice
 				item={input.item}
-				profilePresentationsById={parent.profilePresentationsById}
 				wakeProgressItems={parent.addressingWakeProgressItems}
 			/>
 			{input.item.actorProfileKind === "agent" ? (
@@ -4457,5 +4466,3 @@ function resolveDirectMessageTargetName(
 		)?.profileName ?? null
 	);
 }
-
-import { buildSpaceTaskSources } from "./space-composer-task-menu";

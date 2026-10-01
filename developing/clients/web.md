@@ -175,7 +175,7 @@ conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
-Web uses three navigation levels: a fixed 76px application rail, a contextual
+Web uses three navigation levels: a 76px application rail (52px in Icons only), a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
 Team are the rail's destinations, in that order. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
@@ -1461,6 +1461,43 @@ token and provider radius rather than adding component-specific values. The
 Rounded-default rollout uses a versioned browser preference key so existing
 users receive the new default once; a Square selection made afterward remains
 explicit and persistent.
+
+Appearance's **Sidebar** group offers **Icons and text** and **Icons only**
+preview cards for the outer app rail. The rail's **Show** context menu changes
+the same `openmeld.appearance.sidebar-display` preference. Web restores its
+document-root CSS projection before paint and synchronizes changes across
+tabs. Both presentations reuse the existing Fluid menu rows. Icons only uses
+the shared 52px Fluid icon width, giving the work area 24px more room while
+preserving navigation destinations and the inner sidebar's width. Narrow
+screen drawers always show full labels.
+
+### Product context menus
+
+Right-click entry points reuse `@openmeld/ui/fluid/context-menu` and the same
+action owners as ordinary menus. They do not introduce a second preference,
+permission, confirmation, or mutation path:
+
+| Surface | Actions |
+| --- | --- |
+| Primary rail destinations | Open and copy link; empty rail retains the display menu |
+| Conversation sidebar and directory rows | Open, copy link, pin/unpin, move; rename/archive when offered by the existing owner |
+| Conversation sidebar empty area | New message and new Space |
+| Space and thread messages | Existing reactions, copy, reply, pin, task, details, edit and recall actions, with their original eligibility |
+| Inbox items and groups | Open/copy source link, read/unread, remove; groups retain their exact snapshot and confirmation boundary |
+| Team people | Open/copy profile link, message, star/unstar using the same sidebar preferences |
+| Agent cards and workspace header | Existing details, editing, messaging, Project/folder, unbind and removal actions; opening either menu refreshes eligibility |
+| Plugin and Skill catalog cards | Open and copy the exact detail destination |
+| Skill detail header | Existing copy, usage, properties, history, maintainers, enable/disable and removal operations |
+| Team and Space file browsers | Existing create, open/download, rename, move/copy, pin, trash/restore actions appropriate to the location and permissions |
+| Knowledge folder/document cards | Open/copy authorized navigation links and existing management menus |
+
+`copyAppLink` resolves relative destinations against Web's current origin or
+Desktop's declared public Web origin, never the packaged renderer origin.
+OpenMeld currently has no general resource deep-link protocol. Do not invent
+one or expose a private download URL as a share link. Knowledge document links
+retain normal access checks; files without a public navigation link retain
+their existing download/copy operations. Editors and selected text retain
+native menus; progress-only message rows do not create empty custom menus.
 
 Appearance also owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
@@ -6074,10 +6111,12 @@ success or failure of the underlying installation.
 
 For an `update_service` setup run, terminal completion proves only that the CLI
 flow ended. Web must keep the result in a bounded confirming state until both
-the CLI and Service projections arrive and neither still requires an update.
-Missing projection data is not success. If the bounded verification window
-expires, Web shows an explicit OpenMeld release-side failure instead of a false
-completion checkmark or an endless spinner.
+the CLI and Service projections both report current, unblocked, installed
+versions. An optional update still available is not a completed update.
+Missing or unknown projection data is not success. If the bounded
+verification window expires, Web shows an explicit unverified outcome instead of
+a completion checkmark or an endless spinner. Missing evidence alone must not
+be attributed to a release-side failure.
 
 The human-facing command is the Web-generated setup command. On supported macOS
 and Windows x64 it selects binary setup. For explicit `?dist=npm` or npm recovery,

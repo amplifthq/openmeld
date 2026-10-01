@@ -5,6 +5,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import {
 	SidebarGroup as FluidSidebarGroup,
 	SidebarGroupContent,
@@ -37,6 +38,7 @@ import {
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
 import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
 import type { useInboxAttention } from "#/components/inbox/use-inbox-attention";
@@ -230,7 +232,10 @@ export function AppRailLink(input: {
 				tier={input.tier}
 			/>
 			{isIcon ? (
-				<span className="max-w-full whitespace-normal text-center text-[10px] leading-tight">
+				<span
+					className="max-w-full whitespace-normal text-center text-[10px] leading-tight"
+					data-slot="app-rail-label"
+				>
 					{input.destination.label}
 				</span>
 			) : (
@@ -264,6 +269,7 @@ export function AppRailLink(input: {
 			aria-current={input.active ? "page" : undefined}
 			aria-label={accessibleLabel}
 			className={className}
+			data-app-rail-link
 			onClick={(event) => {
 				if (
 					!(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
@@ -283,11 +289,20 @@ export function AppRailLink(input: {
 
 	if (isIcon) {
 		return (
-			<SidebarMenuItem className="mx-auto h-[3.25rem] w-full">
+			<SidebarMenuItem
+				className="mx-auto h-[3.25rem] w-full"
+				data-app-rail-item
+			>
 				<CollapsedRailTooltip anchor={iconRef} label={accessibleLabel}>
-					<SidebarMenuButton isActive={input.active} render={link}>
-						{children}
-					</SidebarMenuButton>
+					<FluidContextMenu
+						target={
+							<SidebarMenuButton isActive={input.active} render={link}>
+								{children}
+							</SidebarMenuButton>
+						}
+					>
+						<ObjectMenuItems href={input.destination.to} />
+					</FluidContextMenu>
 				</CollapsedRailTooltip>
 			</SidebarMenuItem>
 		);
@@ -295,9 +310,15 @@ export function AppRailLink(input: {
 
 	return (
 		<SidebarMenuItem className="group/destination relative">
-			<SidebarMenuButton isActive={input.active} render={link}>
-				{children}
-			</SidebarMenuButton>
+			<FluidContextMenu
+				target={
+					<SidebarMenuButton isActive={input.active} render={link}>
+						{children}
+					</SidebarMenuButton>
+				}
+			>
+				<ObjectMenuItems href={input.destination.to} />
+			</FluidContextMenu>
 			{(input.destination.id === "directMessages" ||
 				input.destination.id === "home" ||
 				input.destination.id === "people" ||

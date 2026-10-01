@@ -1,10 +1,30 @@
 "use client";
+import {
+	ContextMenu,
+	ContextMenuTrigger,
+} from "@openmeld/ui/components/context-menu";
+import {
+	DropdownMenuGroup,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuRadioItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { useMatches } from "@tanstack/react-router";
+import type { CSSProperties } from "react";
 import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { useAccountAvatar } from "#/hooks/account.hooks";
+import {
+	SIDEBAR_DISPLAY_CHOICES,
+	type SidebarDisplay,
+	useSidebarDisplayPreference,
+} from "#/lib/appearance/sidebar-preference";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
@@ -30,6 +50,7 @@ import { SidebarDestinationActionsProvider } from "./sidebar-destination-actions
 
 export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	const { presentation } = useAppNavigationPresentation();
+	const { display, setDisplay } = useSidebarDisplayPreference();
 	const mode = presentation === "drawer" ? "expanded" : "icon";
 	const activeDestination = useMatches({
 		select: resolveAppOuterRailDestinationFromMatches,
@@ -60,14 +81,18 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	);
 	const prefetchCenterAgentConversation =
 		useCenterAgentConversationIntentPrefetch();
-	return (
+	const rail = (
 		<aside
 			className={cn(
 				APP_APPLICATION_RAIL_CLASS_NAME,
 				presentation === "drawer" && "w-full"
 			)}
+			data-presentation={presentation}
 			data-slot="app-outer-rail"
 			data-testid="app-outer-rail"
+			style={
+				{ "--app-rail-icon-width": `${SIDEBAR_ICON_WIDTH}px` } as CSSProperties
+			}
 		>
 			<AppCommandCenter />
 			<SidebarDestinationActionsProvider>
@@ -113,5 +138,39 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 				/>
 			</SidebarDestinationActionsProvider>
 		</aside>
+	);
+	if (presentation === "drawer") {
+		return rail;
+	}
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger render={rail} />
+			<FluidDropdownMenuContent
+				alignOffset={4}
+				className="w-44"
+				gapClick
+				side="right"
+				sideOffset={0}
+			>
+				<DropdownMenuGroup>
+					<DropdownMenuLabel>Show</DropdownMenuLabel>
+					<DropdownMenuRadioGroup
+						onValueChange={(value) => setDisplay(value as SidebarDisplay)}
+						value={display}
+					>
+						{SIDEBAR_DISPLAY_CHOICES.map((choice, index) => (
+							<FluidDropdownMenuRadioItem
+								closeOnClick
+								index={index}
+								key={choice.value}
+								value={choice.value}
+							>
+								{choice.label}
+							</FluidDropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuGroup>
+			</FluidDropdownMenuContent>
+		</ContextMenu>
 	);
 }

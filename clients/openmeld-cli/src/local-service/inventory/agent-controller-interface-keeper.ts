@@ -1,6 +1,9 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { areAgentControllerInterfaceAccountsSame } from "@openmeld/agent-runtime";
+import {
+  areAgentControllerInterfaceAccountsSame,
+  isAgentControllerUsageAccountUnavailable,
+} from "@openmeld/agent-runtime";
 import type {
   AgentControllerInterfaceAuthSnapshot,
   AgentControllerInterfaceSnapshot,
@@ -134,10 +137,12 @@ export function recordAgentControllerInterfaceProbeSuccess(input: {
     keeperKey: input.keeperKey,
   });
   const passiveUsageLimits = existingEntry?.passiveUsageLimits ?? [];
-  const canBindPassiveUsageLimits = areAgentControllerInterfaceAccountsSame(
-    existingEntry?.passiveUsageLimitsAuth,
-    input.snapshot.auth
-  );
+  const canBindPassiveUsageLimits =
+    !isAgentControllerUsageAccountUnavailable(input.snapshot.usageLimits) &&
+    areAgentControllerInterfaceAccountsSame(
+      existingEntry?.passiveUsageLimitsAuth,
+      input.snapshot.auth
+    );
   let authenticatedSnapshot: AgentControllerInterfaceSnapshot | null =
     input.snapshot;
   if (input.snapshot.auth.status === "unauthenticated") {

@@ -5854,6 +5854,13 @@ contract shared by Service reporting, owner reads, Organization Computers, Web,
 Center Agent, and Local Agent JSON. Each item has one stable key and label,
 `usedPercent` with 0–100 used semantics, nullable `resetsAt`, `observedAt`, and
 one of `available`, `exhausted`, `stale`, `unavailable`, or `unsupported`.
+An optional fixed `reason` distinguishes `not_authenticated`, `not_applicable`,
+`not_reported`, and `refresh_failed`. It contains no free-text provider error,
+account identity, subscription tier, or payment facts. An `unavailable` item may
+retain a provider-reported reset time while its percentage remains null;
+`unsupported` cannot carry a reset time. A missing percentage remains unknown
+unless the verified upstream serialization contract explicitly defines its
+default, as Grok's implicit proto3 zero does for an active unified billing period.
 An item may include a strict `provider` descriptor containing only a stable id
 and display name. This optional nesting keeps existing single-provider
 controllers wire-compatible while allowing one controller such as OpenCode to
@@ -5874,6 +5881,15 @@ the existing non-task ACI authentication probe before merging a passive event.
 That owner-only comparison evidence never becomes part of the Usage Limit item
 or crosses into Organization Computers; an unknown or different account fails
 closed instead of reusing the observation.
+
+Support matrix version 4 adds observational Cursor and OpenRouter collection
+alongside Claude's experimental SDK control probe. Observational means display
+evidence only: it cannot block new work or authorize exhausted-work recovery.
+Claude account windows already use 0–100 percentages, unlike its 0–1 stream
+events. The SDK probe sends no prompt and skips local behavior/transcript scans.
+OpenRouter free-model request capacity is not capacity for every model hosted
+by OpenCode. Native Codex rate-limit events use the existing account-bound
+keeper and the same sanitized list. No new polling state or usage store exists.
 
 Version advisory is read-only controller maintenance evidence:
 current version, latest known version, advisory status, and an optional manual
@@ -5951,6 +5967,14 @@ time and the existing report expiry. Unsupported and never-observed unavailable
 evidence remain distinct; only account-bound last-known percentage evidence
 becomes stale. This projection does not change readiness, Wake, Binding,
 routing, Agent Activity, or RuntimeCoordinator contracts.
+
+Deploy the new Web/Gateway readers and Core report receiver before publishing
+the local producer of optional usage reasons or partial reset evidence. Old
+Services remain valid. If an older Core rejects the extended Usage shape, the
+existing report compatibility retry omits Usage and its support-matrix version
+while preserving the remaining controller report. It must not invent capacity
+or suppress authentication/readiness evidence. Setup, Wake execution, Space
+actions, and Service diagnostics retain their existing contracts.
 
 Hard provider-account failure evidence is a separate optional task-result
 contract, not a reinterpretation of Usage Limits. It uses the shared
@@ -7995,3 +8019,40 @@ Use scoped owner documents for related rules:
 - Cross-client business rules should be extracted before Web and CLI diverge.
 - Client-specific presentation and platform behavior should stay in clients.
 - Space password normalization must be shared across clients and services.
+
+## Local component installation source and binary availability
+
+Core owns update eligibility and target projection. Global
+`release/local-components.json` remains compatibility/admission authority.
+The binary availability catalogue is a separate build-time input compiled by
+both guarded Core deployment owners from official stable and Windows-preview
+manifest snapshots. It selects exact channel/platform pairs; it never infers a
+Windows preview from OS, or stable provenance from the JSON member
+`channels.stable`. Missing installation source, platform, catalogue, or release
+policy leaves binary latest versions null and availability unknown. Unsafe
+Service versions remain blocked independently of artifact availability.
+Required CLI package versions and command contracts also remain independent of
+availability: an older channel target cannot satisfy either requirement.
+When the installed CLI is below the required package version or has an
+incompatible command contract, Core preserves `update_required` and its
+diagnostic reason even without a compatible installable target.
+
+`LocalComponentsStatus.installationSource` is optional strict metadata containing
+only distribution, channel and product platform. The managed CLI installation
+owns binary provenance, including a retained Service carrier; executable paths,
+arbitrary update URLs and credentials are not report fields. Npm continues using
+the global npm policy. Public binary manifests may carry `componentPolicy` whose
+CLI and Service versions must each match their selected immutable artifact.
+Separate Service versions are supported. Legacy stable metadata may reuse the
+global policy only when both versions match; legacy preview never borrows it.
+
+Contract Impact Audit: producer is CLI/Service local component reporting;
+strict receivers include Gateway runtime transport parsers, Core and Web shared
+schemas. Deploy compatible receivers before publishing a reporter with the
+additive field. Old reports remain accepted but source availability is unknown;
+missing availability must not weaken compatibility floors. Consumers include
+computer status, setup completion, dispatch readiness and automatic maintenance.
+Automatic updates require installable CLI and Service targets and use the
+projected source-specific CLI target. Skills-only drift cannot bootstrap an
+unavailable binary upgrade. Validate schema/report acceptance, source provenance,
+channel/platform/retained-Service matrices, safety floors and automatic dispatch.

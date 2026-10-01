@@ -6,6 +6,7 @@
   "type": "module",
   "description": "OpenMeld - Shared Zod schemas and inferred types",
   "imports": {
+    "#local-components": "./src/schemas/local-components.ts",
     "#lazy-zod": "./src/lazy-zod.ts",
     "#windows-artifact": "./src/windows-artifact.ts"
   },

@@ -886,7 +886,11 @@ describe("agent controller interface re-probe orchestration", () => {
     ).toBeNull();
   });
 
-  it("retains passive usage evidence observed before the first completed probe", () => {
+  it.each([
+    undefined,
+    "not_applicable",
+    "not_authenticated",
+  ] as const)("retains a pre-probe observation only while the account capability remains applicable (%s)", (reason) => {
     const usageLimits = [
       {
         key: "claude-code:seven-day",
@@ -907,7 +911,24 @@ describe("agent controller interface re-probe orchestration", () => {
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
       nowMs: 1000,
-      snapshot: completedSnapshot(),
+      snapshot: {
+        ...completedSnapshot(),
+        ...(reason
+          ? {
+              usageLimits: [
+                {
+                  key: "provider",
+                  label: "Usage limits",
+                  observedAt: "2026-07-03T10:02:00.000Z",
+                  resetsAt: null,
+                  usedPercent: null,
+                  status: "unavailable" as const,
+                  reason,
+                },
+              ],
+            }
+          : {}),
+      },
     });
 
     expect(
@@ -915,7 +936,11 @@ describe("agent controller interface re-probe orchestration", () => {
         commandFingerprint: COMMAND_FINGERPRINT,
         keeperKey,
       })
-    ).toEqual(usageLimits);
+    ).toEqual(
+      reason
+        ? [expect.objectContaining({ reason, usedPercent: null })]
+        : usageLimits
+    );
   });
 
   it("does not let an older concurrent passive observation replace newer evidence", () => {

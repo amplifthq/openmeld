@@ -25,6 +25,7 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
@@ -37,6 +38,7 @@ import {
 	PEOPLE_COMPUTER_FILTER_LABELS,
 	peopleConnectionFilter,
 	resolvePeopleSections,
+	toggleSidebarPersonStar,
 } from "./people-sidebar-order";
 
 export function TeamHome(input: {
@@ -44,6 +46,8 @@ export function TeamHome(input: {
 	computerGroups: readonly OrganizationComputerGroup[];
 	activityNowMs: number;
 	onSelect: (id: string) => void;
+	onChat?: (id: string) => Promise<void>;
+	chatPending?: boolean;
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const sidebar = useSidebarPreferences(currentOrganization.id);
@@ -262,14 +266,46 @@ export function TeamHome(input: {
 						>
 							{section.members.map((member, index) => (
 								<HumanProfileItem
+									actionsDisabled={sidebar.disabled || input.chatPending}
 									activityNowMs={input.activityNowMs}
 									computerGroup={computers.get(member.userId) ?? null}
 									index={index}
 									isActive={false}
 									key={member.id}
 									member={member}
+									onChat={
+										input.onChat &&
+										!member.isCurrentUser &&
+										member.profileStatus === "active"
+											? () => {
+													input
+														.onChat?.(member.id)
+														.catch((error) =>
+															toast.error(
+																error instanceof Error
+																	? error.message
+																	: "Couldn't open this conversation. Try again."
+															)
+														);
+												}
+											: undefined
+									}
 									onSelect={input.onSelect}
+									onToggleStar={() => {
+										if (sidebar.preferences) {
+											sidebar.save({
+												...sidebar.preferences,
+												people: toggleSidebarPersonStar(
+													sidebar.preferences.people ?? EMPTY_PEOPLE_SIDEBAR,
+													member.id
+												),
+											});
+										}
+									}}
 									presentation="card"
+									starred={sidebar.preferences?.people?.starred.itemIds.includes(
+										member.id
+									)}
 								/>
 							))}
 						</FluidCardGroup>

@@ -227,7 +227,6 @@ describe("resolveAgentProfileUsageWakeability", () => {
     for (const agentControllerRef of [
       "builtin:claude-code",
       "builtin:cursor",
-      "builtin:opencode",
       "builtin:openclaw",
       "custom:unknown",
     ]) {
@@ -239,6 +238,8 @@ describe("resolveAgentProfileUsageWakeability", () => {
             expiresAtMs: NOW_MS + 60_000,
             status: "ready",
             usageLimits: [createUsageLimit("exhausted")],
+            usageLimitsSupportMatrixVersion:
+              AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
           },
         })
       ).toEqual({
@@ -264,6 +265,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
       usageLimits: [
         providerLimit("opencode-go", "available"),
         providerLimit("openai", "exhausted"),
+        providerLimit("openrouter", "exhausted"),
       ],
       usageLimitsSupportMatrixVersion:
         AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
@@ -293,6 +295,22 @@ describe("resolveAgentProfileUsageWakeability", () => {
       reasonCode: null,
       status: "available",
     });
+    expect(
+      resolveAgentProfileUsageWakeability({
+        agentControllerRef: "builtin:opencode",
+        nowMs: NOW_MS,
+        providerId: "openrouter",
+        report,
+      }).blocksNewWork
+    ).toBe(false);
+    expect(
+      resolveAgentProfileUsageRecoveryAvailability({
+        agentControllerRef: "builtin:opencode",
+        nowMs: NOW_MS,
+        providerId: "openrouter",
+        report,
+      }).available
+    ).toBe(false);
   });
 
   it("blocks OpenCode Go when its selected provider is exhausted", () => {
@@ -353,7 +371,6 @@ describe("resolveAgentProfileUsageWakeability", () => {
   });
 
   it("keeps one versioned Usage support matrix for Core and the Local Service", () => {
-    expect(AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION).toBe(3);
     expect(resolveAgentControllerUsageLimitSupport("builtin:antigravity")).toBe(
       "native"
     );
@@ -364,10 +381,10 @@ describe("resolveAgentProfileUsageWakeability", () => {
       "native"
     );
     expect(resolveAgentControllerUsageLimitSupport("builtin:claude-code")).toBe(
-      "passive"
+      "observational"
     );
     expect(resolveAgentControllerUsageLimitSupport("builtin:cursor")).toBe(
-      "unsupported"
+      "observational"
     );
     expect(resolveAgentControllerUsageLimitSupport("builtin:opencode")).toBe(
       "provider_scoped"

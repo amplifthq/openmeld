@@ -20,6 +20,7 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import {
 	resolveStatusToneBadgeClassName,
 	resolveStatusToneIconClassName,
@@ -122,104 +123,121 @@ export function AgentProfileWorkspaceDetail(input: {
 			className="@container/agent-detail mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
 			data-testid="agent-profile-workspace-detail"
 		>
-			<div className="flex min-w-0 @[42rem]/agent-detail:flex-row flex-col @[42rem]/agent-detail:items-end gap-4">
-				<div className="flex min-w-0 flex-1 items-start gap-4">
-					{input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF ? (
-						<AgentAvatarEditor
-							avatarStyle={input.profile.avatarStyle}
-							canEdit={input.canEdit}
-							centerAgent={false}
-							modelId={input.modelId}
-							onSave={async (avatarStyle) => {
-								if (avatarStyle !== "automatic" && avatarStyle !== "fluid") {
-									return;
-								}
-								setSavingAvatar(true);
-								try {
-									const updated = await updateAgentAvatar({
-										profileId: input.profile.openMeldProfileId,
-										avatarStyle,
-									});
-									input.onAvatarUpdated?.(updated);
-									toast.success("Avatar updated.");
-								} catch (error) {
-									toast.error("Unable to save avatar. Try again.");
-									throw error;
-								} finally {
-									setSavingAvatar(false);
-								}
-							}}
-							profileId={input.profile.openMeldProfileId}
-							profileName={input.profile.profileName}
-							saving={savingAvatar}
-							size={96}
-						/>
-					) : (
-						<AgentProfileControllerAvatar
-							agentControllerRef={input.agentControllerRef}
-							className={cn(
-								"shrink-0",
-								hasReducedProminence ? "opacity-55 grayscale" : null
+			<FluidContextMenuScope
+				target={
+					<div className="flex min-w-0 @[42rem]/agent-detail:flex-row flex-col @[42rem]/agent-detail:items-end gap-4">
+						<div className="flex min-w-0 flex-1 items-start gap-4">
+							{input.agentControllerRef ===
+							HOSTED_REMOTE_AGENT_CONTROLLER_REF ? (
+								<AgentAvatarEditor
+									avatarStyle={input.profile.avatarStyle}
+									canEdit={input.canEdit}
+									centerAgent={false}
+									modelId={input.modelId}
+									onSave={async (avatarStyle) => {
+										if (
+											avatarStyle !== "automatic" &&
+											avatarStyle !== "fluid"
+										) {
+											return;
+										}
+										setSavingAvatar(true);
+										try {
+											const updated = await updateAgentAvatar({
+												profileId: input.profile.openMeldProfileId,
+												avatarStyle,
+											});
+											input.onAvatarUpdated?.(updated);
+											toast.success("Avatar updated.");
+										} catch (error) {
+											toast.error("Unable to save avatar. Try again.");
+											throw error;
+										} finally {
+											setSavingAvatar(false);
+										}
+									}}
+									profileId={input.profile.openMeldProfileId}
+									profileName={input.profile.profileName}
+									saving={savingAvatar}
+									size={96}
+								/>
+							) : (
+								<AgentProfileControllerAvatar
+									agentControllerRef={input.agentControllerRef}
+									className={cn(
+										"shrink-0",
+										hasReducedProminence ? "opacity-55 grayscale" : null
+									)}
+									profileId={input.profile.openMeldProfileId}
+									profileName={input.profile.profileName}
+									size={96}
+									working={input.operationalContext?.status === "working"}
+								/>
 							)}
-							profileId={input.profile.openMeldProfileId}
-							profileName={input.profile.profileName}
-							size={96}
-							working={input.operationalContext?.status === "working"}
-						/>
-					)}
-					<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
-						<div className="flex min-w-0 items-center gap-2">
-							<AgentProfileNameEditor
-								adornment={
-									<RemoteAgentIndicator
-										agentControllerRef={input.agentControllerRef}
+							<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
+								<div className="flex min-w-0 items-center gap-2">
+									<AgentProfileNameEditor
+										adornment={
+											<RemoteAgentIndicator
+												agentControllerRef={input.agentControllerRef}
+											/>
+										}
+										canEdit={input.canEdit}
+										hasReducedProminence={hasReducedProminence}
+										onRenameProfile={input.onRenameProfile}
+										profileName={input.profile.profileName}
 									/>
-								}
-								canEdit={input.canEdit}
-								hasReducedProminence={hasReducedProminence}
-								onRenameProfile={input.onRenameProfile}
-								profileName={input.profile.profileName}
-							/>
+								</div>
+								{input.modelIsLoading ? (
+									<Skeleton
+										aria-label="Loading model"
+										className="mt-2 h-4 w-40 rounded-sm"
+									/>
+								) : (
+									<p className="mt-1 break-words text-muted-foreground text-sm">
+										{input.controllerModelSummary}
+									</p>
+								)}
+								<AgentProfilePresence
+									headerRecoveryActions={
+										showOwnerOperationalContext
+											? input.headerRecoveryActions
+											: null
+									}
+									wakeAvailability={displayedWakeAvailability}
+									wakeAvailabilityCheckedAt={input.wakeAvailabilityCheckedAt}
+									wakeAvailabilityErrorMessage={
+										input.wakeAvailabilityErrorMessage
+									}
+									wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
+									wakeAvailabilityIsRefreshing={
+										input.wakeAvailabilityIsRefreshing
+									}
+									wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
+								/>
+							</div>
 						</div>
-						{input.modelIsLoading ? (
-							<Skeleton
-								aria-label="Loading model"
-								className="mt-2 h-4 w-40 rounded-sm"
-							/>
-						) : (
-							<p className="mt-1 break-words text-muted-foreground text-sm">
-								{input.controllerModelSummary}
-							</p>
-						)}
-						<AgentProfilePresence
-							headerRecoveryActions={
-								showOwnerOperationalContext ? input.headerRecoveryActions : null
-							}
-							wakeAvailability={displayedWakeAvailability}
-							wakeAvailabilityCheckedAt={input.wakeAvailabilityCheckedAt}
-							wakeAvailabilityErrorMessage={input.wakeAvailabilityErrorMessage}
-							wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
-							wakeAvailabilityIsRefreshing={input.wakeAvailabilityIsRefreshing}
-							wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
-						/>
+						<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
+							<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
+								<Button
+									disabled={input.isDirectMessagePending}
+									onClick={input.onOpenDirectMessage}
+									size="sm"
+									type="button"
+									variant="default"
+								>
+									<ChatCircleTextIcon
+										aria-hidden="true"
+										data-icon="inline-start"
+									/>
+									Chat with {input.profile.profileName}
+								</Button>
+								{input.overflowActions}
+							</div>
+						</div>
 					</div>
-				</div>
-				<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
-					<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
-						<Button
-							disabled={input.isDirectMessagePending}
-							onClick={input.onOpenDirectMessage}
-							size="sm"
-							type="button"
-							variant="default"
-						>
-							<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-							Chat with {input.profile.profileName}
-						</Button>
-						{input.overflowActions}
-					</div>
-				</div>
-			</div>
+				}
+			/>
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
 				isLoading={

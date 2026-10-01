@@ -242,6 +242,15 @@ change must leave those signals cleaner and less ambiguous.
   check is mandatory acceptance criteria, not optional review flavor. If a rule
   must change, change the owner document in the same PR with the reasoning.
 - Load only files directly relevant to the task.
+- For UI primitives and interaction changes, inspect the installed Fluid
+  Functionalism components first and read `developing/clients/shared-ui.md`.
+  Prefer shared `@openmeld/ui` Fluid composition; install or adapt missing
+  official primitives there instead of rebuilding menus, hover geometry,
+  motion, or state in product components. Stable, closely spaced clickable
+  alternatives should reuse Fluid Hover, with semantic group boundaries,
+  disabled-item exclusion, native keyboard/focus ownership, and reduced motion.
+  Avoid proximity or gap activation for destructive choices, mixed clickability,
+  large empty spaces, or rows that move during scrolling.
 - Do not execute stale roadmap items directly. Plan from current production
   behavior and current owner docs.
 - When a task specializes an existing object (a special Space kind, member

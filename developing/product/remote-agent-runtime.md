@@ -3057,7 +3057,23 @@ but not trigger.
    terminal projection as every other Native Delivery ending. Replaying a
    durable `published` or `outcome_unknown` watchdog result must rerun that
    projection idempotently so a crash cannot leave an observer waiting
-   forever. Historic
+   forever.
+
+   A pre-ACK admission timeout for a Space task continuation is the bounded
+   exception to immediate terminalization. Core records the attempt and next
+   retry due time in the existing Native Delivery Ledger, then replays the exact
+   frozen worker request after 15 seconds and 30 seconds, for three attempts
+   total. The delivery id, dispatch id, and worker idempotency key never change;
+   one compare-and-set claim admits each retry, while the Remote Agent's durable
+   receipt is the final duplicate-execution fence. Any ACK or accepted/running
+   evidence ends retry eligibility. After the third unacknowledged attempt,
+   Core publishes an actionable failure in the original thread, projects the
+   terminal task outcome, and creates one urgent Inbox alert linked to the
+   original child result. Ordinary Space Wakes, Routines, Slack, Message
+   Channels, deterministic admission rejection, and post-ACK execution keep
+   their existing behavior.
+
+   Historic
    `remote_agent.delivery_expired` rows are not execution truth: a matching
    late callback reopens that retired false failure, preserves the old notice as
    reconciliation evidence, and publishes the authoritative result once.
@@ -3336,6 +3352,22 @@ Core-owned hosted readiness has exactly two product states in MVP:
   production). The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
+- Organization-scoped OpenRouter routes retain native prompt-cache capabilities
+  even when a selected Claude model is absent from pi-ai's bundled catalog.
+  The worker also enables message-prefix markers for the exact Alibaba routes
+  documented by OpenRouter and current Model Studio support: DeepSeek V3.2,
+  Qwen Plus, Qwen3 Max, Qwen3.6 Plus/Flash, Qwen3 Coder Plus/Flash, Qwen3.7
+  Max/Plus/Flash, and Qwen3.8 Max 0902/Flash. This support is an explicit model
+  capability, not a blanket rule for the Qwen namespace; snapshot and open-weight
+  endpoints do not inherit it. Alibaba caches tools through the message prefix,
+  so the worker removes Claude-only tool markers and retains five-minute TTLs.
+  The adapter owns prefix placement and per-call cache opt-out. OpenAI, Grok,
+  DeepSeek V4, Z.AI, Moonshot, and current Gemini routes retain provider automatic
+  caching; the worker does not force optional Gemini storage or OpenAI explicit
+  cache modes. Caching does not change the selected model, reasoning, context
+  content, authorization, or same-model provider failover. Actual savings require
+  provider-reported cache reads; missing prices and estimated costs are not proof
+  of the provider's charged amount.
 
 Failure copy examples belong to Core, not the worker. Runtime policy blocks
 must explain whether the Remote Agent is disabled globally or blocked for the

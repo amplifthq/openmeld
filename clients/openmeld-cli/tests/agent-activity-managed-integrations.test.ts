@@ -621,3 +621,26 @@ trusted_hash = "sha256:stop"`;
     );
   });
 });
+
+it("upgrades an exact pre-console-hiding managed OpenCode plugin without replacing user edits", async () => {
+  root = await mkdtemp(join(tmpdir(), "openmeld-managed-activity-"));
+  const paths = defaultManagedIntegrationPaths(root);
+  await installAgentActivityIntegrations({ paths });
+  const current = await readFile(paths.openCodePluginPath, "utf8");
+  const old = current
+    .replace("\n    windowsHide: true,", "")
+    .replace(", windowsHide: true }", " }");
+  expect(old).not.toBe(current);
+  await writeFile(paths.openCodePluginPath, old);
+  expect((await installAgentActivityIntegrations({ paths })).openCode).toBe(
+    "changed"
+  );
+  expect(await readFile(paths.openCodePluginPath, "utf8")).toBe(current);
+  await writeFile(paths.openCodePluginPath, `${old}\n// user modification\n`);
+  await expect(installAgentActivityIntegrations({ paths })).rejects.toThrow(
+    "owned by another file"
+  );
+  expect(await readFile(paths.openCodePluginPath, "utf8")).toBe(
+    `${old}\n// user modification\n`
+  );
+});

@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.231",
-  "openMeldReleaseDate": "2026-09-28",
+  "version": "0.3.233",
+  "openMeldReleaseDate": "2026-10-01",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
   "type": "module",
@@ -37,7 +37,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.195",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.286",
     "@anthropic-ai/sdk": "^0.93.0",
     "@clack/prompts": "^1.0.1",
     "@mariozechner/pi-tui": "0.57.1",

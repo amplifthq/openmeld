@@ -500,7 +500,15 @@ class GrokBuildAcpSession {
           observedAt: new Date().toISOString(),
           response,
         }),
-      () => createUnavailableProviderUsageLimits(new Date().toISOString())
+      () =>
+        createUnavailableProviderUsageLimits(
+          new Date().toISOString(),
+          undefined,
+          {
+            reason: "refresh_failed",
+            resetsAt: null,
+          }
+        )
     );
   }
 

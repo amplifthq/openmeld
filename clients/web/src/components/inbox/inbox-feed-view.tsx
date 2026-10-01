@@ -6,6 +6,7 @@ import type {
 	MutateInboxFeedBody,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { FluidDropdownMenuItem } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { SharedLayoutGroup } from "@openmeld/ui/fluid/shared-layout-group";
 import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
@@ -99,6 +100,45 @@ function InboxFeedGroup(
 	const panelId = useId();
 	return (
 		<InboxItemRow
+			contextActions={
+				input.row.itemCount > 1 ? (
+					<>
+						<FluidDropdownMenuItem index={0} onClick={input.onToggle}>
+							{expanded
+								? "Collapse activities"
+								: `View ${input.row.itemCount} activities`}
+						</FluidDropdownMenuItem>
+						{input.row.unreadCount > 0 && (
+							<FluidDropdownMenuItem
+								disabled={input.isMutating}
+								index={1}
+								onClick={() =>
+									input.onSelection({
+										snapshotId: input.snapshotId,
+										groupKey: input.row.groupKey,
+										operation: "read",
+									})
+								}
+							>
+								Mark these as read
+							</FluidDropdownMenuItem>
+						)}
+						<FluidDropdownMenuItem
+							disabled={input.isMutating}
+							index={2}
+							onClick={() =>
+								input.onSelection({
+									snapshotId: input.snapshotId,
+									groupKey: input.row.groupKey,
+									operation: "dismiss",
+								})
+							}
+						>
+							Remove from Inbox
+						</FluidDropdownMenuItem>
+					</>
+				) : undefined
+			}
 			density="default"
 			feedRow={input.row}
 			focused={false}

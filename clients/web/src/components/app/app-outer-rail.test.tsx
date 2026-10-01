@@ -1021,6 +1021,9 @@ describe("AppOuterRail", () => {
 	});
 
 	it("uses shared fluid hover backgrounds for organization choices and actions", async () => {
+		// jsdom has no layout; use the row dimensions captured in the real menu.
+		vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(278);
+		vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(52);
 		appOrganization = {
 			activeOrganization: null,
 			currentOrganization: {
@@ -1071,9 +1074,7 @@ describe("AppOuterRail", () => {
 		fireEvent.focus(choices[0] as HTMLElement);
 		await waitFor(() => {
 			expect(
-				organizationList.querySelectorAll(
-					'[data-slot="fluid-action-list-hover-indicator"]'
-				)
+				organizationList.querySelectorAll('[data-slot="fluid-hover-highlight"]')
 			).toHaveLength(1);
 		});
 	});

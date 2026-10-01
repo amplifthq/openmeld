@@ -479,6 +479,10 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
     submittedAtMs: integer("submitted_at_ms"),
+    admissionAttemptCount: integer("admission_attempt_count")
+      .notNull()
+      .default(1),
+    admissionRetryDueAtMs: integer("admission_retry_due_at_ms"),
     acceptedAtMs: integer("accepted_at_ms"),
     callbackReceivedAtMs: integer("callback_received_at_ms"),
     completedAtMs: integer("completed_at_ms"),

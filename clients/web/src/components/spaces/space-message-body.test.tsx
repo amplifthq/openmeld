@@ -302,9 +302,9 @@ describe("SpaceMessageBody", () => {
 		);
 
 		const referenceButton = screen.getByRole("button", {
-			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Mention only)`,
+			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Reference)`,
 		});
-		expect(within(referenceButton).getByText("Mention only")).toBeTruthy();
+		expect(within(referenceButton).getByText("Reference")).toBeTruthy();
 		fireEvent.click(referenceButton);
 		expect(onOpenProfile).toHaveBeenCalledWith(REFERENCE_TARGET_PROFILE_ID);
 	});
@@ -332,7 +332,7 @@ describe("SpaceMessageBody", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByText("Mention only", {
+			screen.getByText("Reference", {
 				selector: '[data-slot="space-message-profile-mention"] span',
 			})
 		).toBeTruthy();
