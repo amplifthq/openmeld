@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { Progress } from "@openmeld/ui/components/progress";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
@@ -98,7 +99,18 @@ function AiSpendCard(input: {
 	const resetTime = useUsageResetTime(input.data.resetsAt);
 
 	return (
-		<AgentConfigurationReadoutCard itemId="ai-spend" label="AI usage">
+		<AgentConfigurationReadoutCard
+			headerAccessory={
+				<Badge
+					className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+					variant="secondary"
+				>
+					Free
+				</Badge>
+			}
+			itemId="ai-spend"
+			label="AI usage"
+		>
 			<div className="flex flex-col gap-3">
 				<div>
 					<p className="font-medium text-2xl text-foreground tabular-nums">
@@ -108,7 +120,7 @@ function AiSpendCard(input: {
 							: ` / ${formatAiSpend(input.data.dailyLimitNanoUsd)}`}
 					</p>
 					<p className="mt-1 text-muted-foreground text-xs">
-						in model costs today
+						Covered by OpenMeld today
 					</p>
 				</div>
 				{input.data.dailyLimitNanoUsd !== null &&
