@@ -7102,7 +7102,8 @@ the affected row and therefore its queried list batch, even if the new summary
 subscription was not created yet.
 
 Core negotiates optional top-level `taskId` through the Remote service binding's
-strict `readSubmitTurnCapabilities` response (`{ v: 1, taskId: true }`) before
+strict `readSubmitTurnCapabilities` request (`{ v: 1 }`) and response
+(`{ v: 1, taskId: true }`) before
 freezing a new Space admission. A positively missing method means the published
 legacy request shape: omit the field. Transport failures and malformed responses
 are not legacy capability evidence. Existing frozen requests retain their
@@ -7112,6 +7113,12 @@ stays missing rather than being inferred from another task. This probe does not
 grant summary recovery support; its existing Stop-fence probes still own that
 capability. Once a frozen request contains `taskId`, retain a supporting Remote
 receiver until that request can no longer be replayed.
+
+The ordinary-object Remote Worker entrypoint requires exactly one RPC argument.
+The capability request is versioned and strict even though it carries no task
+data. `pnpm --filter @openmeld/remote-agent test:rpc` runs the actual Core
+resolver against the built Remote Worker over a workerd service binding;
+ordinary JavaScript mocks cannot establish this calling convention.
 
 Before a continuation is submitted or replayed, Core compares its frozen
 pending and recovery envelopes with the task owner's `summaryRecovery` intent.

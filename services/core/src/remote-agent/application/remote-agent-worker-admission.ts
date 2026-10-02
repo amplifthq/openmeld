@@ -108,7 +108,7 @@ export async function resolveRemoteAgentWorkerTaskAttribution(
   }
   let value: unknown;
   try {
-    value = await worker.readSubmitTurnCapabilities();
+    value = await worker.readSubmitTurnCapabilities({ v: 1 });
   } catch (error) {
     if (
       isRpcReceiverMethodNotImplementedErrorForMethod(

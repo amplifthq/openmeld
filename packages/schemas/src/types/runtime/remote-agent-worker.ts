@@ -118,6 +118,9 @@ export type RemoteAgentWorkerReadAdmissionResponse =
 export type RemoteAgentWorkerSubmitCapabilities = z.infer<
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitCapabilitiesSchema"]
 >;
+export type RemoteAgentWorkerSubmitCapabilitiesRequest = z.infer<
+  typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerSubmitCapabilitiesRequestSchema"]
+>;
 export type RemoteAgentWorkerReadAdmissionStopResponse = z.infer<
   typeof import("../../schemas/runtime/remote-agent-worker")["remoteAgentWorkerReadAdmissionStopResponseSchema"]
 >;

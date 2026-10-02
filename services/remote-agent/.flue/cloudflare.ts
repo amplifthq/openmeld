@@ -17,6 +17,7 @@ import {
   remoteAgentWorkerExecutionQuerySchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
+  remoteAgentWorkerSubmitCapabilitiesRequestSchema,
   remoteAgentWorkerSubmitCapabilitiesSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
@@ -42,7 +43,12 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
-  readSubmitTurnCapabilities() {
+  readSubmitTurnCapabilities(input: unknown) {
+    const request =
+      remoteAgentWorkerSubmitCapabilitiesRequestSchema.safeParse(input);
+    if (!request.success) {
+      throw request.error;
+    }
     return Promise.resolve(
       remoteAgentWorkerSubmitCapabilitiesSchema.parse({
         v: 1,

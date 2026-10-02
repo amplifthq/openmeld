@@ -364,6 +364,10 @@ export const remoteAgentWorkerSubmitMessagesResultSchema = z.strictObject({
   accepted: z.boolean(),
 });
 
+export const remoteAgentWorkerSubmitCapabilitiesRequestSchema = z.strictObject({
+  v: z.literal(1),
+});
+
 export const remoteAgentWorkerSubmitCapabilitiesSchema = z.strictObject({
   v: z.literal(1),
   taskId: z.literal(true),
