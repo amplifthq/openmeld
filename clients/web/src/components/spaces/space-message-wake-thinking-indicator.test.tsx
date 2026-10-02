@@ -1,6 +1,10 @@
+import { createWakeProgressItem } from "@openmeld/space";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
+import {
+	resolveWakeProgressThinkingEntry,
+	type SpaceMessageWakeThinkingEntry,
+} from "#/lib/spaces/wake-progress-presentation";
 import { SpaceMessageWakeThinkingIndicator } from "./space-message-wake-thinking-indicator";
 
 const STARTED_AT_MS = 1_800_000_000_000;
@@ -162,11 +166,17 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		render(
 			<SpaceMessageWakeThinkingIndicator
-				entries={[
-					createThinkingEntry({
-						elapsedStartedAtMs: STARTED_AT_MS,
+				entries={resolveWakeProgressThinkingEntry({
+					item: createWakeProgressItem({
+						clientMessageId: "request-1",
+						targetProfileId: "agt_runner",
+						targetLabel: "Agent",
+						phase: "running",
+						startedAtMs: STARTED_AT_MS,
+						updatedAtMs: STARTED_AT_MS,
 					}),
-				]}
+					showElapsedTime: true,
+				})}
 			/>
 		);
 
