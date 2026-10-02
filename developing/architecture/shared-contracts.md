@@ -7120,6 +7120,16 @@ data. `pnpm --filter @openmeld/remote-agent test:rpc` runs the actual Core
 resolver against the built Remote Worker over a workerd service binding;
 ordinary JavaScript mocks cannot establish this calling convention.
 
+This negotiated request permits the supported Core-first rolling window:
+new Core continues to accept the old Remote's in-flight completion callbacks,
+and omits unsupported attribution on new requests. Deploy and verify Core's
+`recordRemoteAiUsage` receiver before deploying Remote. New Remote never starts
+a provider call when that receiver is absent; `core.rpc.unavailable` remains a
+visible failure with the missing method name. This also applies to new owners
+and a receiver disappearing after allowance enforcement. Existing settlement
+outbox retries and historical admission audits are retained; neither authorizes
+new inference. The data owner defines their retention and deduplication.
+
 Before a continuation is submitted or replayed, Core compares its frozen
 pending and recovery envelopes with the task owner's `summaryRecovery` intent.
 An unmarked legacy summary fails with

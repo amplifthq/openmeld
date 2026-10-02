@@ -39,7 +39,7 @@ export async function callCoreRpc<TBinding extends object, TInput, TOutput>(
     return await result;
   } catch (error) {
     if (isRpcReceiverMethodNotImplementedError(error, name)) {
-      throw coreRpcUnavailableError(name, true);
+      throw coreRpcUnavailableError(name);
     }
     throw error;
   }
@@ -65,33 +65,13 @@ export function isRpcReceiverMethodNotImplementedError(
   return receiverMethod === methodName;
 }
 
-export function isCoreRpcReceiverMethodMissing(
-  error: unknown,
-  name: string
-): boolean {
-  if (
-    !(error instanceof Error && error.cause) ||
-    typeof error.cause !== "object"
-  ) {
-    return false;
-  }
-  return (
-    "receiverMethodMissing" in error.cause &&
-    error.cause.receiverMethodMissing === name
-  );
-}
-
-function coreRpcUnavailableError(
-  name: string,
-  receiverMethodMissing = false
-): Error {
+function coreRpcUnavailableError(name: string): Error {
   const message = `OpenMeld Core RPC ${name} is unavailable.`;
   return new Error(message, {
     cause: {
       code: "core.rpc.unavailable",
       message,
       status: 503,
-      ...(receiverMethodMissing ? { receiverMethodMissing: name } : {}),
     },
   });
 }

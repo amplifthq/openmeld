@@ -156,6 +156,47 @@ import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/re
 const UNSUPPORTED_INTERRUPTION_DETAIL = /502|overloaded|Please try again/u;
 
 describe("Remote Agent native delivery callback service", () => {
+  it("finishes an accepted legacy Remote turn across a Core upgrade without redispatch or duplicate publication", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn();
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    try {
+      // A pre-upgrade accepted delivery is already owned by the old Remote.
+      // The new Core must consume its original callback without another turn.
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "legacy-inflight",
+        submissionId: "legacy-submission",
+        dispatchId: "legacy-dispatch",
+        spaceId: SPACE_ID,
+        modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        onBehalfOfUserId: "user_1",
+      });
+      const callback = {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        dispatchId: "legacy-dispatch",
+        idempotencyKey: "legacy-inflight",
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        submissionId: "legacy-submission",
+        triggerMessageId: "signal_1",
+        text: "The completed investigation.",
+      };
+      await expect(
+        completeRemoteAgentNativeDelivery(env, callback)
+      ).resolves.toMatchObject({ status: "accepted" });
+      await completeRemoteAgentNativeDelivery(env, callback);
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
   it.each([
     false,
     true,

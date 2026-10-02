@@ -2,7 +2,7 @@ import type {
   AiUsageRecord,
   RemoteAiUsageWrite,
 } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createMeteredRemoteFetch,
   flushRemoteAiUsage,
@@ -48,12 +48,52 @@ const record: AiUsageRecord = {
 const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
 
 describe("Organization AI consumption", () => {
+  it.each([
+    "missing_database",
+    "database_failed",
+  ])("blocks inference when the real admission receiver has %s", async (failure) => {
+    const harness = createHarness();
+    const fetch = vi.fn();
+    const prepare = vi.spyOn(harness.db, "prepare").mockImplementation(() => {
+      throw new Error("D1 unavailable");
+    });
+    try {
+      const request = createMeteredRemoteFetch({
+        coreWorker: {
+          recordRemoteAiUsage: (input: RemoteAiUsageWrite) =>
+            rpcRecordRemoteAiUsage(
+              (failure === "missing_database"
+                ? {}
+                : { OPENMELD_DB: harness.db }) as CoreBindings,
+              input
+            ),
+        },
+        storage: new InMemoryDurableObjectStorage(),
+        model: "requested",
+        fetch,
+        scope: {
+          organizationId: "org-1",
+          purpose: "agent",
+          agentProfileId: null,
+          spaceId: null,
+          taskId: null,
+          attemptId: null,
+        },
+      });
+      await expect(
+        request("https://provider.example/chat/completions")
+      ).rejects.toThrow();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+      harness.close();
+    }
+  });
   it("backfills a legacy-Core inference through the real receiver exactly once after a lost settlement ACK", async () => {
     const harness = createHarness();
     const storage = new InMemoryDurableObjectStorage();
     let legacy = true;
     let loseAck = true;
-    let providerCalls = 0;
     const coreWorker = {
       recordRemoteAiUsage: async (input: RemoteAiUsageWrite) => {
         if (legacy) {
@@ -73,35 +113,25 @@ describe("Organization AI consumption", () => {
       },
     };
     try {
-      const response = await createMeteredRemoteFetch({
-        coreWorker,
-        storage,
-        model: "openai/test",
-        scope: {
-          organizationId: "org-1",
-          purpose: "agent",
-          agentProfileId: "agent-1",
-          spaceId: "space-1",
-          taskId: null,
-          attemptId: "attempt-1",
-        },
-        fetch: () => {
-          providerCalls++;
-          return Promise.resolve(
-            Response.json({
-              id: "gen-rollout",
-              model: "openai/test",
-              usage: {
-                prompt_tokens: 100,
-                completion_tokens: 20,
-                total_tokens: 120,
-                cost: 0.01,
-              },
-            })
-          );
-        },
-      })("https://provider.example/chat/completions");
-      await response.text();
+      // Persisted historical records, not authorization for a new inference.
+      const receipt = {
+        ...record,
+        occurredAtMs: Date.now(),
+        cost: { nanoUsd: 10_000_000, kind: "provider_reported" as const },
+      };
+      const audit = {
+        v: 1,
+        reason: "core_receiver_missing",
+        record: { ...receipt, status: "pending", tokens: null, cost: null },
+      };
+      await storage.put(
+        `openmeld:ai-usage:pending:${receipt.eventId}`,
+        receipt
+      );
+      await storage.put(`openmeld:ai-usage:deferred:${receipt.eventId}`, audit);
+      await expect(flushRemoteAiUsage({ storage, coreWorker })).rejects.toThrow(
+        "recordRemoteAiUsage is unavailable"
+      );
       legacy = false;
       await expect(flushRemoteAiUsage({ storage, coreWorker })).rejects.toThrow(
         "settlement ACK lost"
@@ -115,13 +145,15 @@ describe("Organization AI consumption", () => {
       expect(usage.models).toMatchObject([
         { requests: 1, totalTokens: 120, reportedCostNanoUsd: 10_000_000 },
       ]);
-      expect(providerCalls).toBe(1);
       expect(
         (await storage.list({ prefix: "openmeld:ai-usage:pending:" })).size
       ).toBe(0);
       expect(
         (await storage.list({ prefix: "openmeld:ai-usage:deferred:" })).size
       ).toBe(1);
+      expect(
+        await storage.get(`openmeld:ai-usage:deferred:${receipt.eventId}`)
+      ).toEqual(audit);
     } finally {
       harness.close();
     }

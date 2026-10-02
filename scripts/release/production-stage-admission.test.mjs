@@ -15,6 +15,49 @@ const UNRESOLVED = /evidence is unresolved/u;
 const SOURCE_PROOF = /Missing exact source proof/u;
 const CORE_PREREQUISITE = /pending prerequisite core/u;
 
+test("requires a deployed Core receiver even when Core and Remote are selected together", () => {
+  const components = [
+    component("core", "pending", "1".repeat(40), []),
+    {
+      ...component("remote-agent", "pending", "1".repeat(40), []),
+      compatibilityDependencies: [["core", "remote-agent"]],
+    },
+  ];
+  for (const selectedScopes of [
+    ["remote-agent"],
+    ["core", "remote-agent"],
+    ["remote-agent", "core"],
+  ]) {
+    assert.throws(
+      () =>
+        assertProductionStageAdmission({
+          components,
+          selectedScopes,
+          sourceSha: SOURCE,
+        }),
+      CORE_PREREQUISITE
+    );
+  }
+  components[0].state = "current";
+  assert.doesNotThrow(() =>
+    assertProductionStageAdmission({
+      components,
+      selectedScopes: ["remote-agent"],
+      sourceSha: SOURCE,
+    })
+  );
+  components[0].state = "unknown";
+  assert.throws(
+    () =>
+      assertProductionStageAdmission({
+        components,
+        selectedScopes: ["remote-agent"],
+        sourceSha: SOURCE,
+      }),
+    UNRESOLVED
+  );
+});
+
 test("uses each component receipt baseline while allowing R, R2 and R3", () => {
   const components = [
     component("db", "current", "1".repeat(40), []),

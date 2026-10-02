@@ -34,39 +34,69 @@ const providerResponse = {
 
 describe("Remote AI consumption at the provider boundary", () => {
   it.each([
-    "before_response",
-    "after_response",
-  ])("keeps an in-flight request and auditable usage when Core upgrades %s", async (upgrade) => {
+    "fresh_owner",
+    "previously_metered",
+  ])("fails closed after a missing receiver for %s", async (owner) => {
     const storage = new InMemoryDurableObjectStorage();
-    let legacy = true;
-    const records: AiUsageRecord[] = [];
+    let status = "accepted";
     const coreWorker = {
-      recordRemoteAiUsage: ({ record }: RemoteAiUsageWrite) => {
-        if (legacy) {
+      recordRemoteAiUsage: () => {
+        if (status === "missing") {
           throw new Error(
             'The RPC receiver does not implement the method "recordRemoteAiUsage".'
           );
         }
-        records.push(record);
+        return Promise.resolve({ status });
+      },
+    };
+    const fetch = vi.fn(async () => Response.json(providerResponse));
+    const request = createMeteredRemoteFetch({
+      coreWorker,
+      storage,
+      scope,
+      model: "requested",
+      fetch,
+    });
+    if (owner === "previously_metered") {
+      await (await request("https://provider.example/chat/completions")).text();
+      status = "limit_reached";
+      await expect(
+        request("https://provider.example/chat/completions")
+      ).rejects.toThrow("daily AI allowance");
+    }
+    const calls = fetch.mock.calls.length;
+    status = "missing";
+    await expect(
+      request("https://provider.example/chat/completions")
+    ).rejects.toThrow("recordRemoteAiUsage is unavailable");
+    expect(fetch).toHaveBeenCalledTimes(calls);
+    expect(
+      (await storage.list({ prefix: "openmeld:ai-usage:deferred:" })).size
+    ).toBe(0);
+  });
+  it.each([
+    "before_response",
+    "after_response",
+  ])("keeps an admitted in-flight request when Core recovers %s", async (upgrade) => {
+    const storage = new InMemoryDurableObjectStorage();
+    let unavailable = false;
+    const records: AiUsageRecord[] = [];
+    const coreWorker = {
+      recordRemoteAiUsage: ({ phase, record }: RemoteAiUsageWrite) => {
+        if (unavailable) {
+          throw new Error(
+            'The RPC receiver does not implement the method "recordRemoteAiUsage".'
+          );
+        }
+        if (phase === "settle") {
+          records.push(record);
+        }
         return Promise.resolve({ status: "accepted" as const });
       },
     };
     const started = Promise.withResolvers<void>();
     const finish = Promise.withResolvers<void>();
     const fetch = vi.fn(async () => {
-      const audit = await storage.list<{ record: AiUsageRecord }>({
-        prefix: "openmeld:ai-usage:deferred:",
-      });
-      expect([...audit.values()]).toEqual([
-        expect.objectContaining({
-          reason: "core_receiver_missing",
-          record: expect.objectContaining({
-            status: "pending",
-            tokens: null,
-            cost: null,
-          }),
-        }),
-      ]);
       started.resolve();
       await finish.promise;
       return Response.json(providerResponse);
@@ -81,12 +111,13 @@ describe("Remote AI consumption at the provider boundary", () => {
     const result = request("https://provider.example/chat/completions");
     // Catch the initial regression without waiting forever for provider entry.
     await Promise.race([started.promise, result.then(() => undefined)]);
+    unavailable = true;
     if (upgrade === "before_response") {
-      legacy = false;
+      unavailable = false;
     }
     finish.resolve();
     expect(await (await result).json()).toEqual(providerResponse);
-    legacy = false;
+    unavailable = false;
     await flushRemoteAiUsage({ coreWorker, storage });
     await flushRemoteAiUsage({ coreWorker, storage });
     expect(records).toHaveLength(1);
@@ -96,31 +127,33 @@ describe("Remote AI consumption at the provider boundary", () => {
       cost: { nanoUsd: 12_345 },
     });
     expect(fetch).toHaveBeenCalledOnce();
-    const audit = await storage.list<{ record: AiUsageRecord }>({
-      prefix: "openmeld:ai-usage:deferred:",
-    });
-    expect([...audit.values()][0]?.record.eventId).toBe(records[0]?.eventId);
   });
 
   it.each([
     "transport",
+    "timeout",
+    "forbidden",
+    "different_method",
+    "invalid_response",
     "no_storage",
-    "storage_failed",
     "missing_binding",
     "missing_result",
   ])("does not bypass admission for %s", async (failure) => {
     const storage = new InMemoryDurableObjectStorage();
-    if (failure === "storage_failed") {
-      vi.spyOn(storage, "put").mockRejectedValue(new Error("disk unavailable"));
-    }
     const fetch = vi.fn();
+    const errors: Record<string, string> = {
+      transport: "network down",
+      timeout: "RPC timed out",
+      forbidden: "403 Forbidden",
+      different_method:
+        'The RPC receiver does not implement the method "anotherMethod".',
+    };
     let coreWorker: unknown = {
       recordRemoteAiUsage: () =>
         Promise.reject(
           new Error(
-            failure === "transport"
-              ? "network down"
-              : 'The RPC receiver does not implement the method "recordRemoteAiUsage".'
+            errors[failure] ??
+              'The RPC receiver does not implement the method "recordRemoteAiUsage".'
           )
         ),
     };
@@ -129,6 +162,11 @@ describe("Remote AI consumption at the provider boundary", () => {
     }
     if (failure === "missing_result") {
       coreWorker = {};
+    }
+    if (failure === "invalid_response") {
+      coreWorker = {
+        recordRemoteAiUsage: async () => ({ status: "deferred" }),
+      };
     }
     const request = createMeteredRemoteFetch({
       coreWorker,

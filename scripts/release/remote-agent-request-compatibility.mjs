@@ -19,8 +19,12 @@ export const REMOTE_AGENT_REQUEST_BRIDGE_PATHS = [
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
   "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ];
+// Revalidated with the archived e4454cf1 strict schema, built Remote workerd
+// service-binding RPC, frozen-request replay and legacy completion callbacks.
+// This witnesses request compatibility only; Core's metering admission remains
+// mandatory and its verified deployment must precede the Remote stage.
 const REVIEWED_SOURCE_DIGEST =
-  "d1f1c7f136ebb79df8f957cc60ca82662be7b65e1091c30a86643b77f558e0e4";
+  "d6cd6588c816f1a5f9e2edfdcd3b247ee154bf092e36f2ce102e8a7988ecfa63";
 
 export function resolveRemoteAgentRequestCompatibilityBridge(input) {
   if (

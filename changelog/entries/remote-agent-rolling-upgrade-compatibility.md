@@ -6,7 +6,7 @@ areas: ["remote-agent", "releases", "ai-usage"]
 audiences: ["users", "operators"]
 ---
 
-Remote Agent requests can continue while Core and Remote services upgrade at
-different times. Usage collected during the transition is retained for delivery
-and audit, without repeating model calls. Release checks now account for
-dependencies in both directions and block an unverified deployment order.
+Release checks require Core to upgrade before Remote Agent, keeping ongoing
+work compatible during the transition. New model calls stop if usage admission
+is unavailable, so upgrades cannot bypass an Organization's allowance. Existing
+usage records remain available for delivery without repeating model calls.

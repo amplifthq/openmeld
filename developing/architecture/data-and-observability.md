@@ -3054,23 +3054,21 @@ explicitly incomplete; no extra provider polling is introduced to invent or
 recover unknown charges.
 No supplier polling or extra inference request is added.
 
-During the initial Core/Remote metering rollout only, a positively identified
-missing `recordRemoteAiUsage` RPC may defer admission recording. Before inference,
-Remote persists an immutable `openmeld:ai-usage:deferred:<eventId>` receipt with
-`reason: core_receiver_missing`, the original attribution, and pending/unknown
-usage. This is an audit of an unchecked admission, never an accepted allowance
-decision or a zero-cost record. Missing bindings, transport errors, malformed
-responses, exhausted allowances, and failed durable writes still fail before
-inference. The ordinary settlement outbox retains the real provider receipt and
-the existing callback retry owner delivers it after Core upgrades. Core accepts
-a settlement without an earlier begin and deduplicates its exact event identity,
-including a committed write whose ACK was lost. Retain the deferred receipt for
-operator correlation by event ID; it is not a second consumption ledger and is
-not included in public usage totals. A crash before settlement leaves an
-explicitly incomplete audit receipt; do not invent charges or rerun inference.
-Prefer Core-first deployment so this compatibility exception is not the normal
-admission path. Do not downgrade an activated metering receiver to bypass an
-Organization's allowance policy.
+Every new Remote provider call requires an accepted `recordRemoteAiUsage`
+begin response from Core. A missing receiver fails visibly with
+`core.rpc.unavailable`; missing configuration, transport errors, malformed
+responses, exhausted allowances, and failed admission writes never authorize
+inference. There is no legacy admission exception, including for new owners or
+after an earlier successful admission. Deploy and verify Core before Remote.
+
+Preserve any historical `openmeld:ai-usage:deferred:<eventId>` audit receipts
+unchanged. They record unchecked historical admissions, not current permission,
+public usage totals, or a second consumption ledger. The ordinary settlement
+outbox and callback retry owner continue delivering real provider receipts.
+Core accepts a settlement without an earlier begin and deduplicates its exact
+event identity, including a committed write whose ACK was lost. Settlement
+failures after an admitted, paid call must not trigger another inference.
+An audit without final usage stays explicitly incomplete; never invent charges.
 
 Codex uses changed current-turn token events and native request counters,
 ignoring resume history and rate-limit-only repeats. Claude uses unique native
