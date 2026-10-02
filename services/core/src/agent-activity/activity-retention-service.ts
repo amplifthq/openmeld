@@ -94,7 +94,7 @@ export async function runAgentActivityDailyAggregation(input: {
               member_user_id,
               strftime('%Y-%m-%d', observed_at_ms / 1000, 'unixepoch'),
               id, ?,
-              (CAST(observed_at_ms / 86400000 AS INTEGER) + ?) * 86400000
+              max(?, (CAST(observed_at_ms / 86400000 AS INTEGER) + ?) * 86400000)
             FROM ranked
             WHERE session_rank = 1
               AND (SELECT count(*) FROM candidate) = ?
@@ -103,6 +103,7 @@ export async function runAgentActivityDailyAggregation(input: {
         )
         .bind(
           acceptedSequencesJson,
+          input.nowMs,
           input.nowMs,
           DAILY_SESSION_KEY_RETENTION_DAYS,
           expectedCandidateCount
@@ -228,6 +229,49 @@ export async function runAgentActivityDailyAggregation(input: {
 
 export async function runAgentActivityRetention(input: {
   batchLimit?: number;
+  maxBatches?: number;
+  db: D1Database;
+  nowMs: number;
+}) {
+  const maxBatches = input.maxBatches ?? DAILY_AGGREGATION_MAX_BATCHES;
+  if (
+    !Number.isSafeInteger(maxBatches) ||
+    maxBatches < 1 ||
+    maxBatches > DAILY_AGGREGATION_MAX_BATCHES
+  ) {
+    throw new Error(
+      "Agent Activity retention batch budget must be between 1 and 10."
+    );
+  }
+  const totals = {
+    aggregates: 0,
+    dailySessionKeys: 0,
+    digests: 0,
+    events: 0,
+    executionLinks: 0,
+    sessions: 0,
+  };
+  let budgetExhausted = false;
+  for (let batch = 0; batch < maxBatches; batch++) {
+    const result = await runAgentActivityRetentionBatch(input);
+    for (const key of Object.keys(totals) as (keyof typeof totals)[]) {
+      totals[key] += result[key];
+    }
+    budgetExhausted =
+      result.events === resolveBatchLimit(input.batchLimit) ||
+      result.dailySessionKeys === RETENTION_DELETE_LIMIT ||
+      result.digests === RETENTION_DELETE_LIMIT ||
+      result.executionLinks === RETENTION_DELETE_LIMIT ||
+      result.sessions === RETENTION_DELETE_LIMIT;
+    if (!budgetExhausted) {
+      break;
+    }
+  }
+  return { ...totals, budgetExhausted };
+}
+
+async function runAgentActivityRetentionBatch(input: {
+  batchLimit?: number;
   db: D1Database;
   nowMs: number;
 }) {
@@ -277,7 +321,11 @@ export async function runAgentActivityRetention(input: {
         .prepare(
           `DELETE FROM agent_activity_daily_session_keys WHERE daily_session_key IN (
           SELECT daily_session_key FROM agent_activity_daily_session_keys
-          WHERE expires_at_ms < ? ORDER BY expires_at_ms ASC LIMIT ?
+          WHERE expires_at_ms < ? AND NOT EXISTS (
+            SELECT 1 FROM agent_activity_events AS pending
+            WHERE pending.daily_session_key = agent_activity_daily_session_keys.daily_session_key
+              AND pending.daily_aggregated_at_ms IS NULL
+          ) ORDER BY expires_at_ms ASC LIMIT ?
         )`
         )
         .bind(input.nowMs, RETENTION_DELETE_LIMIT),

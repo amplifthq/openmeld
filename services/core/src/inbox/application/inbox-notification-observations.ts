@@ -42,9 +42,16 @@ export async function observeInboxNotifications(
   if (!previous || previous.afterRowId === previous.throughRowId) {
     const row = await input.db
       .prepare(
-        `SELECT coalesce(max(rowid), 0) AS last_row_id FROM inbox_items WHERE ${scope}`
+        `SELECT max(
+          coalesce((SELECT max(rowid) FROM inbox_items WHERE organization_id = ? AND recipient_user_id = ?), 0),
+          coalesce((SELECT max(rowid) FROM inbox_items WHERE organization_id IS NULL AND recipient_user_id = ?), 0)
+        ) AS last_row_id`
       )
-      .bind(identity.organizationId, identity.recipientUserId)
+      .bind(
+        identity.organizationId,
+        identity.recipientUserId,
+        identity.recipientUserId
+      )
       .first<{ last_row_id: number }>();
     if (
       !(row && Number.isSafeInteger(row.last_row_id)) ||
