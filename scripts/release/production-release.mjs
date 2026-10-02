@@ -2148,7 +2148,7 @@ function isReviewedProviderConnectionMissingResponseAddition(input) {
   }
 }
 
-export function buildProductionReleasePlan(input) {
+function resolveProductionReleaseContext(input) {
   const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
   const sourceSha = input.sourceSha ?? readHeadSha();
   const compatibilityContext = {
@@ -2186,6 +2186,58 @@ export function buildProductionReleasePlan(input) {
   const scopes =
     requested ??
     resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
+  return {
+    affectedPackages,
+    base: input.base,
+    changedPaths,
+    compatibilityChangedPaths,
+    compatibilityContext,
+    requestBridge,
+    scopes,
+    sourceSha,
+    taskInboxRetired,
+  };
+}
+
+function describeProductionReleaseImpact(context) {
+  return {
+    affectedPackages: context.affectedPackages,
+    base: context.base,
+    changedPaths: context.changedPaths,
+    compatibilityBridges: context.requestBridge ? [context.requestBridge] : [],
+    compatibilityDependencies: resolveProductionCompatibilityDependencies(
+      context.compatibilityChangedPaths,
+      context.taskInboxRetired,
+      context.compatibilityContext
+    ),
+    compatibilityReceiverWitnesses:
+      resolveProductionCompatibilityReceiverWitnesses(
+        context.compatibilityChangedPaths
+      ),
+    scopes: context.scopes,
+    sourceSha: context.sourceSha,
+  };
+}
+
+// Deployment evidence and source impact remain meaningful even when the
+// affected components cannot safely be deployed together. Only the planner
+// and stage admission own that ordering decision.
+export function buildProductionReleaseImpact(input) {
+  return describeProductionReleaseImpact(
+    resolveProductionReleaseContext(input)
+  );
+}
+
+export function buildProductionReleasePlan(input) {
+  const context = resolveProductionReleaseContext(input);
+  const {
+    changedPaths,
+    compatibilityChangedPaths,
+    compatibilityContext,
+    scopes,
+    sourceSha,
+    taskInboxRetired,
+  } = context;
   // Both files carry requests and responses. Their shared-path footprint alone
   // cannot prove which strict receiver must go first (for example replyRecovery).
   // Keep explicit single-side stages available instead of guessing an order.
@@ -2227,20 +2279,8 @@ export function buildProductionReleasePlan(input) {
     compatibilityContext
   );
   return {
-    affectedPackages,
-    base: input.base,
-    changedPaths,
+    ...describeProductionReleaseImpact(context),
     coreProjectionFromCli: scopes.includes("cli"),
-    compatibilityBridges: requestBridge ? [requestBridge] : [],
-    compatibilityDependencies: resolveProductionCompatibilityDependencies(
-      compatibilityChangedPaths,
-      taskInboxRetired,
-      compatibilityContext
-    ),
-    compatibilityReceiverWitnesses:
-      resolveProductionCompatibilityReceiverWitnesses(
-        compatibilityChangedPaths
-      ),
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
@@ -2256,8 +2296,6 @@ export function buildProductionReleasePlan(input) {
       scopes,
       taskInboxRetired,
     }),
-    scopes,
-    sourceSha,
     verifySteps: buildProductionVerifyStepSpecs({
       changedPaths,
       scopes,
