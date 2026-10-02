@@ -4,45 +4,64 @@ import type { OrganizationSkillBundle } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
-import { Textarea } from "@openmeld/ui/components/textarea";
 import { PlusIcon, XIcon } from "@phosphor-icons/react";
+import { type SetStateAction, useId, useRef, useState } from "react";
 
 export function OrganizationSkillPortableFields(input: {
 	bundle: OrganizationSkillBundle;
 	disabled: boolean;
-	onChange: (bundle: OrganizationSkillBundle) => void;
+	onChange: (update: SetStateAction<OrganizationSkillBundle>) => void;
+	readOnly?: boolean;
 }) {
 	const portable = input.bundle.portable;
 	const updatePortable = (
 		update: Partial<OrganizationSkillBundle["portable"]>
 	) =>
-		input.onChange({ ...input.bundle, portable: { ...portable, ...update } });
+		input.onChange((current) => ({
+			...current,
+			portable: { ...current.portable, ...update },
+		}));
+
+	if (input.readOnly) {
+		return (
+			<dl className="grid gap-4 text-sm">
+				{[
+					["License", portable.license],
+					["Compatibility", portable.compatibility],
+					["Allowed tools", portable.allowedTools],
+				].map(([label, value]) => (
+					<div className="grid gap-1" key={label}>
+						<dt className="text-muted-foreground">{label}</dt>
+						<dd className="break-words">{value || "Not specified"}</dd>
+					</div>
+				))}
+				<div className="grid gap-2">
+					<dt className="text-muted-foreground">Metadata</dt>
+					<dd>
+						<dl className="grid gap-2">
+							{Object.entries(portable.metadata).map(([key, value]) => (
+								<div key={key}>
+									<dt className="text-muted-foreground">{key}</dt>
+									<dd className="break-words">{value}</dd>
+								</div>
+							))}
+						</dl>
+						{Object.keys(portable.metadata).length === 0 &&
+							"No portable metadata."}
+					</dd>
+				</div>
+				<div>
+					<dt className="sr-only">Permission boundary</dt>
+					<dd className="text-muted-foreground">
+						Allowed tools is portable metadata, not permission to use tools.
+					</dd>
+				</div>
+			</dl>
+		);
+	}
 
 	return (
-		<div className="grid gap-4 rounded-md border p-4 sm:grid-cols-2">
-			<div className="grid gap-2">
-				<Label htmlFor="skill-name">Name</Label>
-				<Input
-					disabled={input.disabled}
-					id="skill-name"
-					maxLength={64}
-					onChange={(event) => updatePortable({ name: event.target.value })}
-					value={portable.name}
-				/>
-			</div>
-			<div className="grid gap-2 sm:col-span-2">
-				<Label htmlFor="skill-description">Description</Label>
-				<Textarea
-					disabled={input.disabled}
-					id="skill-description"
-					maxLength={1024}
-					onChange={(event) =>
-						updatePortable({ description: event.target.value })
-					}
-					rows={3}
-					value={portable.description}
-				/>
-			</div>
+		<div className="grid gap-5 sm:grid-cols-2">
 			<OptionalPortableField
 				disabled={input.disabled}
 				id="skill-license"
@@ -76,7 +95,18 @@ export function OrganizationSkillPortableFields(input: {
 			<MetadataFields
 				disabled={input.disabled}
 				metadata={portable.metadata}
-				onChange={(metadata) => updatePortable({ metadata })}
+				onChange={(update) =>
+					input.onChange((current) => ({
+						...current,
+						portable: {
+							...current.portable,
+							metadata:
+								typeof update === "function"
+									? update(current.portable.metadata)
+									: update,
+						},
+					}))
+				}
 			/>
 		</div>
 	);
@@ -105,9 +135,22 @@ function OptionalPortableField(input: {
 function MetadataFields(input: {
 	disabled: boolean;
 	metadata: Record<string, string>;
-	onChange: (metadata: Record<string, string>) => void;
+	onChange: (update: SetStateAction<Record<string, string>>) => void;
 }) {
 	const entries = Object.entries(input.metadata);
+	const prefix = useId();
+	const ids = useRef(new Map<string, string>());
+	const sequence = useRef(0);
+	const [error, setError] = useState<string | null>(null);
+	const rowId = (key: string) => {
+		const known = ids.current.get(key);
+		if (known) {
+			return known;
+		}
+		const id = `${prefix}-${++sequence.current}`;
+		ids.current.set(key, id);
+		return id;
+	};
 	return (
 		<div className="grid gap-3 sm:col-span-2">
 			<div className="flex items-center justify-between gap-3">
@@ -121,7 +164,7 @@ function MetadataFields(input: {
 							index += 1;
 							key = `key-${index}`;
 						}
-						input.onChange({ ...input.metadata, [key]: "" });
+						input.onChange((current) => ({ ...current, [key]: "" }));
 					}}
 					size="sm"
 					variant="outline"
@@ -129,21 +172,45 @@ function MetadataFields(input: {
 					<PlusIcon aria-hidden="true" /> Add metadata
 				</Button>
 			</div>
+			{error && (
+				<p className="text-destructive text-sm" role="alert">
+					{error}
+				</p>
+			)}
 			{entries.length === 0 ? (
 				<p className="text-muted-foreground text-xs">No portable metadata.</p>
 			) : (
 				<div className="grid gap-2">
 					{entries.map(([key, value]) => (
-						<div className="grid grid-cols-[1fr_1fr_auto] gap-2" key={key}>
+						<div
+							className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2"
+							key={rowId(key)}
+						>
 							<Input
 								aria-label={`Metadata key ${key}`}
 								disabled={input.disabled}
 								onChange={(event) => {
 									const nextKey = event.target.value;
-									const next = { ...input.metadata };
-									delete next[key];
-									next[nextKey] = value;
-									input.onChange(next);
+									if (
+										nextKey !== key &&
+										Object.hasOwn(input.metadata, nextKey)
+									) {
+										setError("A metadata field with that name already exists.");
+										return;
+									}
+									setError(null);
+									ids.current.set(nextKey, rowId(key));
+									if (key !== nextKey) {
+										ids.current.delete(key);
+									}
+									input.onChange((current) =>
+										Object.fromEntries(
+											Object.entries(current).map(([name, entry]) => [
+												name === key ? nextKey : name,
+												entry,
+											])
+										)
+									);
 								}}
 								value={key}
 							/>
@@ -151,10 +218,10 @@ function MetadataFields(input: {
 								aria-label={`Metadata value ${key}`}
 								disabled={input.disabled}
 								onChange={(event) =>
-									input.onChange({
-										...input.metadata,
+									input.onChange((current) => ({
+										...current,
 										[key]: event.target.value,
-									})
+									}))
 								}
 								value={value}
 							/>
@@ -162,9 +229,13 @@ function MetadataFields(input: {
 								aria-label={`Remove metadata ${key}`}
 								disabled={input.disabled}
 								onClick={() => {
-									const next = { ...input.metadata };
-									delete next[key];
-									input.onChange(next);
+									input.onChange((current) => {
+										const next = { ...current };
+										delete next[key];
+										return next;
+									});
+									ids.current.delete(key);
+									setError(null);
 								}}
 								size="icon"
 								variant="ghost"

@@ -4,6 +4,7 @@ import {
   agentProfileCreationConfigurationSchema,
   createAgentProfileCreationRequestBodySchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import type { AgentProfileCreationConfiguration } from "@openmeld/schemas/types";
@@ -145,6 +146,15 @@ async function resolveRequestConfiguration(options: {
 }): Promise<AgentProfileCreationConfiguration> {
   const { context, input, targetOwnerUserId } = options;
   const agentControllerRef = normalizeOptionalText(input.agentController);
+  if (
+    agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
+    input.sessionStrategy !== undefined &&
+    input.sessionStrategy !== "new"
+  ) {
+    throw new Error(
+      "Remote Agents start new Sessions; Resume and Fork require a Local Agent."
+    );
+  }
   const targetComputerId = await resolveRequestComputerId({
     agentControllerRef,
     context,
@@ -194,6 +204,14 @@ async function resolveRequestComputerId(options: {
     requestedComputerId,
     targetOwnerUserId,
   } = options;
+  if (agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+    if (requestedComputerId) {
+      throw new Error(
+        "Remote Agents do not use a Computer. Remove --computer."
+      );
+    }
+    return null;
+  }
   if (!(agentControllerRef || requestedComputerId)) {
     return null;
   }
@@ -206,10 +224,7 @@ async function resolveRequestComputerId(options: {
       title: "Local Agent Needed",
     });
   }
-  if (requestedComputerId) {
-    return requestedComputerId;
-  }
-  if (targetOwnerUserId !== context.callerUserId) {
+  if (!requestedComputerId && targetOwnerUserId !== context.callerUserId) {
     throw new ProfileCreationRequestCliError({
       code: "profile.creation_request.computer_required",
       message: "Creating an Agent for a teammate requires their Computer.",
@@ -219,14 +234,25 @@ async function resolveRequestComputerId(options: {
     });
   }
 
-  const currentComputerId = await readCurrentLocalDeviceId();
+  const selectedComputerId =
+    requestedComputerId ?? (await readCurrentLocalDeviceId());
   const computers = await context.api.getCurrentComputers();
   const currentComputer = computers.computers.find(
     (computer) =>
-      computer.computerId === currentComputerId &&
-      computer.ownerUserId === context.callerUserId
+      computer.computerId === selectedComputerId &&
+      computer.ownerUserId === targetOwnerUserId
   );
   if (!currentComputer) {
+    if (requestedComputerId) {
+      throw new ProfileCreationRequestCliError({
+        code: "profile.creation_request.computer_id_invalid",
+        message:
+          "--computer must be a Computer ID from this Organization's computer inventory.",
+        nextStep:
+          "Run `openmeld org computers --view agent`, then pass its exact `computerId`. That inventory value is the device ID accepted here; a Connected Computer record ID or Profile ID is not interchangeable.",
+        title: "Computer ID Invalid",
+      });
+    }
     throw new ProfileCreationRequestCliError({
       code: "profile.creation_request.current_computer_unavailable",
       message:
@@ -263,6 +289,14 @@ async function resolveRequestDefaultProjectId(options: {
 }): Promise<string | null> {
   const { agentControllerRef, context, input, targetOwnerUserId } = options;
   const explicitProjectId = normalizeOptionalText(input.defaultProjectId);
+  if (agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+    if (explicitProjectId) {
+      throw new Error(
+        "Remote Agents do not use a Project folder. Remove --project."
+      );
+    }
+    return null;
+  }
   if (explicitProjectId) {
     return explicitProjectId;
   }

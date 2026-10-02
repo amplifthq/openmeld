@@ -1,8 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChangelogPage } from "./changelog-page";
 
 const readPageMock = vi.hoisted(() => vi.fn());
+const scrollIntoViewMock = vi.fn();
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+	HTMLElement.prototype,
+	"scrollIntoView"
+);
 
 vi.mock("@tanstack/react-start", () => ({
 	useServerFn: () => readPageMock,
@@ -48,6 +53,24 @@ const SOURCE = {
 describe("ChangelogPage", () => {
 	beforeEach(() => {
 		readPageMock.mockReset();
+		scrollIntoViewMock.mockReset();
+		window.history.replaceState({}, "", "/changelog");
+		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+			configurable: true,
+			value: scrollIntoViewMock,
+		});
+	});
+
+	afterAll(() => {
+		if (originalScrollIntoView) {
+			Object.defineProperty(
+				HTMLElement.prototype,
+				"scrollIntoView",
+				originalScrollIntoView
+			);
+			return;
+		}
+		Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
 	});
 
 	it("renders published dates, release identity, outcome, and product areas", () => {
@@ -78,7 +101,11 @@ describe("ChangelogPage", () => {
 
 		expect(screen.getByText("August 18, 2026")).toBeTruthy();
 		expect(screen.getByText("Release v0.3.61")).toBeTruthy();
-		expect(screen.getByText("Understand recent OpenMeld changes")).toBeTruthy();
+		const title = screen.getByText("Understand recent OpenMeld changes");
+		expect(title.closest("a")?.getAttribute("href")).toBe(
+			"#update-center-agent-changelog"
+		);
+		expect(title.closest("article")?.id).toBe("update-center-agent-changelog");
 		expect(screen.getByText("Ask the Center Agent what changed.")).toBeTruthy();
 		expect(
 			screen
@@ -87,6 +114,59 @@ describe("ChangelogPage", () => {
 		).toBe("changelog");
 		expect(screen.getByText("Center agent")).toBeTruthy();
 		expect(screen.getByText("Channels")).toBeTruthy();
+	});
+
+	it("loads and reveals an older entry opened through its anchor", async () => {
+		window.history.replaceState({}, "", "/changelog#update-older-update");
+		readPageMock.mockResolvedValue({
+			entries: [
+				{
+					areas: ["web"],
+					audiences: ["members"],
+					body: "Older but directly addressable.",
+					evidence: ["pr:73"],
+					id: "older-update",
+					kind: "improved",
+					publishedAt: "2026-08-17",
+					title: "An older update",
+				},
+			],
+			hasMore: false,
+			latestPublishedAt: "2026-08-18",
+			schemaVersion: 1,
+			source: SOURCE,
+			totalMatching: 2,
+		});
+
+		render(
+			<ChangelogPage
+				initialPage={{
+					entries: [
+						{
+							areas: ["web"],
+							audiences: ["members"],
+							body: "Newest update.",
+							evidence: ["pr:77"],
+							id: "newest-update",
+							kind: "new",
+							publishedAt: "2026-08-18",
+							title: "The newest update",
+						},
+					],
+					hasMore: true,
+					latestPublishedAt: "2026-08-18",
+					schemaVersion: 1,
+					source: SOURCE,
+					totalMatching: 2,
+				}}
+			/>
+		);
+
+		expect(await screen.findByText("An older update")).toBeTruthy();
+		expect(readPageMock).toHaveBeenCalledExactlyOnceWith({
+			data: { limit: 10, offset: 1 },
+		});
+		expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "start" });
 	});
 
 	it("loads older entries from the next exact offset", async () => {

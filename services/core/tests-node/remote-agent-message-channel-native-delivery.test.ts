@@ -1,6 +1,7 @@
 import {
   buildMessageChannelConversationId,
   buildSpaceAttachmentObjectKey,
+  type PluginChannelSelection,
 } from "@openmeld/schemas";
 import type {
   MessageChannelConversationLocator,
@@ -8,7 +9,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import { REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE } from "../src/remote-agent/application/daily-admission-policy";
 import {
   createMessageChannelProviderRegistry,
   type MessageChannelProviderAdapter,
@@ -20,10 +20,13 @@ import {
 } from "../src/remote-agent/application/message-channel-native-delivery-service";
 import type { MessageChannelTurnTarget } from "../src/remote-agent/application/message-channel-turn-resolution";
 import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-agent/application/native-delivery-admission-watchdog";
+import { buildPluginChannelSourceProof } from "../src/remote-agent/application/plugin-channel-source-proof";
 import {
   claimRemoteAgentMessageChannelAdmissionFailurePublication,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readPluginChannelMetadata } from "../src/remote-agent/infrastructure/d1/plugin-channel-metadata-repo";
+import { REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE } from "../src/usage/ai-usage-policy";
 import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./helpers/center-agent-model-route.test-support";
 import {
   applyDrizzleMigrationForTable,
@@ -36,6 +39,95 @@ const RFC_4122_VERSION_5_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 describe("Remote Agent Message Channel native delivery", () => {
+  it("persists the explicit Plugin binding before the actual worker submission and replays through the existing delivery owner", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelNativeDeliveryMigrations(harness);
+    const proof = await buildPluginChannelSourceProof({
+      provider: "lark",
+      messageId: "message_original",
+      providerUserId: "ou_user_1",
+      text: "Original request",
+      resourceIds: [],
+    });
+    const request = createMessageChannelDeliveryInput({
+      triggerMessageId: "plugin-channel-continue:stable",
+    });
+    const selection: PluginChannelSelection = {
+      sourceDeliveryId: "original-delivery",
+      organizationId: "org_1",
+      requesterUserId: "user_1",
+      requesterProfileId:
+        request.target.participant.kind === "member"
+          ? (request.target.participant.member.humanProfileId ?? "human")
+          : "human",
+      targetProfileId: AGENT_PROFILE_ID,
+      service: "github",
+      scope: "shared",
+      connectionName: "github-team",
+      connectionUpdatedAtMs: 42,
+      continuationTriggerId: request.triggerMessageId,
+    };
+    const workerSubmit = vi.fn(async () => {
+      const rows = harness.queryAll<{ delivery_id: string }>({
+        sql: "SELECT delivery_id FROM openMeldRemoteAgent_native_delivery_ledger",
+      });
+      expect(rows).toHaveLength(1);
+      const recorded = rows[0];
+      if (!recorded) {
+        throw new Error("Expected admitted delivery before worker invocation");
+      }
+      expect(
+        await readPluginChannelMetadata(harness.db, recorded.delivery_id)
+      ).toMatchObject({
+        kind: "continuation",
+        executionSelection: selection,
+        proof,
+      });
+      return {
+        accepted: true,
+        createdAt: 1001,
+        requestId: "request-binding",
+        status: "pending" as const,
+        submissionId: "submission-binding",
+      };
+    });
+    const input = {
+      db: harness.db,
+      env: buildEnv({
+        remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      }),
+      nowMs: 1000,
+      registry: createWorkingCardRegistry(),
+      memoryService: null,
+      request: {
+        ...request,
+        pluginSourceProof: proof,
+        pluginSelection: selection,
+      },
+    };
+    try {
+      expect(
+        await submitRemoteAgentMessageChannelNativeDelivery(input)
+      ).toMatchObject({ status: "submitted" });
+      expect(
+        await submitRemoteAgentMessageChannelNativeDelivery(input)
+      ).toMatchObject({ status: "submitted" });
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      await expect(
+        submitRemoteAgentMessageChannelNativeDelivery({
+          ...input,
+          request: {
+            ...input.request,
+            pluginSelection: { ...selection, connectionName: "wrong-account" },
+          },
+        })
+      ).rejects.toThrow("execution_binding_conflict");
+      expect(workerSubmit).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("publishes one durable receipt before slow input preparation and skips preparation on accepted replay", async () => {
     const harness = createSqliteD1Harness();
     applyMessageChannelNativeDeliveryMigrations(harness);
@@ -681,9 +773,9 @@ describe("Remote Agent Message Channel native delivery", () => {
       expect(attachmentDelete).not.toHaveBeenCalled();
       expect(
         harness.queryAll<{ count: number }>({
-          sql: "SELECT COUNT(*) AS count FROM openMeldRemoteAgent_daily_admissions",
+          sql: "SELECT COUNT(*) AS count FROM ai_usage_records",
         })
-      ).toEqual([{ count: 1 }]);
+      ).toEqual([{ count: 0 }]);
     } finally {
       harness.close();
     }
@@ -910,7 +1002,6 @@ describe("Remote Agent Message Channel native delivery", () => {
     const attachmentDelete = vi.fn(async () => undefined);
     const env = buildEnv({
       attachmentDelete,
-      dailyAdmissionLimit: "1",
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
     });
     try {
@@ -925,6 +1016,10 @@ describe("Remote Agent Message Channel native delivery", () => {
         })
       ).resolves.toMatchObject({ status: "submitted" });
 
+      harness.run({
+        sql: "INSERT INTO organization_ai_usage_policies VALUES (?, ?, ?)",
+        params: ["org_1", 0, 1000],
+      });
       const secondRequest = createMessageChannelDeliveryInput({
         locator: createLocator({
           connectionId: "connection_lark_2",
@@ -1156,6 +1251,8 @@ describe("Remote Agent Message Channel native delivery", () => {
 function applyMessageChannelNativeDeliveryMigrations(
   harness: Parameters<typeof applyDrizzleMigrationForTable>[0]
 ): void {
+  harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
+  harness.run({ sql: "INSERT INTO organizations VALUES ('org_1')" });
   applyDrizzleMigrationsForTables(harness, [
     "organization_skill_releases",
     "organization_skills",
@@ -1168,6 +1265,8 @@ function applyMessageChannelNativeDeliveryMigrations(
     harness,
     "openMeldRemoteAgent_daily_admissions"
   );
+  applyDrizzleMigrationForTable(harness, "ai_usage_records");
+  applyDrizzleMigrationForTable(harness, "organization_ai_usage_policies");
   applyDrizzleMigrationForTable(
     harness,
     "openMeldRemoteAgent_conversation_generations"
@@ -1178,13 +1277,7 @@ function seedEnabledOrganizationSkill(
   harness: ReturnType<typeof createSqliteD1Harness>
 ): void {
   harness.run({
-    sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)",
-  });
-  harness.run({
     sql: "CREATE TABLE users (id TEXT PRIMARY KEY)",
-  });
-  harness.run({
-    sql: "INSERT INTO organizations (id) VALUES ('org_1')",
   });
   harness.run({
     sql: "INSERT INTO users (id) VALUES ('user_1')",
@@ -1275,7 +1368,6 @@ function createWorkingCardRegistry(
 
 function buildEnv(input: {
   attachmentDelete?: ReturnType<typeof vi.fn>;
-  dailyAdmissionLimit?: string;
   queueSend?: ReturnType<typeof vi.fn>;
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"];
   spaceGet?: ReturnType<typeof vi.fn>;
@@ -1284,7 +1376,6 @@ function buildEnv(input: {
     OPENMELD_DAEMON_DISPATCH_QUEUE: {
       send: input.queueSend ?? vi.fn(async () => undefined),
     } as unknown as CoreBindings["OPENMELD_DAEMON_DISPATCH_QUEUE"],
-    OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT: input.dailyAdmissionLimit,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
     OPENMELD_REMOTE_AGENT_WORKER: input.remoteAgentWorker,
     OPENMELD_SPACE_ATTACHMENTS: input.attachmentDelete

@@ -26,6 +26,74 @@ const actor: SpaceFileActor = {
 };
 
 describe("SpaceFileRepository", () => {
+  it("keeps optional geometry on its immutable revision through reads, updates, replay, and lazy migration", async () => {
+    const fixture = createFixture();
+    await withRepository(fixture.spaceId, (repository, sql) => {
+      ensureSpaceSqlSchema(sql);
+      const fileId = `${fixture.prefix}-image`;
+      const save = (
+        revision: number,
+        imageDimensions?: { width: number; height: number }
+      ) => ({
+        actor,
+        imageDimensions,
+        nowMs: fixture.nowMs + revision,
+        auditEvent: createAuditEvent({
+          entryId: fileId,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-geometry-${revision}`,
+        }),
+        write: {
+          spaceId: fixture.spaceId,
+          fileId,
+          revisionId: `${fixture.prefix}-revision-${revision}`,
+          clientMutationId: `${fixture.prefix}-geometry-${revision}`,
+          name: "photo.png",
+          parentId: null,
+          baseRevision: revision === 1 ? null : revision - 1,
+          mimeType: "image/png",
+          sizeBytes: 50,
+        },
+      });
+      const first = save(1, { width: 300, height: 900 });
+      expect(
+        repository.commitWrite(first).latestRevision.imageDimensions
+      ).toEqual(first.imageDimensions);
+      repository.commitWrite(save(2, { width: 1200, height: 600 }));
+      expect(
+        repository.resolveRevision({ fileId, revision: 1 }).revision
+          .imageDimensions
+      ).toEqual({ width: 300, height: 900 });
+      expect(repository.getFile(fileId).latestRevision.imageDimensions).toEqual(
+        { width: 1200, height: 600 }
+      );
+      expect(
+        repository.commitWrite({
+          ...first,
+          imageDimensions: { width: 1, height: 1 },
+        }).latestRevision.imageDimensions
+      ).toEqual({ width: 300, height: 900 });
+      repository.commitWrite(save(3));
+      expect(repository.getFile(fileId).latestRevision).not.toHaveProperty(
+        "imageDimensions"
+      );
+      expect(
+        repository
+          .listRevisions(fileId)
+          .map((revision) => revision.imageDimensions)
+      ).toEqual([
+        undefined,
+        { width: 1200, height: 600 },
+        { width: 300, height: 900 },
+      ]);
+      expect(() =>
+        repository.commitWrite(save(4, { width: 0, height: 500 }))
+      ).toThrow();
+      expect(repository.getFile(fileId).latestRevision.revision).toBe(3);
+    });
+  });
+
   it("commits notification intent once with a new revision, never for conflicts or replayed saves", async () => {
     const fixture = createFixture();
     await withRepository(fixture.spaceId, (repository, sql) => {
@@ -65,6 +133,19 @@ describe("SpaceFileRepository", () => {
       const next = save(2, 1);
       repository.commitWrite(next);
       repository.commitWrite(next);
+      expect(
+        repository.resolveCommittedWrite(
+          next.write.clientMutationId,
+          fileId,
+          next.write
+        )?.latestRevision.revision
+      ).toBe(2);
+      expect(() =>
+        repository.resolveCommittedWrite(next.write.clientMutationId, fileId, {
+          ...next.write,
+          revisionId: `${fixture.prefix}-different-content`,
+        })
+      ).toThrowError(expect.objectContaining({ code: "space_file.conflict" }));
       expect(updates.pending(fixture.nowMs + 100)).toHaveLength(1);
       expect(() => repository.commitWrite(save(3, 1))).toThrow();
       expect(updates.pending(fixture.nowMs + 100)).toHaveLength(1);
@@ -180,6 +261,7 @@ describe("SpaceFileRepository", () => {
         repository.list({
           spaceId: fixture.spaceId,
           parentId: folder.id,
+          origin: "all",
           canWrite: true,
         })
       ).toMatchObject({
@@ -190,6 +272,230 @@ describe("SpaceFileRepository", () => {
         entries: [{ id: firstRevision.id, kind: "file" }],
         capabilities: { canRead: true, canWrite: true },
       });
+    });
+  });
+
+  it("defaults the Files list to artifacts, treats a legacy write as an artifact, and fails closed on chat-upload files", async () => {
+    const fixture = createFixture();
+
+    await withRepository(fixture.spaceId, (repository) => {
+      const folder = repository.createFolder({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-mkdir`,
+        }),
+        clientMutationId: `${fixture.prefix}-mkdir`,
+        folderId: `${fixture.prefix}-folder`,
+        name: "Launch",
+        nowMs: fixture.nowMs,
+        spaceId: fixture.spaceId,
+      });
+
+      const commit = (input: {
+        fileId: string;
+        name: string;
+        origin?: "artifact" | "chat_upload";
+        revision: number;
+      }) =>
+        repository.commitWrite({
+          actor,
+          auditEvent: createAuditEvent({
+            entryId: input.fileId,
+            fixture,
+            operation: "content_write",
+            operationId: `${fixture.prefix}-write-${input.fileId}`,
+            revisionId: `${fixture.prefix}-revision-${input.fileId}`,
+          }),
+          nowMs: fixture.nowMs + input.revision,
+          write: {
+            spaceId: fixture.spaceId,
+            fileId: input.fileId,
+            revisionId: `${fixture.prefix}-revision-${input.fileId}`,
+            name: input.name,
+            parentId: null,
+            baseRevision: null,
+            clientMutationId: `${fixture.prefix}-write-${input.fileId}`,
+            mimeType: "text/plain",
+            sizeBytes: 4,
+            ...(input.origin ? { origin: input.origin } : {}),
+          },
+        });
+
+      const artifactFile = commit({
+        fileId: `${fixture.prefix}-artifact`,
+        name: "brief.txt",
+        origin: "artifact",
+        revision: 1,
+      });
+      expect(artifactFile.origin).toBe("artifact");
+
+      const chatUploadFile = commit({
+        fileId: `${fixture.prefix}-chat-upload`,
+        name: "screenshot.txt",
+        origin: "chat_upload",
+        revision: 2,
+      });
+      expect(chatUploadFile.origin).toBe("chat_upload");
+
+      // A legacy client that never learned about `origin` (or an old
+      // request that omits it) is not "unclassified": the repository
+      // defaults a plain new-file write to 'artifact', matching pre-feature
+      // create behavior, so the file stays visible in the default view
+      // without the client sending anything new.
+      const legacyFile = commit({
+        fileId: `${fixture.prefix}-legacy`,
+        name: "legacy.txt",
+        revision: 3,
+      });
+      expect(legacyFile.origin).toBe("artifact");
+
+      const defaultList = repository.list({
+        spaceId: fixture.spaceId,
+        parentId: null,
+        canWrite: true,
+      });
+      expect(defaultList.origin).toBe("artifact");
+      expect(defaultList.entries).toMatchObject([
+        { id: folder.id, kind: "folder" },
+        { id: artifactFile.id, kind: "file" },
+        { id: legacyFile.id, kind: "file" },
+      ]);
+      expect(
+        defaultList.entries.some((entry) => entry.id === chatUploadFile.id)
+      ).toBe(false);
+
+      const allList = repository.list({
+        spaceId: fixture.spaceId,
+        parentId: null,
+        origin: "all",
+        canWrite: true,
+      });
+      expect(allList.origin).toBe("all");
+      expect(allList.entries.map((entry) => entry.id)).toEqual(
+        expect.arrayContaining([
+          folder.id,
+          artifactFile.id,
+          chatUploadFile.id,
+          legacyFile.id,
+        ])
+      );
+
+      // A later revision of a chat upload never becomes an artifact by
+      // omission; origin is fixed at creation and stays hidden by default.
+      const chatUploadRevision = repository.commitWrite({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: chatUploadFile.id,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-chat-upload-2`,
+          revisionId: `${fixture.prefix}-revision-chat-upload-2`,
+        }),
+        nowMs: fixture.nowMs + 10,
+        write: {
+          spaceId: fixture.spaceId,
+          fileId: chatUploadFile.id,
+          revisionId: `${fixture.prefix}-revision-chat-upload-2`,
+          baseRevision: 1,
+          clientMutationId: `${fixture.prefix}-write-chat-upload-2`,
+          mimeType: "text/plain",
+          sizeBytes: 8,
+        },
+      });
+      expect(chatUploadRevision.origin).toBe("chat_upload");
+      expect(
+        repository
+          .list({ spaceId: fixture.spaceId, parentId: null, canWrite: true })
+          .entries.some((entry) => entry.id === chatUploadFile.id)
+      ).toBe(false);
+    });
+  });
+
+  it("fails closed on a NULL origin as exceptional/corrupt data, not normal history", async () => {
+    // Every write path now assigns 'artifact' or 'chat_upload' explicitly, and
+    // the schema migration backfills every pre-existing row, so the only way
+    // a file row can carry a NULL origin today is exceptional/corrupt data
+    // (for example a direct database edit). This writes that row directly,
+    // bypassing commitWrite, to prove the read path still fails closed
+    // instead of guessing a classification.
+    const fixture = createFixture();
+
+    await withRepository(fixture.spaceId, (repository, sql) => {
+      const folder = repository.createFolder({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-mkdir`,
+        }),
+        clientMutationId: `${fixture.prefix}-mkdir`,
+        folderId: `${fixture.prefix}-folder`,
+        name: "Launch",
+        nowMs: fixture.nowMs,
+        spaceId: fixture.spaceId,
+      });
+      const corruptFileId = `${fixture.prefix}-corrupt`;
+      const actorJson = JSON.stringify(actor);
+      sql.exec(
+        `
+          INSERT INTO space_file_entries (
+            entry_id, space_id, kind, parent_id, parent_key, name, name_key,
+            created_at_ms, updated_at_ms, created_by_json, updated_by_json,
+            trashed_at_ms, trashed_by_json, origin
+          ) VALUES (?, ?, 'file', NULL, '', ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+        `,
+        corruptFileId,
+        fixture.spaceId,
+        "corrupt.txt",
+        "corrupt.txt",
+        fixture.nowMs,
+        fixture.nowMs,
+        actorJson,
+        actorJson
+      );
+      sql.exec(
+        `
+          INSERT INTO space_file_revisions (
+            revision_id, file_id, revision, mime_type, size_bytes,
+            created_at_ms, created_by_json, client_mutation_id
+          ) VALUES (?, ?, 1, 'text/plain', 4, ?, ?, ?)
+        `,
+        `${corruptFileId}-revision`,
+        corruptFileId,
+        fixture.nowMs,
+        actorJson,
+        `${corruptFileId}-write`
+      );
+
+      const defaultList = repository.list({
+        spaceId: fixture.spaceId,
+        parentId: null,
+        canWrite: true,
+      });
+      expect(
+        defaultList.entries.some((entry) => entry.id === corruptFileId)
+      ).toBe(false);
+      expect(defaultList.entries).toMatchObject([
+        { id: folder.id, kind: "folder" },
+      ]);
+
+      const allList = repository.list({
+        spaceId: fixture.spaceId,
+        parentId: null,
+        origin: "all",
+        canWrite: true,
+      });
+      const corruptEntry = allList.entries.find(
+        (entry) => entry.id === corruptFileId
+      );
+      expect(corruptEntry).toMatchObject({ kind: "file" });
+      expect(
+        corruptEntry && "origin" in corruptEntry ? corruptEntry.origin : null
+      ).toBeNull();
     });
   });
 
@@ -296,7 +602,7 @@ describe("SpaceFileRepository", () => {
     });
   });
 
-  it("prevents duplicate folder names, folder cycles, and trashing non-empty folders", async () => {
+  it("numbers duplicate folder names while preventing folder cycles and trashing non-empty folders", async () => {
     const fixture = createFixture();
 
     await withRepository(fixture.spaceId, (repository) => {
@@ -330,24 +636,37 @@ describe("SpaceFileRepository", () => {
         spaceId: fixture.spaceId,
       });
 
-      expect(() =>
+      const duplicate = repository.createFolder({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-duplicate-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-duplicate`,
+        }),
+        clientMutationId: `${fixture.prefix}-duplicate`,
+        folderId: `${fixture.prefix}-duplicate-folder`,
+        name: "product",
+        nowMs: fixture.nowMs + 2,
+        spaceId: fixture.spaceId,
+      });
+      expect(duplicate.name).toBe("product (2)");
+      expect(
         repository.createFolder({
           actor,
           auditEvent: createAuditEvent({
-            entryId: `${fixture.prefix}-duplicate-folder`,
+            entryId: `${fixture.prefix}-third-folder`,
             fixture,
             operation: "folder_create",
-            operationId: `${fixture.prefix}-duplicate`,
+            operationId: `${fixture.prefix}-third`,
           }),
-          clientMutationId: `${fixture.prefix}-duplicate`,
-          folderId: `${fixture.prefix}-duplicate-folder`,
-          name: "product",
-          nowMs: fixture.nowMs + 2,
+          clientMutationId: `${fixture.prefix}-third`,
+          folderId: `${fixture.prefix}-third-folder`,
+          name: "Product",
+          nowMs: fixture.nowMs + 3,
           spaceId: fixture.spaceId,
-        })
-      ).toThrowError(
-        expect.objectContaining({ code: "space_file.name_conflict" })
-      );
+        }).name
+      ).toBe("Product (3)");
       expect(() =>
         repository.updateEntry({
           actor,
@@ -383,6 +702,40 @@ describe("SpaceFileRepository", () => {
       ).toThrowError(
         expect.objectContaining({ code: "space_file.folder_not_empty" })
       );
+      repository.trashEntry({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: child.id,
+          fixture,
+          operation: "entry_trash",
+          operationId: `${fixture.prefix}-trash-child`,
+        }),
+        clientMutationId: `${fixture.prefix}-trash-child`,
+        entryId: child.id,
+        nowMs: fixture.nowMs + 5,
+      });
+      repository.trashEntry({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: parent.id,
+          fixture,
+          operation: "entry_trash",
+          operationId: `${fixture.prefix}-trash-parent-after-child`,
+        }),
+        clientMutationId: `${fixture.prefix}-trash-parent-after-child`,
+        entryId: parent.id,
+        nowMs: fixture.nowMs + 6,
+      });
+      expect(
+        repository.list({
+          spaceId: fixture.spaceId,
+          view: "trash",
+          canWrite: true,
+        }).entries
+      ).toMatchObject([
+        { id: parent.id, path: "/Product" },
+        { id: child.id, path: "/Product/Specs" },
+      ]);
     });
   });
 
@@ -465,6 +818,7 @@ describe("SpaceFileRepository", () => {
         repository
           .list({
             canWrite: true,
+            origin: "all",
             parentId: null,
             spaceId: fixture.spaceId,
           })
@@ -659,6 +1013,7 @@ describe("SpaceFileRepository", () => {
         repository.list({
           spaceId: fixture.spaceId,
           view: "active",
+          origin: "all",
           canWrite: true,
         }).entries
       ).toMatchObject([{ id: file.id }]);
@@ -835,7 +1190,7 @@ describe("SpaceFileRepository", () => {
       await expect(
         instance.rpcListSpaceFiles({
           spaceId,
-          query: { view: "active" },
+          query: { view: "active", origin: "artifact" },
           spaceAccess: createAuthenticatedSpaceAccessContext({
             spaceId,
             requestContext: createRequestContext("profile-non-member"),
@@ -848,7 +1203,7 @@ describe("SpaceFileRepository", () => {
       await expect(
         instance.rpcListSpaceFiles({
           spaceId,
-          query: { view: "trash" },
+          query: { view: "trash", origin: "artifact" },
           spaceAccess: createAuthenticatedSpaceAccessContext({
             spaceId,
             requestContext: createRequestContext("profile-non-member"),

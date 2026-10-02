@@ -46,6 +46,45 @@ release then replaces those placeholders with the real Workers.
    are not integrated until the owning `wrangler.jsonc`, this document, and
    generated Worker types are updated.
 
+## Git working-copy connector ingress
+
+Both OpenConnector configurations keep `OOMOL_CONNECT_BLOCKED_PROXIES = "*"`.
+Their entrypoint is the small `.openmeld-working-copy-worker.mjs` overlay,
+copied by the existing `scripts/cloudflare/deploy-openconnector.mjs` deployer
+alongside `github-working-copy-policy.mjs`. The deployer requires reviewed
+upstream commit `c6f45596a8e018285d2799ccd08e6a251444c25d`, refuses existing
+overlay files, and removes only its own temporary copies. No binding, resource,
+secret name, general proxy allowlist or second credential store is added.
+
+Only `POST /v1/openmeld/github-working-copy` can enter the fixed Git request
+validator. It permits repository/commit/tree/blob reads, immutable Git object
+creation and non-force updates of host-issued task branches. It does not permit
+arbitrary headers, provider hosts, branch names, releases, merge or delete.
+Valid requests retain their bearer and exact connection-alias header and pass
+to the upstream `/v1/proxy/github` handler. A request-local policy enables only
+GitHub for that call. The pinned upstream's app cache includes both allowed and
+blocked proxy policy; normal HTTP proxy and MCP requests use the unchanged
+blocked policy. Re-review that cache contract before advancing the upstream pin.
+
+A separately scoped runtime token must already grant the selected connection
+and GitHub proxy. The overlay does not mint, replace or widen a runtime token.
+A missing grant fails explicitly. Use disposable, explicitly authorized local
+or staging connections to test the flow. Never fix this by removing the general
+proxy block or copying an administration token into Remote Agent or Computer.
+
+Deployment ordering is the reviewed connector overlay, Core execution-access
+and continuation receivers, Remote Agent producers, then Web enhancement. Old
+public message readers remain on plain Markdown links. Existing old admitted
+Computer work keeps its cleanup identity and does not inherit new credentials.
+Rollback must not re-enable legacy shared Computer access to new private work.
+The changed external entrypoint reuses upstream's existing environment types;
+OpenMeld Worker bindings and generated environment interfaces are unchanged.
+
+References: the pinned upstream `docs/runtime-api.md`,
+`src/server/cloudflare.ts`, and `src/providers/github/executors.ts`;
+[Cloudflare Fetch Handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/fetch/);
+[GitHub reference updates](https://docs.github.com/en/rest/git/refs#update-a-reference).
+
 ## Internal Staging Topology
 
 Each Worker has an explicit `env.stg` block. Staging uses the same binding names
@@ -146,7 +185,6 @@ Workers, and verifies the public entry points. See
   - `OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED`
   - `OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED`
   - `OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS`
-  - `OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT`
   - `OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED`
   - `OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED`
   - `OPENMELD_LARK_CHANNEL_ENABLED`
@@ -178,19 +216,26 @@ Workers, and verifies the public entry points. See
     to `RoutineRunWorkflow`
 - `.dev.vars` / `.dev.vars.prod`
   - `GITHUB_OPENMELD_API_TOKEN`
+  - `GITHUB_OPENMELD_WEBHOOK_SECRET`
   - `SLACK_OPENMELD_BOT_TOKEN`
   - `SLACK_OPENMELD_TOKEN_CRYPTO_KEY`
   - `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY`
   - `ZEP_OPENMELD_API_KEY`
 - Cloudflare production secrets
   - `GITHUB_OPENMELD_API_TOKEN`
+  - `GITHUB_OPENMELD_WEBHOOK_SECRET`
   - `SLACK_OPENMELD_BOT_TOKEN`
   - `SLACK_OPENMELD_TOKEN_CRYPTO_KEY`
   - `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY`
   - `ZEP_OPENMELD_API_KEY`
 - Resource bindings
-  - `OPENMELD_ORGANIZATION_SKILLS` stores private, immutable Organization Skill
+- `OPENMELD_ORGANIZATION_SKILLS` stores private, immutable Organization Skill
     release bundles after Core authorizes the Organization-scoped mutation
+  - `OPENMELD_SKILL_FILE_BACKED_WRITES` controls the Skill release writer format.
+    Local and test use `true`; staging and production start at `false` so a
+    rollback to the older Core can still read newly written inline releases.
+    Enable it only after the new Core reader has been deployed and the rollback
+    window has closed. The reader accepts both formats regardless of this flag.
   - `OPENMELD_SPACE_ATTACHMENTS` stores provider image bytes and immutable
     Space file revision bytes only after Core
     verifies the exact Message Channel connection, conversation, and
@@ -213,6 +258,9 @@ Workers, and verifies the public entry points. See
 
 ### `services/remote-agent`
 
+- `wrangler.jsonc` bindings
+  - `AI` for bounded, on-demand video audio transcription through Workers AI
+    in local, development, staging, and production environments
 - `wrangler.jsonc` `vars` / `env.prod.vars`
   - `OPENMELD_WORKER_ENVIRONMENT`
   - `OPENMELD_CONNECTORS_BASE_URL`
@@ -220,6 +268,7 @@ Workers, and verifies the public entry points. See
   - `OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID`
   - `OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS`
   - `OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID`
+  - `REMOTE_AGENT_TOOL_CALL_LIMIT` (positive integer; assignment safety backstop)
   - `OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED`
   - `OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID`
   - `OPENMELD_FEEDBACK_SUBMIT_BASE_URL`
@@ -290,11 +339,14 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 | Workflow | `OPENMELD_ROUTINE_RUN_WORKFLOW` | Core Center Agent Routine execution | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Production Workflow `openmeld-routine-run-prod` binds `RoutineRunWorkflow`; D1 remains the Routine and Run product truth. Wrangler creates it with the first Core deployment. |
 | Worker vars | `OPENMELD_ROUTINE_ENGINE_DEFAULT`, `OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS` | Core Center Agent Routine engine selection | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Workflow is the normal default. The global `legacy` value or an Organization override affects only newly claimed Runs; an existing Workflow-owned Run never crosses engines. |
 | Durable Object | `OPENMELD_SPACES` | Core Space domain | `services/core/wrangler.jsonc` | Space truth and message state. |
+| Durable Object | `OPENMELD_FILE_ROOTS` | Core Files domain | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | One SQLite writer per Team or member Files root; Space Files keep their existing Space writer. Migration v7. |
+| Durable Object | `OPENMELD_ACCOUNT_INVALIDATIONS` | Core account refresh hints | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | One hibernating WebSocket group per user and Organization; migration v6. Frames only trigger authorized Inbox and Space Index reads. Missed frames recover on reconnect and bounded polling. |
 | Durable Object | `OPENMELD_RUNTIME_TRANSPORT` | Core runtime transport hub | `services/core/wrangler.jsonc` | Low-latency runtime transport and Wake delivery. |
 | Durable Object | `OPENMELD_LARK_CHANNEL_CONNECTOR` | Core Message Channels | `services/core/wrangler.jsonc` | One persistent Lark/Feishu socket and bounded durable pending-event outbox per connection; migration v5. |
 | Durable Object | `FLUE_CENTER_AGENT_AGENT`, `FLUE_REGISTRY` | Remote Agent Flue runtime | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/worker-configuration.d.ts` | Hosted Center Agent conversation instances and the Flue registry. |
 | Durable Object and Container | `SANDBOX`, `Sandbox` | Remote Agent Cloudflare Sandbox | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/Dockerfile`, `services/remote-agent/worker-configuration.d.ts` | Each admitted submission receives an isolated Cloudflare Sandbox container through Flue's official adapter. The Docker image version must match `@cloudflare/sandbox`; no host or user-workstation mount is configured. |
 | Browser Run | `BROWSER` | Remote Agent rendered web tools | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/worker-configuration.d.ts` | Stateless Quick Actions provide rendered Markdown, links, structured extraction, selector scraping, and screenshots. `remote: true` is required for local Wrangler development. The current runtime has no retained browser session, Live View, or human takeover surface. |
+| Workers AI | `AI` | Remote Agent on-demand video audio transcription | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/worker-configuration.d.ts` | Only an explicit video-inspection tool call extracts a bounded audio interval and sends it to Whisper; ordinary file receipt does not call this binding. No separate secret or provisioned resource is required. |
 | Worker Loader | `LOADER` | Remote Agent stateless Code Mode | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/worker-configuration.d.ts` | `DynamicWorkerExecutor` runs model-generated JavaScript that can compose only the exact tools active for the current submission. The generated Worker receives no OpenMeld secrets or bindings, and `globalOutbound: null` blocks direct outbound networking. This binding does not add the durable Code Mode runtime, history, snippets, tool discovery, or approval replay. |
 | AI Gateway | `OPENMELD_REMOTE_AGENT_AI_GATEWAY_*` vars and `CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN` secret | Remote Agent model execution | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/.dev.vars.example`, `services/remote-agent/.dev.vars.prod.example` | Local, development, and production route through the configured gateway `openmeld-remote-agent-prod` because Cloudflare Provider Keys are gateway-scoped. Request metadata retains the Worker environment and Organization boundary; a second empty gateway must not masquerade as an isolated environment. The gateway uses the OpenRouter BYOK alias `openrouter`, and no secret override may replace the checked-in gateway id. Every ordinary Center Agent turn uses the frozen primary route carried by admission; the worker does not substitute a second model for Task or Space requests. |
 | Worker vars | `OPENMELD_FEEDBACK_SUBMIT_BASE_URL`, `OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY` | Remote Agent preset Feedback reporting | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/worker-configuration.d.ts` | Production points to the ordinary public Gateway submit route and official inbox. Local and dev defaults are empty so reporting fails closed until an explicit local inbox is supplied. |
@@ -565,6 +617,7 @@ WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET="paste-a-32-byte-random-base64url-secret
 Core owns production secrets for hosted Center Agent integrations:
 
 - `GITHUB_OPENMELD_API_TOKEN`
+- `GITHUB_OPENMELD_WEBHOOK_SECRET`
 - `SLACK_OPENMELD_BOT_TOKEN`
 - `SLACK_OPENMELD_TOKEN_CRYPTO_KEY`
 - `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY`
@@ -574,6 +627,10 @@ Core owns production secrets for hosted Center Agent integrations:
 reads used to import public Organization Skills. It prevents all OpenMeld
 tenants from sharing GitHub's anonymous per-IP request budget. It is never
 stored in a Skill release, returned to clients, or sent to the model.
+
+`GITHUB_OPENMELD_WEBHOOK_SECRET` authenticates GitHub App webhook deliveries to
+Core. Missing or mismatched signatures are rejected. It is never returned to
+clients or sent to the model.
 
 `SLACK_OPENMELD_TOKEN_CRYPTO_KEY` and
 `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY` must each be a base64-encoded

@@ -40,10 +40,17 @@ const RUNTIME_TRANSPORT_SCHEMA_SOURCE_PATH =
 const CORE_LOCAL_COMPONENTS_UPDATE_PROJECTION_PATH =
   "services/core/src/local-components/update-projection.ts";
 const CLI_DIST_ROOT_PATH = "clients/openmeld-cli/dist";
-// Platform-specific CLI artifacts have their own signed release integrity.
-// They are not copied into the npm Service bundle and must not make its
-// platform-neutral content hash differ between macOS and Linux.
+// CLI-only artifacts have their own signed release integrity. The full Service
+// hash includes the Windows helper bytes; the portable hash lets non-Windows
+// candidate checks validate every other Service file before the publisher
+// imports and verifies the native artifact.
 const SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS = new Set(["binary", "native"]);
+const PORTABLE_SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS = new Set([
+  ...SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS,
+  "windows",
+]);
+const PACKAGED_WINDOWS_PROCESS_HELPER =
+  "clients/openmeld-cli/dist/windows/openmeld-windows-process.exe";
 const SKILLS_ROOT_PATH = "clients/openmeld-cli/skills";
 
 const POLICY_VALUES = new Set(["ok", "available", "required"]);
@@ -140,6 +147,10 @@ export async function collectLocalComponentFacts(input = {}) {
   const serviceBundleHash = await computeServiceBundleHash({
     rootDir: join(repoRoot, CLI_DIST_ROOT_PATH),
   });
+  const portableServiceBundleHash = await computeServiceBundleHash({
+    rootDir: join(repoRoot, CLI_DIST_ROOT_PATH),
+    excludeWindows: true,
+  });
   if (input.requireServiceBundle && !serviceBundleHash) {
     throw new Error(
       `OpenMeld CLI dist is missing at ${CLI_DIST_ROOT_PATH}. Run \`pnpm --filter openmeld build\` before stamping or verifying local components.`
@@ -158,10 +169,14 @@ export async function collectLocalComponentFacts(input = {}) {
     cliReleaseLine: readPackageReleaseLine(packageJson),
     service: {
       bundleHash: serviceBundleHash,
+      portableBundleHash: portableServiceBundleHash,
       bundleVersion: packageVersion,
       runtimeContractEpoch,
       serviceContractVersion,
     },
+    hasWindowsProcessHelper: await pathExists(
+      join(repoRoot, PACKAGED_WINDOWS_PROCESS_HELPER)
+    ),
     serviceRequiredFloor: parseDeclaredStringConstant(
       coreLocalComponentsSource,
       "MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION"
@@ -252,6 +267,11 @@ export function resolveReleasePolicyVerificationErrors(input) {
     ];
   }
 
+  const selectedServiceFacts = resolveSelectedServiceReleaseFacts({
+    baseManifest: input.baseLocalComponentsManifest,
+    facts,
+    serviceTouched: (input.changedPaths ?? []).some(isServiceReleasePath),
+  });
   errors.push(
     ...compareCurrentFacts({
       actual: manifest.components.cli.packageVersion,
@@ -265,22 +285,20 @@ export function resolveReleasePolicyVerificationErrors(input) {
     }),
     ...compareCurrentFacts({
       actual: manifest.components.service.bundleVersion,
-      expected: facts.service.bundleVersion,
+      expected: selectedServiceFacts.bundleVersion,
       label: "service.bundleVersion",
     }),
-    ...compareCurrentFacts({
-      actual: manifest.components.service.bundleHash,
-      expected: facts.service.bundleHash,
-      label: "service.bundleHash",
-    }),
+    ...compareCurrentFacts(
+      selectServiceHashComparison({ facts, manifest, selectedServiceFacts })
+    ),
     ...compareCurrentFacts({
       actual: manifest.components.service.runtimeContractEpoch,
-      expected: facts.service.runtimeContractEpoch,
+      expected: selectedServiceFacts.runtimeContractEpoch,
       label: "service.runtimeContractEpoch",
     }),
     ...compareCurrentFacts({
       actual: manifest.components.service.serviceContractVersion,
-      expected: facts.service.serviceContractVersion,
+      expected: selectedServiceFacts.serviceContractVersion,
       label: "service.serviceContractVersion",
     }),
     ...compareCurrentFacts({
@@ -371,12 +389,46 @@ export function resolveReleasePolicyVerificationErrors(input) {
   errors.push(
     ...resolveServiceRequiredFloorVerificationErrors({
       baseFloor: input.baseServiceRequiredFloor,
-      bundleVersion: facts.service.bundleVersion,
+      bundleVersion: selectedServiceFacts.bundleVersion,
       floor: facts.serviceRequiredFloor,
       updatePolicy: manifest.components.service.updatePolicy,
     })
   );
   return errors;
+}
+
+export function resolveSelectedServiceReleaseFacts(input) {
+  const baseService = input.baseManifest?.components?.service;
+  if (input.serviceTouched || !baseService) {
+    return input.facts.service;
+  }
+  return {
+    bundleHash: baseService.bundleHash,
+    ...(baseService.portableBundleHash
+      ? { portableBundleHash: baseService.portableBundleHash }
+      : {}),
+    bundleVersion: baseService.bundleVersion,
+    runtimeContractEpoch: baseService.runtimeContractEpoch,
+    serviceContractVersion: baseService.serviceContractVersion,
+  };
+}
+
+function selectServiceHashComparison(input) {
+  if (
+    !input.facts.hasWindowsProcessHelper &&
+    input.manifest.components.service.portableBundleHash
+  ) {
+    return {
+      actual: input.manifest.components.service.portableBundleHash,
+      expected: input.selectedServiceFacts.portableBundleHash,
+      label: "service.portableBundleHash",
+    };
+  }
+  return {
+    actual: input.manifest.components.service.bundleHash,
+    expected: input.selectedServiceFacts.bundleHash,
+    label: "service.bundleHash",
+  };
 }
 
 function isUpdatePolicyAtLeastAvailable(policy) {
@@ -545,13 +597,22 @@ export async function runLocalComponentsReleaseTool(
             dependencies.buildPackagedOpenMeldCli ?? buildPackagedOpenMeldCli,
           repoRoot,
         });
+        await requirePackagedWindowsProcessHelper(repoRoot);
         const facts = await collectLocalComponentFacts({
           repoRoot,
           requireServiceBundle: !parsed.options.allowMissingServiceBundle,
         });
+        const selectedFacts = {
+          ...facts,
+          service: resolveSelectedServiceReleaseFacts({
+            baseManifest: decisionPlan.baseLocalComponentsManifest,
+            facts,
+            serviceTouched: decisionPlan.touchedComponents.includes("service"),
+          }),
+        };
         const previous = await readReleaseManifest(manifestPath);
         const manifest = buildReleasePolicyManifest({
-          facts,
+          facts: selectedFacts,
           now: stampedAt,
           policies: parsed.options.policies,
           previous,
@@ -559,7 +620,7 @@ export async function runLocalComponentsReleaseTool(
           reasons: parsed.options.reasons,
         });
         await assertReleaseManifestPolicy({
-          facts,
+          facts: selectedFacts,
           manifest,
           parsed,
           repoRoot,
@@ -648,6 +709,8 @@ async function collectLocalComponentReleaseDecisionPlan(input) {
   });
   return {
     base,
+    baseLocalComponentsManifest:
+      baseContracts.baseLocalComponentsManifest ?? null,
     changedPaths,
     currentPublic: {
       cliVersion:
@@ -678,6 +741,12 @@ async function collectLocalComponentReleaseDecisionPlan(input) {
       ])
     ),
     targetVersion: versionResolution?.targetVersion ?? facts.cli.packageVersion,
+    targetServiceVersion: touchedComponents.includes("service")
+      ? (versionResolution?.targetVersion ?? facts.cli.packageVersion)
+      : (baseContracts.baseLocalComponentsManifest?.components?.service
+          ?.bundleVersion ??
+        versionResolution?.targetVersion ??
+        facts.cli.packageVersion),
     touchedComponents,
     versionResolution,
   };
@@ -718,7 +787,8 @@ function formatLocalComponentDecisionPlan(plan) {
     `Current CLI required floor: ${plan.currentPublic.cliRequiredFloor ?? "none"}`,
     `Current public Service: ${plan.currentPublic.serviceVersion ?? "unknown"}`,
     `Current Service required floor: ${plan.currentPublic.serviceRequiredFloor ?? "none"}`,
-    `Target CLI/Service version: ${plan.targetVersion}`,
+    `Target CLI version: ${plan.targetVersion}`,
+    `Selected Service version: ${plan.targetServiceVersion}`,
     `Changed local components: ${touched}`,
   ];
   for (const component of plan.touchedComponents) {
@@ -1450,7 +1520,7 @@ function formatVerifyFailure(payload) {
     )
   ) {
     lines.push(
-      "Recovery: run `pnpm run release:preflight`, then choose the intended CLI/Service version and policy and rerun the base-aware stamp command (use `--next` for automatic channel-based selection). It rebuilds the packaged CLI before writing; do not use --current to bypass release history."
+      "Recovery: run `pnpm release:local-components plan --next`, choose the intended CLI/Service policy, and rerun the base-aware stamp command. It rebuilds the packaged CLI before writing; do not use --current to bypass release history."
     );
   }
   return lines.filter(Boolean).join("\n");
@@ -1745,11 +1815,22 @@ async function computeSkillsBundleHash(input) {
 export async function computeServiceBundleHash(input) {
   return await computeDirectoryContentHash({
     ignoredNames: new Set(),
-    ignoredTopLevelDirs: SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS,
+    ignoredTopLevelDirs: input.excludeWindows
+      ? PORTABLE_SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS
+      : SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS,
     mode: "service",
     rootDir: input.rootDir,
     returnNullWhenMissing: true,
   });
+}
+
+async function requirePackagedWindowsProcessHelper(repoRoot) {
+  if (await pathExists(join(repoRoot, PACKAGED_WINDOWS_PROCESS_HELPER))) {
+    return;
+  }
+  throw new Error(
+    "The release stamp needs the source-matched Windows process helper. Build it on Windows, import its verified artifact, then stamp again."
+  );
 }
 
 async function computeDirectoryContentHash(input) {

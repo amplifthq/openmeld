@@ -10,10 +10,174 @@
 - Update this when: Inbox scope, classification, lifecycle, delivery policy,
   source coverage, navigation, or ownership changes.
 - Do not use this for: Source-domain business truth, Agent Task execution,
- Feedback Issue storage, Space message storage, or
-  provider-specific messaging.
+  Feedback Issue storage, Space message storage, or provider-specific messaging.
 - Source of truth: This file owns the Inbox product model. Source owner documents
   remain authoritative for the work or event represented by an Inbox item.
+
+## Search
+
+Inbox search covers the current recipient's uncleared message items and other
+activities, independent of the currently loaded feed pages. Message matches use
+the canonical Space text search; non-message activities search their Inbox title
+and preview. Every result rechecks current source access and opens its canonical
+item. Search does not mark items read, dismiss them, or resolve their sources.
+Removed Inbox items remain excluded even if their original messages are still
+searchable from a conversation or workspace search.
+
+Conversation and Inbox dialogs share the command menu's search reader. Searches
+run after 300 ms without typing and wait for IME composition to finish. The
+command menu displays message results inline rather than opening another dialog.
+Changing or clearing the query cancels obsolete requests. Search accepts literal text of 3–200 characters,
+including unsegmented Chinese text. Historical indexing and incomplete pages
+remain visible; an unfinished or failed search must not claim there are no
+matches. Results are transient, not part of persisted browser read caches.
+
+## Attention feed and frozen selections
+
+Permission and plan-review requests are ordinary Needs review items; questions
+are ordinary Needs action items. The RuntimeCoordinator source supplies that
+classification and does not infer urgency from local execution or request kind.
+Recovery remains source-prioritized, with queue approval classified as review.
+An exact legacy source replay can enrich missing classification and correct old
+forced urgency without reopening, clearing, or re-notifying the item. Generic
+Inbox source conflict checks remain strict; real explicit priority from another
+source is not globally downgraded.
+
+Version-9 summary receivers get priority, open-action and open-review counts from
+the same full authorized dataset as the feed. Ordinary open work remains visible
+without a red alarm. First personal-Agent contact participates in yellow priority
+presentation without acquiring urgent email eligibility. Owner-only follow-up
+chat is ordinary unread history, not repeated notifications; explicit Human
+mentions, replies and requester relations survive owner-observer noise controls.
+Structured source facts use per-item delivery identities rather than the retired
+minute-bucket observer coalescing. Existing browser/native acknowledgement and
+visibility boundaries remain separate; no cross-device delivery lock is added.
+
+Typed Computer connection and Desktop update events have account scope in the
+same Inbox table (`organization_id IS NULL`), never an arbitrary Organization
+or one copy per Organization. Authorized Organization views may include the
+current account's items; read and Dismiss target the same canonical id. Other
+Organizations' private records never enter that view. Version 9 source-target
+receivers opt in; older HTTP and RPC receivers retain their Organization-only
+shape and cannot accidentally mutate account records. Computer access also
+rechecks current device ownership and forgetting. Device sources do not enqueue
+email merely because a connection action has yellow priority.
+
+RuntimeTransportHub owns Computer incident facts beside its existing registration,
+heartbeat and alarm owner. A compatible, dispatch-accepting live session first
+establishes expected availability. The existing lease TTL is the reconnect grace;
+initial registration, explicit unknown state, user stop and controlled update do
+not establish a fault. One durable incident and a bounded projection retry slice
+survive Hub restart and D1 failure. Recovery uses the same owner-Service online
+evidence as Computer connection status, not socket presence, dispatch admission
+or execution compatibility. Confirmed connectivity ends the same incident and
+removes its priority and pending-action contribution without a user visit.
+Read and Dismiss remain unchanged; an unread ended incident is ordinary history,
+not a yellow request. Device re-enrollment is rechecked on registration generation
+change. Recovery does not resolve other Computers, lanes, Agent issues or Wake
+failures, and the source writes no Wake result or RuntimeCoordinator decision.
+
+Desktop Main observes the existing native updater and reports installed/applicable
+release facts through the session-bound account endpoint. It retains one local
+installation id and a monotonic source sequence, not a notification lock. Core
+atomically advances that sequence and projects one ordinary Inbox item per
+account, installation, lane and offered release. Checking, download progress and
+Later are not new events. A reported installed app version can mark an offer
+installed; opening and Dismiss cannot. A newer verified feed supersedes obsolete
+offers without asserting installation. Source retries preserve item identity,
+read/Dismiss and occurrence time, and never enqueue email. Only the matching
+native installation can open its Updates controls; Web shows device-specific
+guidance. Native observation failure never blocks the updater. This is trusted
+first-party client observation under the current account, not cryptographic
+device attestation or proof that a person saw a notification.
+
+The canonical attention feed is `GET /v1/inbox/feed`. All, Mentions, Needs action
+and Needs review combine independently with unread, activity and conversation
+filters. The activity menu selects All activity, Agents or People; People means
+conversation messages without Agent relevance, not device or system events.
+The conversation menu selects all types, Direct messages or Spaces, using the
+current Space Index DM classification (converted DMs are Spaces). Both groups
+can be combined and persist in the URL; Unread only stays beside the tabs.
+The existing `agentsOnly` query remains supported; `peopleOnly` and
+`conversationType` are additive. Every filter is applied before grouping,
+counts, pagination and frozen bulk operations.
+Mentions includes structured Human mentions, current personal-Agent mentions,
+and incoming Direct Messages addressed to the Human recipient, including Center
+Agent messages. A DM observed only through Agent ownership is not a direct
+message to that Human. These messages use the shared Web/native delivery policy
+and still honor conversation mute. This does not change the older unread-only
+`view=mentions` API. Agents filters actual interaction/author/recipient facts, not
+the presence of an Agent somewhere in a Space.
+
+Core applies current membership, personal ownership, conversation visibility,
+mute presentation and filters before counts, grouping or pagination. A direct
+Human mention survives an Agent transfer; an owner-only relationship does not
+survive merely because a different owned Agent remains in that Space. All is
+ordered across the accessible dataset: priority attention, other open requests,
+then ordinary activity/history. Normal open requests lose their blue unread dot
+when read but remain pending; priority open requests stay yellow until resolved.
+First-contact information is yellow only while unread. Ended requests are
+history, never persistent priority.
+
+Confirmed model issues reuse `system_attention_event` with an exact Agent target
+and `agent-model:` source namespace. The model/Binding owner reconciles them on
+normal controller reports, successful user model edits, and explicit unbinding.
+Their owner-only source facts include the exact `personalAgentProfileIds`, not
+just generic Agent relevance, so normal access checks can establish and revoke
+current ownership. They are ordinary Needs action, not urgent email. Repeated
+observations retain the same episode; a change or an authoritatively absent
+Binding clears only that model issue, preserving read state and history.
+Unbind retries also retry reconciliation when the Binding is already absent;
+failed Binding reads and failed/unauthorized unbinds do not claim recovery.
+Unknown same-model account evidence cannot claim recovery. The Inbox projection
+never writes Wakeability, manual Profile enablement or model selection, and
+resolving it does not restart work. Offline Profiles receive the notice when the
+normal report resumes; no retirement-date job or immediate global sweep exists.
+
+Legacy owner-observer items without exact personal-Agent source facts cannot
+establish derived owner access, even if one or more owned Agents remain in the
+Space. Their rows, read/Dismiss state and receipts stay intact; current Human
+membership remains an independent access path. Only reliable source-owned repair
+may restore an exact Agent relationship, never the current roster or preview text.
+Old owner-only message/reply items also remain quiet under both message modes,
+including delayed outbox arrivals and retired urgent awareness. Genuine Human
+mentions, explicit replies to the recipient and non-observer DMs retain their
+normal notification policy.
+
+Conversation grouping shares the canonical message items and read state. It
+never joins different Organizations, main timelines, Threads or target scopes,
+and never absorbs an open request or critical execution outcome. The oldest
+priority signal can remain a group's visible anchor while newer chat arrives.
+Expanding a group performs no read mutation.
+
+Expanded updates use a bounded, keyboard-scrollable area with the shared edge
+fades. Expand/collapse all and individual group overrides are browser preferences,
+scoped to the account and Organization. They persist only presentation state
+(at most 100 individual overrides), never message contents, access, or read state.
+Unavailable browser storage does not prevent using the controls for that visit.
+
+Expand/collapse all sits beside the filters; the frozen-selection mark-as-read
+action sits beside the first list section heading. Conversation avatars reuse
+the authorized Space index, Profile directory, and Center Agent session identity
+used by the sidebar. Missing source identity retains the Inbox kind icon;
+clients must not guess an avatar from message text or another Organization.
+
+The Web action is labeled **Remove from Inbox**, not Delete. Single-item and
+group removal require confirmation. Removing an item excludes it from the
+personal Inbox and its unread count; it does not mark the source conversation
+read, delete source messages/documents, or resolve a pending request. The removed
+Inbox projection cannot currently be restored through the product. Confirmation
+retains the selected item or frozen group snapshot, rather than reselecting
+whatever happens to be visible after a live refresh.
+
+A feed snapshot records a short-lived, account-and-Organization-bound set of
+eligible canonical item ids, not message contents or a second read ledger.
+Snapshots expire after fifteen minutes; cursors include the exact filters and
+expanded group. Explicit group/view read or Dismiss uses that frozen membership
+and rechecks current authorization. Later messages, delayed outbox deliveries,
+and formerly hidden muted history cannot be accidentally cleared. These bulk
+operations do not advance a conversation viewport watermark or close a request.
+Counts describe canonical items rather than the number of grouped rows.
 
 ## Product promise
 
@@ -336,7 +500,8 @@ pending work, and resolving an action removes its red attention treatment.
 Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the
 viewport, hovering it, or focusing the browser does not mark it read. Members
-can mark an item unread and can mark all accessible Inbox items read.
+can mark an item unread and can mark all currently presented Inbox attention
+items read. Ordinary updates hidden by a conversation mute remain unread.
 The bulk **Mark all as read** button appears only with **Unread only** enabled,
 immediately to the left of that switch. A compact confirmation explains that
 the action includes items outside the current filter and clears the corresponding
@@ -399,32 +564,73 @@ intermediate visual change or an optimistic count.
 Failed summaries still expose their unavailable status. Entry activation alone
 never clears an item.
 
+The default full Inbox, compact preview, global indicators, and Desktop menu bar
+use Core's opt-in **attention presentation**. An explicit conversation mute
+hides that conversation's ordinary updates from these attention surfaces,
+including items created before the mute, without reading, dismissing, deleting,
+or changing their raw Inbox records. Open actions and reviews remain visible
+whether read or unread; unread urgent updates and unread structured Human
+mentions also remain visible. Removing the mute reveals the preserved ordinary
+history again. Notification delivery remains a separate policy and the mute
+continues to suppress every message notification from that conversation,
+including urgent updates and mentions.
+
+The raw list remains available to notification delivery and bounded diagnostic
+consumers so preference changes cannot replay historical items as newly
+delivered. Saving a conversation preference invalidates only attention lists
+and summaries; raw delivery state is unchanged. Attention summary categories
+are disjoint: open action/review, unread urgent update, unread mention, and other
+unread update. Core computes the projection over the complete accessible Inbox;
+clients never reconstruct it from a loaded page.
+
 The compact preview uses the same summary breakdown. It separately queries
-**Needs action**, **Needs review**, **Urgent updates**, and unread **Recent updates**, in that
-order, without duplicating an item across groups. The `urgent_updates` list view
+**Needs action**, **Needs review**, **Urgent updates**, **Mentions**, and unread
+**Recent updates**, in that order, without duplicating an item across groups.
+The `urgent_updates` list view
 uses the same predicate as the urgent update count, so older urgent updates
-cannot be displaced by a page of newer ordinary messages. The `recent_updates`
-view independently selects unread items outside both attention groups so a
-page of actions or urgent updates cannot starve ordinary updates either. The bounded preview
+cannot be displaced by a page of newer ordinary messages. The `mentions` view
+selects unread structured Human mentions independently of recency. The
+`recent_updates` view independently selects unread items outside all stronger
+attention groups so a page of actions, urgent updates, or mentions cannot starve
+ordinary updates either. That mentions exclusion applies only to the opt-in
+`presentation=attention` projection; legacy/raw `recent_updates` callers keep
+mentions because they do not query the separate group. The bounded preview
 reserves room for each group; full Inbox remains the complete list. It may say
 **All caught up** only when there are no unresolved actions and no unread items.
 
 ### Space message unread behavior
 
-New Human-authored messages in conversations containing an ordinary personal
-Agent also address that Agent's current owner, even without Human membership.
-Self-authored messages do not generate this owner alert. Core validates current
-personal ownership and excludes managed Agents and the designated Center Agent.
-The owner receives one urgent `space_message` update per source message with
-`sourceTarget.agentOwnerActivity: true`; overlapping member delivery is deduplicated.
-This marker describes owner awareness, not an action request. It counts in the
-existing Inbox urgent badge, but contributes only ordinary unread state to
-Chats/Spaces navigation. Owner reads use the existing Space read watermark.
-Current ownership and membership are rechecked on delivery and reads; alerts
-never add Human membership or grant write access. No historical backfill occurs.
-Browser delivery retains its permission/visible-conversation gates and groups
-owner alerts by conversation and source minute. These awareness updates do not
-generate urgent email.
+An Agent's presence alone never makes a message relevant to its owner. Personal
+owner awareness requires actual structured Agent addressing, a Human message
+in that Agent's DM, or that Agent's own published reply. Activation and Reference
+both carry mention relevance; Reference never starts work. A Human message in a
+current Agent DM establishes contact even when it references the recipient Agent;
+a Reference alone in an ordinary Space does not. Retained-history scanning uses
+the same contact rule, without replaying an old reminder or altering Wake targets.
+Automatic Thread Wake continuation is not an explicit new contact. Center Agent
+and other managed Agents have no personal owner for Inbox purposes. Local/Remote
+placement changes none of these rules.
+
+Space freezes first-contact identity in the publication transaction using the
+Organization, exact main/DM or Thread-root scope, initiating Human **account**,
+recipient account, and personal Agent. Only that first source signal carries
+`sourceFacts.firstContactAgentProfileIds`; later messages and retries preserve
+the original identity. A second Human Profile of the same account cannot create
+a self reminder. Long-running main/DM scopes conservatively have one contact
+boundary: no topic inference, model turn, cooldown, read or Dismiss resets it.
+Retained structured history seeds existing contacts without replaying awareness;
+an unavailable/pruned prefix is conservatively not treated as a provable first.
+
+The underlying update remains `importance: normal`, so first-contact awareness
+does not create an urgent email. Source facts distinguish Agent activity,
+personal-Agent mentions and merged Human mention/reply/requester/owner reasons.
+An explicitly addressed Agent's owner can receive the exact Thread item without
+subscribing to the entire Space or gaining Human membership/write permission.
+Current ownership and membership remain read/delivery authorities. Recipient
+selection is frozen before a fallible Inbox write, while current eligibility is
+checked independently on retries. The bounded rollout repair preserves item ids,
+occurrence/read/Dismiss/resolution state and terminal email receipts; it only
+downgrades the retired owner-observer writer and suppresses pending urgent mail.
 
 Authorship does not establish reading. Web composer sends confirm only their
 exact authored message with `authorHasRead: true`; Core omits that author's
@@ -500,18 +706,37 @@ Signal in the same conversation.
 
 Main-conversation unread navigation uses one chronological shortcut for updates
 outside the viewport, combining targets above and below. It reveals the first
-unread target and dismisses that observed navigation batch after a successful
-jump; dismissal does not write a read watermark. A new event can show the
-shortcut again. The bottom history control returns to the latest messages and
-does not repeat unread counts. There is no per-message clicking requirement.
+unread target and reports Core's complete unread count rather than the number
+of targets that current viewport geometry happens to expose. Its blue **New
+messages** divider is fixed at the first unread target observed for that Space
+visit; passive visible-message reads do not move or regroup the divider.
+Dismissing the shortcut hides the server-bounded unread batch without writing a
+read watermark, so scrolling or resizing cannot resurrect that batch and a
+later event can show a new shortcut. There is no per-message clicking
+requirement.
 
-For a thread target, this shortcut reveals and briefly highlights its root
-message in the main conversation without opening the thread panel. A thread
-with recipient-specific unread targets has a blue **Open thread** entry with
-an unread count; the count includes replies and reactions, so it is not labeled
-as a count of new replies. Explicitly opening that entry focuses its first
-unread target. Reading the main root or its preview never acknowledges hidden
-thread replies. Thread deep links from Inbox still open the exact thread.
+The bottom history control remains the single return-to-latest action and does
+not repeat unread counts. When the main conversation has unread targets, an
+explicit activation first returns historical or scrolled views to the mounted
+live tail, then advances only the main-conversation watermark through the
+server-confirmed latest unread occurrence captured for that activation. It
+works even when a short conversation is already at the bottom. New events after
+the captured cutoff remain unread, and thread watermarks remain unchanged. A
+newer history-navigation choice made while that cutoff is being prepared
+abandons the activation before it can return to latest or write; its unused
+cutoff is not retained as a retry.
+Concurrent visible-message and explicit read-through writes are serialized and
+coalesced within their main or exact-thread scope. A failed write keeps the
+same cutoff for retry and reports that navigation succeeded but marking read
+did not; there is no success toast.
+
+For a thread target, the chronological shortcut opens that exact thread and
+focuses its first unread target. The thread's blue **New messages** divider is
+also fixed for that thread visit. A thread with recipient-specific unread
+targets has a blue **Open thread** entry with an unread count; the count includes
+replies and reactions, so it is not labeled as a count of new replies. Reading
+the main root or its preview never acknowledges hidden thread replies. Thread
+deep links from Inbox still open the exact thread.
 
 This uses Slack's separation of conversation navigation, thread attention, and
 read actions as a precedent, not an identical default: Slack offers immediate
@@ -543,6 +768,23 @@ to the original Wake. Repeated failure or recovery reports update the same
 idempotent item instead of creating Inbox noise. Reading or Dismissing it does
 not resolve the recovery gate. The owner may skip the interrupted work; that
 action is idempotent and allows the oldest later Wake to continue.
+
+A hosted Center Agent task continuation that remains unacknowledged after all
+three admission attempts creates one normal update `system_issue` item for the
+represented member. Without a supported recovery action, failure alone does not
+make an item urgent or action required. Its stable source identity is the
+continuation Native Delivery plus `admission_retry_exhausted`. Its target opens
+that delivery's own failure Signal, otherwise its original thread or Space.
+A watched child task's result Signal must never be paired with the observer's
+Space ID. Queue redelivery and terminal-effect replay update the same item
+rather than creating duplicate alerts. Reading or Dismissing the item does not
+claim that the continuation ran or resolve its underlying failure.
+Source-owner replay repairs only the retired producer's exact unresolved
+urgent/action projection, including its mismatched child Signal target. It keeps
+the same source identity, occurrence, read and removal state, and suppresses
+pending urgent email. Its Inbox resolution becomes `not_applicable`, not a
+claim that the underlying task succeeded. General source conflicts still fail
+closed; this is not an unbounded read-time migration.
 
 ## Delivery channels and preferences
 
@@ -579,8 +821,10 @@ projected into that recipient's Inbox. It does not subscribe the member to
 every thread, broaden source access, backfill old messages, change message
 importance, or create email deliveries. Muting suppresses conversation message
 updates, including urgent message updates; independent action-required items
-retain their existing delivery rules. Inbox content, read state, and source
-resolution remain unchanged. **Urgent email alerts** stays an independent
+retain their existing delivery rules. Raw Inbox content, read state, and source
+resolution remain unchanged. The default attention presentation hides muted
+ordinary updates while retaining open work, unread urgent updates, and unread
+Human mentions as described above. **Urgent email alerts** stays an independent
 account setting, including for urgent items from a muted conversation.
 This includes Human Mentions and urgent terminal Wake outcome updates: neither
 bypasses a conversation's message mute. An open action-required item retains
@@ -624,13 +868,18 @@ optional delivery channels:
   active human participant even without a Wake correlation; ordinary Space
   replies retain explicit-recipient rules. Ordinary
   Space message updates stay in Inbox without a system notification under the
-  default Mentions and replies policy; All new messages includes them. A visible
-  tab suppresses delivery only for the conversation it is currently showing;
-  a hidden tab can deliver any eligible item. Current-conversation suppression
-  is temporary: leaving that conversation or hiding the tab re-evaluates the
-  same unread item. The client records an item as delivered only after this tab
-  creates the notification or another tab proves it already did; a permission,
-  claim, or delivery failure remains retryable. A low-frequency browser-local
+  default Mentions and replies policy; All new messages includes them. Only a
+  visible, focused window suppresses delivery for the conversation it is showing
+  or advances its automatic read position. A visible second window without focus
+  is not evidence of reading. Leaving the conversation, hiding the tab, or losing
+  focus re-evaluates the same unread item. Browser delivery is acknowledged only
+  on the Notification `show` event, never on constructor success. `error`, close
+  before `show`, or no acknowledgement within ten seconds remains retryable; the
+  unconfirmed attempt is closed. Account/Organization changes, disabling delivery,
+  and listener unmount abort pending locks and unacknowledged attempts. A late
+  event cannot settle an aborted attempt. Even `show` does not prove an OS banner
+  or that the member saw it. Browser-local receipts deduplicate acknowledged
+  attempts; permission, claim, and delivery failures remain retryable. A low-frequency browser-local
   timer re-evaluates pending failures even when the Inbox query data does not
   change. The browser-local pending ledger stores each member-, Organization-,
   and item-scoped retry independently so concurrent tabs cannot overwrite one
@@ -644,14 +893,15 @@ optional delivery channels:
   then rechecks the committed member, Organization, item eligibility, and
   visible conversation immediately before creating the notification. Clicking
   the notification opens that refreshed item's canonical source target -- the
-  exact Space message or thread, Agent interaction, Center Agent conversation
-  Organization document, setting, or connected-channel message --
-  instead of routing through Inbox. A failed
+  exact Space message or thread, Agent interaction, Center Agent conversation,
+  Organization document, setting, or connected-channel message -- instead of
+  routing through Inbox. Repeating the same explicit click requests source focus
+  again even when its URL is unchanged. A failed
   revalidation remains pending and retryable. Unmounting the authenticated
   listener invalidates that context, so a delivery waiting on a browser lock
   cannot publish content from the previous account. Browser delivery never
-  forms a second unread store. After Web successfully creates a browser
-  notification, it may play one browser-local OpenMeld sound. Ordinary
+  forms a second unread store. After the browser acknowledges a notification,
+  Web may play one browser-local OpenMeld sound. Ordinary
   directly addressed updates use the `ready` cue; urgent or open
   action-required items use the `chime` cue. Sounds default on for each member
   in each browser and can be turned off independently of browser permission.
@@ -660,6 +910,28 @@ optional delivery channels:
   there is no separate volume slider. Browser autoplay policy, missing audio
   support, or playback failure stays silent, never changes notification
   delivery truth, and never makes the Inbox item retry.
+  Notification observation uses the authenticated insertion cursor endpoint,
+  not the first page of the occurrence-sorted Inbox list. A fresh listener
+  establishes an empty baseline instead of replaying old unread history. Each
+  refresh reads at most 50 entries; remaining pages are requested at a one-second
+  cadence, with the normal ten-second browser poll after catching up. Delayed
+  source events retain their insertion position even when their occurrence time
+  is old. The observer advances only after eligible ids are retained in the same
+  pending ledger. Network or storage failure holds the cursor for retry; reload
+  recovers retained pending ids and establishes a fresh observation baseline.
+  Settings distinguish the saved preference from storage availability: blocked
+  reads or a failed pending-record write show a paused error, disable unusable
+  controls/sample delivery, and never rewrite the member's preference. Write
+  failures notify mounted settings subscribers immediately, including when reads
+  still succeed because storage is full. The observer keeps polling at its
+  retained cursor; successfully saving the failed pending record clears the pause.
+  Each authorized observation refresh with delivery enabled also checks recovery
+  once while a write failure is recorded, including empty pages in a hidden tab.
+  Recovery cannot depend on the failed item remaining unread or accessible.
+  Refresh and focus/visibility checks use the same fresh temporary write,
+  readback, and removal sized for the failed record. Reads and unrelated same-value
+  writes are not recovery evidence. Snapshot reads never perform recovery writes;
+  probes never change saved preferences, pending ids, or the observation cursor.
 - **Desktop notifications** independently deliver the same eligible Core Inbox
   items while the authenticated GUI is running, including unfocused, minimized,
   and hidden windows. Quit ends GUI delivery and does not stop the Service.

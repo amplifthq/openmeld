@@ -1,4 +1,3 @@
-import { MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH } from "@openmeld/schemas";
 import type { SpaceContract } from "@openmeld/schemas/types";
 import {
   canonicalizeAllowedActions,
@@ -24,7 +23,7 @@ export type SpacePublicationRequirement = {
 const COLLABORATION_HOW_THIS_SPACE_WORKS =
   "OpenMeld is an external collaboration layer, not your private scratchpad. Work normally in your local context, then publish only the public outcome this Space needs with one OpenMeld Space Action.";
 const COLLABORATION_ACTION_REQUIREMENT =
-  "Final outcome: record exactly one dispatch-scoped OpenMeld Space Action. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Your answer text never selects or substitutes for that action.";
+  "Final outcome: record exactly one permitted dispatch-scoped OpenMeld Space Action through the supplied interface. Your answer text never selects or substitutes for that action.";
 const COLLABORATION_REPAIR_REQUIREMENT =
   "Preserve the user's intent and record exactly one dispatch-scoped OpenMeld Space Action. Do not print an action as JSON or prose.";
 const RAW_CONTEXT_SHARING_HOW_THIS_SPACE_WORKS =
@@ -32,7 +31,7 @@ const RAW_CONTEXT_SHARING_HOW_THIS_SPACE_WORKS =
 const RAW_CONTEXT_SHARING_ACTION_REQUIREMENT =
   "Raw reply is allowed. Use OpenMeld Space Action only when you need a controlled visible outcome.";
 const RAW_CONTEXT_SHARING_REPAIR_REQUIREMENT =
-  "Return the plain raw reply, or record one dispatch-scoped OpenMeld Space Action for a controlled visible outcome. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Answer text never becomes an action.";
+  "Return the plain raw reply, or record one permitted dispatch-scoped OpenMeld Space Action through the supplied interface for a controlled visible outcome. Answer text never becomes an action.";
 
 function buildActionGuidanceLines(input: {
   allowedActions: SpaceContract["allowedActions"];
@@ -43,16 +42,17 @@ function buildActionGuidanceLines(input: {
     switch (allowedAction) {
       case "post_message":
         lines.push(
-          "Use the dispatch-scoped Space Action reply for normal public replies, greetings, answers, and discussion."
+          "Use reply for public answers, known limitations, error explanations, or requests for help. You do not need shell or repository access to explain that you cannot complete a task."
         );
         break;
       case "post_status":
-        lines.push(
-          'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.'
-        );
-        lines.push(
-          `Keep post_status text at ${MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH} characters or fewer. Use post_message for answers, discussion, or anything longer.`
-        );
+        // Retain the stored/frozen permission for legacy proposals, but never
+        // advertise the retired Agent tool or turn it into reply authority.
+        if (input.allowedActions.every((action) => action === "post_status")) {
+          lines.push(
+            "This legacy Space policy permits only the retired status action. No current final tool is authorized. An authorized Space owner must choose permitted reply/silence outcomes; do not bypass this restriction or turn private output into a public reply."
+          );
+        }
         break;
       case "stay_silent":
         lines.push(
@@ -64,6 +64,9 @@ function buildActionGuidanceLines(input: {
     }
   }
 
+  lines.push(
+    "Use existing Tasks for durable collaboration commitments and the Board to read their summary. Do not create a Task merely to acknowledge a message."
+  );
   return lines;
 }
 

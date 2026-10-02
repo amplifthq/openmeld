@@ -5,6 +5,7 @@ import {
   serviceAccountControlRequestSchema,
 } from "@openmeld/schemas";
 import {
+  buildStoredAuthSessionIdentity,
   getAuthSessionState,
   readServiceAdmissionSessionWithOwnership,
   type StoredAuthSession,
@@ -28,7 +29,7 @@ import {
   requestLocalDaemonShutdown,
 } from "../local-service/control-plane/client";
 import { CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS } from "../local-service/core/constants";
-import { buildDaemonSystemServiceCommandSpec } from "../local-service/lifecycle/daemon-service-command-spec";
+import { resolveInstalledDaemonSystemServiceCommandSpec } from "../local-service/lifecycle/daemon-service-command-spec";
 import {
   type DaemonServiceManager,
   resolveDaemonServiceManager,
@@ -50,7 +51,8 @@ function refused(reason: string, message: string): never {
 }
 
 export async function runServiceAccountControl(
-  request: ServiceAccountControlRequest
+  request: ServiceAccountControlRequest,
+  expectedSessionIdentity?: string
 ): Promise<void> {
   const parsed = serviceAccountControlRequestSchema.safeParse(request);
   if (!parsed.success) {
@@ -60,12 +62,6 @@ export async function runServiceAccountControl(
     );
   }
   const input = parsed.data;
-  if (process.platform === "win32") {
-    refused(
-      "unsupported_platform",
-      "Account-checked Service control is not available on Windows yet."
-    );
-  }
   const auth = await getAuthSessionState();
   if (auth.state !== "valid" || !auth.session) {
     refused(
@@ -128,6 +124,9 @@ export async function runServiceAccountControl(
       async () => {
         boundSession = await readServiceAdmissionSessionWithOwnership();
         if (
+          (expectedSessionIdentity !== undefined &&
+            buildStoredAuthSessionIdentity(boundSession) !==
+              expectedSessionIdentity) ||
           boundSession.accessToken !== preparedSession.accessToken ||
           boundSession.createdAt !== preparedSession.createdAt ||
           boundSession.user?.id !== input.expectedAccount
@@ -213,7 +212,7 @@ export async function runServiceAccountControl(
           // generation argument. Never install a missing Service.
           await manager.deactivate();
           await manager.install(
-            buildDaemonSystemServiceCommandSpec({
+            await resolveInstalledDaemonSystemServiceCommandSpec({
               controller: manager.controller,
               accountAdmissionId: reservation.id,
             })

@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { isLegacyAgentActivityWorkCompatible } from "../../agent-work-activity";
+import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { signalStatusDataSchema as signalStatusPayloadSchema } from "../space-mesh/signal-status";
@@ -103,6 +104,7 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  workHandoff: spaceWorkHandoffSchema.optional(),
   // The human accepted a suggested thread recipient, rather than selecting a new one.
   threadWakeContinuation: z.literal(true).optional(),
   // Read-only history compatibility mirror. Only data.deviceWait is authority.
@@ -116,6 +118,7 @@ const signalTextMetaSchema = z.object({
   transient: z.literal(true).optional(),
   agentActivity: legacySpaceAgentActivitySchema.optional(),
   agentWorkSummary: spaceAgentActivitySchema.optional(),
+  agentPublicProgress: z.string().min(1).max(8192).optional(),
   clientMessageId: clientMessageIdSchema.optional(),
   centerAgentExecutionInput: z
     .strictObject({
@@ -248,6 +251,7 @@ const postedSignalTextMetaSchema = signalTextMetaSchema
     changedMessageId: true,
     agentActivity: true,
     agentWorkSummary: true,
+    agentPublicProgress: true,
     conversationCompaction: true,
   })
   .extend({
@@ -263,6 +267,7 @@ const systemEmittedSignalTextMetaSchema = signalTextMetaSchema
   .omit({
     agentActivity: true,
     agentWorkSummary: true,
+    agentPublicProgress: true,
   })
   .superRefine(validateAuthoredSignalTextMeta);
 

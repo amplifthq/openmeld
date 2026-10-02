@@ -16,13 +16,13 @@ import {
 import { TEST_REMOTE_AGENT_AI_GATEWAY_ENV } from "./fixtures";
 
 const IMAGE_MODEL: CenterAgentModelRoute["imageUnderstandingModel"] = {
-  contextWindow: 500_000,
-  displayName: "Grok 4.6",
+  contextWindow: 1_050_000,
+  displayName: "GPT-6 Luna",
   inputModalities: ["text", "image"],
   maxOutputTokens: 16_384,
-  modelId: "x-ai/grok-4.6",
+  modelId: "openai/gpt-6-luna",
   provider: "openrouter",
-  reasoningLevel: "high",
+  reasoningLevel: "medium",
 };
 
 const prepareTestContextImage = async (image: {
@@ -454,11 +454,16 @@ describe("Remote Agent image understanding", () => {
         max_tokens: number;
         messages: Array<{ content: unknown[] }>;
         model: string;
-        provider: { allow_fallbacks: boolean };
+        provider: { allow_fallbacks: boolean; require_parameters: boolean };
+        reasoning: { effort: string };
       };
-      expect(body.model).toBe("x-ai/grok-4.6");
+      expect(body.model).toBe("openai/gpt-6-luna");
+      expect(body.reasoning).toEqual({ effort: "medium" });
       expect(body.max_tokens).toBe(4096);
-      expect(body.provider).toEqual({ allow_fallbacks: true });
+      expect(body.provider).toEqual({
+        allow_fallbacks: true,
+        require_parameters: true,
+      });
       expect(JSON.stringify(body.messages[0]?.content)).toContain(
         "data:image/webp;base64,Y29tcHJlc3NlZA=="
       );
@@ -539,7 +544,7 @@ describe("Remote Agent image understanding", () => {
         prepareImage: prepareTestContextImage,
       })
     ).rejects.toThrow(
-      "Image understanding failed for x-ai/grok-4.6 with HTTP 503."
+      "Image understanding failed for openai/gpt-6-luna with HTTP 503."
     );
   });
 
@@ -569,7 +574,7 @@ describe("Remote Agent image understanding", () => {
         prepareImage: prepareTestContextImage,
       })
     ).rejects.toThrow(
-      "Image understanding failed for x-ai/grok-4.6 with HTTP 400. Provider: invalid_request: At most four images are supported in one request."
+      "Image understanding failed for openai/gpt-6-luna with HTTP 400. Provider: invalid_request: At most four images are supported in one request."
     );
   });
 
@@ -603,7 +608,7 @@ describe("Remote Agent image understanding", () => {
         prepareImage: prepareTestContextImage,
       })
     ).rejects.toThrow(
-      "Image understanding failed for x-ai/grok-4.6 with HTTP 400. Provider: 2001: Please configure AI Gateway in the Cloudflare dashboard"
+      "Image understanding failed for openai/gpt-6-luna with HTTP 400. Provider: 2001: Please configure AI Gateway in the Cloudflare dashboard"
     );
   });
 });

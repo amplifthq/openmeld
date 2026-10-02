@@ -11,6 +11,10 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import type { ReactNode } from "react";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import {
+	LOCAL_AGENT_STACK_IDS,
+	LOCAL_AGENT_STACK_TOOLTIP,
+} from "#/components/profiles/local-agent-logo-stack";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	CenterAgentComputerSetupCard,
@@ -75,18 +79,12 @@ export function CenterAgentDirectMessageIntro(input: {
 						<>
 							<span>How should we work with your</span>
 							<MagnifyingDock
-								aria-label="Codex, Claude Code, Grok Build, OpenCode, and Cursor"
+								aria-label={LOCAL_AGENT_STACK_TOOLTIP}
 								className="items-center gap-0 -space-x-3 px-1"
 								magnification={1.3}
 								role="group"
 							>
-								{[
-									"codex",
-									"claude-code",
-									"grok-build",
-									"opencode",
-									"cursor",
-								].map((agentId, index) => (
+								{LOCAL_AGENT_STACK_IDS.map((agentId, index) => (
 									<MagnifyingDockItem
 										className="h-9 min-h-9 w-9 min-w-9 justify-center"
 										key={agentId}
@@ -105,7 +103,9 @@ export function CenterAgentDirectMessageIntro(input: {
 												/>
 											</TooltipTrigger>
 											<TooltipContent>
-												{formatLocalAgentDisplayName(agentId)}
+												{agentId === "antigravity"
+													? "Antigravity · Also supports Cursor"
+													: formatLocalAgentDisplayName(agentId)}
 											</TooltipContent>
 										</Tooltip>
 									</MagnifyingDockItem>

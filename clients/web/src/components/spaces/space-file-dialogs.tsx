@@ -23,6 +23,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { Textarea } from "@openmeld/ui/components/textarea";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
@@ -33,6 +34,11 @@ import {
 } from "./space-file-utils";
 
 const ROOT_FOLDER_ID: null = null;
+const NEW_TEXT_FILE_DETAILS = {
+	markdown: { defaultName: "untitled.md", title: "New Markdown file" },
+	text: { defaultName: "untitled.txt", title: "New text file" },
+	csv: { defaultName: "untitled.csv", title: "New CSV file" },
+} as const;
 
 export type SpaceFileEntryDialogState =
 	| { kind: "closed" }
@@ -66,8 +72,14 @@ export function SpaceFileEntryDialogs(input: {
 				pending={input.pendingAction === "rename-entry"}
 			/>
 			<MoveEntryDialog
-				api={input.api}
 				entry={input.dialog.kind === "move" ? input.dialog.entry : null}
+				loadDestinations={(excludedFolderId) =>
+					loadMoveDestinations({
+						api: input.api,
+						excludedFolderId,
+						spaceId: input.spaceId,
+					})
+				}
 				onOpenChange={(open) => {
 					if (!open) {
 						input.onClose();
@@ -75,7 +87,7 @@ export function SpaceFileEntryDialogs(input: {
 				}}
 				onSubmit={input.onMove}
 				pending={input.pendingAction === "move-entry"}
-				spaceId={input.spaceId}
+				queryKey={["space-files", input.spaceId, "move-destinations"]}
 			/>
 			<TrashEntryDialog
 				entry={input.dialog.kind === "trash" ? input.dialog.entry : null}
@@ -92,6 +104,8 @@ export function SpaceFileEntryDialogs(input: {
 }
 
 export function FolderNameDialog(input: {
+	error?: string | null;
+	maxLength?: number;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (name: string) => Promise<void>;
 	open: boolean;
@@ -117,11 +131,16 @@ export function FolderNameDialog(input: {
 						<Input
 							autoFocus={true}
 							id="space-folder-name"
-							maxLength={255}
+							maxLength={input.maxLength ?? 255}
 							onChange={(event) => setName(event.currentTarget.value)}
 							placeholder="Project files"
 							value={name}
 						/>
+						{input.error ? (
+							<p className="text-destructive text-sm" role="alert">
+								{input.error}
+							</p>
+						) : null}
 					</div>
 					<DialogFooter>
 						<Button
@@ -145,22 +164,28 @@ export function FolderNameDialog(input: {
 	);
 }
 
-export function NewMarkdownFileDialog(input: {
+export function NewTextFileDialog(input: {
+	error?: string | null;
+	kind: "markdown" | "text" | "csv";
+	maxContentChars?: number;
+	maxNameLength?: number;
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (input: { content: string; name: string }) => Promise<void>;
 	open: boolean;
 	pending: boolean;
 }) {
-	const [name, setName] = useState("untitled.md");
+	const [name, setName] = useState("");
 	const [content, setContent] = useState("");
 	const contentOverLimit =
-		utf8ByteLength(content) > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES;
+		utf8ByteLength(content) > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES ||
+		(input.maxContentChars !== undefined &&
+			content.length > input.maxContentChars);
 	useEffect(() => {
 		if (input.open) {
-			setName("untitled.md");
+			setName(NEW_TEXT_FILE_DETAILS[input.kind].defaultName);
 			setContent("");
 		}
-	}, [input.open]);
+	}, [input.kind, input.open]);
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
 			<DialogContent className="sm:max-w-2xl">
@@ -175,7 +200,7 @@ export function NewMarkdownFileDialog(input: {
 					}}
 				>
 					<DialogHeader>
-						<DialogTitle>New Markdown file</DialogTitle>
+						<DialogTitle>{NEW_TEXT_FILE_DETAILS[input.kind].title}</DialogTitle>
 					</DialogHeader>
 					<div className="grid gap-4 py-5">
 						<div className="grid gap-2">
@@ -183,21 +208,46 @@ export function NewMarkdownFileDialog(input: {
 							<Input
 								autoFocus={true}
 								id="space-text-file-name"
-								maxLength={255}
+								maxLength={input.maxNameLength ?? 255}
 								onChange={(event) => setName(event.currentTarget.value)}
 								value={name}
 							/>
+							{input.error ? (
+								<p className="text-destructive text-sm" role="alert">
+									{input.error}
+								</p>
+							) : null}
 						</div>
 						<div className="grid gap-2">
 							<Label>Contents</Label>
-							<MarkdownEditor
-								ariaLabel="File contents"
-								disabled={input.pending}
-								maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
-								onChange={setContent}
-								placeholder="Start writing, or press '/' for commands…"
-								value={content}
-							/>
+							{input.kind === "markdown" ? (
+								<MarkdownEditor
+									ariaLabel="File contents"
+									disabled={input.pending}
+									maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
+									onChange={setContent}
+									placeholder="Start writing, or press '/' for commands…"
+									value={content}
+								/>
+							) : (
+								<Textarea
+									aria-label="File contents"
+									disabled={input.pending}
+									onChange={(event) => setContent(event.currentTarget.value)}
+									placeholder={
+										input.kind === "csv" ? "Column,Value" : "Start writing…"
+									}
+									rows={10}
+									value={content}
+								/>
+							)}
+							{input.maxContentChars !== undefined &&
+							content.length > input.maxContentChars ? (
+								<p className="text-destructive text-sm" role="alert">
+									Keep this file under {input.maxContentChars.toLocaleString()}{" "}
+									characters.
+								</p>
+							) : null}
 						</div>
 					</div>
 					<DialogFooter>
@@ -224,10 +274,13 @@ export function NewMarkdownFileDialog(input: {
 	);
 }
 
-export function RenameEntryDialog(input: {
-	entry: SpaceFileEntry | null;
+export function RenameEntryDialog<
+	Entry extends { kind: "file" | "folder"; name: string },
+>(input: {
+	entry: Entry | null;
+	error?: string | null;
 	onOpenChange: (open: boolean) => void;
-	onSubmit: (entry: SpaceFileEntry, name: string) => Promise<void>;
+	onSubmit: (entry: Entry, name: string) => Promise<void>;
 	pending: boolean;
 }) {
 	const [name, setName] = useState("");
@@ -255,6 +308,11 @@ export function RenameEntryDialog(input: {
 							onChange={(event) => setName(event.currentTarget.value)}
 							value={name}
 						/>
+						{input.error ? (
+							<p className="text-destructive text-sm" role="alert">
+								{input.error}
+							</p>
+						) : null}
 					</div>
 					<DialogFooter>
 						<Button
@@ -281,16 +339,24 @@ export function RenameEntryDialog(input: {
 const ROOT_DESTINATION_VALUE = "__openmeld_space_files_root__";
 const MAX_MOVE_DESTINATION_FOLDERS = 500;
 
-export function MoveEntryDialog(input: {
-	api: SpaceApi;
-	entry: SpaceFileEntry | null;
+export function MoveEntryDialog<
+	Entry extends {
+		id: string;
+		kind: "file" | "folder";
+		name: string;
+		parentId: string | null;
+	},
+>(input: {
+	entry: Entry | null;
+	error?: string | null;
+	loadDestinations: (
+		excludedFolderId?: string
+	) => Promise<readonly { id: string; path: string }[]>;
 	onOpenChange: (open: boolean) => void;
-	onSubmit: (
-		entry: SpaceFileEntry,
-		destinationId: string | null
-	) => Promise<void>;
+	onSubmit: (entry: Entry, destinationId: string | null) => Promise<void>;
 	pending: boolean;
-	spaceId: string;
+	queryKey: readonly string[];
+	rootLabel?: string;
 }) {
 	const [destinationValue, setDestinationValue] = useState(
 		ROOT_DESTINATION_VALUE
@@ -300,19 +366,11 @@ export function MoveEntryDialog(input: {
 	}, [input.entry]);
 	const destinationsQuery = useQuery({
 		enabled: input.entry !== null,
-		queryKey: [
-			"space-files",
-			input.spaceId,
-			"move-destinations",
-			input.entry?.id,
-		],
+		queryKey: [...input.queryKey, input.entry?.id],
 		queryFn: async () =>
-			await loadMoveDestinations({
-				api: input.api,
-				excludedFolderId:
-					input.entry?.kind === "folder" ? input.entry.id : undefined,
-				spaceId: input.spaceId,
-			}),
+			await input.loadDestinations(
+				input.entry?.kind === "folder" ? input.entry.id : undefined
+			),
 		gcTime: baseQueryOptions.gcTime,
 		retry: baseQueryOptions.retry,
 		staleTime: 3000,
@@ -356,13 +414,20 @@ export function MoveEntryDialog(input: {
 							}
 							value={destinationValue}
 						>
-							<option value={ROOT_DESTINATION_VALUE}>Files (root)</option>
+							<option value={ROOT_DESTINATION_VALUE}>
+								{input.rootLabel ?? "Files"} (root)
+							</option>
 							{destinations.map((folder) => (
 								<option key={folder.id} value={folder.id}>
 									{folder.path}
 								</option>
 							))}
 						</select>
+						{input.error ? (
+							<p className="text-destructive text-sm" role="alert">
+								{input.error}
+							</p>
+						) : null}
 						{loading ? (
 							<p className="text-muted-foreground text-xs">Loading folders…</p>
 						) : null}
@@ -410,6 +475,17 @@ export function MoveEntryDialog(input: {
 	);
 }
 
+/**
+ * Walks every folder to build the "Move to folder…" destination list. This
+ * only ever collects `entry.kind === "folder"` results, and folders carry no
+ * origin classification — the repository's origin filter already always
+ * includes folders regardless of `origin`. Passing `origin: "all"` here is
+ * presentation-only insurance against a future change to that exemption; it
+ * is not an authorization or visibility decision, and it must never be
+ * read as one. This function does not, and must not, decide which files a
+ * caller may read or write — that stays owned by the server-side access
+ * checks on each move request.
+ */
 async function loadMoveDestinations(input: {
 	api: SpaceApi;
 	excludedFolderId?: string;
@@ -422,7 +498,7 @@ async function loadMoveDestinations(input: {
 		const parentId = pendingParentIds.shift() ?? ROOT_FOLDER_ID;
 		const result = await input.api.listFiles({
 			spaceId: input.spaceId,
-			query: { parentId, view: "active" },
+			query: { parentId, view: "active", origin: "all" },
 		});
 		for (const entry of result.entries) {
 			if (

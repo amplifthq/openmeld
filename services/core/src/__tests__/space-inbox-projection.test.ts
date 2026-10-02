@@ -228,7 +228,7 @@ describe("Space Inbox projection", () => {
       wakeRequesterUserId === "owner" ? ["owner"] : ["owner", "requester"]
     );
   });
-  it("notifies an absent personal Agent owner once and preserves normal recipients for managed Agents", async () => {
+  it("keeps personal-Agent awareness ordinary for delivery and preserves normal recipients for managed Agents", async () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("author", "sender", "human"),
@@ -251,7 +251,7 @@ describe("Space Inbox projection", () => {
     expect(record?.candidates[0]).toMatchObject({
       recipientUserId: "owner",
       kind: "space_message",
-      importance: "urgent",
+      importance: "normal",
       sourceTarget: {
         agentOwnerActivity: true,
         directMessage: true,
@@ -440,7 +440,7 @@ describe("Space Inbox projection", () => {
       spaceName: "Launch Room",
     });
 
-    expect(record?.candidates).toHaveLength(3);
+    expect(record?.candidates).toHaveLength(2);
     expect(record?.candidates).toEqual([
       expect.objectContaining({
         kind: "space_mention",
@@ -458,11 +458,6 @@ describe("Space Inbox projection", () => {
         kind: "space_message",
         recipientUserId: "user-second",
       }),
-      expect.objectContaining({
-        kind: "space_message",
-        recipientUserId: "user-agent-owner",
-        importance: "urgent",
-      }),
     ]);
     expect(
       record?.candidates.some(
@@ -473,7 +468,7 @@ describe("Space Inbox projection", () => {
       record?.candidates.some(
         (candidate) => candidate.recipientUserId === "user-agent-owner"
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       record?.candidates.some(
         (candidate) => candidate.recipientUserId === "user-removed"
@@ -810,12 +805,9 @@ describe("Space Inbox projection", () => {
       updatedAtMs: 1000,
     };
     const statements: string[] = [];
-    const sql = {
-      exec(statement: string) {
-        statements.push(statement);
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble((statement) =>
+      statements.push(statement)
+    );
     let failSecondRecipientOnce = true;
     const ensureItem = vi.fn(({ candidate: item }) => {
       if (item.recipientUserId === "user-2" && failSecondRecipientOnce) {
@@ -880,11 +872,7 @@ describe("Space Inbox projection", () => {
       status: "pending",
       updatedAtMs: 1000,
     };
-    const sql = {
-      exec() {
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble();
     const ensureItem = vi.fn().mockResolvedValue({
       deliveryId: "delivery-1",
       itemId: "item-1",
@@ -930,11 +918,7 @@ describe("Space Inbox projection", () => {
       status: "pending",
       updatedAtMs: 1000,
     };
-    const sql = {
-      exec() {
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble();
     const ensureItem = vi.fn().mockResolvedValue({
       deliveryId: null,
       itemId: "item-user-1",
@@ -991,12 +975,9 @@ describe("Space Inbox projection", () => {
       updatedAtMs: 1000,
     };
     const executions: Array<{ bindings: unknown[]; statement: string }> = [];
-    const sql = {
-      exec(statement: string, ...bindings: unknown[]) {
-        executions.push({ bindings, statement });
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble((statement, bindings) =>
+      executions.push({ bindings, statement })
+    );
     const ensureItem = vi.fn(({ candidate: item }) => {
       return item.recipientUserId === "user-poison"
         ? Promise.reject(new Error("recipient no longer exists"))
@@ -1081,11 +1062,7 @@ describe("Space Inbox projection", () => {
       status: "pending",
       updatedAtMs: 1000,
     };
-    const sql = {
-      exec() {
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble();
     const ensureItem = vi.fn().mockResolvedValue({
       deliveryId: null,
       itemId: "item-active",
@@ -1271,6 +1248,37 @@ describe("Space Inbox projection", () => {
     warn.mockRestore();
   });
 });
+
+// These existing orchestration tests replace storage to inspect write intent.
+// Real SQLite identity, rollback and retry coverage lives in the Node boundary suite.
+function createProjectionSqlDouble(
+  onExec?: (statement: string, bindings: unknown[]) => void
+): SqlStorage {
+  const selections = new Map<string, string>();
+  return {
+    exec(statement: string, ...bindings: unknown[]) {
+      onExec?.(statement, bindings);
+      const key = JSON.stringify(bindings.slice(0, 2));
+      if (
+        statement.includes(
+          "INSERT OR IGNORE INTO space_inbox_projection_selections"
+        ) &&
+        !selections.has(key)
+      ) {
+        selections.set(key, String(bindings[2]));
+      }
+      const selection = statement.includes(
+        "SELECT candidate_json FROM space_inbox_projection_selections"
+      )
+        ? selections.get(key)
+        : undefined;
+      return {
+        rowsWritten: 1,
+        toArray: () => (selection ? [{ candidate_json: selection }] : []),
+      };
+    },
+  } as unknown as SqlStorage;
+}
 
 function member(
   profileId: string,

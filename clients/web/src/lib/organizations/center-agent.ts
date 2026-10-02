@@ -3,11 +3,13 @@ import {
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
+import { hostedModelReasoningLevelSchema } from "@openmeld/schemas";
 import type {
 	CenterAgentModelConfigurationResponse,
 	CenterAgentModelPreference,
 	CenterAgentSlackWorkspaceConnectionResponse,
 	CenterAgentSlackWorkspaceDisconnectResponse,
+	CenterAgentUpdateProfileBody,
 	CenterAgentUpdateProfileResponse,
 	DesignateCenterAgentResponse,
 	GetCenterAgentDesignationResponse,
@@ -172,11 +174,19 @@ export async function updateCurrentCenterAgentModel(input: {
 	expectedConfigurationRevision: number;
 	organizationId: string;
 	preference: CenterAgentModelPreference;
+	reasoningLevel?: string | null;
 }): Promise<UpdateCenterAgentModelResponse> {
 	try {
 		return await createWebCenterAgentApi(input.organizationId).updateModel({
 			expectedConfigurationRevision: input.expectedConfigurationRevision,
 			preference: input.preference,
+			...(input.reasoningLevel === undefined
+				? {}
+				: {
+						reasoningLevel: input.reasoningLevel
+							? hostedModelReasoningLevelSchema.parse(input.reasoningLevel)
+							: null,
+					}),
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -252,11 +262,13 @@ export async function consumeSlackIdentityLink(input: {
 
 export async function updateCurrentCenterAgentProfile(input: {
 	organizationId: string;
-	profileName: string;
+	profileName?: string;
+	avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
 }): Promise<CenterAgentUpdateProfileResponse> {
 	try {
 		return await createWebCenterAgentApi(input.organizationId).updateProfile({
-			profileName: input.profileName,
+			...(input.profileName ? { profileName: input.profileName } : {}),
+			...(input.avatarStyle ? { avatarStyle: input.avatarStyle } : {}),
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

@@ -14,6 +14,14 @@ const WORKER_RUNTIME_ROOTS = [
 ];
 const TYPESCRIPT_SOURCE_FILE_PATTERN = /\.tsx?$/u;
 
+export function isWorkerZodImportCheckPath(file) {
+  return (
+    file === "scripts/cloudflare/worker-zod-import-contract.mjs" ||
+    (TYPESCRIPT_SOURCE_FILE_PATTERN.test(file) &&
+      WORKER_RUNTIME_ROOTS.some((root) => file.startsWith(`${root}/`)))
+  );
+}
+
 export function findUnsafeZodImports(sourceText, fileName = "source.ts") {
   const sourceFile = ts.createSourceFile(
     fileName,

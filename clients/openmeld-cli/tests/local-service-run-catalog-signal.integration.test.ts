@@ -30,20 +30,44 @@ vi.mock("../src/local-service/projects/local-project-control-handler", () => ({
     handleLocalProjectControlFrameMock(...args),
 }));
 
+vi.mock(
+  "../src/local-service/routing/route-catalog-state",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/local-service/routing/route-catalog-state")
+    >()),
+    createRouteCatalogFromMutableState: (state: {
+      profileIds: string[];
+      routeByProfileId: Map<string, unknown>;
+      skippedProfiles: unknown[];
+    }) => ({
+      profileIds: [...state.profileIds],
+      routeByProfileId: new Map(state.routeByProfileId),
+      skippedProfiles: [...state.skippedProfiles],
+    }),
+    loadDaemonRouteCatalog: (...args: unknown[]) =>
+      loadDaemonRouteCatalogMock(...args),
+    syncDaemonRouteCatalogState: (...args: unknown[]) =>
+      syncDaemonRouteCatalogStateMock(...args),
+  })
+);
+
 vi.mock("../src/local-service/routing/route-catalog", () => ({
-  createRouteCatalogFromMutableState: (state: {
-    profileIds: string[];
-    routeByProfileId: Map<string, unknown>;
-    skippedProfiles: unknown[];
-  }) => ({
-    profileIds: [...state.profileIds],
-    routeByProfileId: new Map(state.routeByProfileId),
-    skippedProfiles: [...state.skippedProfiles],
-  }),
   loadDaemonRouteCatalog: (...args: unknown[]) =>
     loadDaemonRouteCatalogMock(...args),
-  syncDaemonRouteCatalogState: (...args: unknown[]) =>
-    syncDaemonRouteCatalogStateMock(...args),
+}));
+// Provider installation/history is an external boundary, not fixture state.
+vi.mock("../src/agent-activity/integration-refresh", () => ({
+  createManagedAgentActivityIntegrationRefreshScheduler: () => ({
+    request: () => undefined,
+    stop: async () => undefined,
+  }),
+}));
+vi.mock("../src/agent-activity/local-sync", () => ({
+  startLocalAgentActivitySyncLoop: () => ({
+    requestSync: () => undefined,
+    stop: async () => undefined,
+  }),
 }));
 
 vi.mock("../src/local-service/state/catalog-sync-signal", () => ({
@@ -83,7 +107,6 @@ import type { RuntimeAdapter } from "@openmeld/adapter-core";
 import {
   createInflightTaskControlRegistry,
   createLocalAdapterContainer,
-  createLocalExecutionSlots,
   createPendingAgentInteractionRegistry,
 } from "@openmeld/local-service";
 import {
@@ -91,33 +114,101 @@ import {
   DAEMON_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import { RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION } from "@openmeld/schemas";
+import type { RuntimeTransportStopCause } from "@openmeld/schemas/types";
 import { runDaemonSocketSession as runDaemonSocketSessionInternal } from "../src/local-service/carrier/run-socket-session";
 import { createServiceLocalComponentsObservation } from "../src/local-service/carrier/service-local-components-observation";
-import { DAEMON_STREAM_KEEPALIVE_INTERVAL_MS } from "../src/local-service/core/constants";
+import { createControlledShutdownCoordinator } from "../src/local-service/carrier/service-runner";
+import { requestLocalDaemonShutdown } from "../src/local-service/control-plane/client";
+import { startLocalDaemonControlPlaneServer } from "../src/local-service/control-plane/server";
+import {
+  DAEMON_STREAM_KEEPALIVE_INTERVAL_MS,
+  HEARTBEAT_RESPONSE_TIMEOUT_MS,
+} from "../src/local-service/core/constants";
 import type {
   CurrentDaemonSocketRef,
-  DaemonDispatchLimits,
   LedgerPaths,
 } from "../src/local-service/core/types";
+import { loadExecutionHostCatalog } from "../src/local-service/execution-host/catalog";
+import type { ExecutionHostPort } from "../src/local-service/execution-host/port";
+import type { ExecutionHostResources } from "../src/local-service/execution-host/runtime";
+import { createInProcessExecutionHost } from "./helpers/execution-host";
 
 type RunTestDaemonSocketSessionInput = Omit<
   Parameters<typeof runDaemonSocketSessionInternal>[0],
-  "localExecutionSlots" | "localComponentsObservation"
-> & { dispatchLimits: DaemonDispatchLimits };
+  "executionHost" | "localComponentsObservation" | "loadRouteCatalog"
+> &
+  Omit<ExecutionHostResources, "initialCatalog"> & {
+    decorateExecutionHost?: (host: ExecutionHostPort) => ExecutionHostPort;
+    profileOwnerName: string | null;
+    loadRouteCatalog?: () => Promise<ExecutionHostResources["initialCatalog"]>;
+  };
 
-function runDaemonSocketSession(
+async function runDaemonSocketSession(
   input: RunTestDaemonSocketSessionInput
 ): Promise<void> {
-  const { dispatchLimits, ...sessionInput } = input;
-  return runDaemonSocketSessionInternal({
-    ...sessionInput,
-    localComponentsObservation: createServiceLocalComponentsObservation({
-      onError: () => undefined,
-    }),
-    localExecutionSlots: createLocalExecutionSlots({ limits: dispatchLimits }),
+  const {
+    dispatchLimits,
+    contextStore,
+    inflightDispatchMetaByTaskId,
+    inflightTaskControlRegistry,
+    pendingAgentInteractionRegistry,
+    localAdapterContainer,
+    ledgerPaths,
+    decorateExecutionHost,
+    profileOwnerName,
+    ...sessionInput
+  } = input;
+  const isolatedLedger =
+    ledgerPaths.rootDirPath === "/tmp/ledger"
+      ? createLedgerPaths()
+      : ledgerPaths;
+  const host = await createInProcessExecutionHost({
+    stateRoot: isolatedLedger.rootDirPath,
+    daemonSessionId: input.daemonSessionId,
+    deviceId: input.deviceId,
+    ownerUserId: input.ownerUserId,
+    profileOwnerName,
+    presenter: input.presenter,
+    resources: {
+      dispatchLimits,
+      contextStore,
+      inflightDispatchMetaByTaskId,
+      inflightTaskControlRegistry,
+      pendingAgentInteractionRegistry,
+      localAdapterContainer,
+      ledgerPaths: isolatedLedger,
+      initialCatalog: input.routeCatalogState,
+    },
   });
+  const localComponentsObservation = createServiceLocalComponentsObservation({
+    onError: () => undefined,
+  });
+  try {
+    await runDaemonSocketSessionInternal({
+      ...sessionInput,
+      loadRouteCatalog:
+        input.loadRouteCatalog ??
+        (() =>
+          loadExecutionHostCatalog(
+            {
+              lane: input.lane,
+              ownerUserId: input.ownerUserId,
+              localAdapterContainer,
+              presenter: input.presenter,
+              serviceBundleId: null,
+            },
+            false
+          )),
+      localComponentsObservation,
+      executionHost: decorateExecutionHost?.(host.port) ?? host.port,
+    });
+  } finally {
+    localComponentsObservation.dispose();
+    await host.close();
+  }
 }
 
+import { ensureDaemonControlPlaneToken } from "../src/config/daemon-state";
 import {
   acknowledgeDispatchResultOutboxRecord,
   enqueueDispatchResultOutboxRecord,
@@ -161,6 +252,117 @@ describe("local service run catalog signal", () => {
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { force: true, recursive: true });
     }
+  });
+
+  it("stops an admitted idle session without waiting for held bootstrap cache persistence", async () => {
+    await withTempHome(async () => {
+      readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+      const cachePersistenceStarted = Promise.withResolvers<void>();
+      const releaseCachePersistence = Promise.withResolvers<void>();
+      let cachePersistenceSettled = false;
+      const lines: Array<{ code: string; text: string }> = [];
+      const socket = createMockSocket();
+      let stopping = false;
+      const coordinator = createControlledShutdownCoordinator({
+        hasUndrainedWork: () => false,
+        isStopRequested: () => stopping,
+        markStopping: () => {
+          stopping = true;
+        },
+      });
+      const sessionShutdown =
+        Promise.withResolvers<RuntimeTransportStopCause>();
+      coordinator.attachSession(sessionShutdown.resolve);
+      const sessionPromise = runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, lines),
+        persistRouteCatalogCache: async () => {
+          cachePersistenceStarted.resolve();
+          await releaseCachePersistence.promise;
+          cachePersistenceSettled = true;
+        },
+        shutdownRequested: sessionShutdown.promise,
+      })
+        .then(() => {
+          coordinator.handleSessionCompleted();
+        })
+        .catch((error: unknown) => {
+          coordinator.handleSessionFailure(error);
+          throw error;
+        })
+        .finally(() => {
+          coordinator.detachSession(sessionShutdown.resolve);
+        });
+
+      await cachePersistenceStarted.promise;
+      const phases: string[] = [];
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: await ensureDaemonControlPlaneToken(),
+        getContext: () => ({
+          healthPayload: {
+            checkedAt: new Date().toISOString(),
+            reasonCode: "ok",
+            runtimeState: "healthy",
+            state: "ok",
+          },
+          historyEntries: [],
+          shutdownHandler: (payload, lifecycle) =>
+            coordinator.request({
+              ...payload,
+              onAdmission: (commit) => {
+                commit();
+                lifecycle?.onAdmitted();
+                return Promise.resolve();
+              },
+            }),
+          statusPayload: {
+            checkedAt: new Date().toISOString(),
+            daemonVersion: "0.4.0",
+            installed: true,
+            running: true,
+            runtimeRoot: "/tmp/daemon-runtime",
+          },
+        }),
+        onRequestPhase: (event) => phases.push(event.phase),
+      });
+
+      const shutdown = requestLocalDaemonShutdown({
+        endpoint: server.endpoint,
+        payload: { gracePeriodMs: 5000, mode: "graceful" },
+        timeoutMs: 1500,
+      });
+      const observedShutdown = shutdown.then(
+        (value) => ({ status: "resolved" as const, value }),
+        (error: unknown) => ({ error, status: "rejected" as const })
+      );
+      try {
+        const outcome = await Promise.race([
+          observedShutdown,
+          new Promise<{ status: "pending" }>((resolve) => {
+            setTimeout(() => resolve({ status: "pending" }), 750);
+          }),
+        ]);
+        expect(outcome).toEqual({
+          status: "resolved",
+          value: {
+            accepted: true,
+            gracePeriodMs: 5000,
+            mode: "graceful",
+          },
+        });
+        await expect(sessionPromise).resolves.toBeUndefined();
+        expect(cachePersistenceSettled).toBe(false);
+        expect(phases).toEqual([
+          "received",
+          "authenticated",
+          "shutdown_admitted",
+        ]);
+        expect(socket.closeCount).toBe(1);
+      } finally {
+        releaseCachePersistence.resolve();
+        await observedShutdown;
+        await server.close();
+      }
+    });
   });
 
   it("keeps the controlled drain socket open until a durable result is acknowledged", async () => {
@@ -327,15 +529,18 @@ describe("local service run catalog signal", () => {
     });
   });
 
-  it("completes a controlled shutdown when the transport omits the close reason", async () => {
+  it.each([
+    "user_stop",
+    "controlled_service_update",
+  ] as const)("preserves %s through the final heartbeat when the close reason is omitted", async (stopCause) => {
     vi.useFakeTimers();
     readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
     const lines: Array<{ code: string; text: string }> = [];
     const socket = createMockSocket({
       closeEventReason: "",
     });
-    let requestShutdown!: (cause: "controlled_service_update") => void;
-    const shutdownRequested = new Promise<"controlled_service_update">(
+    let requestShutdown!: (cause: RuntimeTransportStopCause) => void;
+    const shutdownRequested = new Promise<RuntimeTransportStopCause>(
       (resolve) => {
         requestShutdown = resolve;
       }
@@ -347,10 +552,62 @@ describe("local service run catalog signal", () => {
 
     await vi.advanceTimersByTimeAsync(1);
     await flushMicrotasks(() => socket.heartbeatSendCount > 0);
-    requestShutdown("controlled_service_update");
+    requestShutdown(stopCause);
 
     await expect(sessionPromise).resolves.toBeUndefined();
     expect(socket.closeCount).toBe(1);
+    expect(socket.sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.session.heartbeat",
+        payload: expect.objectContaining({
+          acceptingDispatches: false,
+          stopCause,
+        }),
+      })
+    );
+    expect(
+      lines
+        .map((line) => line.code)
+        .filter((code) => code.startsWith("daemon.run.controlled_shutdown_"))
+    ).toEqual([
+      "daemon.run.controlled_shutdown_started",
+      "daemon.run.controlled_shutdown_inflight_heartbeat_completed",
+      "daemon.run.controlled_shutdown_final_heartbeat_completed",
+      "daemon.run.controlled_shutdown_draining",
+    ]);
+  });
+
+  it.each([
+    "rejected",
+    "timeout",
+  ] as const)("does not complete shutdown when the final heartbeat is %s", async (failure) => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const lines: Array<{ code: string; text: string }> = [];
+    const socket = createMockSocket({
+      rejectStoppingHeartbeat: failure === "rejected",
+      respondToHeartbeat: (frame) =>
+        failure !== "timeout" || frame.payload.acceptingDispatches !== false,
+    });
+    const shutdown = Promise.withResolvers<RuntimeTransportStopCause>();
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, lines, 5000),
+      shutdownRequested: shutdown.promise,
+    });
+    // Observe rejection before advancing the deadline; never leave an unhandled promise.
+    const outcome = sessionPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks(() => socket.heartbeatSendCount > 0);
+    shutdown.resolve("user_stop");
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_RESPONSE_TIMEOUT_MS + 1);
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(lines.map((line) => line.code)).not.toContain(
+      "daemon.run.controlled_shutdown_final_heartbeat_completed"
+    );
+    expect(socket.closeCount).toBe(0);
   });
 
   it("terminates a half-open socket instead of hanging controlled shutdown", async () => {
@@ -721,6 +978,7 @@ describe("local service run catalog signal", () => {
 
   it("retries runtime agent controller report sync quickly after write failures", async () => {
     vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const lines: Array<{ code: string; text: string }> = [];
 
     syncDaemonRouteCatalogStateMock.mockResolvedValue({
@@ -1037,6 +1295,308 @@ describe("local service run catalog signal", () => {
     await sessionPromise;
   });
 
+  it("publishes restored admission promptly when catalog configure finishes during a heartbeat", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(1);
+    let syncRouteCatalog: ((reason: string) => Promise<unknown>) | null = null;
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    syncDaemonRouteCatalogStateMock.mockResolvedValue({
+      skippedProfiles: [],
+      status: "unchanged",
+    });
+
+    const secondConfigureStarted = Promise.withResolvers<void>();
+    const releaseSecondConfigure = Promise.withResolvers<void>();
+    let configureCallCount = 0;
+    let holdNonacceptingHeartbeat = false;
+    const socket = createMockSocket({
+      executionAdmissionConfirmation: true,
+      respondToHeartbeat: (frame) =>
+        !(
+          holdNonacceptingHeartbeat &&
+          frame.payload.acceptingDispatches === false
+        ),
+    });
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, [], 60_000),
+      attachRouteCatalogSyncInvoker: (invoker) => {
+        syncRouteCatalog = invoker;
+      },
+      daemonSessionId: "session-catalog-configure-heartbeat-race",
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: async (method, payload, options) => {
+          if (method === "configureConnection") {
+            configureCallCount += 1;
+            if (configureCallCount === 2) {
+              secondConfigureStarted.resolve();
+              await releaseSecondConfigure.promise;
+            }
+          }
+          return await host.call(method, payload, options);
+        },
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks(() => configureCallCount === 1);
+    expect(
+      socket.sentFrames
+        .filter(isHeartbeatFrame)
+        .some((frame) => frame.payload.acceptingDispatches !== false)
+    ).toBe(true);
+
+    const attachedSyncRouteCatalog = syncRouteCatalog as
+      | ((reason: string) => Promise<unknown>)
+      | null;
+    if (!attachedSyncRouteCatalog) {
+      throw new Error("expected syncRouteCatalog to be attached");
+    }
+    holdNonacceptingHeartbeat = true;
+    const syncPromise = attachedSyncRouteCatalog("periodic_catalog_refresh");
+    await flushMicrotasks(() => configureCallCount === 2);
+    await secondConfigureStarted.promise;
+    await vi.advanceTimersByTimeAsync(0);
+
+    const falseHeartbeatIndex = socket.sentFrames.findLastIndex(
+      (frame) =>
+        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
+    );
+    expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
+    const heartbeatCountWithFalseInFlight = socket.heartbeatSendCount;
+
+    releaseSecondConfigure.resolve();
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+    const heartbeatCountBeforeFalseAck = socket.heartbeatSendCount;
+    socket.emitServerFrame({
+      v: 1,
+      code: "daemon.session.heartbeat",
+      payload: {
+        ok: true,
+        serverNowMs: Date.now(),
+        staleLeases: [],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(syncPromise).resolves.toMatchObject({ status: "unchanged" });
+
+    const acceptingPublishedPromptly = socket.sentFrames
+      .slice(falseHeartbeatIndex + 1)
+      .some(
+        (frame) =>
+          isHeartbeatFrame(frame) && frame.payload.acceptingDispatches !== false
+      );
+    await vi.advanceTimersByTimeAsync(60_000);
+    const acceptingPublishedAtCadence = socket.sentFrames
+      .slice(falseHeartbeatIndex + 1)
+      .some(
+        (frame) =>
+          isHeartbeatFrame(frame) && frame.payload.acceptingDispatches !== false
+      );
+
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+    const heartbeatCountAfterClose = socket.heartbeatSendCount;
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect({
+      acceptingPublishedAtCadence,
+      acceptingPublishedPromptly,
+      heartbeatCountBeforeFalseAck,
+      heartbeatCountAfterClose: socket.heartbeatSendCount,
+      heartbeatCountWithFalseInFlight,
+    }).toMatchObject({
+      acceptingPublishedAtCadence: true,
+      acceptingPublishedPromptly: true,
+      heartbeatCountBeforeFalseAck: heartbeatCountWithFalseInFlight,
+      heartbeatCountAfterClose,
+    });
+  });
+
+  it("publishes initial Host admission when configure opens during the first heartbeat", async () => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const firstConfigureStarted = Promise.withResolvers<void>();
+    const releaseFirstConfigure = Promise.withResolvers<void>();
+    const socket = createMockSocket({
+      executionAdmissionConfirmation: true,
+      admissionEvidence: true,
+      respondToHeartbeat: (frame) =>
+        frame.payload.acceptingDispatches !== false,
+    });
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, [], 60_000),
+      daemonSessionId: "session-initial-configure-heartbeat-race",
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: async (method, payload, options) => {
+          if (method === "configureConnection") {
+            firstConfigureStarted.resolve();
+            await releaseFirstConfigure.promise;
+          }
+          return await host.call(method, payload, options);
+        },
+      }),
+    });
+
+    await firstConfigureStarted.promise;
+    await vi.advanceTimersByTimeAsync(0);
+    const falseHeartbeatIndex = socket.sentFrames.findLastIndex(
+      (frame) =>
+        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
+    );
+    expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
+    expect(socket.sentFrames[falseHeartbeatIndex]).toMatchObject({
+      payload: {
+        admissionEvidence: {
+          acceptingDispatches: false,
+          reasonCode: "connection_initializing",
+        },
+      },
+    });
+    const heartbeatCountWithFalseInFlight = socket.heartbeatSendCount;
+
+    releaseFirstConfigure.resolve();
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(socket.heartbeatSendCount).toBe(heartbeatCountWithFalseInFlight);
+    socket.emitServerFrame({
+      v: 1,
+      code: "daemon.session.heartbeat",
+      payload: {
+        ok: true,
+        serverNowMs: Date.now(),
+        staleLeases: [],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(
+      socket.sentFrames
+        .slice(falseHeartbeatIndex + 1)
+        .some(
+          (frame) =>
+            isHeartbeatFrame(frame) &&
+            frame.payload.acceptingDispatches !== false &&
+            frame.payload.admissionEvidence?.reasonCode === "host_ready"
+        )
+    ).toBe(true);
+
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+  });
+
+  it("publishes the latest draining admission after a queued heartbeat settles", async () => {
+    vi.useFakeTimers();
+    let syncRouteCatalog: ((reason: string) => Promise<unknown>) | null = null;
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    syncDaemonRouteCatalogStateMock.mockResolvedValue({
+      skippedProfiles: [],
+      status: "unchanged",
+    });
+
+    const secondConfigureStarted = Promise.withResolvers<void>();
+    const releaseSecondConfigure = Promise.withResolvers<void>();
+    const shutdownRequested =
+      Promise.withResolvers<RuntimeTransportStopCause>();
+    let configureCallCount = 0;
+    let holdNonacceptingHeartbeat = false;
+    const lines: Array<{ code: string; text: string }> = [];
+    const socket = createMockSocket({
+      executionAdmissionConfirmation: true,
+      respondToHeartbeat: (frame) =>
+        !(
+          holdNonacceptingHeartbeat &&
+          frame.payload.acceptingDispatches === false
+        ),
+    });
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, lines, 60_000),
+      attachRouteCatalogSyncInvoker: (invoker) => {
+        syncRouteCatalog = invoker;
+      },
+      daemonSessionId: "session-catalog-configure-drain-race",
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: async (method, payload, options) => {
+          if (method === "configureConnection") {
+            configureCallCount += 1;
+            if (configureCallCount === 2) {
+              secondConfigureStarted.resolve();
+              await releaseSecondConfigure.promise;
+            }
+          }
+          return await host.call(method, payload, options);
+        },
+      }),
+      shutdownRequested: shutdownRequested.promise,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks(() => configureCallCount === 1);
+    const attachedSyncRouteCatalog = syncRouteCatalog as
+      | ((reason: string) => Promise<unknown>)
+      | null;
+    if (!attachedSyncRouteCatalog) {
+      throw new Error("expected syncRouteCatalog to be attached");
+    }
+
+    holdNonacceptingHeartbeat = true;
+    const syncPromise = attachedSyncRouteCatalog("periodic_catalog_refresh");
+    await flushMicrotasks(() => configureCallCount === 2);
+    await secondConfigureStarted.promise;
+    await vi.advanceTimersByTimeAsync(0);
+    const falseHeartbeatIndex = socket.sentFrames.findLastIndex(
+      (frame) =>
+        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
+    );
+    expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
+
+    releaseSecondConfigure.resolve();
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+    shutdownRequested.resolve("controlled_service_update");
+    await flushMicrotasks(() =>
+      lines.some(
+        (line) => line.code === "daemon.run.controlled_shutdown_started"
+      )
+    );
+    holdNonacceptingHeartbeat = false;
+    socket.emitServerFrame({
+      v: 1,
+      code: "daemon.session.heartbeat",
+      payload: {
+        ok: true,
+        serverNowMs: Date.now(),
+        staleLeases: [],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(syncPromise).resolves.toMatchObject({ status: "unchanged" });
+    await sessionPromise;
+
+    const heartbeatsAfterDrainStarted = socket.sentFrames
+      .slice(falseHeartbeatIndex + 1)
+      .filter(isHeartbeatFrame);
+    expect(heartbeatsAfterDrainStarted.length).toBeGreaterThan(0);
+    expect(
+      heartbeatsAfterDrainStarted.every(
+        (frame) => frame.payload.acceptingDispatches === false
+      )
+    ).toBe(true);
+    expect(heartbeatsAfterDrainStarted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            acceptingDispatches: false,
+            stopCause: "controlled_service_update",
+          }),
+        }),
+      ])
+    );
+  });
+
   it("allows an attached local control-plane invoker to force immediate route catalog sync", async () => {
     vi.useFakeTimers();
     let syncRouteCatalog: ((reason: string) => Promise<unknown>) | null = null;
@@ -1234,6 +1794,8 @@ describe("local service run catalog signal", () => {
 
   it("re-registers current v4 working-folder facts immediately after a local Project connection changes", async () => {
     vi.useFakeTimers();
+    const connectedAtMs = 1_700_000_000_000;
+    vi.setSystemTime(connectedAtMs);
     const onLocalProjectConnectionsChanged = vi.fn();
     handleLocalProjectControlFrameMock.mockResolvedValue({
       code: "daemon.local_project_control.set_default_connection_result",
@@ -1368,6 +1930,7 @@ describe("local service run catalog signal", () => {
       expect.objectContaining({
         code: "daemon.session.register",
         payload: expect.objectContaining({
+          connectedAtMs,
           localWakeRouteReport: expect.objectContaining({
             expectedRoutesContractVersion: "v4",
             workingFolderObservations: [
@@ -2319,6 +2882,7 @@ function isHeartbeatFrame(frame: unknown): frame is {
   code: "daemon.session.heartbeat";
   payload: {
     acceptingDispatches?: boolean;
+    admissionEvidence?: { reasonCode: string };
     stopCause?: string;
   };
 } {
@@ -2381,10 +2945,18 @@ async function flushMicrotasks(until?: () => boolean): Promise<void> {
 }
 
 function createMockSocket(input?: {
+  rejectStoppingHeartbeat?: boolean;
   closeEventReason?: string;
+  executionAdmissionConfirmation?: boolean;
+  admissionEvidence?: boolean;
   hangOnClose?: boolean;
   respondToKeepalive?: boolean;
-  respondToHeartbeat?: boolean;
+  respondToHeartbeat?:
+    | boolean
+    | ((frame: {
+        code: string;
+        payload: { acceptingDispatches?: boolean };
+      }) => boolean);
   respondToRegister?: boolean;
 }) {
   let onMessage: ((data: string) => void) | null = null;
@@ -2438,6 +3010,7 @@ function createMockSocket(input?: {
       const frame = JSON.parse(data) as {
         code: string;
         payload: {
+          acceptingDispatches?: boolean;
           profileIds?: string[];
           leases?: Array<{ profileId: string; leaseEpoch: number }>;
         };
@@ -2462,6 +3035,12 @@ function createMockSocket(input?: {
               payload: {
                 ok: true,
                 connectionGeneration: 1,
+                ...(input?.executionAdmissionConfirmation !== false
+                  ? { executionAdmissionConfirmation: true }
+                  : {}),
+                ...(input?.admissionEvidence
+                  ? { admissionEvidence: true }
+                  : {}),
                 acceptedLeases,
                 rejectedProfiles: [],
               },
@@ -2472,7 +3051,11 @@ function createMockSocket(input?: {
       }
       if (frame.code === "daemon.session.heartbeat") {
         heartbeatSendCount += 1;
-        if (!respondToHeartbeat) {
+        const shouldRespond =
+          typeof respondToHeartbeat === "function"
+            ? respondToHeartbeat(frame)
+            : respondToHeartbeat;
+        if (!shouldRespond) {
           return;
         }
         queueMicrotask(() => {
@@ -2481,7 +3064,10 @@ function createMockSocket(input?: {
               v: 1,
               code: "daemon.session.heartbeat",
               payload: {
-                ok: true,
+                ok: !(
+                  input?.rejectStoppingHeartbeat &&
+                  frame.payload.acceptingDispatches === false
+                ),
                 serverNowMs: Date.now(),
                 staleLeases: [],
               },

@@ -8,8 +8,7 @@ const SETUP_COMMAND_ERROR =
   "Use the official Staging Canary binary setup command copied from OpenMeld Staging.";
 const SAFE_UNQUOTED_SHELL_WORD = /^[A-Za-z0-9_./:@%+=,?&-]+$/u;
 const TOKEN_VALUE_PATTERN = /^[A-Za-z0-9_./:@%+=,-]{1,4096}$/u;
-const SETUP_PIPELINE_PATTERN =
-  /^curl -fsSL (('[^']*')|([^\s|]+)) \| sh -s -- (.+)$/u;
+const SETUP_COMMAND_PREFIX = `curl -fsSL --proto '=https' --proto-redir '=https' '${STAGING_COMPUTER_SMOKE_SETUP_URL}' | sh -s -- `;
 const UNSAFE_SHELL_SYNTAX_PATTERN = /[;$`()<>\\]/u;
 const SHELL_WORD_SEPARATOR_PATTERN = /\s+/u;
 
@@ -43,14 +42,14 @@ export function parseStagingWebSetupCommand(command) {
     if (normalized.includes("\n") || normalized.includes("\r")) {
       throw new Error("Setup command must be one line.");
     }
-    const match = SETUP_PIPELINE_PATTERN.exec(normalized);
-    if (!match) {
+    if (!normalized.startsWith(SETUP_COMMAND_PREFIX)) {
       throw new Error("Setup command shape is not recognized.");
     }
 
-    const setupUrl = decodeShellWord(match[1]);
-    assertOfficialStagingSetupUrl(setupUrl);
-    const setupArgs = parseShellWords(match[4]);
+    const setupUrl = STAGING_COMPUTER_SMOKE_SETUP_URL;
+    const setupArgs = parseShellWords(
+      normalized.slice(SETUP_COMMAND_PREFIX.length)
+    );
     validateSetupArgs(setupArgs);
     return { setupArgs, setupUrl };
   } catch (error) {
@@ -82,7 +81,7 @@ export function redactStagingSetupCommand(command) {
       redactedArgs[index + 1] = "[redacted]";
     }
   }
-  return `curl -fsSL '${parsed.setupUrl}' | sh -s -- ${redactedArgs.join(" ")}`;
+  return `${SETUP_COMMAND_PREFIX}${redactedArgs.join(" ")}`;
 }
 
 export function readStagingSetupSensitiveValues(args) {
@@ -101,19 +100,15 @@ export function buildStagingComputerSmokePlan() {
       target: "~/.openmeld-canary",
     },
     {
-      label: "Publish a newer Staging CLI",
+      label: "Publish Service B, then split CLI C and D",
       target: STAGING_MANIFEST_URL,
     },
     {
-      label: "Start one automatic update",
+      label: "Run two automatic split updates",
       target: "OpenMeld Service Canary",
     },
     {
-      label: "Coalesce a manual Update request",
-      target: "The same Staging update operation",
-    },
-    {
-      label: "Verify Service recovery and one final version",
+      label: "Verify CLI targets and retained Service continuity",
       target: STAGING_ORIGIN,
     },
     {
@@ -137,35 +132,6 @@ export function assertCoalescedStagingUpdate(input) {
     );
   }
   return automaticOperationId;
-}
-
-function assertOfficialStagingSetupUrl(value) {
-  const url = new URL(value);
-  const keys = [...url.searchParams.keys()].sort();
-  if (
-    url.origin !== STAGING_ORIGIN ||
-    url.pathname !== "/setup" ||
-    url.username ||
-    url.password ||
-    url.hash ||
-    keys.length !== 2 ||
-    keys[0] !== "dist" ||
-    keys[1] !== "lane" ||
-    url.searchParams.get("dist") !== "binary" ||
-    url.searchParams.get("lane") !== "canary"
-  ) {
-    throw new Error("Setup URL is outside the Staging Canary binary lane.");
-  }
-}
-
-function decodeShellWord(word) {
-  if (word.startsWith("'") && word.endsWith("'")) {
-    return word.slice(1, -1);
-  }
-  if (!SAFE_UNQUOTED_SHELL_WORD.test(word)) {
-    throw new Error("Setup URL contains unsupported shell syntax.");
-  }
-  return word;
 }
 
 function parseShellWords(value) {

@@ -6,6 +6,7 @@ import {
 } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import {
+	type ComputerConnectionProgressObservation,
 	canonicalizeAgentControllerRef,
 	prepareSessionStreamServerFrameSchema,
 } from "@openmeld/schemas";
@@ -20,8 +21,11 @@ import type {
 	PrepareStepState,
 } from "@openmeld/schemas/types";
 import {
+	formatComputerConnectionElapsed,
 	getSetupFlowCopy,
+	isNewerComputerConnectionProgress,
 	PREPARE_SESSION_RECONNECT_GRACE_MS,
+	presentComputerConnectionProgress,
 	resolveSetupComputerActiveSummary,
 	type SetupFlowCopy,
 	type SetupFlowMode,
@@ -151,6 +155,7 @@ const prepareSessionLoadRequests = new Map<
 
 export type StartBringAgentsSetupPageProps = {
 	autoReturnOnCompletion?: boolean;
+	observePrepareSessionId?: string;
 	orgSlug?: string;
 	selfRoute?: string;
 	selfRouteSearch?: ConnectRouteSearch;
@@ -181,6 +186,7 @@ export function ComputerSetupFlow(input: ComputerSetupFlowProps) {
 	if (getDesktopPlatform()) {
 		return (
 			<DesktopComputerConnection
+				allowDisconnect={input.presentation === "page"}
 				onCompleted={input.onCompleted}
 				onContinue={input.onContinue}
 				orgSlug={input.orgSlug}
@@ -491,6 +497,7 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		loadGatewayUrl: bringAgentsSetup.loadGatewayUrl,
 		onFreshSessionLoaded: consumeFreshSessionRouteIntent,
 		onNavigationActionAlreadyStarted: input.onNavigationActionAlreadyStarted,
+		observePrepareSessionId: input.observePrepareSessionId ?? null,
 		preferCompletedSession:
 			bringAgentsSetup.routeIntent.kind === "account_computer_setup",
 		runtimeLane: bringAgentsSetup.runtimeLane,
@@ -534,9 +541,9 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		if (completionReadinessRefresh.status !== "ready") {
 			return;
 		}
-		// A stale release channel can leave the local-components projection
-		// reporting update_required after the terminal session itself is done.
-		// Auto-return must wait for that projection to confirm the new version
+		// The terminal finishing does not prove both installed components are
+		// current. Auto-return must wait for installed versions with current,
+		// unblocked projections
 		// (or hold on the page's explicit failure card) instead of bouncing the
 		// user back to Computers on a false "Update complete".
 		if (
@@ -615,9 +622,11 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 					command={prepareSession.command}
 					commandPlatform={prepareSession.commandPlatform}
 					completionTarget={completionTarget}
+					connectionProgress={prepareSession.connectionProgress}
 					copyCommand={prepareSession.copyCommand}
 					copyStatus={prepareSession.copyStatus}
 					isRefreshingCommand={prepareSession.isRefreshingCommand}
+					observerOnly={prepareSession.observerOnly}
 					onContinue={input.onContinue}
 					onStartOver={prepareSession.startOver}
 					opaqueTokenExpiresAt={prepareSession.commandExpiresAt}
@@ -809,11 +818,13 @@ function EmbeddedSetupError(input: {
 function PrepareSessionTimeline(input: {
 	onContinue?: () => void;
 	command: string | null;
+	connectionProgress: ComputerConnectionProgressObservation | null;
 	commandPlatform: WebSetupCommandPlatform;
 	completionTarget: string;
 	copyCommand: () => Promise<void>;
 	copyStatus: "copied" | "idle" | "manual";
 	isRefreshingCommand: boolean;
+	observerOnly: boolean;
 	onStartOver: () => Promise<void>;
 	opaqueTokenExpiresAt: string | null;
 	presentation: ComputerSetupFlowProps["presentation"];
@@ -874,7 +885,7 @@ function PrepareSessionTimeline(input: {
 				>
 					<PrepareBlockers
 						blockers={handoffBlockers}
-						onStartOver={input.onStartOver}
+						onStartOver={input.observerOnly ? undefined : input.onStartOver}
 					/>
 				</SetupTimelineStep>
 			</SetupTimeline>
@@ -890,8 +901,15 @@ function PrepareSessionTimeline(input: {
 					summary={step.summary}
 					title={step.title}
 				>
+					{isCurrentPrepareUserStep(step) && input.connectionProgress ? (
+						<PrepareConnectionProgress
+							progress={input.connectionProgress}
+							webSocketStatus={input.webSocketStatus}
+						/>
+					) : null}
 					{isCurrentPrepareUserStep(step) &&
 					step.id === "connect_terminal" &&
+					!input.observerOnly &&
 					shouldShowConnectTerminalCard(step.internalStep, input.snapshot) ? (
 						<ConnectTerminalCard
 							command={input.command}
@@ -913,7 +931,7 @@ function PrepareSessionTimeline(input: {
 							blockers={input.snapshot.blockers.filter((blocker) =>
 								step.blockerStepIds.includes(blocker.stepId)
 							)}
-							onStartOver={input.onStartOver}
+							onStartOver={input.observerOnly ? undefined : input.onStartOver}
 						/>
 					) : null}
 					{step.id === "ready" && step.internalStep.state === "complete" ? (
@@ -921,7 +939,8 @@ function PrepareSessionTimeline(input: {
 							<ServiceUpdateVerificationNotice
 								verification={input.serviceUpdateVerification}
 							/>
-							{input.presentation !== "embedded" || input.onContinue ? (
+							{!input.observerOnly &&
+							(input.presentation !== "embedded" || input.onContinue) ? (
 								<PrepareReadyActions
 									completionReadiness={completionReadiness}
 									completionTarget={input.completionTarget}
@@ -938,6 +957,65 @@ function PrepareSessionTimeline(input: {
 				</SetupTimelineStep>
 			))}
 		</SetupTimeline>
+	);
+}
+
+function PrepareConnectionProgress({
+	progress,
+	webSocketStatus,
+}: {
+	progress: ComputerConnectionProgressObservation;
+	webSocketStatus: PrepareWebSocketStatus;
+}) {
+	const view = presentComputerConnectionProgress(progress);
+	const nowMs = useNowMs(1000);
+	const elapsed = formatComputerConnectionElapsed(progress.startedAt, nowMs);
+	const reconnecting = webSocketStatus !== "connected";
+	let activityClassName =
+		"h-full w-1/3 rounded-full bg-primary motion-safe:animate-pulse";
+	if (view.determinate) {
+		activityClassName = "h-full rounded-full bg-primary transition-[width]";
+	} else if (reconnecting) {
+		activityClassName = "h-full w-1/3 rounded-full bg-primary";
+	}
+	return (
+		<div className="mt-3 block space-y-2 text-sm">
+			<div className="flex items-center justify-between gap-3">
+				<output aria-live="polite" className="font-medium">
+					{reconnecting ? "Reconnecting to connection progress" : view.stage}
+				</output>
+				{view.percentage === null ? null : (
+					<span className="text-muted-foreground tabular-nums">
+						{view.percentage}%
+					</span>
+				)}
+			</div>
+			<div
+				{...(view.determinate
+					? {
+							role: "progressbar",
+							"aria-label": view.stage,
+							"aria-valuemin": 0,
+							"aria-valuemax": 100,
+							"aria-valuenow": view.percentage ?? 0,
+						}
+					: {})}
+				className="h-1.5 overflow-hidden rounded-full bg-muted"
+			>
+				<div
+					className={activityClassName}
+					style={
+						view.determinate ? { width: `${view.percentage ?? 0}%` } : undefined
+					}
+				/>
+			</div>
+			<p className="text-muted-foreground text-xs">
+				{reconnecting
+					? `Last confirmed step: ${view.stage}. Latest status is temporarily unavailable.`
+					: view.description}
+				{elapsed ? ` ${elapsed} elapsed.` : ""}
+			</p>
+		</div>
 	);
 }
 
@@ -1212,8 +1290,8 @@ function projectPrepareTimelineUserSteps(input: {
 
 // update_service completion must not show the green "complete" checkmark
 // merely because the terminal session finished; it must also wait for the
-// local-components projection to confirm the required OpenMeld Service/CLI
-// version landed. "active"/"blocked" are existing PrepareStepState values
+// local-components projection to confirm both installed components are current
+// and unblocked. "active"/"blocked" are existing PrepareStepState values
 // (spinner / warning icon) reused here on purpose so this stays a display
 // override, not a new step-state contract.
 function resolveReadyStepDisplayState(input: {
@@ -1234,14 +1312,14 @@ function resolveReadyStepDisplaySummary(input: {
 	serviceUpdateVerification: ServiceUpdateVerificationState;
 }): string {
 	if (input.serviceUpdateVerification.status === "confirming") {
-		return "Confirming the update reached the required version on this computer...";
+		return "Confirming the installed versions on this computer...";
 	}
 	if (input.serviceUpdateVerification.status === "timed_out") {
 		// Kept distinct from SERVICE_UPDATE_VERIFICATION_FAILURE_TITLE, which
 		// this same "ready" step already renders as the notice block's
 		// headline below -- the row summary only needs to flag that something
 		// needs attention, not repeat the full headline verbatim.
-		return "The update did not finish. See the details below.";
+		return "Couldn't verify the update. See the details below.";
 	}
 	return input.baseSummary;
 }
@@ -1534,9 +1612,9 @@ function buildPrepareCommandRefreshKey(input: {
 
 // Watches the local-components readiness projection after an update_service
 // terminal session completes, re-fetching it until OpenMeld Service and CLI
-// both clear `update_required`. Reaching the timeout window only flips the
+// both report installed versions as current and unblocked. The timeout flips the
 // displayed status to "timed_out"; it does not stop the underlying refetch
-// polling, so projection data that clears `update_required` afterward still
+// polling, so projection data that confirms both components afterward still
 // recovers the display from "timed_out" to "confirmed". This is additive to
 // the terminal-complete signal, not a replacement for it: plain "setup" mode
 // (and update_service before the terminal reports completion) always
@@ -1741,7 +1819,7 @@ function formatAgentProfileCount(count: number): string {
 
 function PrepareBlockers(input: {
 	blockers: PrepareBlocker[];
-	onStartOver: () => Promise<void>;
+	onStartOver?: () => Promise<void>;
 }) {
 	if (input.blockers.length === 0) {
 		return null;
@@ -1790,20 +1868,22 @@ function PrepareBlockers(input: {
 			{!handoffStopped && followUp.nextStepText ? (
 				<p className="text-muted-foreground text-sm">{followUp.nextStepText}</p>
 			) : null}
-			<div className="pt-2">
-				<Button
-					onClick={() => {
-						input.onStartOver().catch(() => {
-							// The hook stores the error state for this page.
-						});
-					}}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					{handoffStopped ? "Get a new setup command" : followUp.actionLabel}
-				</Button>
-			</div>
+			{input.onStartOver ? (
+				<div className="pt-2">
+					<Button
+						onClick={() => {
+							input.onStartOver?.().catch(() => {
+								// The hook stores the error state for this page.
+							});
+						}}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						{handoffStopped ? "Get a new setup command" : followUp.actionLabel}
+					</Button>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -1861,6 +1941,7 @@ function usePrepareSession(input: {
 	loadGatewayUrl: () => Promise<string>;
 	onFreshSessionLoaded?: () => void;
 	onNavigationActionAlreadyStarted?: () => void;
+	observePrepareSessionId: string | null;
 	preferCompletedSession: boolean;
 	runtimeLane: string | null;
 	sourceNavigationAction?: NonNullable<
@@ -1874,6 +1955,7 @@ function usePrepareSession(input: {
 		forceFreshSession,
 		humanProfileId,
 		loadGatewayUrl,
+		observePrepareSessionId,
 		preferCompletedSession,
 		runtimeLane,
 		sourceNavigationAction,
@@ -1898,6 +1980,24 @@ function usePrepareSession(input: {
 	);
 	const [webSocketStatus, setWebSocketStatus] =
 		useState<PrepareWebSocketStatus>("idle");
+	const [connectionProgress, setConnectionProgress] =
+		useState<ComputerConnectionProgressObservation | null>(null);
+	const observedTerminalEpochRef = useRef<number | null>(null);
+	const reconcileObservedTerminal = useCallback(
+		(snapshot: PrepareSessionSnapshot) => {
+			const nextEpoch =
+				snapshot.lifecycleStatus === "active" &&
+				snapshot.terminalConnection.status === "connected"
+					? snapshot.terminalConnection.connectionEpoch
+					: null;
+			if (observedTerminalEpochRef.current !== nextEpoch) {
+				setConnectionProgress(null);
+			}
+			observedTerminalEpochRef.current = nextEpoch;
+		},
+		[]
+	);
+	const observerOnly = observePrepareSessionId !== null;
 	const [refreshingCommandRefreshKey, setRefreshingCommandRefreshKey] =
 		useState<string | null>(null);
 	const socketRef = useRef<WebSocket | null>(null);
@@ -1950,7 +2050,7 @@ function usePrepareSession(input: {
 	}, [commandRefreshKey]);
 
 	useEffect(() => {
-		if (!sessionKey) {
+		if (!(sessionKey || observePrepareSessionId)) {
 			setState({
 				error: null,
 				opaqueToken: null,
@@ -1963,14 +2063,25 @@ function usePrepareSession(input: {
 		}
 
 		let cancelled = false;
-		setState((current) => ({
-			error: null,
-			opaqueToken: current.opaqueToken,
-			opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
-			snapshot: current.snapshot,
-			snapshotSessionKey: current.snapshotSessionKey,
-			status: "loading",
-		}));
+		setState((current) =>
+			observerOnly
+				? {
+						error: null,
+						opaqueToken: null,
+						opaqueTokenExpiresAt: null,
+						snapshot: null,
+						snapshotSessionKey: null,
+						status: "loading",
+					}
+				: {
+						error: null,
+						opaqueToken: current.opaqueToken,
+						opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
+						snapshot: current.snapshot,
+						snapshotSessionKey: current.snapshotSessionKey,
+						status: "loading",
+					}
+		);
 
 		const ensureSession = async () => {
 			const sessionInput = {
@@ -1987,20 +2098,33 @@ function usePrepareSession(input: {
 					}),
 				targetSpaceId,
 			};
-			const session = await loadPrepareSessionForInputOnce(sessionInput, {
-				forceFreshSession,
-				preferCompletedSession,
-			});
+			const session = observePrepareSessionId
+				? {
+						opaqueToken: null,
+						opaqueTokenExpiresAt: null,
+						snapshot: (
+							await readPrepareSession({
+								prepareSessionId: observePrepareSessionId,
+							})
+						).snapshot,
+					}
+				: await loadPrepareSessionForInputOnce(sessionInput, {
+						forceFreshSession,
+						preferCompletedSession,
+					});
 			if (cancelled) {
 				return;
 			}
-			persistPrepareSessionPointer(session, {
-				connectedComputerId,
-				deviceId,
-				humanProfileId,
-				runtimeLane,
-				targetSpaceId,
-			});
+			if (!observePrepareSessionId) {
+				persistPrepareSessionPointer(session, {
+					connectedComputerId,
+					deviceId,
+					humanProfileId,
+					runtimeLane,
+					targetSpaceId,
+				});
+			}
+			reconcileObservedTerminal(session.snapshot);
 			setState({
 				error: null,
 				opaqueToken: session.opaqueToken,
@@ -2009,7 +2133,7 @@ function usePrepareSession(input: {
 				snapshotSessionKey: sessionKey,
 				status: "ready",
 			});
-			if (forceFreshSession) {
+			if (forceFreshSession && !observerOnly) {
 				onFreshSessionLoadedRef.current?.();
 			}
 		};
@@ -2040,7 +2164,10 @@ function usePrepareSession(input: {
 		deviceId,
 		forceFreshSession,
 		humanProfileId,
+		observePrepareSessionId,
+		observerOnly,
 		preferCompletedSession,
+		reconcileObservedTerminal,
 		runtimeLane,
 		sessionKey,
 		sourceNavigationActionSignalId,
@@ -2075,6 +2202,7 @@ function usePrepareSession(input: {
 
 	useEffect(() => {
 		const shouldBuildCommand =
+			!observerOnly &&
 			state.opaqueToken !== null &&
 			state.snapshot?.lifecycleStatus !== "completed" &&
 			!state.snapshot?.blockers.some(isHandoffStoppedBlocker);
@@ -2125,10 +2253,12 @@ function usePrepareSession(input: {
 		state.opaqueTokenExpiresAt,
 		state.snapshot?.lifecycleStatus,
 		state.snapshot?.blockers,
+		observerOnly,
 	]);
 
 	useEffect(() => {
 		if (activePrepareSessionId === null) {
+			setConnectionProgress(null);
 			setWebSocketStatus("idle");
 			socketRef.current = null;
 			return;
@@ -2137,23 +2267,29 @@ function usePrepareSession(input: {
 		let isCancelled = false;
 		let isReconnectCheckInFlight = false;
 		let reconnectTimer: number | null = null;
+		setConnectionProgress((current) =>
+			current?.prepareSessionId === activePrepareSessionId ? current : null
+		);
 		let socket: WebSocket | null = null;
 
 		const applyPrepareSessionSnapshot = (snapshot: PrepareSessionSnapshot) => {
-			persistPrepareSessionPointer(
-				{
-					opaqueToken: state.opaqueToken,
-					opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
-					snapshot,
-				},
-				{
-					connectedComputerId,
-					deviceId,
-					humanProfileId,
-					runtimeLane,
-					targetSpaceId,
-				}
-			);
+			reconcileObservedTerminal(snapshot);
+			if (!observerOnly) {
+				persistPrepareSessionPointer(
+					{
+						opaqueToken: state.opaqueToken,
+						opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
+						snapshot,
+					},
+					{
+						connectedComputerId,
+						deviceId,
+						humanProfileId,
+						runtimeLane,
+						targetSpaceId,
+					}
+				);
+			}
 			setState((current) => ({
 				...current,
 				error: null,
@@ -2236,6 +2372,18 @@ function usePrepareSession(input: {
 						return;
 					}
 					if (isPrepareSessionNotFoundError(error)) {
+						if (observerOnly) {
+							observedTerminalEpochRef.current = null;
+							setConnectionProgress(null);
+							setState((current) => ({
+								...current,
+								error: new Error(
+									"This connection session is no longer available. Return to Desktop to start a new connection."
+								),
+								status: "error",
+							}));
+							return;
+						}
 						replaceMissingActiveSession().catch((replaceError: unknown) => {
 							if (isCancelled) {
 								return;
@@ -2275,6 +2423,18 @@ function usePrepareSession(input: {
 				}
 				if (frame.type === "snapshot" || frame.type === "snapshot_changed") {
 					applyPrepareSessionSnapshot(frame.payload.snapshot);
+					return;
+				}
+				if (
+					frame.type === "connection_progress" &&
+					frame.payload.prepareSessionId === activePrepareSessionId &&
+					frame.payload.connectionEpoch === observedTerminalEpochRef.current
+				) {
+					setConnectionProgress((current) =>
+						isNewerComputerConnectionProgress(current, frame.payload)
+							? frame.payload
+							: current
+					);
 					return;
 				}
 				if (frame.type === "server.error") {
@@ -2326,31 +2486,38 @@ function usePrepareSession(input: {
 		state.opaqueToken,
 		state.opaqueTokenExpiresAt,
 		targetSpaceId,
+		observerOnly,
+		reconcileObservedTerminal,
 	]);
 
 	const refresh = useCallback(async () => {
-		if (state.snapshot === null) {
+		const prepareSessionId =
+			state.snapshot?.prepareSessionId ?? observePrepareSessionId;
+		if (prepareSessionId === null) {
 			return;
 		}
 
 		try {
 			const response = await readPrepareSession({
-				prepareSessionId: state.snapshot.prepareSessionId,
+				prepareSessionId,
 			});
-			persistPrepareSessionPointer(
-				{
-					opaqueToken: state.opaqueToken,
-					opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
-					snapshot: response.snapshot,
-				},
-				{
-					connectedComputerId,
-					deviceId,
-					humanProfileId,
-					runtimeLane,
-					targetSpaceId,
-				}
-			);
+			reconcileObservedTerminal(response.snapshot);
+			if (!observerOnly) {
+				persistPrepareSessionPointer(
+					{
+						opaqueToken: state.opaqueToken,
+						opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
+						snapshot: response.snapshot,
+					},
+					{
+						connectedComputerId,
+						deviceId,
+						humanProfileId,
+						runtimeLane,
+						targetSpaceId,
+					}
+				);
+			}
 			setState((current) => ({
 				error: null,
 				opaqueToken: current.opaqueToken,
@@ -2374,9 +2541,16 @@ function usePrepareSession(input: {
 		state.opaqueTokenExpiresAt,
 		state.snapshot,
 		targetSpaceId,
+		observerOnly,
+		observePrepareSessionId,
+		reconcileObservedTerminal,
 	]);
 
 	const startOver = useCallback(async () => {
+		if (observerOnly) {
+			await refresh();
+			return;
+		}
 		if (humanProfileId === null) {
 			setState({
 				error: new Error("Choose a profile before setup."),
@@ -2440,9 +2614,14 @@ function usePrepareSession(input: {
 		runtimeLane,
 		sessionKey,
 		targetSpaceId,
+		observerOnly,
+		refresh,
 	]);
 
 	const refreshCommandAndReturn = useCallback((): Promise<string | null> => {
+		if (observerOnly) {
+			return Promise.resolve(null);
+		}
 		const snapshot = state.snapshot;
 		if (snapshot === null || commandRefreshKey === null) {
 			return Promise.resolve(null);
@@ -2530,6 +2709,7 @@ function usePrepareSession(input: {
 		runtimeLane,
 		state.snapshot,
 		targetSpaceId,
+		observerOnly,
 	]);
 
 	const refreshCommand = useCallback(async () => {
@@ -2588,10 +2768,12 @@ function usePrepareSession(input: {
 		command,
 		commandExpiresAt,
 		commandPlatform,
+		connectionProgress,
 		copyCommand,
 		copyStatus,
 		error: state.error,
 		isRefreshingCommand,
+		observerOnly,
 		opaqueToken: state.opaqueToken,
 		opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
 		refresh,

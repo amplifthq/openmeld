@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { relative, sep } from "node:path";
+import { daemonRuntimeBundlesPath } from "../../config/daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   resolveOpenMeldRootDir,
@@ -132,12 +134,31 @@ function matchesWindowsTaskInstallation(
   spec: DaemonServiceCommandSpec,
   pathInput: OpenMeldPathResolutionInput = {}
 ): boolean {
+  if (
+    resolveOpenMeldRootDir({ env: spec.env }) !==
+    resolveOpenMeldRootDir(pathInput)
+  ) {
+    return false;
+  }
+  if (spec.args[0] === daemonServiceLauncherPath(pathInput)) {
+    return spec.args[1] === "service" && spec.args[2] === "run";
+  }
+  const relativeExecutable = relative(
+    daemonRuntimeBundlesPath(pathInput),
+    spec.executable
+  ).split(sep);
   return (
-    spec.args[0] === daemonServiceLauncherPath(pathInput) &&
-    spec.args[1] === "service" &&
-    spec.args[2] === "run" &&
-    resolveOpenMeldRootDir({ env: spec.env }) ===
-      resolveOpenMeldRootDir(pathInput)
+    relativeExecutable.length === 2 &&
+    relativeExecutable[0] !== ".." &&
+    relativeExecutable[1]?.toLowerCase() === "openmeld.exe" &&
+    spec.args[0] === "service" &&
+    spec.args[1] === "run" &&
+    spec.args[2] === "--mode" &&
+    spec.args[3] === "foreground" &&
+    (spec.args.length === 4 ||
+      (spec.args.length === 6 &&
+        spec.args[4] === "--account-admission-id" &&
+        Boolean(spec.args[5])))
   );
 }
 

@@ -82,6 +82,7 @@ Use these owner documents:
 | Projects: Organization-scoped identity, permissions, local connections, discovery, repository fingerprints, Default Project resolution, and Project-aware Wake failures | `developing/product/projects.md` |
 | Agent Activity, local session observation, metadata privacy, presence, digests, retention, snapshots, canonical Project references, and Center Agent awareness | `developing/product/agent-activity.md` |
 | Center Agent Routines: Routine/Run semantics, authority, scheduling, target Space, native delivery, tool policy, and client surfaces | `developing/product/center-agent-routines.md` |
+| Files: Team, member-private, and Space roots; audience, authorization, revisions, copies, and managed content boundaries | `developing/product/files.md` |
 | Organization Skills: portable Agent Skills bundles, permissions, immutable releases, GitHub import, Center Agent/Flue use, Web management, CLI loading, and local-agent delegation | `developing/product/organization-skills.md` |
 | Feedback Inbox, Feedback Issue, submission privacy, delivery modes, handling boundaries | `developing/product/feedback-loop.md` |
 | Opportunities: Center Agent recommendation review, member decisions, Inbox projection, and recommendation-versus-execution boundary | `developing/product/opportunities.md` |
@@ -101,7 +102,7 @@ Use these owner documents:
 | Desktop preview download page, R2 artifact binding, and production Web download/update routes | `developing/clients/desktop.md`, `developing/clients/web.md`, `developing/engineering/development-workflow.md` |
 | CLI binary release, R2 manifest, Web download route, and setup `dist=` distribution switch | `developing/engineering/cli-binary-release.md`, `developing/clients/cli.md`, `developing/clients/web.md` |
 | Agent-native development, Final Candidate validation, Actions-unavailable fallback, optional review support, merge, release concurrency, health, smoke, evidence, and failure recovery | `developing/engineering/agent-native-delivery.md` |
-| Production release lane selection, scoped local/GitHub deploys, D1 production sequencing, CLI rollout choice, health checks, and release reporting | `developing/engineering/production-release.md` |
+| Production release lane selection, scoped local/GitHub deploys, D1 and CLI rollout, Desktop impact assessment, health checks, and release reporting | `developing/engineering/production-release.md` |
 | OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |
 | Internal staging scope, isolation, guarded deployment, and staging evidence | `developing/engineering/staging-environment.md` |
@@ -200,9 +201,11 @@ change must leave those signals cleaner and less ambiguous.
 
 - Before starting a task, re-read the user goal and choose the scoped owner docs
   that apply.
-- Before requesting final validation, merging, or releasing, follow the complete
-  lifecycle in `developing/engineering/agent-native-delivery.md`. Do not infer a
-  second delivery process from workflow YAML, tool output, or old task history.
+- For a single or batch merge-and-release task, start at
+  [Merge and Release Task](developing/engineering/agent-native-delivery.md#merge-and-release-task),
+  then follow the linked lifecycle and component-specific release rules. Do not
+  infer a second delivery process from workflow YAML, tool output, or old task
+  history.
 - When an Agent personally encounters a problem in any OpenMeld product
   surface, App, client, Service, runtime, integration, developer workflow,
   CI/CD, release, or validation path, record that occurrence through
@@ -218,9 +221,10 @@ change must leave those signals cleaner and less ambiguous.
   in `developing/engineering/agent-native-delivery.md`: fix a high-value,
   coherent finding when practical, and preserve separable follow-ups without
   reopening the candidate.
-- Commit hooks check staged files; development push hooks must pass focused
-  checks on the exact clean commit. Do not bypass failures. Keep PRs draft while
-  developing; mark ready only after risk-appropriate behavior validation.
+- Commit hooks check staged files. The push hook guards protected release
+  refs; ordinary development pushes do not rerun affected tests. Run focused
+  behavior checks before Ready based on the changed contract and its consumers.
+  Do not bypass hook failures. Keep PRs draft while developing.
 - Before handing off a PR, map fully resolved issues to closing keywords in its
   description and verify GitHub's closing links. Follow the issue-linking rules
   in `developing/engineering/agent-native-delivery.md`; comments alone do not
@@ -238,6 +242,15 @@ change must leave those signals cleaner and less ambiguous.
   check is mandatory acceptance criteria, not optional review flavor. If a rule
   must change, change the owner document in the same PR with the reasoning.
 - Load only files directly relevant to the task.
+- For UI primitives and interaction changes, inspect the installed Fluid
+  Functionalism components first and read `developing/clients/shared-ui.md`.
+  Prefer shared `@openmeld/ui` Fluid composition; install or adapt missing
+  official primitives there instead of rebuilding menus, hover geometry,
+  motion, or state in product components. Stable, closely spaced clickable
+  alternatives should reuse Fluid Hover, with semantic group boundaries,
+  disabled-item exclusion, native keyboard/focus ownership, and reduced motion.
+  Avoid proximity or gap activation for destructive choices, mixed clickability,
+  large empty spaces, or rows that move during scrolling.
 - Do not execute stale roadmap items directly. Plan from current production
   behavior and current owner docs.
 - When a task specializes an existing object (a special Space kind, member

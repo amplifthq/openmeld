@@ -3,14 +3,25 @@ import {
 	SPACE_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import type {
+	DesktopSpaceStreamBridge,
+	DesktopSpaceStreamEvent,
+} from "@openmeld/schemas";
+import type {
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
+	SpaceInboxUnreadTarget,
 } from "@openmeld/schemas/types";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	QueryClient,
+	QueryClientProvider,
+	useQuery,
+} from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
+import { readRecentReactUpdates } from "#/lib/observability/react-update-trace";
+import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceCursorLastSeenTs,
@@ -20,9 +31,14 @@ import {
 	readSpaceHistory,
 	readSpaceUpdates,
 	type SpaceHistorySnapshot,
+	spaceHistoryQueryOptions,
 } from "#/query/spaces/history";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	SpaceWakeProgressVisibleProjectionProvider,
+	usePublishSpaceWakeProgressVisibleProjection,
+} from "./space-wake-progress-visible-projection";
 import { useSpaceLandingFeed } from "./use-space-landing-feed";
 
 vi.mock("#/query/spaces/history", async () => {
@@ -158,6 +174,7 @@ function renderFeed(
 		initialAgentStreams?: readonly SpaceAgentStreamSnapshot[];
 		participationEnabled?: boolean;
 		seededEnvelopes?: readonly SignalEnvelope[];
+		unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	} = {}
 ) {
 	// Stable references across renders. renderHook's callback runs on every
@@ -188,7 +205,11 @@ function renderFeed(
 		);
 	}
 	const view = renderHook(
-		(props: { history: FeedHistoryState; participationEnabled?: boolean }) =>
+		(props: {
+			history: FeedHistoryState;
+			participationEnabled?: boolean;
+			unreadTargets?: readonly SpaceInboxUnreadTarget[];
+		}) =>
 			useSpaceLandingFeed({
 				spaceId: "space-123",
 				openMeldProfileId: "11111111-1111-1111-1111-111111111111",
@@ -198,6 +219,7 @@ function renderFeed(
 				statusRefetch,
 				membersRefetch,
 				initialAgentStreams: options.initialAgentStreams ?? [],
+				unreadTargets: props.unreadTargets,
 				readinessScope: { organizationId: "org-1", storageScope: "account-1" },
 				history: props.history,
 			}),
@@ -205,9 +227,11 @@ function renderFeed(
 			initialProps: {
 				history: initialHistory,
 				participationEnabled: options.participationEnabled,
+				unreadTargets: options.unreadTargets,
 			} as {
 				history: FeedHistoryState;
 				participationEnabled?: boolean;
+				unreadTargets?: readonly SpaceInboxUnreadTarget[];
 			},
 			wrapper: ({ children }: { children: ReactNode }) => (
 				<QueryClientProvider client={queryClient}>
@@ -330,6 +354,55 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 	});
 
+	it("refreshes authority from the Desktop native close metadata", () => {
+		let deliver: ((event: DesktopSpaceStreamEvent) => void) | undefined;
+		const open = vi.fn().mockResolvedValue(undefined);
+		const bridge: DesktopSpaceStreamBridge = {
+			spaceStreamOpen: open,
+			spaceStreamPing: vi.fn().mockResolvedValue(undefined),
+			spaceStreamClose: vi.fn().mockResolvedValue(undefined),
+			onSpaceStream: (listener) => {
+				deliver = listener;
+				return vi.fn();
+			},
+		};
+		Object.defineProperty(window, "openmeldDesktop", {
+			configurable: true,
+			value: bridge,
+		});
+		try {
+			const { statusRefetch } = renderFeed();
+			const subscription = open.mock.calls[0]?.[0];
+			if (!(subscription && deliver)) {
+				throw new Error("Expected a native subscription");
+			}
+			act(() => {
+				deliver?.({ id: subscription.id, type: "open" });
+				deliver?.({
+					id: subscription.id,
+					type: "message",
+					data: JSON.stringify({
+						type: "system.hello.ack",
+						profile: {
+							kind: "human",
+							profileId: "11111111-1111-1111-1111-111111111111",
+						},
+					}),
+				});
+				deliver?.({
+					id: subscription.id,
+					type: "close",
+					code: 1008,
+					reason: "space_access_changed",
+				});
+			});
+
+			expect(statusRefetch).toHaveBeenCalledTimes(1);
+		} finally {
+			Reflect.deleteProperty(window, "openmeldDesktop");
+		}
+	});
+
 	it("does not report the Space live before Core accepts the subscription", async () => {
 		const { view } = renderFeed();
 		await openLatestTransport();
@@ -376,6 +449,34 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 	it("still routes business signals to the timeline after the PONG fast-path", async () => {
 		const { queryClient, view } = renderFeed();
+		const accountSpaces: AccountSpaceSections = {
+			pinnedItems: [
+				{
+					spaceId: "space-123",
+					spaceName: "Product planning",
+					organizationId: "org-1",
+					openProfileId: "11111111-1111-1111-1111-111111111111",
+					openProfileName: "Mira",
+					visibility: "private",
+					spacePurpose: null,
+					lastJoinedAt: "2026-09-23T00:00:00.000Z",
+					joinedProfiles: [],
+					pinnedAt: null,
+					pinnedProfileIds: [],
+					activeAgentCount: null,
+					activeHumanCount: null,
+					activeMemberCount: null,
+				},
+			],
+			spaceItems: [],
+		};
+		queryClient.setQueryData(
+			accountSpaceQueryKeys.items(
+				"11111111-1111-1111-1111-111111111111",
+				"account"
+			),
+			accountSpaces
+		);
 		await openLatestSocket();
 
 		await act(async () => {
@@ -386,6 +487,14 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 		expect(view.result.current.timelineEnvelopes).toHaveLength(1);
 		expect(view.result.current.timelineEnvelopes[0]?.id).toBe("sig-1");
+		expect(
+			queryClient.getQueryData<AccountSpaceSections>(
+				accountSpaceQueryKeys.items(
+					"11111111-1111-1111-1111-111111111111",
+					"account"
+				)
+			)?.pinnedItems[0]?.messagePreview?.text
+		).toBe("Hello from the stream");
 		expect(
 			queryClient
 				.getQueryData<SpaceHistorySnapshot>(
@@ -529,7 +638,9 @@ describe("useSpaceLandingFeed transport freshness", () => {
 			onAgentReadinessInvalidated,
 			{ organizationId: "org-1", storageScope: "account-1" }
 		);
-		const { membersRefetch, statusRefetch } = renderFeed();
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const entryKey = ["spaces", "entry-resolution", "space-123", "human-1"];
+		queryClient.setQueryData(entryKey, { view: { state: "allowed" } });
 		await openLatestSocket();
 
 		await act(async () => {
@@ -556,6 +667,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		expect(queryClient.getQueryState(entryKey)?.isInvalidated).toBe(false);
 	});
 
 	it("bounds member event bursts and follows a slow read with one fresh read", async () => {
@@ -602,7 +714,9 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		// SPACE_BOOTSTRAP_GC_TIME_MS): convergence inside the stale window is
 		// owned by this imperative frame -> refetch path, which must never be
 		// gated on react-query staleness.
-		const { membersRefetch, statusRefetch } = renderFeed();
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const entryKey = ["spaces", "entry-resolution", "space-123", "human-1"];
+		queryClient.setQueryData(entryKey, { view: { state: "allowed" } });
 		await openLatestSocket();
 
 		await act(async () => {
@@ -621,10 +735,19 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		expect(queryClient.getQueryState(entryKey)?.isInvalidated).toBe(true);
 	});
 
 	it("refreshes Space identity without refetching members after metadata changes", async () => {
 		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const sessionsKey = [
+			"center-agent",
+			"org-1",
+			"human-1",
+			"sessions",
+			"sidebar",
+		];
+		queryClient.setQueryData(sessionsKey, { pages: [] });
 		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 		await openLatestSocket();
 
@@ -648,6 +771,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).not.toHaveBeenCalled();
+		expect(queryClient.getQueryState(sessionsKey)?.isInvalidated).toBe(true);
 	});
 
 	it("refreshes Space Files without refetching members after file changes", async () => {
@@ -796,6 +920,135 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("does not repeatedly update when equivalent history gets a new wrapper", () => {
+		const envelopes = [createTextSignal({ id: "sig-1", ts: 10 })];
+		const queryClient = new QueryClient();
+		const statusRefetch = vi.fn(async () => undefined);
+		const membersRefetch = vi.fn(async () => undefined);
+		const initialAgentStreams: readonly SpaceAgentStreamSnapshot[] = [];
+		const readinessScope = {
+			organizationId: "org-1",
+			storageScope: "account-1",
+		};
+		let renders = 0;
+
+		const view = renderHook(
+			() => {
+				if (++renders > 10) {
+					throw new Error("Equivalent history caused repeated renders");
+				}
+				return useSpaceLandingFeed({
+					spaceId: "space-123",
+					openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+					participationEnabled: false,
+					statusReady: true,
+					statusRefetch,
+					membersRefetch,
+					initialAgentStreams,
+					readinessScope,
+					history: createReadyFeedHistory(envelopes),
+				});
+			},
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+
+		expect(view.result.current.timelineEnvelopes).toEqual(envelopes);
+	});
+
+	it("settles a subscribed history refresh when equal-revision agent details change", async () => {
+		const queryClient = new QueryClient();
+		const options = spaceHistoryQueryOptions({
+			spaceId: "space-123",
+			openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+			enabled: false,
+		});
+		const signal = createTextSignal({ id: "sig-1", ts: 10 });
+		const before: SignalEnvelope = {
+			...signal,
+			profile: {
+				...signal.profile,
+				kind: "agent",
+				agentControllerRef: "codex",
+			},
+		};
+		const refreshed: SignalEnvelope = {
+			...before,
+			profile: { ...before.profile, agentControllerRef: "claude-code" },
+		};
+		queryClient.setQueryData(options.queryKey, {
+			envelopes: [before],
+			nextCursor: null,
+		});
+		const refetch = vi.fn(async () => undefined);
+		const initialAgentStreams: readonly SpaceAgentStreamSnapshot[] = [];
+		const readinessScope = {
+			organizationId: "org-1",
+			storageScope: "account-1",
+		};
+		const view = renderHook(
+			() => {
+				const history = useQuery(options);
+				const feed = useSpaceLandingFeed({
+					spaceId: "space-123",
+					openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+					participationEnabled: false,
+					statusReady: false,
+					statusRefetch: refetch,
+					membersRefetch: refetch,
+					initialAgentStreams,
+					readinessScope,
+					history: {
+						data: history.data,
+						isPending: history.isPending,
+						isSuccess: history.isSuccess,
+						isError: history.isError,
+					},
+				});
+				// The controller republishes derived Wake items when the timeline changes,
+				// including when no Wake is visible. Keep that real feedback edge here.
+				// biome-ignore lint/correctness/useExhaustiveDependencies: Preserve the controller's timeline-dependent projection in this reduced regression.
+				const visibleWakeItems = useMemo(() => [], [feed.timelineEnvelopes]);
+				usePublishSpaceWakeProgressVisibleProjection(visibleWakeItems);
+				return feed;
+			},
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						<SpaceWakeProgressVisibleProjectionProvider>
+							{children}
+						</SpaceWakeProgressVisibleProjectionProvider>
+					</QueryClientProvider>
+				),
+			}
+		);
+		await act(async () => {
+			queryClient.setQueryData(options.queryKey, {
+				envelopes: [refreshed],
+				nextCursor: null,
+			});
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(view.result.current.timelineEnvelopes).toEqual([refreshed]);
+		expect(
+			queryClient.getQueryData<SpaceHistorySnapshot>(options.queryKey)
+				?.envelopes
+		).toEqual([refreshed]);
+		const updateLabels = readRecentReactUpdates()
+			.slice(-10)
+			.map(({ event }) => event);
+		expect(updateLabels).toContain("space_timeline_agent_controller_changed");
+		expect(updateLabels).toContain("space_timeline_write");
+		expect(updateLabels).toContain("space_wake_visible_publish");
+		view.unmount();
+		queryClient.clear();
+	});
+
 	it("reconciles cached history on mount before the live socket opens", async () => {
 		readSpaceUpdatesMock.mockResolvedValue({
 			signals: [createTextSignal({ id: "sig-2", ts: 20 })],
@@ -830,6 +1083,39 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 
 		expect(readSpaceUpdatesMock).not.toHaveBeenCalled();
 		expect(readSpaceHistoryMock).not.toHaveBeenCalled();
+	});
+
+	it("does not let a live frame create the first history anchor before bootstrap", async () => {
+		const { queryClient, view } = renderFeed({
+			history: createPendingFeedHistory(),
+		});
+		await openLatestSocket();
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify(createTextSignal({ id: "sig-3", ts: 30 }))
+			);
+		});
+		const key = spaceQueryKeys.history(
+			"space-123",
+			"11111111-1111-1111-1111-111111111111"
+		);
+		expect(queryClient.getQueryData(key)).toBeUndefined();
+		expect(
+			view.result.current.timelineEnvelopes.map((signal) => signal.id)
+		).toEqual(["sig-3"]);
+
+		act(() => {
+			view.rerender({
+				history: createReadyFeedHistory([
+					createTextSignal({ id: "sig-1", ts: 10 }),
+				]),
+			});
+		});
+		expect(
+			queryClient
+				.getQueryData<SpaceHistorySnapshot>(key)
+				?.envelopes.map((signal) => signal.id)
+		).toEqual(["sig-1", "sig-3"]);
 	});
 
 	it("waits for a speculative reconcile before running the mandatory post-acceptance read", async () => {
@@ -1033,7 +1319,7 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		);
 		expect(readSpaceUpdatesMock).toHaveBeenNthCalledWith(
 			3,
-			expect.objectContaining({ afterSignalId: "sig-100" })
+			expect.objectContaining({ afterSignalId: "sig-99" })
 		);
 		const ids = view.result.current.timelineEnvelopes.map(
 			(signal) => signal.id
@@ -1069,6 +1355,66 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(
 			view.result.current.timelineEnvelopes.map((signal) => signal.id)
 		).toContain("sig-2");
+	});
+
+	it("does not skip a missed message when a newer live frame arrives first", async () => {
+		const { view } = renderFeed({
+			seededEnvelopes: [createTextSignal({ id: "sig-1", ts: 10 })],
+		});
+		await openLatestSocket();
+		readSpaceUpdatesMock.mockClear();
+		readSpaceUpdatesMock.mockImplementation(async ({ afterSignalId }) => ({
+			signals:
+				afterSignalId === "sig-1"
+					? [
+							createTextSignal({ id: "sig-2", ts: 20 }),
+							createTextSignal({ id: "sig-3", ts: 30 }),
+						]
+					: [],
+		}));
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify(createTextSignal({ id: "sig-3", ts: 30 }))
+			);
+		});
+		act(() => emitVisibilityChange("visible"));
+		await flushMicrotasks();
+
+		expect(readSpaceUpdatesMock).toHaveBeenCalledWith(
+			expect.objectContaining({ afterSignalId: "sig-1" })
+		);
+		expect(
+			view.result.current.timelineEnvelopes.map((signal) => signal.id)
+		).toEqual(["sig-1", "sig-2", "sig-3"]);
+	});
+
+	it("reads the Space tail when Inbox reports an unseen message", async () => {
+		const { view } = renderFeed({
+			seededEnvelopes: [createTextSignal({ id: "sig-1", ts: 10 })],
+		});
+		await openLatestSocket();
+		readSpaceUpdatesMock.mockClear();
+		readSpaceUpdatesMock.mockResolvedValue({
+			signals: [createTextSignal({ id: "sig-2", ts: 20 })],
+		});
+		act(() => {
+			view.rerender({
+				history: createReadyFeedHistory([
+					createTextSignal({ id: "sig-1", ts: 10 }),
+				]),
+				unreadTargets: [
+					{ signalId: "sig-2", occurredAtMs: 20, threadRootSignalId: null },
+				],
+			});
+		});
+		await flushMicrotasks();
+
+		expect(readSpaceUpdatesMock).toHaveBeenCalledWith(
+			expect.objectContaining({ afterSignalId: "sig-1" })
+		);
+		expect(
+			view.result.current.timelineEnvelopes.map((signal) => signal.id)
+		).toEqual(["sig-1", "sig-2"]);
 	});
 
 	it("falls back to a recent-window reload on a stale anchor without looping reconnect", async () => {

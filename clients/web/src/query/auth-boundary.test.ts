@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import "fake-indexeddb/auto";
 import {
 	createComposerDraftRecord,
 	EMPTY_COMPOSER_DRAFT_CONTENT,
@@ -43,7 +44,7 @@ describe("resetAccountScopedQueriesAfterAuthChange", () => {
 		expect(queryPersistence.clearActiveAccount).toHaveBeenCalledTimes(1);
 	});
 
-	it("clears private Composer drafts at an auth boundary change", async () => {
+	it("clears private Composer drafts on explicit sign-out", async () => {
 		const scope = {
 			kind: "space" as const,
 			ownerAccountId: "account-1",
@@ -58,9 +59,7 @@ describe("resetAccountScopedQueriesAfterAuthChange", () => {
 			})
 		);
 
-		await resetAccountScopedQueriesAfterAuthChange(new QueryClient(), {
-			queryPersistence: createQueryPersistenceMock(),
-		});
+		await completeAccountAuthChange(new QueryClient(), "signed-out");
 
 		expect(readComposerDraft(scope)).toBeNull();
 	});
@@ -128,6 +127,7 @@ function createQueryPersistenceMock(): BrowserQueryPersistenceController {
 	return {
 		activateAuthorizedScope: vi.fn(async () => undefined),
 		activateSpaceConversation: vi.fn(async () => undefined),
+		restoreSpaceConversation: vi.fn(async () => undefined),
 		clearActiveAccount: vi.fn(async () => undefined),
 		clearSpaceConversation: vi.fn(async () => undefined),
 		clearOrganization: vi.fn(async () => undefined),

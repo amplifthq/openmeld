@@ -1,3 +1,4 @@
+import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import type {
   RuntimeTransportDeliverDispatchRequest,
   SpaceMessageAttachment,
@@ -60,6 +61,24 @@ it("delivers verified Space caller facts without changing the message or session
   });
   expect(plan.userPrompt).toContain(
     "OpenMeld verified caller: external. Space role: member. Result audience: external."
+  );
+});
+
+it("tells a Space-only parallel task when repository review is unavailable", () => {
+  const plan = buildDispatchPromptPlan({
+    executionContextAccess: "space_context",
+    prompt: "Review PR #1249",
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    shouldInjectBootstrap: false,
+  });
+  expect(plan.userPrompt).toContain("Task access: Space context only.");
+  expect(plan.userPrompt).toContain(
+    "no authorized project repository or project code checkout"
+  );
+  expect(plan.userPrompt).toContain(
+    "Do not claim to have reviewed code or a PR diff"
   );
 });
 
@@ -306,7 +325,7 @@ describe("parseDispatchTask", () => {
       revision: 1,
       name: `screen-${index + 1}.png`,
       mimeType: "image/png",
-      sizeBytes: 250 * 1024 * 1024,
+      sizeBytes: SPACE_FILE_MAX_SIZE_BYTES,
     }));
     const parsed = parseDispatchTask({
       deliverRequest: createDeliverRequest({

@@ -4,6 +4,7 @@ import type {
   AdapterContextIdMappingSpec,
   AdapterDispatchExecutionMode,
   AdapterDispatchRequest,
+  AdapterDispatchSpaceTools,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -113,7 +114,10 @@ export type RuntimeTaskRoute = {
 };
 
 export type RuntimeTaskInput = {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   adapter?: RuntimeAdapter;
+  // Explicit continuation decision, including null for a fresh conversation.
+  // Replacements are retained by the caller's native observation/result path.
   agentContextOverride?: {
     agentControllerConversationId: string | null;
     sourceFieldOverride?: string;
@@ -208,6 +212,7 @@ const mapAdapterErrorType = (
 };
 
 const buildDispatchRequest = (input: {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
@@ -218,6 +223,9 @@ const buildDispatchRequest = (input: {
   task: RuntimeTask;
   streamingMode?: AdapterStreamingMode;
 }): AdapterDispatchRequest => ({
+  ...(input.spaceActionTools
+    ? { spaceActionTools: input.spaceActionTools }
+    : {}),
   agentId: input.task.agentId,
   executionContext: input.task.executionContext,
   ...(input.agentControllerPermissionMode
@@ -395,6 +403,7 @@ const resolveMissingRuntimeAdapterDispatchResult =
   });
 
 const dispatchRuntimeTask = async (input: {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   adapter?: RuntimeAdapter;
   deduped: boolean;
   route?: RuntimeTaskRoute;
@@ -429,6 +438,7 @@ const dispatchRuntimeTask = async (input: {
       env: input.route.env,
       mentioned: input.task.mentioned,
       request: buildDispatchRequest({
+        spaceActionTools: input.spaceActionTools,
         agentControllerPermissionMode:
           input.route.agentControllerPermissionMode,
         conversationPolicy: input.route.conversationPolicy,
@@ -457,6 +467,7 @@ const dispatchRuntimeTask = async (input: {
     adapter: input.adapter,
     mentioned: input.task.mentioned,
     request: buildDispatchRequest({
+      spaceActionTools: input.spaceActionTools,
       onInteractionRequest: input.onInteractionRequest,
       onPreview: input.onPreview,
       onRuntimeEvent: input.onRuntimeEvent,
@@ -478,6 +489,24 @@ const shouldCommitAgentContextLifecycle = (input: {
     return input.dispatchResult.routeFailure === undefined;
   }
   return true;
+};
+
+const shouldRetainResolvedLedgerContext = (input: {
+  executionMode: RuntimeTask["executionMode"];
+  agentContextOverride: RuntimeTaskInput["agentContextOverride"];
+  agentContextResolution: AgentContextResolutionResult | undefined;
+}): boolean => {
+  if (isRepairExecutionMode(input.executionMode)) {
+    return false;
+  }
+  // The caller's observation/result handler owns an explicit replacement.
+  // Never write back (or rediscover) a ledger conversation that was not used.
+  return (
+    input.agentContextOverride === undefined ||
+    input.agentContextOverride.agentControllerConversationId ===
+      (input.agentContextResolution?.resolvedAgentControllerConversationId ??
+        null)
+  );
 };
 
 const resolveCommittedAgentContextResolution = (input: {
@@ -991,6 +1020,7 @@ export const runRuntimeTask = async (
   });
 
   const dispatchResult = await dispatchRuntimeTask({
+    spaceActionTools: input.spaceActionTools,
     adapter: input.adapter,
     deduped,
     onInteractionRequest: input.onInteractionRequest,
@@ -1029,26 +1059,27 @@ export const runRuntimeTask = async (
     task: input.task,
   });
 
-  const committedAgentContextResolution = isRepairExecutionMode(
-    input.task.executionMode
-  )
-    ? null
-    : resolveCommittedAgentContextResolution({
+  const retainResolvedLedgerContext = shouldRetainResolvedLedgerContext({
+    executionMode: input.task.executionMode,
+    agentContextOverride: input.agentContextOverride,
+    agentContextResolution,
+  });
+  const committedAgentContextResolution = retainResolvedLedgerContext
+    ? resolveCommittedAgentContextResolution({
         deduped,
         dispatchResult,
         agentContextResolution,
-      });
-  const postDispatchAgentContext = isRepairExecutionMode(
-    input.task.executionMode
-  )
-    ? null
-    : resolvePostDispatchAgentContextInput({
+      })
+    : null;
+  const postDispatchAgentContext = retainResolvedLedgerContext
+    ? resolvePostDispatchAgentContextInput({
         committedAgentContextResolution,
         dispatchResult,
         nowMs,
         route: input.route,
         task: input.task,
-      });
+      })
+    : null;
 
   const runtimeTaskOutcome = resolveRuntimeTaskOutcomeResult({
     agentId: input.task.agentId,

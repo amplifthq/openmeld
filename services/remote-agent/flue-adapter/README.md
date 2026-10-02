@@ -1,6 +1,6 @@
 # Flue 2 integration boundary
 
-This adapter targets exactly Flue 2.0.3. Vite builds the synchronous
+This adapter targets exactly Flue 2.1.0. Vite builds the synchronous
 `CenterAgentV2` hook function. Asynchronous materialization happens under the
 immutable submission context before rendering; nested operations reuse those
 resources, and concurrent submissions do not share them.
@@ -12,19 +12,23 @@ is not a future release strategy.
 
 ## Retained package adaptations
 
-`patches/@flue__runtime@2.0.3.patch` retains seven explicit contracts:
+`patches/@flue__runtime@2.1.0.patch` retains eight explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
-   attempts remain bounded. Healthy long-running work must not fail because
-   one hour passed.
+   attempts remain bounded; the five-attempt policy includes the initial run.
+   Repeated failed materialization of a queued input consumes the existing
+   attempt budget through a fenced SQL update, without a new table or timer.
+   Healthy long-running work must not fail because one hour passed.
 2. Exact-submission abort and a read-only submission projection support
    OpenMeld's execution identity. A late stop cannot abort a subsequent turn.
    The upstream conversation-wide abort remains available to upstream callers.
 3. Persisted submission operations expose their completed text, model, and
-   canonical usage through the existing operation observation. Upstream's
-   persisted-input path returns void, unlike its prompt path; interpreting that
-   missing result as an empty answer would incorrectly fail a successful turn.
-   Usage is rebuilt from durable assistant steps, including prior attempts.
+   canonical usage through the existing operation observation. Flue 2.1.0
+   supplies the text from its inner persisted-input operation, even though the
+   outer submission handle returns void. The adaptation enriches that existing
+   result with the actual model and recorded usage; it does not emit another
+   completion. Usage is rebuilt from durable assistant steps, including prior
+   attempts, and absent usage remains absent rather than becoming invented zeroes.
 4. Compaction separates observed facts, current status, and pending plans.
    A bounded action-evidence section is regenerated from canonical tool events
    across repeated compactions. Tool counts are evidence of recorded calls and
@@ -36,11 +40,15 @@ is not a future release strategy.
    outbox and the exact-execution steering source described below. Core verifies
    the original sender and private Center Agent chat before accepting an input;
    independent queued deliveries retain separate authority and callbacks.
-6. Submission instrumentation encloses the shared session-opening boundary,
-   including recovery inspection and abort/terminal reconciliation. These paths
-   render the agent just as live execution does and require the same exact
-   submission authority and prepared resources. Instrumenting only the live
-   process leaves a restarted Worker unable to reconcile an interrupted turn.
+6. Submission instrumentation encloses every shared session-opening boundary.
+   Actual recovery execution uses the same exact submission authority and
+   prepared resources as live execution. Classification itself reads canonical
+   records without rendering: an unavailable Computer or tool preparation must
+   not prevent recognition of a completed response, a stop, or an exhausted
+   budget. Terminal recovery commits the existing settlement outbox without
+   requiring the optional rendered advisory. The next live session repairs any
+   interrupted tail before applying new input; no external tool is blindly
+   replayed to manufacture a result.
 7. An optional exact-execution steering source can supply durably accepted
    inputs at the existing model-turn boundary. It resolves inside submission
    instrumentation. Flue validates the named agent, conversation and host
@@ -50,6 +58,17 @@ is not a future release strategy.
    idempotent, and unresolved inputs participate in the existing recovery
    seam. The application must retain accepted inputs and enforce sender
    permissions; this runtime seam alone does not enable Web steering.
+
+8. Tool presentation is consistent before provider serialization. A narrow
+   `AgentStatics.projectResourceSignal` extension transforms only reserved
+   framework resource/environment signals in model context, never canonical
+   records. Live steering, joined inputs, restored histories and compaction
+   share the renderer. Upstream 2.1.0 has no public hook at this provenance
+   boundary; a provider-payload string replacement cannot distinguish user
+   quotations from framework events. Flue also mounts `task` only with declared
+   subagents. OpenMeld registers only its native subset; deferred capabilities
+   remain in its one authorized catalog for discovery and Code Mode. Skill
+   activation and supporting-file reads remain framework-owned and usable.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not
@@ -93,11 +112,70 @@ additional boundary.
 Upstream 0.2.1 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 
-These seven Flue adaptations are maintained integration code, not a completed
+These eight Flue adaptations are maintained integration code, not a completed
 escape from upstream internals. On each Flue upgrade, compare the patch with
 the new package, remove an adaptation only when the upstream behavior fulfills
 its contract, and exercise the affected cancellation, observation, compaction,
 recovery and steering boundaries. A clean patch apply alone proves none of them.
+
+The exact-submission read projection also exposes completed output only after
+the canonical settlement record confirms success. It folds the existing stream
+without opening a producer, rendering the Agent, or starting another execution.
+The final assistant entry supplies text/model, and recorded assistant entries
+rebuild cross-attempt usage even after the settlement barrier releases full
+attempt records. Running, missing, failed, or mismatched submissions cannot
+supply a successful result. Recovery uses the normal Computer cleanup and
+execution-owner CAS before projecting that result to Core; cancellation and
+requested safety failures still win over an uncommitted success.
+
+Recorded consumption is independent of that success-only output. The same
+read-only projection returns exact-submission terminal model/usage for failed
+and stopped work too, without returning its draft as an answer. Failed prompt
+observations read those persisted assistant steps before emitting their error;
+if that read itself fails, the original failure reaches canonical settlement
+and reconciliation rather than committing an incomplete application outcome.
+The recovery tests run the actual provider/coordinator into failure or Stop,
+reopen SQLite with no application terminal metadata, and verify one usage record
+and only a failed/stopped result. A failure before any model call stays unknown,
+not a synthetic zero-consumption record.
+
+Normal completion and recovery atomically persist the execution owner with the
+existing callback model/usage fields in one conditional SQL update. This keeps
+both stored record shapes readable by the previous patched release; it does
+not add a second completion ledger. A losing observer cannot replace the
+winner's metadata. Successful, failed, and stopped outcomes retain known usage,
+with the owner's stable completion time as the existing usage-record key so
+callback retries do not count consumption again. Missing usage is not zero.
+
+OpenMeld consumes observation deltas rather than Flue's public conversation
+stream. When a failed assistant step is replaced, the first replacement text
+delta carries a prefix derived from the official conversation UI projection.
+The publisher atomically replaces accumulated and buffered failed text with
+that prefix before appending the new delta. Legitimate earlier tool narration
+remains; reasoning and tool payloads never enter the prefix. Ordinary model
+turns do not reset text. The existing stream identity, increasing sequence,
+snapshot bounds, cancellation checks, and Core callback schema are unchanged.
+This correction becomes visible with the first replacement text, not through
+an invented empty delta while the replacement is still waiting for its model.
+The pending prefix belongs to the response, not an individual assistant step:
+tool-only steps and empty deltas do not consume it. The first nonempty text
+delta consumes it once, and response cleanup prevents it reaching another
+submission. No new durable state or callback protocol is introduced.
+
+The Flue 2.1.0 integration retains the registration boundary, the trusted
+resource-signal projection, and conditional task mounting. Upstream 2.1.0
+still mounts `task` unconditionally and lacks the signal projection hook, so
+the existing adaptation remains necessary. Provider-side clipping stays removed. Run
+`tool-catalog-contract.test.ts`, `tool-catalog-compaction.test.ts`,
+`tool-catalog-loop.test.ts`, the existing capability/Code Mode authorization
+tests, and the real-provider opt-in loop. The retained pre-fix SQLite fixture
+must stay unchanged; recreating it with the new implementation loses the
+old-session regression. The Node executor proves orchestration and real Core
+policy, not Worker Loader isolation or deployed Space publication.
+Remote Agent declares Core as a development dependency for these cross-owner
+contract tests, so the existing workspace build graph prepares Core dependencies.
+The Node Vitest config reuses Core's lazy-module builder, including for targeted
+test runs; generated runtime files remain owned by Core and untracked.
 
 The footprint reader is a pinned, read-only aggregate over Flue's inline and
 spilled batches. It does not write runtime state or derive execution truth.
@@ -130,6 +208,13 @@ command launcher changes together. Verify the real Linux process boundary with
 from the repository root. `--baseline` reproduces the unwrapped shell behavior
 in a disposable, network-disabled container. The check also proves a concurrent
 peer survives cancellation and compound commands preserve quoting and exit codes.
+
+The container image includes Node.js 24 and Corepack-managed pnpm, so hosted
+turns can install dependencies, build, and run JavaScript projects in the same
+durable Computer workspace. The worker-shell backend remains network-disabled
+and does not provide Node.js. A development server listening inside this
+container is not automatically reachable from Browser Run; a separately
+authorized private preview route is required for browser smoke of that server.
 
 Local runtime recovery is not proof of an uninterrupted deployment. For changes
 to these boundaries, verify the staging deployment handoff, pending external tools

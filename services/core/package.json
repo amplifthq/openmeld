@@ -13,7 +13,7 @@
     "sync:config:prod": "pnpm run deploy",
     "sync:config:stg": "pnpm run deploy:stg",
     "sync:secrets:slack:stg": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env stg --from-env SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
-    "sync:secrets:prod": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env prod --file .dev.vars.prod GITHUB_OPENMELD_API_TOKEN SLACK_OPENMELD_BOT_TOKEN SLACK_OPENMELD_TOKEN_CRYPTO_KEY LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY ZEP_OPENMELD_API_KEY",
+    "sync:secrets:prod": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env prod --file .dev.vars.prod GITHUB_OPENMELD_API_TOKEN GITHUB_OPENMELD_WEBHOOK_SECRET SLACK_OPENMELD_BOT_TOKEN SLACK_OPENMELD_TOKEN_CRYPTO_KEY LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY ZEP_OPENMELD_API_KEY",
     "sync:prod": "pnpm run sync:secrets:prod && pnpm run sync:config:prod",
     "sync:stg": "pnpm run sync:config:stg",
     "test": "pnpm run test:boundary",
@@ -54,7 +54,8 @@
     "ipaddr.js": "^2.5.0",
     "protobufjs": "7.5.4",
     "slackify-markdown": "5.0.0",
-    "yaml": "2.8.2"
+    "yaml": "2.8.2",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.12.14",

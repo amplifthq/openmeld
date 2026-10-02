@@ -2,13 +2,17 @@ import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
 } from "@openmeld/schemas";
-import type { RuntimeTransportDeliverDispatchRequest } from "@openmeld/schemas/types";
+import type {
+  RuntimeCoordinatorDeliveryRouteEvidence,
+  RuntimeTransportDeliverDispatchRequest,
+} from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
 import {
   deliverDispatch,
   handleDispatchLifecycle,
   handleSubmitTaskResult,
+  projectRuntimeTransportDeliveryRouteEvidence,
 } from "../runtime-transport/application/runtime-transport-dispatch-service";
 import {
   buildDispatchAttemptKey,
@@ -242,6 +246,120 @@ const buildPendingDispatch = (
 };
 
 describe("runtime transport dispatch service", () => {
+  it("captures the exact lease, session, socket, and registered-route facts for one delivery request", () => {
+    const request = createDispatchRequest();
+    const { state } = createState();
+    expect(
+      projectRuntimeTransportDeliveryRouteEvidence({ request, state })
+    ).toEqual({
+      owner: "matching",
+      profileLease: "matching",
+      session: "matching",
+      socket: "present",
+      acceptingDispatches: "accepting",
+      profileRoute: "registered",
+    });
+
+    state.profileLeasesByProfileId.delete(request.profileId);
+    const session = state.sessionsById.get(request.daemonSessionId);
+    if (!session) {
+      throw new Error("Expected fixture session.");
+    }
+    session.connectionGeneration += 1;
+    session.socket = null;
+    session.acceptingDispatches = false;
+    session.admissionEvidence = {
+      acceptingDispatches: false,
+      connectionGeneration: session.connectionGeneration,
+      revision: 2,
+      changedAtMs: 1234,
+      reasonCode: "host_configure_failed",
+      detailCode: "host.catalog_replaced",
+    };
+    session.profileIds.delete(request.profileId);
+    expect(
+      projectRuntimeTransportDeliveryRouteEvidence({ request, state })
+    ).toEqual({
+      owner: "matching",
+      profileLease: "missing",
+      session: "connection_replaced",
+      socket: "missing",
+      acceptingDispatches: "not_accepting",
+      admissionEvidence: session.admissionEvidence,
+      profileRoute: "not_registered",
+    });
+  });
+
+  it("keeps refusal evidence bound to the decision when route state changes before delivery returns", async () => {
+    const request = createDispatchRequest();
+    const { state } = createState();
+    const session = state.sessionsById.get(request.daemonSessionId);
+    if (!session?.socket) {
+      throw new Error("Expected fixture session socket.");
+    }
+    const restoredSocket = session.socket;
+    session.socket = null;
+    session.acceptingDispatches = false;
+    session.admissionEvidence = {
+      acceptingDispatches: false,
+      connectionGeneration: session.connectionGeneration,
+      revision: 4,
+      changedAtMs: 1234,
+      reasonCode: "host_configure_failed",
+      detailCode: "host.catalog_replaced",
+    };
+    let witnessed:
+      | {
+          evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+          observedAtMs: number;
+        }
+      | undefined;
+
+    const response = await deliverDispatch(state, request, {
+      cleanupCompletedResults: () => undefined,
+      onDeliveryRouteAssessed: (assessment) => {
+        witnessed = assessment;
+        // Reproduce the race that made post-return sampling ambiguous: the
+        // connection is restored before the caller receives the rejection.
+        session.socket = restoredSocket;
+        session.acceptingDispatches = true;
+        session.admissionEvidence = {
+          acceptingDispatches: true,
+          connectionGeneration: session.connectionGeneration,
+          revision: 5,
+          changedAtMs: 1235,
+          reasonCode: "host_ready",
+        };
+      },
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame: vi.fn(),
+    });
+
+    expect(response).toEqual({
+      accepted: false,
+      reasonCode: "daemon.profile.offline",
+      status: "rejected",
+    });
+    expect(session.socket).toBe(restoredSocket);
+    expect(witnessed).toMatchObject({
+      evidence: {
+        acceptingDispatches: "not_accepting",
+        admissionEvidence: {
+          reasonCode: "host_configure_failed",
+          detailCode: "host.catalog_replaced",
+          revision: 4,
+        },
+        owner: "matching",
+        profileLease: "matching",
+        profileRoute: "registered",
+        session: "matching",
+        socket: "missing",
+      },
+      observedAtMs: expect.any(Number),
+    });
+  });
+
   const createFencedDeliveryFixture = (input?: {
     agentControllerRef?: string;
     appliedConfigurationRevision?: number;
@@ -529,6 +647,7 @@ describe("runtime transport dispatch service", () => {
 
   it("gives a concurrent duplicate the real rejection when convergence fails", async () => {
     const fixture = createFencedDeliveryFixture();
+    const onDeliveryRouteAssessed = vi.fn();
     let releaseWait: (() => void) | undefined;
     let virtualNowMs = 0;
     const deps = {
@@ -545,6 +664,7 @@ describe("runtime transport dispatch service", () => {
           }),
         timeoutMs: 1,
       },
+      onDeliveryRouteAssessed,
       reapExpiredLeases: () => undefined,
       resolvePendingResultWaiters: () => undefined,
       sendFrame: fixture.sendFrame,
@@ -572,6 +692,12 @@ describe("runtime transport dispatch service", () => {
     } as const;
     expect(await firstDelivery).toEqual(rejection);
     expect(await duplicateDelivery).toEqual(rejection);
+    expect(onDeliveryRouteAssessed).toHaveBeenCalledTimes(2);
+    expect(onDeliveryRouteAssessed.mock.calls[1]?.[0]).toMatchObject({
+      evidence: onDeliveryRouteAssessed.mock.calls[0]?.[0].evidence,
+      observedAtMs: onDeliveryRouteAssessed.mock.calls[0]?.[0].observedAtMs,
+      response: rejection,
+    });
     expect(fixture.state.inFlightDispatchDeliveries.size).toBe(0);
     expect(
       fixture.sendFrame.mock.calls.filter(

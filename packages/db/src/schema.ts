@@ -38,11 +38,16 @@ export const {
 } = authSchema;
 
 export const {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
   inboxCenterAgentReadWatermarks,
   spaceInvitations,
   organizationJoinRequests,
   inboxEmailDeliveries,
   inboxItems,
+  inboxFeedSnapshots,
+  desktopUpdateInstallations,
+  inboxFeedSnapshotMembers,
   inboxNotificationPreferences,
   inboxMessageNotificationDefaults,
   inboxConversationNotificationPreferences,
@@ -99,6 +104,8 @@ export const {
   organizationSkillMaintainers,
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
+  organizationSkillImportOperations,
+  organizationSkillImportBatches,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
   organizationMemberPresenceSessions,
@@ -172,6 +179,8 @@ export const {
   spaceOwnerMemberReferences,
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
+  spaceTaskGitHubIssueLinks,
+  githubAppWebhookDeliveries,
 } = coreSchema;
 
 export const {

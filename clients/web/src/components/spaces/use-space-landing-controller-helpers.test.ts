@@ -1,4 +1,7 @@
-import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
+import {
+	AGENT_REPLY_FINAL_PURPOSE,
+	AGENT_REPLYING_PURPOSE,
+} from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
 	createSpaceMemberHumanSnapshot,
@@ -26,6 +29,8 @@ import {
 import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
+	findUnconfirmedBootstrapWakeStream,
+	findUnconfirmedPresentedWakeProgress,
 	listPendingWakeProgressClientMessageIds,
 	listRecoverableWakeProgressClientMessageIds,
 	mergeActiveWakeProgressPresentation,
@@ -46,6 +51,50 @@ vi.mock("#/lib/spaces/api", () => ({
 const createWebSpaceApiMock = vi.mocked(createUnscopedWebSpaceApi);
 
 describe("Thread conversation policy during live replies", () => {
+	it("does not retain transient working events in Thread history or its cropped preview", () => {
+		const queryClient = new QueryClient();
+		const threadContext = { threadId: "thread", rootSignalId: "root" };
+		const placement: SpaceThreadSignalPlacement = {
+			signalId: "transient",
+			threadId: "thread",
+			placement: "thread",
+			createdAt: new Date().toISOString(),
+		};
+		const signal: SignalEnvelope = {
+			v: 1,
+			id: "transient",
+			ts: Date.now(),
+			spaceId: "space",
+			type: "signal.text",
+			profile: { kind: "agent", profileId: "agent" },
+			data: {
+				text: "Working",
+				meta: {
+					transient: true,
+					purpose: AGENT_REPLYING_PURPOSE,
+					dispatchId: "A",
+					targetProfileId: "agent",
+				},
+			},
+		};
+		mergeLiveThreadSignalIntoCache({
+			queryClient,
+			spaceId: "space",
+			openMeldProfileId: "viewer",
+			placement,
+			signal,
+			threadContext,
+		});
+		expect(
+			queryClient.getQueryData(
+				spaceQueryKeys.threadSignals("space", "thread", "viewer")
+			)
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(spaceQueryKeys.threads("space", "viewer"))
+		).toBeUndefined();
+		queryClient.clear();
+	});
 	it.each([
 		false,
 		true,
@@ -224,6 +273,133 @@ describe("Thread conversation policy during live replies", () => {
 const AGENT_PROFILE_ID = "agent-profile-1";
 const HUMAN_PROFILE_ID = "human-profile-1";
 
+describe("unconfirmed Wake presentation diagnostics", () => {
+	const item = createWakeProgressItem({
+		clientMessageId: "message-old",
+		dispatchId: "dispatch-old",
+		phase: "running",
+		sourceSignalId: "signal-old",
+		targetLabel: "Runner",
+		targetProfileId: AGENT_PROFILE_ID,
+		updatedAtMs: 100,
+	});
+
+	it("identifies an old rendered item and every unconfirmed cache source", () => {
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				confirmedItems: [],
+				presentedItems: [item],
+				restoredItems: [item],
+				cachedSpaceSummaryItems: [item],
+				cachedOwnSummaryItems: [item],
+				spaceSummaryFetchedAfterMount: false,
+				ownSummaryFetchedAfterMount: false,
+			})
+		).toEqual({
+			item,
+			fromRestoredPresentation: true,
+			fromCachedSpaceSummary: true,
+			fromCachedOwnSummary: true,
+			fromHistoricalSignal: false,
+		});
+	});
+
+	it("identifies a displayed progress item reconstructed from a previous page's signal", () => {
+		const historicalSignal: SignalEnvelope = {
+			v: 1,
+			id: "activity-old",
+			ts: 100,
+			spaceId: "space-123",
+			type: "signal.text",
+			profile: { kind: "agent", profileId: AGENT_PROFILE_ID },
+			data: {
+				text: "Working",
+				meta: {
+					transient: true,
+					purpose: AGENT_REPLYING_PURPOSE,
+					dispatchId: "dispatch-old",
+					targetProfileId: AGENT_PROFILE_ID,
+				},
+			},
+		};
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				confirmedItems: [],
+				presentedItems: [item],
+				restoredItems: [],
+				historicalSignals: [historicalSignal],
+				presentationCreatedAtMs: 200,
+				spaceSummaryFetchedAfterMount: true,
+				ownSummaryFetchedAfterMount: true,
+			})
+		).toMatchObject({ item, fromHistoricalSignal: true });
+	});
+
+	it("does not report current Core confirmation or a new local Wake", () => {
+		const input = {
+			presentedItems: [item],
+			restoredItems: [item],
+			cachedSpaceSummaryItems: [item],
+			cachedOwnSummaryItems: [item],
+			spaceSummaryFetchedAfterMount: true,
+			ownSummaryFetchedAfterMount: true,
+		};
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				...input,
+				confirmedItems: [item],
+			})
+		).toBeNull();
+		expect(
+			findUnconfirmedPresentedWakeProgress({
+				...input,
+				confirmedItems: [],
+				restoredItems: [],
+			})
+		).toBeNull();
+	});
+
+	it("identifies an unconfirmed main stream seeded from bootstrap, not a live frame", () => {
+		const stream = {
+			createdAtMs: 100,
+			dispatchId: "dispatch-old",
+			observedRevision: 0,
+			profileId: AGENT_PROFILE_ID,
+			reasonCode: null,
+			replyThreadRootSignalId: null,
+			sequence: 1,
+			spaceId: "space-123",
+			status: "streaming" as const,
+			streamId: "stream-old",
+			text: "",
+			textSequence: 1,
+			triggerMessageId: "signal-old",
+			updatedAtMs: 100,
+		};
+		expect(
+			findUnconfirmedBootstrapWakeStream({
+				bootstrapFetchedAfterMount: false,
+				confirmedItems: [],
+				streams: [stream],
+			})
+		).toEqual(stream);
+		expect(
+			findUnconfirmedBootstrapWakeStream({
+				bootstrapFetchedAfterMount: false,
+				confirmedItems: [],
+				streams: [{ ...stream, observedRevision: 1 }],
+			})
+		).toBeNull();
+		expect(
+			findUnconfirmedBootstrapWakeStream({
+				bootstrapFetchedAfterMount: false,
+				confirmedItems: [item],
+				streams: [stream],
+			})
+		).toBeNull();
+	});
+});
+
 describe("areWakeProgressItemsEqual", () => {
 	it("observes every Wake field that changes rendered state or actions", () => {
 		const item = createWakeProgressItem({
@@ -321,6 +497,30 @@ describe("listPendingWakeProgressClientMessageIds", () => {
 });
 
 describe("reconcilePolledWakeProgressItems", () => {
+	it("does not let A's late completion or an older empty request clear B on the same source", () => {
+		const a = createWakeProgressItem({
+			clientMessageId: "request",
+			dispatchId: "A",
+			sourceSignalId: "source",
+			targetProfileId: AGENT_PROFILE_ID,
+			targetLabel: "Agent",
+			phase: "running",
+			updatedAtMs: 1,
+		});
+		const b = { ...a, dispatchId: "B", updatedAtMs: 2 };
+		const replied = { ...a, phase: "replied" as const, terminal: true };
+		for (const incomingItems of [[replied], []]) {
+			expect(
+				reconcilePolledWakeProgressItems({
+					currentItems: [b],
+					incomingItems,
+					fulfilledClientMessageIds: ["request"],
+					signals: [],
+					snapshotItemsAtRequestStart: [a],
+				})
+			).toEqual([b]);
+		}
+	});
 	it("clears successful empty snapshots without clearing a failed poll", () => {
 		const completedItem = createWakeProgressItem({
 			clientMessageId: "client-message-completed",
@@ -563,7 +763,7 @@ describe("mergeActiveWakeProgressPresentation", () => {
 				signals: [],
 				summaryItems: [newerSummary],
 			})
-		).toEqual([newerSummary]);
+		).toEqual([detailed, newerSummary]);
 	});
 
 	it("clears a cached summary after its durable final reply arrives", () => {
@@ -871,6 +1071,20 @@ describe("createStatusAndMembersRefreshDedupe", () => {
 });
 
 describe("resolveComposerWakeProgressTargetProfileIds", () => {
+	it("does not turn a Direct Message reference back into an implicit Wake or progress item", () => {
+		expect(
+			resolveComposerWakeProgressTargetProfileIds({
+				explicitActivationTargets: [],
+				explicitReferenceTargets: [AGENT_PROFILE_ID],
+				membersSnapshot: createMembersSnapshot(),
+				senderProfileId: HUMAN_PROFILE_ID,
+				status: createStatus({
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				}),
+			})
+		).toEqual([]);
+	});
+
 	it("exposes the implicit offline Direct Message target without inventing one for a group Space", () => {
 		const agentProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const humanProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

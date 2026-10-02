@@ -3,8 +3,17 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { parseCodexModels, prepareUpdate } from "./catalog-update.mjs";
 import { combineUpdates } from "./collect-update.mjs";
-import { assertAdditionsOnly, publicationDecision } from "./publish-update.mjs";
-import { renderBatchReview } from "./review.mjs";
+import {
+  assertAdditionsOnly,
+  findLatestScanComment,
+  publicationDecision,
+  renderLatestScanComment,
+} from "./publish-update.mjs";
+import {
+  discoveryCandidates,
+  renderBatchReview,
+  renderRetirementReview,
+} from "./review.mjs";
 
 const existing = {
   id: "existing-model",
@@ -46,6 +55,74 @@ const input = {
   codexModels: parseCodexModels(raw),
   observedAt: "2026-09-05T00:00:00.000Z",
 };
+
+test("retirement handoff rechecks old cataloged models without changing policy", () => {
+  const current = structuredClone(catalog);
+  current.agentControllers.codex.models[0].retirement = {
+    status: "announced",
+    date: { kind: "not_before", value: "2026-10-15" },
+    scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+    sourceUrl: "https://example.com/notice",
+    verifiedAt: "2026-09-23T00:00:00Z",
+  };
+  const before = JSON.stringify(current);
+  const evidence = {
+    controller: "codex",
+    sources: [
+      {
+        kind: "official-document",
+        url: "https://example.com/notice",
+        data: "Existing model will not retire before October 15.\n\nExisting model retirement has been postponed.",
+      },
+    ],
+  };
+  const brief = renderRetirementReview(evidence, current);
+  for (const text of [
+    "existing-model",
+    "not_before: 2026-10-15",
+    "postponed",
+    "stopped / postponed / unconfirmed",
+  ]) {
+    assert.ok(brief.includes(text), `Missing retirement evidence: ${text}`);
+  }
+  assert.equal(JSON.stringify(current), before);
+  assert.ok(
+    renderRetirementReview({ ...evidence, sources: [] }, current).includes(
+      "not proof of continued availability"
+    )
+  );
+  const scan = (data, previous) =>
+    prepareUpdate({
+      catalog: current,
+      controller: "codex",
+      sources: [{ ...evidence.sources[0], data }],
+      observedAt: input.observedAt,
+      previous,
+    });
+  const original = scan("Existing model will retire on October 15.");
+  assert.equal(original.changed, true);
+  for (const [data, expected] of [
+    [
+      "Existing model will retire on October 15.\n\nNew installation instructions.",
+      false,
+    ],
+    ["Existing model will   retire on October 15.", false],
+    ["Existing model will retire on October 20.", true],
+    ["Existing model retirement has been postponed.", true],
+    ["Existing model retirement has been withdrawn.", true],
+    ["Existing model retirement has been extended to October 20.", true],
+    ["Retirement notice removed; verify the official source.", true],
+  ]) {
+    const result = scan(data, original.evidence);
+    assert.equal(result.changed, expected, data);
+    assert.deepEqual(result.catalog, current);
+  }
+  assert.equal(scan("An unrelated model will retire tomorrow.").changed, false);
+  assert.equal(
+    scan("Existing model supports extended context.").changed,
+    false
+  );
+});
 
 test("a real upstream addition becomes a reviewable catalog change without moving either default", () => {
   const result = prepareUpdate(input);
@@ -93,20 +170,61 @@ test("a real upstream addition becomes a reviewable catalog change without movin
   assert.ok(review.includes("No authenticated probe"));
 });
 
-test("acknowledged observations stay quiet despite the next collection timestamp", () => {
+test("acknowledged observations stay quiet after timestamps and unrelated source edits", () => {
   const first = prepareUpdate(input);
-  const second = prepareUpdate({
-    ...input,
-    catalog: first.catalog,
-    previous: first.evidence,
-    observedAt: "2026-09-05T12:00:00.000Z",
-  });
-  assert.equal(second.changed, false);
-  assert.equal(second.catalog.updatedAt, first.catalog.updatedAt);
+  for (const extraSources of [
+    [],
+    [
+      {
+        kind: "official-document",
+        url: "https://example.com/docs",
+        data: "Updated installation instructions.",
+      },
+    ],
+    [
+      {
+        kind: "official-release",
+        url: "https://example.com/release",
+        data: { tag: "v2", notes: "Fix terminal rendering." },
+      },
+    ],
+  ]) {
+    const second = prepareUpdate({
+      ...input,
+      sources: [...sources, ...extraSources],
+      catalog: first.catalog,
+      previous: first.evidence,
+      observedAt: "2026-09-05T12:00:00.000Z",
+    });
+    assert.equal(second.changed, false);
+    assert.deepEqual(second.catalog, first.catalog);
+    const baseline = prepareUpdate({
+      ...input,
+      catalog: first.catalog,
+      previous: first.evidence,
+    });
+    assert.equal(
+      combineUpdates(first.catalog, [second]).fingerprint,
+      combineUpdates(first.catalog, [baseline]).fingerprint
+    );
+  }
 });
 
 test("missing or changed inventory never retires a model or rewrites an existing selection", () => {
   const first = prepareUpdate(input);
+  const reordered = structuredClone(input.codexModels);
+  for (const model of reordered) {
+    model.entry.supportedReasoningLevels.reverse();
+  }
+  assert.equal(
+    prepareUpdate({
+      ...input,
+      catalog: first.catalog,
+      codexModels: reordered,
+      previous: first.evidence,
+    }).changed,
+    false
+  );
   const changed = structuredClone(input.codexModels);
   changed[0].entry.supportedReasoningLevels = ["low"];
   const next = prepareUpdate({
@@ -116,8 +234,19 @@ test("missing or changed inventory never retires a model or rewrites an existing
   });
   assert.deepEqual(next.catalog, first.catalog);
   assert.ok(next.evidence.manual.length);
+  assert.equal(next.changed, true);
+  assert.equal(
+    prepareUpdate({
+      ...input,
+      catalog: first.catalog,
+      codexModels: changed,
+      previous: next.evidence,
+    }).changed,
+    false
+  );
   const missing = prepareUpdate({ ...input, codexModels: [] });
   assert.deepEqual(missing.catalog, catalog);
+  assert.equal(missing.changed, false);
 });
 
 test("unknown upstream reasoning shape fails before publishing a candidate", () => {
@@ -140,17 +269,34 @@ test("upstream model instructions are excluded from the handoff", () => {
   assert.equal(Object.hasOwn(parsed.facts, "model_messages"), false);
 });
 
-test("review ownership and a declined exact proposal prevent bot churn", () => {
+test("open review refresh and a declined exact proposal prevent branch churn", () => {
   const fingerprint = "a".repeat(64);
   const base = { controller: "codex", fingerprint, changed: true };
+  const openPull = {
+    state: "OPEN",
+    headRefName: "codex/catalog-update-codex-older",
+    url: "https://github.com/amplifthq/openmeld/pull/1138",
+  };
   assert.equal(
     publicationDecision({
       ...base,
-      pulls: [
-        { state: "OPEN", headRefName: "codex/catalog-update-codex-older" },
-      ],
+      changed: false,
+      pulls: [openPull, openPull],
     }),
-    "review-in-progress"
+    "update-review"
+  );
+  assert.throws(() =>
+    publicationDecision({
+      ...base,
+      pulls: [
+        openPull,
+        {
+          ...openPull,
+          headRefName: "codex/catalog-update-another-review",
+          url: "https://github.com/amplifthq/openmeld/pull/1204",
+        },
+      ],
+    })
   );
   assert.equal(
     publicationDecision({
@@ -168,6 +314,30 @@ test("review ownership and a declined exact proposal prevent bot churn", () => {
     publicationDecision({ ...base, fingerprint: "b".repeat(64), pulls: [] }),
     "create"
   );
+});
+
+test("latest scan handoff updates only the bot-owned stable comment", () => {
+  const runUrl = "https://github.com/amplifthq/openmeld/actions/runs/123";
+  const rendered = renderLatestScanComment(
+    "# Model catalog update\n\nFresh evidence.\n",
+    runUrl
+  );
+  assert.ok(rendered.includes("Latest model catalog scan"));
+  assert.ok(rendered.includes(runUrl));
+  assert.ok(rendered.includes("Fresh evidence."));
+  const human = {
+    id: 1,
+    user: { login: "lumpinif" },
+    body: rendered,
+  };
+  const bot = {
+    id: 2,
+    user: { login: "github-actions[bot]" },
+    body: rendered,
+  };
+  assert.equal(findLatestScanComment([human]), null);
+  assert.equal(findLatestScanComment([human, bot]), bot);
+  assert.throws(() => findLatestScanComment([bot, { ...bot, id: 3 }]));
 });
 
 test("publication rejects a default change even when the catalog itself is valid", () => {
@@ -229,6 +399,33 @@ test("one handoff names discovery-only candidates and flags actual source disagr
   assert.ok(review.includes("Discovery only; exact harness ID"));
   assert.ok(review.includes("Different surfaces; verify against the harness"));
   assert.ok(review.includes("ultra"));
+  assert.equal(claude.changed, true);
+  const metadata = structuredClone(claude.evidence.sources);
+  for (const model of Object.values(metadata[0].data.anthropic)) {
+    model.name = `${model.name} updated description`;
+    for (const option of model.reasoning_options ?? []) {
+      option.values.reverse();
+    }
+  }
+  const repeated = prepareUpdate({
+    ...input,
+    controller: "claude-code",
+    codexModels: [],
+    previous: claude.evidence,
+    sources: [
+      ...metadata,
+      {
+        kind: "official-document",
+        url: "https://example.com/docs",
+        data: "New installation instructions.",
+      },
+    ],
+  });
+  assert.equal(repeated.changed, false);
+  assert.equal(
+    combineUpdates(catalog, [repeated]).fingerprint,
+    combineUpdates(catalog, [claude]).fingerprint
+  );
   assert.equal(
     combineUpdates(catalog, [codex, claude]).fingerprint,
     combined.fingerprint
@@ -240,4 +437,105 @@ test("one handoff names discovery-only candidates and flags actual source disagr
       combined.evidence
     )
   );
+});
+
+test("review classification preserves exact routes while identifying cataloged Cursor bases", () => {
+  const cursorIds = [
+    "claude-fable-5-1[thinking=true,context=300k,effort=high]",
+    "gemini-3.8-flash[reasoning_effort=high]",
+  ];
+  const current = {
+    agentControllers: {
+      cursor: {
+        defaultModelId: "default[]",
+        models: cursorIds.map((id) => ({ ...existing, id })),
+      },
+      opencode: {
+        defaultModelId: "openai/gpt-6-astra",
+        models: [{ ...existing, id: "openai/gpt-6-astra" }],
+      },
+    },
+  };
+  const cursorEvidence = {
+    changes: [],
+    controller: "cursor",
+    manual: [],
+    observedAt: "2026-09-16T00:00:00.000Z",
+    sources: [
+      {
+        kind: "discovery-only",
+        url: "https://models.dev/api.json",
+        data: {
+          cursor: {
+            "claude-fable-5-1": {
+              id: "claude-fable-5-1",
+              name: "Claude Fable 5.1",
+            },
+            "gemini-3.8-flash": {
+              id: "gemini-3.8-flash",
+              name: "Gemini 3.8 Flash",
+            },
+            "grok-4.6": { id: "grok-4.6", name: "Grok 4.6" },
+          },
+        },
+      },
+    ],
+  };
+  const candidates = discoveryCandidates(cursorEvidence, current);
+  assert.deepEqual(
+    candidates.map(({ matchingExistingIds, model }) => ({
+      id: model.id,
+      matchingExistingIds,
+    })),
+    [
+      {
+        id: "claude-fable-5-1",
+        matchingExistingIds: [cursorIds[0]],
+      },
+      {
+        id: "gemini-3.8-flash",
+        matchingExistingIds: [cursorIds[1]],
+      },
+      { id: "grok-4.6", matchingExistingIds: [] },
+    ]
+  );
+  const review = renderBatchReview(
+    [cursorEvidence],
+    { cursor: { verification: "Check authenticated ACP inventory" } },
+    current
+  );
+  assert.ok(
+    review.includes("Already cataloged; additional ACP variants require review")
+  );
+  for (const id of cursorIds) {
+    assert.ok(review.includes(id));
+  }
+  assert.ok(
+    review.includes("cursor/grok-4.6 | unknown | not declared | Discovery only")
+  );
+  assert.deepEqual(
+    current.agentControllers.cursor.models.map((model) => model.id),
+    cursorIds
+  );
+
+  const [openCodeCandidate] = discoveryCandidates(
+    {
+      ...cursorEvidence,
+      controller: "opencode",
+      sources: [
+        {
+          kind: "discovery-only",
+          url: "https://models.dev/api.json",
+          data: {
+            opencode: {
+              "gpt-6-astra": { id: "gpt-6-astra", name: "GPT-6 Astra" },
+            },
+          },
+        },
+      ],
+    },
+    current
+  );
+  assert.equal(openCodeCandidate.candidateId, "opencode/gpt-6-astra");
+  assert.deepEqual(openCodeCandidate.matchingExistingIds, []);
 });

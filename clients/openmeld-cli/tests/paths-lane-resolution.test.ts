@@ -116,6 +116,26 @@ describe("lane-aware OpenMeld home resolution", () => {
     ).toBe("/tmp/openmeld-home/.openmeld-canary");
   });
 
+  it("maps the legacy dev environment to the canonical dev-local lane", () => {
+    expect(
+      resolveOpenMeldEnvPreset({
+        env: { OPENMELD_ENV: "dev" },
+        argv: ["/usr/local/bin/node", "/usr/local/bin/openmeld"],
+      })
+    ).toBe("dev-local");
+  });
+
+  it("refuses conflicting environment lane selectors", () => {
+    expect(() =>
+      resolveOpenMeldEnvPreset({
+        env: {
+          OPENMELD_ENV: "dev",
+          OPENMELD_ENV_PRESET: "prod",
+        },
+      })
+    ).toThrow("conflicts with OPENMELD_ENV=dev");
+  });
+
   it("writes auth session into the dev-local lane root", async () => {
     await withLaneHome("dev-local", async (home) => {
       vi.stubEnv("OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN", "1");

@@ -44,10 +44,53 @@ describe("CenterAgentOptimisticConversation", () => {
 		).toBeTruthy();
 	});
 
-	it("shows the Center Agent thinking while a route-level message is queued", () => {
-		render(
+	it("uses the same attachment rail before a Center Agent Space exists", () => {
+		const view = render(
 			<CenterAgentOptimisticConversation
 				composerText=""
+				onComposerChange={vi.fn()}
+				onSend={vi.fn()}
+				pendingMessage={{
+					clientMessageId: "pending-files",
+					createdAtMs: Date.UTC(2026, 8, 26),
+					text: "",
+					files: [
+						new File(["report"], "report.pdf", { type: "application/pdf" }),
+						new File(["archive"], "sources.zip", { type: "application/zip" }),
+					],
+				}}
+			/>
+		);
+		const rail = screen.getByRole("group", { name: "Message attachments" });
+		expect(within(rail).getByRole("img", { name: "report.pdf" })).toBeTruthy();
+		expect(within(rail).getByRole("img", { name: "sources.zip" })).toBeTruthy();
+		expect(rail.closest("[data-slot='space-message-text-surface']")).toBeNull();
+		expect(
+			view.container.querySelector("[data-slot='space-message-text-surface']")
+				?.childElementCount
+		).toBe(0);
+	});
+
+	it("keeps the intro mounted above the queued message and sending status", () => {
+		const intro = <h2>What should we work on?</h2>;
+		const view = render(
+			<CenterAgentOptimisticConversation
+				composerText="Prepare my weekly update."
+				empty
+				emptyContent={intro}
+				onComposerChange={vi.fn()}
+				onSend={vi.fn()}
+				pendingMessage={null}
+			/>
+		);
+		const originalIntro = screen.getByRole("heading", {
+			name: "What should we work on?",
+		});
+		view.rerender(
+			<CenterAgentOptimisticConversation
+				composerText=""
+				empty
+				emptyContent={intro}
 				onComposerChange={vi.fn()}
 				onSend={vi.fn()}
 				pendingMessage={{
@@ -59,6 +102,14 @@ describe("CenterAgentOptimisticConversation", () => {
 		);
 
 		const optimisticReply = screen.getByTestId("center-agent-optimistic-reply");
+		expect(
+			screen.getByRole("heading", { name: "What should we work on?" })
+		).toBe(originalIntro);
+		expect(
+			originalIntro.compareDocumentPosition(
+				screen.getByText("Prepare my weekly update.")
+			)
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 		const status = within(optimisticReply).getByRole("status", {
 			name: "Sending to Agent…",
 		});

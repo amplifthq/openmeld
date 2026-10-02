@@ -376,6 +376,9 @@ const createSystemWakePublishingHarness = (input: {
       if (query.includes("FROM space_cursors")) {
         return { toArray: () => [] };
       }
+      if (query.includes("FROM space_file_pins")) {
+        return [];
+      }
       if (query.includes("SELECT signal_id")) {
         const key = `${String(params[0])}:${String(params[1])}`;
         return {
@@ -459,6 +462,14 @@ const createSystemWakePublishingHarness = (input: {
   const broadcastSignal = vi.fn();
   const flushPendingDispatchOutbox = vi.fn(async () => undefined);
   const waitUntil = vi.fn();
+  const identityDb = {
+    prepare: vi.fn(() => ({
+      bind: vi.fn(() => ({
+        first: vi.fn(async () => null),
+      })),
+    })),
+  } as unknown as D1Database;
+  const bindings = { OPENMELD_DB: identityDb } as CoreBindings;
   const space = Object.create(Space.prototype) as {
     publishTextSignal: (
       signal: SignalEnvelope,
@@ -469,7 +480,7 @@ const createSystemWakePublishingHarness = (input: {
     ) => Promise<void>;
   };
   Object.defineProperties(space, {
-    bindings: { value: {} },
+    bindings: { value: bindings },
     broadcastSignal: { value: broadcastSignal },
     ctx: {
       value: {
@@ -481,6 +492,7 @@ const createSystemWakePublishingHarness = (input: {
       },
     },
     durableObjectId: { value: spaceId },
+    env: { value: bindings },
     flushPendingDispatchOutbox: { value: flushPendingDispatchOutbox },
     lastPostCleanupAtMs: { value: 0, writable: true },
     lastRetentionWarningAtMs: { value: 0, writable: true },
@@ -517,7 +529,8 @@ const buildWakeProgressItemFromLookupTrace = async (
   includeWakeStopEligibility = wakeStopEligibility !== null,
   includeWaitReason = false,
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence,
-  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null = null
+  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null = null,
+  includeTiming = true
 ): Promise<WakeProgressItem> => {
   const lookupMatch = {
     dispatchId: "dispatch-head-progress-1",
@@ -549,12 +562,24 @@ const buildWakeProgressItemFromLookupTrace = async (
     ) => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressPreAgentWakeStopEligibility: () => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressRuntimeDeviceDisplayName: () => Promise<string | null>;
+    readWakeProgressPendingAgentInteraction: () => Promise<null>;
   };
+  const bindings = {} as CoreBindings;
   Object.defineProperties(space, {
+    bindings: { value: bindings },
+    ctx: {
+      value: {
+        storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
+      },
+    },
+    env: { value: bindings },
     readSpaceDispatchTrace: {
       value: vi.fn(async () => ({ trace })),
     },
     readWakeProgressRuntimeDeviceDisplayName: {
+      value: vi.fn(async () => null),
+    },
+    readWakeProgressPendingAgentInteraction: {
       value: vi.fn(async () => null),
     },
     readWakeProgressWakeStopEligibility: {
@@ -567,7 +592,7 @@ const buildWakeProgressItemFromLookupTrace = async (
 
   return await space.buildWakeProgressItemFromLookupEvidence({
     clientMessageId: "client-message-1",
-    includeTiming: true,
+    includeTiming,
     includeWaitReason,
     includeWakeStopEligibility,
     nativeDeliveryEvidence,
@@ -796,6 +821,11 @@ async function readWakeProgressPreAgentWakeStopEligibilityForTest(
             options.headLifecycleReadStatus ?? "accepted",
         }),
         ...(options.db ? { OPENMELD_DB: options.db } : {}),
+      },
+    },
+    ctx: {
+      value: {
+        storage: { sql: createActiveWakeProgressSql({ outboxRows: [] }) },
       },
     },
     spaceId: { value: "space-1" },
@@ -1059,11 +1089,29 @@ function createWakeEvidenceDb(
     activeNativeDeliveryRows?: readonly WakeProgressExecutionRow[];
     executions?: readonly WakeProgressExecutionRow[];
     lookupRows?: readonly WakeProgressExecutionRow[];
+    continuationResultRows?: readonly {
+      dispatchId: string;
+      publishedSignalId: string;
+    }[];
   } = {}
 ): D1Database {
   const prepare = vi.fn((query: string) => {
     const bind = vi.fn((...params: unknown[]) => {
       const all = vi.fn(() => {
+        if (query.includes("FROM agent_task_completion_subscriptions")) {
+          return {
+            results: (input.continuationResultRows ?? []).map((row) => ({
+              continuation_idempotency_key: row.dispatchId,
+              outcome_json: JSON.stringify({
+                errorCode: null,
+                eventId: `event:${row.dispatchId}`,
+                occurredAtMs: Date.UTC(2026, 2, 4, 0, 2, 0),
+                publishedSignalId: row.publishedSignalId,
+                status: "succeeded",
+              }),
+            })),
+          };
+        }
         const sourceSignalIdsJson = params.find(
           (param) => typeof param === "string" && param.startsWith("[")
         );
@@ -1390,6 +1438,10 @@ async function readActiveWakeProgressForTest(input: {
   includeWaitReason?: boolean;
   includeWakeStopEligibility?: boolean;
   lookupRows?: readonly WakeProgressExecutionRow[];
+  continuationResultRows?: readonly {
+    dispatchId: string;
+    publishedSignalId: string;
+  }[];
   memberRows?: readonly ActiveWakeProgressMemberRow[];
   outboxRows: readonly ReturnType<typeof createWakeProgressOutboxRecord>[];
   readSpaceWakeProgress?: (input: {
@@ -1423,6 +1475,7 @@ async function readActiveWakeProgressForTest(input: {
     activeNativeDeliveryRows: input.activeNativeDeliveryRows,
     executions: input.executionRows,
     lookupRows: input.lookupRows ?? input.executionRows,
+    continuationResultRows: input.continuationResultRows,
   });
   const space = Object.create(Space.prototype) as {
     bindings: CoreBindings;
@@ -4525,7 +4578,7 @@ describe("space signal service", () => {
     } as unknown as SpaceDispatchTraceSnapshot);
 
     expect(item).toMatchObject({
-      phase: "retrying",
+      phase: "connecting",
       message:
         "OpenMeld cannot read Wake owner status for @Codex Agent right now.",
       terminal: false,
@@ -4577,7 +4630,7 @@ describe("space signal service", () => {
     });
   });
 
-  it("keeps RuntimeCoordinator running Wake progress fresh when legacy dispatch evidence is stale", async () => {
+  it("keeps RuntimeCoordinator running Wake progress fresh and omits an unproven start time", async () => {
     const runtimeCoordinatorUpdatedAtMs = Date.parse(
       "2026-03-04T00:21:00.000Z"
     );
@@ -4631,10 +4684,10 @@ describe("space signal service", () => {
       failureReasonCode: null,
       message: "@Codex Agent is working on this computer...",
       phase: "running",
-      startedAtMs: Date.parse("2026-03-04T00:00:00.000Z"),
       terminal: false,
       updatedAtMs: runtimeCoordinatorEventObservedAtMs,
     });
+    expect(item).not.toHaveProperty("startedAtMs");
   });
 
   it("only projects the conversation occupancy wait reason when the caller opts in", async () => {
@@ -4982,6 +5035,149 @@ describe("space signal service", () => {
       reasonCode: null,
       reliability: "openmeld_owned_pre_agent",
       status: "eligible",
+    });
+  });
+
+  it("does not promise a retry from a rejected delivery without a current owner decision", async () => {
+    const rejectedTrace = createRunningRuntimeCoordinatorTrace();
+    const rejectedExecution = rejectedTrace.runtimeCoordinatorExecution;
+    if (!rejectedExecution) {
+      throw new Error("Expected a RuntimeCoordinator execution");
+    }
+    const rejected = await buildWakeProgressItemFromLookupTrace(
+      {
+        ...rejectedTrace,
+        runtimeCoordinatorExecution: {
+          ...rejectedExecution,
+          status: "delivery_rejected",
+        },
+      },
+      [],
+      {
+        latestAttemptErrorCode: "daemon.profile.offline",
+        latestAttemptStatus: "failed_retryable",
+        status: "failed_retryable",
+      },
+      null,
+      false,
+      false,
+      undefined,
+      null,
+      false
+    );
+    expect(rejected).toMatchObject({
+      failureReasonCode: null,
+      message: "Checking the Wake status for @Codex Agent.",
+      phase: "connecting",
+      terminal: false,
+    });
+  });
+
+  it("does not infer a retry from a retryable ledger row alone", async () => {
+    const item = await buildWakeProgressItemFromLookupTrace(
+      {
+        ...createRunningRuntimeCoordinatorTrace(),
+        runtimeCoordinatorExecution: null,
+      },
+      [],
+      {
+        latestAttemptErrorCode: "daemon.profile.offline",
+        latestAttemptStatus: "failed_retryable",
+        status: "failed_retryable",
+      }
+    );
+
+    expect(item).toMatchObject({
+      failureReasonCode: null,
+      message: "Checking the Wake status for @Codex Agent.",
+      phase: "connecting",
+      terminal: false,
+    });
+  });
+
+  it("shows the bounded wait when the Wake owner retains a rejected delivery", async () => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    const item = await buildWakeProgressItemFromLookupTrace({
+      ...trace,
+      runtimeCoordinatorExecution: trace.runtimeCoordinatorExecution
+        ? {
+            ...trace.runtimeCoordinatorExecution,
+            status: "delivery_rejected",
+          }
+        : null,
+      runtimeCoordinatorHeadLifecycle: {
+        factSource: "runtime_coordinator_head_lifecycle",
+        readStatus: "found",
+        waitingBoundary: {
+          deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+          reasonCode: "local_service.not_accepting_wakes",
+          softDeadlineAt: new Date(Date.now() + 30_000).toISOString(),
+        },
+      },
+    } as unknown as SpaceDispatchTraceSnapshot);
+
+    expect(item).toMatchObject({
+      failureReasonCode: null,
+      message:
+        "Waiting for OpenMeld Service to accept new tasks for @Codex Agent.",
+      phase: "retrying",
+      terminal: false,
+    });
+  });
+
+  it("shows the bounded wait when a retryable ledger row has a current owner wait", async () => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    const item = await buildWakeProgressItemFromLookupTrace({
+      ...trace,
+      runtimeCoordinatorExecution: trace.runtimeCoordinatorExecution
+        ? { ...trace.runtimeCoordinatorExecution, status: "failed_retryable" }
+        : null,
+      runtimeCoordinatorHeadLifecycle: {
+        factSource: "runtime_coordinator_head_lifecycle",
+        readStatus: "found",
+        waitingBoundary: {
+          deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+          reasonCode: "local_service.not_accepting_wakes",
+          softDeadlineAt: new Date(Date.now() + 30_000).toISOString(),
+        },
+      },
+    } as unknown as SpaceDispatchTraceSnapshot);
+
+    expect(item).toMatchObject({
+      failureReasonCode: null,
+      phase: "retrying",
+      terminal: false,
+    });
+  });
+
+  it("keeps a Wake owner's no-execution decision ahead of retained wait evidence", async () => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    const item = await buildWakeProgressItemFromLookupTrace({
+      ...trace,
+      runtimeCoordinatorExecution: trace.runtimeCoordinatorExecution
+        ? {
+            ...trace.runtimeCoordinatorExecution,
+            status: "delivery_rejected",
+          }
+        : null,
+      runtimeCoordinatorHeadLifecycle: {
+        factSource: "runtime_coordinator_head_lifecycle",
+        readStatus: "found",
+        noExecutionDecision: {
+          reasonCode: "wake.device_wait.expired",
+        },
+        waitingBoundary: {
+          deadlineAt: new Date(Date.now() - 1000).toISOString(),
+          reasonCode: "local_service.not_accepting_wakes",
+          softDeadlineAt: new Date(Date.now() - 2000).toISOString(),
+        },
+      },
+    } as unknown as SpaceDispatchTraceSnapshot);
+
+    expect(item).toMatchObject({
+      failureReasonCode: "wake.device_wait.expired",
+      phase: "failed",
+      terminal: false,
     });
   });
 
@@ -5750,6 +5946,7 @@ describe("space signal service", () => {
       expect.objectContaining({
         clientMessageId: outboxRecord.sourceClientMessageId,
         dispatchId: outboxRecord.dispatchId,
+        message: "@Codex Agent is working...",
         phase: "running",
         sourceSignalId: outboxRecord.sourceEventId,
         targetProfileId: outboxRecord.targetProfileId,
@@ -5793,6 +5990,57 @@ describe("space signal service", () => {
         terminal: false,
       }),
     ]);
+  });
+
+  it("shows a task continuation's own hosted working dispatch after the original Wake", async () => {
+    const sourceSignal = createWakeProgressSourceSignal({
+      clientMessageId: "client-message-parent-1",
+      id: "signal-parent-1",
+    });
+    const childResult = createWakeProgressSourceSignal({
+      clientMessageId: null,
+      id: "signal-child-result-1",
+      targetProfileIds: [],
+    });
+    const response = await readActiveWakeProgressForTest({
+      activeNativeDeliveryRows: [
+        {
+          dispatchId: "dispatch-parent-continuation-1",
+          nativeDeliveryStatus: "accepted",
+          sourceClientMessageId: null,
+          sourceEventId: sourceSignal.id,
+          targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
+        },
+      ],
+      continuationResultRows: [
+        {
+          dispatchId: "dispatch-parent-continuation-1",
+          publishedSignalId: childResult.id,
+        },
+      ],
+      includeWakeStopEligibility: true,
+      outboxRows: [],
+      sourceSignals: [sourceSignal, childResult],
+    });
+
+    expect(response.items).toContainEqual(
+      expect.objectContaining({
+        clientMessageId: null,
+        dispatchId: "dispatch-parent-continuation-1",
+        message: "@Agent is working...",
+        phase: "running",
+        sourceSignalId: childResult.id,
+        terminal: false,
+      })
+    );
+    expect(
+      response.items.find(
+        (item) => item.dispatchId === "dispatch-parent-continuation-1"
+      )?.wakeStopEligibility
+    ).toMatchObject({
+      controlMode: "cancel",
+      status: "eligible",
+    });
   });
 
   it("rehydrates Stop-enabled hosted progress without an active outbox record", async () => {

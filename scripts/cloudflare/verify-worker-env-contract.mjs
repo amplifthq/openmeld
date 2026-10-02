@@ -222,6 +222,7 @@ const workerPackages = [
     secretOwned: true,
     requiredSecretNames: [
       "GITHUB_OPENMELD_API_TOKEN",
+      "GITHUB_OPENMELD_WEBHOOK_SECRET",
       "SLACK_OPENMELD_BOT_TOKEN",
       "SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
       "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
@@ -261,6 +262,7 @@ const workerPackages = [
       "OPENMELD_FEISHU_CHANNEL_ENABLED",
       "OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS",
       "GITHUB_OPENMELD_API_TOKEN",
+      "GITHUB_OPENMELD_WEBHOOK_SECRET",
       "SLACK_OPENMELD_BOT_TOKEN",
       "SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
       "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
@@ -641,7 +643,10 @@ if (verifiesStaging) {
         openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS &&
       stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_ACTIONS ===
         openConnectorWrangler.vars?.OOMOL_CONNECT_BLOCKED_ACTIONS &&
-      stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*",
+      stagingConnector.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*" &&
+      openConnectorWrangler.vars?.OOMOL_CONNECT_BLOCKED_PROXIES === "*" &&
+      stagingConnector.main === ".openmeld-working-copy-worker.mjs" &&
+      openConnectorWrangler.main === ".openmeld-working-copy-worker.mjs",
     "OpenConnector staging must preserve the reviewed production capability and credential contracts."
   );
 }

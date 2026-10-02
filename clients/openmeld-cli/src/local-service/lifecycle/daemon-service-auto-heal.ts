@@ -9,8 +9,8 @@ import {
 import { resolveOpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
 import { DAEMON_SERVICE_AUTO_HEAL_ANOMALIES } from "./daemon-service-anomaly-groups";
 import {
-  buildDaemonSystemServiceCommandSpec,
   ensureDaemonSystemServiceCommandFiles,
+  resolveInstalledDaemonSystemServiceCommandSpec,
 } from "./daemon-service-command-spec";
 import {
   buildDaemonServiceCleanupPlan,
@@ -278,12 +278,13 @@ async function repairSystemServiceRegistration(input: {
   if (!input.systemManager) {
     return;
   }
-  const serviceCommandSpec = buildDaemonSystemServiceCommandSpec({
-    controller: input.systemManager.controller,
-    environmentTarget: await resolveOpenMeldEnvironmentTarget({
-      gatewayUrl: input.gatewayUrl,
-    }),
-  });
+  const serviceCommandSpec =
+    await resolveInstalledDaemonSystemServiceCommandSpec({
+      controller: input.systemManager.controller,
+      environmentTarget: await resolveOpenMeldEnvironmentTarget({
+        gatewayUrl: input.gatewayUrl,
+      }),
+    });
   await ensureDaemonSystemServiceCommandFiles({
     controller: input.systemManager.controller,
   });

@@ -137,7 +137,10 @@ export type {
   SetCurrentOrganizationFeedbackReportingPolicyInput,
   SubmitFeedbackIssueInput,
 } from "./feedback/types";
+export type { FileRootLocation } from "./file-root/api";
+export { createFileRootApi } from "./file-root/api";
 export { createInboxApi } from "./inbox/api";
+export { isInboxItemInOrganizationScope } from "./inbox/item-scope";
 export {
   inboxMessageNotificationSpaceId,
   isInboxItemVisibleConversation,
@@ -246,11 +249,16 @@ export type {
 } from "./organization-documents/types";
 export { createOrganizationSkillsApi } from "./organization-skills/api";
 export {
+  buildOrganizationSkillCatalogPath,
   buildOrganizationSkillEnabledPath,
+  buildOrganizationSkillFilesImportPath,
+  buildOrganizationSkillFilesPreviewPath,
   buildOrganizationSkillGitHubImportPath,
   buildOrganizationSkillGitHubPreviewPath,
   buildOrganizationSkillMaintainersPath,
   buildOrganizationSkillPath,
+  buildOrganizationSkillRepositoryPreviewPath,
+  buildOrganizationSkillResourcePath,
   buildOrganizationSkillsPath,
 } from "./organization-skills/routes";
 export type {
@@ -362,6 +370,7 @@ export {
   getSpaceFile,
   listSpaceFileRevisions,
   listSpaceFiles,
+  postSpaceWorkHandoff,
   setSpaceAccessMode,
   trashSpaceFileEntry,
   updateSpaceFileContent,
@@ -374,6 +383,13 @@ export {
   readOrUpdateSpaceFilePins,
   readOrUpdateSpaceMessagePins,
 } from "./space/message-pins";
+export { buildSpaceFileContentPath } from "./space/routes";
+export {
+  createSpaceTask,
+  getSpaceTask,
+  listSpaceTasks,
+  mutateSpaceTask,
+} from "./space/tasks";
 export type {
   OpenMeldApiClientStreamTransport,
   OpenMeldApiClientTransport,

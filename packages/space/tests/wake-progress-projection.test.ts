@@ -3,6 +3,7 @@ import {
   AGENT_REPLY_FINAL_PURPOSE,
   AGENT_REPLY_PREVIEW_PURPOSE,
   AGENT_REPLYING_PURPOSE,
+  buildWorkingFolderRecoveryQuestion,
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
   DISPATCH_ACTIVITY_FAILED_PURPOSE,
   DISPATCH_ACTIVITY_RETRYING_PURPOSE,
@@ -22,10 +23,106 @@ const TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const OTHER_TARGET_PROFILE_ID = "agt_44444444-4444-4444-8444-444444444444";
 
 describe("Wake progress projection", () => {
+  it("keeps awaiting confirmation active and stoppable without inventing an execution outcome", () => {
+    const item = createWakeProgressItem({
+      clientMessageId: "request",
+      dispatchId: "uncertain",
+      sourceSignalId: "source",
+      targetProfileId: TARGET_PROFILE_ID,
+      targetLabel: "Agent",
+      phase: "running",
+      failureReasonCode: "remote_agent.execution_confirmation_pending",
+      updatedAtMs: 100,
+      wakeStopEligibility: {
+        status: "eligible",
+        controlMode: "cancel",
+        reliability: "native_cancel",
+        reasonCode: null,
+      },
+    });
+    expect(item.terminal).toBe(false);
+    expect(item.failureReasonCode).toBe(
+      "remote_agent.execution_confirmation_pending"
+    );
+    expect(item.message).toContain(
+      "Later work in this conversation may be waiting"
+    );
+    expect(item.message).toContain("Do not resend the original request");
+    expect(item.message).not.toContain("is working");
+    expect(isActiveWakeProgressItem(item)).toBe(true);
+  });
+  it("keeps distinct executions on one source separate through merging and final cleanup", () => {
+    const a = createWakeProgressItem({
+      clientMessageId: "request",
+      dispatchId: "A",
+      sourceSignalId: "source",
+      targetProfileId: TARGET_PROFILE_ID,
+      targetLabel: "Agent",
+      phase: "running",
+      updatedAtMs: 100,
+    });
+    const b = { ...a, dispatchId: "B", updatedAtMs: 200 };
+    const merged = mergeWakeProgressItems({
+      currentItems: [a],
+      incomingItems: [b],
+    });
+    expect(merged.map((item) => item.dispatchId)).toEqual(["A", "B"]);
+    expect(
+      mergeWakeProgressItems({
+        currentItems: merged,
+        incomingItems: [
+          { ...a, phase: "replied", terminal: true, updatedAtMs: 300 },
+        ],
+      })
+    ).toEqual([b]);
+    const final = createTextSignal({
+      id: "final-A",
+      text: "Done",
+      ts: 300,
+      meta: {
+        purpose: AGENT_REPLY_FINAL_PURPOSE,
+        dispatchId: "A",
+        targetProfileId: TARGET_PROFILE_ID,
+      },
+      replyTo: {
+        signalId: "source",
+        profileId: "viewer",
+        profileKind: "human",
+        profileName: "Viewer",
+        previewText: "Request",
+      },
+    });
+    expect(
+      applyWakeProgressSignals({ currentItems: merged, signals: [final] })
+    ).toEqual([b]);
+    const pending = { ...a, dispatchId: null, phase: "sending" as const };
+    const upgraded = mergeWakeProgressItems({
+      currentItems: [pending],
+      incomingItems: [a],
+    });
+    expect(upgraded).toEqual([a]);
+    expect(
+      mergeWakeProgressItems({
+        currentItems: upgraded,
+        incomingItems: [{ ...a, dispatchId: null, updatedAtMs: 400 }],
+      })[0]?.dispatchId
+    ).toBe("A");
+  });
   it.each([
     AGENT_REPLYING_PURPOSE,
     AGENT_REPLY_PREVIEW_PURPOSE,
-  ])("keeps Core Stop eligibility while applying %s presentation updates", (purpose) => {
+  ])("keeps Core interaction and Stop controls while applying %s presentation updates", (purpose) => {
+    const request = {
+      ...buildWorkingFolderRecoveryQuestion({
+        previousFolder: "available",
+        previousFolderLabel: "original",
+        selectedFolderLabel: "selected",
+      }),
+      v: 1 as const,
+      interactionId: "folder-choice",
+      requestedAtMs: 10,
+      expiresAtMs: 60_000,
+    };
     const current = createWakeProgressItem({
       clientMessageId: "client-message-1",
       dispatchId: "dispatch-1",
@@ -34,6 +131,15 @@ describe("Wake progress projection", () => {
       targetLabel: "Center Agent",
       targetProfileId: TARGET_PROFILE_ID,
       updatedAtMs: 10,
+      runtimeCoordinatorExecutionId: "execution-1",
+      pendingInteraction: {
+        canRespond: true,
+        expiresAtMs: request.expiresAtMs,
+        interactionId: request.interactionId,
+        kind: request.kind,
+        requestedAtMs: request.requestedAtMs,
+        request,
+      },
       wakeStopEligibility: {
         controlMode: "cancel",
         reasonCode: null,
@@ -59,14 +165,31 @@ describe("Wake progress projection", () => {
       signals: [signal],
     });
     expect(items[0]?.wakeStopEligibility).toEqual(current.wakeStopEligibility);
+    expect(items[0]?.pendingInteraction).toEqual(current.pendingInteraction);
+    expect(items[0]?.runtimeCoordinatorExecutionId).toBe("execution-1");
     expect(
       applyWakeProgressSignals({ currentItems: [], signals: [signal] })[0]
         ?.wakeStopEligibility
     ).toBeUndefined();
+    expect(
+      applyWakeProgressSignals({ currentItems: [], signals: [signal] })[0]
+        ?.pendingInteraction
+    ).toBeUndefined();
+    const otherExecution = applyWakeProgressSignals({
+      currentItems: [{ ...current, dispatchId: "another-dispatch" }],
+      signals: [signal],
+    }).find((item) => item.dispatchId === "dispatch-1");
+    expect(otherExecution?.pendingInteraction).toBeUndefined();
+    expect(otherExecution?.runtimeCoordinatorExecutionId).toBeUndefined();
     const revoked = mergeWakeProgressItems({
       currentItems: items,
       incomingItems: [
-        { ...current, updatedAtMs: 30, wakeStopEligibility: null },
+        {
+          ...current,
+          updatedAtMs: 30,
+          wakeStopEligibility: null,
+          pendingInteraction: null,
+        },
       ],
     });
     expect(
@@ -75,6 +198,19 @@ describe("Wake progress projection", () => {
         signals: [{ ...signal, ts: 40 }],
       })[0]?.wakeStopEligibility
     ).toBeNull();
+    expect(
+      applyWakeProgressSignals({
+        currentItems: revoked,
+        signals: [{ ...signal, ts: 40 }],
+      })[0]?.pendingInteraction
+    ).toBeNull();
+    const { pendingInteraction: _pending, ...withoutInteraction } = current;
+    expect(
+      mergeWakeProgressItems({
+        currentItems: items,
+        incomingItems: [{ ...withoutInteraction, updatedAtMs: 50 }],
+      })[0]?.pendingInteraction
+    ).toBeUndefined();
   });
 
   beforeEach(() => {

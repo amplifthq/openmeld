@@ -16,6 +16,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	copySpaceOpenDiagnosticId,
 	markSpaceOpen,
@@ -27,6 +28,7 @@ import { isSessionExpiredError } from "#/lib/session-expired";
 import { isCurrentSpaceAccessRejection } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
 import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolution";
+import { DesktopProtectedSpaceHandoff } from "./desktop-protected-space-handoff";
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 
 export function SpaceEntryGate(input: {
@@ -64,7 +66,11 @@ export function SpaceEntryGate(input: {
 		...queryInput,
 		enabled: typeof window !== "undefined",
 	});
-	const resolutionQuery = useQuery(resolutionOptions);
+	const resolutionQuery = useQuery({
+		...resolutionOptions,
+		refetchOnWindowFocus: true,
+		refetchInterval: input.redirectToOrganization ? 15_000 : false,
+	});
 	useEffect(() => {
 		observeSpaceOpen(input.spaceId, {
 			queryStatus: resolutionQuery.status,
@@ -135,13 +141,16 @@ export function SpaceEntryGate(input: {
 		return (
 			<Navigate
 				replace
+				search={{
+					focusSignalId:
+						resolutionQuery.data?.target.signalId ?? input.signalId,
+					focusThreadRootSignalId:
+						resolutionQuery.data?.target.threadRootSignalId ??
+						input.threadRootSignalId,
+				}}
 				to={buildOrganizationSpacePath({
 					orgSlug: organizationSlug,
 					spaceId: input.spaceId,
-					search: {
-						focusSignalId: input.signalId,
-						focusThreadRootSignalId: input.threadRootSignalId,
-					},
 				})}
 			/>
 		);
@@ -163,6 +172,11 @@ export function SpaceEntryGate(input: {
 	}
 	if (resolutionQuery.isPending && input.pendingContent) {
 		return input.renderFrame(input.pendingContent);
+	}
+	if (shouldHandOffProtectedSpaceToWeb(resolutionQuery.data)) {
+		return input.renderFrame(
+			<DesktopProtectedSpaceHandoff spaceId={input.spaceId} />
+		);
 	}
 
 	const retry = () => {
@@ -242,6 +256,15 @@ export function SpaceEntryGate(input: {
 			resolution={resolutionQuery.data ?? null}
 			signInHref={input.signInHref}
 		/>
+	);
+}
+
+function shouldHandOffProtectedSpaceToWeb(
+	resolution: GetSpaceEntryResolutionResponse | undefined
+): boolean {
+	return (
+		resolution?.view.state === "password_required" &&
+		getDesktopPlatform() !== null
 	);
 }
 

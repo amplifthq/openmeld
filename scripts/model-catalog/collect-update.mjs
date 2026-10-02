@@ -3,9 +3,22 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { digest, runUpdate } from "./catalog-update.mjs";
-import { renderBatchReview } from "./review.mjs";
+import { modelReviewFacts, renderBatchReview } from "./review.mjs";
 
-export function combineUpdates(current, results) {
+export function batchReviewFingerprint(evidence, current, config) {
+  return digest(
+    evidence.map((item) => ({
+      controller: item.controller,
+      facts: modelReviewFacts(
+        item,
+        current,
+        config[item.controller]?.discoverySince
+      ),
+    }))
+  );
+}
+
+export function combineUpdates(current, results, config = {}) {
   const catalog = structuredClone(current);
   for (const result of results) {
     if (result.evidence.changes.length) {
@@ -19,12 +32,7 @@ export function combineUpdates(current, results) {
   return {
     catalog,
     evidence,
-    fingerprint: digest(
-      evidence.map(({ controller, fingerprint }) => ({
-        controller,
-        fingerprint,
-      }))
-    ),
+    fingerprint: batchReviewFingerprint(evidence, current, config),
     changed: results.some((result) => result.changed),
   };
 }
@@ -60,7 +68,8 @@ export async function collectUpdate(output, root = process.cwd()) {
   }
   const result = combineUpdates(
     current,
-    settled.map((item) => item.value)
+    settled.map((item) => item.value),
+    config
   );
   const formatted = execFileSync(
     resolve(root, "node_modules/.bin/biome"),

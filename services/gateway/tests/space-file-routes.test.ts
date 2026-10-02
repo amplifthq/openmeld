@@ -1,9 +1,25 @@
+import {
+  OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
 import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayAuthRpcEntrypoint } from "../../auth/src/index";
 import type { GatewayRpcEntrypoint } from "../../core/src/index";
 import { createCoreRpcHttpError } from "../../core/src/rpc/errors";
 import app from "../src/index";
+
+const ORIGIN_CAPABLE_HEADERS = {
+  [OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]:
+    OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+};
+const CURRENT_FILE_CAPABILITY_HEADERS = {
+  ...ORIGIN_CAPABLE_HEADERS,
+  [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+    OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+};
 
 const SPACE_ID = "space-files-route-test";
 const ORGANIZATION_ID = "org-files-route-test";
@@ -49,7 +65,9 @@ const FILE = {
     sizeBytes: TEXT_BYTES.byteLength,
     createdAt: "2026-08-22T08:00:00.000Z",
     createdBy: ACTOR,
+    imageDimensions: { width: 800, height: 600 },
   },
+  origin: "artifact" as const,
   trashedAt: null,
   trashedBy: null,
 };
@@ -87,6 +105,7 @@ function makeEnv(input?: { readBytes?: ArrayBuffer; writeError?: Error }): {
       GatewayRpcEntrypoint["streamSpaceFileContent"]
     >(async () => ({
       bytes: new Blob([input?.readBytes ?? TEXT_BYTES]).stream(),
+      stream: { status: 200, etag: `"${REVISION_ID}"` },
       organizationId: ORGANIZATION_ID,
       objectKey: OBJECT_KEY,
       file: FILE,
@@ -167,8 +186,215 @@ describe("Space file routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ view: "trash" });
     expect(listSpaceFiles).toHaveBeenCalledWith(
-      expect.objectContaining({ query: { view: "trash" } })
+      expect.objectContaining({
+        query: { view: "trash", origin: "artifact" },
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
+  });
+
+  it("declares current file capabilities on the Gateway-to-Core RPC boundary for every file-bearing operation, independent of the HTTP caller's own capability", async () => {
+    // This is a second, independent negotiation from the HTTP client-to-
+    // Gateway boundary covered elsewhere in this file: current Gateway
+    // always asks Core for the origin-aware shape internally (so it can
+    // apply its own HTTP-caller-facing projection), regardless of whether
+    // the calling HTTP client declared the capability. An already-published
+    // Gateway build has no second argument on any of these calls at all and
+    // never sends it — see the Core-side coverage
+    // (`services/core/tests/organization-rpc.test.ts`,
+    // `withSpaceFilesOriginRpcOutput`) and the frozen-schema proof
+    // (`packages/schemas/tests/http/space-files.test.ts`, "lets a frozen
+    // pre-origin Gateway parse a current Core response...") for what
+    // protects that already-published Gateway once Core stops passing it
+    // the pre-origin shape unconditionally.
+    const { coreRpc, env } = makeEnv();
+    const getSpaceFile = vi.fn(async () => FILE);
+    const listSpaceFileRevisions = vi.fn(async () => ({
+      file: FILE,
+      revisions: [FILE.latestRevision],
+    }));
+    const updateSpaceFileEntry = vi.fn(async () => ({ entry: FILE }));
+    Object.assign(coreRpc, {
+      getSpaceFile,
+      listSpaceFileRevisions,
+      updateSpaceFileEntry,
+    });
+
+    await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/revisions`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}`, {
+        body: JSON.stringify({
+          clientMutationId: "rename-route-test",
+          name: "renamed.md",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "PATCH",
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(getSpaceFile).toHaveBeenCalledWith(
+      expect.anything(),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+    );
+    expect(listSpaceFileRevisions).toHaveBeenCalledWith(
+      expect.anything(),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+    );
+    expect(updateSpaceFileEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+    );
+  });
+
+  it("strips origin from every file descriptor for a caller that has not declared the origin capability", async () => {
+    const { coreRpc, env } = makeEnv();
+    const listSpaceFiles = vi.fn(async () => ({
+      breadcrumbs: [{ id: null, name: "Files" }],
+      capabilities: { canRead: true as const, canWrite: true },
+      entries: [FILE],
+      origin: "artifact" as const,
+      parentId: null,
+      spaceId: SPACE_ID,
+      view: "active" as const,
+    }));
+    Object.assign(coreRpc, { listSpaceFiles });
+
+    const response = await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    const rawBody = await response.text();
+    // A frozen pre-origin strict reader has no concept of this key at all;
+    // it must be genuinely absent, not merely null, anywhere in the body.
+    expect(rawBody).not.toContain("origin");
+    const payload = JSON.parse(rawBody) as {
+      entries: Record<string, unknown>[];
+      origin?: unknown;
+    };
+    expect(payload.origin).toBeUndefined();
+    expect(payload.entries[0]).not.toHaveProperty("origin");
+  });
+
+  it("includes origin on every file descriptor for a caller that declares the origin capability", async () => {
+    const { coreRpc, env } = makeEnv();
+    const listSpaceFiles = vi.fn(async () => ({
+      breadcrumbs: [{ id: null, name: "Files" }],
+      capabilities: { canRead: true as const, canWrite: true },
+      entries: [FILE],
+      origin: "artifact" as const,
+      parentId: null,
+      spaceId: SPACE_ID,
+      view: "active" as const,
+    }));
+    Object.assign(coreRpc, { listSpaceFiles });
+
+    const response = await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files`, {
+        headers: CURRENT_FILE_CAPABILITY_HEADERS,
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      entries: [
+        {
+          origin: "artifact",
+          latestRevision: {
+            imageDimensions: { width: 800, height: 600 },
+          },
+        },
+      ],
+      origin: "artifact",
+    });
+  });
+
+  it("never leaks a schema-defaulted origin to a non-capable caller even when Core itself predates origin", async () => {
+    // Simulates a producer (Core) that predates this contract entirely: no
+    // `origin` key anywhere in its raw response. Gateway's own (current)
+    // response schema still parses this successfully and fills in the
+    // default (`origin: null` on the descriptor, `origin: "artifact"` on
+    // the list) — that default must never reach a caller who never declared
+    // the capability, precisely because the caller never asked for it.
+    const { coreRpc, env } = makeEnv();
+    const preOriginFile = Object.fromEntries(
+      Object.entries(FILE).filter(([key]) => key !== "origin")
+    );
+    const listSpaceFiles = vi.fn(async () => ({
+      breadcrumbs: [{ id: null, name: "Files" }],
+      capabilities: { canRead: true as const, canWrite: true },
+      entries: [preOriginFile],
+      parentId: null,
+      spaceId: SPACE_ID,
+      view: "active" as const,
+    }));
+    Object.assign(coreRpc, { listSpaceFiles });
+
+    const response = await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    const rawBody = await response.text();
+    expect(rawBody).not.toContain("origin");
+  });
+
+  it("strips origin from a single-file read (getSpaceFile) for a non-capable caller", async () => {
+    const { coreRpc, env } = makeEnv();
+    const getSpaceFile = vi.fn(async () => FILE);
+    Object.assign(coreRpc, { getSpaceFile });
+
+    const response = await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    const rawBody = await response.text();
+    expect(rawBody).not.toContain("origin");
+  });
+
+  it("includes origin on a single-file read (getSpaceFile) for a capable caller", async () => {
+    const { coreRpc, env } = makeEnv();
+    const getSpaceFile = vi.fn(async () => FILE);
+    Object.assign(coreRpc, { getSpaceFile });
+
+    const response = await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}`, {
+        headers: ORIGIN_CAPABLE_HEADERS,
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      file: { origin: "artifact" },
+    });
   });
 
   it("restores a trashed entry through the authenticated Gateway route", async () => {
@@ -183,7 +409,10 @@ describe("Space file routes", () => {
           body: JSON.stringify({
             clientMutationId: "restore-entry-route-test",
           }),
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...CURRENT_FILE_CAPABILITY_HEADERS,
+          },
           method: "POST",
         }
       ),
@@ -198,7 +427,9 @@ describe("Space file routes", () => {
         body: { clientMutationId: "restore-entry-route-test" },
         entryId: FILE_ID,
         spaceId: SPACE_ID,
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -215,7 +446,10 @@ describe("Space file routes", () => {
             baseRevision: 1,
             clientMutationId: "restore-revision-route-test",
           }),
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...CURRENT_FILE_CAPABILITY_HEADERS,
+          },
           method: "POST",
         }
       ),
@@ -234,7 +468,9 @@ describe("Space file routes", () => {
         fileId: FILE_ID,
         revision: 1,
         spaceId: SPACE_ID,
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -258,7 +494,9 @@ describe("Space file routes", () => {
           name: "launch-notes.md",
           spaceId: SPACE_ID,
         }),
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
     expect(bucket.put).not.toHaveBeenCalled();
   });
@@ -321,7 +559,10 @@ describe("Space file routes", () => {
           body: JSON.stringify({
             clientMutationId: "publish-composer-upload-route-test",
           }),
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...CURRENT_FILE_CAPABILITY_HEADERS,
+          },
           method: "POST",
         }
       ),
@@ -336,7 +577,9 @@ describe("Space file routes", () => {
         clientMutationId: "publish-composer-upload-route-test",
         spaceId: SPACE_ID,
         uploadId: COMPOSER_UPLOAD_ID,
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -461,6 +704,105 @@ describe("Space file routes", () => {
     expect(bucket.get).not.toHaveBeenCalled();
   });
 
+  it("preserves 206 and the immutable byte range from the authorized Core stream", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.streamSpaceFileContent.mockResolvedValueOnce({
+      bytes: new Blob(["launch"]).stream(),
+      stream: { status: 206, etag: `"${REVISION_ID}"`, offset: 7, length: 6 },
+      organizationId: ORGANIZATION_ID,
+      objectKey: OBJECT_KEY,
+      file: FILE,
+      revision: { ...FILE.latestRevision, mimeType: "video/mp4" },
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content?revision=1`,
+        { headers: { range: "bytes=7-12", "if-range": `"${REVISION_ID}"` } }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(
+      `bytes 7-12/${TEXT_BYTES.byteLength}`
+    );
+    expect(response.headers.get("content-length")).toBe("6");
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(
+      response.headers.get("content-disposition")?.startsWith("inline;")
+    ).toBe(true);
+    expect(response.headers.get("cache-control")).toContain("private");
+    expect(await response.text()).toBe("launch");
+    expect(coreRpc.streamSpaceFileContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: { spaceId: SPACE_ID, fileId: FILE_ID, revision: 1 },
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+      { head: false, range: "bytes=7-12", ifRange: `"${REVISION_ID}"` }
+    );
+  });
+
+  it.each([
+    "HEAD",
+    "GET",
+  ])("serves bodyless %s responses without draining the original", async (method) => {
+    const { coreRpc, env } = makeEnv();
+    const cancelled = vi.fn();
+    coreRpc.streamSpaceFileContent.mockResolvedValueOnce({
+      bytes: new ReadableStream({ cancel: cancelled }, { highWaterMark: 0 }),
+      stream: {
+        status: method === "HEAD" ? 200 : 416,
+        etag: `"${REVISION_ID}"`,
+      },
+      organizationId: ORGANIZATION_ID,
+      objectKey: OBJECT_KEY,
+      file: FILE,
+      revision: FILE.latestRevision,
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content?revision=1`,
+        { method, headers: { range: "bytes=999-" } }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(method === "HEAD" ? 200 : 416);
+    expect(response.headers.get("content-length")).toBe(
+      method === "HEAD" ? String(TEXT_BYTES.byteLength) : "0"
+    );
+    if (method === "GET") {
+      expect(response.headers.get("content-range")).toBe(
+        `bytes */${TEXT_BYTES.byteLength}`
+      );
+    }
+    expect(await response.text()).toBe("");
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed rather than interpreting an old Core full stream as range support", async () => {
+    const { coreRpc, env } = makeEnv();
+    const cancelled = vi.fn();
+    coreRpc.streamSpaceFileContent.mockResolvedValueOnce({
+      bytes: new ReadableStream({ cancel: cancelled }, { highWaterMark: 0 }),
+      organizationId: ORGANIZATION_ID,
+      objectKey: OBJECT_KEY,
+      file: FILE,
+      revision: FILE.latestRevision,
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content`,
+        { headers: { range: "bytes=0-1" } }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(502);
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
   it("rejects oversized files before contacting Core or R2", async () => {
     const { bucket, coreRpc, env } = makeEnv();
     const response = await app.fetch(
@@ -501,6 +843,7 @@ function uploadRequest(input?: { contentLength?: number }): Request {
       headers: {
         "content-length": String(input?.contentLength ?? TEXT_BYTES.byteLength),
         "content-type": "text/markdown; charset=utf-8",
+        ...CURRENT_FILE_CAPABILITY_HEADERS,
       },
       body: Uint8Array.from(TEXT_BYTES).buffer,
     }

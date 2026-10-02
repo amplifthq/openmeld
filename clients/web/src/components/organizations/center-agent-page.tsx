@@ -4,21 +4,20 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { GearSixIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import type { SpaceView } from "#/components/spaces/space-view";
 import { useAccountAvatar } from "#/hooks/account.hooks";
+import { useCenterAgentPendingMessage } from "#/hooks/use-center-agent-pending-message";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
 import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
 import {
-	activateCenterAgentPendingMessageScope,
 	clearCenterAgentPendingMessage,
 	createPendingCenterAgentMessage,
-	type PendingCenterAgentMessage,
 	readCenterAgentPendingMessage,
 	writeCenterAgentPendingMessage,
 } from "#/lib/organizations/center-agent-pending-message";
@@ -33,13 +32,16 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
+import type { SpaceComposerFilesController } from "../spaces/use-space-composer-attachments";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
 
 export function CenterAgentPage(input: {
 	sessionId?: string;
 	directMessageRouteData: CenterAgentDirectMessageRouteData | null;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
 	initialSpaceView?: SpaceView;
 	presentation?: "compact" | "full";
 }) {
@@ -49,7 +51,9 @@ export function CenterAgentPage(input: {
 	return (
 		<CenterAgentDirectMessagePage
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
+			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			initialSpaceView={input.initialSpaceView}
 			presentation={input.presentation}
 			sessionId={input.sessionId}
@@ -60,7 +64,9 @@ export function CenterAgentPage(input: {
 function CenterAgentDirectMessagePage(input: {
 	sessionId?: string;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
 	initialSpaceView?: SpaceView;
 	presentation?: "compact" | "full";
 }) {
@@ -71,7 +77,9 @@ function CenterAgentDirectMessagePage(input: {
 		<CenterAgentDirectMessageOrganizationBoundary
 			currentUserAvatarImageUrl={currentAccountAvatar?.avatar ?? null}
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
+			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			initialSpaceView={input.initialSpaceView}
 			key={`${currentOrganization.id}:${input.sessionId ?? "default"}`}
 			organizationId={currentOrganization.id}
@@ -86,7 +94,9 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 	sessionId?: string;
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
 	initialSpaceView?: SpaceView;
 	organizationId: string;
 	organizationSlug: string;
@@ -107,7 +117,9 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 		<CenterAgentDirectMessageEntry
 			currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
+			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			initialSpaceView={input.initialSpaceView}
 			onConnectRequired={(organizationId) => {
 				if (organizationId === input.organizationId) {
@@ -126,7 +138,9 @@ function CenterAgentDirectMessageEntry(input: {
 	sessionId?: string;
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
 	initialSpaceView?: SpaceView;
 	onConnectRequired: (organizationId: string) => void;
 	organizationId: string;
@@ -143,10 +157,7 @@ function CenterAgentDirectMessageEntry(input: {
 		organizationSlug: input.organizationSlug,
 	};
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const sidebar = useSidebarPreferences(
-		defaultHumanProfile?.openMeldProfileId ?? "",
-		input.organizationId
-	);
+	const sidebar = useSidebarPreferences(input.organizationId);
 	const composerDraftScope = storageScope.trim()
 		? {
 				kind: "center_agent_pending" as const,
@@ -159,17 +170,16 @@ function CenterAgentDirectMessageEntry(input: {
 		: null;
 	const composerDraft = useComposerDraft({ scope: composerDraftScope });
 	const composerText = composerDraft.content.text;
+	const [composerErrorMessage, setComposerErrorMessage] = useState<
+		string | null
+	>(null);
 	const setComposerText = (text: string) => {
 		composerDraft.setContent((currentDraft) => ({
 			...currentDraft,
 			text,
 		}));
 	};
-	const [pendingMessage, setPendingMessage] =
-		useState<PendingCenterAgentMessage | null>(() => {
-			activateCenterAgentPendingMessageScope(queryClient, pendingScope);
-			return readCenterAgentPendingMessage(queryClient, pendingScope);
-		});
+	const pendingMessage = useCenterAgentPendingMessage(pendingScope);
 	const [routeDataOverride, setRouteDataOverride] = useState<{
 		source: CenterAgentDirectMessageRouteData;
 		value: CenterAgentDirectMessageRouteData;
@@ -184,10 +194,15 @@ function CenterAgentDirectMessageEntry(input: {
 			: input.sessionId;
 	const handleSpaceViewCommitted = useCallback(
 		(view: SpaceView) => {
+			if (view === "tasks") {
+				return;
+			}
 			navigate({
 				replace: true,
 				to: buildOrganizationCenterAgentChatPath(input.organizationSlug, {
 					...(view === "messages" ? {} : { view }),
+					focusSignalId: input.initialFocusSignalId,
+					focusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 					...(resolvedSessionId === undefined
 						? {}
 						: { session: resolvedSessionId }),
@@ -199,9 +214,16 @@ function CenterAgentDirectMessageEntry(input: {
 				);
 			});
 		},
-		[input.organizationSlug, resolvedSessionId, navigate]
+		[
+			input.organizationSlug,
+			input.initialFocusSignalId,
+			input.initialFocusThreadRootSignalId,
+			resolvedSessionId,
+			navigate,
+		]
 	);
 	const [retryPending, setRetryPending] = useState(false);
+	const pendingSubmissionAdmissionRef = useRef(false);
 	const profilesQuery = useQuery(
 		buildStartProfilesQueryOptions({ enabled: true, storageScope })
 	);
@@ -209,25 +231,70 @@ function CenterAgentDirectMessageEntry(input: {
 		directMessageRouteData.status === "error"
 			? resolveCenterAgentErrorMessage(directMessageRouteData.error, "dm_open")
 			: null;
-	const optimisticConversation = (
+	const optimisticConversation = (files: SpaceComposerFilesController) => (
 		<CenterAgentOptimisticConversation
+			attachments={files}
+			composerErrorMessage={composerErrorMessage}
 			composerText={pendingMessage ? "" : composerText}
+			conversationTitle={
+				resolvedSessionId
+					? sidebar.preferences?.chats?.titles[resolvedSessionId]
+					: undefined
+			}
 			onComposerChange={setComposerText}
-			onSend={() => {
-				const text = composerText.trim();
-				if (!text || pendingMessage) {
+			onSend={async () => {
+				if (pendingSubmissionAdmissionRef.current) {
 					return;
 				}
-				const nextPendingMessage = createPendingCenterAgentMessage(text);
-				writeCenterAgentPendingMessage(
-					queryClient,
-					pendingScope,
-					nextPendingMessage
-				);
-				setPendingMessage(nextPendingMessage);
+				pendingSubmissionAdmissionRef.current = true;
+				let claimedDrafts: ReturnType<typeof files.claimSubmissionDrafts> = [];
+				setComposerErrorMessage(null);
+				const text = composerText.trim();
+				if (
+					!(text || files.files.length) ||
+					readCenterAgentPendingMessage(queryClient, pendingScope)
+				) {
+					pendingSubmissionAdmissionRef.current = false;
+					return;
+				}
+				try {
+					await files.waitForDiscovery();
+					if (readCenterAgentPendingMessage(queryClient, pendingScope)) {
+						return;
+					}
+					const fileDrafts = files.claimSubmissionDrafts();
+					claimedDrafts = fileDrafts;
+					const nextPendingMessage = createPendingCenterAgentMessage(text);
+					nextPendingMessage.createdAtMs = Math.max(
+						nextPendingMessage.createdAtMs,
+						composerDraft.record.updatedAtMs
+					);
+					nextPendingMessage.fileDrafts = fileDrafts;
+					nextPendingMessage.files = fileDrafts.map((draft) => draft.file);
+					writeCenterAgentPendingMessage(
+						queryClient,
+						pendingScope,
+						nextPendingMessage
+					);
+				} catch (error) {
+					files.finishSubmission(
+						files.getSubmissionFiles({
+							ids: claimedDrafts.map((draft) => draft.id),
+						})
+					);
+					setComposerErrorMessage(
+						error instanceof Error
+							? error.message
+							: "Couldn't prepare your attachments. Retry to continue."
+					);
+				} finally {
+					pendingSubmissionAdmissionRef.current = false;
+				}
 			}}
+			organizationSlug={input.organizationSlug}
 			pendingMessage={pendingMessage}
 			presentation={input.presentation}
+			selfProfile={defaultHumanProfile}
 		/>
 	);
 
@@ -263,15 +330,18 @@ function CenterAgentDirectMessageEntry(input: {
 				)}
 				currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 				initialComposerDraft={composerDraft.record}
+				initialFocusRequestId={input.initialFocusRequestId}
 				initialFocusSignalId={input.initialFocusSignalId}
+				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				initialPendingMessage={pendingMessage}
 				initialSpaceView={input.initialSpaceView}
 				isCenterAgentDirectMessage
 				isPersonalContext={currentOrganization.isPersonal === true}
-				loadingFallback={optimisticConversation}
+				loadingFallback={(controller) =>
+					optimisticConversation(controller.composerFiles)
+				}
 				onInitialPendingMessageConsumed={() => {
 					clearCenterAgentPendingMessage(queryClient, pendingScope);
-					setPendingMessage(null);
 				}}
 				onSpaceViewCommitted={handleSpaceViewCommitted}
 				orgSlug={input.organizationSlug}

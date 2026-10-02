@@ -104,8 +104,10 @@ const agentWorkActivityKeySchema = z.enum([
   "github.pull_request.update",
   "github.pull_requests.read",
   "github.ref.create",
+  "github.releases.read",
   "github.repositories.read",
   "github.repository.read",
+  "github.workflow.dispatch",
   "github.workflow.rerun",
   "github.workflows.read",
   "image.generate",
@@ -160,9 +162,12 @@ const agentWorkActivityKeySchema = z.enum([
   "space.create",
   "space.files.read",
   "space.files.update",
+  "team.files.read",
+  "team.files.update",
   "space.members.add",
   "space.message.post",
   "space.settings.update",
+  "space.tasks.manage",
   "spaces.read",
   "task.delegate",
   "task.watch",
@@ -224,7 +229,9 @@ const AGENT_WORK_SUBJECT_KIND_BY_KEY: Partial<
   "github.pull_request.update": "repository",
   "github.pull_requests.read": "repository",
   "github.ref.create": "repository",
+  "github.releases.read": "repository",
   "github.repository.read": "repository",
+  "github.workflow.dispatch": "repository",
   "github.workflow.rerun": "repository",
   "github.workflows.read": "repository",
   "organization.document.draft": "document",
@@ -278,7 +285,11 @@ const agentWorkActivitySchema = z
     v: z.literal(1),
     key: agentWorkActivityKeySchema,
     subject: agentWorkSubjectSchema.optional(),
-    outcome: z.literal("confirmation_required").optional(),
+    // Unknown future outcome vocabulary is uncertain, never successful.
+    outcome: z
+      .enum(["confirmation_required", "outcome_unknown"])
+      .catch("outcome_unknown")
+      .optional(),
   })
   .superRefine((work, context) => {
     if (
@@ -367,9 +378,19 @@ const spaceAgentStreamThinkingDeltaFrameSchema = z.strictObject({
   updatedAtMs: timestampSchema,
 });
 
+const spaceAgentStreamProgressDeltaFrameSchema = z.strictObject({
+  type: z.literal("space.agent_stream_delta"),
+  ...agentStreamIdentityShape,
+  kind: z.literal("progress"),
+  progressSnapshot: z.string().max(AGENT_STREAM_SNAPSHOT_MAX_CHARS),
+  state: z.literal("streaming"),
+  updatedAtMs: timestampSchema,
+});
+
 export const spaceAgentStreamDeltaFrameSchema = z.union([
   spaceAgentStreamTextDeltaFrameSchema,
   spaceAgentStreamThinkingDeltaFrameSchema,
+  spaceAgentStreamProgressDeltaFrameSchema,
 ]);
 
 export const agentStreamToolPartSchema = z.strictObject({

@@ -1,12 +1,14 @@
 "use client";
 import {
 	inboxMessageNotificationSpaceId,
+	isInboxItemInOrganizationScope,
 	isInboxNotificationEligible,
 } from "@openmeld/api-client";
+import { accountInvalidationFrameSchema } from "@openmeld/schemas";
 
 import {
 	type QueryClient,
-	useInfiniteQuery,
+	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -14,11 +16,15 @@ import {
 	useCallback,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
+import { useCurrentComputer } from "#/components/app/current-computer";
 import { useInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
 import { getDesktopPlatform } from "#/desktop/platform";
+import { useDesktopUpdater } from "#/desktop/updater";
+import { createAccountInvalidationTransport } from "#/lib/inbox/account-invalidation-transport";
 import {
 	clearInboxNotificationItemPending,
 	type InboxNotificationDeliveryReadiness,
@@ -29,7 +35,8 @@ import {
 	subscribeInboxNotificationSettings,
 } from "#/lib/inbox/client-notifications";
 import { isNotificationConversationVisible } from "#/lib/inbox/desktop-notifications";
-
+import { createInboxNotificationObserver } from "#/lib/inbox/notification-observer";
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import {
 	buildInboxItemSourceNavigation,
 	isInboxItemSourceLocation,
@@ -40,14 +47,34 @@ import {
 } from "#/lib/organizations/inbox";
 import {
 	inboxBrowserNotificationRecoveryItemQueryOptions,
-	inboxItemsInfiniteQueryOptions,
+	inboxQueryKeys,
+	inboxSummaryQueryOptions,
 	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
+import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 
 const INBOX_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
+// The cursor response is empty between events; only a new Space message
+// refreshes the full account Space directory.
+const VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS = 1000;
 const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
 const EMPTY_RECOVERED_PENDING_ITEMS: NotificationInboxItem[] = [];
+
+function resolveTrayComputerStatusTone(
+	computer: ReturnType<typeof useCurrentComputer>
+): "connected" | "offline" | "attention" {
+	if (computer?.status?.reason === "ready") {
+		return "connected";
+	}
+	if (
+		computer?.status?.reason === "service_not_connected" ||
+		computer?.statusLabel === "Not connected"
+	) {
+		return "offline";
+	}
+	return "attention";
+}
 
 export function InboxNotificationListener(input: {
 	organizationId: string;
@@ -56,49 +83,275 @@ export function InboxNotificationListener(input: {
 }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const updater = useDesktopUpdater();
+	const notificationNavigationPaused =
+		Boolean(getDesktopPlatform()) &&
+		(!updater ||
+			updater.status === "preparing" ||
+			updater.status === "installing" ||
+			updater.errorStage === "install");
 	useEffect(() => {
-		let active = true;
+		if (notificationNavigationPaused) {
+			return;
+		}
 		const unsubscribe = getDesktopPlatform()?.onNotificationClick(
 			(reference) => {
 				if (reference.userId !== input.userId) {
 					return;
 				}
-				getCurrentInboxItem(reference)
-					.then(({ item }) => {
-						if (!active || item.recipientUserId !== input.userId) {
-							return;
-						}
-						const navigation = buildInboxItemSourceNavigation({
-							item,
-							orgSlug: reference.organizationSlug,
-						});
-						if (!navigation.openInNewTab) {
-							return navigate({ to: navigation.href });
-						}
+				const navigation = buildInboxItemSourceNavigation({
+					item: reference,
+					orgSlug: reference.organizationSlug,
+				});
+				if (navigation.openInNewTab) {
+					return;
+				}
+				navigate({
+					to: navigation.href,
+					state: requestInboxSourceFocus,
+				}).catch((error: unknown) =>
+					console.warn("[openmeld.desktop.notification_navigation_failed]", {
+						error,
 					})
-					.catch((error: unknown) =>
-						console.warn("[openmeld.desktop.notification_navigation_failed]", {
-							error,
-						})
-					);
+				);
 			}
 		);
 		return () => {
-			active = false;
 			unsubscribe?.();
 		};
-	}, [input.userId, navigate]);
-	const { pathname } = useLocation();
+	}, [input.userId, navigate, notificationNavigationPaused]);
+	const { pathname, state: locationState } = useLocation();
+	const navigationKey = locationState?.__TSR_key;
 	const visibleConversation = useInboxVisibleConversation();
+	const computer = useCurrentComputer();
+	const trayComputerStatusTone = resolveTrayComputerStatusTone(computer);
 	const [settingsState, setSettingsState] = useState(() => ({
 		enabled: readInboxNotificationSettings({ userId: input.userId }).enabled,
 		userId: input.userId,
 	}));
 	const notificationsEnabled =
 		settingsState.userId === input.userId && settingsState.enabled;
+	// Observe the shared Inbox summary; the existing native cadence refreshes it.
+	const summaryQuery = useQuery({
+		...inboxSummaryQueryOptions({
+			organizationId: input.organizationId,
+			enabled: Boolean(getDesktopPlatform()),
+		}),
+		refetchInterval: false,
+	});
+	const attentionSummary = summaryQuery.data;
+	const attention = useMemo(
+		() =>
+			summaryQuery.isError ||
+			attentionSummary?.unreadUrgentUpdateCount === undefined ||
+			attentionSummary.unreadMentionCount === undefined ||
+			attentionSummary.ordinaryUnreadCount === undefined
+				? null
+				: {
+						ordinaryUnreadCount: attentionSummary.ordinaryUnreadCount,
+						unreadMentionCount: attentionSummary.unreadMentionCount,
+						unreadUrgentUpdateCount: attentionSummary.unreadUrgentUpdateCount,
+						unresolvedActionCount: attentionSummary.unresolvedActionCount,
+						...(attentionSummary.priorityCount === undefined
+							? {}
+							: {
+									priorityCount: attentionSummary.priorityCount,
+									needsActionCount: attentionSummary.needsActionCount,
+									needsReviewCount: attentionSummary.needsReviewCount,
+									unreadPriorityUpdateCount:
+										attentionSummary.unreadPriorityUpdateCount,
+								}),
+					},
+		[attentionSummary, summaryQuery.isError]
+	);
+	const unreadCount = summaryQuery.isError
+		? null
+		: (summaryQuery.data?.totalUnreadCount ?? null);
+	let unreadCountStatus: "loading" | "ready" | "unavailable" = "loading";
+	if (summaryQuery.isError) {
+		unreadCountStatus = "unavailable";
+	} else if (summaryQuery.data) {
+		unreadCountStatus = "ready";
+	}
+	const desktop = getDesktopPlatform();
+	const notificationFeed = useMemo(
+		() => ({
+			read: createInboxNotificationObserver({
+				deliveryEnabled: notificationsEnabled,
+				organizationId: input.organizationId,
+				userId: input.userId,
+			}),
+		}),
+		[input.organizationId, input.userId, notificationsEnabled]
+	);
+	const itemsQuery = useQuery({
+		queryKey: [
+			...inboxQueryKeys.organization(input.organizationId),
+			"notification-observations",
+			input.userId,
+			notificationsEnabled,
+		],
+		queryFn: ({ signal }) => notificationFeed.read(signal),
+		enabled: true,
+		gcTime: 0,
+		staleTime: 0,
+		refetchInterval: (query) => {
+			if (query.state.data?.hasMore) {
+				return VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS;
+			}
+			if (
+				typeof document !== "undefined" &&
+				document.visibilityState === "visible"
+			) {
+				return VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS;
+			}
+			return notificationsEnabled && !desktop
+				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
+				: false;
+		},
+		refetchIntervalInBackground: notificationsEnabled,
+	});
+	useEffect(() => {
+		let stopped = false;
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+		let pingTimer: ReturnType<typeof setInterval> | null = null;
+		let spaceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+		let connection: ReturnType<typeof createAccountInvalidationTransport> =
+			null;
+		let retryCount = 0;
+		const refreshInbox = () => {
+			itemsQuery
+				.refetch({ cancelRefetch: false })
+				.catch((error: unknown) =>
+					console.warn("[openmeld.web.inbox.stream_refresh_failed]", { error })
+				);
+		};
+		const refreshSpaces = () => {
+			queryClient
+				.invalidateQueries({
+					queryKey: accountSpaceQueryKeys.all,
+					predicate: (query) =>
+						query.queryKey[3] === "account" || query.queryKey[3] === "profile",
+				})
+				.catch((error: unknown) =>
+					console.warn("[openmeld.web.space.directory_refresh_failed]", {
+						error,
+					})
+				);
+		};
+		const scheduleSpaceRefresh = () => {
+			if (spaceRefreshTimer) {
+				return;
+			}
+			spaceRefreshTimer = setTimeout(() => {
+				spaceRefreshTimer = null;
+				if (!stopped) {
+					refreshSpaces();
+				}
+			}, 75);
+		};
+		const connect = () => {
+			if (stopped) {
+				return;
+			}
+			connection = createAccountInvalidationTransport({
+				organizationId: input.organizationId,
+				desktop,
+			});
+			const socket = connection;
+			if (!socket) {
+				return; // Older Desktop builds keep the cursor polling fallback.
+			}
+			socket.addEventListener("open", () => {
+				if (stopped) {
+					return;
+				}
+				retryCount = 0;
+				refreshInbox();
+				refreshSpaces();
+				pingTimer = setInterval(() => {
+					try {
+						socket.send("ping");
+					} catch {
+						socket.close();
+					}
+				}, 25_000);
+			});
+			socket.addEventListener("message", (event) => {
+				if (
+					!(event instanceof MessageEvent) ||
+					typeof event.data !== "string"
+				) {
+					return;
+				}
+				let value: unknown;
+				try {
+					value = JSON.parse(event.data);
+				} catch {
+					return;
+				}
+				const frame = accountInvalidationFrameSchema.safeParse(value);
+				if (!frame.success) {
+					return;
+				}
+				if (frame.data.type === "inbox.changed") {
+					refreshInbox();
+				} else {
+					scheduleSpaceRefresh();
+				}
+			});
+			socket.addEventListener("close", () => {
+				if (pingTimer) {
+					clearInterval(pingTimer);
+					pingTimer = null;
+				}
+				if (stopped) {
+					return;
+				}
+				refreshInbox();
+				refreshSpaces();
+				reconnectTimer = setTimeout(
+					connect,
+					Math.min(30_000, 1000 * 2 ** retryCount)
+				);
+				retryCount += 1;
+			});
+		};
+		connect();
+		return () => {
+			stopped = true;
+			if (reconnectTimer) {
+				clearTimeout(reconnectTimer);
+			}
+			if (pingTimer) {
+				clearInterval(pingTimer);
+			}
+			if (spaceRefreshTimer) {
+				clearTimeout(spaceRefreshTimer);
+			}
+			connection?.close();
+		};
+	}, [desktop, input.organizationId, itemsQuery.refetch, queryClient]);
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
+	const deliveryAbortRef = useRef<{
+		feedIdentity: string;
+		controller: AbortController;
+	} | null>(null);
 	useLayoutEffect(() => {
-		const desktop = getDesktopPlatform();
+		const controller = new AbortController();
+		deliveryAbortRef.current = { feedIdentity, controller };
+		return () => controller.abort();
+	}, [feedIdentity]);
+	let latestUnreadStatus: "loading" | "ready" | "unavailable" = "loading";
+	if (itemsQuery.isError) {
+		latestUnreadStatus = "unavailable";
+	} else if (itemsQuery.data) {
+		latestUnreadStatus = "ready";
+	}
+	// An empty cursor poll updates dataUpdatedAt but cannot change the native
+	// preview. Only a cursor advance should trigger another native Inbox read.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: dataUpdatedAt is a payload for cursor changes, not a refresh trigger.
+	useLayoutEffect(() => {
 		if (!desktop) {
 			return;
 		}
@@ -106,17 +359,42 @@ export function InboxNotificationListener(input: {
 			console.warn("[openmeld.desktop.notification_context_failed]", { error });
 		desktop
 			.setNotificationContext({
+				attention,
 				userId: input.userId,
 				organizationId: input.organizationId,
+				organizationSlug: input.organizationSlug,
 				enabled: notificationsEnabled,
+				computer: {
+					available: Boolean(computer?.destination),
+					statusLabel: computer?.statusLabel ?? "Checking…",
+					statusTone: trayComputerStatusTone,
+				},
+				inboxRefreshRevision: itemsQuery.data?.cursor
+					? itemsQuery.dataUpdatedAt
+					: undefined,
+				latestUnreadStatus,
+				navigationKey,
+				unreadCount,
+				unreadCountStatus,
 				visibleConversation,
 			})
 			.catch(reportFailure);
 	}, [
 		input.userId,
 		input.organizationId,
+		input.organizationSlug,
+		computer?.destination,
+		computer?.statusLabel,
+		trayComputerStatusTone,
+		desktop,
+		latestUnreadStatus,
+		itemsQuery.data?.cursor,
 		notificationsEnabled,
+		attention,
+		unreadCount,
+		unreadCountStatus,
 		visibleConversation,
+		navigationKey,
 	]);
 	useLayoutEffect(
 		() => () => {
@@ -160,24 +438,14 @@ export function InboxNotificationListener(input: {
 		userId: input.userId,
 		visibleConversation,
 	});
-	const itemsQuery = useInfiniteQuery({
-		...inboxItemsInfiniteQueryOptions({
-			enabled: notificationsEnabled,
-			organizationId: input.organizationId,
-			view: "all",
-		}),
-		refetchInterval:
-			notificationsEnabled && !getDesktopPlatform()
-				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
-				: false,
-		refetchIntervalInBackground: true,
-	});
 	useEffect(
 		() =>
-			getDesktopPlatform()?.onNotificationPoll(() => {
-				if (!notificationsEnabled) {
-					return;
-				}
+			desktop?.onNotificationPoll(() => {
+				summaryQuery.refetch({ cancelRefetch: false }).catch((error: unknown) =>
+					console.warn("[openmeld.desktop.inbox_summary_refresh_failed]", {
+						error,
+					})
+				);
 				itemsQuery.refetch({ cancelRefetch: false }).catch((error: unknown) =>
 					console.warn("[openmeld.desktop.notification_refresh_failed]", {
 						error,
@@ -185,7 +453,7 @@ export function InboxNotificationListener(input: {
 				);
 				setDeliveryRetryRevision((current) => current + 1);
 			}),
-		[notificationsEnabled, itemsQuery.refetch]
+		[desktop, itemsQuery.refetch, summaryQuery.refetch]
 	);
 	const cancelDeliveryRetry = useCallback((ownedFeedIdentity?: string) => {
 		if (
@@ -246,8 +514,7 @@ export function InboxNotificationListener(input: {
 	}, [input.userId]);
 
 	useLayoutEffect(() => {
-		const listedItems =
-			itemsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+		const listedItems = itemsQuery.data?.items ?? [];
 		const items = mergeInboxNotificationItems({
 			listedItems,
 			recoveredPendingItems,
@@ -285,7 +552,7 @@ export function InboxNotificationListener(input: {
 		if (!(notificationsEnabled && itemsQuery.data)) {
 			return;
 		}
-		const listedItems = itemsQuery.data.pages.flatMap((page) => page.items);
+		const listedItems = itemsQuery.data.items;
 		const availableItemIds = new Set(listedItems.map((item) => item.id));
 		const missingPendingItemIds = [
 			...readPendingInboxNotificationItemIds({
@@ -380,42 +647,71 @@ export function InboxNotificationListener(input: {
 			primedRef.current = false;
 			primedFeedIdentityRef.current = feedIdentity;
 		}
-		if (!(notificationsEnabled && itemsQuery.data)) {
+		if (!itemsQuery.data) {
 			return;
 		}
 		const currentItems = mergeInboxNotificationItems({
-			listedItems: itemsQuery.data.pages.flatMap((page) => page.items),
+			listedItems: itemsQuery.data.items,
 			recoveredPendingItems,
 		});
 		if (!primedRef.current) {
-			primeInboxNotificationFeed({
+			if (notificationsEnabled) {
+				primeInboxNotificationFeed({
+					items: currentItems,
+					observedItemIds,
+					organizationId: input.organizationId,
+					pendingItemIds: readPendingInboxNotificationItemIds({
+						organizationId: input.organizationId,
+						userId: input.userId,
+					}),
+					settledItemIds,
+					userId: input.userId,
+				});
+			} else {
+				markObservedInboxItems(currentItems, observedItemIds);
+			}
+			primedRef.current = true;
+		}
+		const sawNewSpaceMessage = currentItems.some(
+			(item) => item.kind === "space_message" && !observedItemIds.has(item.id)
+		);
+		let sawNewItem = false;
+		if (notificationsEnabled) {
+			sawNewItem = processInboxNotificationItems({
+				signal: deliveryAbortRef.current?.controller.signal,
+				navigate,
+				deliveryAttempt: deliveryRetryRevision,
+				deliveryContextRef,
+				feedIdentity,
+				inFlightItemIds,
 				items: currentItems,
 				observedItemIds,
 				organizationId: input.organizationId,
-				pendingItemIds: readPendingInboxNotificationItemIds({
-					organizationId: input.organizationId,
-					userId: input.userId,
-				}),
+				organizationSlug: input.organizationSlug,
+				pathname,
+				scheduleDeliveryRetry,
 				settledItemIds,
 				userId: input.userId,
+				visibleConversation,
 			});
-			primedRef.current = true;
+		} else {
+			sawNewItem = markObservedInboxItems(currentItems, observedItemIds);
 		}
-		const sawNewItem = processInboxNotificationItems({
-			deliveryAttempt: deliveryRetryRevision,
-			deliveryContextRef,
-			feedIdentity,
-			inFlightItemIds,
-			items: currentItems,
-			observedItemIds,
-			organizationId: input.organizationId,
-			organizationSlug: input.organizationSlug,
-			pathname,
-			scheduleDeliveryRetry,
-			settledItemIds,
-			userId: input.userId,
-			visibleConversation,
-		});
+		if (sawNewSpaceMessage) {
+			// The Inbox item is only a refresh signal. Read the current Space
+			// directory so its preview catches up when a notification arrives.
+			queryClient
+				.invalidateQueries({
+					queryKey: accountSpaceQueryKeys.all,
+					predicate: (query) =>
+						query.queryKey[3] === "account" || query.queryKey[3] === "profile",
+				})
+				.catch((error: unknown) => {
+					console.warn("[openmeld.web.space.directory_refresh_failed]", {
+						error: error instanceof Error ? error.message : String(error),
+					});
+				});
+		}
 		if (sawNewItem) {
 			invalidateInboxFacts({
 				organizationId: input.organizationId,
@@ -443,12 +739,27 @@ export function InboxNotificationListener(input: {
 		scheduleDeliveryRetry,
 		settledItemIds,
 		visibleConversation,
+		navigate,
 	]);
 
 	return null;
 }
 
 type NotificationInboxItem = Parameters<typeof isInboxNotificationEligible>[0];
+
+function markObservedInboxItems(
+	items: readonly NotificationInboxItem[],
+	observedItemIds: Set<string>
+): boolean {
+	let sawNewItem = false;
+	for (const item of items) {
+		if (!observedItemIds.has(item.id)) {
+			observedItemIds.add(item.id);
+			sawNewItem = true;
+		}
+	}
+	return sawNewItem;
+}
 
 type NotificationDeliveryContext = {
 	enabled: boolean;
@@ -545,6 +856,8 @@ function primeInboxNotificationFeed(input: {
 }
 
 function processInboxNotificationItems(input: {
+	signal?: AbortSignal;
+	navigate: ReturnType<typeof useNavigate>;
 	deliveryAttempt: number;
 	deliveryContextRef: {
 		current: NotificationDeliveryContext;
@@ -582,16 +895,46 @@ function processInboxNotificationItems(input: {
 			});
 			continue;
 		}
-		markInboxNotificationItemPending({
-			itemId: item.id,
-			organizationId: input.organizationId,
-			userId: input.userId,
-		});
+		if (
+			!markInboxNotificationItemPending({
+				itemId: item.id,
+				organizationId: input.organizationId,
+				userId: input.userId,
+			})
+		) {
+			input.scheduleDeliveryRetry();
+			continue;
+		}
 		input.inFlightItemIds.add(item.id);
 		const isCurrentFeed = () =>
 			input.deliveryContextRef.current.feedIdentity === input.feedIdentity;
 		showInboxNotification({
+			signal: input.signal,
 			item,
+			organizationId: input.organizationId,
+			onActivate: (currentItem) => {
+				if (input.deliveryContextRef.current.userId !== input.userId) {
+					return;
+				}
+				const navigation = buildInboxItemSourceNavigation({
+					item: currentItem,
+					orgSlug: input.organizationSlug,
+				});
+				if (navigation.openInNewTab) {
+					window.open(navigation.href, "_blank", "noopener,noreferrer");
+				} else {
+					input
+						.navigate({
+							to: navigation.href,
+							state: requestInboxSourceFocus,
+						})
+						.catch((error: unknown) =>
+							console.warn("[openmeld.web.notification_navigation_failed]", {
+								error,
+							})
+						);
+				}
+			},
 			organizationSlug: input.organizationSlug,
 			resolveCurrentReadiness: async () =>
 				await resolveCurrentInboxNotificationReadiness({
@@ -602,10 +945,6 @@ function processInboxNotificationItems(input: {
 					retryAttempt: input.deliveryAttempt,
 					userId: input.userId,
 				}),
-			sourcePath: buildInboxItemSourceNavigation({
-				item,
-				orgSlug: input.organizationSlug,
-			}).href,
 			userId: input.userId,
 			viewingSourceSession: isInboxItemSourceLocation({
 				item,
@@ -722,7 +1061,7 @@ async function resolveCurrentInboxNotificationReadiness(input: {
 	if (
 		currentItem.id !== input.itemId ||
 		currentItem.recipientUserId !== current.userId ||
-		currentItem.organizationId !== current.organizationId ||
+		!isInboxItemInOrganizationScope(currentItem, current.organizationId) ||
 		!shouldDeliverInboxNotification(currentItem)
 	) {
 		return { status: "ineligible" };
@@ -775,7 +1114,7 @@ function handleInboxNotificationDeliveryResult(input: {
 			const currentItem = current.itemsById.get(input.item.id);
 			if (
 				currentItem &&
-				(currentItem.organizationId !== current.organizationId ||
+				(!isInboxItemInOrganizationScope(currentItem, current.organizationId) ||
 					currentItem.recipientUserId !== current.userId ||
 					!shouldDeliverInboxNotification(currentItem))
 			) {

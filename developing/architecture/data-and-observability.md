@@ -20,6 +20,38 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Message search ownership
+
+Each Space owns an FTS5 trigram index over its retained `signal.text` payloads.
+The index stores no attachment content, reasoning, or execution diagnostics.
+SQLite triggers update the index atomically with canonical message inserts,
+edits, recalls, and retention deletes. Historical indexing advances in batches
+of 500 rows on demand and exposes incompleteness instead of empty success.
+Searches scoped to one Space accept one or more characters. Queries of one or
+two characters use a literal scan of that Space's private index because FTS5
+trigram matching cannot serve them; queries of three or more characters keep
+the indexed trigram path. Workspace and Inbox searches retain a three-character
+minimum so a short query cannot fan out linear scans across several Spaces.
+
+Core's shared search reader enumerates active member-owned Space candidates in
+the Organization directory, then calls the normal authorized Space reader for
+each candidate. Directory snapshots never grant access. A request visits at
+most four Spaces, with 30 matches per Space and an explicit continuation cursor;
+it does not use the sidebar's limited loaded list or build a second global
+message store. Results are newest-first within each Space, not globally ranked.
+Inbox search intersects message hits with current recipient/source permissions
+and uncleared canonical Inbox IDs. Non-message activities use a recipient-scoped
+literal title/preview query, paginated at 30 rows. This bounded response contract
+does not imply a measured latency guarantee for large activity histories.
+
+`GET /v1/messages/search` and optional `q` on signal reads are additive shared
+HTTP/RPC contracts. Existing signal reads keep their shape. Rollout must provide
+the Core receiver, then Gateway route, before exposing Web callers; an older
+backend fails visibly rather than silently searching loaded previews. Rollback
+removes callers first; persistent additive SQLite triggers remain compatible
+with older message writers. CLI, Service, setup, Wake, and diagnostics contracts
+are unchanged, so no local-component floor or forced update is required.
+
 ## Human Presence
 
 Core owns Organization-scoped Human presence independently of Computer connection,
@@ -65,6 +97,84 @@ file metadata, and file revisions remain authoritative; pin reads resolve them
 instead of persisting copied previews. Missing messages and trashed files are
 omitted. Retrying a pin preserves its original owner and timestamp, and unpin
 ownership is checked synchronously before deletion in the owning Space.
+
+## Space Task ownership
+
+The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
+owns `space_tasks`, append-only `space_task_events`, and idempotent
+`space_task_operations`. The stored Task document is the current read model;
+phase and revision columns support bounded board reads and conflict-safe writes.
+Every mutation compares the expected Task revision inside the Space transaction.
+An operation id may replay only the exact same request and returns the retained
+receipt without appending another event.
+The same transaction writes `space_task_delivery_outbox` rows for necessary
+handoff, completion, GitHub link projection, and authorized Stop effects.
+The Space alarm retries due rows, and Task detail exposes pending or failed
+effects without treating their state as execution truth. Deterministic Signal
+IDs prevent duplicate publication after a retry. Immediately before inserting
+a Task-authored Signal, Space rechecks the Task's phase, target, result, and
+brief so a cancellation or change cannot admit a stale handoff. The
+`space_task_wake_refs` table records exact Signal and Agent target pairs only
+for Task-associated Wakes; it is a Stop lookup, not an execution ledger.
+Only mutations that may create a delivery intent pre-arm recovery before their
+transaction; checking for due rows only after commit would leave a lost-alarm
+window. Each delivery has bounded backoff and becomes a visible terminal failure
+after twelve attempts. A malformed outbox row is quarantined without blocking
+other Task deliveries. Terminal rows remain available for diagnosis for thirty
+days, then the same bounded Space alarm lane reclaims them.
+
+Task phase is collaboration truth. RuntimeCoordinator and Remote Agent native
+delivery continue to own execution state. Cancellation may call their existing
+Stop boundary after the Task transaction commits, but no Task row proves that a
+process started, stopped, or completed. Task handoff and completion messages are
+deterministic Space Signals, so retrying a Task operation cannot duplicate the
+visible transition or Agent Wake.
+An explicit cancellation may request Stop of each recorded Wake under a narrow
+Task cancellation authority: the same currently active, Auth-verified actor
+must have authored the retained cancellation operation, and the target must
+match a recorded Task Wake. Existing ordinary Wake Stop authority is unchanged.
+Reopening the Task supersedes an earlier cancellation's queued Stop, including
+when the Task is canceled again later. The retained cancellation event and exact
+Wake reference are checked again before the Stop side effect.
+The Stop result remains separate from the canceled Task phase. Provider events
+carry no actor authority and cannot use this Task-specific Stop path.
+
+Linked GitHub issues are references on the Task document. GitHub remains the
+only writer of issue state. `lastObservedState` is a Task-owned observation
+from an authorized GitHub tool result or a verified GitHub App webhook
+delivery, not a second issue store. Remote Agent may create or cancel Tasks
+after a GitHub tool succeeds; it does not write Task rows itself and does not
+PATCH GitHub when a Task closes.
+
+`space_task_github_issue_links` is a Core D1 query projection written after
+the Space Durable Object commits a Task with GitHub `externalWorkItems`. It
+is not Task truth and must not be used as a second Task writer. Detached
+links remain rows with `detached_at_ms` set so webhook fan-out can skip them.
+The Task delivery outbox retries this projection from the latest Task document
+and reconciles all of that Task's links in one D1 batch; replaying an older
+transition cannot revive a detached link.
+`github_app_webhook_deliveries` is the Core delivery-id ledger for GitHub App
+webhook processing on the existing `OPENMELD_DAEMON_DISPATCH_QUEUE`. Duplicate
+`X-GitHub-Delivery` ids are ignored after a successful claim. Missing link
+rows mean no Space is scanned. Webhook callbacks grant no execution authority.
+
+## Center Agent generated session titles
+
+Space owns the generated default title in `space_meta.name`; the existing
+Space index outbox carries the same name to the authorized session list.
+Auth-owned personal `chats.titles` override this default without being changed
+by inference. The title generator is a dedicated Remote Agent Worker RPC,
+outside the Flue conversation and execution queue. Its shared schemas are in
+`packages/schemas/src/schemas/runtime/center-agent-session-title.ts`.
+
+Only already-persisted, user-authored main-timeline messages from the active
+Human in the designated Center Agent DM pair qualify, while the Space name is
+still `New chat`. Space persists a maximum of three attempts in its own storage,
+allows one in-flight request, and checks the current pair and unchanged metadata
+before writing. Failures are best-effort presentation failures logged with
+Space/signal correlation, never Wake failures. Request text and filenames are
+bounded; logs must not contain prompt or response bodies. Existing metadata
+invalidation signals cause clients to reread the owners.
 
 ## Space message previews and slow Web experiences
 
@@ -127,6 +237,11 @@ validation, completion or failure, phase timings, HTTP status, and existing
 server functions, and requests outside this allowlist are not covered by this
 detail; an empty list does not mean no network work occurred. No body is cloned
 or logged. Application-error reports share the ephemeral page and attempt IDs.
+React update-depth reports may include a bounded page-memory trace of fixed
+writer labels and an Agent controller field-change category. The trace contains
+no message, Profile, Space, or controller value, and is diagnostic evidence,
+not an execution or identity fact. The same Error object retains its
+failure-time trace for a later manual submission; other errors do not inherit it.
 The prolonged access-check surface can copy the attempt ID and attempt a
 best-effort snapshot submission; copying is not a delivery receipt.
 
@@ -333,7 +448,9 @@ Inbox message notification preferences have two Core-owned D1 records:
 `inbox_conversation_notification_preferences` stores explicit overrides per
 account, Organization, and Space. Absence of an override means live inheritance.
 These records never write Inbox read state, urgency, email deliveries, or Space
-membership. Core verifies active Organization membership and current conversation
+membership. Core may use an explicit mute as a read-time filter for the opt-in
+Inbox attention presentation; the raw Inbox projection and delivery ledger stay
+unchanged. Core verifies active Organization membership and current conversation
 access before reading or changing a conversation preference. Browser delivery
 re-reads the authorized preference after its delivery lock; browser-local
 permission and sound settings remain local.
@@ -632,10 +749,10 @@ requests. It does not reinterpret an existing operation as
 provider-attributed.
 
 OpenConnector receives that operation ID as its idempotency key and owns the
-provider execution ID plus durable result replay. Every successful provider
-response carries the exact output schema that describes its data, and
-OpenConnector persists and replays both together. Core stores only the provider
-execution ID and `pending`, `completed`, `failed`, or `outcome_unknown` status;
+provider execution ID plus durable result replay. The action catalog carries
+the output schema; a successful execution response carries data and execution
+metadata without a schema. Core stores only the provider execution ID and
+`pending`, `completed`, `failed`, or `outcome_unknown` status;
 it does not copy provider output, its output schema, credentials, or action
 input. A later provider replay may reconcile `outcome_unknown` to `completed`
 or `failed`. Audit history may therefore show the earlier uncertainty and later
@@ -931,6 +1048,20 @@ OpenMeld evidence joins those platform facts to the D1 Run, native-delivery
 ledger, and one destination result; neither metric surface may repair or override
 product truth.
 
+`routine_runs.workflow_last_checked_at_ms` is only a fair-scan cursor. Core
+atomically selects and timestamps a bounded batch in least-recently-checked
+order before reading Workflow status. A stuck or blocked batch cannot occupy
+every subsequent scan. This timestamp grants no execution authority, does not
+change Run status or its result owner, and is not execution progress evidence.
+If a scanner stops after claiming a batch, a later tick can check it again.
+The scan summary counts successful checks, not newly started executions.
+
+Known phase errors may arrive with their original name or as Workerd's `Error`
+envelope with the owned phase name at the beginning of its message. Recovery
+normalizes that outer envelope only; nested errors and generic timeouts do not
+authorize restarting a Workflow. Callback wait renewal emits Run-correlated
+evidence through the same runtime evidence writer.
+
 An unknown Workflow error phase, a terminated instance, a status read failure,
 or a completed instance paired with a nonterminal D1 Run is a blocked-recovery
 condition. Core records the condition and leaves the Run unchanged for operator
@@ -1118,11 +1249,36 @@ to an explicit not-found response at the byte boundary.
 
 ## Space File Data Boundary
 
+Image display geometry is immutable revision metadata in the nullable
+`space_file_revisions.image_dimensions_json` column. The lazy SQLite migration
+is idempotent and leaves historical rows unknown; it does not backfill by reading
+old objects or move authority into D1. Repository reads validate the complete
+pair; non-image revisions omit it. A restored image receives the copied
+original's geometry on its new revision, while earlier revisions remain intact.
+
+The final authorized revision commit extracts bounded metadata from private R2
+ranges (128 KiB and 16 reads maximum), reusing the existing canonical object key
+and revision fence. It does not retain decoded pixels, create thumbnails, or
+rewrite the immutable original. Browser binary caches are separate ephemeral
+read resources, not durable file authority. Neither metadata failures nor image
+loading effects justify logging object URLs, raw bytes, or private object keys.
+
 The Space Durable Object is the only writer for Space File identity, folder
 hierarchy, current placement, revision sequence, Trash state, and actor
 attribution. Its SQLite tables are canonical business state, not a D1
 projection. No Resources, Organization Documents, Center Agent Computer, or
 Space Index table mirrors this tree.
+
+Team and member-private Files use one independent `OrganizationFileRoot`
+Durable Object per Organization Team root or Organization member root. Its
+SQLite database owns that root's file metadata and reuses the Space File
+repository behavior where the file contract matches; its identity row fixes
+the exact root before any mutation. Space roots remain in their existing Space
+Durable Objects. Core checks current Organization membership, active Profile
+ownership, and member-private ownership before each Team/member root operation.
+The initial Team/member endpoint covers metadata and folders only; immutable
+content transport and Agent audience authorization require separate completion
+before this is a user-facing Files location.
 
 The same Space owns `space_file_update_settings` and
 `space_file_update_outbox`. The file revision transaction enqueues notification
@@ -1769,6 +1925,13 @@ An Agent Profile id by itself is never a Task Handle. Availability, process
 presence, Agent Activity, and a generic Agent status cannot settle a
 subscription.
 
+For a continuation that enters an automatic work-loop round, its original
+subscription identity stays immutable while the native delivery identity
+advances. Parent Stop checks resolve that relationship through the exact
+persisted delivery/attempt chain, including the original structured trigger,
+Organization, Space, Profile and Binding. String prefixes are not identity
+evidence. Stop targets the current round, not the subscription's original key.
+
 `agent_task_completion_subscriptions` records the exact watched task, exact
 observer task, explicit completion condition, frozen continuation, idempotency
 key, and continuation claim. `agent_task_terminal_outcomes` is a coordination
@@ -1798,6 +1961,35 @@ continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
 
+The Center Agent's manual summary tool can create one fresh continuation for
+the original requester after a delegated summary has confirmed native failure
+or cancellation. It checks current requester membership and Space write access,
+exact native execution identity and a positive Stop fence. Each retained Space
+child result must be readable by that requester and match the native Space
+dispatch's successful final-reply claim. One verified child result is required;
+unavailable children are named without guessing their contents or locations.
+
+The task owner atomically inserts a new subscription, retaining the old
+subscription and its immutable identity. Its `summaryRecovery` metadata records
+the operator and source subscription. Current authorization is checked again
+at continuation execution; saved metadata is not a grant. This first path is
+original-requester-only and starts a tool-enabled summary of existing results,
+not a replay of child work or the tools-disabled reply-recovery mechanism.
+The upstream Agent supplies a whitelisted reply language for the current
+request; it overrides the retained language. Without a new decision, the
+original continuation's language is retained.
+Unknown, running and completed native executions do not enter this path. Web
+action controls, Inbox re-promotion and restarting the original work are not
+implemented by this tool.
+
+An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
+`center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
+attribution before a direct Space publication; delegated publication writes
+the same deterministic row during accepted settlement. Space compares that
+row's Organization, actor, Space, and represented member to the persisted
+source Signal when authorizing Stop. Older direct Wakes without an exact row
+do not gain this special Stop authority.
+
 `center_agent_wake_publications` is the durable publication outbox for the
 initial Space message that starts delegated child work. It stores the exact
 validated publication command before delegation preparation and uses the Space
@@ -1824,10 +2016,12 @@ redrive also wraps each whole publication execution in the remaining
 slow reconciliation cannot consume the scheduler's full minute or starve later
 scheduled work.
 
-The same subscription table serves two creation paths. Delegation creates
-subscriptions together with explicit parent-child topology. General Task Watch
-creates a subscription for an independent exact task without a delegation row.
-Both paths use the same claim, idempotency, redrive, and continuation ledger
+The same subscription table serves delegation, general Task Watch and manual
+summary recovery. Delegation creates subscriptions with explicit parent-child
+topology. General Task Watch creates a subscription for an independent exact
+task without a delegation row. Manual recovery references an existing settled
+subscription without resetting it. These paths share claim, idempotency,
+redrive, and continuation ledger
 semantics. Stopping a general-watch observer cancels its continuation
 subscription but does not transfer cancellation authority over the watched
 task.
@@ -1963,6 +2157,48 @@ terminal coordination must not reconstruct it from Dispatch Ledger. The ledger
 exists so trace and diagnostics cover native delivery with the same
 deterministic-evidence rule as wakes.
 
+For pre-ACK Space task-continuation recovery, the same row stores
+`admission_attempt_count` and the nullable `admission_retry_due_at_ms`. D1 is the
+retry authority: scheduling compare-and-sets the due time for the current
+attempt, and claiming compare-and-sets the next attempt before worker admission.
+The Queue message is only a delayed wake and may be duplicated or redelivered;
+it never increments attempts by itself. Every retry reuses the row's frozen
+worker request and unchanged delivery, dispatch, and idempotency identities.
+Retry and watchdog wakes also retain the legacy admission-watchdog Queue
+identity. D1 timestamps distinguish their phase, while an older Core therefore
+still recognizes the wake and fails closed during rollback instead of leaving a
+pending retry stranded.
+An ACK clears the due time and makes every pending retry wake stale. Exhaustion
+uses the existing terminal publication and Agent Task Coordination projections,
+plus an idempotent Inbox item keyed by delivery id, so replay cannot execute the
+continuation or alert the requester twice.
+
+Continuation admission emits bounded, schema-validated diagnostic events for
+preparation, send, admission response, timeout, retry scheduling and retry claim.
+Each carries the unchanged delivery/dispatch/idempotency identity, the current
+attempt number, delivery creation time and current attempt submission time.
+Creation time is not labelled first submission; overwritten submission time is
+not treated as an earlier attempt's evidence. ACK elapsed time measures the
+Worker round trip. A validated ACK and its real submission ID are recorded before
+generation writes, Stop forwarding or pause cancellation. Postprocessing has
+separate start/end evidence, elapsed time and outcome; its failure cannot erase
+the received ACK. Overall admission completion is not Worker response time.
+Timeout and retry due times come from the existing owner.
+Correlated continuation stage events include the existing subscription creation
+and Queue enqueue timestamps at receipt, successful claim, and start/end timings
+for authorization/replay preflight, turn context, memory, Skills, watchdog enqueue
+and source-dispatch lookup. The observer selects correlation fields explicitly
+even when a caller passes a complete task input object; task data cannot spill
+into the strict diagnostic envelope or suppress its timing events.
+The Remote receiver records its receipt timestamp and validated ACK return with
+the same dispatch and idempotency identities; it does not invent an attempt
+number that was absent from the request. Log correlation is not yet a persisted
+run-diagnostics timeline and cannot reconstruct events before deployment.
+These logs contain no task text, result payload, credential or raw error, and
+never decide admission, retry, Stop, or execution truth. They are prospective
+diagnostics, not a backfill of missing historical evidence or a new durable
+attempt ledger.
+
 For legacy Slack result surfaces, the ledger also records an optional shared
 Working-status turn identity used only to derive provider presentation. One
 ordinary delivery derives its effective identity from its idempotency key and
@@ -2059,6 +2295,12 @@ external conversation identity in their owning locator and leave
 `sourceSpaceId` null; an external conversation ID must never be reinterpreted as
 an OpenMeld Space ID.
 
+For a verified member's task continuation, a connector-operation audit row may
+also retain the matched source Native Delivery id alongside `onBehalfOf`. The
+requester-attribution key remains the represented user, so replay identity does
+not change. A final audit phase reuses the source id from the attempted phase;
+the current caller cannot replace it during recovery.
+
 For a native delivery created from a Space Wake, the native-delivery ledger
 remains the authoritative hosted execution record while the Dispatch Ledger is
 the public Wake trace projection. Core closes that projection only from a
@@ -2075,13 +2317,24 @@ text. Callback context receives the same answer as a recoverable delivery
 projection; an instance restart may repopulate it from the execution record and
 retry the ordinary Core callback. Partial stream text, failed execution,
 cancellation, and observability records cannot become this answer authority.
+That same execution record retains a requested failure while runtime settlement
+or Computer cleanup is pending. This fences new work without claiming terminal
+execution; progress updates preserve it and Stop remains available. Both the
+observer and recovery reconciler require settled runtime and confirmed command
+cleanup before terminal publication. Cancellation takes precedence over the
+requested failure, and successful-looking assistant text cannot erase it.
 Every observer and reconciliation path derives its callback from the terminal
 compare-and-set winner. A stale or conflicting callback-context answer is
 replaced by the execution record's exact normalized answer before publication;
 a legacy callback-only answer cannot repair a completed execution that has no
 owner answer. That invalid legacy owner state is durably changed to failure,
 and either side of a restart can repeat the same explicit-failure projection.
-One terminal-outcome projector maps completed, failed, aborted, and missing
+Previously persisted work-loop checkpoints are an explicit exception to the
+completed-answer invariant: the execution owner adopts that structured fact
+before projection, retains it with no completed answer, and replays the existing
+continuation callback. Assistant text cannot replace it, while an authoritative
+failure or Stop wins. Already finalized Core deliveries are not reopened.
+One terminal-outcome projector maps completed, legacy checkpoint, failed, aborted, and missing
 execution outcomes into callback payloads for both observation and
 reconciliation. If the callback projection itself is missing, reconciliation
 fails with `remote_agent.terminal_callback_projection_missing`, leaves the
@@ -2165,8 +2418,16 @@ per-turn evidence and expires it after seven days. It records only structured
 milestones and decisions: provider
 request preparation and response headers, first model event, first visible
 assistant content, model completion, model and tool counts, capability search
-and describe results, the source of each tool call, and whether the per-attempt
-tool budget was exhausted. It never records prompt text, reply text, model
+and describe results, the source of each tool call, and whether the
+assignment safety budget was exhausted. For current workers, `toolCallCount`
+is the aggregate charged attempt number across the same dispatch, including
+unchanged-observation refusals that do not execute another read, and
+`toolCallLimit` is its frozen configured limit; source counters and recent events
+remain submission-local. Legacy records retain their original per-submission
+meaning. Active accounting does not expire; after Core accepts a final callback,
+the matching last submission's accounting can expire after one hour. An older
+submission's callback cannot expire a newer submission's accounting. It never
+records prompt text, reply text, model
 reasoning, tool arguments, tool results, tokens, or provider payloads.
 
 Core reports runtime evidence as `available`, `not_recorded`, or `unavailable`.
@@ -2249,8 +2510,8 @@ delivery and submission, then rereads the native-delivery ledger. Remote Agent
 alone maps Flue's durable submission projection into OpenMeld worker
 execution state and durable callback context; Core alone accepts that callback,
 updates the ledger, and publishes the visible result. Missing receiver or
-transport evidence is a retryable capability gap, not success and not terminal
-failure. An exact execution-identity mismatch cannot self-heal. Core moves its
+transport evidence is a capability gap, not success and not terminal failure.
+An exact execution-identity mismatch reported by the native owner cannot self-heal. Core moves its
 failure through the existing durable final-publication claim and retained
 payload. A known transient publication failure releases the claim back to the
 original accepted state without losing that payload, and the renewable probe
@@ -2269,9 +2530,40 @@ concurrently. A send failure releases only that exact lease when Core knows the
 preceding operation stopped. If a reconciliation RPC timed out, send failure
 keeps the processing lease until expiry because the underlying RPC may still be
 running. A process failure is likewise recovered after lease expiry.
-Cloudflare Queue's finite retry budget therefore cannot permanently strand an
-accepted delivery. This due time and lease remain reconciliation projections;
-neither owns execution or authorizes a terminal outcome.
+Cloudflare Queue's finite retry budget therefore cannot permanently lose a
+retryable accepted-delivery query. This due time and lease remain reconciliation
+projections; neither owns execution or authorizes a terminal outcome.
+
+Core stores its unavailable-query observation in the shared-schema
+`execution_reconciliation_json` column, under the exact accepted-probe lease.
+Transport failures and native `not_found` back off from the existing probe
+interval, doubling up to 900 seconds. Missing RPC capability, malformed replies,
+and replies with mismatched identity pause automatic queries. The observation
+preserves the original submission; neither `not_found` nor elapsed time proves
+non-execution. A valid exact response clears the observation. Newer Core-accepted
+native execution progress takes precedence over an unavailable-query display
+while it is fresh within the same 240-second presentation window. One historical
+progress event cannot suppress awaiting confirmation forever; this window never
+changes native execution or terminal truth.
+
+After 240 seconds of unavailable query evidence, or immediately when queries
+pause, the active Space projection carries
+`remote_agent.execution_confirmation_pending` on the existing `running` phase.
+This is a presentation reason, not a native failure code or terminal outcome.
+The matching Web reader shows **Result awaiting confirmation**, explains that
+later same-conversation work may be waiting, and keeps viewer-authorized Stop.
+The durable Space Stop outbox and its retry alarm operate independently of the
+paused query. Only the native owner's confirmed settlement releases the Flue
+conversation head. No query timeout admits another turn or automatically reruns
+the original request. This initial exit covers accepted exact submissions;
+no-ACK admission recovery and automatic external-write confirmation remain
+separate work.
+
+Apply the additive D1 migration before the new Core reader. Old Core ignores the
+new column; old Web accepts the existing phase and optional string reason but
+may show generic active progress. Deploy the specialized Web reader before the
+Core projection. This additive observation does not remove the continuation
+JSON rollback restrictions documented for reply language and summary recovery.
 
 Core also owns `openMeldRemoteAgent_daily_admissions`, with one row per
 `organizationId + dayUtc`, and the native-delivery ledger's
@@ -2327,8 +2619,22 @@ deduplication window, including CardKit mutation ambiguity, become
 republish them automatically or select another connected provider.
 
 Native-delivery admission also freezes the originating recovery destination
-and controller normalization evidence in the native-delivery ledger. The
-snapshot contains the Space thread, Slack channel/thread, or Lark/Feishu typed
+and controller normalization evidence in the native-delivery ledger. CardKit
+presentation receipts additionally occupy the nullable
+`provider_progress_card_history_json` column on that same row. Core is the only
+writer. The bounded, versioned value stores up to five retired card IDs and
+rendered hashes plus one pending source snapshot while a provider claim is
+unresolved. It is not execution truth or a second publication outbox. Successful
+updates discard the pending text; rollover handoff atomically retains the
+outgoing identity before replacing the active card. Work-loop continuation
+resets the current response's receipt range without altering earlier work.
+This history cannot be rebuilt from provider offsets alone. Legacy missing
+receipts produce an explicit supersession notice, not invented card identities.
+Apply the additive database migration before deploying a Core reader that selects
+this column. Older Core readers ignore it; a rollback does not remove the column.
+
+The frozen admission snapshot contains the Space thread, Slack channel/thread,
+or Lark/Feishu typed
 locator needed by publication and recovery. Inspect and execute read that
 historical snapshot; they never recalculate it from the current mutable
 Binding, caller surface, or current connector selection. Retained final payload
@@ -2675,15 +2981,137 @@ schema and historical migrations because old rows are durable evidence. Active
 Core code no longer reads or writes those fields, does not refresh AI Gateway
 REST Logs, and does not add usage columns to the native delivery ledger. Runtime
 containment is the global Remote Agent kill switch plus the optional
-per-organization blocklist in Worker configuration. The active daily admission
-counter is separate storage and must never read from or write to the retired
-guardrail table.
+per-organization blocklist in Worker configuration. Historical daily admission
+counters are also inactive; neither table is the AI consumption ledger.
 
 Usage evidence for the Flue Remote Agent lives in the Remote Agent worker:
 per-turn usage records are normalized from model usage, stored in the worker's
 OpenMeld-owned records, emitted to Analytics Engine, and exposed to operators
 through `readUsageDiagnostics`. Analytics and usage diagnostics are read models;
 they do not decide route ownership, retry, timeout, or final execution state.
+
+Organization AI consumption has a separate Core-owned durable ledger,
+`ai_usage_records`. Its shared contract is `aiUsageRecordSchema` in
+`packages/schemas`. Each record identifies one provider request and its
+Organization, runtime, model, Agent Profile, Space, task, attempt, and Computer
+when available. Native event identity deduplicates transport retries. Records
+contain numeric usage and correlation identifiers, never prompts, completions,
+reasoning content, credentials, or local paths. Missing provider evidence is
+null and appears in missing-evidence counts; it is never fabricated as zero.
+
+Input includes cached input and output includes reasoning, so detail counters
+must not be added to the total again. Costs use integer nano-USD and distinguish
+provider-reported charges from provider estimates. Local consumption is
+informational and never contributes to OpenMeld's shared allowance. Queries
+always bind the authorized Organization and accept bounded time and execution
+filters; the same read model serves people, Center Agent, and later Computer
+and evaluation views.
+
+The query can rank observed tasks or Agent Profiles by known provider charges
+or native tokens, with a bounded limit and explicit `hasMore`. Model totals
+still cover the full selected window. Tasks without a task ID may be grouped
+by their dispatch identity; unattributed auxiliary costs remain in totals.
+Observed execution attempts count distinct attempt IDs, not model requests or
+provider retries. Missing attempt attribution stays visible. Agent rankings do
+not infer a retry count across unrelated tasks. All values describe the query
+window, not necessarily a task's lifetime.
+
+Coverage describes observed requests only. It separates reported, pending,
+provider-unavailable, and collection-failed records, with missing-token/cost
+counts. Pending receipts older than one hour are flagged for investigation;
+this read-time age classification never changes execution state or stops work.
+`includeIssues` returns a bounded list of the original safe usage receipts for
+diagnosis, without prompts, output, or credentials. No records is not proof of
+no usage by an unreported controller or interrupted local process.
+
+Task rankings enrich at most twenty dispatches per query through the existing
+RuntimeCoordinator projection or native delivery and task-terminal repositories.
+Outcome evidence is nullable and truncation is explicit. Usage does not infer
+success from a nonzero count, copy task text into the ledger, or become an
+execution authority. Organization membership grants usage visibility, not new
+access to private conversation content.
+
+`organization_ai_usage_policies` owns the optional daily allowance independently
+of consumption. No policy row or a null limit means unlimited; production does
+not receive an implicit cap. Better Auth continues to own Organization identity,
+membership, and roles. Usage records do not introduce another identity system,
+payment processor, execution authority, or historical backfill.
+
+Remote requests create a pending receipt before contacting OpenRouter and
+settle from its existing JSON response or final SSE usage chunk. Provider
+request IDs are retained. A pending receipt can become reported or unavailable;
+settlement cannot rewrite execution attribution. Terminal replay is idempotent.
+Model, research, and image calls persist settlement in the existing worker
+storage and reuse callback reconciliation for delivery retries. Session titles
+and activity digests run through the same existing Durable Object class so
+their settlement uses that durable outbox too; a dedicated organization digest
+instance carries delivery only, never a second consumption ledger. Inference
+is never replayed merely to recover usage. Missing final provider usage is
+`unavailable`; request/stream/response collection failures are
+`collection_failed` with a bounded reason code. Cancellation preserves already
+observed native usage. Requests interrupted before reporting usage remain
+explicitly incomplete; no extra provider polling is introduced to invent or
+recover unknown charges.
+No supplier polling or extra inference request is added.
+
+Codex uses changed current-turn token events and native request counters,
+ignoring resume history and rate-limit-only repeats. Claude uses unique native
+assistant message IDs; OpenCode uses completed assistant messages from the
+accepted session tree. Core derives local attribution from the accepted result
+inbox and execution registry, including the connected Computer identity rather
+than its device ID. Only newly reported OpenMeld executions are included.
+The Service waits for the native turn to settle before submitting a CLI reply
+proposal, then includes its receipts in the existing durable result outbox.
+Receipts from repair and reconsideration turns are accumulated by native event
+ID. Space supplies Organization attribution when rebuilding finalization facts.
+Controllers without native usage reporting remain unreported. SDK estimates
+remain distinct from invoiced provider charges.
+
+The public `POST /v1/organizations/current/usage/query` and
+`openmeld_read_ai_usage` Center Agent tool share the same Core query owner.
+Every Organization member may read Organization-wide usage. Cross-Organization
+access is still rejected. Settings Usage exposes organization costs and Local
+tokens, plus the signed-in member's Remote Agent subset. Routines retains its
+independent 50-item limit; the daily allowance is optional.
+
+Optional `agentProfileIds` intersects the existing organization and query scope.
+An explicitly empty list matches no receipts. Settings derives owned non-Center
+Profiles from the organization directory; this display filter is not a new
+authorization boundary. Every member retains organization-wide visibility.
+
+Computer Local Agent consumption reads use the same query with `runtime=local`,
+the enrolled `connectedComputerId`, and the exact `controller` reference. The
+organization Computer projection carries that enrollment identity separately
+from its existing device route ID; a missing enrollment identity never falls
+back to a device ID or an unfiltered organization query. The same controller
+filter is available to Center Agent. No new consumption ledger is introduced.
+
+Optional `bucketBoundariesMs` requests at most 31 time buckets from that same
+query. Boundaries must strictly increase and exactly cover `[fromMs, toMs)`;
+explicit boundaries preserve local calendar days across daylight-saving changes.
+Core returns dense `timeSeries` rows with token totals, request counts, and
+missing-token counts in the same D1 batch snapshot as the model totals. Empty
+buckets mean no recorded receipts, not proof of no activity. Only callers that
+request buckets receive the new response field; the Center Agent tool accepts
+the same boundaries. Optional `groupTimeSeriesBy: "controller"` requires bucket
+boundaries and adds per-controller totals to each bucket using the same scoped
+SQL aggregation. Bucket totals equal the sum of those controller rows; null
+attribution remains a separate group. Queries without this option retain the
+ungrouped response. `groupTimeSeriesBy: "model"` instead groups by provider and
+model. Only these new model-grouped queries add provider-reported cost, estimated
+cost, and missing-cost counts to buckets and model rows. Existing ungrouped and
+controller-grouped token responses retain their shape; new bucket cost fields
+are optional for readers. Core/Gateway receivers must accept the new model
+grouping before Web or Center Agent callers request it. This read projection
+introduces no migration, writer, or execution authority.
+
+Operators can inspect or preview changes with
+`node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
+Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets
+only the current running worktree lane; staging and production require an
+explicit environment and authorized Wrangler access. No deploy is needed to
+adjust this policy. Enforcement uses confirmed UTC-day costs and may overshoot
+for in-flight requests; it is not a concurrent reservation system.
 
 Successful Flue conversation compaction is operational evidence, not a second
 conversation or memory store. During compaction, the worker may retain one
@@ -2741,9 +3169,11 @@ Hosted external tool usage is a separate Analytics Engine projection named
 `remote_agent.tool_usage.v1`. It records the organization, Space, submission,
 tool name, provider, operation, outcome, wall duration, bounded input/output
 byte counts, provider request count, and Browser Run milliseconds when
-available. Research records OpenRouter server-tool request counts, Browser Run
-records `X-Browser-Ms-Used`, and Cloudflare Sandbox records each filesystem or
-shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
+available. The Organization is its single Analytics Engine sampling index;
+Space and submission are blob dimensions, since Analytics Engine accepts only
+one index per data point. Research records OpenRouter server-tool request
+counts, Browser Run records `X-Browser-Ms-Used`, and Cloudflare Sandbox records
+each filesystem or shell adapter operation. Stateless Code Mode records one outer Dynamic Worker
 execution with bounded generated-code input and result byte counts plus the
 number of inner tool calls. Each inner call keeps its existing capability-owned
 usage record. Generated code, tool arguments, commands, tool results, logs, page
@@ -3393,14 +3823,32 @@ point and derives its physical field order from the shared schema.
 Web application errors use `web.openmeld.application_error` in Workers Logs.
 Web is the sole intake/log owner; `packages/schemas` owns the additive browser
 report contract. Browser reports are untrusted diagnostic evidence. The intake
-accepts only bounded same-origin JSON, validates and minimizes fields, and caps
-log volume. Raw exception text, full stacks, actual page URLs, user content,
-credentials, and local paths must not enter this report. Error categories,
+accepts bounded same-origin Web JSON and the fixed installed Desktop origin
+only when its native contract header matches. It validates and minimizes fields
+and caps log volume. Raw exception text, full stacks, actual page URLs, user
+content, credentials, and local paths must not enter this report. Error categories,
 code-template route IDs, build asset positions, build IDs, source SHAs, and
 Cloudflare request correlation support diagnosis without product payloads.
+React update-depth reports may also include a bounded, recent sequence of fixed
+client code-path labels and relative ages. The labels carry no user content or
+identity and cannot become execution or product-state authority.
 This does not create another product audit or execution ledger. Coverage,
 retention, source-map handling, and manual queries are documented in
 `docs/web-application-errors.md`.
+
+Web also uses that intake for the bounded
+`web.openmeld.wake_progress_presentation_unconfirmed` event when a Space shows
+restored Wake progress, an unverified active-summary item, a historical
+transient signal, or a seeded main reply stream without a matching current
+active-Wake read. The additive shared
+report schema permits only correlation IDs, source/reply Thread pointers,
+phase, update time, presentation source, and query-freshness flags, alongside
+the existing build and page-session identity. No message body, stream text,
+prompt, reasoning, or arbitrary client state is accepted. This event proves
+only the browser presentation decision, not that the underlying execution
+ended; Core trace remains the execution authority. A missing event does not
+prove that Web never displayed the state because browser delivery and Workers
+log retention are best effort.
 
 Structured logs at service and runtime boundaries must stay searchable and
 correlation-friendly:

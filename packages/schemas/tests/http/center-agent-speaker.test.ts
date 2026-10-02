@@ -59,6 +59,8 @@ describe("Center Agent speaker contracts", () => {
       "openmeld_list_connected_apps",
       "openmeld_list_app_actions",
       "openmeld_execute_app_action",
+      "github_execute_action",
+      "github_list_actions",
       "github_get_current_user",
       "github_list_my_repositories",
       "github_get_repository",
@@ -90,6 +92,7 @@ describe("Center Agent speaker contracts", () => {
       "github_list_workflow_runs",
       "github_get_workflow_run",
       "github_list_workflow_run_jobs",
+      "github_get_release_by_tag",
       "github_create_issue_batch",
       "github_create_issue",
       "github_create_issue_comment",
@@ -108,6 +111,7 @@ describe("Center Agent speaker contracts", () => {
       "github_update_issue",
       "github_update_pull_request",
       "github_update_pull_request_branch",
+      "github_dispatch_workflow",
       "github_rerun_workflow",
     ]);
     expect(

@@ -62,6 +62,7 @@ describe("Agent Controller Interface cloud projection", () => {
         email: "felix@example.com",
         label: "2 providers connected",
         status: "unknown",
+        type: "opencode",
       },
       launch: {
         argsPrefix: [],
@@ -75,5 +76,17 @@ describe("Agent Controller Interface cloud projection", () => {
       usageLimitsSupportMatrixVersion:
         AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     });
+    const failed = projectAgentControllerInterfaceForCloud({
+      ...snapshot,
+      launch: {
+        ...snapshot.launch,
+        failureReason: "installation_missing",
+        status: "needs_repair",
+      },
+      message: "ENOENT /private/user/installation",
+    });
+    expect(failed.launch.failureReason).toBe("installation_missing");
+    expect(failed.message).toBeNull();
+    expect(JSON.stringify(failed)).not.toContain("/private/user");
   });
 });

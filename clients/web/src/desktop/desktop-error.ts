@@ -2,11 +2,11 @@
 // wrappers and arbitrary SDK responses can contain implementation or auth data.
 const knownMessages = new Set([
 	"Could not connect to OpenMeld. Check your connection and try again.",
-	"This version of OpenMeld Desktop is not supported by the server. Check for an app update.",
+	"This version of OpenMeld is not supported by the server. Check for an app update.",
 	"OpenMeld is unavailable right now. Try again shortly.",
 	"Desktop could not verify server compatibility. Check for an app update or try again later.",
 	"This sign-in could not be completed. Sign in with your browser again.",
-	"Your workspace could not be opened. Try signing in again.",
+	"Could not open your workspace. Check your connection and try again.",
 	"Desktop sign-in changed. Check the account and try again.",
 	"This CLI and Service do not support this action. Update OpenMeld through Web and check again.",
 	"Check your Desktop sign-in before controlling this Service.",

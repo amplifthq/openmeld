@@ -60,6 +60,10 @@ export {
   resolveAgentControllerUsageProviderId,
 } from "./agent-controller-usage-limit-support";
 export {
+  isAgentControllerUsageAccountUnavailable,
+  isAgentControllerUsageRefreshUnavailable,
+} from "./agent-controller-usage-refresh";
+export {
   DUPLICATE_REPLY_CONVERSATION_CONTEXT,
   DUPLICATE_REPLY_CONVERSATION_REASON,
   DUPLICATE_REPLY_CONVERSATION_TOOLTIP,
@@ -259,6 +263,17 @@ export {
   projectLocalAgentCatalogFromCapabilities,
 } from "./local-agent-catalog";
 export { buildLocalAgentConnectionCandidateId } from "./local-agent-connection-candidate";
+export {
+  getAgentControllerModelCatalogId,
+  getPersonalRemoteAgentDefaultModelId,
+} from "./model-catalog";
+export {
+  formatModelRetirementNotice,
+  type ModelAvailabilityDecision,
+  type ModelRetirementContext,
+  matchesModelRetirementScope,
+  resolveModelAvailability,
+} from "./model-retirement";
 export { resolveConversationPolicyFromModelSelection } from "./model-selection";
 export {
   peopleComputerCliCommand,

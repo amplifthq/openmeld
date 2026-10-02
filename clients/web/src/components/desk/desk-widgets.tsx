@@ -1,6 +1,5 @@
-import type { GetActiveSpaceWakeProgressResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { OrganizationComputerPickerCard } from "#/components/computers/organization-computer-card";
 import { resolveOrganizationComputerGroups } from "#/components/computers/organization-computers";
@@ -11,7 +10,12 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { localRuntimesQueryOptions } from "#/query/connect/local-runtimes";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
-import { spaceActiveWakeProgressSummaryQueryOptions } from "#/query/spaces/active-wake-progress";
+import {
+	readSpaceWakeProgressSummaryItems,
+	type SpaceWakeProgressSummary,
+	spaceActiveWakeProgressSummaryQueryOptions,
+	spaceWakeProgressPresentationQueryOptions,
+} from "#/query/spaces/active-wake-progress";
 import { DeskProfileCard } from "./desk-profile-card";
 import type { DeskWidget } from "./desk-widget-types";
 
@@ -139,6 +143,14 @@ function DeskWorkUpdates(input: {
 	// Each Space independently authorizes the reader. Never infer private work
 	// from Agent ownership or from presence in the organization directory.
 	const client = useQueryClient();
+	const presentations = useQueries({
+		queries: input.spaces.map((space) =>
+			spaceWakeProgressPresentationQueryOptions({
+				spaceId: space.spaceId,
+				openMeldProfileId: space.openProfileId,
+			})
+		),
+	});
 	const updates = useQuery({
 		queryKey: [
 			"desk-work-updates",
@@ -147,7 +159,7 @@ function DeskWorkUpdates(input: {
 		queryFn: async ({ signal }) => {
 			const results: PromiseSettledResult<{
 				space: AccountSpaceItem;
-				data: GetActiveSpaceWakeProgressResponse;
+				data: SpaceWakeProgressSummary;
 			}>[] = [];
 			for (let offset = 0; offset < input.spaces.length; offset += 4) {
 				signal.throwIfAborted();
@@ -173,14 +185,18 @@ function DeskWorkUpdates(input: {
 		retry: false,
 	});
 	const items = (updates.data ?? [])
-		.flatMap((result) =>
-			result.status === "fulfilled"
-				? result.value.data.items.map((item) => ({
+		.flatMap((result, index) => {
+			const presentation = presentations[index]?.data;
+			return result.status === "fulfilled" && presentation
+				? readSpaceWakeProgressSummaryItems({
+						presentation,
+						summary: result.value.data,
+					}).map((item) => ({
 						item,
 						space: result.value.space,
 					}))
-				: []
-		)
+				: [];
+		})
 		.sort((a, b) => b.item.updatedAtMs - a.item.updatedAtMs);
 	return (
 		<div className="space-y-3">

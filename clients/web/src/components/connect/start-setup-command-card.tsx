@@ -155,7 +155,12 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 				) : null}
 				<TabPanel className="grid gap-2" value={platform}>
 					<button
-						className="w-full min-w-0 touch-manipulation select-all overflow-x-auto whitespace-nowrap rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors [scrollbar-width:none] hover:bg-muted/30 max-lg:min-h-11 [&::-webkit-scrollbar]:hidden"
+						className={cn(
+							"w-full min-w-0 touch-manipulation select-all rounded-md border border-border bg-muted/10 px-3 py-2 text-left font-mono text-xs transition-colors hover:bg-muted/30 max-lg:min-h-11",
+							platform === "posix"
+								? "whitespace-normal break-words"
+								: "overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+						)}
 						onClick={input.onCopyCommand}
 						type="button"
 					>
@@ -233,23 +238,23 @@ function SetupCommandPlatformSwitch() {
 			<TabItem
 				aria-label="Windows PowerShell"
 				label="Windows PowerShell"
+				trailing={
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<span className="rounded px-1 font-normal text-[10px] opacity-70">
+									Beta
+								</span>
+							}
+						/>
+						<TooltipContent className="max-w-64 whitespace-normal">
+							Windows setup is in beta. Some steps may need manual
+							troubleshooting.
+						</TooltipContent>
+					</Tooltip>
+				}
 				value="windows"
-			>
-				Windows PowerShell
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<span className="rounded px-1 font-normal text-[10px] opacity-70">
-								Beta
-							</span>
-						}
-					/>
-					<TooltipContent className="max-w-64 whitespace-normal">
-						Windows setup is in beta. Some steps may need manual
-						troubleshooting.
-					</TooltipContent>
-				</Tooltip>
-			</TabItem>
+			/>
 		</TabsList>
 	);
 }

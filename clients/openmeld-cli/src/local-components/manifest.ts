@@ -30,7 +30,7 @@ import {
   inspectDaemonServiceInventory,
 } from "../local-service/lifecycle/daemon-service-inventory";
 import { resolveOpenMeldToolsMaintenanceProjection } from "../local-service/maintenance/openmeld-tools-maintenance-policy";
-import { resolveOpenMeldToolsUpdateOperation } from "../local-service/maintenance/openmeld-tools-update-operation";
+import { resolveOpenMeldToolsUpdateOperationProjection } from "../local-service/maintenance/openmeld-tools-update-operation";
 import { resolveDaemonServiceParticipationStatus } from "../local-service/status/service-participation-status";
 import { isBinaryDistribution } from "../runtime/distribution";
 import { OPENMELD_VERSION } from "../runtime/version";
@@ -38,14 +38,15 @@ import { hashBundledSkillAssets } from "../skills/bundled-assets";
 import { computeDirectoryContentHash } from "../skills/content-hash";
 import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
 import { loadSelectedSkillAssets } from "../skills/official-release";
+import { resolveLocalComponentsInstallationSource } from "./installation-source";
 import { readManagedCliInstallation } from "./managed-install";
 
 export const OPENMELD_CLI_COMMAND_CONTRACT_VERSION =
-  "openmeld-cli-command-contract-2026-09-large-space-files-v1";
+  "openmeld-cli-command-contract-2026-09-space-files-1gib-v1";
 export const OPENMELD_SKILLS_CONTRACT_VERSION =
   "openmeld-skills-contract-2026-09-explicit-space-recipients-v1";
 export const OPENMELD_SERVICE_CONTRACT_VERSION =
-  "openmeld-service-contract-2026-09-space-access-and-large-files-v1";
+  "openmeld-service-contract-2026-09-local-install-recovery-v1";
 
 const LOCAL_COMPONENTS_SNAPSHOT_FILE = "local-components.json";
 const SERVICE_COMPONENT_UPDATE_CODES = new Set<DaemonServiceAnomalyCode>([
@@ -159,15 +160,26 @@ export async function writeInstalledLocalComponentsSnapshot(input: {
 export async function resolveLocalComponentsStatus(
   input: CliUpdateInput = {}
 ): Promise<LocalComponentsStatus> {
-  const [expectedManifest, service, skills, maintenance, updateOperation] =
+  const [expectedManifest, service, skills, maintenance, updateProjection] =
     await Promise.all([
       buildExpectedLocalComponentsManifest(),
       resolveServiceComponentState(),
       resolveSkillsComponentState(),
       resolveOpenMeldToolsMaintenanceProjection(),
-      resolveOpenMeldToolsUpdateOperation(),
+      resolveOpenMeldToolsUpdateOperationProjection(),
     ]);
-  const cli = await resolveCliComponentStatus(input);
+  const resolvedCli = await resolveCliComponentStatus(input);
+  const installationSource = await resolveLocalComponentsInstallationSource({
+    expectedVersion: resolvedCli.packageVersion,
+  });
+  const cli = updateProjection?.failureCode
+    ? {
+        ...resolvedCli,
+        reasonCodes: Array.from(
+          new Set([...resolvedCli.reasonCodes, updateProjection.failureCode])
+        ),
+      }
+    : resolvedCli;
   const selectedSkill = await loadSelectedSkillAssets();
   const setupAction = resolveLocalComponentsSetupAction({
     cliStatus: cli.status,
@@ -180,6 +192,7 @@ export async function resolveLocalComponentsStatus(
     schemaVersion: LOCAL_COMPONENTS_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     entrypoint: "setup",
+    ...(installationSource ? { installationSource } : {}),
     summaryLabel: formatLocalComponentsSummaryLabel({
       cliStatus: cli.status,
       setupAction,
@@ -192,7 +205,9 @@ export async function resolveLocalComponentsStatus(
     setupActionLabel: formatLocalSetupActionLabel(setupAction),
     setupActionDescription: formatLocalSetupActionDescription(setupAction),
     maintenance,
-    ...(updateOperation ? { updateOperation } : {}),
+    ...(updateProjection
+      ? { updateOperation: updateProjection.operation }
+      : {}),
     cli,
     service: {
       expectedBundleHash: expectedManifest.service.bundleHash,

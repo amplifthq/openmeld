@@ -2,6 +2,7 @@ import { buildProfileDetailsSnapshotFromHumanProfile } from "@openmeld/agent-pro
 import type {
 	AgentProfileBindingModelSelection,
 	AuthProfileView,
+	GetAgentExecutionReadinessResponse,
 	ListOrganizationDocumentsResponse,
 	MessageChannelConnectionListResponse,
 	MessageChannelConnectionProjection,
@@ -40,6 +41,28 @@ export type DirectoryDocumentsStatus = "failed" | "loading" | "ready";
 
 export type DirectoryProjectionStatus = "failed" | "loading" | "ready";
 
+export function resolveCurrentOrganizationComputersProjection(input: {
+	data: OrganizationComputersResponse | undefined;
+	isError: boolean;
+	isPending: boolean;
+}): {
+	data: OrganizationComputersResponse | null;
+	status: DirectoryProjectionStatus;
+} {
+	let status: DirectoryProjectionStatus = "ready";
+	// Query staleness starts a refresh; the last successful read remains the
+	// display projection until a newer read or an actual request failure arrives.
+	if (input.isPending) {
+		status = "loading";
+	} else if (input.isError) {
+		status = "failed";
+	}
+	return {
+		data: status === "ready" ? (input.data ?? null) : null,
+		status,
+	};
+}
+
 export type DirectoryComputerDisplayState =
 	| "checking"
 	| "connected"
@@ -56,6 +79,8 @@ export type DirectoryHumanProfileComputer = {
 
 export type DirectoryAgentProfileSummary = {
 	agentControllerRef: string | null;
+	avatarStyle?: OrganizationProfileDirectoryResponse["agentProfiles"][number]["avatarStyle"];
+	avatarModelId?: string | null;
 	avatarImageUrl: string | null;
 	id: string;
 	modelSelection: AgentProfileBindingModelSelection | null;
@@ -430,6 +455,8 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 							null);
 				return {
 					agentControllerRef,
+					avatarStyle: profile.avatarStyle,
+					avatarModelId: resolveDirectoryAvatarModelId(profile, readiness),
 					avatarImageUrl: profile.avatarUrl ?? null,
 					id: profile.profileId,
 					modelSelection:
@@ -458,6 +485,20 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 		profilesByOwner.set(ownerUserId, profiles);
 	}
 	return profilesByOwner;
+}
+
+function resolveDirectoryAvatarModelId(
+	profile: DirectoryAgentProfileSource,
+	readiness: GetAgentExecutionReadinessResponse | null
+): string | null {
+	if ("avatarModelId" in profile) {
+		return profile.avatarModelId ?? null;
+	}
+	return (
+		readiness?.primaryBinding?.modelSelection?.modelId ??
+		readiness?.publicProfileConfiguration?.modelSelection?.modelId ??
+		null
+	);
 }
 
 function resolveAgentProfilesPath(input: {

@@ -1,18 +1,19 @@
 import { parseAgentControllerRef } from "./agent-controller-ref";
 
-export const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION = 2;
+export const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION = 5;
 
 export type AgentControllerUsageLimitSupport =
   | "native"
   | "not_evaluated"
-  | "passive"
+  | "observational"
   | "provider_scoped"
   | "unsupported";
 
 const AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX = {
-  "claude-code": "passive",
+  antigravity: "unsupported",
+  "claude-code": "observational",
   codex: "native",
-  cursor: "unsupported",
+  cursor: "observational",
   "grok-build": "native",
   opencode: "provider_scoped",
   openclaw: "not_evaluated",
@@ -40,7 +41,10 @@ export function resolveAgentControllerProviderUsageLimitSupport(input: {
   if (parsedRef?.kind !== "builtin" || parsedRef.id !== "opencode") {
     return "not_evaluated";
   }
-  return input.providerId === "opencode-go" ? "native" : "unsupported";
+  if (input.providerId === "opencode-go") {
+    return "native";
+  }
+  return input.providerId === "openrouter" ? "observational" : "unsupported";
 }
 
 export function resolveAgentControllerUsageProviderId(input: {

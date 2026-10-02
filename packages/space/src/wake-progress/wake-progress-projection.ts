@@ -9,6 +9,7 @@ import {
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
   DISPATCH_ACTIVITY_FAILED_PURPOSE,
   DISPATCH_ACTIVITY_RETRYING_PURPOSE,
+  REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE,
   REMOTE_AGENT_FAILURE_PURPOSE,
   resolveMappedPublicAgentFailureReason,
 } from "@openmeld/schemas";
@@ -62,6 +63,7 @@ export type WakeProgressDraft = Omit<
 > & {
   phase: WakeProgressPhase;
   message?: string;
+  runtimeKind?: "hosted" | "workstation";
   runtimeDeviceDisplayName?: string | null;
   terminal?: boolean;
 };
@@ -70,12 +72,14 @@ export function buildWakeProgressMessage(input: {
   phase: WakeProgressPhase;
   targetLabel: string;
   errorCode?: string | null;
+  runtimeKind?: "hosted" | "workstation";
   runtimeDeviceDisplayName?: string | null;
 }): string {
   const targetLabel = formatWakeTargetLabel(input.targetLabel);
-  const runtimeLocation = formatWakeProgressRuntimeLocation(
-    input.runtimeDeviceDisplayName
-  );
+  const runtimeLocation =
+    input.runtimeKind === "hosted"
+      ? ""
+      : ` ${formatWakeProgressRuntimeLocation(input.runtimeDeviceDisplayName)}`;
   switch (input.phase) {
     case "sending":
       return "Sending message...";
@@ -84,9 +88,15 @@ export function buildWakeProgressMessage(input: {
     case "queued":
       return `Wake for ${targetLabel} is queued.`;
     case "connecting":
-      return `Connecting to ${targetLabel} ${runtimeLocation}...`;
+      return `Connecting to ${targetLabel}${runtimeLocation}...`;
     case "running":
-      return `${targetLabel} is working ${runtimeLocation}...`;
+      if (
+        input.errorCode ===
+        REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE
+      ) {
+        return `OpenMeld cannot confirm the result for ${targetLabel}. Later work in this conversation may be waiting. Stop this request to release it once the Agent confirms that execution has ended. Do not resend the original request.`;
+      }
+      return `${targetLabel} is working${runtimeLocation}...`;
     case "writing":
       return `${targetLabel} started writing...`;
     case "publishing":
@@ -116,6 +126,7 @@ export function createWakeProgressItem(
   const {
     failureReasonCode,
     message,
+    runtimeKind,
     runtimeDeviceDisplayName,
     terminal: draftTerminal,
     ...itemDraft
@@ -129,7 +140,10 @@ export function createWakeProgressItem(
   const normalizedFailureReasonCode =
     draft.phase === "failed" ||
     draft.phase === "publication_unknown" ||
-    draft.phase === "publishing"
+    draft.phase === "publishing" ||
+    (draft.phase === "running" &&
+      failureReasonCode ===
+        REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE)
       ? normalizeOptionalText(failureReasonCode)
       : null;
   return {
@@ -140,6 +154,8 @@ export function createWakeProgressItem(
       message ??
       buildWakeProgressMessage({
         phase: draft.phase,
+        errorCode: normalizedFailureReasonCode,
+        runtimeKind,
         runtimeDeviceDisplayName,
         targetLabel: draft.targetLabel,
       }),
@@ -218,11 +234,21 @@ export function mergeWakeProgressItems(input: {
     itemsByKey.set(buildWakeProgressItemKey(item), item);
   }
 
-  for (const incoming of input.incomingItems) {
+  for (const candidate of input.incomingItems) {
     const existingEntry = findMatchingWakeProgressItemEntry({
       itemsByKey,
-      incoming,
+      incoming: candidate,
     });
+    const incoming = existingEntry
+      ? {
+          ...candidate,
+          dispatchId: candidate.dispatchId ?? existingEntry[1].dispatchId,
+          clientMessageId:
+            candidate.clientMessageId ?? existingEntry[1].clientMessageId,
+          sourceSignalId:
+            candidate.sourceSignalId ?? existingEntry[1].sourceSignalId,
+        }
+      : candidate;
     const key = existingEntry?.[0] ?? buildWakeProgressItemKey(incoming);
     const existing = existingEntry?.[1] ?? null;
 
@@ -263,9 +289,9 @@ export function applyWakeProgressSignals(input: {
     if (!nextItem) {
       continue;
     }
-    // Transient text updates presentation, not Core's viewer-scoped Stop policy.
-    // Keep only the exact active execution's projection; full snapshots still
-    // replace it normally, including an explicit revocation or missing field.
+    // Transient text updates presentation, not Core's viewer-scoped controls.
+    // Keep the exact active execution's interaction and Stop projection; full
+    // snapshots still replace them, including a revocation or missing field.
     if (
       signal.type === "signal.text" &&
       signal.data.meta?.transient === true &&
@@ -278,7 +304,10 @@ export function applyWakeProgressSignals(input: {
           item.targetProfileId === nextItem.targetProfileId &&
           isActiveWakeProgressItem(item)
       );
-      if (current && Object.hasOwn(current, "wakeStopEligibility")) {
+      if (current) {
+        nextItem.pendingInteraction = current.pendingInteraction;
+        nextItem.runtimeCoordinatorExecutionId =
+          current.runtimeCoordinatorExecutionId;
         nextItem.wakeStopEligibility = current.wakeStopEligibility;
       }
     }
@@ -386,6 +415,32 @@ export function clearWakeProgressItemsForSignal(input: {
   return input.items.filter(
     (item) => !doesWakeProgressTerminalSignalMatchItem(input.signal, item)
   );
+}
+
+/** Accepted publication evidence, independent of which messages are displayed. */
+export function readWakeProgressTerminalSignalEvidence(signal: SignalEnvelope) {
+  if (!isWakeProgressTerminalSignal(signal)) {
+    return null;
+  }
+  const dispatchId = readWakeProgressTerminalSignalDispatchId(signal);
+  const targetProfileId = readWakeProgressTerminalSignalTargetProfileId(signal);
+  const sourceSignalId = readWakeProgressTerminalSignalReplyToSignalId(signal);
+  if (!(targetProfileId && (dispatchId || sourceSignalId))) {
+    return null;
+  }
+  let outcome: string = signal.type;
+  if (signal.type === "signal.text") {
+    outcome = String(signal.data.meta?.purpose);
+  } else if (signal.type === "signal.system_notice") {
+    outcome = String(signal.data.noticeType);
+  }
+  return {
+    dispatchId,
+    targetProfileId,
+    sourceSignalId,
+    clientMessageId: null,
+    outcome,
+  };
 }
 
 function resolveWakeProgressPhaseFromPurpose(
@@ -553,17 +608,47 @@ function findMatchingWakeProgressItemEntry(input: {
   itemsByKey: Map<string, WakeProgressItem>;
   incoming: WakeProgressItem;
 }): [string, WakeProgressItem] | null {
-  const incomingKeys = listWakeProgressMatchKeys(input.incoming);
+  if (input.incoming.dispatchId) {
+    const key = buildWakeProgressItemKey(input.incoming);
+    const exact = input.itemsByKey.get(key);
+    if (exact) {
+      return [key, exact];
+    }
+  }
   for (const [key, item] of input.itemsByKey) {
-    const itemKeys = new Set(listWakeProgressMatchKeys(item));
-    if (incomingKeys.some((incomingKey) => itemKeys.has(incomingKey))) {
+    if (doWakeProgressItemsMatch({ left: item, right: input.incoming })) {
       return [key, item];
     }
   }
   return null;
 }
 
-function listWakeProgressMatchKeys(item: WakeProgressItem): string[] {
+export function doWakeProgressItemsMatch(input: {
+  left: Pick<
+    WakeProgressItem,
+    "dispatchId" | "targetProfileId" | "clientMessageId" | "sourceSignalId"
+  >;
+  right: Pick<
+    WakeProgressItem,
+    "dispatchId" | "targetProfileId" | "clientMessageId" | "sourceSignalId"
+  >;
+}): boolean {
+  if (input.left.targetProfileId !== input.right.targetProfileId) {
+    return false;
+  }
+  if (input.left.dispatchId && input.right.dispatchId) {
+    return input.left.dispatchId === input.right.dispatchId;
+  }
+  const keys = new Set(listWakeProgressMatchKeys(input.left));
+  return listWakeProgressMatchKeys(input.right).some((key) => keys.has(key));
+}
+
+function listWakeProgressMatchKeys(
+  item: Pick<
+    WakeProgressItem,
+    "dispatchId" | "targetProfileId" | "clientMessageId" | "sourceSignalId"
+  >
+): string[] {
   const keys: string[] = [];
   if (item.dispatchId) {
     keys.push(`dispatch:${item.dispatchId}`);
@@ -582,7 +667,7 @@ function listWakeProgressMatchKeys(item: WakeProgressItem): string[] {
 
 function buildWakeProgressItemKey(item: WakeProgressItem): string {
   if (item.dispatchId) {
-    return `dispatch:${item.dispatchId}`;
+    return `dispatch:${item.dispatchId}:target:${item.targetProfileId}`;
   }
   if (item.clientMessageId) {
     return `client:${item.clientMessageId}:target:${item.targetProfileId}`;
@@ -620,8 +705,8 @@ function doesWakeProgressTerminalSignalMatchItem(
     return false;
   }
   const dispatchId = readWakeProgressTerminalSignalDispatchId(signal);
-  if (dispatchId && dispatchId === item.dispatchId) {
-    return true;
+  if (dispatchId && item.dispatchId) {
+    return dispatchId === item.dispatchId;
   }
   const replyToSignalId = readWakeProgressTerminalSignalReplyToSignalId(signal);
   return Boolean(replyToSignalId && replyToSignalId === item.sourceSignalId);

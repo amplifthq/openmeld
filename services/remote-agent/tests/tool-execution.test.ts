@@ -5,9 +5,14 @@ import {
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { ConnectorActionOutcomeUnknownError } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentExecutionIdentity,
+  completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
+  markRemoteAgentExecutionProgress,
+  readRemoteAgentExecutionState,
+  readRemoteAgentRequestedExecutionFailure,
 } from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
@@ -16,7 +21,7 @@ import {
   RemoteAgentToolCallBudgetExceededError,
   RemoteAgentToolProgressStateInvalidError,
 } from "../agent-core/tool-progress";
-import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
+import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
   assertRemoteAgentTurnAllowsToolExecution,
   cleanupExpiredRemoteAgentTurnEndMarkers,
@@ -33,27 +38,113 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const SUBMISSION_ID = "submission-turn-end";
 
 describe("Remote Agent tool execution", () => {
-  it("fails an oversized direct tool result explicitly without retaining its payload", () => {
-    let thrown: unknown;
-    try {
-      toBoundedRemoteAgentToolResult({
-        toolName: "github_list_pull_request_files",
-        value: { patch: "A".repeat(200_000) },
-      });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(RemoteAgentToolResultTooLargeError);
-    expect(thrown).toMatchObject({
-      limitBytes: 131_072,
-      reasonCode: "remote_agent.tool_result_too_large",
-      toolName: "github_list_pull_request_files",
+  it.each([
+    "direct",
+    "code_mode",
+  ] as const)("returns an uncertain write receipt to %s without exposing provider details", async (source) => {
+    const { storage } = await createToolExecutionTestContext();
+    const result = await executeRemoteAgentToolDefinition({
+      source,
+      storage,
+      submissionId: SUBMISSION_ID,
+      toolInput: {},
+      definition: {
+        description: "Attempt an authorized comment.",
+        name: "github_create_issue_comment",
+        input: object({}),
+        execute: () =>
+          Promise.reject(
+            new ConnectorActionOutcomeUnknownError({
+              actionId: "github.create_issue_comment",
+              operationId: "comment-1",
+              cause: new Error("synthetic-private-provider-detail"),
+            })
+          ),
+      },
     });
-    expect((thrown as Error).message).toContain(
-      "Narrow the request with search, filters, pagination, or segmented file reads"
+    expect(result).toMatchObject({
+      status: "outcome_unknown",
+      operationId: "comment-1",
+      executionConfirmation: "unknown",
+    });
+    const text = JSON.stringify(result);
+    expect(text).toContain("write may already have succeeded");
+    expect(text).toContain(
+      "Do not retry this write or repeat it with a new operationId"
     );
-    expect(JSON.stringify(thrown)).not.toContain("AAAA");
+    expect(text).toContain("Original operationId: comment-1");
+    expect(text).not.toContain("synthetic-private-provider-detail");
+  });
+  it.each([
+    "A",
+    "中文",
+    "😀",
+    '"\\\n\t',
+  ])("returns honest bounded evidence for oversized %j results without inventing a continuation", (text) => {
+    const value = {
+      data: { content: text.repeat(200_000), truncated: true },
+      operationId: "write-1",
+      status: "completed",
+    };
+    const result = toBoundedRemoteAgentToolResult({
+      toolName: "example_write",
+      value,
+    });
+
+    expect(result).toMatchObject({
+      toolName: "example_write",
+      toolExecution: "returned",
+      resultMetadata: { operationId: "write-1", status: "completed" },
+      presentation: {
+        kind: "partial",
+        reasonCode: "remote_agent.tool_result_too_large",
+        continuation: null,
+        originalJsonBytes: new TextEncoder().encode(JSON.stringify(value))
+          .byteLength,
+      },
+    });
+    const preview = (
+      result as { resultPreview: { prefix: string; suffix: string } }
+    ).resultPreview;
+    expect(preview.prefix).toContain('{"data":{"content":');
+    expect(preview.suffix).toContain('"truncated":true');
+    expect(preview.prefix.isWellFormed()).toBe(true);
+    expect(preview.suffix.isWellFormed()).toBe(true);
+    expect(isRemoteAgentToolResultWithinLimit(result)).toBe(true);
+    expect(
+      isRemoteAgentToolResultWithinLimit({ output: JSON.stringify(result) })
+    ).toBe(true);
+    expect(JSON.stringify(result)).toContain("Do not repeat a write");
+  });
+
+  it.each([
+    "completed",
+    "failed",
+  ] as const)("preserves a %s receipt even when preceding metadata consumes the budget", (status) => {
+    const receipt = {
+      operationId: "write-receipt-in-the-middle",
+      providerExecutionId: "provider-receipt-in-the-middle",
+      status,
+      success: status === "completed",
+      replayed: false,
+    };
+    const result = toBoundedRemoteAgentToolResult({
+      toolName: "example_action",
+      value: {
+        metadata: "m".repeat(7980),
+        ...receipt,
+        detail: "x".repeat(200_000),
+      },
+    });
+    expect(result).toMatchObject({
+      toolExecution: "returned",
+      resultMetadata: receipt,
+      presentation: { kind: "partial" },
+    });
+    const preview = (result as { resultPreview: unknown }).resultPreview;
+    expect(JSON.stringify(preview)).not.toContain(receipt.operationId);
+    expect(JSON.stringify(preview)).not.toContain(receipt.providerExecutionId);
+    expect(isRemoteAgentToolResultWithinLimit(result)).toBe(true);
   });
 
   it("preserves every semantic field in a bounded structured result", () => {
@@ -191,7 +282,7 @@ describe("Remote Agent tool execution", () => {
     expect(execute).toHaveBeenCalledTimes(4);
   });
 
-  it("enforces one durable tool-call budget across the whole submission", async () => {
+  it("continues past the former checkpoint and records a safety failure at the configured limit", async () => {
     const { storage } = await createToolExecutionTestContext();
     const execute = vi.fn(async () => ({ ok: true }));
     const definition: RemoteAgentToolDefinition = {
@@ -201,8 +292,9 @@ describe("Remote Agent tool execution", () => {
       name: "budgeted_tool",
     };
 
-    for (let attempt = 0; attempt < 64; attempt += 1) {
+    for (let attempt = 0; attempt < 70; attempt += 1) {
       await executeRemoteAgentToolDefinition({
+        callLimit: 70,
         definition,
         storage,
         submissionId: SUBMISSION_ID,
@@ -217,16 +309,116 @@ describe("Remote Agent tool execution", () => {
         toolInput: { attempt: 64 },
       })
     ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
-    expect(execute).toHaveBeenCalledTimes(64);
+    expect(execute).toHaveBeenCalledTimes(70);
     await expect(
       readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
+    ).resolves.not.toHaveProperty("workLoopCheckpoint");
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing execution context");
+    }
+    await expect(
+      readRemoteAgentExecutionState({
+        storage,
+        identity: buildRemoteAgentExecutionIdentity(context),
+      })
     ).resolves.toMatchObject({
-      workLoopCheckpoint: {
-        reason: "tool_call_budget_exhausted",
-        toolCallLimit: 64,
-        v: 1,
-      },
+      execution: { status: "pending", completedAtMs: null },
     });
+    await markRemoteAgentExecutionProgress({
+      identity: buildRemoteAgentExecutionIdentity(context),
+      storage,
+      nowMs: TEST_NOW_MS + 1,
+      progressKind: "tool_failed",
+    });
+    await expect(
+      readRemoteAgentRequestedExecutionFailure({
+        identity: buildRemoteAgentExecutionIdentity(context),
+        storage,
+      })
+    ).resolves.toMatchObject({
+      code: "remote_agent.tool_call_budget_exceeded",
+    });
+    await expect(
+      completeRemoteAgentExecutionState({
+        identity: buildRemoteAgentExecutionIdentity(context),
+        storage,
+        nowMs: TEST_NOW_MS + 1,
+        status: "completed",
+        completedText: "Everything is done.",
+      })
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("charges direct no-progress refusals without repeating the redundant read", async () => {
+    const { storage } = await createToolExecutionTestContext();
+    const execute = vi.fn(() => Promise.resolve({ status: "waiting" }));
+    const definition: RemoteAgentToolDefinition = {
+      name: "unchanged_observation",
+      description: "Read a status.",
+      input: object({}),
+      execute,
+      progressTracking: "observation",
+    };
+    const call = () =>
+      executeRemoteAgentToolDefinition({
+        definition,
+        storage,
+        submissionId: SUBMISSION_ID,
+        toolInput: {},
+        callLimit: 4,
+      });
+    await call();
+    await call();
+    await expect(call()).rejects.toBeInstanceOf(RemoteAgentNoProgressError);
+    await expect(call()).rejects.toBeInstanceOf(RemoteAgentNoProgressError);
+    await expect(call()).rejects.toBeInstanceOf(
+      RemoteAgentToolCallBudgetExceededError
+    );
+    await expect(call()).rejects.toThrow("tool execution is fenced");
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
+
+  it("retains a frozen assignment allowance across replacement submissions and idle time", async () => {
+    const { storage } = await createToolExecutionTestContext();
+    const original = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!original) {
+      throw new Error("Missing execution context");
+    }
+    const attempt = (
+      submissionId: string,
+      callLimit: number,
+      nowMs = TEST_NOW_MS
+    ) =>
+      beginRemoteAgentToolAttempt({
+        storage,
+        submissionId,
+        callLimit,
+        nowMs,
+        toolName: "read",
+        toolInput: {},
+      });
+    await expect(attempt(SUBMISSION_ID, 2)).resolves.toMatchObject({
+      callNumber: 1,
+    });
+    const replacement = {
+      ...original,
+      submissionId: "replacement",
+      idempotencyKey: "replacement-key",
+    };
+    await putRemoteAgentCallbackContext(storage, replacement);
+    await expect(
+      attempt("replacement", 100, TEST_NOW_MS + 86_400_000)
+    ).resolves.toMatchObject({ callNumber: 2, callLimit: 2 });
+    await expect(attempt("replacement", 100)).rejects.toBeInstanceOf(
+      RemoteAgentToolCallBudgetExceededError
+    );
   });
 
   it("accounts for concurrent outer and inner attempts without losing budget updates", async () => {
@@ -234,6 +426,7 @@ describe("Remote Agent tool execution", () => {
     const attempts = await Promise.all(
       Array.from({ length: 64 }, (_, attempt) =>
         beginRemoteAgentToolAttempt({
+          callLimit: 64,
           storage,
           submissionId: "submission-concurrent-budget",
           toolInput: { attempt },
@@ -253,6 +446,53 @@ describe("Remote Agent tool execution", () => {
         toolName: "codemode",
       })
     ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
+  });
+
+  it("carries a legacy checkpoint's spent allowance into its replacement", async () => {
+    const { storage } = await createToolExecutionTestContext();
+    const original = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!original?.turnEnvelope) {
+      throw new Error("Missing original turn context");
+    }
+    await putRemoteAgentCallbackContext(storage, {
+      ...original,
+      workLoopCheckpoint: {
+        v: 1,
+        reason: "tool_call_budget_exhausted",
+        toolCallLimit: 64,
+      },
+    });
+    await putRemoteAgentCallbackContext(storage, {
+      ...original,
+      submissionId: "legacy-replacement",
+      turnEnvelope: {
+        ...original.turnEnvelope,
+        workLoopContinuation: {
+          v: 1,
+          reason: "tool_call_budget_exhausted",
+          attempt: 1,
+          previousSubmissionId: SUBMISSION_ID,
+        },
+      },
+    });
+    const attempt = () =>
+      beginRemoteAgentToolAttempt({
+        storage,
+        submissionId: "legacy-replacement",
+        callLimit: 65,
+        toolName: "read",
+        toolInput: {},
+      });
+    await expect(attempt()).resolves.toMatchObject({
+      callNumber: 65,
+      callLimit: 65,
+    });
+    await expect(attempt()).rejects.toBeInstanceOf(
+      RemoteAgentToolCallBudgetExceededError
+    );
   });
 
   it.each([
@@ -302,7 +542,7 @@ describe("Remote Agent tool execution", () => {
     ).resolves.toEqual(state);
   });
 
-  it("restarts the budget only when a valid durable state has expired", async () => {
+  it("does not refill the allowance when an idle execution resumes after legacy expiry", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const submissionId = "submission-expired-budget";
     await storage.putExpiring(
@@ -324,7 +564,7 @@ describe("Remote Agent tool execution", () => {
         toolInput: {},
         toolName: "new_turn_tool",
       })
-    ).resolves.toMatchObject({ callNumber: 1 });
+    ).resolves.toMatchObject({ callNumber: 65 });
   });
 
   it("does not execute tools after detecting invalid durable progress", async () => {
@@ -362,7 +602,7 @@ describe("Remote Agent tool execution", () => {
         submissionId: SUBMISSION_ID,
         toolInput: {},
       })
-    ).rejects.toBeInstanceOf(RemoteAgentTurnEndedError);
+    ).rejects.toThrow("remote_agent.tool_progress_state_invalid");
     expect(execute).not.toHaveBeenCalled();
   });
 

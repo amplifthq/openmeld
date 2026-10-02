@@ -1,7 +1,7 @@
 import * as eagerZod from "zod/v4";
 import * as z from "../../lazy-zod";
 
-export const SPACE_FILE_MAX_SIZE_BYTES = 250 * 1024 * 1024;
+export const SPACE_FILE_MAX_SIZE_BYTES = 1024 * 1024 * 1024;
 const CONTENT_DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
 export const SPACE_FILE_RAW_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 export const SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES = 1024 * 1024;
@@ -23,6 +23,10 @@ const MIME_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
   ".json": "application/json",
   ".md": "text/markdown",
   ".markdown": "text/markdown",
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
   ".pdf": "application/pdf",
   ".png": "image/png",
   ".svg": "image/svg+xml",
@@ -44,12 +48,61 @@ export const spaceFileClientMutationIdSchema = z
   .max(128);
 export const spaceFileRevisionNumberSchema = eagerZod.number().int().min(1);
 export const spaceFileBaseRevisionSchema = z.number().int().min(1).nullable();
-export const spaceFileSizeBytesSchema = z
+export const spaceFileSizeBytesSchema = eagerZod
   .number()
   .int()
   .min(0)
   .max(SPACE_FILE_MAX_SIZE_BYTES);
 export const spaceComposerUploadIdSchema = z.string().uuid();
+
+/**
+ * The one canonical fact distinguishing a chat upload (sent as a message
+ * attachment, from Web Composer or CLI `space send --file`) from an
+ * artifact (deliberately created or uploaded straight into Files, or
+ * written by an Agent). Set once at file creation and never changed by a
+ * later revision, update, trash, or restore.
+ *
+ * A file created before this classification existed does not stay
+ * unclassified: the schema migration that added this column deterministically
+ * backfilled every pre-existing file row to `"artifact"`, because there is no
+ * reliable signal in that historical data to recover a chat upload from
+ * deliberately created work (both wrote through the identical path before
+ * this column existed). A missing/`NULL` value on a file after that
+ * migration is exceptional/corrupt data, not normal history; every read
+ * path still fails closed on it — treats it as "not a known artifact" —
+ * rather than guessing a classification for it.
+ */
+export const spaceFileOriginSchema = z.enum(["artifact", "chat_upload"]);
+
+/**
+ * Which files a Space Files list request includes. `"artifact"` (the
+ * default) hides chat uploads to keep the list focused on deliberately
+ * created or uploaded work; folders are always included. `"all"` also
+ * includes chat uploads and any file whose origin is missing/`NULL`
+ * (exceptional/corrupt data — see `spaceFileOriginSchema`, not normal
+ * historical data, which is backfilled to `"artifact"`).
+ */
+export const spaceFileListOriginFilterSchema = z
+  .enum(["artifact", "all"])
+  .default("artifact");
+
+/**
+ * The explicit capability token a Center Agent / Remote Agent RPC caller
+ * sets to declare it understands `origin` on Space Files responses. Core's
+ * RPC entrypoint methods strip `origin` from the response
+ * (`toLegacySpaceFilesOriginWireValue`) unless the caller's request carries
+ * this exact token, so an already-published Remote Agent build — which has
+ * no field for this at all and therefore never sends it — keeps receiving
+ * the pre-origin response shape it already knows how to parse. This is the
+ * RPC-boundary analog of the `x-openmeld-space-files-origin-version` HTTP
+ * header Gateway checks for Web/CLI callers; see the Space Files Origin
+ * Classification Contract Impact Audit in
+ * `developing/engineering/development-workflow.md`.
+ */
+export const SPACE_FILES_ORIGIN_CAPABILITY_TOKEN = "origin_aware" as const;
+export const spaceFilesOriginCapabilitySchema = z
+  .literal(SPACE_FILES_ORIGIN_CAPABILITY_TOKEN)
+  .optional();
 
 /**
  * Derives the opaque file identity for a retriable create mutation.
@@ -161,30 +214,26 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-export const spaceFileMimeTypeSchema = z
+export const spaceFileMimeTypeSchema = eagerZod
   .string()
   .trim()
   .toLowerCase()
   .max(255)
   .regex(MEDIA_TYPE_PATTERN, "File type must be a valid media type.");
-export const spaceFileNameSchema = z
+export const spaceFileNameSchema = eagerZod
   .string()
-  .transform((value) => value.trim())
-  .pipe(
-    z
-      .string()
-      .min(1)
-      .max(SPACE_FILE_MAX_NAME_LENGTH)
-      .refine((value) => !PATH_SEPARATOR_PATTERN.test(value), {
-        message: "File names cannot contain path separators.",
-      })
-      .refine((value) => !hasControlCharacter(value), {
-        message: "File names cannot contain control characters.",
-      })
-      .refine((value) => value !== "." && value !== "..", {
-        message: "File names cannot be dot path segments.",
-      })
-  );
+  .trim()
+  .min(1)
+  .max(SPACE_FILE_MAX_NAME_LENGTH)
+  .refine((value) => !PATH_SEPARATOR_PATTERN.test(value), {
+    message: "File names cannot contain path separators.",
+  })
+  .refine((value) => !hasControlCharacter(value), {
+    message: "File names cannot contain control characters.",
+  })
+  .refine((value) => value !== "." && value !== "..", {
+    message: "File names cannot be dot path segments.",
+  });
 
 export const spaceFileActorSchema = z.strictObject({
   profileId: scopeIdSchema,
@@ -252,6 +301,16 @@ export const spaceFileAuditEventSchema = z
     }
   });
 
+/** Optional for legacy/unsupported images; one complete display-oriented pair. */
+export const spaceFileImageDimensionsSchema = eagerZod
+  .strictObject({
+    width: eagerZod.number().int().min(1).max(32_768),
+    height: eagerZod.number().int().min(1).max(32_768),
+  })
+  .refine((value) => value.width * value.height <= 128 * 1024 * 1024, {
+    message: "Image geometry exceeds the supported display area.",
+  });
+
 export const spaceFileRevisionSchema = z.strictObject({
   id: spaceFileRevisionIdSchema,
   fileId: spaceFileEntryIdSchema,
@@ -260,6 +319,7 @@ export const spaceFileRevisionSchema = z.strictObject({
   sizeBytes: spaceFileSizeBytesSchema,
   createdAt: z.iso.datetime({ offset: true }),
   createdBy: spaceFileActorSchema,
+  imageDimensions: spaceFileImageDimensionsSchema.optional(),
 });
 
 /**
@@ -267,12 +327,13 @@ export const spaceFileRevisionSchema = z.strictObject({
  * `revision` identify the immutable bytes; the remaining fields are the
  * server-resolved send-time presentation snapshot.
  */
-export const spaceMessageFileReferenceSchema = z.strictObject({
+export const spaceMessageFileReferenceSchema = eagerZod.strictObject({
   fileId: spaceFileEntryIdSchema,
   revision: spaceFileRevisionNumberSchema,
   name: spaceFileNameSchema,
   mimeType: spaceFileMimeTypeSchema,
   sizeBytes: spaceFileSizeBytesSchema,
+  imageDimensions: spaceFileImageDimensionsSchema.optional(),
 });
 
 export const spaceMessageFileReferencesSchema = z
@@ -302,6 +363,7 @@ export const spaceFileDescriptorSchema = z.strictObject({
   ...baseEntryShape,
   kind: z.literal("file"),
   latestRevision: spaceFileRevisionSchema,
+  origin: spaceFileOriginSchema.nullable().default(null),
 });
 
 export const spaceFileEntrySchema = z.discriminatedUnion("kind", [
@@ -322,12 +384,14 @@ export const spaceFileCapabilitiesSchema = z.strictObject({
 export const listSpaceFilesQuerySchema = z.strictObject({
   parentId: spaceFileEntryIdSchema.nullable().optional(),
   view: z.enum(["active", "trash"]).default("active"),
+  origin: spaceFileListOriginFilterSchema,
 });
 
 export const listSpaceFilesResponseSchema = z.strictObject({
   spaceId: scopeIdSchema,
   parentId: spaceFileEntryIdSchema.nullable(),
   view: z.enum(["active", "trash"]).default("active"),
+  origin: spaceFileListOriginFilterSchema,
   breadcrumbs: z.array(spaceFileBreadcrumbSchema),
   entries: z.array(spaceFileEntrySchema),
   capabilities: spaceFileCapabilitiesSchema,
@@ -404,6 +468,9 @@ export const createSpaceFileUploadQuerySchema = z.strictObject({
   name: spaceFileNameSchema,
   parentId: spaceFileEntryIdSchema.optional(),
   clientMutationId: spaceFileClientMutationIdSchema,
+  // Optional for rolling interoperability with clients that predate this
+  // field. An omitted origin on upload is treated as 'artifact' server-side.
+  origin: spaceFileOriginSchema.optional(),
 });
 
 export const updateSpaceFileContentQuerySchema = z.strictObject({
@@ -489,6 +556,15 @@ export const prepareSpaceFileWriteInputSchema = z.strictObject({
   clientMutationId: spaceFileClientMutationIdSchema,
   mimeType: spaceFileMimeTypeSchema,
   sizeBytes: spaceFileSizeBytesSchema,
+  // Only meaningful when this write creates a new file (baseRevision is
+  // null). Ignored for a new revision of an existing file, which always
+  // keeps the origin recorded at that file's creation. Left optional for
+  // rolling interoperability: a legacy client that predates this field can
+  // keep creating files without sending it. The server treats an omitted
+  // origin on a new-file write as 'artifact', matching the repository's
+  // pre-feature create behavior, so old clients stay visible in the
+  // default Files view without any required client-side change.
+  origin: spaceFileOriginSchema.optional(),
 });
 
 export const prepareSpaceFileWriteResponseSchema = z.strictObject({

@@ -21,9 +21,15 @@ import type { SpaceHistoryNavigationController } from "./use-space-history-navig
 
 export type SpaceHistoryActions = {
 	onBack?: () => void;
-	onLatest: () => void;
+	reserveLatest: () => SpaceHistoryLatestReservation;
+	latestHref?: string;
 	isHistorical: boolean;
 	pending: boolean;
+};
+
+export type SpaceHistoryLatestReservation = {
+	isCurrent: () => boolean;
+	navigate: () => Promise<boolean>;
 };
 
 type Position = { signalId: string; offset: number };
@@ -45,8 +51,39 @@ export function SpaceHistoryRail(input: {
 	onNavigateStart: () => void;
 }) {
 	const navRef = useRef<HTMLDivElement>(null);
-	const buttons = useRef(new Map<number, HTMLButtonElement>());
-	const [activeIndex, setActiveIndex] = useState<number | null>(null);
+	useLayoutEffect(() => {
+		const rail = navRef.current;
+		const frame = rail?.parentElement;
+		if (
+			!(rail && frame && input.visible) ||
+			window.matchMedia("(pointer: coarse)").matches
+		) {
+			return;
+		}
+		const position = () => {
+			const bounds = frame.getBoundingClientRect();
+			const windowBounds = rail
+				.closest('[data-slot="app-main-content"]')
+				?.getBoundingClientRect();
+			const windowCenter = windowBounds
+				? windowBounds.top + windowBounds.height / 2
+				: window.innerHeight / 2;
+			const halfHeight = rail.offsetHeight / 2;
+			// The Space window stays put when its reading header changes height.
+			rail.style.top = `${Math.max(halfHeight, Math.min(bounds.height - halfHeight, windowCenter - bounds.top))}px`;
+		};
+		const observer = new ResizeObserver(position);
+		observer.observe(frame);
+		observer.observe(rail);
+		window.addEventListener("resize", position);
+		position();
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", position);
+		};
+	}, [input.visible]);
+	const buttons = useRef(new Map<number, HTMLElement>());
+	const [activeSignalId, setActiveSignalId] = useState<string | null>(null);
 	const previewRef = useRef<HTMLDivElement | null>(null);
 	const pointerIndex = useRef<number | null>(null);
 	const railBounds = useRef<DOMRect | null>(null);
@@ -58,8 +95,23 @@ export function SpaceHistoryRail(input: {
 	const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const jumpSequence = useRef(0);
+	const latestState = useRef({
+		controller: input.controller,
+		scrollElement: input.scrollElement,
+	});
+	latestState.current = {
+		controller: input.controller,
+		scrollElement: input.scrollElement,
+	};
 	const entries = input.controller.directory?.entries ?? [];
-	const selected = entries[activeIndex ?? 0];
+	const selectedIndex = activeSignalId
+		? entries.findIndex((entry) => entry.signalId === activeSignalId)
+		: -1;
+	const activeIndex = selectedIndex < 0 ? null : selectedIndex;
+	const HistoryTarget = input.controller.hrefForSignalId ? "a" : "button";
+	const BrowseHistoryTarget = input.controller.earlierHref ? "a" : "button";
+	const selected =
+		activeSignalId && selectedIndex < 0 ? undefined : entries[activeIndex ?? 0];
 	const closePreview = () => {
 		if (openTimer.current) {
 			clearTimeout(openTimer.current);
@@ -110,7 +162,9 @@ export function SpaceHistoryRail(input: {
 	};
 	const selectPreview = (index: number | null) => {
 		pointerIndex.current = index;
-		setActiveIndex(index);
+		setActiveSignalId(
+			index === null ? null : (entries[index]?.signalId ?? null)
+		);
 		paint(index);
 	};
 	const movePointer = (clientY: number) => {
@@ -130,7 +184,7 @@ export function SpaceHistoryRail(input: {
 			const index = Math.round(position);
 			if (pointerIndex.current !== index) {
 				pointerIndex.current = index;
-				setActiveIndex(index);
+				setActiveSignalId(entries[index]?.signalId ?? null);
 			}
 			paint(position);
 		});
@@ -202,23 +256,38 @@ export function SpaceHistoryRail(input: {
 		}
 		closeTimer.current = setTimeout(() => {
 			closePreview();
-			setActiveIndex(null);
+			setActiveSignalId(null);
 		}, 180);
 	};
-	const latest = () => {
-		jumpSequence.current += 1;
-		setPrevious(readPosition(input.scrollElement));
-		closePreview();
-		input.controller.latest();
-		input.onFollowLatest();
-		requestAnimationFrame(() =>
-			requestAnimationFrame(() =>
-				input.scrollElement?.scrollTo({
-					top: input.scrollElement.scrollHeight,
-					behavior: "instant",
-				})
-			)
-		);
+	const reserveLatest = (): SpaceHistoryLatestReservation => {
+		const sequence = ++jumpSequence.current;
+		const isCurrent = () => sequence === jumpSequence.current;
+		const previousPosition = readPosition(input.scrollElement);
+		return {
+			isCurrent,
+			navigate: async () => {
+				if (!isCurrent()) {
+					return false;
+				}
+				setPrevious(previousPosition);
+				closePreview();
+				input.controller.latest();
+				input.onFollowLatest();
+				await new Promise<void>((resolve) => {
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+				});
+				const current = latestState.current;
+				if (
+					!isCurrent() ||
+					current.controller.activeWindow ||
+					current.controller.pending ||
+					!current.scrollElement
+				) {
+					return false;
+				}
+				return isCurrent();
+			},
+		};
 	};
 
 	return (
@@ -247,17 +316,19 @@ export function SpaceHistoryRail(input: {
 					role="toolbar"
 					style={{ height: Math.min(entries.length * 10, 288) }}
 				>
-					<button
+					<BrowseHistoryTarget
 						aria-label="Browse history"
 						className="space-history-touch-trigger"
-						onClick={() => {
+						href={input.controller.earlierHref}
+						onClick={(event) => {
+							event.preventDefault();
 							selectPreview(activeIndex ?? 0);
 							setOpen(true);
 						}}
-						type="button"
+						type={BrowseHistoryTarget === "button" ? "button" : undefined}
 					>
 						<ClockCounterClockwiseIcon size={18} />
-					</button>
+					</BrowseHistoryTarget>
 					{input.controller.directoryPending && (
 						<span className="text-muted-foreground text-xs">…</span>
 					)}
@@ -272,10 +343,13 @@ export function SpaceHistoryRail(input: {
 					)}
 					<div className="space-history-ticks">
 						{entries.map((entry, index) => (
-							<button
+							<HistoryTarget
 								aria-label={`${date(entry.startAt)}: ${entry.preview}`}
+								className="space-history-tick"
+								href={input.controller.hrefForSignalId?.(entry.signalId)}
 								key={entry.signalId}
 								onClick={(event) => {
+									event.preventDefault();
 									if (
 										window.matchMedia("(pointer: coarse)").matches &&
 										event.detail !== 0
@@ -311,7 +385,7 @@ export function SpaceHistoryRail(input: {
 										closePreview();
 									}
 								}}
-								ref={(node) => {
+								ref={(node: HTMLElement | null) => {
 									if (node) {
 										buttons.current.set(index, node);
 									} else {
@@ -319,10 +393,10 @@ export function SpaceHistoryRail(input: {
 									}
 								}}
 								tabIndex={index === (activeIndex ?? 0) ? 0 : -1}
-								type="button"
+								type={HistoryTarget === "button" ? "button" : undefined}
 							>
 								<span className="space-history-dash" />
-							</button>
+							</HistoryTarget>
 						))}
 					</div>
 				</div>
@@ -403,7 +477,8 @@ export function SpaceHistoryRail(input: {
 							jump(previous.signalId, previous);
 						}
 					: undefined,
-				onLatest: latest,
+				reserveLatest,
+				latestHref: input.controller.latestHref,
 				isHistorical: !!input.controller.activeWindow,
 				pending: input.controller.pending,
 			})}

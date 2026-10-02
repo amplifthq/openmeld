@@ -29,7 +29,7 @@ import {
   createAgentComputerWorkspaceAccess,
 } from "./agent-computer-workspace-access";
 import { buildComputerCommandProcess } from "./computer-command-process";
-import { buildAgentComputerName } from "./computer-identity";
+import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
 
 const PREFIX = "openmeld:remote-agent:computer-command:";
@@ -74,6 +74,8 @@ type Command = {
   createdAt: number;
   stopRequested?: boolean;
   lossReported?: boolean;
+  lostDuringCleanup?: boolean;
+  completed?: boolean;
 };
 type CommandResult = {
   id: string;
@@ -85,6 +87,25 @@ type CommandResult = {
   after: number;
   outputPending?: true;
 };
+
+class MissingComputerExecRecordError extends Error {
+  readonly code = "ENOENT";
+
+  constructor(id: string, cause: unknown) {
+    super(`Computer execution record ${id} is missing.`, { cause });
+    this.name = "MissingComputerExecRecordError";
+  }
+}
+
+export class ConfirmedLostComputerCommandsError extends AggregateError {
+  constructor(errors: unknown[]) {
+    super(
+      errors,
+      "Computer command cleanup failed: a retained execution was confirmed lost."
+    );
+    this.name = "ConfirmedLostComputerCommandsError";
+  }
+}
 
 function commandPrefix(submissionId: string): string {
   return `${PREFIX}${encodeURIComponent(submissionId)}:`;
@@ -111,7 +132,7 @@ export function createComputerCommandTool(input: {
   const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
-      "Run long Linux commands using the Computer's retained native process sessions. Each action accepts only its own fields: start {action,key,command,timeoutSeconds?}; poll {action,key,after?,waitSeconds?}; stop {action,key}; list {action}. Do not pass poll fields to start. start launches the command directly (never add shell &, nohup, or a background subprocess), returning an initial output slice; use a unique stable key per command. poll returns bounded output plus an after cursor; repeat until completed. running with outputPending means the native process is alive but its existing output subscription has not detached; continue polling, and retained output will be available after exit. Use separate polls with the default 20-second wait for long work. list recovers keys after interruption. stop requests SIGTERM for that exact command. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. While a command is running, publish progress with openmeld_post_space_message and continue polling. A user saying they will press Stop does not stop the command: keep polling until actual cancellation or completion. Never end your turn to wait for Stop; ending the turn terminates unfinished commands. Finish all commands before your final answer. Use bash for short commands.",
+      "Run long Linux commands using the Computer's retained native process sessions. Each action accepts only its own fields: start {action,key,command,timeoutSeconds?}; poll {action,key,after?,waitSeconds?}; stop {action,key}; list {action}. Do not pass poll fields to start. start launches the command directly (never add shell &, nohup, or a background subprocess), returning an initial output slice; use a unique stable key per command. poll returns bounded output plus an after cursor; repeat until completed. running with outputPending means the native process is alive but its existing output subscription has not detached; continue polling, and retained output will be available after exit. Use separate polls with the default 20-second wait for long work, outside indefinite Code Mode loops. list recovers keys after interruption. stop requests SIGTERM for that exact command; stop_requested does not confirm termination. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. Continue collecting results until completion or actual cancellation. Use only progress tools available in your current role. Do not end your turn merely to wait for a running command or a possible future Stop. Collect command results before your final answer; actual cancellation and terminal failure clean up unfinished commands. Use bash for short commands.",
     input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
@@ -254,6 +275,14 @@ export function createComputerCommandTool(input: {
           result && typeof result === "object"
             ? (result as Record<string, unknown>)
             : {};
+        if (isCompletedCommandReceipt(receipt, rawInput)) {
+          const command = await read(String(rawInput.key));
+          await input.storage.putExpiring(
+            `${prefix}${encodeURIComponent(command.key)}`,
+            { ...command, completed: true },
+            Date.now() + 7 * 24 * 60 * 60 * 1000
+          );
+        }
         console.info("[remote_agent.computer_command_result]", {
           submissionId: input.context.submissionId,
           action: rawInput.action,
@@ -296,6 +325,13 @@ export function createComputerCommandTool(input: {
   };
 }
 
+function isCompletedCommandReceipt(
+  receipt: Record<string, unknown>,
+  input: Record<string, unknown>
+): boolean {
+  return receipt.status === "completed" && typeof input.key === "string";
+}
+
 async function pollComputerCommand(
   runtime: WorkspaceClient["runtime"],
   command: Pick<Command, "id" | "key">,
@@ -318,6 +354,9 @@ async function pollComputerCommand(
       // output already has a subscriber. Cap'n Web cancellation need not reach
       // a silent producer until its next write. This proves running, not lost
       // execution. Its retained output is replayable when the process exits.
+      if (hasErrorCode(error, "ENOENT")) {
+        throw new MissingComputerExecRecordError(command.id, error);
+      }
       if (
         !(
           error instanceof Error &&
@@ -428,68 +467,172 @@ export async function readCommandSlice(
   }
 }
 
+export async function listPendingRemoteAgentComputerCommands(input: {
+  context: RemoteAgentCallbackContext;
+  storage: RemoteAgentStorage;
+}): Promise<string[]> {
+  const commands = await input.storage.list<Command>({
+    prefix: commandPrefix(input.context.submissionId),
+  });
+  return [...commands.values()]
+    .filter(
+      (command) =>
+        !(command.completed || command.lossReported || command.stopRequested)
+    )
+    .map((command) => command.key);
+}
+
 export async function stopRemoteAgentComputerCommands(input: {
   context: RemoteAgentCallbackContext;
   env: { AGENT_COMPUTER?: unknown };
   storage: RemoteAgentStorage;
-}): Promise<number> {
+}): Promise<{ unfinished: number; lostDuringCleanup: boolean }> {
   const commands = await input.storage.list<Command>({
     prefix: commandPrefix(input.context.submissionId),
   });
   if (commands.size === 0) {
-    return 0;
+    return { unfinished: 0, lostDuringCleanup: false };
   }
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   const access = createAgentComputerWorkspaceAccess({
     namespace,
     computerId: namespace.idFromName(
-      buildAgentComputerName(input.context.agentProfileId)
+      resolveRemoteAgentComputerName(input.context)
     ),
   });
   let unfinished = 0;
+  let lostDuringCleanup = 0;
+  const previouslyLost = [...commands.values()].some(
+    (command) => command.lostDuringCleanup
+  );
   const failures: unknown[] = [];
   for (const command of commands.values()) {
-    // The SDK proved this process belonged to a replaced Computer, and its
-    // failure was returned to the model. Do not override later recovery with
-    // another attempt to signal that now-absent process.
-    if (command.lossReported) {
+    // A reported loss reached the model. A cleanup loss is reconciled through
+    // the execution owner, including after a crash before its failure request.
+    // Neither absent process should be retried.
+    if (
+      command.lossReported ||
+      command.lostDuringCleanup ||
+      command.completed
+    ) {
       continue;
     }
     try {
-      await input.storage.putExpiring(
-        `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
-        { ...command, stopRequested: true },
-        Date.now() + 7 * 24 * 60 * 60 * 1000
-      );
-      await access.withWorkspace(async (workspace) => {
-        let completed = false;
-        try {
-          const result = await pollComputerCommand(
-            workspace.runtime,
-            command,
-            0,
-            1000
-          );
-          completed = result.status === "completed";
-        } finally {
-          // Output transport failure must never strand an owned process after
-          // its turn ends. Signal its exact retained identity even when its
-          // output cannot be read; preserve the inspection error for diagnosis.
-          if (!completed) {
-            unfinished++;
-            await workspace.runtime.killExec(command.id, {
-              backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
-              signal: "SIGTERM",
-            });
-          }
-        }
+      unfinished += await stopAndRecordComputerCommand({
+        access,
+        command,
+        context: input.context,
+        storage: input.storage,
       });
     } catch (error) {
+      if (error instanceof ConfirmedLostComputerCommandsError) {
+        lostDuringCleanup++;
+      }
       failures.push(error);
     }
   }
   if (failures.length > 0) {
+    if (lostDuringCleanup === failures.length) {
+      throw new ConfirmedLostComputerCommandsError(failures);
+    }
     throw new AggregateError(failures, "Computer command cleanup failed.");
   }
-  return unfinished;
+  return { unfinished, lostDuringCleanup: previouslyLost };
+}
+
+async function stopAndRecordComputerCommand(input: {
+  access: AgentComputerWorkspaceAccess;
+  command: Command;
+  context: RemoteAgentCallbackContext;
+  storage: RemoteAgentStorage;
+}): Promise<number> {
+  const key = `${commandPrefix(input.context.submissionId)}${encodeURIComponent(input.command.key)}`;
+  await input.storage.putExpiring(
+    key,
+    { ...input.command, stopRequested: true },
+    Date.now() + 7 * 24 * 60 * 60 * 1000
+  );
+  try {
+    return await inspectAndStopComputerCommand(input.access, input.command);
+  } catch (error) {
+    if (error instanceof ConfirmedLostComputerCommandsError) {
+      await input.storage.putExpiring(
+        key,
+        { ...input.command, stopRequested: true, lostDuringCleanup: true },
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      );
+      console.warn("[remote_agent.computer_command_cleanup_lost]", {
+        submissionId: input.context.submissionId,
+        commandId: input.command.id,
+        commandKey: input.command.key,
+        errorCode: hasErrorCode(error.errors[0], "EEXEC_LOST")
+          ? "EEXEC_LOST"
+          : "ENOENT",
+      });
+    }
+    console.warn("[remote_agent.computer_command_cleanup_error]", {
+      submissionId: input.context.submissionId,
+      commandId: input.command.id,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorCode:
+        error instanceof Error && "code" in error ? error.code : undefined,
+    });
+    throw error;
+  }
+}
+
+async function inspectAndStopComputerCommand(
+  access: AgentComputerWorkspaceAccess,
+  command: Command
+): Promise<number> {
+  return await access.withWorkspace(async (workspace) => {
+    let completed = false;
+    let recordMissing = false;
+    let runtimeLost = false;
+    let inspectionFailed = false;
+    let inspectionError: unknown;
+    try {
+      const result = await pollComputerCommand(
+        workspace.runtime,
+        command,
+        0,
+        1000
+      );
+      completed = result.status === "completed";
+    } catch (error) {
+      recordMissing = error instanceof MissingComputerExecRecordError;
+      runtimeLost = hasErrorCode(error, "EEXEC_LOST");
+      inspectionFailed = true;
+      inspectionError = error;
+    }
+    // A transport failure can leave a live command behind. A replaced
+    // runtime cannot: the old execution identity is already gone.
+    if (!(completed || runtimeLost)) {
+      try {
+        await workspace.runtime.killExec(command.id, {
+          backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+          signal: "SIGTERM",
+        });
+      } catch (error) {
+        if (
+          hasErrorCode(error, "EEXEC_LOST") ||
+          (recordMissing && hasErrorCode(error, "ENOENT"))
+        ) {
+          throw new ConfirmedLostComputerCommandsError([error]);
+        }
+        throw error;
+      }
+    }
+    if (runtimeLost) {
+      throw new ConfirmedLostComputerCommandsError([inspectionError]);
+    }
+    if (inspectionFailed) {
+      throw inspectionError;
+    }
+    return completed ? 0 : 1;
+  });
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
 }

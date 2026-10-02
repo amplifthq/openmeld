@@ -34,6 +34,11 @@ const openConnectorConfiguredConnectionSchema = z.object({
   service: z.string().min(1),
 });
 
+const openConnectorInstallationLookupSchema = z.object({
+  accountLogin: z.string().trim().min(1),
+  installationId: z.string().regex(/^[1-9][0-9]*$/u),
+});
+
 const openConnectorProviderListSchema = z.object({
   data: z.array(connectorAppCatalogProviderSchema).max(5000),
   success: z.literal(true),
@@ -146,6 +151,7 @@ export class OpenConnectorClient {
   }
 
   async completeGitHubAppInstallation(input: {
+    expectedAccountLogin?: string;
     installationId: string;
     targetConnectionName: string;
     verificationConnectionName: string;
@@ -168,6 +174,26 @@ export class OpenConnectorClient {
         502
       );
     }
+  }
+
+  async findAccessibleGitHubAppInstallation(
+    verificationConnectionName: string
+  ): Promise<{
+    accountLogin: string;
+    installationId: string;
+  }> {
+    const query = new URLSearchParams({ verificationConnectionName });
+    const payload = await this.#request(
+      `/api/providers/github/installations?${query}`,
+      {
+        method: "GET",
+      }
+    );
+    return parseOpenConnectorPayload({
+      payload,
+      schema: openConnectorInstallationLookupSchema,
+      operation: "find GitHub App installation",
+    });
   }
 
   async disconnect(input: {

@@ -22,6 +22,7 @@ const FALLBACK_ACCOUNT_HOST_KEY = "unauthenticated";
 const FALLBACK_ACCOUNT_USER_KEY = "local";
 export const OPENMELD_HOME_ENV_KEY = "OPENMELD_HOME";
 const OPENMELD_ENV_PRESET_ENV_KEY = "OPENMELD_ENV_PRESET";
+const OPENMELD_LEGACY_ENV_KEY = "OPENMELD_ENV";
 const DEFAULT_OPENMELD_ENV_PRESET: OpenMeldEnvPreset = "prod";
 const OPENMELD_DEFAULT_HOME_DIR_BY_PRESET = {
   prod: ".openmeld",
@@ -56,7 +57,7 @@ export function resolveOpenMeldEnvPreset(
   input: OpenMeldPathResolutionInput = {}
 ): OpenMeldEnvPreset {
   const env = input.env ?? process.env;
-  const fromEnv = normalizeOpenMeldEnvPreset(env[OPENMELD_ENV_PRESET_ENV_KEY]);
+  const fromEnv = resolveOpenMeldEnvPresetFromEnvironment(env);
   if (fromEnv) {
     return fromEnv;
   }
@@ -67,7 +68,7 @@ export function resolveExplicitOpenMeldEnvPreset(
   input: OpenMeldPathResolutionInput = {}
 ): OpenMeldEnvPreset | null {
   const env = input.env ?? process.env;
-  return normalizeOpenMeldEnvPreset(env[OPENMELD_ENV_PRESET_ENV_KEY]);
+  return resolveOpenMeldEnvPresetFromEnvironment(env);
 }
 
 export function resolveDefaultOpenMeldHomeDirname(
@@ -144,10 +145,14 @@ export function openMeldBackupsDir(): string {
 }
 
 // Managed binary layout (binary distribution only). Each installed version
-// lives under versions/<version>/openmeld; bin/openmeld is the current-version
-// pointer (a symlink) that install-self / update swap atomically. The layout is
+// lives under versions/<version> with its platform executable. POSIX uses a
+// symlink; Windows uses a native console launcher and one activation record. The layout is
 // lane-aware through resolveOpenMeldRootDir, so the dev lane uses
 // ~/.openmeld-dev/versions and ~/.openmeld-dev/bin.
+export function openMeldManagedBinaryName(): string {
+  return process.platform === "win32" ? "openmeld.exe" : "openmeld";
+}
+
 export function openMeldVersionsDir(
   input: OpenMeldPathResolutionInput = {}
 ): string {
@@ -168,7 +173,10 @@ export function openMeldManagedVersionBinaryPath(
   version: string,
   input: OpenMeldPathResolutionInput = {}
 ): string {
-  return join(openMeldManagedVersionDir(version, input), "openmeld");
+  return join(
+    openMeldManagedVersionDir(version, input),
+    openMeldManagedBinaryName()
+  );
 }
 
 export function openMeldBinDir(
@@ -180,7 +188,7 @@ export function openMeldBinDir(
 export function openMeldManagedBinaryPath(
   input: OpenMeldPathResolutionInput = {}
 ): string {
-  return join(openMeldBinDir(input), "openmeld");
+  return join(openMeldBinDir(input), openMeldManagedBinaryName());
 }
 
 export function accountsDir(): string {
@@ -532,6 +540,25 @@ function normalizeOpenMeldEnvPreset(
     return normalized;
   }
   return null;
+}
+
+function resolveOpenMeldEnvPresetFromEnvironment(
+  env: NodeJS.ProcessEnv
+): OpenMeldEnvPreset | null {
+  const preset = normalizeOpenMeldEnvPreset(env[OPENMELD_ENV_PRESET_ENV_KEY]);
+  const legacyValue = String(env[OPENMELD_LEGACY_ENV_KEY] ?? "")
+    .trim()
+    .toLowerCase();
+  const legacyPreset =
+    legacyValue === "dev"
+      ? "dev-local"
+      : normalizeOpenMeldEnvPreset(legacyValue || undefined);
+  if (preset && legacyPreset && preset !== legacyPreset) {
+    throw new Error(
+      `OPENMELD_ENV_PRESET=${preset} conflicts with OPENMELD_ENV=${legacyValue}. Use one matching lane selection.`
+    );
+  }
+  return preset ?? legacyPreset;
 }
 
 function resolveHomeDirectory(input: OpenMeldPathResolutionInput): string {

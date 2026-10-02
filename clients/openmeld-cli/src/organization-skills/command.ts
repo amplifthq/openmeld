@@ -3,13 +3,18 @@ import {
   type OrganizationSkillsApi,
 } from "@openmeld/api-client";
 import {
+  cliJsonSkillsAddAllEnvelopeSchema,
+  cliJsonSkillsAddEnvelopeSchema,
+  cliJsonSkillsAddPreviewEnvelopeSchema,
   cliJsonSkillsListEnvelopeSchema,
   cliJsonSkillsLoadEnvelopeSchema,
+  cliJsonSkillsScanEnvelopeSchema,
   cliJsonSkillsShowEnvelopeSchema,
 } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   OrganizationSkill,
+  OrganizationSkillGitHubRepositoryPreview,
   OrganizationSkillSource,
   OrganizationSkillSummary,
 } from "@openmeld/schemas/types";
@@ -31,6 +36,7 @@ import {
   type MaterializedOrganizationSkillRelease,
   materializeOrganizationSkillRelease,
 } from "./cache";
+import { readLocalSkillFiles } from "./local-source";
 
 type OrganizationSkillsCommandInput = {
   json?: boolean;
@@ -61,6 +67,8 @@ const defaultDependencies: OrganizationSkillsCommandDependencies = {
     ),
   resolveHumanProfile: resolveOpenMeldProfile,
 };
+const GITHUB_COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
+const ORGANIZATION_SKILL_GITHUB_REQUEST_TIMEOUT_MS = 60_000;
 
 export async function runOrganizationSkillsList(
   input: OrganizationSkillsCommandInput = {},
@@ -91,6 +99,417 @@ export async function runOrganizationSkillsList(
       renderSkillsList(context, response.skills);
     }
   );
+}
+
+export async function runOrganizationSkillsAdd(
+  input: OrganizationSkillsCommandInput & {
+    source: string;
+    previewOnly?: boolean;
+    operationId?: string;
+  },
+  dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
+): Promise<void> {
+  await runOrganizationSkillsCommand(
+    input,
+    dependencyOverrides,
+    async (context) => {
+      if (!input.source.startsWith("https://github.com/")) {
+        if (input.source.includes("://")) {
+          throw new Error(
+            "Choose a local Skill directory or a github.com URL."
+          );
+        }
+        const files = await readLocalSkillFiles(input.source);
+        const preview = await context.api.previewFromFiles({
+          expectedOrganizationId: context.organization.id,
+          files,
+          requestContext: context.requestContext,
+        });
+        requireOrganizationIdentity(context, preview.organizationId);
+        const summary = {
+          name: preview.preview.portable.name,
+          files: preview.preview.files.map(({ path, size }) => ({
+            path,
+            size,
+          })),
+          warnings: preview.preview.warnings,
+        };
+        if (input.previewOnly) {
+          emitOrganizationSkillAddResult(
+            context,
+            "skills.add.preview",
+            summary
+          );
+          return;
+        }
+        const installed = await context.api.importFromFiles({
+          expectedOrganizationId: context.organization.id,
+          files,
+          requestContext: context.requestContext,
+        });
+        requireOrganizationIdentity(context, installed.skill.organizationId);
+        if (installed.skill.name !== preview.preview.portable.name) {
+          throw new Error("The installed Skill does not match its preview.");
+        }
+        emitOrganizationSkillAddResult(context, "skills.add", {
+          ...summary,
+          skillId: installed.skill.id,
+          releaseId: installed.skill.activeRelease.id,
+        });
+        return;
+      }
+      const preview = await context.api.previewFromGitHub({
+        expectedOrganizationId: context.organization.id,
+        requestContext: context.requestContext,
+        timeoutMs: ORGANIZATION_SKILL_GITHUB_REQUEST_TIMEOUT_MS,
+        url: input.source,
+      });
+      requireOrganizationIdentity(context, preview.organizationId);
+      const summary = {
+        name: preview.preview.portable.name,
+        commitSha: preview.preview.source.commitSha,
+        files: preview.preview.files,
+        warnings: preview.preview.warnings,
+      };
+      if (input.previewOnly) {
+        emitOrganizationSkillAddResult(context, "skills.add.preview", summary);
+        return;
+      }
+      const installed = await context.api.importFromGitHub({
+        expectedCommitSha: preview.preview.source.commitSha,
+        expectedOrganizationId: context.organization.id,
+        operationId: input.operationId ?? crypto.randomUUID(),
+        requestContext: context.requestContext,
+        timeoutMs: ORGANIZATION_SKILL_GITHUB_REQUEST_TIMEOUT_MS,
+        url: input.source,
+      });
+      requireOrganizationIdentity(context, installed.skill.organizationId);
+      if (installed.skill.name !== preview.preview.portable.name) {
+        throw new Error("The installed Skill does not match its preview.");
+      }
+      emitOrganizationSkillAddResult(context, "skills.add", {
+        ...summary,
+        skillId: installed.skill.id,
+        releaseId: installed.skill.activeRelease.id,
+      });
+    }
+  );
+}
+
+export async function runOrganizationSkillsAddAll(
+  input: OrganizationSkillsCommandInput & {
+    source: string;
+    operationId?: string;
+  },
+  dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
+): Promise<void> {
+  const source = parseRepositoryBatchSource(input.source);
+  if (input.operationId && !source.pinnedCommitSha) {
+    throw new Error(
+      "Retry a repository batch with its pinned commit URL and --operation-id."
+    );
+  }
+  await runOrganizationSkillsCommand(
+    input,
+    dependencyOverrides,
+    async (context) =>
+      await installRepositoryBatch(context, source, input.operationId)
+  );
+}
+
+async function installRepositoryBatch(
+  context: OrganizationSkillsCommandContext,
+  source: ReturnType<typeof parseRepositoryBatchSource>,
+  requestedBatchId?: string
+): Promise<void> {
+  const batchId = requestedBatchId ?? crypto.randomUUID();
+  const started = await context.api.beginImportBatch({
+    batchId,
+    expectedOrganizationId: context.organization.id,
+    requestContext: context.requestContext,
+    timeoutMs: ORGANIZATION_SKILL_GITHUB_REQUEST_TIMEOUT_MS,
+    url: source.url,
+  });
+  requireOrganizationIdentity(context, started.batch.organizationId);
+  if (
+    source.pinnedCommitSha &&
+    source.pinnedCommitSha !== started.batch.preview.commitSha
+  ) {
+    throw new Error("The saved batch does not match the pinned commit.");
+  }
+  if (!context.json && context.presenter.view !== "agent") {
+    context.presenter.line({
+      code: "skills.add.all.start",
+      text: `Installing Skills from commit ${started.batch.preview.commitSha.slice(0, 12)}. Retry ID: ${batchId}.`,
+    });
+  }
+  for (const [index, item] of started.batch.preview.skills.entries()) {
+    const prior = started.batch.results[index];
+    if (
+      prior?.selected === false ||
+      prior?.status === "installed" ||
+      prior?.status === "skipped"
+    ) {
+      continue;
+    }
+    const result = await installRepositorySkill(
+      context,
+      item,
+      started.batch.preview.commitSha,
+      batchId
+    );
+    if (!context.json && context.presenter.view !== "agent") {
+      context.presenter.line({
+        code: "skills.add.all.item",
+        text: `${sanitizeTerminalDisplayText(result.path || "Repository root")} — ${result.status}${result.error ? `: ${sanitizeTerminalDisplayText(result.error)}` : ""}`,
+      });
+    }
+  }
+  const saved = await context.api.getImportBatch({
+    batchId,
+    requestContext: context.requestContext,
+  });
+  requireOrganizationIdentity(context, saved.batch.organizationId);
+  const results = saved.batch.results.map(
+    ({ selected: _selected, ...result }, index) => ({
+      ...result,
+      url: saved.batch.preview.skills[index]?.url ?? "",
+    })
+  );
+  presentRepositoryInstallSummary(context, {
+    commitSha: saved.batch.preview.commitSha,
+    operationId: batchId,
+    organizationId: context.organization.id,
+    repository: saved.batch.preview.repository,
+    retrySource: `${saved.batch.preview.repository}/tree/${saved.batch.preview.commitSha}`,
+    results,
+  });
+  if (
+    saved.batch.results.some(
+      (result) =>
+        result.selected &&
+        (result.status === "failed" ||
+          result.status === "pending" ||
+          (result.status === "skipped" && result.error !== "Already in Team"))
+    )
+  ) {
+    process.exitCode = 1;
+  }
+}
+
+function presentRepositoryInstallSummary(
+  context: OrganizationSkillsCommandContext,
+  payload: {
+    commitSha: string;
+    operationId: string;
+    organizationId: string;
+    repository: string;
+    retrySource: string;
+    results: RepositoryInstallResult[];
+  }
+): void {
+  if (context.json) {
+    emitCliJsonEnvelope(
+      cliJsonSkillsAddAllEnvelopeSchema.parse({
+        schemaVersion: 1,
+        type: "skills.add.all",
+        ...payload,
+      })
+    );
+    return;
+  }
+  if (context.presenter.view === "agent") {
+    context.presenter.data({ code: "skills.add.all", payload });
+    return;
+  }
+  const installedCount = payload.results.filter(
+    (item) => item.status === "installed"
+  ).length;
+  context.presenter.line({
+    code: "skills.add.all.summary",
+    text: `${installedCount} ${installedCount === 1 ? "Skill" : "Skills"} installed from commit ${payload.commitSha.slice(0, 12)}. Retry with: openmeld skills add ${payload.retrySource} --all --operation-id ${payload.operationId}`,
+  });
+}
+
+function parseRepositoryBatchSource(source: string): {
+  pinnedCommitSha: string | null;
+  url: string;
+} {
+  let parsed: URL;
+  try {
+    parsed = new URL(source);
+  } catch {
+    throw new Error("Choose a public github.com repository for --all.");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") {
+    throw new Error("Choose a public github.com repository for --all.");
+  }
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  const pinnedCommitSha =
+    parts.length === 4 &&
+    parts[2] === "tree" &&
+    GITHUB_COMMIT_SHA_PATTERN.test(parts[3] ?? "")
+      ? (parts[3] ?? null)
+      : null;
+  if (parts.length !== 2 && !pinnedCommitSha) {
+    throw new Error(
+      "Use a GitHub repository URL or its pinned commit URL for --all."
+    );
+  }
+  return { pinnedCommitSha, url: source };
+}
+
+type RepositoryInstallItem =
+  OrganizationSkillGitHubRepositoryPreview["skills"][number];
+type RepositoryInstallResult = {
+  error?: string;
+  path: string;
+  releaseId?: string;
+  skillId?: string;
+  status: "pending" | "installed" | "skipped" | "failed";
+  url: string;
+};
+
+async function installRepositorySkill(
+  context: OrganizationSkillsCommandContext,
+  item: RepositoryInstallItem,
+  commitSha: string,
+  batchId: string
+): Promise<RepositoryInstallResult> {
+  if (item.blocker) {
+    return {
+      error: item.blocker.message,
+      path: item.path,
+      status: "skipped",
+      url: item.url,
+    };
+  }
+  try {
+    const installed = await context.api.importFromGitHub({
+      expectedCommitSha: commitSha,
+      expectedOrganizationId: context.organization.id,
+      batchId,
+      requestContext: context.requestContext,
+      timeoutMs: ORGANIZATION_SKILL_GITHUB_REQUEST_TIMEOUT_MS,
+      url: item.url,
+    });
+    requireOrganizationIdentity(context, installed.skill.organizationId);
+    return {
+      path: item.path,
+      releaseId: installed.skill.activeRelease.id,
+      skillId: installed.skill.id,
+      status: "installed",
+      url: item.url,
+    };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      path: item.path,
+      status: "failed",
+      url: item.url,
+    };
+  }
+}
+
+export async function runOrganizationSkillsScan(
+  input: OrganizationSkillsCommandInput & { url: string },
+  dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
+): Promise<void> {
+  await runOrganizationSkillsCommand(
+    input,
+    dependencyOverrides,
+    async (context) => {
+      const response = await context.api.previewRepositoryFromGitHub({
+        expectedOrganizationId: context.organization.id,
+        requestContext: context.requestContext,
+        url: input.url,
+      });
+      requireOrganizationIdentity(context, response.organizationId);
+      const payload = {
+        organizationId: response.organizationId,
+        preview: response.preview,
+      };
+      if (context.json) {
+        emitCliJsonEnvelope(
+          cliJsonSkillsScanEnvelopeSchema.parse({
+            schemaVersion: 1,
+            type: "skills.scan",
+            ...payload,
+          })
+        );
+        return;
+      }
+      if (context.presenter.view === "agent") {
+        context.presenter.data({ code: "skills.scan", payload });
+        return;
+      }
+      context.presenter.line({
+        code: "skills.scan.summary",
+        text: `${response.preview.skills.length} Skills found at commit ${response.preview.commitSha.slice(0, 12)}.`,
+      });
+      for (const item of response.preview.skills) {
+        const path = sanitizeTerminalDisplayText(
+          item.path || "Repository root"
+        );
+        const status = item.blocker
+          ? `Can't install: ${sanitizeTerminalDisplayText(item.blocker.message)}`
+          : `${item.fileCount} ${item.fileCount === 1 ? "file" : "files"} · ${item.totalBytes.toLocaleString()} bytes`;
+        context.presenter.line({
+          code: "skills.scan.item",
+          text: `${path} — ${status}`,
+        });
+      }
+    }
+  );
+}
+
+function emitOrganizationSkillAddResult(
+  context: OrganizationSkillsCommandContext,
+  code: "skills.add" | "skills.add.preview",
+  result: {
+    name: string;
+    commitSha?: string;
+    files: readonly { path: string; size: number }[];
+    warnings: readonly string[];
+    skillId?: string;
+    releaseId?: string;
+  }
+): void {
+  const payload = {
+    organizationId: context.organization.id,
+    ...result,
+  };
+  if (context.json) {
+    if (code === "skills.add.preview") {
+      emitCliJsonEnvelope(
+        cliJsonSkillsAddPreviewEnvelopeSchema.parse({
+          schemaVersion: 1,
+          type: code,
+          ...payload,
+        })
+      );
+    } else {
+      emitCliJsonEnvelope(
+        cliJsonSkillsAddEnvelopeSchema.parse({
+          schemaVersion: 1,
+          type: code,
+          ...payload,
+        })
+      );
+    }
+    return;
+  }
+  if (context.presenter.view === "agent") {
+    context.presenter.data({ code, payload });
+    return;
+  }
+  context.presenter.line({
+    code,
+    text: `${code === "skills.add.preview" ? "Preview" : "Added"} ${result.name} (${result.files.length} supporting files)${result.commitSha ? ` from commit ${result.commitSha.slice(0, 12)}` : ""}.`,
+  });
+  for (const warning of result.warnings) {
+    context.presenter.line({ code: "skills.add.warning", text: warning });
+  }
 }
 
 export async function runOrganizationSkillsShow(
@@ -126,7 +545,7 @@ export async function runOrganizationSkillsShow(
 }
 
 export async function runOrganizationSkillsLoad(
-  input: OrganizationSkillsCommandInput & { skill: string },
+  input: OrganizationSkillsCommandInput & { skill: string; releaseId?: string },
   dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
 ): Promise<void> {
   await runOrganizationSkillsCommand(
@@ -139,14 +558,33 @@ export async function runOrganizationSkillsLoad(
           `Organization Skill "${skill.name}" is disabled. Ask an Organization owner or admin to enable it before loading.`
         );
       }
+      const selected =
+        input.releaseId === undefined
+          ? {
+              bundle: skill.bundle,
+              digest: skill.activeRelease.digest,
+              releaseId: skill.activeRelease.id,
+              skillId: skill.id,
+            }
+          : await readSelectedRelease(context, skill.id, input.releaseId);
+      if (
+        !selected ||
+        selected.skillId !== skill.id ||
+        (input.releaseId !== undefined &&
+          selected.releaseId !== input.releaseId)
+      ) {
+        throw new Error(
+          "The requested Skill release was not returned. Update the server before loading an exact release."
+        );
+      }
       const materialized = await dependencies.materialize({
-        bundle: skill.bundle,
-        digest: skill.activeRelease.digest,
+        bundle: selected.bundle,
+        digest: selected.digest,
         organizationId: context.organization.id,
-        releaseId: skill.activeRelease.id,
+        releaseId: selected.releaseId,
         skillId: skill.id,
       });
-      const payload = buildLoadPayload(context, skill, materialized);
+      const payload = buildLoadPayload(context, skill, materialized, selected);
       if (context.json) {
         emitCliJsonEnvelope(
           cliJsonSkillsLoadEnvelopeSchema.parse({
@@ -167,6 +605,23 @@ export async function runOrganizationSkillsLoad(
       renderLoadedSkill(context, payload);
     }
   );
+}
+
+async function readSelectedRelease(
+  context: OrganizationSkillsCommandContext,
+  skillId: string,
+  releaseId: string
+) {
+  const response = await context.api.get({
+    requestContext: context.requestContext,
+    skillId,
+    releaseId,
+  });
+  requireOrganizationIdentity(context, response.skill.organizationId);
+  if (!response.skill.enabled) {
+    throw new Error("This Organization Skill is disabled.");
+  }
+  return response.selectedRelease;
 }
 
 async function runOrganizationSkillsCommand(
@@ -374,13 +829,14 @@ function renderSkill(
 function buildLoadPayload(
   context: OrganizationSkillsCommandContext,
   skill: OrganizationSkill,
-  materialized: MaterializedOrganizationSkillRelease
+  materialized: MaterializedOrganizationSkillRelease,
+  selected: { digest: string; releaseId: string }
 ) {
   return {
     cachePath: materialized.cachePath,
-    digest: skill.activeRelease.digest,
+    digest: selected.digest,
     organizationId: context.organization.id,
-    releaseId: skill.activeRelease.id,
+    releaseId: selected.releaseId,
     resourcePaths: materialized.resourcePaths,
     reused: materialized.reused,
     skillId: skill.id,

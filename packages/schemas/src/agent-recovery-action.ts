@@ -1,4 +1,5 @@
 export const agentRecoveryActionLabels = {
+  change_model: "Change model",
   check_status: "Check status",
   choose_local_agent: "Choose local agent",
   connect_openmeld_service: "Connect Computer",

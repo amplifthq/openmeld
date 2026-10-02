@@ -1,4 +1,5 @@
 import { defineTool } from "@flue/runtime";
+import type { RemoteAgentResultSource } from "@openmeld/schemas";
 import { jsonSchema, type ToolExecutionOptions, type ToolSet, tool } from "ai";
 import {
   maxLength,
@@ -14,10 +15,15 @@ import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
+import {
+  mergeRemoteAgentResultSources,
+  readRemoteAgentResultSources,
+} from "../agent-core/result-access";
 import type {
   RemoteAgentToolDefinition,
   RemoteAgentToolInputSchema,
 } from "../agent-core/tool-definition";
+import { prepareRemoteAgentToolResult } from "./retained-tool-results";
 import { remoteAgentStreamPublisher } from "./stream-publisher-instance";
 import {
   isRemoteAgentStreamEligible,
@@ -28,7 +34,6 @@ import {
   beginRemoteAgentToolExecutionAttempt,
   executeRemoteAgentToolDefinition,
   requireRemoteAgentToolExecutionContext,
-  toBoundedRemoteAgentToolResult,
 } from "./tool-execution";
 import { toRemoteAgentToolJsonSchema } from "./tool-json-schema";
 import {
@@ -41,8 +46,6 @@ export const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 
 const CODE_MODE_TIMEOUT_MS = 60_000;
 const CODE_MODE_INPUT_MAX_CHARS = 24_000;
-const CODE_MODE_LOG_MAX_COUNT = 10;
-const CODE_MODE_LOG_MAX_CHARS = 1000;
 const UNDEFINED_CAPABILITY = /\b([A-Za-z_$][\w$]*) is not defined\b/u;
 
 function withCodeModeCallableHint(
@@ -63,7 +66,7 @@ function withCodeModeCallableHint(
 }
 const CODE_MODE_DESCRIPTION = `Use Code Mode after loading the capabilities you need with openmeld_search_capabilities and openmeld_describe_capabilities. Follow each model-visible input schema and description; runtime validation remains authoritative for normalization and custom constraints. Do not guess capability names or undeclared fields. A described capability named example_tool is available here as codemode.example_tool(input).
 
-Write one async JavaScript arrow function that returns the final result. Do not use TypeScript syntax, named top-level functions, Node.js APIs, process, require, direct fetch, or direct network connections. Generated code can reach external systems only through the typed tools above. Tool authorization, confirmation, identity, and audit rules still apply to every call.`;
+Write one async JavaScript arrow function that returns the final result. Each script has a 60-second limit, not a limit on the whole assignment. Use bounded orchestration and filtering. For long Computer commands, start once with computer_command and collect results through separate bounded polls; never put indefinite polling in one script. Do not use TypeScript syntax, named top-level functions, Node.js APIs, process, require, direct fetch, or direct network connections. Generated code can reach external systems only through the typed tools above. Tool authorization, confirmation, identity, and audit rules still apply to every call.`;
 
 const codeModeInputSchema = strictObject({
   code: pipe(
@@ -106,6 +109,7 @@ export type RemoteAgentCodeModeRuntime = {
 };
 
 export async function createRemoteAgentCodeModeFlueTool(input: {
+  callLimit?: number;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   definitions: RemoteAgentToolDefinition[];
   env: RemoteAgentToolUsageObservabilityEnv;
@@ -143,8 +147,10 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
     description,
     input: codeModeInputSchema,
     run: async ({ data: toolInput, signal }) => {
+      signal?.throwIfAborted();
       const context = await requireRemoteAgentToolExecutionContext(input);
       await beginRemoteAgentToolExecutionAttempt({
+        callLimit: input.callLimit,
         storage: input.storage,
         submissionId: input.submissionId,
         source: "direct",
@@ -153,6 +159,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
       });
       const startedAtMs = Date.now();
       let innerToolCallCount = 0;
+      let resultSources: RemoteAgentResultSource[] = [];
       let output: RemoteAgentCodeModeOutput | undefined;
       let outcome: "failed" | "succeeded" = "failed";
       try {
@@ -165,6 +172,13 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
             onToolCall: () => {
               innerToolCallCount += 1;
             },
+            onToolResult: (result) => {
+              resultSources = mergeRemoteAgentResultSources(
+                resultSources,
+                readRemoteAgentResultSources(result)
+              );
+            },
+            signal,
             storage: input.storage,
             streamPublisher:
               input.streamPublisher ?? remoteAgentStreamPublisher,
@@ -189,15 +203,21 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
         }
         output = {
           result:
-            toBoundedRemoteAgentToolResult({
+            (await prepareRemoteAgentToolResult({
+              coreWorker: input.coreWorker,
+              storage: input.storage,
+              submissionId: input.submissionId,
+              sources: resultSources,
               toolName: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
               value: rawOutput.result,
-            }) ?? null,
-          ...(rawOutput.logs
-            ? { logs: boundCodeModeLogs(rawOutput.logs) }
-            : {}),
+            })) ?? null,
+          ...(rawOutput.logs ? { logs: rawOutput.logs } : {}),
         };
-        const boundedOutput = toBoundedRemoteAgentToolResult({
+        const boundedOutput = await prepareRemoteAgentToolResult({
+          coreWorker: input.coreWorker,
+          storage: input.storage,
+          submissionId: input.submissionId,
+          sources: resultSources,
           toolName: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
           value: output,
         });
@@ -226,14 +246,15 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
 }
 
 function buildCodeModeToolSet(input: {
+  signal?: AbortSignal;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   definitions: RemoteAgentToolDefinition[];
   onToolCall(): void;
+  onToolResult?(result: unknown): void;
   storage: RemoteAgentStorage;
   streamPublisher: RemoteAgentStreamPublisher;
   submissionId: string;
 }): ToolSet {
-  let fallbackToolCallSequence = 0;
   return Object.fromEntries(
     input.definitions.map((definition) => [
       definition.name,
@@ -245,34 +266,63 @@ function buildCodeModeToolSet(input: {
           options?: ToolExecutionOptions
         ) => {
           input.onToolCall();
-          fallbackToolCallSequence += 1;
           const toolCallId =
             options?.toolCallId ??
-            `codemode:${definition.name}:${String(fallbackToolCallSequence)}`;
-          const result = await executeRemoteAgentToolDefinition({
-            definition,
-            signal: options?.abortSignal,
-            source: "code_mode",
-            storage: input.storage,
-            submissionId: input.submissionId,
-            toolInput,
-          });
-          await publishCodeModeInnerWorkBestEffort({
-            coreWorker: input.coreWorker,
-            observedAtMs: Date.now(),
-            storage: input.storage,
-            streamPublisher: input.streamPublisher,
-            submissionId: input.submissionId,
-            toolCallId,
-            toolInput,
-            toolName: definition.name,
-            toolResult: result,
-          });
+            `codemode:${definition.name}:${crypto.randomUUID()}`;
+          const signal = input.signal ?? options?.abortSignal;
+          let started = false;
+          let startPublication = Promise.resolve();
+          const publishWork = async (
+            state: "input-available" | "output-available" | "output-error",
+            toolResult?: unknown
+          ) => {
+            await publishCodeModeInnerWorkBestEffort({
+              coreWorker: input.coreWorker,
+              observedAtMs: Date.now(),
+              storage: input.storage,
+              streamPublisher: input.streamPublisher,
+              submissionId: input.submissionId,
+              state,
+              toolCallId,
+              toolInput,
+              toolName: definition.name,
+              toolResult,
+            });
+          };
+          let result: unknown;
+          try {
+            result = await executeRemoteAgentToolDefinition({
+              definition,
+              // Code Mode 0.5.1 invokes tools without execution options.
+              // Bind cancellation to this invocation, not to SDK forwarding.
+              signal,
+              source: "code_mode",
+              storage: input.storage,
+              submissionId: input.submissionId,
+              toolInput,
+              onStarted: () => {
+                started = true;
+                startPublication = publishWork("input-available");
+              },
+            });
+          } catch (error) {
+            if (started && !signal?.aborted) {
+              await startPublication;
+              await publishWork("output-error");
+            }
+            throw error;
+          }
+          await startPublication;
+          await publishWork("output-available", result);
+          input.onToolResult?.(result);
           return (
-            toBoundedRemoteAgentToolResult({
+            (await prepareRemoteAgentToolResult({
+              coreWorker: input.coreWorker,
+              storage: input.storage,
+              submissionId: input.submissionId,
               toolName: definition.name,
               value: result,
-            }) ?? null
+            })) ?? null
           );
         },
       }),
@@ -297,10 +347,11 @@ async function publishCodeModeInnerWorkBestEffort(input: {
   storage: RemoteAgentStorage;
   streamPublisher: RemoteAgentStreamPublisher;
   submissionId: string;
+  state: "input-available" | "output-available" | "output-error";
   toolCallId: string;
   toolInput: unknown;
   toolName: string;
-  toolResult: unknown;
+  toolResult?: unknown;
 }): Promise<void> {
   const work = resolveRemoteAgentToolWorkActivity(
     input.toolName,
@@ -324,7 +375,7 @@ async function publishCodeModeInnerWorkBestEffort(input: {
       observedAtMs: input.observedAtMs,
       part: {
         type: "tool",
-        state: "output-available",
+        state: input.state,
         toolCallId: input.toolCallId,
         toolName: input.toolName,
         work,
@@ -356,12 +407,6 @@ async function loadCloudflareCodeModeRuntime(): Promise<RemoteAgentCodeModeRunti
       }),
     createExecutor: (options) => new DynamicWorkerExecutor(options),
   };
-}
-
-function boundCodeModeLogs(logs: string[]): string[] {
-  return logs
-    .slice(0, CODE_MODE_LOG_MAX_COUNT)
-    .map((log) => log.slice(0, CODE_MODE_LOG_MAX_CHARS));
 }
 
 function jsonByteLength(value: unknown): number {

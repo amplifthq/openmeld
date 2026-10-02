@@ -5,6 +5,7 @@ import { statfsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { desktopProcessOwners } from "./desktop-worktree-state.mjs";
 import {
   readIsolatedDevOwners,
   resolveGitCommonDirectory,
@@ -76,7 +77,10 @@ export function readDevMachineSnapshot(input = {}) {
     ownersByRoot: Object.fromEntries(
       worktreeRoots.map((root) => [
         root,
-        readIsolatedDevOwners(root, processRows, gitCommonDir),
+        [
+          ...readIsolatedDevOwners(root, processRows, gitCommonDir),
+          ...desktopProcessOwners(root, processRows),
+        ],
       ])
     ),
     memory: readMachineMemory(),

@@ -1,17 +1,120 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T07:35:57Z",
+  "updatedAt": "2026-10-01T05:05:17.000Z",
   "agentControllers": {
+    "antigravity": {
+      "defaultModelId": "gemini-3.8-flash-high",
+      "models": [
+        {
+          "id": "gemini-3.8-flash-high",
+          "displayName": "Gemini 3.8 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.8-flash-medium",
+          "displayName": "Gemini 3.8 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.8-flash-low",
+          "displayName": "Gemini 3.8 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-high",
+          "displayName": "Gemini 3.7 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-medium",
+          "displayName": "Gemini 3.7 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-low",
+          "displayName": "Gemini 3.7 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-high",
+          "displayName": "Gemini 3.6 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-medium",
+          "displayName": "Gemini 3.6 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-low",
+          "displayName": "Gemini 3.6 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.1-pro-high",
+          "displayName": "Gemini 3.1 Pro (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.1-pro-low",
+          "displayName": "Gemini 3.1 Pro (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "displayName": "Claude Sonnet 4.6 (Thinking)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "claude-opus-4-6-thinking",
+          "displayName": "Claude Opus 4.6 (Thinking)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gpt-oss-120b-medium",
+          "displayName": "GPT-OSS 120B (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        }
+      ]
+    },
     "codex": {
-      "defaultModelId": "gpt-5.6-sol",
+      "defaultModelId": "gpt-6.1-sol",
       "creationDefaults": {
-        "modelId": "gpt-5.6-sol",
-        "reasoningLevel": "high"
+        "modelId": "gpt-6.1-sol",
+        "reasoningLevel": "medium"
       },
       "models": [
         {
-          "id": "gpt-6-astra",
-          "displayName": "GPT-6 Astra",
+          "id": "gpt-6.1-sol",
+          "displayName": "GPT-6.1 Sol",
           "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
@@ -25,6 +128,41 @@
           "minCliVersion": "0.153.0"
         },
         {
+          "id": "gpt-6-astra",
+          "displayName": "GPT-6 Astra",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.153.0"
+        },
+        {
+          "id": "gpt-6-sol",
+          "displayName": "GPT-6 Sol",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.155.1"
+        },
+        {
+          "id": "gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "0.155.1"
+        },
+        {
           "id": "gpt-5.6-sol",
           "displayName": "GPT-5.6 Sol",
           "unavailable": false,
@@ -36,7 +174,7 @@
             "max",
             "ultra"
           ],
-          "minCliVersion": null
+          "minCliVersion": "0.144.0"
         },
         {
           "id": "gpt-5.6-terra",
@@ -50,25 +188,51 @@
             "max",
             "ultra"
           ],
-          "minCliVersion": null
+          "minCliVersion": "0.144.0"
         },
         {
           "id": "gpt-5.6-luna",
           "displayName": "GPT-5.6 Luna",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-          "minCliVersion": null
+          "minCliVersion": "0.144.0"
         },
         {
           "id": "gpt-5.5",
           "displayName": "GPT-5.5",
+          "retirement": {
+            "status": "announced",
+            "date": {
+              "value": "2026-10-14",
+              "kind": "on"
+            },
+            "scope": {
+              "controllerRef": "builtin:codex",
+              "authType": "chatgpt"
+            },
+            "sourceUrl": "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
+            "verifiedAt": "2026-09-23T14:09:57Z"
+          },
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
-          "minCliVersion": null
+          "minCliVersion": "0.124.0"
         },
         {
           "id": "gpt-5.4",
           "displayName": "GPT-5.4",
+          "retirement": {
+            "status": "withdrawn",
+            "date": {
+              "value": "2026-08-31",
+              "kind": "on"
+            },
+            "scope": {
+              "controllerRef": "builtin:codex",
+              "authType": "chatgpt"
+            },
+            "sourceUrl": "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
+            "verifiedAt": "2026-09-23T14:09:57Z"
+          },
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
           "minCliVersion": null
@@ -76,6 +240,19 @@
         {
           "id": "gpt-5.4-mini",
           "displayName": "GPT-5.4 Mini",
+          "retirement": {
+            "status": "withdrawn",
+            "date": {
+              "value": "2026-08-31",
+              "kind": "on"
+            },
+            "scope": {
+              "controllerRef": "builtin:codex",
+              "authType": "chatgpt"
+            },
+            "sourceUrl": "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
+            "verifiedAt": "2026-09-23T14:09:57Z"
+          },
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
           "minCliVersion": null
@@ -97,12 +274,26 @@
       },
       "models": [
         {
-          "id": "claude-fable-5-1",
-          "displayName": "Claude Fable 5.1",
+          "id": "claude-sonnet-5-5",
+          "displayName": "Claude Sonnet 5.5",
           "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-          "minCliVersion": "2.1.255"
+          "minCliVersion": "2.1.284"
+        },
+        {
+          "id": "claude-opus-5-5",
+          "displayName": "Claude Opus 5.5",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "2.1.280"
+        },
+        {
+          "id": "claude-fable-5-1",
+          "displayName": "Claude Fable 5.1",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "2.1.257"
         },
         {
           "id": "claude-opus-5",
@@ -152,6 +343,20 @@
       "defaultModelId": "grok-4.6",
       "models": [
         {
+          "id": "grok-4.7",
+          "displayName": "Grok 4.7",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
+          "id": "grok-4.7-build-fast",
+          "displayName": "Grok 4.7 Fast",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
           "id": "grok-4.6",
           "displayName": "Grok 4.6",
           "unavailable": false,
@@ -171,9 +376,51 @@
       "defaultModelId": "default[]",
       "models": [
         {
+          "id": "claude-opus-5-5[context=300k,effort=medium,fast=false]",
+          "displayName": "Claude Opus 5.5",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "claude-sonnet-5-5[context=300k,reasoning_effort=high]",
+          "displayName": "Claude Sonnet 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+          "displayName": "Grok 4.7 \u2014 High Fast",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
+          "displayName": "Claude Opus 5",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "grok-4.6[effort=high,fast=true]",
+          "displayName": "Grok 4.6 \u2014 High Fast",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "muse-spark-1.3[context=300k,effort=high]",
+          "displayName": "Muse Spark 1.3",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
           "id": "claude-fable-5-1[thinking=true,context=300k,effort=high]",
           "displayName": "Claude Fable 5.1",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -181,7 +428,6 @@
         {
           "id": "gemini-3.8-flash[reasoning_effort=high]",
           "displayName": "Gemini 3.8 Flash",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -420,12 +666,183 @@
       ]
     },
     "opencode": {
-      "defaultModelId": "opencode/mimo-v2.5-free",
+      "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
+        {
+          "id": "opencode-go/gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/longcat-2.5-preview-free",
+          "displayName": "LongCat 2.5 Preview Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/space-bunny-free",
+          "displayName": "Space Bunny Free",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-astra-ultrafast",
+          "displayName": "GPT-6 Astra Ultrafast",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-luna-fast",
+          "displayName": "GPT-6 Luna Fast",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-sol",
+          "displayName": "GPT-6 Sol",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-sol-fast",
+          "displayName": "GPT-6 Sol Fast",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6.1-sol",
+          "displayName": "GPT-6.1 Sol",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6.1-sol-fast",
+          "displayName": "GPT-6.1 Sol Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode/mimo-v2.6-flash-free",
+          "displayName": "OpenCode MiMo V2.6 Flash Free",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/grok-4.7",
+          "displayName": "Grok 4.7",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/mimo-v2.6-flash",
+          "displayName": "MiMo V2.6 Flash",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/mimo-v2.6-pro",
+          "displayName": "MiMo V2.6 Pro",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/deepseek-v4.1-flash",
+          "displayName": "DeepSeek V4.1 Flash",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "high", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/hy4-preview",
+          "displayName": "Hy4 Preview",
+          "unavailable": false,
+          "supportedReasoningLevels": ["none", "high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode/ling-3.0-flash-fin-free",
+          "displayName": "OpenCode Ling 3.0 Flash Fin Free",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode/longcat-2.5-preview-free",
+          "displayName": "OpenCode LongCat 2.5 Preview Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.18.33"
+        },
+        {
+          "id": "opencode/space-bunny-free",
+          "displayName": "OpenCode Space Bunny Free",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.18.33"
+        },
         {
           "id": "openai/gpt-6-astra",
           "displayName": "GPT-6 Astra",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -433,7 +850,6 @@
         {
           "id": "openai/gpt-6-astra-fast",
           "displayName": "GPT-6 Astra Fast",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -441,7 +857,6 @@
         {
           "id": "opencode/muse-spark-1.3-contributor-free",
           "displayName": "OpenCode Muse Spark 1.3 Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "minimal",
@@ -455,7 +870,6 @@
         {
           "id": "opencode-go/muse-spark-1.3-contributor",
           "displayName": "Muse Spark 1.3 Contributor",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "minimal",
@@ -469,7 +883,6 @@
         {
           "id": "opencode-go/omen-alpha",
           "displayName": "Omen Alpha",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "high"],
           "minCliVersion": null
@@ -491,7 +904,7 @@
         {
           "id": "opencode/mimo-v2.5-free",
           "displayName": "OpenCode MiMo V2.5 Free",
-          "unavailable": false,
+          "unavailable": true,
           "supportedReasoningLevels": [],
           "minCliVersion": null
         },
@@ -881,12 +1294,170 @@
       ]
     },
     "center-agent": {
-      "defaultModelId": "z-ai/glm-5.3-flash",
+      "defaultModelId": "anthropic/claude-opus-5.5",
       "hostedRuntimePolicy": {
         "automaticModelFallback": false,
-        "imageUnderstandingModelId": "x-ai/grok-4.6"
+        "imageUnderstandingModelId": "openai/gpt-6-luna",
+        "personalRemoteAgentDefaultModelId": "openai/gpt-6-sol"
       },
       "models": [
+        {
+          "id": "openai/gpt-6.1-sol-pro",
+          "displayName": "GPT-6.1 Sol (Pro mode)",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["image", "text"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6.1-sol",
+          "displayName": "GPT-6.1 Sol",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["image", "text"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-sonnet-5.5",
+          "displayName": "Claude Sonnet 5.5",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-sol",
+          "displayName": "GPT-6 Sol",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-astra-pro",
+          "displayName": "GPT-6 Astra (Pro mode)",
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null,
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          }
+        },
+        {
+          "id": "openai/gpt-6-astra",
+          "displayName": "GPT-6 Astra",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-5.6-sol",
+          "displayName": "GPT-5.6 Sol",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-fable-5.1",
+          "displayName": "Claude Fable 5.1",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-fable-5",
+          "displayName": "Claude Fable 5",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "x-ai/grok-4.7",
+          "displayName": "Grok 4.7",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 500000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
         {
           "id": "deepseek/deepseek-v4.1-flash",
           "displayName": "DeepSeek V4.1 Flash",
@@ -898,7 +1469,7 @@
             "reasoningLevel": "high"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "high", "low"],
           "minCliVersion": null
         },
         {
@@ -909,10 +1480,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -923,10 +1494,24 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-opus-5.5",
+          "displayName": "Claude Opus 5.5",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -937,10 +1522,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1000000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -951,10 +1536,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1000000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -965,10 +1550,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1048576,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -979,10 +1564,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1048576,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["high", "medium", "low", "minimal"],
           "minCliVersion": null
         },
         {
@@ -993,16 +1578,15 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1048576,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["high", "medium", "low"],
           "minCliVersion": null
         },
         {
           "id": "z-ai/glm-5.3-flash",
           "displayName": "GLM 5.3 Flash",
-          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["text", "image"],
@@ -1011,7 +1595,7 @@
             "reasoningLevel": "high"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "high", "low"],
           "minCliVersion": null
         },
         {
@@ -1022,10 +1606,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 500000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1036,10 +1620,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 500000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1053,7 +1637,7 @@
             "reasoningLevel": "high"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high", "xhigh"],
+          "supportedReasoningLevels": ["xhigh", "high"],
           "minCliVersion": null
         }
       ]

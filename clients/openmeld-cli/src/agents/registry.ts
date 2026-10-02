@@ -2,6 +2,7 @@ import { isAbsolute } from "node:path";
 import { buildAgentControllerRef } from "@openmeld/agent-runtime";
 import { compareAgentControllerRefsForDisplay } from "@openmeld/schemas";
 import type {
+  AgentControllerInterfaceSnapshot,
   LocalAgentInstallationOption,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
@@ -78,6 +79,7 @@ export type AgentTargetState = AgentTargetDescriptor & {
   installChoices: LocalControllerInstallChoice[];
   launchStatus: LocalControllerInstallStatus;
   launchStatusDetail: string | null;
+  launchFailureReason?: AgentControllerInterfaceSnapshot["launch"]["failureReason"];
   launchContract: RuntimeAgentControllerState["launchContract"] | null;
   registered: boolean;
   enabled: boolean;
@@ -1082,6 +1084,9 @@ async function toAgentTargetState(
     installChoices: normalizedLaunchResolution.installChoices,
     launchStatus: normalizedLaunchResolution.status,
     launchStatusDetail: normalizedLaunchResolution.detail,
+    ...(normalizedLaunchResolution.failureReason
+      ? { launchFailureReason: normalizedLaunchResolution.failureReason }
+      : {}),
     launchContract: normalizedLaunchResolution.launchContract,
     registered: Boolean(registration),
     enabled: registration?.enabled ?? false,

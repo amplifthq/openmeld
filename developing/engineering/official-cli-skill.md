@@ -23,15 +23,42 @@ Increment `release.json.revision` for every published change. Increase
 An incompatible Skill contract requires a bridge CLI release, not just a
 content update.
 
-Run `node scripts/release/cli-skill.mjs build` after building
-`@openmeld/schemas`. It signs the exact payload with Ed25519 and generates
+Run `node scripts/release/cli-skill.mjs build` with the repository's Node.js
+toolchain and installed schema runtime dependencies; no schema build is needed.
+It signs the exact payload with Ed25519 and generates
 `clients/web/public/skills/openmeld-cli/`: the public Markdown entry, topic
-files, immutable revision folders, and the bounded signed channel. The channel
-keeps the latest release for each supported compatibility floor.
+files, immutable revision folders, the bounded signed channel, and a generated
+signed-release archive used only by release validation. The channel keeps the
+latest release for each supported compatibility floor. The archive retains
+every signed envelope. Build and check compare it with the exact affected Git
+base, so an already published revision cannot be changed or removed by deleting
+both its archive entry and revision folder.
 Commit the authoring files and generated public files together.
 `node scripts/release/cli-skill.mjs check` requires no private key and also
 runs before every Web build. Ordinary content-only changes select Web delivery,
 without changing CLI or Service bytes.
+
+`pnpm run verify:cli-skill` runs that same read-only check directly through
+Node.js and the canonical schema source, without building schemas or Web.
+It never spawns a package-manager shim or shell, including on Windows.
+Focused PR feedback and Final Candidate select it for Skill source,
+public artifacts, signing/check scripts,
+and related schema or dependency changes. Unrelated PRs do not run it.
+Scoped Web preflight checks it before deployment. A failed check requires a new
+signed revision; validation never signs or rewrites content automatically.
+`pnpm run test:cli-skill` first builds the CLI's workspace dependencies, then
+runs the focused official-Skill integration test. This keeps a missing adapter
+build from being misreported as a Skill behavior failure.
+
+Hosted preflight always uses the current control checkout's verifier, schema,
+and pinned public key. `OPENMELD_VERIFICATION_ROOT` selects only the release
+data inspected by `check`; `build` ignores it and remains in its own checkout.
+Historical content retains its signature-verified contract rather than being
+forced onto the current publishing contract. Same-checkout verification still
+enforces the current contract. A historical checkout with neither the Skill
+source directory nor public artifacts is explicitly not applicable; partial,
+unreadable, unsigned, or changed artifacts fail closed. Missing Skill content
+in the current checkout is never optional.
 
 The signing private key is never tracked or deployed to Web. Local publication
 uses `~/.config/openmeld-release/cli-skill-signing.pem` (owner-only access), or
@@ -55,6 +82,12 @@ the newest cached, signature-verified, compatible release; otherwise it uses
 the baseline. Installation, `openmeld prompt --raw`, and local component
 status share that selection. The baseline never overwrites a compatible
 cached release.
+
+Signature verification and compatibility selection are independent checks. A
+valid signature proves that OpenMeld published the exact payload. It does not
+make that payload compatible with the installed CLI. Selection must also match
+the Skill contract and enforce `minimumCliVersion`; a client below that floor
+keeps its compatible cached release or packaged baseline.
 
 The existing independent maintenance worker checks the signed channel under
 the existing automatic-update preference. It bounds download size/time,

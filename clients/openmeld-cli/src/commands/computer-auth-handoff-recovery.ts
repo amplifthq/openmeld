@@ -7,6 +7,8 @@ import {
 import { compareSemver } from "../config/version-state";
 import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
 import { readPendingDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-state";
+import { startDaemonServiceUpdateWorker } from "../local-service/lifecycle/daemon-service-update-worker-manager";
+import { readPendingOpenMeldToolsUpdateAttempt } from "../local-service/maintenance/openmeld-tools-update-attempt-state";
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import {
   resolveExternalOpenMeldToolsUpdate,
@@ -27,16 +29,49 @@ export type ComputerAuthHandoffRecoveryOutcome =
   | "completed"
   | "deferred";
 
-export async function recoverInterruptedComputerAuthHandoff(input: {
+type ComputerAuthHandoffRecoveryInput = {
+  onProgress?(progress: {
+    code: string;
+    phase: "restoring";
+    state: "active" | "completed" | "failed";
+    text: string;
+  }): void;
   presenter: Presenter;
   runtime: RuntimeContext;
   view?: string;
-}): Promise<ComputerAuthHandoffRecoveryOutcome> {
+};
+
+export async function recoverInterruptedComputerAuthHandoff(
+  input: ComputerAuthHandoffRecoveryInput
+): Promise<ComputerAuthHandoffRecoveryOutcome> {
+  try {
+    return await runInterruptedComputerAuthHandoffRecovery(input);
+  } catch (error) {
+    emitComputerAuthHandoffRecoveryProgress(input, {
+      code: "setup.computer_handoff_recovery.failed",
+      state: "failed",
+      text:
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "The previous computer connection could not be restored.",
+    });
+    throw error;
+  }
+}
+
+async function runInterruptedComputerAuthHandoffRecovery(
+  input: ComputerAuthHandoffRecoveryInput
+): Promise<ComputerAuthHandoffRecoveryOutcome> {
   await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
   const recovery = await getInterruptedComputerAuthSessionRecovery();
   if (!recovery) {
     return "none";
   }
+  emitComputerAuthHandoffRecoveryProgress(input, {
+    code: "setup.computer_handoff_recovery.started",
+    state: "active",
+    text: "Restoring the previous computer connection.",
+  });
 
   const previousOwnerUserId = normalizeOptionalString(
     recovery.previousSession?.user?.id
@@ -118,6 +153,11 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
         transitionId: recovery.id,
       });
       emitUnusedSetupSessionCleanupWarning(input.presenter, revoked.error);
+      emitComputerAuthHandoffRecoveryProgress(input, {
+        code: "setup.computer_handoff_recovery.deferred",
+        state: "failed",
+        text: "The previous computer connection has not been fully restored.",
+      });
       return "deferred";
     }
     await markInterruptedComputerAuthSessionRecovery({
@@ -129,7 +169,36 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
   const completed = await completeInterruptedComputerAuthSessionRecovery(
     recovery.id
   );
+  emitComputerAuthHandoffRecoveryProgress(input, {
+    code: completed
+      ? "setup.computer_handoff_recovery.completed"
+      : "setup.computer_handoff_recovery.deferred",
+    state: completed ? "completed" : "failed",
+    text: completed
+      ? "Restored the previous computer connection."
+      : "The previous computer connection has not been fully restored.",
+  });
   return completed ? "completed" : "deferred";
+}
+
+function emitComputerAuthHandoffRecoveryProgress(
+  input: ComputerAuthHandoffRecoveryInput,
+  progress: {
+    code: string;
+    state: "active" | "completed" | "failed";
+    text: string;
+  }
+): void {
+  input.presenter.line({
+    code: progress.code,
+    text: progress.text,
+    data: { phase: "restoring", state: progress.state },
+  });
+  try {
+    input.onProgress?.({ ...progress, phase: "restoring" });
+  } catch {
+    // Recovery remains authoritative when an optional observer fails.
+  }
 }
 
 async function stopCurrentLaneDaemonServiceAfterToolsUpdate(input: {
@@ -188,8 +257,19 @@ export async function waitForOpenMeldToolsUpdateBeforeComputerHandoff(input: {
       requestSource: "cli",
     });
   }
+  const pendingToolsUpdate = await readPendingOpenMeldToolsUpdateAttempt();
+  if (
+    pendingToolsUpdate?.attempts === 0 &&
+    pendingToolsUpdate.operation.operationId !== currentUpdate?.operationId &&
+    !pending
+  ) {
+    // An earlier Service may have persisted the request but failed to hand it
+    // to its OS-owned worker. Wake that same operation before joining it.
+    await startDaemonServiceUpdateWorker();
+  }
   await waitForExternalOpenMeldToolsUpdate({
     currentOperationId: currentUpdate?.operationId,
+    unclaimedTimeoutMs: 60_000,
     onWaiting: (operation) => {
       input.presenter.line({
         code: "setup.openmeld_tools_update.waiting",

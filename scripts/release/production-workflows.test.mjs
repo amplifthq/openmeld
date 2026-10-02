@@ -23,8 +23,14 @@ const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
 const GITHUB_TOKEN_INPUT = `github_token: ${GITHUB_EXPRESSION_PREFIX} github.token }}`;
 const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const PINNED_SCOPED_RELEASE_SHA = `${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
+const PRODUCTION_TRAIN_INPUT = `${GITHUB_EXPRESSION_PREFIX} inputs.production_train_scopes }}`;
+const PRODUCTION_TRAIN_OUTPUT = `${GITHUB_EXPRESSION_PREFIX} needs.validate_release_source.outputs.production_train_scopes }}`;
 const SCOPED_RELEASE_SHA_INPUT =
   /release_sha:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
+const REQUIRED_PRODUCTION_TRAIN_INPUT =
+  /production_train_scopes:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
+const REQUIRED_ACTION_PRODUCTION_TRAIN_INPUT =
+  /production_train_scopes:\n\s+description: [^\n]+\n\s+required: true/u;
 const MAINLINE_RELEASE_ERROR_PATTERN =
   /release_sha must identify a commit on the main first-parent chain/u;
 const YAML_JOB_BOUNDARY = /\n {2}[a-z_]+:/u;
@@ -57,7 +63,7 @@ const COMPONENT_WORKFLOWS = [
     ".github/workflows/deploy-remote-agent-worker.yml",
     "deployments list",
   ],
-  ["web", ".github/workflows/deploy-web.yml", "/guide.md"],
+  ["web", ".github/workflows/deploy-web.yml", "production-web-health.mjs"],
 ];
 
 const createIsolatedGitEnvironment = () => {
@@ -99,6 +105,7 @@ test("keeps the manual production dispatcher deploy-only and scoped by default",
     "gateway",
     "auth",
     "core",
+    "core-current-cli-projection",
     "remote-agent",
     "cloud",
     "full",
@@ -117,6 +124,111 @@ test("keeps the manual production dispatcher deploy-only and scoped by default",
     (source.match(/github\.ref == 'refs\/heads\/main'/gu)?.length ?? 0) >= 6
   );
   assert.ok(source.includes(`if [ "\${GITHUB_REF}" != "refs/heads/main" ]`));
+});
+
+test("threads one explicit production train through every hosted mutation entry", () => {
+  const dispatcher = readRepoFile(".github/workflows/release-on-main.yml");
+  const databaseAction = readRepoFile(
+    ".github/actions/shared-db-gate/action.yml"
+  );
+  const validationJob = dispatcher
+    .split("  validate_release_source:")[1]
+    ?.split(YAML_JOB_BOUNDARY)[0];
+  const coreRecovery = readRepoFile(
+    ".github/workflows/recover-core-cli-projection.yml"
+  );
+  const dispatcherTrainInput = dispatcher
+    .split("      production_train_scopes:")[1]
+    ?.split("\njobs:")[0];
+
+  assert.ok(dispatcher.includes("production_train_scopes:"));
+  assert.ok(
+    dispatcher.includes(`production_train_scopes: ${PRODUCTION_TRAIN_INPUT}`)
+  );
+  assert.match(dispatcher, REQUIRED_PRODUCTION_TRAIN_INPUT);
+  assert.ok(!dispatcherTrainInput?.includes("default:"));
+  assert.ok(
+    validationJob?.includes(
+      "Admit selected stage artifacts before Production mutation"
+    )
+  );
+  assert.ok(
+    validationJob?.includes(
+      `OPENMELD_PRODUCTION_TRAIN_SCOPES: ${GITHUB_EXPRESSION_PREFIX} inputs.production_train_scopes }}`
+    )
+  );
+  assert.ok(
+    validationJob?.includes('database-auth) selected_scopes="db,auth"')
+  );
+  assert.ok(
+    validationJob?.includes(
+      'full) selected_scopes="db,auth,web,gateway,core,remote-agent"'
+    )
+  );
+  assert.ok(validationJob?.includes("production-train-artifact-admission.mjs"));
+  assert.equal(
+    dispatcher.split(`production_train_scopes: ${PRODUCTION_TRAIN_OUTPUT}`)
+      .length - 1,
+    COMPONENT_WORKFLOWS.length + 1
+  );
+
+  for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
+    const workflow = readRepoFile(workflowPath);
+    const trainInput = workflow
+      .split("      production_train_scopes:")[1]
+      ?.split("      release_sha:")[0];
+    const admission = workflow.indexOf(
+      "production-train-artifact-admission.mjs"
+    );
+    const lease = workflow.indexOf(
+      `Acquire shared ${
+        scope === "remote-agent"
+          ? "Remote Agent"
+          : scope[0].toUpperCase() + scope.slice(1)
+      } release lease`
+    );
+
+    assert.ok(
+      workflow.includes(
+        `OPENMELD_PRODUCTION_TRAIN_SCOPES: ${PRODUCTION_TRAIN_INPUT}`
+      ),
+      `${workflowPath} must pass the declared train to trusted admission`
+    );
+    assert.match(workflow, REQUIRED_PRODUCTION_TRAIN_INPUT, workflowPath);
+    assert.ok(!trainInput?.includes("default:"), workflowPath);
+    assert.ok(workflow.includes(`--scope ${scope}`), workflowPath);
+    assert.ok(admission >= 0 && admission < lease, workflowPath);
+  }
+
+  assert.match(databaseAction, REQUIRED_ACTION_PRODUCTION_TRAIN_INPUT);
+  assert.ok(
+    databaseAction.includes(
+      'node "$GITHUB_ACTION_PATH/../../../scripts/release/production-train-artifact-admission.mjs"'
+    )
+  );
+  assert.ok(databaseAction.includes('--source-sha "$RELEASE_SHA"'));
+  assert.ok(databaseAction.includes("--scope db"));
+  assert.ok(
+    databaseAction.indexOf("production-train-artifact-admission.mjs") <
+      databaseAction.indexOf(
+        'node "$GITHUB_ACTION_PATH/../../../scripts/release/production-db.mjs"'
+      )
+  );
+  assert.ok(coreRecovery.includes("production_train_scopes: core"));
+});
+
+test("exposes a hosted Core receiver stage with the current stable CLI projection", () => {
+  const source = readRepoFile(".github/workflows/release-on-main.yml");
+  const coreJob = source.split("\n  core:")[1]?.split(YAML_JOB_BOUNDARY)[0];
+
+  assert.ok(source.includes("          - core-current-cli-projection"));
+  assert.ok(coreJob?.includes("inputs.scope == 'core-current-cli-projection'"));
+  assert.ok(
+    coreJob?.includes(
+      "deployment_mode: $" +
+        "{{ inputs.scope == 'core-current-cli-projection' && 'current-stable-cli-projection' || 'standard' }}"
+    )
+  );
 });
 
 test("admits hosted fleet order before any Production deployment can start", () => {
@@ -166,7 +278,7 @@ test("pins a scoped production release to one explicit main commit", () => {
   assert.ok(source.includes(`ref: ${PINNED_SCOPED_RELEASE_SHA}`));
   assert.equal(
     source.split(`release_sha: ${PINNED_SCOPED_RELEASE_SHA}`).length - 1,
-    COMPONENT_WORKFLOWS.length
+    COMPONENT_WORKFLOWS.length + 1
   );
   assert.ok(
     !source.includes(`release_sha: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`)
@@ -590,7 +702,12 @@ test("runs the production database exactly once through its shared entrypoint", 
   assert.equal(separation.usesReleaseSource, true);
   assert.ok(dispatcher.includes(GITHUB_TOKEN_INPUT));
   assert.ok(dispatcher.includes("working_directory: release-source"));
-  assert.equal(databaseAction.match(/run db:release:prod/gu)?.length, 1);
+  assert.equal(
+    databaseAction.match(
+      /node "\$GITHUB_ACTION_PATH\/\.\.\/\.\.\/\.\.\/scripts\/release\/production-db\.mjs"/gu
+    )?.length,
+    1
+  );
   assert.ok(!databaseAction.includes("pnpm db:check"));
   assert.ok(!databaseAction.includes("pnpm db:migrate:prod"));
   assert.ok(!databaseAction.includes("pnpm db:optimize:prod"));
@@ -738,7 +855,7 @@ test("keeps Deep Confidence setup and sharding intentional", () => {
 
   assert.equal(
     workflow.match(/uses: \.\/\.github\/actions\/setup-node-pnpm/gu)?.length,
-    4
+    5
   );
   assert.ok(
     workflow.includes("pnpm exec turbo run build --filter=@openmeld/core^...")
@@ -874,6 +991,16 @@ test("pins every component deploy to one SHA, runs preflight, and checks health"
     assert.ok(source.includes(`--scope ${scope}`));
     assert.ok(source.includes('--release-source "$PWD"'));
     assert.ok(source.includes('--release-sha "$RELEASE_SHA"'));
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub expression is literal workflow text.
+    assert.ok(source.includes("GH_TOKEN: ${{ github.token }}"));
+    if (scope === "web") {
+      assert.ok(
+        source.includes(
+          "--artifact-receipt dev-tmp/release-artifact-check/web.json"
+        )
+      );
+      assert.ok(!source.includes("https://openmeld.ai/guide.md"));
+    }
     assert.ok(!source.includes("pnpm run release:preflight:local"));
     assert.ok(!source.includes("pnpm run release:verify:local"));
     assert.ok(
@@ -971,7 +1098,9 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
   assert.ok(!recovery.includes("deploy-auth-worker.yml"));
   assert.ok(!recovery.includes("deploy-web.yml"));
   assert.ok(
-    core.includes("node scripts/release/deploy-core-current-cli-projection.mjs")
+    core.includes(
+      "node ../release-control/scripts/release/hosted-core-receiver.mjs"
+    )
   );
   assert.ok(core.includes("pnpm run evidence:startup:core"));
   assert.match(core, LOCAL_CORE_STARTUP_DIAGNOSTIC);

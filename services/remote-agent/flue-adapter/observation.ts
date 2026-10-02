@@ -1,12 +1,18 @@
 import type { FlueObservation } from "@flue/runtime";
-import type { AgentStreamToolPart } from "@openmeld/schemas/types";
-import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
-import { resolveRemoteAgentToolWorkActivity } from "./tool-work-activity";
+import type {
+  AgentStreamToolPart,
+  AgentWorkActivity,
+} from "@openmeld/schemas/types";
+import {
+  resolveRemoteAgentToolWorkActivity,
+  resolveRemoteAgentToolWorkOutcome,
+} from "./tool-work-activity";
 
 export type FlueStreamDelta = {
   delta: string;
   kind: "text" | "thinking";
   observedAtMs: number;
+  replaceTextPrefix?: string;
   submissionId: string;
 };
 
@@ -15,7 +21,7 @@ export type FlueToolLifecyclePart = {
   organizationSkillName?: string;
   part: AgentStreamToolPart;
   submissionId: string;
-  workOutcome?: "confirmation_required";
+  workOutcome?: AgentWorkActivity["outcome"];
 };
 
 export function extractFlueToolLifecyclePart(
@@ -35,13 +41,11 @@ export function extractFlueToolLifecyclePart(
     event.args,
     toolOutput
   );
+  const { outcome } = resolveRemoteAgentToolWorkOutcome(toolOutput);
   return {
     observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
     ...readActivatedOrganizationSkillName(event),
-    ...(event.type === "tool" &&
-    isRemoteAgentDestructiveConfirmationResult(toolOutput)
-      ? { workOutcome: "confirmation_required" as const }
-      : {}),
+    ...(event.type === "tool" && outcome ? { workOutcome: outcome } : {}),
     submissionId: event.submissionId,
     part: {
       type: "tool",
@@ -115,6 +119,9 @@ export function extractFlueStreamDelta(
     delta,
     kind: event.type === "thinking_delta" ? "thinking" : "text",
     observedAtMs: Number.isFinite(observedAtMs) ? observedAtMs : Date.now(),
+    ...(event.type === "text_delta" && typeof event.textPrefix === "string"
+      ? { replaceTextPrefix: event.textPrefix }
+      : {}),
     submissionId: event.submissionId,
   };
 }

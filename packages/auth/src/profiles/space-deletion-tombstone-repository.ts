@@ -1,5 +1,10 @@
-import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
-import { and, eq, inArray } from "drizzle-orm";
+import {
+  and,
+  eq,
+  type InferInsertModel,
+  type InferSelectModel,
+  inArray,
+} from "@openmeld/db/query";
 import type { createD1Db } from "../db";
 import type { OpenMeldProfileSpaceCreatorKind } from "../db/profile-space-history.schema";
 import { openMeldSpaceDeletionTombstones } from "../db/space-deletion-tombstone.schema";

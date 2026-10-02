@@ -1,6 +1,7 @@
 import type {
   DaemonServiceUpdateJob,
   OpenMeldToolsUpdateAttempt,
+  OpenMeldToolsUpdateFailureCode,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createOpenMeldToolsUpdateCoordinator } from "../src/local-service/maintenance/openmeld-tools-update-coordinator";
@@ -14,6 +15,10 @@ function createDependencies(input?: {
   serviceNeedsAlignment?: boolean;
   serviceVersion?: string;
   upgradeExitCode?: number;
+  upgradeFailure?: {
+    detail: string;
+    failureCode: OpenMeldToolsUpdateFailureCode;
+  };
   serviceJobAfterUpgrade?: DaemonServiceUpdateJob | null;
 }) {
   let pendingAttempt: OpenMeldToolsUpdateAttempt | null = null;
@@ -21,7 +26,12 @@ function createDependencies(input?: {
   let pendingServiceJob: DaemonServiceUpdateJob | null = null;
   const runUpgrade = vi.fn(() => {
     pendingServiceJob = input?.serviceJobAfterUpgrade ?? null;
-    return Promise.resolve({ exitCode: input?.upgradeExitCode ?? 0 });
+    return Promise.resolve({
+      exitCode: input?.upgradeExitCode ?? 0,
+      ...(input?.upgradeFailure
+        ? { processFailure: input.upgradeFailure }
+        : {}),
+    });
   });
   const assessUpdate = vi.fn(async () => ({
     checked: true,
@@ -97,6 +107,36 @@ describe("OpenMeld Tools update coordinator", () => {
       "update-1"
     );
   });
+  it("reports a failed worker handoff and leaves its operation available for recovery", async () => {
+    const dependencies = createDependencies();
+    let lockHeld = false;
+    dependencies.withCoordinationLock = async <T>(run: () => Promise<T>) => {
+      lockHeld = true;
+      try {
+        return await run();
+      } finally {
+        lockHeld = false;
+      }
+    };
+    dependencies.wakeWorker.mockImplementation(() => {
+      expect(lockHeld).toBe(false);
+      return Promise.reject(
+        new Error("Windows could not start the maintenance task")
+      );
+    });
+    const service = createOpenMeldToolsUpdateCoordinator(dependencies, {
+      executeUpdates: false,
+    });
+
+    await expect(
+      service.requestUpdate({ requestSource: "automatic" })
+    ).rejects.toThrow("Windows could not start the maintenance task");
+    expect(dependencies.state.pendingAttempt?.attempts).toBe(0);
+    await expect(service.resumePendingUpdate()).rejects.toThrow(
+      "Windows could not start the maintenance task"
+    );
+    expect(dependencies.wakeWorker).toHaveBeenCalledTimes(2);
+  });
   it("does nothing automatically after the user turns updates off", async () => {
     const dependencies = createDependencies({
       automaticUpdatesEnabled: false,
@@ -132,9 +172,17 @@ describe("OpenMeld Tools update coordinator", () => {
     expect(dependencies.assessUpdate).toHaveBeenCalledWith({
       forceRefresh: true,
     });
-    expect(dependencies.runUpgrade).toHaveBeenCalledTimes(1);
+    expect(dependencies.runUpgrade).toHaveBeenCalledWith({
+      operationId: "update-1",
+      requestedAt: NOW,
+      requestSource: "web",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
+    });
     expect(dependencies.state.lastAttempt?.operation).toMatchObject({
       phase: "updated",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
     });
   });
 
@@ -183,6 +231,8 @@ describe("OpenMeld Tools update coordinator", () => {
       operationId: "update-1",
       requestedAt: NOW,
       requestSource: "automatic",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
     });
   });
 
@@ -225,6 +275,27 @@ describe("OpenMeld Tools update coordinator", () => {
       phase: "needs_help",
       targetVersion: "0.3.105",
     });
+  });
+
+  it("persists the typed process failure without adding it to attempt v1", async () => {
+    const dependencies = createDependencies({
+      upgradeExitCode: 1,
+      upgradeFailure: {
+        detail: "binary download stopped after /private/local/path",
+        failureCode: "cli.update.download_stalled",
+      },
+    });
+    const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies);
+
+    await coordinator.requestUpdate({ requestSource: "web" });
+    await coordinator.waitForIdle();
+
+    expect(dependencies.state.lastAttempt?.errorMessage).toBe(
+      "openmeld.tools.update.failure=cli.update.download_stalled\nbinary download stopped after /private/local/path"
+    );
+    expect(dependencies.state.lastAttempt?.operation).not.toHaveProperty(
+      "failure"
+    );
   });
 
   it.each([
@@ -274,6 +345,28 @@ describe("OpenMeld Tools update coordinator", () => {
     });
     expect(dependencies.persistAttempt).not.toHaveBeenCalled();
     expect(dependencies.runUpgrade).not.toHaveBeenCalled();
+  });
+
+  it("records separate CLI and retained Service targets", async () => {
+    const dependencies = createDependencies({ serviceVersion: "0.3.104" });
+    const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies);
+
+    const result = await coordinator.requestUpdate({ requestSource: "web" });
+    expect(result).toMatchObject({
+      status: "started",
+      operation: {
+        targetCliVersion: "0.3.105",
+        targetServiceVersion: "0.3.104",
+        targetVersion: "0.3.105",
+      },
+    });
+    await coordinator.waitForIdle();
+    expect(dependencies.runUpgrade).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetCliVersion: "0.3.105",
+        targetServiceVersion: "0.3.104",
+      })
+    );
   });
 
   it("executes the protected npm carrier without loading business bundle state", () => {

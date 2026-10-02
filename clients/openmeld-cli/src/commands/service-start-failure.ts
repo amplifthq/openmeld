@@ -198,7 +198,7 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
     ? readDaemonServiceJobCrashExitCode(jobDiagnostics)
     : null;
   if (jobDiagnostics && crashExitCode !== null) {
-    const summary = "OpenMeld Service keeps stopping after it starts.";
+    const summary = "OpenMeld Service stopped after it started.";
     const card = buildDaemonStartNeedsAttentionCard({
       summary,
       nextStep: formatInlineOpenMeldCliCommands(

@@ -1,6 +1,8 @@
 import {
   centerAgentConnectorConnectionSelectionSchema,
-  openConnectorRuntimeActionSuccessEnvelopeSchema,
+  centerAgentReadConnectorActionOperationResponseSchema,
+  centerAgentRecordConnectorActionOperationResponseSchema,
+  spaceTaskSchema,
 } from "@openmeld/schemas";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { safeParse } from "valibot";
@@ -16,13 +18,21 @@ import {
   REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
   REMOTE_AGENT_GITHUB_TOOL_NAMES,
   type RemoteAgentGitHubToolName,
+  readStableGitHubIssueObservationAt,
 } from "../agent-core/github-tools";
-import { toBoundedRemoteAgentToolResult } from "../flue-adapter/tool-execution";
+import { runOpenConnectorAction as runConnectorAction } from "../connectors/open-connector-runtime";
+import { createRemoteAgentCodeModeFlueTool } from "../flue-adapter/code-mode";
+import {
+  executeRemoteAgentToolDefinition,
+  toBoundedRemoteAgentToolResult,
+} from "../flue-adapter/tool-execution";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
   TEST_NOW_MS,
 } from "./fixtures";
+import capturedPostedComment from "./fixtures/github-posted-comment.json";
+import capturedPrivateFile from "./fixtures/github-private-file-redacted.json";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const ACK = {
@@ -38,6 +48,160 @@ const TEST_GITHUB_ACTION_OUTPUT_SCHEMA = {
   additionalProperties: true,
   type: "object",
 } as const;
+
+// Upstream workflow-job log contract; availability comes from the runtime
+// catalog, not from the presence of a hand-written OpenMeld wrapper.
+const JOB_LOG_ACTION = {
+  id: "github.get_workflow_job_logs",
+  service: "github",
+  name: "get_workflow_job_logs",
+  description:
+    "Get the tail of the plain-text logs for a completed GitHub Actions workflow job.",
+  effect: "read",
+  execution: {
+    locallyExecutable: true,
+    catalogOnly: false,
+    requiredAuthTypes: ["oauth2"],
+    noAuthRunnable: false,
+    needsCredential: true,
+  },
+  requiredScopes: ["repo"],
+  providerPermissions: [],
+  inputSchema: {
+    type: "object",
+    properties: {
+      owner: { type: "string", minLength: 1 },
+      repo: { type: "string", minLength: 1 },
+      jobId: { type: "integer", minimum: 1 },
+    },
+    required: ["owner", "repo", "jobId"],
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      logs: { type: "string" },
+      sizeBytes: { type: "integer" },
+      returnedBytes: { type: "integer" },
+      truncated: { type: "boolean" },
+    },
+  },
+  followUpActions: [],
+  asyncLifecycle: null,
+};
+
+describe("GitHub dynamic read replay", () => {
+  it.each([
+    "old_core",
+    "expired",
+  ] as const)("retains catalog read effect after pending with %s", async (window) => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    let requests = 0;
+    const fetchMock = vi.fn<typeof fetch>((_url, init) => {
+      if (init?.method !== "POST") {
+        return Promise.resolve(
+          Response.json({
+            success: true,
+            message: "OK",
+            meta: {},
+            data: [JOB_LOG_ACTION],
+          })
+        );
+      }
+      requests += 1;
+      return Promise.resolve(
+        requests === 1
+          ? Response.json(
+              {
+                success: false,
+                data: null,
+                errorCode: "idempotency_request_in_progress",
+                message:
+                  "A request with this Idempotency-Key is still in progress.",
+                meta: { actionId: JOB_LOG_ACTION.id },
+              },
+              { status: 409 }
+            )
+          : testOpenConnectorSuccessResponse({
+              actionId: JOB_LOG_ACTION.id,
+              data: {
+                logs: "OK",
+                sizeBytes: 2,
+                returnedBytes: 2,
+                truncated: false,
+              },
+              executionId: "read-job-logs",
+              outputSchema: JOB_LOG_ACTION.outputSchema,
+            })
+      );
+    });
+    const ledger = withTestConnectorOperationLedger({
+      centerAgentResolveConnectorConnection: vi.fn(() =>
+        Promise.resolve(
+          connectionSelection({
+            ownerDisplayName: "Requester",
+            userId: "user_1",
+          })
+        )
+      ),
+    });
+    const record = vi.fn(
+      async (
+        entry: Parameters<
+          NonNullable<
+            RemoteAgentCoreWorkerBinding["centerAgentRecordConnectorActionOperation"]
+          >
+        >[0]
+      ) => {
+        const result =
+          await ledger.centerAgentRecordConnectorActionOperation?.(entry);
+        return {
+          ...result,
+          replayWindowRemainingMs: window === "old_core" ? undefined : 0,
+        };
+      }
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      storage,
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {
+        ...ledger,
+        centerAgentRecordConnectorActionOperation: record as never,
+      },
+    });
+    const input = {
+      githubActor: "requester",
+      actionId: JOB_LOG_ACTION.id,
+      operationId: "original-read",
+      input: { owner: "example", repo: "repo", jobId: 1 },
+    };
+    await expect(
+      executeTool(tools, "github_execute_action", input)
+    ).rejects.toThrow("still processing");
+    await expect(
+      executeTool(tools, "github_execute_action", input)
+    ).resolves.toMatchObject({
+      status: "completed",
+      operationId: input.operationId,
+      replayed: true,
+    });
+    expect(
+      record.mock.calls
+        .filter(([entry]) => entry.outcome === "attempted")
+        .map(([entry]) => entry.effect)
+    ).toEqual(["read", "read"]);
+    const providerCalls = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === "POST"
+    );
+    expect(providerCalls).toHaveLength(2);
+    expect(
+      new Headers(providerCalls[0]?.[1]?.headers).get("idempotency-key")
+    ).toBe(new Headers(providerCalls[1]?.[1]?.headers).get("idempotency-key"));
+  });
+});
 
 function getRemoteAgentGitHubToolDefinitions(
   input: Omit<
@@ -61,6 +225,712 @@ function getRemoteAgentGitHubToolDefinitions(
 }
 
 describe("Remote Agent GitHub tools", () => {
+  it.each([
+    "expired",
+    "legacy_core",
+    "replayed_unknown",
+  ] as const)("does not repeat a write when its original replay window is %s", async (mode) => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(TEST_NOW_MS);
+    try {
+      const storage = await createStorage(createSubmitTurnRequest());
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockRejectedValue(new Error("Response lost after request delivery"));
+      const ledger = withTestConnectorOperationLedger({
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
+        ),
+      });
+      const record = ledger.centerAgentRecordConnectorActionOperation;
+      const read = ledger.centerAgentReadConnectorActionOperation;
+      const tools = getRemoteAgentGitHubToolDefinitions({
+        storage,
+        connectorExecution: {
+          baseUrl: "https://connectors.example.test",
+          runtimeToken: "test-runtime-token",
+          fetch: fetchMock,
+        },
+        coreWorker: {
+          ...ledger,
+          ...(mode === "legacy_core"
+            ? {
+                centerAgentRecordConnectorActionOperation: async (input) =>
+                  centerAgentRecordConnectorActionOperationResponseSchema.parse(
+                    {
+                      ...(await record?.(input)),
+                      replayWindowRemainingMs: undefined,
+                    }
+                  ),
+                centerAgentReadConnectorActionOperation: async (input) => {
+                  const response =
+                    centerAgentReadConnectorActionOperationResponseSchema.parse(
+                      await read?.(input)
+                    );
+                  return centerAgentReadConnectorActionOperationResponseSchema.parse(
+                    {
+                      operation: response.operation
+                        ? {
+                            ...response.operation,
+                            replayWindowRemainingMs: undefined,
+                          }
+                        : null,
+                    }
+                  );
+                },
+              }
+            : {}),
+        },
+      });
+      const toolInput = {
+        githubActor: "requester",
+        operationId: "one-write",
+        owner: "amplifthq",
+        repo: "openmeld",
+        issueNumber: 1397,
+        body: "Review result",
+      };
+      await expect(
+        executeTool(tools, "github_create_issue_comment", toolInput)
+      ).rejects.toThrow("Original operationId: one-write");
+      if (mode === "expired") {
+        now.mockReturnValue(TEST_NOW_MS + 24 * 60 * 60 * 1000);
+      }
+      await expect(
+        executeTool(tools, "github_create_issue_comment", toolInput)
+      ).rejects.toThrow("Do not retry this write");
+      expect(fetchMock).toHaveBeenCalledTimes(
+        mode === "replayed_unknown" ? 2 : 1
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+  it.each([
+    "direct",
+    "code_mode",
+  ] as const)("keeps a pending GitHub write's caller identity through %s and replay", async (carrier) => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const actionId = "github.create_issue_comment";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            data: null,
+            errorCode: "idempotency_request_in_progress",
+            message:
+              "A request with this Idempotency-Key is still in progress.",
+            meta: { actionId },
+            success: false,
+          },
+          { status: 409 }
+        )
+      )
+      .mockResolvedValueOnce(
+        testOpenConnectorSuccessResponse({
+          actionId,
+          data: capturedPostedComment,
+          executionId: "original-provider-execution",
+          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+        })
+      );
+    const ledger = withTestConnectorOperationLedger({
+      centerAgentResolveConnectorConnection: vi.fn(async () =>
+        connectionSelection({
+          ownerDisplayName: "Mira",
+          userId: "user_mira",
+        })
+      ),
+    });
+    const record = vi.fn(ledger.centerAgentRecordConnectorActionOperation);
+    const definitions = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {
+        ...ledger,
+        centerAgentRecordConnectorActionOperation: record,
+      },
+      storage,
+    });
+    const definition = definitions.find(
+      (candidate) => candidate.name === "github_create_issue_comment"
+    );
+    if (!definition) {
+      throw new Error("Missing GitHub comment tool");
+    }
+    const toolInput = {
+      githubActor: "requester",
+      operationId: "caller-comment-1",
+      owner: "amplifthq",
+      repo: "openmeld",
+      issueNumber: 1397,
+      body: "Checkpoint review",
+    };
+    let receipt: unknown;
+    if (carrier === "direct") {
+      receipt = await executeRemoteAgentToolDefinition({
+        definition,
+        storage,
+        submissionId: ACK.submissionId,
+        toolInput,
+      });
+    } else {
+      const codeMode = await createRemoteAgentCodeModeFlueTool({
+        definitions: [definition],
+        env: {},
+        loader: {} as WorkerLoader,
+        storage,
+        submissionId: ACK.submissionId,
+        runtime: {
+          createExecutor: () => ({}),
+          createCodeTool: ({ tools }) => ({
+            description: "Run the authorized GitHub comment tool.",
+            execute: async () => ({
+              result: await tools.github_create_issue_comment?.execute?.(
+                toolInput,
+                {
+                  toolCallId: "comment-call",
+                  messages: [],
+                }
+              ),
+            }),
+          }),
+        },
+      });
+      const output = await codeMode.run({
+        data: {
+          code: "async () => codemode.github_create_issue_comment(input)",
+        },
+        log: console,
+        toolCallId: "pending-code-mode",
+      });
+      receipt = (output as { output: { result: unknown } }).output.result;
+    }
+    expect(receipt).toMatchObject({
+      status: "outcome_unknown",
+      actionId,
+      operationId: toolInput.operationId,
+      executionConfirmation: "unknown",
+      providerExecutionId: null,
+    });
+    const providerKey = new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
+      "idempotency-key"
+    );
+    expect(providerKey).toMatch(PROVIDER_IDEMPOTENCY_KEY_PATTERN);
+    expect(JSON.stringify(receipt)).toContain(
+      "Original operationId: caller-comment-1"
+    );
+    expect(JSON.stringify(receipt)).toContain("You may retry exactly once");
+    expect(JSON.stringify(receipt)).toContain(
+      "https://github.com/amplifthq/openmeld/issues/1397"
+    );
+    expect(JSON.stringify(receipt)).not.toContain(providerKey);
+    expect(record.mock.calls.map(([entry]) => entry.outcome)).toEqual([
+      "attempted",
+    ]);
+    await expect(
+      executeTool(definitions, "github_create_issue_comment", toolInput)
+    ).resolves.toMatchObject({
+      status: "completed",
+      operationId: toolInput.operationId,
+      providerExecutionId: "original-provider-execution",
+    });
+    expect(
+      new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("idempotency-key")
+    ).toBe(providerKey);
+    expect(record.mock.calls.map(([entry]) => entry.outcome)).toEqual([
+      "attempted",
+      "attempted",
+      "completed",
+    ]);
+  });
+
+  it.each([
+    { mode: "routine", effect: "destructive" },
+    { mode: "read_only_routine", effect: "write" },
+    { mode: "member_research", effect: "write" },
+    { mode: "anonymous", effect: "destructive" },
+  ])("keeps the $mode boundary for a catalog $effect action", async ({
+    mode,
+    effect,
+  }) => {
+    const base = createSubmitTurnRequest();
+    let request = base;
+    if (mode === "routine" || mode === "read_only_routine") {
+      request = createSubmitTurnRequest({
+        turnEnvelope: createRoutineTurnEnvelope({
+          externalActionPolicy: mode === "routine" ? "standard" : "read_only",
+        }),
+      });
+    } else if (mode === "member_research") {
+      request = createSubmitTurnRequest({
+        turnEnvelope: {
+          ...base.turnEnvelope,
+          trigger: {
+            source: "member_research",
+            subjectDisplayName: "Ashley",
+            subjectUserId: "user_1",
+            taskId: "research_1",
+          },
+        },
+      });
+    } else {
+      request = createSubmitTurnRequest({
+        author: { displayName: "Ashley", profileId: null, profileKind: null },
+        onBehalfOf: null,
+        turnEnvelope: {
+          ...base.turnEnvelope,
+          sender: {
+            displayName: "Ashley",
+            id: "slack:T123:U123",
+            kind: "member",
+            verified: false,
+            messageChannelIdentity: {
+              connectionId: "T123",
+              provider: "slack",
+              providerUserId: "U123",
+            },
+          },
+          trigger: { source: "slack", teamId: "T123" },
+        },
+      });
+    }
+    const action = {
+      ...JOB_LOG_ACTION,
+      effect: undefined,
+      id: "github.catalog_action",
+      operationType: effect,
+    };
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({ success: true, message: "OK", data: [action], meta: {} })
+    );
+    const recordOperation = vi.fn();
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {
+        centerAgentRecordConnectorActionOperation: recordOperation,
+      },
+      storage: await createStorage(request),
+    });
+    const operation = executeTool(tools, "github_execute_action", {
+      githubActor: "organization",
+      actionId: action.id,
+      input: {},
+      operationId: "blocked-operation",
+    });
+    if (mode === "member_research") {
+      await expect(operation).rejects.toThrow("declared read");
+    } else if (mode === "anonymous") {
+      await expect(operation).resolves.toMatchObject({
+        identityRequired: true,
+      });
+    } else {
+      await expect(operation).resolves.toMatchObject({ sideEffects: 0 });
+    }
+    expect(recordOperation).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.every(([, init]) => init?.method !== "POST")
+    ).toBe(true);
+  });
+
+  it.each([
+    "destructive",
+    undefined,
+  ])("previews a catalog action with %s effect before any provider mutation", async (effect) => {
+    const action = { ...JOB_LOG_ACTION, id: "github.catalog_action", effect };
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({ success: true, message: "OK", data: [action], meta: {} })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Ashley", userId: "user_1" })
+        ),
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "github_execute_action", {
+        actionId: action.id,
+        input: { owner: "amplifthq", repo: "openmeld", jobId: 123 },
+        operationId: "guarded-action",
+      })
+    ).resolves.toMatchObject({
+      status: "destructive_action_preview",
+      sideEffects: 0,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      fetchMock.mock.calls.every(([, init]) => init?.method !== "POST")
+    ).toBe(true);
+  });
+
+  it("filters read-only discovery and refuses catalog writes before claiming an operation", async () => {
+    const readAction = {
+      ...JOB_LOG_ACTION,
+      effect: undefined,
+      operationType: "read",
+    };
+    const action = {
+      ...JOB_LOG_ACTION,
+      effect: undefined,
+      id: "github.catalog_write",
+      operationType: "write",
+    };
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        success: true,
+        message: "OK",
+        data: [action, readAction],
+        meta: {},
+      })
+    );
+    const recordOperation = vi.fn();
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {
+        centerAgentRecordConnectorActionOperation: recordOperation,
+        centerAgentResolveConnectorConnection: vi.fn(async () => ({
+          ...connectionSelection({
+            ownerDisplayName: "Ashley",
+            userId: "user_1",
+          }),
+          permission: "read" as const,
+        })),
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "github_list_actions", {})
+    ).resolves.toMatchObject({ actions: [{ id: JOB_LOG_ACTION.id }] });
+    await expect(
+      executeTool(tools, "github_execute_action", {
+        actionId: action.id,
+        input: {},
+        operationId: "read-only-write",
+      })
+    ).rejects.toThrow("read-only Agent access");
+    expect(recordOperation).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.every(([, init]) => init?.method !== "POST")
+    ).toBe(true);
+  });
+
+  it("keeps a pending catalog write on its original operation without another mutation", async () => {
+    const action = {
+      ...JOB_LOG_ACTION,
+      id: "github.catalog_write",
+      effect: "write",
+    };
+    const keys = new Set<string>();
+    let catalogReads = 0;
+    let mutations = 0;
+    let actionRequests = 0;
+    const fetchMock = vi.fn<typeof fetch>((url, init) => {
+      if (String(url).includes("/v1/actions?")) {
+        catalogReads += 1;
+        return Promise.resolve(
+          Response.json({
+            success: true,
+            message: "OK",
+            data: [action],
+            meta: {},
+          })
+        );
+      }
+      const key = new Headers(init?.headers).get("Idempotency-Key");
+      if (!key) {
+        throw new Error("Missing provider idempotency key");
+      }
+      if (!keys.has(key)) {
+        mutations += 1;
+        keys.add(key);
+      }
+      actionRequests += 1;
+      if (actionRequests === 1) {
+        return Promise.resolve(
+          Response.json(
+            {
+              data: null,
+              errorCode: "idempotency_request_in_progress",
+              message:
+                "A request with this Idempotency-Key is still in progress.",
+              meta: { actionId: action.id },
+              success: false,
+            },
+            { status: 409 }
+          )
+        );
+      }
+      return Promise.resolve(
+        testOpenConnectorSuccessResponse({
+          actionId: action.id,
+          data: { number: 123 },
+          outputSchema: action.outputSchema,
+        })
+      );
+    });
+    const resolveConnection = vi.fn(async () =>
+      connectionSelection({ ownerDisplayName: "Ashley", userId: "user_1" })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: { centerAgentResolveConnectorConnection: resolveConnection },
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    const request = {
+      actionId: action.id,
+      input: { title: "one change" },
+      operationId: "same-operation",
+    };
+    const dynamic = tools.find((tool) => tool.name === "github_execute_action");
+    expect(dynamic?.description).toContain(
+      "retry exactly once only if its receipt explicitly allows"
+    );
+    expect(dynamic?.description).not.toContain(
+      "Reuse operationId only to recover the same execution"
+    );
+    await expect(
+      executeTool(tools, "github_execute_action", request)
+    ).rejects.toMatchObject({
+      result: {
+        status: "outcome_unknown",
+        operationId: request.operationId,
+        executionConfirmation: "unknown",
+      },
+    });
+    const replay = await executeTool(tools, "github_execute_action", request);
+    expect(replay).toMatchObject({
+      status: "completed",
+      replayed: true,
+    });
+    // Effect is rediscovered, while provider identity and execution output stay exact.
+    expect(replay).toHaveProperty("outputSchema", action.outputSchema);
+    await expect(
+      executeTool(tools, "github_execute_action", {
+        ...request,
+        input: { title: "different intent" },
+      })
+    ).rejects.toThrow("conflict");
+    expect(catalogReads).toBe(3);
+    expect(resolveConnection).toHaveBeenCalledTimes(1);
+    expect(mutations).toBe(1);
+  });
+
+  it.each([
+    "organization",
+    "requester",
+  ] as const)("discovers and reads upstream job logs using only the selected %s identity", async (githubActor) => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorage(request);
+    const sender = requireMemberSender(request.turnEnvelope.sender);
+    const selected = connectionSelection({
+      ownerDisplayName: "Ashley",
+      scope: githubActor === "organization" ? "shared" : "member",
+      userId: sender.ownerUserId ?? "user_ashley",
+    });
+    const resolveConnection = vi.fn(async () => selected);
+    const logs = {
+      logs: "error TS2322: incorrect input",
+      sizeBytes: 300_000,
+      returnedBytes: 30,
+      truncated: true,
+    };
+    const fetchMock = vi.fn<typeof fetch>((url, init) => {
+      if (String(url).includes("/v1/actions?")) {
+        return Promise.resolve(
+          Response.json({
+            success: true,
+            message: "OK",
+            data: [JOB_LOG_ACTION],
+            meta: {},
+          })
+        );
+      }
+      expect(String(url)).toBe(
+        "https://connectors.example.test/v1/actions/github.get_workflow_job_logs"
+      );
+      expect(JSON.parse(String(init?.body))).toEqual({
+        connectionName: selected.connection.connectionName,
+        input: { owner: "amplifthq", repo: "openmeld", jobId: 123 },
+      });
+      return Promise.resolve(
+        testOpenConnectorSuccessResponse({
+          actionId: JOB_LOG_ACTION.id,
+          data: logs,
+          outputSchema: JOB_LOG_ACTION.outputSchema,
+        })
+      );
+    });
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: { centerAgentResolveConnectorConnection: resolveConnection },
+      storage,
+    });
+    await expect(
+      executeTool(tools, "github_list_actions", { githubActor, limit: 1 })
+    ).resolves.toMatchObject({
+      actions: [
+        {
+          id: JOB_LOG_ACTION.id,
+          effect: "read",
+          requiredScopes: ["repo"],
+          inputSchema: JOB_LOG_ACTION.inputSchema,
+          outputSchema: JOB_LOG_ACTION.outputSchema,
+        },
+      ],
+      nextOffset: null,
+    });
+    await expect(
+      executeTool(tools, "github_execute_action", {
+        githubActor,
+        actionId: JOB_LOG_ACTION.id,
+        input: { owner: "amplifthq", repo: "openmeld", jobId: 123 },
+        operationId: "job-logs-123",
+      })
+    ).resolves.toMatchObject({
+      data: logs,
+      outputSchema: JOB_LOG_ACTION.outputSchema,
+      operationId: "job-logs-123",
+      status: "completed",
+      attribution: {
+        selection: githubActor === "organization" ? "shared" : "requester",
+      },
+    });
+    expect(resolveConnection).toHaveBeenCalledTimes(2);
+    expect(resolveConnection).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        connectionPreference:
+          githubActor === "organization" ? "shared" : "requester",
+      })
+    );
+    expect(resolveConnection).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        connectionPreference:
+          githubActor === "organization" ? "shared" : "requester",
+      })
+    );
+    await expect(
+      executeTool(tools, "github_execute_action", {
+        githubActor,
+        actionId: JOB_LOG_ACTION.id,
+        input: { owner: "amplifthq", repo: "openmeld", jobId: 123 },
+        operationId: "job-logs-123-refreshed",
+      })
+    ).resolves.toMatchObject({ data: logs, status: "completed" });
+    expect(
+      await storage.list({ prefix: "github-space-task-observation:" })
+    ).toEqual(new Map());
+  });
+
+  it.each([
+    { name: "missing", actions: [] },
+    {
+      name: "catalog-only",
+      actions: [
+        {
+          ...JOB_LOG_ACTION,
+          execution: {
+            ...JOB_LOG_ACTION.execution,
+            locallyExecutable: false,
+            catalogOnly: true,
+          },
+        },
+      ],
+    },
+  ])("does not execute a $name action from the deployed catalog", async ({
+    actions,
+  }) => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({ success: true, message: "OK", data: actions, meta: {} })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {},
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "github_execute_action", {
+        githubActor: "requester",
+        actionId: JOB_LOG_ACTION.id,
+        input: { owner: "amplifthq", repo: "openmeld", jobId: 123 },
+        operationId: "missing-action",
+      })
+    ).rejects.toThrow("not available");
+    expect(
+      fetchMock.mock.calls.every(([, init]) => init?.method !== "POST")
+    ).toBe(true);
+  });
+  it("reuses the first issue observation time when a completed provider write is replayed", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const operationId = "provider-write-1";
+    const scope = "org-1:agent-1:connection-1";
+    expect(
+      await readStableGitHubIssueObservationAt({
+        data: { updated_at: "2026-09-22T12:00:00Z" },
+        operationId,
+        scope,
+        storage,
+      })
+    ).toBe("2026-09-22T12:00:00.000Z");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-22T12:00:00.000Z"));
+      const first = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope,
+        storage,
+      });
+      vi.setSystemTime(new Date("2026-09-22T12:05:00.000Z"));
+      const replay = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope,
+        storage,
+      });
+      const otherOrganization = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope: "org-2:agent-1:connection-1",
+        storage,
+      });
+      expect(replay).toBe(first);
+      expect(otherOrganization).not.toBe(first);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("registers the practical repository, source, collaboration, and CI toolset", () => {
     const tools = getRemoteAgentGitHubToolDefinitions({
       coreWorker: {},
@@ -68,6 +938,8 @@ describe("Remote Agent GitHub tools", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
+      "github_execute_action",
+      "github_list_actions",
       "github_get_current_user",
       "github_list_my_repositories",
       "github_get_repository",
@@ -99,6 +971,7 @@ describe("Remote Agent GitHub tools", () => {
       "github_list_workflow_runs",
       "github_get_workflow_run",
       "github_list_workflow_run_jobs",
+      "github_get_release_by_tag",
       "github_create_issue_batch",
       "github_create_issue",
       "github_create_issue_comment",
@@ -118,6 +991,7 @@ describe("Remote Agent GitHub tools", () => {
       "github_update_issue",
       "github_update_pull_request",
       "github_update_pull_request_branch",
+      "github_dispatch_workflow",
       "github_rerun_workflow",
       "github_merge_pull_request",
     ]);
@@ -206,8 +1080,46 @@ describe("Remote Agent GitHub tools", () => {
         }
       ).success
     ).toBe(true);
+    const dispatchWorkflowTool = tools.find(
+      (tool) => tool.name === "github_dispatch_workflow"
+    );
+    expect(
+      safeParse(dispatchWorkflowTool?.input as never, {
+        githubActor: "organization",
+        operationId: "dispatch-acme-build",
+        owner: "acme",
+        ref: "release",
+        repo: "widget",
+        workflowId: "build.yml",
+      }).success
+    ).toBe(true);
+    expect(
+      safeParse(dispatchWorkflowTool?.input as never, {
+        githubActor: "organization",
+        inputs: { dryRun: "false" },
+        operationId: "dispatch-acme-build",
+        owner: "acme",
+        ref: "release",
+        repo: "widget",
+        workflowId: 42,
+      }).success
+    ).toBe(true);
+    expect(
+      safeParse(dispatchWorkflowTool?.input as never, {
+        githubActor: "organization",
+        inputs: { dryRun: false },
+        operationId: "dispatch-acme-build",
+        owner: "acme",
+        ref: "release",
+        repo: "widget",
+        workflowId: "build.yml",
+      }).success
+    ).toBe(false);
     expect(pullRequestDescription).toContain(
-      "reuse the same operationId only when retrying this exact write"
+      "retry exactly once only if its receipt explicitly allows"
+    );
+    expect(pullRequestDescription).toContain(
+      "never use a new ID to repeat the write"
     );
   });
 
@@ -269,6 +1181,8 @@ describe("Remote Agent GitHub tools", () => {
         actionId: "github.get_file_contents",
         data: {
           decoded_content: "# OpenMeld\n",
+          download_url:
+            "https://raw.githubusercontent.com/openmeld/app/main/README.md",
           path: "README.md",
           sha: "abc123",
           type: "file",
@@ -306,7 +1220,12 @@ describe("Remote Agent GitHub tools", () => {
       })
     ).resolves.toMatchObject({
       attribution: { via: "Ashley's GitHub" },
-      data: { decoded_content: "# OpenMeld\n", path: "README.md" },
+      data: {
+        decoded_content: "# OpenMeld\n",
+        download_url:
+          "https://raw.githubusercontent.com/openmeld/app/main/README.md",
+        path: "README.md",
+      },
       status: "completed",
     });
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
@@ -328,6 +1247,67 @@ describe("Remote Agent GitHub tools", () => {
         "content-type": "application/json",
       },
     });
+  });
+
+  it.each([
+    "named",
+    "shared_adapter",
+  ])("withholds a private file download credential through %s", async (carrier) => {
+    // Captured from staging on 2026-10-01; the temporary URL token was replaced
+    // before writing the fixture. The nullable URL contract comes from GitHub.
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json(capturedPrivateFile)
+    );
+    const connectorExecution = {
+      baseUrl: "https://connectors.example.test",
+      fetch: fetchMock,
+      runtimeToken: "test-runtime-token",
+    };
+    let data: unknown;
+    if (carrier === "shared_adapter") {
+      data = (
+        await runConnectorAction({
+          actionId: "github.get_file_contents",
+          connectorExecution,
+          connectionName: "original-connection",
+          idempotencyKey: "read-private-file",
+          input: {
+            owner: "lumpinif",
+            repo: "openmeld-staging-flue2-smoke",
+            path: "README.md",
+          },
+        })
+      ).data;
+    } else {
+      const storage = await createStorage(createSubmitTurnRequest());
+      const tools = getRemoteAgentGitHubToolDefinitions({
+        connectorExecution,
+        storage,
+        coreWorker: {
+          centerAgentResolveConnectorConnection: vi.fn(async () =>
+            connectionSelection({
+              ownerDisplayName: "Ashley",
+              userId: "user_ashley",
+            })
+          ),
+        },
+      });
+      data = (
+        (await executeTool(tools, "github_get_file_contents", {
+          owner: "lumpinif",
+          repo: "openmeld-staging-flue2-smoke",
+          path: "README.md",
+        })) as { data: unknown }
+      ).data;
+    }
+    expect(data).toMatchObject({
+      download_url: null,
+      decoded_content: capturedPrivateFile.data.decoded_content,
+      html_url: capturedPrivateFile.data.html_url,
+    });
+    expect(JSON.stringify(data)).not.toContain(
+      "SYNTHETIC_PRIVATE_DOWNLOAD_TOKEN"
+    );
   });
 
   it("returns large repository files in bounded segments without retaining the provider's full base64 copy", async () => {
@@ -817,7 +1797,29 @@ describe("Remote Agent GitHub tools", () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       testOpenConnectorSuccessResponse({
         actionId: "github.list_pull_requests",
-        data: { pull_requests: [{ number: 42, title: "Ship connector" }] },
+        data: {
+          pull_requests: Array.from({ length: 30 }, (_, index) => ({
+            number: 42 + index,
+            title: "Ship connector",
+            body: "x".repeat(8000),
+            head: {
+              ref: "feature",
+              sha: "head-sha",
+              repo: {
+                full_name: "contributor/fork",
+                description: "x".repeat(6000),
+              },
+            },
+            base: {
+              ref: "main",
+              sha: "base-sha",
+              repo: {
+                full_name: "openmeld/app",
+                description: "x".repeat(6000),
+              },
+            },
+          })),
+        },
         executionId: "run-1",
         outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
@@ -871,6 +1873,25 @@ describe("Remote Agent GitHub tools", () => {
       },
       status: "completed",
     });
+    const pullRequests = (
+      result as { data: { pull_requests: Record<string, unknown>[] } }
+    ).data.pull_requests;
+    expect(pullRequests).toHaveLength(30);
+    expect(pullRequests[0]).toMatchObject({
+      number: 42,
+      head: {
+        ref: "feature",
+        sha: "head-sha",
+        repo: { full_name: "contributor/fork" },
+      },
+      base: {
+        ref: "main",
+        sha: "base-sha",
+        repo: { full_name: "openmeld/app" },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("x".repeat(6000));
+    expect(JSON.stringify(result).length).toBeLessThan(128 * 1024);
     expect(info).toHaveBeenCalledWith(
       "[remote_agent.connector_action_completed]",
       expect.objectContaining({
@@ -881,6 +1902,74 @@ describe("Remote Agent GitHub tools", () => {
       })
     );
     info.mockRestore();
+  });
+
+  it.each([
+    {
+      actionId: "github.list_repository_issues",
+      toolName: "github_list_repository_issues" as RemoteAgentGitHubToolName,
+      data: {
+        issues: [
+          {
+            number: 7,
+            title: "Fix setup",
+            body: "details",
+            user: { login: "felix", large: "x".repeat(6000) },
+          },
+        ],
+        pageInfo: { fetched: 2 },
+      },
+      expected: {
+        issues: [{ number: 7, user: { login: "felix" } }],
+        pageInfo: { fetched: 2 },
+      },
+    },
+    {
+      actionId: "github.list_commits",
+      toolName: "github_list_commits" as RemoteAgentGitHubToolName,
+      data: {
+        commits: [
+          {
+            sha: "abc123",
+            commit: { message: "Fix setup", tree: { huge: "x".repeat(6000) } },
+          },
+        ],
+      },
+      expected: { commits: [{ sha: "abc123", message: "Fix setup" }] },
+    },
+  ])("keeps $actionId summaries small without losing pagination", async ({
+    actionId,
+    toolName,
+    data,
+    expected,
+  }) => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorage(request);
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        runtimeToken: "test-runtime-token",
+        baseUrl: "https://connectors.example.test",
+        fetch: vi.fn<typeof fetch>(async () =>
+          testOpenConnectorSuccessResponse({
+            actionId,
+            data,
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+          })
+        ),
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Felix", userId: "user_1" })
+        ),
+      },
+      storage,
+    });
+    const result = await executeTool(tools, toolName, {
+      owner: "openmeld",
+      repo: "app",
+    });
+    expect(result).toMatchObject({ data: expected, status: "completed" });
+    expect(JSON.stringify(result)).not.toContain("x".repeat(6000));
   });
 
   it.each([
@@ -923,6 +2012,11 @@ describe("Remote Agent GitHub tools", () => {
       actionId: "github.list_repository_workflows",
       input: { owner: "openmeld", repo: "app" },
       name: "github_list_repository_workflows" as RemoteAgentGitHubToolName,
+    },
+    {
+      actionId: "github.get_release_by_tag",
+      input: { owner: "openmeld", repo: "app", tag: "v1.2.3" },
+      name: "github_get_release_by_tag" as RemoteAgentGitHubToolName,
     },
   ])("forwards $name to $actionId", async ({ actionId, input, name }) => {
     const request = createSubmitTurnRequest();
@@ -1424,14 +2518,15 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_get_current_user", {})
     ).rejects.toThrow(
-      "Your GitHub is not ready. It may be disconnected or authorization may still be pending. Use the Open GitHub access action below, check Your GitHub, and try again. OpenMeld did not use a different GitHub identity."
+      "Your GitHub is not ready. It may be disconnected or authorization may still be pending. Use the Plugin connection action below, check Your GitHub, and try again. OpenMeld did not use a different GitHub identity."
     );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
     ).resolves.toMatchObject({
-      navigationTarget: {
-        kind: "organization_app",
+      pluginConnectionTarget: {
+        kind: "plugin_connection",
         service: "github",
+        scope: "member",
       },
     });
   });
@@ -1487,14 +2582,15 @@ describe("Remote Agent GitHub tools", () => {
         githubActor: "organization",
       })
     ).rejects.toThrow(
-      "Organization access is not ready. It may be disconnected or authorization may still be pending. Use the Open GitHub access action below, check Organization access, and try again. OpenMeld did not use a different GitHub identity."
+      "Organization access is not ready. It may be disconnected or authorization may still be pending. Use the Plugin connection action below, check Organization access, and try again. OpenMeld did not use a different GitHub identity."
     );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
     ).resolves.toMatchObject({
-      navigationTarget: {
-        kind: "organization_app",
+      pluginConnectionTarget: {
+        kind: "plugin_connection",
         service: "github",
+        scope: "shared",
       },
     });
   });
@@ -1551,6 +2647,28 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects requester GitHub access for a Routine's delegated member", async () => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: createRoutineTurnEnvelope(),
+    });
+    const resolveConnection = vi.fn(async () =>
+      connectionSelection({ ownerDisplayName: "Felix", userId: "user_1" })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      coreWorker: { centerAgentResolveConnectorConnection: resolveConnection },
+      storage: await createStorage(request),
+    });
+
+    await expect(
+      executeTool(tools, "github_get_current_user", {
+        githubActor: "requester",
+      })
+    ).rejects.toThrow(
+      "Routines and member research must use the OpenMeld GitHub App through Organization access."
+    );
+    expect(resolveConnection).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       name: "task continuation",
@@ -1592,7 +2710,7 @@ describe("Remote Agent GitHub tools", () => {
         watchId: "watch_task_watch_continuation_1",
       },
     },
-  ] as const)("rejects requester GitHub access for an unattended $name", async ({
+  ] as const)("uses the verified requester connection for a $name", async ({
     trigger,
   }) => {
     const baseRequest = createSubmitTurnRequest();
@@ -1608,7 +2726,19 @@ describe("Remote Agent GitHub tools", () => {
         userId: "user_1",
       })
     );
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.get_current_user",
+        data: { login: "felix" },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
     const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
       coreWorker: { centerAgentResolveConnectorConnection },
       storage: await createStorage(request),
     });
@@ -1617,10 +2747,139 @@ describe("Remote Agent GitHub tools", () => {
       executeTool(tools, "github_get_current_user", {
         githubActor: "requester",
       })
-    ).rejects.toThrow(
-      "Routines and other unattended GitHub work must use the OpenMeld GitHub App through Organization access."
+    ).resolves.toMatchObject({
+      attribution: { selection: "requester" },
+      status: "completed",
+    });
+    expect(centerAgentResolveConnectorConnection).toHaveBeenCalledWith({
+      connectionPreference: "requester",
+      context: expect.any(Object),
+      requesterUserId: "user_1",
+      service: "github",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows an ordinary continuation write, but still previews a destructive action", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          delegationId: "delegation_write",
+          outcome: {
+            errorCode: null,
+            eventId: "event_write",
+            occurredAtMs: TEST_NOW_MS,
+            publishedSignalId: "signal_write",
+            status: "completed",
+          },
+          source: "task_continuation",
+          subscriptionId: "subscription_write",
+          watchedTask: {
+            deliveryId: "delivery_write",
+            kind: "native_delivery",
+            v: 1,
+          },
+        },
+      },
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue_comment",
+        data: { id: 99 },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
-    expect(centerAgentResolveConnectorConnection).not.toHaveBeenCalled();
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Felix", userId: "user_1" })
+        ),
+      },
+      storage: await createStorage(request),
+    });
+
+    await expect(
+      executeTool(tools, "github_create_issue_comment", {
+        body: "Continuation result",
+        githubActor: "requester",
+        issueNumber: 12,
+        owner: "openmeld",
+        repo: "app",
+      })
+    ).resolves.toMatchObject({
+      attribution: { connectionOwner: { userId: "user_1" } },
+      status: "completed",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await expect(
+      executeTool(tools, "github_delete_file", {
+        githubActor: "requester",
+        message: "Remove file",
+        owner: "openmeld",
+        path: "old.txt",
+        repo: "app",
+        sha: "abc123",
+      })
+    ).resolves.toMatchObject({ status: "destructive_action_preview" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a continuation requester loses membership or GitHub access", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          delegationId: "delegation_disconnected",
+          outcome: {
+            errorCode: null,
+            eventId: "event_disconnected",
+            occurredAtMs: TEST_NOW_MS,
+            publishedSignalId: "signal_disconnected",
+            status: "completed",
+          },
+          source: "task_continuation",
+          subscriptionId: "subscription_disconnected",
+          watchedTask: {
+            deliveryId: "delivery_disconnected",
+            kind: "native_delivery",
+            v: 1,
+          },
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const missingMembership = vi.fn(() =>
+      Promise.reject(new Error("connector.requester_org_mismatch"))
+    );
+    const disconnected = vi.fn(() =>
+      Promise.resolve({ connection: null, selection: null })
+    );
+
+    for (const resolveConnection of [missingMembership, disconnected]) {
+      const tools = getRemoteAgentGitHubToolDefinitions({
+        coreWorker: {
+          centerAgentResolveConnectorConnection: resolveConnection,
+        },
+        storage,
+      });
+      await expect(
+        executeTool(tools, "github_get_current_user", {
+          githubActor: "requester",
+        })
+      ).rejects.toThrow();
+      expect(resolveConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ requesterUserId: "user_1" })
+      );
+    }
   });
 
   it("executes an authorized issue batch during a Routine", async () => {
@@ -1832,13 +3091,13 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThan(providerCallCount);
   });
 
-  it("executes an explicitly requested safe GitHub write without asking again", async () => {
+  it("returns a captured posted comment through the native GitHub write tool without asking again", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
       testOpenConnectorSuccessResponse({
         actionId: "github.create_issue_comment",
-        data: { id: 99 },
+        data: capturedPostedComment,
         outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
@@ -1876,6 +3135,8 @@ describe("Remote Agent GitHub tools", () => {
         connectionOwner: { displayName: "Mira", userId: "user_mira" },
       },
       status: "completed",
+      data: capturedPostedComment,
+      outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
@@ -2133,6 +3394,241 @@ describe("Remote Agent GitHub tools", () => {
     });
   });
 
+  it("records a linked Space Task after creating an issue in a shared Space", async () => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...createSubmitTurnRequest().turnEnvelope,
+        organization: {
+          ...createSubmitTurnRequest().turnEnvelope.organization,
+          webUrl: "https://app.openmeld.example/o/acme",
+        },
+        space: {
+          id: "space_shared",
+          isCenterAgentDm: false,
+          kind: "space",
+          name: "Delivery",
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const createdTask = spaceTaskSchema.parse({
+      assignee: {
+        ownerUserId: "user_1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileKind: "agent",
+        profileName: "Builder",
+      },
+      automaticReworkRounds: 0,
+      completionConditions: [
+        "The GitHub issue is resolved or this Space stops tracking it.",
+      ],
+      createdAt: "2026-09-20T00:00:00.000Z",
+      createdBy: {
+        ownerUserId: "user_1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileKind: "agent",
+        profileName: "Builder",
+      },
+      description: "Linked GitHub issue openmeld/app#7.",
+      externalWorkItems: [
+        {
+          lastObservedAt: "2026-09-20T00:00:00.000Z",
+          lastObservedState: "open",
+          number: 7,
+          owner: "openmeld",
+          provider: "github",
+          repo: "app",
+          url: "https://github.com/openmeld/app/issues/7",
+        },
+      ],
+      needsHumanDecision: false,
+      phase: "to_do",
+      requestedBy: {
+        ownerUserId: "user_1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileKind: "agent",
+        profileName: "Builder",
+      },
+      result: null,
+      review: null,
+      reviewer: null,
+      revision: 1,
+      sourceSignalId: null,
+      spaceId: "space_shared",
+      taskId: "tsk_55555555-5555-4555-8555-555555555555",
+      threadId: null,
+      title: "Track connector bug",
+      updatedAt: "2026-09-20T00:00:00.000Z",
+    });
+    const createSpaceTask = vi.fn(async () => ({
+      applied: true,
+      event: {
+        actor: createdTask.createdBy,
+        createdAt: createdTask.createdAt,
+        detail: createdTask.title,
+        eventId: "tse_55555555-5555-4555-8555-555555555555",
+        fromPhase: null,
+        operationId: "github-issue-create:openmeld:app:7",
+        taskId: createdTask.taskId,
+        taskRevision: 1,
+        toPhase: "to_do",
+        type: "created",
+      },
+      task: createdTask,
+    }));
+    const fetchMock = vi.fn<typeof fetch>((url) => {
+      const href = String(url);
+      if (href.includes("github.update_issue")) {
+        return Promise.resolve(
+          testOpenConnectorSuccessResponse({
+            actionId: "github.update_issue",
+            data: { number: 7 },
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+          })
+        );
+      }
+      return Promise.resolve(
+        testOpenConnectorSuccessResponse({
+          actionId: "github.create_issue",
+          data: {
+            html_url: "https://github.com/openmeld/app/issues/7",
+            number: 7,
+            title: "Track connector bug",
+          },
+          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+        })
+      );
+    });
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        createSpaceTask,
+        getSpaceTask: vi.fn(),
+        listSpaceTasks: vi.fn(async () => ({ tasks: [], truncated: false })),
+        mutateSpaceTask: vi.fn(),
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
+        ),
+      },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "github_create_issue", {
+        owner: "openmeld",
+        repo: "app",
+        title: "Track connector bug",
+      })
+    ).resolves.toMatchObject({
+      spaceTask: { created: true, task: { taskId: createdTask.taskId } },
+      status: "completed",
+    });
+    expect(createSpaceTask).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      "https://connectors.example.test/v1/actions/github.create_issue",
+      "https://connectors.example.test/v1/actions/github.update_issue",
+    ]);
+    expect(
+      (await storage.list({ prefix: "github-space-task-observation:" })).size
+    ).toBe(1);
+  });
+
+  it.each([
+    {
+      createError: "Task store unavailable.",
+      expectedCreateCalls: 1,
+      expectedSpaceTask: {
+        created: false,
+        reason: "Task store unavailable.",
+        task: null,
+      },
+      list: { tasks: [], truncated: false },
+      name: "Task create fails",
+    },
+    {
+      createError: null,
+      expectedCreateCalls: 0,
+      expectedSpaceTask: {
+        code: "space_task.external_work_item_limit",
+        created: false,
+        task: null,
+      },
+      list: { tasks: [], truncated: true },
+      name: "Task list is truncated",
+    },
+  ])("returns a failed Space Task association when $name", async ({
+    createError,
+    expectedCreateCalls,
+    expectedSpaceTask,
+    list,
+  }) => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...createSubmitTurnRequest().turnEnvelope,
+        space: {
+          id: "space_shared",
+          isCenterAgentDm: false,
+          kind: "space",
+          name: "Delivery",
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const createSpaceTask = vi.fn(() => {
+      if (createError) {
+        throw new Error(createError);
+      }
+      throw new Error("createSpaceTask should not run.");
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue",
+        data: {
+          html_url: "https://github.com/openmeld/app/issues/7",
+          number: 7,
+          title: "Track connector bug",
+        },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        createSpaceTask,
+        getSpaceTask: vi.fn(),
+        listSpaceTasks: vi.fn(async () => list),
+        mutateSpaceTask: vi.fn(),
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Mira",
+            userId: "user_mira",
+          })
+        ),
+      },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "github_create_issue", {
+        owner: "openmeld",
+        repo: "app",
+        title: "Track connector bug",
+      })
+    ).resolves.toMatchObject({
+      spaceTask: expectedSpaceTask,
+      status: "completed",
+    });
+    expect(createSpaceTask).toHaveBeenCalledTimes(expectedCreateCalls);
+  });
+
   it.each([
     {
       actionId: "github.create_issue_comment",
@@ -2307,6 +3803,19 @@ describe("Remote Agent GitHub tools", () => {
       name: "github_update_pull_request_branch" as RemoteAgentGitHubToolName,
       requiredMessage:
         "I'll update the branch for openmeld/app#42 with its base branch as Mira.",
+    },
+    {
+      actionId: "github.dispatch_workflow",
+      input: {
+        inputs: { dryRun: "false" },
+        owner: "acme",
+        ref: "release",
+        repo: "widget",
+        workflowId: "build.yml",
+      },
+      name: "github_dispatch_workflow" as RemoteAgentGitHubToolName,
+      requiredMessage:
+        "I'll dispatch workflow build.yml on release in acme/widget as Mira.",
     },
     {
       actionId: "github.rerun_workflow",
@@ -2836,17 +4345,42 @@ describe("Remote Agent GitHub tools", () => {
     });
     await expect(
       executeTool(tools, "github_add_issue_labels", input)
-    ).rejects.toThrow("HTTP 503");
+    ).rejects.toThrow("write may already have succeeded");
     expect(
       recordConnectorActionOperation.mock.calls.map(([entry]) => entry.outcome)
     ).toEqual(["attempted", "outcome_unknown"]);
   });
 
-  it("replays the same provider execution after a GitHub write response is lost", async () => {
+  it.each([
+    {
+      failureMode: "response_lost",
+      tool: "github_create_issue",
+      actionId: "github.create_issue",
+    },
+    {
+      failureMode: "malformed_success",
+      tool: "github_create_issue",
+      actionId: "github.create_issue",
+    },
+    {
+      failureMode: "response_lost",
+      tool: "github_create_issue_comment",
+      actionId: "github.create_issue_comment",
+    },
+    {
+      failureMode: "malformed_success",
+      tool: "github_create_issue_comment",
+      actionId: "github.create_issue_comment",
+    },
+  ] as const)("replays a retained provider response after $tool $failureMode", async ({
+    failureMode,
+    tool,
+    actionId,
+  }) => {
     const storage = await createStorage(createSubmitTurnRequest());
     const providerExecutions = new Map<
       string,
-      { data: { number: number }; executionId: string }
+      { data: Record<string, unknown>; executionId: string }
     >();
     let providerMutationCount = 0;
     let transportAttemptCount = 0;
@@ -2859,7 +4393,7 @@ describe("Remote Agent GitHub tools", () => {
       if (replay) {
         return Promise.resolve(
           testOpenConnectorSuccessResponse({
-            actionId: "github.create_issue",
+            actionId,
             data: replay.data,
             executionId: replay.executionId,
             outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
@@ -2869,18 +4403,42 @@ describe("Remote Agent GitHub tools", () => {
 
       providerMutationCount += 1;
       const execution = {
-        data: { number: 7 },
+        // Comment identity captured with the GitHub API from the reported
+        // completed write; the envelope is the pinned OpenConnector serializer.
+        data:
+          tool === "github_create_issue_comment"
+            ? {
+                id: 5_920_764_449,
+                html_url:
+                  "https://github.com/amplifthq/openmeld/issues/1397#issuecomment-5920764449",
+              }
+            : { number: 7 },
         executionId: `provider_execution_${providerMutationCount}`,
       };
       if (idempotencyKey) {
         providerExecutions.set(idempotencyKey, execution);
       }
       if (transportAttemptCount === 1) {
-        throw new Error("response lost after provider mutation");
+        if (failureMode === "response_lost") {
+          throw new Error("response lost after provider mutation");
+        }
+        return Promise.resolve(
+          Response.json({
+            data: execution.data,
+            message: "OK",
+            meta: {
+              actionId,
+              auditPersisted: true,
+              executionId: execution.executionId,
+            },
+            success: true,
+            unexpected: "not in the pinned execution contract",
+          })
+        );
       }
       return Promise.resolve(
         testOpenConnectorSuccessResponse({
-          actionId: "github.create_issue",
+          actionId,
           data: execution.data,
           executionId: execution.executionId,
           outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
@@ -2893,6 +4451,12 @@ describe("Remote Agent GitHub tools", () => {
         userId: "user_mira",
       })
     );
+    const operationLedger = withTestConnectorOperationLedger({
+      centerAgentResolveConnectorConnection,
+    });
+    const recordOperation = vi.fn(
+      operationLedger.centerAgentRecordConnectorActionOperation
+    );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
         baseUrl: "https://connectors.example.test",
@@ -2900,7 +4464,8 @@ describe("Remote Agent GitHub tools", () => {
         runtimeToken: "test-runtime-token",
       },
       coreWorker: {
-        centerAgentResolveConnectorConnection,
+        ...operationLedger,
+        centerAgentRecordConnectorActionOperation: recordOperation,
       },
       storage,
     });
@@ -2909,14 +4474,20 @@ describe("Remote Agent GitHub tools", () => {
       owner: "openmeld",
       repo: "app",
       title: "Track connector bug",
+      ...(tool === "github_create_issue_comment"
+        ? { issueNumber: 1397, body: "Checkpoint review" }
+        : {}),
     };
 
-    await expect(
-      executeTool(tools, "github_create_issue", input)
-    ).rejects.toThrow("did not return a response");
-    await expect(
-      executeTool(tools, "github_create_issue", input)
-    ).resolves.toMatchObject({
+    await expect(executeTool(tools, tool, input)).rejects.toMatchObject({
+      outcome: "outcome_unknown",
+      result: {
+        status: "outcome_unknown",
+        operationId: input.operationId,
+        executionConfirmation: "unknown",
+      },
+    });
+    await expect(executeTool(tools, tool, input)).resolves.toMatchObject({
       attribution: {
         connectionOwner: {
           displayName: "Mira",
@@ -2931,6 +4502,12 @@ describe("Remote Agent GitHub tools", () => {
       status: "completed",
     });
     expect(providerMutationCount).toBe(1);
+    expect(recordOperation.mock.calls.map(([entry]) => entry.outcome)).toEqual([
+      "attempted",
+      "outcome_unknown",
+      "attempted",
+      "completed",
+    ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(centerAgentResolveConnectorConnection).toHaveBeenCalledTimes(1);
     const providerIdempotencyKeys = fetchMock.mock.calls.map(([, init]) =>
@@ -2942,9 +4519,12 @@ describe("Remote Agent GitHub tools", () => {
     expect(providerIdempotencyKeys[1]).toBe(providerIdempotencyKeys[0]);
     expect(providerIdempotencyKeys[0]).not.toBe("create-connector-bug-issue");
     await expect(
-      executeTool(tools, "github_create_issue", {
+      executeTool(tools, tool, {
         ...input,
         title: "A different write must not reuse the operation",
+        ...(tool === "github_create_issue_comment"
+          ? { body: "A different comment" }
+          : {}),
       })
     ).rejects.toThrow("Connector operation request conflict");
     expect(providerMutationCount).toBe(1);
@@ -3322,6 +4902,7 @@ async function executeTool(
 }
 
 type TestConnectorOperation = {
+  createdAtMs: number;
   actionId: string;
   connectionName: string;
   executionConnection: {
@@ -3349,19 +4930,19 @@ function testOpenConnectorSuccessResponse(input: {
   executionId?: string;
   outputSchema: Record<string, unknown>;
 }) {
-  return Response.json(
-    openConnectorRuntimeActionSuccessEnvelopeSchema.parse({
-      data: input.data,
-      message: "OK",
-      meta: {
-        actionId: input.actionId,
-        auditPersisted: true,
-        executionId: input.executionId ?? `test-provider:${input.actionId}`,
-      },
-      outputSchema: input.outputSchema,
-      success: true,
-    })
-  );
+  // Exact producer wrapper from open-connector 31be0d20, runtime-api.ts:177.
+  // Do not parse through our consumer schema: that would hide contract drift.
+  return Response.json({
+    data: input.data,
+    message: "OK",
+    meta: {
+      actionId: input.actionId,
+      auditPersisted: true,
+      executionId: input.executionId ?? `test-provider:${input.actionId}`,
+    },
+    outputSchema: input.outputSchema,
+    success: true,
+  });
 }
 
 function withTestConnectorOperationLedger(
@@ -3408,6 +4989,10 @@ function withTestConnectorOperationLedger(
         return Promise.resolve({
           operation: operation
             ? {
+                replayWindowRemainingMs: Math.max(
+                  0,
+                  24 * 60 * 60 * 1000 - (Date.now() - operation.createdAtMs)
+                ),
                 actionId: operation.actionId,
                 connectionName: operation.connectionName,
                 executionConnection: operation.executionConnection,
@@ -3433,6 +5018,7 @@ function withTestConnectorOperationLedger(
           throw new Error("Connector operation request conflict.");
         }
         const operation: TestConnectorOperation = existing ?? {
+          createdAtMs: Date.now(),
           actionId: input.actionId,
           connectionName: input.connectionName,
           executionConnection: resolvedExecutionConnection,
@@ -3452,6 +5038,10 @@ function withTestConnectorOperationLedger(
             actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
             onBehalfOf: null,
           },
+          replayWindowRemainingMs: Math.max(
+            0,
+            24 * 60 * 60 * 1000 - (Date.now() - operation.createdAtMs)
+          ),
           executionConnection: operation.executionConnection,
           operationId: operation.operationId,
           providerExecutionId: operation.providerExecutionId,

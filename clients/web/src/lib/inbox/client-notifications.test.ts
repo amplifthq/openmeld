@@ -1,6 +1,7 @@
 import { isInboxNotificationEligible } from "@openmeld/api-client";
 import type { InboxItem } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BROWSER_NOTIFICATION_ACK_TIMEOUT_MS } from "./browser-notification-acknowledgement";
 
 const queueSoundMock = vi.hoisted(() => vi.fn());
 const desktopPlatformMock = vi.hoisted(() => vi.fn());
@@ -77,8 +78,7 @@ describe("Inbox browser notifications", () => {
 			await showInboxNotification({
 				item,
 				userId: USER_ID,
-				sourcePath:
-					"/o/amplift/spaces/space-123?threadRootSignalId=root&focusSignalId=human-reply",
+				onActivate: vi.fn(),
 				viewingSourceSession: false,
 			})
 		).toMatchObject({ status: "delivered" });
@@ -100,7 +100,7 @@ describe("Inbox browser notifications", () => {
 		const input = {
 			item,
 			userId: USER_ID,
-			sourcePath: "/o/amplift/spaces/space-123",
+			onActivate: vi.fn(),
 			viewingSourceSession: false,
 		};
 		expect(
@@ -110,12 +110,16 @@ describe("Inbox browser notifications", () => {
 			})
 		).toEqual({ status: "ineligible" });
 		expect(notificationConstructorMock).not.toHaveBeenCalled();
-		expect(
-			await showInboxNotification({
-				...input,
-				resolveCurrentReadiness: () => ({ status: "eligible", item }),
-			})
-		).toMatchObject({ status: "delivered" });
+		const delivered = await showInboxNotification({
+			...input,
+			resolveCurrentReadiness: () => ({ status: "eligible", item }),
+		});
+		expect(delivered).toMatchObject({ status: "delivered" });
+		vi.spyOn(window, "focus").mockImplementation(() => undefined);
+		if (delivered.status === "delivered") {
+			delivered.notification?.onclick?.(new MouseEvent("click"));
+		}
+		expect(input.onActivate).toHaveBeenCalledExactlyOnceWith(item);
 		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 	});
 	it.each([
@@ -226,7 +230,7 @@ describe("Inbox browser notifications", () => {
 				item: createInboxItem(),
 				userId: USER_ID,
 				organizationSlug: "workspace",
-				sourcePath: "/unused",
+				onActivate: vi.fn(),
 				viewingSourceSession: false,
 			});
 		expect((await send()).status).toBe("deferred");
@@ -248,13 +252,13 @@ describe("Inbox browser notifications", () => {
 			item: createInboxItem(),
 			userId: USER_ID,
 			organizationSlug: "workspace",
-			sourcePath: "/unused",
+			onActivate: vi.fn(),
 			viewingSourceSession: true,
 		});
 		expect(result.status).toBe(focused ? "deferred" : "delivered");
 		expect(showNotification).toHaveBeenCalledTimes(focused ? 0 : 1);
 	});
-	it("coalesces personal Agent owner alerts without suppressing another conversation", async () => {
+	it("keeps delayed legacy owner observations quiet without coalescing independent Human mentions", async () => {
 		await enableInboxNotifications({ userId: USER_ID });
 		const item = createInboxItem({
 			kind: "space_message",
@@ -271,28 +275,35 @@ describe("Inbox browser notifications", () => {
 		const send = (value: InboxItem) =>
 			showInboxNotification({
 				item: value,
-				sourcePath: "/chats/owner-chat",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			});
-		expect((await send(item)).status).toBe("delivered");
-		expect((await send({ ...item, id: "second-message" })).status).toBe(
-			"already_delivered"
-		);
+		expect((await send(item)).status).toBe("ineligible");
 		expect(
 			(
 				await send({
 					...item,
-					id: "another-chat",
-					sourceTarget: {
-						kind: "space",
-						agentOwnerActivity: true,
-						spaceId: "other-chat",
-						signalId: "two",
-					},
+					id: "later-owner-message",
+					occurredAt: new Date(
+						Date.parse(item.occurredAt) + 120_000
+					).toISOString(),
 				})
 			).status
-		).toBe("delivered");
+		).toBe("ineligible");
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+		expect(queueSoundMock).not.toHaveBeenCalled();
+		const mention = {
+			...item,
+			id: "human-mention-one",
+			kind: "space_mention" as const,
+			importance: "normal" as const,
+		};
+		expect((await send(mention)).status).toBe("delivered");
+		expect((await send({ ...mention, id: "human-mention-two" })).status).toBe(
+			"delivered"
+		);
+		expect((await send(mention)).status).toBe("already_delivered");
 		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
 		expect(queueSoundMock).toHaveBeenCalledTimes(2);
 	});
@@ -301,6 +312,7 @@ describe("Inbox browser notifications", () => {
 
 	beforeEach(() => {
 		desktopPlatformMock.mockReset().mockReturnValue(null);
+		vi.spyOn(document, "hasFocus").mockReturnValue(true);
 		window.localStorage.clear();
 		notificationConstructorMock = vi.fn();
 		requestPermissionMock = vi.fn().mockResolvedValue("granted");
@@ -319,6 +331,7 @@ describe("Inbox browser notifications", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		window.localStorage.clear();
 		Object.defineProperty(navigator, "locks", {
 			configurable: true,
@@ -496,13 +509,13 @@ describe("Inbox browser notifications", () => {
 		const [first, second] = await Promise.all([
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			}),
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			}),
@@ -540,7 +553,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox?item=retry-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -548,7 +561,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox?item=retry-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -571,7 +584,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item: createInboxItem({ id: "constructor-crash-item" }),
-				sourcePath: "/o/amplift/inbox?item=constructor-crash-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -597,7 +610,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item: createInboxItem({ id: "sound-queue-failure-item" }),
-				sourcePath: "/o/amplift/inbox?item=sound-queue-failure-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -645,7 +658,7 @@ describe("Inbox browser notifications", () => {
 				contextChanged
 					? { status: "context_changed" as const }
 					: { item, status: "eligible" as const },
-			sourcePath: "/o/amplift/inbox?item=queued-context-item",
+			onActivate: vi.fn(),
 			userId: USER_ID,
 			viewingSourceSession: false,
 		});
@@ -673,7 +686,7 @@ describe("Inbox browser notifications", () => {
 				resolveCurrentReadiness: async () => ({
 					status: "ineligible" as const,
 				}),
-				sourcePath: "/o/amplift/inbox?item=resolved-while-queued",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -704,7 +717,7 @@ describe("Inbox browser notifications", () => {
 					item: freshItem,
 					status: "eligible" as const,
 				}),
-				sourcePath: "/o/amplift/inbox?item=fresh-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -820,7 +833,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -831,12 +844,155 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
 		).resolves.toMatchObject({ status: "delivered" });
 		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+	});
+
+	it("delivers from a visible but unfocused browser window", async () => {
+		await enableInboxNotifications({ userId: USER_ID });
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+		vi.mocked(document.hasFocus).mockReturnValue(false);
+		await expect(
+			showInboxNotification({
+				item: createInboxItem(),
+				onActivate: vi.fn(),
+				userId: USER_ID,
+				viewingSourceSession: true,
+			})
+		).resolves.toMatchObject({ status: "delivered" });
+	});
+
+	it("waits for browser acknowledgement and retries an asynchronous display error", async () => {
+		const instances = installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+			autoShow: false,
+		});
+		const input = {
+			item: createInboxItem(),
+			onActivate: vi.fn(),
+			userId: USER_ID,
+			viewingSourceSession: false,
+		};
+		let status = "pending";
+		const first = showInboxNotification(input).then((result) => {
+			status = result.status;
+			return result;
+		});
+		await vi.waitFor(() => expect(instances).toHaveLength(1));
+		expect(status).toBe("pending");
+		expect(queueSoundMock).not.toHaveBeenCalled();
+		expect(
+			window.localStorage.getItem(
+				"openmeld.inbox.browser-notifications.delivered-item-ids"
+			)
+		).toBeNull();
+		instances[0].onerror?.(new Event("error"));
+		await expect(first).resolves.toEqual({
+			status: "deferred",
+			reason: "display_failed",
+		});
+		const retry = showInboxNotification(input);
+		await vi.waitFor(() => expect(instances).toHaveLength(2));
+		instances[1].onshow?.(new Event("show"));
+		await expect(retry).resolves.toMatchObject({ status: "delivered" });
+		expect(queueSoundMock).toHaveBeenCalledOnce();
+		await expect(showInboxNotification(input)).resolves.toEqual({
+			status: "already_delivered",
+		});
+	});
+
+	it.each([
+		"timeout",
+		"cancel",
+		"close",
+	])("leaves an unacknowledged %s retryable and ignores late acknowledgement", async (outcome) => {
+		vi.useFakeTimers();
+		const instances = installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+			autoShow: false,
+		});
+		const controller = new AbortController();
+		const input = {
+			item: createInboxItem(),
+			onActivate: vi.fn(),
+			userId: USER_ID,
+			viewingSourceSession: false,
+		};
+		const delivery = showInboxNotification({
+			...input,
+			signal: controller.signal,
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(instances).toHaveLength(1);
+		const lateShow = instances[0].onshow;
+		if (outcome === "timeout") {
+			await vi.advanceTimersByTimeAsync(BROWSER_NOTIFICATION_ACK_TIMEOUT_MS);
+		} else if (outcome === "cancel") {
+			controller.abort();
+		} else {
+			instances[0].onclose?.(new Event("close"));
+		}
+		await expect(delivery).resolves.toEqual({
+			status: "deferred",
+			reason: outcome === "cancel" ? "context_changed" : "display_unconfirmed",
+		});
+		lateShow?.(new Event("show"));
+		expect(
+			window.localStorage.getItem(
+				"openmeld.inbox.browser-notifications.delivered-item-ids"
+			)
+		).toBeNull();
+		expect(queueSoundMock).not.toHaveBeenCalled();
+		const retry = showInboxNotification(input);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(instances).toHaveLength(2);
+		instances[1].onshow?.(new Event("show"));
+		await expect(retry).resolves.toMatchObject({ status: "delivered" });
+	});
+
+	it.each([
+		"preference",
+		"receipt",
+	])("reports unavailable delivery when the %s storage cannot be read", (failedKey) => {
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "granted",
+			requestPermissionMock,
+		});
+		const original = Storage.prototype.getItem;
+		const read = vi
+			.spyOn(Storage.prototype, "getItem")
+			.mockImplementation(function (this: Storage, key: string) {
+				if (
+					key ===
+					(failedKey === "preference"
+						? PREFERENCE_KEY
+						: "openmeld.inbox.browser-notifications.delivered-item-ids")
+				) {
+					throw new DOMException("Storage access denied", "SecurityError");
+				}
+				return original.call(this, key);
+			});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		expect(readInboxNotificationSettings({ userId: USER_ID })).toMatchObject({
+			permission: "granted",
+			unavailableReason: "storage_unavailable",
+		});
+		read.mockRestore();
+		expect(
+			readInboxNotificationSettings({ userId: USER_ID })
+		).not.toHaveProperty("unavailableReason");
 	});
 
 	it("suppresses only the viewed conversation on a visible tab and keeps other deliveries", async () => {
@@ -854,7 +1010,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: true,
 			})
@@ -864,7 +1020,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -878,7 +1034,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item: createInboxItem({ id: "hidden-tab-item" }),
-				sourcePath: "/o/amplift/inbox",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: true,
 			})
@@ -977,8 +1133,10 @@ function installNotificationMock(input: {
 	constructorMock: ReturnType<typeof vi.fn>;
 	permission: NotificationPermission;
 	requestPermissionMock: ReturnType<typeof vi.fn>;
+	autoShow?: boolean;
 }) {
 	const permissionRef = { value: input.permission };
+	const instances: TestNotification[] = [];
 	class TestNotification {
 		static get permission(): NotificationPermission {
 			return permissionRef.value;
@@ -992,9 +1150,16 @@ function installNotificationMock(input: {
 		}
 
 		onclick: (() => void) | null = null;
+		onshow: ((event: Event) => void) | null = null;
+		onerror: ((event: Event) => void) | null = null;
+		onclose: ((event: Event) => void) | null = null;
 
 		constructor(title: string, options?: NotificationOptions) {
 			input.constructorMock(title, options);
+			instances.push(this);
+			if (input.autoShow !== false) {
+				queueMicrotask(() => this.onshow?.(new Event("show")));
+			}
 		}
 
 		close() {
@@ -1007,6 +1172,7 @@ function installNotificationMock(input: {
 		value: TestNotification,
 	});
 	vi.stubGlobal("Notification", TestNotification);
+	return instances;
 }
 
 function installExclusiveLockMock() {

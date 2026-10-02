@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { accountSpaceIndexItemSchema } from "./account-space-index";
 
 const CENTER_AGENT_DIRECT_MESSAGE_SPACE_KIND =
   "center_agent_direct_message_space" as const;
@@ -57,6 +58,7 @@ export const centerAgentSessionListItemSchema =
   centerAgentDirectMessageSpaceProjectionSchema.extend({
     name: z.string().nullable(),
     createdAt: ISO_DATE_TIME_SCHEMA.nullable(),
+    messagePreview: accountSpaceIndexItemSchema.shape.messagePreview,
   });
 
 export const listCenterAgentSessionsResponseSchema = z.strictObject({

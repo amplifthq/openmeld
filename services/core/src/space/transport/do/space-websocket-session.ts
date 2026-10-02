@@ -22,6 +22,7 @@ export type SpaceQueuedWebSocketMessage =
   | SpaceAgentStreamTerminalFrame;
 
 export type SpaceWebSocketSession = {
+  supportsAgentWorkOutcomes?: boolean;
   supportsAgentReplyPlacement?: boolean;
   profile?: Profile;
   enforcedProfile?: Profile;
@@ -34,9 +35,11 @@ export type SpaceWebSocketSession = {
   helloAccepted: boolean;
   supportsLiveSignalHistory: boolean;
   supportsSpaceMessageAddressing: boolean;
+  supportsSpaceImageGeometry?: boolean;
 };
 
 type SpaceWebSocketSessionAttachment = {
+  supportsAgentWorkOutcomes?: boolean;
   supportsAgentReplyPlacement?: boolean;
   profile?: Profile;
   enforcedProfile?: Profile;
@@ -46,6 +49,7 @@ type SpaceWebSocketSessionAttachment = {
   helloAccepted?: boolean;
   supportsLiveSignalHistory?: boolean;
   supportsSpaceMessageAddressing?: boolean;
+  supportsSpaceImageGeometry?: boolean;
 };
 
 export function createPendingSpaceWebSocketSession(input: {
@@ -93,8 +97,12 @@ export function acceptSpaceWebSocketHello(input: {
     input.hello.capabilities?.liveSignalHistory === true;
   input.session.supportsAgentReplyPlacement =
     input.hello.capabilities?.agentReplyPlacement === true;
+  input.session.supportsAgentWorkOutcomes =
+    input.hello.capabilities?.agentWorkOutcomes === true;
   input.session.supportsSpaceMessageAddressing =
     input.hello.capabilities?.spaceMessageAddressing === true;
+  input.session.supportsSpaceImageGeometry =
+    input.hello.capabilities?.spaceImageGeometry === true;
   return profile;
 }
 
@@ -166,8 +174,14 @@ export function buildSpaceWebSocketSessionAttachment(
     ...(session.supportsAgentReplyPlacement
       ? { supportsAgentReplyPlacement: true }
       : {}),
+    ...(session.supportsAgentWorkOutcomes
+      ? { supportsAgentWorkOutcomes: true }
+      : {}),
     ...(session.supportsSpaceMessageAddressing
       ? { supportsSpaceMessageAddressing: true }
+      : {}),
+    ...(session.supportsSpaceImageGeometry
+      ? { supportsSpaceImageGeometry: true }
       : {}),
   };
 }
@@ -187,8 +201,10 @@ export function restoreSpaceWebSocketSessionFromAttachment(
     helloAccepted,
     supportsLiveSignalHistory: meta.supportsLiveSignalHistory === true,
     supportsAgentReplyPlacement: meta.supportsAgentReplyPlacement === true,
+    supportsAgentWorkOutcomes: meta.supportsAgentWorkOutcomes === true,
     supportsSpaceMessageAddressing:
       meta.supportsSpaceMessageAddressing === true,
+    supportsSpaceImageGeometry: meta.supportsSpaceImageGeometry === true,
     ...(helloAccepted ? { profile: meta.profile ?? meta.enforcedProfile } : {}),
     ...(meta.enforcedProfile ? { enforcedProfile: meta.enforcedProfile } : {}),
     ...(meta.viewerOwnerUserId

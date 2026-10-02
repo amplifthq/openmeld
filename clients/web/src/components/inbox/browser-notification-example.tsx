@@ -1,17 +1,20 @@
 "use client";
 
 import { Button } from "@openmeld/ui/components/button";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { showInboxBrowserNotificationExample } from "#/lib/inbox/client-notifications";
+
+export type BrowserNotificationExampleStatus = {
+	error: boolean;
+	message: string;
+};
 
 export function BrowserNotificationExample(input: {
 	userId: string;
 	enabled: boolean;
+	status: BrowserNotificationExampleStatus | null;
+	onStatusChange: (status: BrowserNotificationExampleStatus) => void;
 }) {
-	const [status, setStatus] = useState<{
-		error: boolean;
-		message: string;
-	} | null>(null);
 	const currentNotification = useRef<Notification | null>(null);
 	useEffect(
 		() => () => {
@@ -24,57 +27,46 @@ export function BrowserNotificationExample(input: {
 		[]
 	);
 	return (
-		<div className="space-y-2">
-			<Button
-				disabled={!input.enabled}
-				onClick={() => {
-					try {
-						currentNotification.current?.close();
-						const notification = showInboxBrowserNotificationExample(
-							input.userId
-						);
-						currentNotification.current = notification;
-						notification.onerror = () => {
-							if (currentNotification.current === notification) {
-								setStatus({
-									error: true,
-									message:
-										"The browser could not show the example. Check your browser and system notification settings.",
-								});
-							}
-						};
-						setStatus({
-							error: false,
-							message:
-								"Example requested. If nothing appears, check your system notification settings and Focus or Do Not Disturb.",
-						});
-					} catch (error) {
-						setStatus({
-							error: true,
-							message:
-								error instanceof Error
-									? error.message
-									: "The example could not be shown.",
-						});
-					}
-				}}
-				size="sm"
-				variant="outline"
-			>
-				Show an example
-			</Button>
-			{status ? (
-				<p
-					className={
-						status.error
-							? "text-destructive text-xs"
-							: "text-muted-foreground text-xs"
-					}
-					role={status.error ? "alert" : "status"}
-				>
-					{status.message}
-				</p>
-			) : null}
-		</div>
+		<Button
+			className="w-36"
+			disabled={!input.enabled}
+			onClick={() => {
+				try {
+					currentNotification.current?.close();
+					const notification = showInboxBrowserNotificationExample(
+						input.userId
+					);
+					currentNotification.current = notification;
+					notification.onerror = () => {
+						if (currentNotification.current === notification) {
+							input.onStatusChange({
+								error: true,
+								message:
+									"Couldn’t show the example. Check notification permissions.",
+							});
+						}
+					};
+					input.onStatusChange({
+						error: false,
+						message:
+							"Nothing appeared? Check notification permissions and Do Not Disturb.",
+					});
+				} catch (error) {
+					input.onStatusChange({
+						error: true,
+						message:
+							error instanceof Error
+								? error.message
+								: "The example could not be shown.",
+					});
+				}
+			}}
+			size="sm"
+			variant="secondary"
+		>
+			{input.status && !input.status.error
+				? "Example requested"
+				: "Show an example"}
+		</Button>
 	);
 }

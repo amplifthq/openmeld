@@ -5,6 +5,7 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
 	BookOpenTextIcon,
 	BuildingsIcon,
@@ -92,11 +93,11 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	create_space: { icon: BuildingsIcon, label: "Created Space" },
 	draft_org_document: {
 		icon: BookOpenTextIcon,
-		label: "Drafted organization document",
+		label: "Drafted Team knowledge file",
 	},
 	move_org_document: {
 		icon: FolderOpenIcon,
-		label: "Moved organization document",
+		label: "Moved Team knowledge file",
 	},
 	designate_remote_center_agent: {
 		icon: RobotIcon,
@@ -130,7 +131,7 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	},
 	read_org_documents: {
 		icon: BookOpenTextIcon,
-		label: "Read organization documents",
+		label: "Read Team knowledge files",
 	},
 	rename_org_document_folder: {
 		icon: FolderOpenIcon,
@@ -150,7 +151,7 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	delete_routine: { icon: XCircleIcon, label: "Deleted Routine" },
 	save_org_document: {
 		icon: BookOpenTextIcon,
-		label: "Saved organization document",
+		label: "Saved Team knowledge file",
 	},
 	pause_center_agent: {
 		icon: PauseCircleIcon,
@@ -214,7 +215,9 @@ export function CenterAgentAuditJournalPanel(input: {
 	);
 
 	if (auditQuery.isPending) {
-		return <CenterAgentInlineState label="Loading Center Agent audit log." />;
+		return (
+			<SkeletonRows className="p-5" label="Loading Center Agent audit log" />
+		);
 	}
 	if (auditQuery.isError) {
 		return (
@@ -440,12 +443,6 @@ function CenterAgentErrorState(input: {
 				Retry
 			</Button>
 		</div>
-	);
-}
-
-function CenterAgentInlineState(input: { label: string }) {
-	return (
-		<div className="px-5 py-4 text-muted-foreground text-sm">{input.label}</div>
 	);
 }
 

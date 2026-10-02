@@ -6,6 +6,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { GenericSchema } from "valibot";
 import type {
+  RemoteAgentCallbackContext,
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
@@ -16,6 +17,7 @@ import {
   isPersonalRemoteAgentProductTool,
 } from "../agent-core/personal-remote-agent-tools";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import { resolveRemoteAgentToolCallLimit } from "../agent-core/tool-progress";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
   type RemoteAgentComputerFileHandoff,
@@ -29,12 +31,17 @@ import {
   createRemoteAgentCodeModeFlueTool,
   type RemoteAgentCodeModeRuntime,
 } from "./code-mode";
+import { createOrganizationSkillResourceTool } from "./organization-skills";
+import { createHostedPublicProgressTool } from "./public-progress";
 import {
-  executeRemoteAgentToolDefinition,
-  toBoundedRemoteAgentToolResult,
-} from "./tool-execution";
+  createRemoteAgentReadToolResultDefinition,
+  prepareRemoteAgentToolResult,
+} from "./retained-tool-results";
+import { executeRemoteAgentToolDefinition } from "./tool-execution";
+import { isRemoteAgentNativeCapability } from "./tool-presentation";
 
 export async function getRemoteAgentFlueTools(input: {
+  callLimit?: number;
   replyRecovery?: boolean;
   personalAgent?: boolean;
   sharedSpaceContextEnabled?: boolean;
@@ -48,6 +55,7 @@ export async function getRemoteAgentFlueTools(input: {
   fetch?: typeof globalThis.fetch;
   memberProfileReportFiles?: RemoteAgentMemberProfileReportComputerFiles;
   modelRoute?: CenterAgentModelRoute;
+  organizationSkillContext?: RemoteAgentCallbackContext;
   prepareImage?: RemoteAgentImagePreparer;
   sandboxDefinitions?: RemoteAgentToolDefinition[];
   storage: RemoteAgentStorage;
@@ -55,12 +63,31 @@ export async function getRemoteAgentFlueTools(input: {
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
 }) {
   if (input.replyRecovery) {
-    return [];
+    return { tools: [], capabilities: [], deferredToolCount: 0 };
   }
+  const callLimit =
+    input.callLimit ??
+    resolveRemoteAgentToolCallLimit(input.env?.REMOTE_AGENT_TOOL_CALL_LIMIT);
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
+  const summaryOnly =
+    input.turnEnvelope?.trigger.source === "task_continuation" &&
+    input.turnEnvelope.trigger.summaryOnly;
   const availableDefinitions = [
+    createHostedPublicProgressTool(input),
+    ...(unverifiedMember
+      ? []
+      : [createRemoteAgentReadToolResultDefinition(input)]),
+    ...(!unverifiedMember &&
+    input.organizationSkillContext?.organizationSkillReleases?.length
+      ? [
+          createOrganizationSkillResourceTool({
+            context: input.organizationSkillContext,
+            coreWorker: input.coreWorker,
+          }),
+        ]
+      : []),
     ...(input.personalAgent
       ? [
           ...getPersonalRemoteAgentTools(input),
@@ -70,7 +97,9 @@ export async function getRemoteAgentFlueTools(input: {
         ]
       : getRemoteAgentOpenMeldToolDefinitions(input)),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
-  ];
+  ].filter(
+    (definition) => !summaryOnly || SUMMARY_ONLY_TOOL_NAMES.has(definition.name)
+  );
   const definitions = input.personalAgent
     ? availableDefinitions.map((definition) => ({
         ...definition,
@@ -111,18 +140,26 @@ export async function getRemoteAgentFlueTools(input: {
           }
         )
       : [];
-  const directTools = [...definitions, ...capabilityDiscoveryDefinitions].map(
-    (definition) =>
-      toFlueTool({
-        definition,
-        storage: input.storage,
-        submissionId: input.submissionId,
-      })
+  const nativeDefinitions = definitions.filter((definition) =>
+    isRemoteAgentNativeCapability(definition.name)
+  );
+  const directTools = [
+    ...nativeDefinitions,
+    ...capabilityDiscoveryDefinitions,
+  ].map((definition) =>
+    toFlueTool({
+      callLimit,
+      coreWorker: input.coreWorker,
+      definition,
+      storage: input.storage,
+      submissionId: input.submissionId,
+    })
   );
   if (!input.env?.LOADER) {
     throw new Error("Remote Agent Code Mode Worker Loader is unavailable.");
   }
   const codeModeTool = await createRemoteAgentCodeModeFlueTool({
+    callLimit,
     coreWorker: input.coreWorker,
     definitions,
     env: input.env,
@@ -131,10 +168,25 @@ export async function getRemoteAgentFlueTools(input: {
     storage: input.storage,
     submissionId: input.submissionId,
   });
-  return [...directTools, codeModeTool];
+  return {
+    capabilities: definitions,
+    tools: [...directTools, codeModeTool],
+    deferredToolCount: definitions.length - nativeDefinitions.length,
+  };
 }
 
+// Both direct tools and Code Mode are built from this same restricted catalog.
+// Progress is presentation only; no business mutations, Computer or Skill code.
+const SUMMARY_ONLY_TOOL_NAMES = new Set([
+  "openmeld_report_progress",
+  "openmeld_read_tool_result",
+  "openmeld_read_space_context",
+  "openmeld_read_space_file",
+]);
+
 function toFlueTool(input: {
+  callLimit?: number;
+  coreWorker: RemoteAgentCoreWorkerBinding;
   definition: RemoteAgentToolDefinition;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -146,9 +198,13 @@ function toFlueTool(input: {
     input: definition.input as GenericSchema<Record<string, unknown>, unknown>,
     run: async ({ data: toolInput, signal }) => {
       return {
-        output: toBoundedRemoteAgentToolResult({
+        output: await prepareRemoteAgentToolResult({
+          coreWorker: input.coreWorker,
+          storage: input.storage,
+          submissionId: input.submissionId,
           toolName: definition.name,
           value: await executeRemoteAgentToolDefinition({
+            callLimit: input.callLimit,
             definition,
             signal,
             source: "direct",

@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -6,11 +7,23 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DropdownMenu, DropdownMenuTrigger } from "#components/dropdown-menu";
+import { ContextMenu, ContextMenuTrigger } from "#components/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuRadioGroup,
+  DropdownMenuTrigger,
+} from "#components/dropdown-menu";
+import { FluidContextMenu } from "./context-menu";
 import {
   FluidDropdownMenuContent,
   FluidDropdownMenuItem,
+  FluidDropdownMenuRadioItem,
 } from "./dropdown-menu";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "./sidebar-menu";
 
 // jsdom has no active Web Animations for Base UI to wait for.
 if (typeof Element.prototype.getAnimations === "undefined") {
@@ -78,27 +91,38 @@ describe("FluidDropdownMenu", () => {
       expect(editItem.getAttribute("data-hovered")).toBe("true");
     });
     expect(
-      menu.querySelectorAll('[data-slot="fluid-action-list-hover-indicator"]')
+      menu.querySelectorAll('[data-slot="fluid-hover-highlight"]')
     ).toHaveLength(1);
   });
 
-  it("preserves keyboard navigation and Escape focus restoration", async () => {
+  it.each([
+    "dropdown",
+    "context",
+  ])("preserves keyboard navigation and Escape focus restoration for %s menus", async (kind) => {
+    const Root = kind === "context" ? ContextMenu : DropdownMenu;
+    const Trigger =
+      kind === "context" ? ContextMenuTrigger : DropdownMenuTrigger;
     render(
-      <DropdownMenu>
-        <DropdownMenuTrigger>Profile options</DropdownMenuTrigger>
+      <Root>
+        <Trigger render={<button type="button" />}>Profile options</Trigger>
         <FluidDropdownMenuContent>
           <FluidDropdownMenuItem index={0}>View profile</FluidDropdownMenuItem>
           <FluidDropdownMenuItem index={1}>Edit profile</FluidDropdownMenuItem>
         </FluidDropdownMenuContent>
-      </DropdownMenu>
+      </Root>
     );
 
     const trigger = screen.getByRole("button", { name: "Profile options" });
-    fireEvent.click(trigger);
+    trigger.focus();
+    if (kind === "context") {
+      fireEvent.contextMenu(trigger, { clientX: 10, clientY: 10 });
+    } else {
+      fireEvent.click(trigger);
+    }
     const viewItem = await screen.findByRole("menuitem", {
       name: "View profile",
     });
-
+    act(() => viewItem.focus());
     fireEvent.keyDown(viewItem, { key: "ArrowDown" });
     expect(document.activeElement).toBe(
       screen.getByRole("menuitem", { name: "Edit profile" })
@@ -109,5 +133,90 @@ describe("FluidDropdownMenu", () => {
       expect(screen.queryByRole("menu")).toBeNull();
       expect(document.activeElement).toBe(trigger);
     });
+  });
+
+  it("shares hover feedback across radio choices without losing selection or keyboard semantics", async () => {
+    const onValueChange = vi.fn();
+    render(
+      <DropdownMenu defaultOpen>
+        <DropdownMenuTrigger>Notifications</DropdownMenuTrigger>
+        <FluidDropdownMenuContent>
+          <DropdownMenuRadioGroup
+            defaultValue="all"
+            onValueChange={onValueChange}
+          >
+            <FluidDropdownMenuRadioItem index={0} value="all">
+              All messages
+            </FluidDropdownMenuRadioItem>
+            <FluidDropdownMenuRadioItem index={1} value="muted">
+              Mute
+            </FluidDropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </FluidDropdownMenuContent>
+      </DropdownMenu>
+    );
+    const menu = await screen.findByRole("menu");
+    const all = screen.getByRole("menuitemradio", { name: "All messages" });
+    const mute = screen.getByRole("menuitemradio", { name: "Mute" });
+    expect(all.getAttribute("aria-checked")).toBe("true");
+    const list = menu.querySelector(
+      '[data-slot="fluid-action-list"]'
+    ) as HTMLElement;
+    fireEvent.mouseEnter(list);
+    fireEvent.mouseMove(list, { clientY: 50 });
+    await waitFor(() => expect(mute.getAttribute("data-hovered")).toBe("true"));
+    expect(
+      menu.querySelectorAll('[data-slot="fluid-hover-highlight"]')
+    ).toHaveLength(1);
+    act(() => all.focus());
+    fireEvent.keyDown(all, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(mute);
+    fireEvent.click(mute);
+    expect(onValueChange.mock.calls[0]?.[0]).toBe("muted");
+    expect(mute.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("suspends sidebar hover while its context menu is open and resumes after dismissal", async () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      offsetHeight: { configurable: true, get: () => 40 },
+      offsetWidth: { configurable: true, get: () => 200 },
+    });
+    const { container } = render(
+      <SidebarMenu>
+        <FluidContextMenu
+          target={
+            <SidebarMenuItem>
+              <SidebarMenuButton>Release planning</SidebarMenuButton>
+            </SidebarMenuItem>
+          }
+        >
+          <FluidDropdownMenuItem index={0}>Open</FluidDropdownMenuItem>
+          <FluidDropdownMenuItem index={1}>Copy link</FluidDropdownMenuItem>
+        </FluidContextMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton>Product design</SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    );
+    const trigger = screen.getByRole("button", { name: "Release planning" });
+    fireEvent.contextMenu(trigger, { clientX: 10, clientY: 10 });
+    const menu = await screen.findByRole("menu");
+    const copy = screen.getByRole("menuitem", { name: "Copy link" });
+    fireEvent.mouseMove(copy, { clientX: 20, clientY: 50 });
+    await waitFor(() => expect(copy.getAttribute("data-hovered")).toBe("true"));
+    expect(
+      container.querySelector('[data-slot="sidebar-menu-hover-indicator"]')
+    ).toBeNull();
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.mouseMove(
+      screen.getByRole("button", { name: "Product design" }),
+      { clientX: 20, clientY: 50 }
+    );
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-slot="sidebar-menu-hover-indicator"]')
+      ).not.toBeNull()
+    );
   });
 });

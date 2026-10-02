@@ -1,3 +1,4 @@
+import { Dialog } from "@openmeld/ui/components/dialog";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -30,6 +31,8 @@ const testSettingsSections = buildSettingsSections(TEST_ORG_SLUG);
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() =>
 	vi.fn().mockResolvedValue("owner")
 );
+const getDesktopPlatformMock = vi.hoisted(() => vi.fn());
+const settingsFault = vi.hoisted(() => ({ error: null as Error | null }));
 let currentOrganization: OrganizationSummary = {
 	id: "org-acme",
 	name: "Acme",
@@ -52,6 +55,10 @@ vi.mock("@tanstack/react-router", async () => {
 		),
 	};
 });
+
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: getDesktopPlatformMock,
+}));
 
 vi.mock("#/query/organizations/invitation-requests", () => ({
 	useInvitationReviewCount: () => ({ data: 0 }),
@@ -120,11 +127,18 @@ vi.mock("#/query/organizations/organization-directory", async () => {
 });
 
 vi.mock("./account-section", () => ({
-	AccountSection: () => <div>Account settings content</div>,
+	AccountSection: () => {
+		if (settingsFault.error) {
+			throw settingsFault.error;
+		}
+		return <div>Account settings content</div>;
+	},
 }));
 
 afterEach(() => {
 	cleanup();
+	settingsFault.error = null;
+	getDesktopPlatformMock.mockReset();
 	currentOrganization = {
 		id: "org-acme",
 		name: "Acme",
@@ -133,6 +147,38 @@ afterEach(() => {
 });
 
 describe("Web Settings capability gating", () => {
+	it("keeps the dialog and outside editing through cold loading and a failed section", async () => {
+		const content = () => (
+			<TestQueryClientProvider>
+				<input aria-label="Unsent work" defaultValue="Keep this draft" />
+				<Dialog open>
+					<SettingsPage
+						activeSectionId="account"
+						onNavigate={vi.fn()}
+						presentation="dialog"
+					/>
+				</Dialog>
+			</TestQueryClientProvider>
+		);
+		const view = render(content());
+		const draft = screen.getByLabelText("Unsent work") as HTMLInputElement;
+		const dialog = screen.getByRole("dialog", { name: "App settings" });
+		expect(screen.getByRole("button", { name: "Appearance" })).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading settings" })
+		).toBeTruthy();
+		await screen.findByText("Account settings content");
+		expect(screen.getByRole("dialog", { name: "App settings" })).toBe(dialog);
+		settingsFault.error = new Error(
+			"Failed to fetch dynamically imported module: /assets/old-settings.js"
+		);
+		view.rerender(content());
+		await screen.findByText("Settings couldn’t load.");
+		expect(screen.getByLabelText("Unsent work")).toBe(draft);
+		expect(draft.value).toBe("Keep this draft");
+		expect(screen.getByRole("dialog", { name: "App settings" })).toBe(dialog);
+		expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+	});
 	it("drops the local-service Service section on a plain Web (cloud) host", () => {
 		const sections = resolveSettingsSections(
 			testSettingsSections,
@@ -146,6 +192,7 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"center-agent",
+			"usage",
 			"general",
 			"members",
 			"invitations",
@@ -165,6 +212,7 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"center-agent",
+			"usage",
 			"general",
 			"members",
 			"invitations",
@@ -176,6 +224,7 @@ describe("Web Settings capability gating", () => {
 			testSettingsRoutes.notifications,
 			testSettingsRoutes.privacy,
 			testSettingsRoutes["center-agent"],
+			testSettingsRoutes.usage,
 			testSettingsRoutes.general,
 			testSettingsRoutes.members,
 			testSettingsRoutes.invitations,
@@ -195,6 +244,7 @@ describe("Web Settings capability gating", () => {
 			"notifications",
 			"privacy",
 			"center-agent",
+			"usage",
 			"general",
 			"members",
 			"invitations",
@@ -204,6 +254,43 @@ describe("Web Settings capability gating", () => {
 });
 
 describe("Settings grouped navigation", () => {
+	it("places Desktop Updates after Privacy and before Send feedback", () => {
+		getDesktopPlatformMock.mockReturnValue({});
+		const navItems = toSettingsNavItems(
+			resolveSettingsSections(
+				buildSettingsSections(TEST_ORG_SLUG),
+				CLOUD_CAPABILITIES
+			)
+		);
+
+		render(
+			<SettingsInnerSidebar
+				activeSectionId="updates"
+				isPersonalWorkspace={false}
+				items={navItems}
+				onSendFeedback={vi.fn()}
+				organizationName="Acme"
+				organizationRole="owner"
+			/>
+		);
+
+		const personalNavigation = screen.getByRole("navigation", {
+			name: "Personal settings",
+		});
+		expect(
+			Array.from(personalNavigation.querySelectorAll("a, button")).map(
+				(item) => item.textContent
+			)
+		).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Updates",
+			"Send feedback",
+		]);
+	});
+
 	it("uses section actions instead of full-page links inside the dialog", () => {
 		const onNavigate = vi.fn();
 		render(
@@ -299,6 +386,7 @@ describe("Settings grouped navigation", () => {
 		).toEqual([
 			"General",
 			"Center Agent",
+			"Usage",
 			"Members",
 			"Invitations",
 			"Security",
@@ -418,12 +506,13 @@ describe("Settings grouped navigation", () => {
 			"Center Agent",
 			"Send feedback",
 		]);
-		expect(personalItems.organization).toEqual(["General"]);
+		expect(personalItems.organization).toEqual(["General", "Usage"]);
 		expect(organizationItems).toEqual({
 			badges: [],
 			organization: [
 				"General",
 				"Center Agent",
+				"Usage",
 				"Members",
 				"Invitations",
 				"Security",
@@ -440,7 +529,7 @@ describe("Settings grouped navigation", () => {
 		});
 		expect(personalItems).toEqual({
 			badges: [],
-			organization: ["General"],
+			organization: ["General", "Usage"],
 			organizationLabel: "Felix",
 			personal: [
 				"Account",

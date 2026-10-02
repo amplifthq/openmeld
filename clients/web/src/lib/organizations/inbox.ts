@@ -1,5 +1,6 @@
 import {
 	createInboxApi,
+	isInboxItemInOrganizationScope,
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
@@ -7,8 +8,13 @@ import type {
 	CenterAgentInboxSummaryResponse,
 	DismissInboxItemResponse,
 	GetInboxItemResponse,
+	InboxFeedQuery,
+	InboxFeedResponse,
 	InboxMessageNotificationPreferencesResponse,
+	InboxNotificationObservationsQuery,
+	InboxNotificationObservationsResponse,
 	InboxNotificationPreferencesResponse,
+	InboxPresentation,
 	InboxSummaryResponse,
 	InboxView,
 	ListInboxItemsResponse,
@@ -16,6 +22,8 @@ import type {
 	MarkCenterAgentInboxReadThroughResponse,
 	MarkInboxItemReadResponse,
 	MarkSpaceInboxReadThroughResponse,
+	MutateInboxFeedBody,
+	MutateInboxFeedResponse,
 	SpaceInboxSummaryResponse,
 	SpaceInboxUnreadTargetsResponse,
 	UpdateInboxMessageNotificationPreferencesBody,
@@ -46,10 +54,46 @@ export async function dismissCurrentInboxItem(input: {
 	});
 }
 
+export async function listCurrentInboxFeed(
+	input: InboxFeedQuery & { organizationId: string; signal?: AbortSignal }
+): Promise<InboxFeedResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...query } = input;
+		const response = await createWebInboxApi(organizationId).feed(query);
+		assertOrganizationMatch(response.organizationId, organizationId);
+		return response;
+	});
+}
+
+export async function mutateCurrentInboxFeed(
+	input: MutateInboxFeedBody & { organizationId: string }
+): Promise<MutateInboxFeedResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...body } = input;
+		return await createWebInboxApi(organizationId).mutateFeed(body);
+	});
+}
+
+export async function observeCurrentInboxNotifications(
+	input: InboxNotificationObservationsQuery & {
+		organizationId: string;
+		signal?: AbortSignal;
+	}
+): Promise<InboxNotificationObservationsResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...query } = input;
+		const response =
+			await createWebInboxApi(organizationId).observeNotifications(query);
+		assertOrganizationMatch(response.organizationId, organizationId);
+		return response;
+	});
+}
+
 export async function listCurrentInboxItems(input: {
 	cursor?: string;
 	limit?: number;
 	organizationId: string;
+	presentation?: InboxPresentation;
 	signal?: AbortSignal;
 	view?: InboxView;
 }): Promise<ListInboxItemsResponse> {
@@ -57,6 +101,7 @@ export async function listCurrentInboxItems(input: {
 		const response = await createWebInboxApi(input.organizationId).list({
 			cursor: input.cursor,
 			limit: input.limit,
+			presentation: input.presentation,
 			signal: input.signal,
 			view: input.view,
 		});
@@ -75,17 +120,21 @@ export async function getCurrentInboxItem(input: {
 			itemId: input.itemId,
 			signal: input.signal,
 		});
-		assertOrganizationMatch(response.item.organizationId, input.organizationId);
+		if (!isInboxItemInOrganizationScope(response.item, input.organizationId)) {
+			throw new Error("Inbox response organization mismatch.");
+		}
 		return response;
 	});
 }
 
 export async function getCurrentInboxSummary(input: {
 	organizationId: string;
+	presentation?: InboxPresentation;
 	signal?: AbortSignal;
 }): Promise<InboxSummaryResponse> {
 	return await runInboxOperation(async () => {
 		const response = await createWebInboxApi(input.organizationId).summary({
+			presentation: input.presentation,
 			signal: input.signal,
 		});
 		assertOrganizationMatch(response.organizationId, input.organizationId);
@@ -178,16 +227,21 @@ export async function markCurrentInboxItemRead(input: {
 			itemId: input.itemId,
 			read: input.read,
 		});
-		assertOrganizationMatch(response.item.organizationId, input.organizationId);
+		if (!isInboxItemInOrganizationScope(response.item, input.organizationId)) {
+			throw new Error("Inbox response organization mismatch.");
+		}
 		return response;
 	});
 }
 
 export async function markAllCurrentInboxItemsRead(input: {
 	organizationId: string;
+	presentation?: InboxPresentation;
 }): Promise<MarkAllInboxItemsReadResponse> {
 	return await runInboxOperation(async () =>
-		createWebInboxApi(input.organizationId).markAllRead()
+		createWebInboxApi(input.organizationId).markAllRead({
+			presentation: input.presentation,
+		})
 	);
 }
 

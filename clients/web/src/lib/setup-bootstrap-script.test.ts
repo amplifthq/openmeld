@@ -5,6 +5,7 @@ import {
 } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -95,12 +96,15 @@ describe("setup-bootstrap-script", () => {
 		);
 		expect(script).toContain("trap cleanup_binary_download EXIT");
 		expect(script).toContain("download_file_with_retry");
+		expect(
+			script.trimEnd().endsWith("# openmeld-setup-script-complete-v1")
+		).toBe(true);
 		expect(script).toContain("OPENMELD_SETUP_DOWNLOAD_ATTEMPT=1");
 		expect(script).toContain("Download didn't finish. Retrying...");
-		expect(script).toContain("curl -fL --progress-bar");
+		expect(script).toContain("download_file_with_curl -fL --progress-bar");
 		expect(script).toContain("install_binary_openmeld");
 		expect(script).toContain(
-			'/usr/bin/codesign --verify --strict --verbose=2 "$OPENMELD_SETUP_SIGNATURE_PATH"'
+			'anchor apple generic and identifier "sh.openmeld.cli" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "38FFHDPA3B"'
 		);
 		expect(script).toContain(
 			'/usr/bin/codesign --display --verbose=4 "$OPENMELD_SETUP_SIGNATURE_PATH"'
@@ -162,7 +166,6 @@ describe("setup-bootstrap-script", () => {
 		expect(script).toContain(
 			'npm view "$OPENMELD_SETUP_PACKAGE_NAME" version < /dev/null'
 		);
-		expect(script).toContain("< /dev/null 2>/dev/null || printf '0'");
 		expect(script).toContain(
 			'if [ "$OPENMELD_SETUP_USER_FACING_COMMAND" = "openmeld" ]; then'
 		);
@@ -170,6 +173,29 @@ describe("setup-bootstrap-script", () => {
 		// never the inherited pipe carrying the install script.
 		expect(script).toContain('"$@" < "$OPENMELD_SETUP_RUN_STDIN"');
 		expect(script).toContain("OPENMELD_SETUP_RUN_STDIN=/dev/null");
+	});
+
+	it("does not start setup when the piped shell script is truncated", () => {
+		const script = buildOpenMeldSetupBootstrapScript({ lane: "prod" });
+		const withoutFinalFi = script.slice(0, script.lastIndexOf("\nfi "));
+		const result = spawnSync(
+			"sh",
+			[
+				"-s",
+				"--",
+				"setup",
+				"--start-session",
+				"test",
+				"--device-code",
+				"test",
+				"--view",
+				"human",
+			],
+			{ input: withoutFinalFi, encoding: "utf8", timeout: 5000 }
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).not.toBe("");
 	});
 
 	it("requires a Prepare Session command with an approved computer grant", () => {
@@ -225,6 +251,18 @@ describe("setup-bootstrap-script", () => {
 		expect(script).toContain(
 			"if ($script:OpenMeldSetupGlobalCliReady) {\n      return \"& 'openmeld'\"\n    }"
 		);
+	});
+
+	it("uses the isolated unsigned Windows preview only for production binary setup", () => {
+		const script = buildOpenMeldSetupBootstrapPowerShellScript({
+			distribution: "binary",
+			lane: "prod",
+		});
+		expect(script).toContain(
+			"https://openmeld.ai/cli/manifest.json?channel=windows-preview"
+		);
+		expect(script).toContain("$internalPreview = $true");
+		expect(script).toContain("OPENMELD_WINDOWS_INTERNAL_PREVIEW");
 	});
 
 	it("keeps the exact local environment in Windows follow-up commands", () => {
@@ -389,6 +427,44 @@ describe("setup-bootstrap-script", () => {
 		},
 		SHELL_BOOTSTRAP_TEST_TIMEOUT_MS
 	);
+
+	it("stops production setup before installing a binary without signing identity", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "openmeld-setup-bootstrap-"));
+		const binDir = join(tempDir, "bin");
+		const callsPath = join(tempDir, "calls.txt");
+		try {
+			mkdirSync(binDir);
+			linkRealNodeRuntime(binDir);
+			linkFakeBootstrapCommand(binDir, "curl");
+			linkFakeBootstrapCommand(binDir, "uname");
+			const result = spawnBootstrapScript(
+				tempDir,
+				buildOpenMeldSetupBootstrapScript({ lane: "prod" }),
+				[
+					"setup",
+					"--start-session",
+					"preptok_demo",
+					"--ott",
+					"ott_demo",
+					"--view",
+					"agent",
+				],
+				{
+					env: {
+						HOME: tempDir,
+						OPENMELD_TEST_CALLS_PATH: callsPath,
+						OPENMELD_TEST_MANIFEST_SIGNING_IDENTITY: "missing",
+						PATH: bootstrapTestPath(binDir),
+					},
+				}
+			);
+			expect(result.status).not.toBe(0);
+			expect(result.stdout).toContain("unexpected code identifier");
+			expect(existsSync(callsPath)).toBe(false);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
 
 	it(
 		"updates an older npm CLI before binary setup can report completion",
@@ -766,9 +842,16 @@ describe("setup-bootstrap-script", () => {
 		SHELL_BOOTSTRAP_TEST_TIMEOUT_MS
 	);
 
-	it(
-		"explains local proxy failures when the latest production runner cannot be downloaded",
-		() => {
+	it.each([
+		[
+			"local-proxy",
+			"connect EPERM 127.0.0.1:7890",
+			"npm config get https-proxy",
+		],
+		["catalog", 'Unsupported URL Type "catalog:"', "dependency reference"],
+	])(
+		"explains %s failures when the latest production runner cannot be downloaded",
+		(failure, errorText, guidance) => {
 			const tempDir = mkdtempSync(join(tmpdir(), "openmeld-setup-bootstrap-"));
 			const binDir = join(tempDir, "bin");
 			const npmRootDir = join(tempDir, "npm-root");
@@ -801,7 +884,7 @@ describe("setup-bootstrap-script", () => {
 						env: {
 							OPENMELD_TEST_CALLS_PATH: callsPath,
 							OPENMELD_TEST_NPM_ROOT: npmRootDir,
-							OPENMELD_TEST_NPX_FAILURE_MODE: "local-proxy",
+							OPENMELD_TEST_NPX_FAILURE_MODE: failure,
 							PATH: bootstrapTestPath(binDir),
 						},
 					}
@@ -811,22 +894,20 @@ describe("setup-bootstrap-script", () => {
 				// The CLI run stays attached to the caller's stdio (no tee pipe), so
 				// npm's own error reaches the user on stderr instead of a replayed
 				// stdout transcript.
-				expect(result.stderr).toContain("connect EPERM 127.0.0.1:7890");
+				expect(result.stderr).toContain(errorText);
 				// The probe captures npm's output into a variable, so the bootstrap
 				// must replay it on stdout — otherwise "the error shown above" points
 				// at nothing.
 				expect(result.stdout).toContain(
 					"OpenMeld re-ran the npm package download to diagnose the failure. npm reported:"
 				);
-				expect(result.stdout).toContain("connect EPERM 127.0.0.1:7890");
+				expect(result.stdout).toContain(errorText);
 				// The replay is bounded to the last 15 lines: the oldest padding
 				// lines are dropped while the trailing error block survives.
 				expect(result.stdout).toContain("npm verbose padding line 20");
 				expect(result.stdout).not.toContain("npm verbose padding line 01");
-				expect(result.stdout).toContain(
-					"OpenMeld could not download the latest CLI because npm is trying to use a local proxy that is not reachable."
-				);
-				expect(result.stdout).toContain("npm config get https-proxy");
+				expect(result.stdout).toContain(guidance);
+				expect(result.stdout).not.toContain("fix the npm or network error");
 				expect(result.stdout).not.toContain(
 					"OpenMeld setup could not continue."
 				);
@@ -1262,7 +1343,7 @@ describe("setup-bootstrap-script", () => {
 		});
 	});
 
-	it("rejects binary setup for Windows", () => {
+	it("selects the isolated binary manifest for Windows setup", () => {
 		expect(
 			resolveOpenMeldSetupBootstrapScriptConfig({
 				authUrl: "http://localhost:8788",
@@ -1272,9 +1353,14 @@ describe("setup-bootstrap-script", () => {
 				webAppUrl: "http://localhost:3000",
 			})
 		).toEqual({
-			body: "OpenMeld binary setup is not available for Windows yet. Use ?dist=npm.",
-			status: "error",
-			statusCode: 400,
+			config: {
+				authUrl: "http://localhost:8788",
+				gatewayUrl: "http://localhost:8080",
+				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
+				distribution: "binary",
+				lane: "dev-local",
+			},
+			status: "ok",
 		});
 	});
 
@@ -1585,6 +1671,47 @@ describe("setup-bootstrap-script", () => {
 			statusCode: 400,
 		});
 	});
+
+	it.each([
+		19,
+		21,
+		26,
+		"unreadable",
+	])("rejects Node major %s before npm acquisition in the generated shell", (major) => {
+		const root = mkdtempSync(join(tmpdir(), "openmeld-node-policy-"));
+		const bin = join(root, "bin");
+		const callsPath = join(root, "calls.txt");
+		try {
+			mkdirSync(bin);
+			writeFileSync(
+				join(bin, "node"),
+				`#!/bin/sh\nprintf '%s\\n' '${major}'\n`,
+				{
+					mode: 0o755,
+				}
+			);
+			const result = spawnBootstrapScript(
+				root,
+				buildOpenMeldSetupBootstrapScript({
+					distribution: "npm",
+					lane: "prod",
+				}),
+				["setup", "--start-session", "fixture", "--ott", "fixture"],
+				{
+					env: {
+						HOME: root,
+						PATH: bootstrapTestPath(bin),
+						OPENMELD_TEST_CALLS_PATH: callsPath,
+					},
+				}
+			);
+			expect(result.status).toBe(1);
+			expect(result.stdout).toContain("20.x || >=22 <26");
+			expect(existsSync(callsPath)).toBe(false);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
 });
 
 function execBootstrapScript(
@@ -1640,7 +1767,22 @@ function buildBootstrapShellArgs(
 
 function writeBootstrapScript(tempDir: string, script: string): string {
 	const scriptPath = join(tempDir, "setup-bootstrap.sh");
-	writeFileSync(scriptPath, script);
+	const fakeCodesignPath = join(tempDir, "bin", "codesign");
+	if (existsSync(dirname(fakeCodesignPath)) && !existsSync(fakeCodesignPath)) {
+		symlinkSync(
+			join(
+				dirname(fileURLToPath(import.meta.url)),
+				"__fixtures__",
+				"setup-bootstrap-fake-command.sh"
+			),
+			fakeCodesignPath
+		);
+	}
+	// Only the test copy replaces the absolute system verifier with a fixture.
+	writeFileSync(
+		scriptPath,
+		script.replaceAll("/usr/bin/codesign", fakeCodesignPath)
+	);
 	chmodSync(scriptPath, 0o755);
 	return scriptPath;
 }

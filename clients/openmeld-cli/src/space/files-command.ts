@@ -6,6 +6,7 @@ import {
   isSpaceFileTextEditable,
   resolveSpaceFileMimeType,
   SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
 } from "@openmeld/schemas";
 import type {
   ListSpaceFilesResponse,
@@ -26,7 +27,7 @@ import {
   runSpaceWriteWithPasswordRetry,
 } from "./password-flow";
 
-type SpaceFilesCommandInput = {
+export type SpaceFilesCommandInput = {
   baseUrl?: string;
   entryChecksHandled?: boolean;
   json: boolean;
@@ -45,7 +46,11 @@ type PreparedSpaceFilesContext = Exclude<
 };
 
 export async function runSpaceFilesList(
-  input: SpaceFilesCommandInput & { folder?: string; trash?: boolean }
+  input: SpaceFilesCommandInput & {
+    all?: boolean;
+    folder?: string;
+    trash?: boolean;
+  }
 ): Promise<void> {
   const context = await prepareSpaceFilesContext(input, "listing Space files");
   if (!context) {
@@ -62,6 +67,7 @@ export async function runSpaceFilesList(
         query: {
           ...(input.trash ? {} : { parentId: normalizeFolderId(input.folder) }),
           view: input.trash ? "trash" : "active",
+          origin: input.all ? "all" : "artifact",
         },
         ...(spacePassword === undefined ? {} : { spacePassword }),
       }),
@@ -217,6 +223,7 @@ export async function runSpaceFilesUpload(
         mimeType: resolveMimeType(input.mimeType, input.file),
         bytes,
         clientMutationId: randomUUID(),
+        origin: "artifact",
         ...(spacePassword === undefined ? {} : { spacePassword }),
       }),
   });
@@ -552,7 +559,7 @@ async function runSpaceFilesEntryUpdate(
   });
 }
 
-async function prepareSpaceFilesContext(
+export async function prepareSpaceFilesContext(
   input: SpaceFilesCommandInput,
   action: string
 ): Promise<PreparedSpaceFilesContext | null> {
@@ -621,7 +628,7 @@ function emitListOutput(input: {
   }
 }
 
-function emitMutationOutput(input: {
+export function emitMutationOutput(input: {
   code: string;
   json: boolean;
   payload: unknown;
@@ -654,7 +661,9 @@ function normalizeFolderId(value: string | undefined): string | null {
 async function readLocalFile(path: string): Promise<Blob> {
   const bytes = await openAsBlob(path);
   if (bytes.size > SPACE_FILE_MAX_SIZE_BYTES) {
-    throw new Error("Space files must be 250 MiB or smaller.");
+    throw new Error(
+      `Space files must be ${SPACE_FILE_MAX_SIZE_BYTES / (1024 * 1024)} MiB or smaller.`
+    );
   }
   return bytes;
 }
@@ -677,8 +686,10 @@ async function resolveContentBytes(input: {
   for await (const chunk of process.stdin) {
     const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
     total += bytes.byteLength;
-    if (total > SPACE_FILE_MAX_SIZE_BYTES) {
-      throw new Error("Space files must be 250 MiB or smaller.");
+    if (total > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
+      throw new Error(
+        `Standard input is limited to ${SPACE_FILE_RAW_UPLOAD_MAX_BYTES / (1024 * 1024)} MiB. Use --file for larger files.`
+      );
     }
     chunks.push(bytes);
   }

@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.210",
-  "openMeldReleaseDate": "2026-09-16",
+  "version": "0.3.234",
+  "openMeldReleaseDate": "2026-10-01",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
   "type": "module",
@@ -23,12 +23,11 @@
     "skills"
   ],
   "scripts": {
-    "build": "tsdown && node scripts/build-macos-keychain-addon.mjs --copy-npm",
-    "prepack": "pnpm -C ../.. run verify:release-ready -- --force && pnpm run verify:pack-readme",
+    "build": "tsdown && node scripts/build-macos-keychain-addon.mjs --copy-npm && node scripts/copy-windows-process-helper.mjs",
+    "prepack": "pnpm -C ../.. run verify:release-ready -- --force",
     "deploy": "pnpm -C ../.. run release:deploy:local -- --scope cli",
-    "publish:npm": "npm publish",
-    "prepublishOnly": "pnpm run verify:pack-readme",
-    "verify:pack-readme": "node scripts/verify-npm-pack-readme.mjs",
+    "prepublishOnly": "node -e \"throw new Error('Publish the verified tarball through the root release:deploy:local -- --scope cli entrypoint, not this source directory.')\"",
+    "verify:npm-artifact": "node ../../scripts/release/npm-cli-artifact.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "biome check --no-errors-on-unmatched ./ && tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.ts",
@@ -38,7 +37,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.195",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.286",
     "@anthropic-ai/sdk": "^0.93.0",
     "@clack/prompts": "^1.0.1",
     "@mariozechner/pi-tui": "0.57.1",
@@ -50,9 +49,10 @@
     "string-width": "^8.1.0",
     "wrap-ansi": "10.0.0",
     "ws": "^8.18.3",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@openmeld/adapter-antigravity": "workspace:*",
     "@openmeld/adapter-claude-code": "workspace:*",
     "@openmeld/adapter-codex": "workspace:*",
     "@openmeld/adapter-core": "workspace:*",
@@ -85,6 +85,6 @@
   },
   "openmeld": {
     "releaseLine": "openmeld-greenfield-2026-07",
-    "minRequiredCliVersion": "0.3.198"
+    "minRequiredCliVersion": "0.3.224"
   }
 }

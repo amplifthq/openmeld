@@ -20,6 +20,7 @@ import type {
   CreateAgentProfileCreationRequestBody,
   SetAgentProfileCreationApprovalPreferenceBody,
 } from "@openmeld/schemas/types";
+import { assertAgentControllerPermissionModeReleased } from "../local-components/runtime-contract-rollout";
 
 const DEFAULT_APPROVAL_POLICY = "ask_every_time" as const;
 export const AGENT_PROFILE_CREATION_STALE_AFTER_MS = 30 * 60 * 1000;
@@ -551,7 +552,11 @@ export function createAgentProfileCreationRequestService(input: {
         organizationId: request.organizationId,
       });
 
-      requireWebAgentRunTarget(body.source, configuration);
+      assertAgentControllerPermissionModeReleased(
+        configuration.agentControllerPermissionMode
+      );
+
+      requireConfiguredAgentRunTarget(body.source, configuration);
       requirePersonalRemoteAgentSelfOwnership(
         configuration.agentControllerRef,
         request.requesterUserId,
@@ -914,17 +919,17 @@ function requirePersonalRemoteAgentSelfOwnership(
   }
 }
 
-function requireWebAgentRunTarget(
+function requireConfiguredAgentRunTarget(
   source: AgentProfileCreationRequestSource,
   configuration: AgentProfileCreationConfiguration
 ) {
   if (
-    source === "web" &&
+    (source === "web" || source === "center_agent") &&
     configuration.agentControllerRef !== HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
     !(configuration.agentControllerRef && configuration.targetComputerId)
   ) {
     throw new AgentProfileCreationRequestStateError(
-      "Choose a local agent on a connected computer to continue."
+      "Choose a local agent on a connected computer or a Remote Agent to continue."
     );
   }
 }

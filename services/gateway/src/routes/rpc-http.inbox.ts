@@ -12,14 +12,20 @@ import {
   dismissInboxItemResponseSchema,
   getInboxItemResponseSchema,
   getInboxItemWireResponseSchema,
+  inboxFeedQuerySchema,
+  inboxFeedResponseSchema,
   inboxItemRouteParamsSchema,
   inboxMessageNotificationPreferencesQuerySchema,
   inboxMessageNotificationPreferencesResponseSchema,
+  inboxNotificationObservationsQuerySchema,
+  inboxNotificationObservationsResponseSchema,
   inboxNotificationPreferencesResponseSchema,
+  inboxSummaryQuerySchema,
   inboxSummaryResponseSchema,
   listInboxItemsQuerySchema,
   listInboxItemsResponseSchema,
   listInboxItemsWireResponseSchema,
+  markAllInboxItemsReadQuerySchema,
   markAllInboxItemsReadResponseSchema,
   markCenterAgentInboxReadThroughBodySchema,
   markCenterAgentInboxReadThroughResponseSchema,
@@ -28,6 +34,8 @@ import {
   markInboxItemReadWireResponseSchema,
   markSpaceInboxReadThroughBodySchema,
   markSpaceInboxReadThroughResponseSchema,
+  mutateInboxFeedBodySchema,
+  mutateInboxFeedResponseSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
@@ -46,6 +54,8 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 import type { RpcHttpMethod } from "./rpc-http.types";
 
 const INBOX_ROUTE = "/v1/inbox";
+const INBOX_FEED_ROUTE = `${INBOX_ROUTE}/feed`;
+const INBOX_FEED_STATE_ROUTE = `${INBOX_FEED_ROUTE}/state`;
 const INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/summary`;
 const CENTER_AGENT_INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/center-agent/summary`;
 const CENTER_AGENT_INBOX_READ_THROUGH_ROUTE = `${INBOX_ROUTE}/center-agent/read-through`;
@@ -58,8 +68,81 @@ const INBOX_MESSAGE_PREFERENCES_ROUTE = `${INBOX_ROUTE}/message-notification-pre
 const INBOX_ITEM_READ_ROUTE = `${INBOX_ROUTE}/items/:itemId/read`;
 const INBOX_ITEM_DISMISS_ROUTE = `${INBOX_ROUTE}/items/:itemId/dismiss`;
 const INBOX_ITEM_ROUTE = `${INBOX_ROUTE}/items/:itemId`;
+const SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS = new Set([
+  "2",
+  OPENMELD_INBOX_SUMMARY_VERSION,
+]);
 
 export function registerInboxRoutes(app: Hono<HonoBindings>): void {
+  app.get(`${INBOX_ROUTE}/notification-observations`, (c) => {
+    const route = `${INBOX_ROUTE}/notification-observations`;
+    const query = inboxNotificationObservationsQuerySchema.safeParse(
+      c.req.query()
+    );
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        route,
+        "GET",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
+      c,
+      method: "GET",
+      route,
+      responseSchema: inboxNotificationObservationsResponseSchema,
+      execute: () =>
+        c.var.coreRpc.observeInboxNotifications({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+  app.get(INBOX_FEED_ROUTE, (c) => {
+    const query = inboxFeedQuerySchema.safeParse(c.req.query());
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        INBOX_FEED_ROUTE,
+        "GET",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
+      c,
+      method: "GET",
+      route: INBOX_FEED_ROUTE,
+      responseSchema: inboxFeedResponseSchema,
+      execute: () =>
+        c.var.coreRpc.listInboxFeed({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+  app.post(INBOX_FEED_STATE_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      INBOX_FEED_STATE_ROUTE,
+      "POST",
+      mutateInboxFeedBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      method: "POST",
+      route: INBOX_FEED_STATE_ROUTE,
+      responseSchema: mutateInboxFeedResponseSchema,
+      execute: () =>
+        c.var.coreRpc.mutateInboxFeed({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   app.get(INBOX_MESSAGE_PREFERENCES_ROUTE, (c) => {
     const query = inboxMessageNotificationPreferencesQuerySchema.safeParse(
       c.req.query()
@@ -154,8 +237,9 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       resolveSuccessPayload: (result) => {
         const response = spaceInboxSummaryResponseSchema.parse(result);
         if (
-          c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ===
-          OPENMELD_INBOX_SUMMARY_VERSION
+          SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS.has(
+            c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? ""
+          )
         ) {
           return response;
         }
@@ -235,6 +319,8 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.listInboxItems({
           includeReplyToRecipient: true,
+          includeSourceFacts: true,
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           ...query.data,
           context: buildCoreRpcContext(c),
         }),
@@ -250,30 +336,59 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
-  app.get(INBOX_SUMMARY_ROUTE, (c) =>
-    executeRpcRoute({
+  app.get(INBOX_SUMMARY_ROUTE, (c) => {
+    const query = inboxSummaryQuerySchema.safeParse(c.req.query());
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        INBOX_SUMMARY_ROUTE,
+        "GET",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
       c,
       execute: async () =>
         await c.var.coreRpc.getInboxSummary({
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           context: buildCoreRpcContext(c),
+          ...query.data,
         }),
       method: "GET",
       responseSchema: inboxSummaryResponseSchema,
       resolveSuccessPayload: (result) => {
-        const response = inboxSummaryResponseSchema.parse(result);
-        if (
-          ["1", OPENMELD_INBOX_SUMMARY_VERSION].includes(
-            c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? ""
-          )
-        ) {
+        const parsed = inboxSummaryResponseSchema.parse(result);
+        const {
+          priorityCount: _priority,
+          needsActionCount: _action,
+          needsReviewCount: _review,
+          unreadPriorityUpdateCount: _priorityUpdates,
+          ...legacyResponse
+        } = parsed;
+        const requestedVersion =
+          c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? "";
+        const response =
+          requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION &&
+          resolveInboxSourceTargetVersion(c) === "current"
+            ? parsed
+            : legacyResponse;
+        if (requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION) {
           return response;
         }
-        const { unreadUrgentUpdateCount: _urgentCount, ...legacy } = response;
+        const {
+          ordinaryUnreadCount: _ordinaryCount,
+          unreadMentionCount: _mentionCount,
+          ...versionTwo
+        } = response;
+        if (["1", "2"].includes(requestedVersion)) {
+          return versionTwo;
+        }
+        const { unreadUrgentUpdateCount: _urgentCount, ...legacy } = versionTwo;
         return legacy;
       },
       route: INBOX_SUMMARY_ROUTE,
-    })
-  );
+    });
+  });
 
   app.get(INBOX_ITEM_ROUTE, (c) => {
     const params = inboxItemRouteParamsSchema.safeParse(c.req.param());
@@ -290,6 +405,8 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.getInboxItem({
           includeReplyToRecipient: true,
+          includeSourceFacts: true,
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
         }),
@@ -320,6 +437,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.dismissInboxItem({
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
         }),
@@ -353,6 +471,8 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.markInboxItemRead({
           includeReplyToRecipient: true,
+          includeSourceFacts: true,
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           ...body.data,
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
@@ -370,18 +490,28 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
-  app.post(INBOX_MARK_ALL_READ_ROUTE, (c) =>
-    executeRpcRoute({
+  app.post(INBOX_MARK_ALL_READ_ROUTE, (c) => {
+    const query = markAllInboxItemsReadQuerySchema.safeParse(c.req.query());
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        INBOX_MARK_ALL_READ_ROUTE,
+        "POST",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
       c,
       execute: async () =>
         await c.var.coreRpc.markAllInboxItemsRead({
           context: buildCoreRpcContext(c),
+          ...query.data,
         }),
       method: "POST",
       responseSchema: markAllInboxItemsReadResponseSchema,
       route: INBOX_MARK_ALL_READ_ROUTE,
-    })
-  );
+    });
+  });
 
   app.get(INBOX_PREFERENCES_ROUTE, (c) =>
     executeRpcRoute({
@@ -472,6 +602,8 @@ function resolveInboxItemResponse(input: {
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
 type InboxItemKindClientVersion = "current" | "legacy";
 type InboxSourceTargetClientVersion =
+  | "account_unaware"
+  | "attention_unaware"
   | "reply_unaware"
   | "owner_unaware"
   | "current"
@@ -494,7 +626,10 @@ function projectInboxItemForClient(input: {
   if (kind === "space_mention" && input.itemKindVersion === "legacy") {
     kind = "space_reference";
   }
-  if (input.sourceTargetVersion === "current") {
+  if (
+    input.sourceTargetVersion === "current" ||
+    input.sourceTargetVersion === "account_unaware"
+  ) {
     return kind === input.item.kind ? input.item : { ...input.item, kind };
   }
   let sourceTarget: InboxItem["sourceTarget"] = input.item.sourceTarget;
@@ -521,11 +656,9 @@ function projectInboxItemForClient(input: {
   ) {
     sourceTarget = { kind: "center_agent" };
   }
-  if (kind === input.item.kind && sourceTarget === input.item.sourceTarget) {
-    return input.item;
-  }
+  const { sourceFacts: _sourceFacts, ...legacyItem } = input.item;
   return {
-    ...input.item,
+    ...legacyItem,
     kind,
     sourceTarget,
   };
@@ -535,6 +668,9 @@ function projectInboxSpaceTargetForClient(
   sourceTarget: Extract<InboxItem["sourceTarget"], { kind: "space" }>,
   version: Exclude<InboxSourceTargetClientVersion, "current">
 ): InboxItem["sourceTarget"] {
+  if (version === "attention_unaware") {
+    return sourceTarget;
+  }
   const { replyToRecipient: _reply, ...replyUnaware } = sourceTarget;
   if (version === "reply_unaware") {
     return replyUnaware;
@@ -565,6 +701,12 @@ function resolveInboxSourceTargetVersion(
   const version = c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION);
   if (version === OPENMELD_INBOX_SOURCE_TARGET_VERSION) {
     return "current";
+  }
+  if (version === "8") {
+    return "account_unaware";
+  }
+  if (version === "7") {
+    return "attention_unaware";
   }
   if (version === "6") {
     return "reply_unaware";

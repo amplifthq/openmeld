@@ -1,54 +1,41 @@
+import { resolveCatalogSyncSkippedProfilesLogState } from "@openmeld/local-service/catalog-sync-skipped-profiles";
 import {
   ADAPTIVE_HEARTBEAT_JITTER_RATIO,
   applyAcceptedLeases,
   applyIntervalJitterMs,
-  type InflightTaskControlRegistry,
-  type LocalDaemonAdapterContainer,
-  type LocalExecutionSlots,
   MAX_HEARTBEAT_INTERVAL_MS,
   MIN_HEARTBEAT_INTERVAL_MS,
-  type PendingAgentInteractionRegistry,
   pruneStaleLeases,
   resolveAdaptiveHeartbeatIntervalMs,
   resolveCatalogSyncIntervalMs,
-  resolveCatalogSyncSkippedProfilesLogState,
-  resolveRouteRegistrationReconcileDecision,
-} from "@openmeld/local-service";
+} from "@openmeld/local-service/heartbeat-policy";
+import { resolveRouteRegistrationReconcileDecision } from "@openmeld/local-service/service-reconcile-decision";
 import {
   DAEMON_STREAM_KEEPALIVE_PING,
   DAEMON_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
+import type { ServiceExecutionHostOutput } from "@openmeld/schemas";
 import {
   computerFileAccessDaemonFrameSchema,
   localFolderPickerDaemonFrameSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportHeartbeatRequestSchema,
-  runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
-  runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
-  runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema,
   runtimeTransportLocalAgentControlSetProfileWorkspaceFramePayloadSchema,
   runtimeTransportOpenMeldToolsControlFramePayloadSchema,
   runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportRegisterSessionRequestSchema,
-  runtimeTransportResumeControllerConversationFramePayloadSchema,
-  runtimeTransportResumeControllerConversationResultFramePayloadSchema,
   runtimeTransportRouteCatalogChangedFramePayloadSchema,
 } from "@openmeld/schemas";
 import type {
   LocalComponentsStatus,
-  OpenMeldDaemonManageLocalAgentInstallationPayload,
-  OpenMeldDaemonSetLocalAgentEnabledPayload,
   OpenMeldDaemonSetProfileWorkspacePayload,
   OpenMeldDaemonSyncRouteCatalogPayload,
+  RuntimeTransportAdmissionEvidence,
   RuntimeTransportLease,
   RuntimeTransportRegisterSessionResponse,
   RuntimeTransportStopCause,
 } from "@openmeld/schemas/types";
-import {
-  manageAgentRegistrationInstallation,
-  setAgentRegistrationEnabled,
-} from "../../agents/registry";
 import {
   ensureOpenMeldManagedProfileWorkspace,
   setCustomProfileWorkspace,
@@ -56,11 +43,10 @@ import {
 import type { Presenter } from "../../runtime/presenter/types";
 import { OPENMELD_VERSION } from "../../runtime/version";
 import type { WsClient } from "../../transport/ws";
-import { resolveDaemonCapabilities } from "../adapters/resolve-daemon-capabilities";
+import { resolveDaemonCapabilitiesFromAdapterIds } from "../adapters/resolve-daemon-capabilities";
 import {
   CATALOG_SYNC_RETRY_INTERVAL_MS,
   CATALOG_SYNC_SIGNAL_POLL_INTERVAL_MS,
-  CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS,
   CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
   DAEMON_RUNTIME_CONTRACT_EPOCH,
   HEARTBEAT_CONSECUTIVE_FAILURES_BEFORE_CLOSE,
@@ -79,9 +65,6 @@ import {
   toErrorMessage,
 } from "../core/logger";
 import type {
-  CurrentDaemonSocketRef,
-  InflightDispatchMeta,
-  LedgerPaths,
   MutableRouteCatalogState,
   ParsedDaemonFrame,
   PendingFrameWaiters,
@@ -91,23 +74,14 @@ import type {
 import { DaemonServiceRunError } from "../core/types";
 import { emitReconcileCompletedEvidence } from "../diagnostics/service-evidence-trace";
 import { emitDaemonDispatchJournalEvent } from "../dispatch/daemon-dispatch-journal";
-import {
-  flushDispatchResultOutbox,
-  listDispatchResultOutboxPendingAcknowledgementKeys,
-  waitForDispatchResultOutboxAcknowledgement,
-} from "../dispatch/dispatch-result-outbox";
-import { sendDispatchInteractionRequestFrame } from "../dispatch/send-dispatch-result";
-import { resumeExactControllerConversation } from "../execution-recovery/resume-controller-conversation";
-import { runResumeControllerConversationOperation } from "../execution-recovery/resume-controller-conversation-operation-store";
+import type { ExecutionHostPort } from "../execution-host/port";
+import { createExecutionHostSocketLink } from "../execution-host/socket-link";
 import { handleComputerFileAccessFrame } from "../file-access/computer-file-access-handler";
 import {
   handleLocalFolderPickerFrame,
   type SelectLocalFolders,
 } from "../folder-picker/local-folder-picker-handler";
-import {
-  consumeArmedAgentControllerInterfaceReprobe,
-  resolveNextRuntimeAgentControllerReportSyncAtMs,
-} from "../inventory/agent-controller-interface-keeper";
+import { resolveNextRuntimeAgentControllerReportSyncAtMs } from "../inventory/agent-controller-interface-keeper";
 import { handleOpenMeldToolsControlRequest } from "../maintenance/openmeld-tools-control-handler";
 import type { OpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { didLocalProjectConnectionsChange } from "../projects/local-project-activity-sync";
@@ -116,35 +90,26 @@ import {
   createLocalWakeRouteReport,
   hasCompleteProfileConfigurationRevisions,
 } from "../reporting/local-wake-route-report";
-import { syncLocalServiceProviderConversationProofs } from "../reporting/provider-conversation-proof-sync";
-import {
-  type LocalServiceRuntimeAgentControllerReportSyncResult,
-  syncLocalServiceRuntimeAgentControllerReports,
-} from "../reporting/runtime-agent-controller-report-sync";
-import { createRuntimeReportingAttemptObserver } from "../reporting/runtime-reporting-attempt-observer";
+
+type LocalServiceRuntimeAgentControllerReportSyncResult =
+  ServiceExecutionHostOutput<"reportControllers">;
+
 import type { RuntimeReportingAuthenticationFailure } from "../reporting/runtime-reporting-auth-recovery";
 import {
-  type ActivePermissionModeSyncOutcome,
-  syncActiveTaskPermissionModes,
-} from "../routing/active-permission-mode-sync";
-import {
   createRouteCatalogFromMutableState,
-  loadDaemonRouteCatalog,
   summarizeSkippedDaemonProfiles,
   syncDaemonRouteCatalogState,
-} from "../routing/route-catalog";
-import { forkAgentSession } from "../session-control/fork-agent-session";
-import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
+} from "../routing/route-catalog-state";
 import {
   type DaemonCatalogSyncSignal,
   readDaemonCatalogSyncSignal,
 } from "../state/catalog-sync-signal";
-import { createDaemonStreamKeepalive } from "./daemon-stream-keepalive";
 import {
-  handleDaemonSocketFrame,
+  handleDaemonTransportFrame,
   parseDaemonFrame,
   sendDaemonFrame,
-} from "./frame-router";
+} from "./daemon-frame-transport";
+import { createDaemonStreamKeepalive } from "./daemon-stream-keepalive";
 import { waitForHeartbeatResponse } from "./heartbeat-loop";
 import { waitForRegisterResponse } from "./register-session";
 import type { ServiceLocalComponentsObservation } from "./service-local-components-observation";
@@ -286,42 +251,6 @@ function classifyDaemonSocketDisconnect(input: {
   return "abnormal_socket_close";
 }
 
-function replayStartupResultsBeforeDispatchAdmission(input: {
-  currentSocketRef: CurrentDaemonSocketRef;
-  ledgerPaths: LedgerPaths;
-  onAdmissionOpen: (replayedResultCount: number) => void;
-  presenter: Presenter;
-  shouldOpenAdmission: () => boolean;
-  waitForClose: Promise<void>;
-}): boolean {
-  const recordKeys = listDispatchResultOutboxPendingAcknowledgementKeys({
-    ledgerPaths: input.ledgerPaths,
-  });
-  const abortController = new AbortController();
-  input.waitForClose.then(() => {
-    abortController.abort();
-  });
-  const replayCompleted = waitForDispatchResultOutboxAcknowledgement({
-    abortSignal: abortController.signal,
-    ledgerPaths: input.ledgerPaths,
-    recordKeys,
-  });
-  flushDispatchResultOutbox({
-    currentSocketRef: input.currentSocketRef,
-    ledgerPaths: input.ledgerPaths,
-    presenter: input.presenter,
-  });
-  if (recordKeys.length === 0) {
-    return true;
-  }
-  replayCompleted.then(() => {
-    if (input.shouldOpenAdmission()) {
-      input.onAdmissionOpen(recordKeys.length);
-    }
-  });
-  return false;
-}
-
 function handleComputerFileAccessSocketFrame(input: {
   computerFileAccessStorePath: string;
   deviceId: string;
@@ -446,35 +375,21 @@ function handleLocalFolderPickerSocketFrame(input: {
   return true;
 }
 
-function resetReasoningPreference(ref: CurrentDaemonSocketRef): void {
-  ref.reasoningStreamEnabled = undefined;
-  for (const listener of ref.reasoningPreferenceListeners ?? []) {
-    listener();
-  }
-}
-
 export async function runDaemonSocketSession(input: {
+  executionHost: ExecutionHostPort;
   computerFileAccessStorePath: string;
-  contextStore: Map<string, string>;
-  currentSocketRef?: CurrentDaemonSocketRef;
   daemonSessionId: string;
   deviceId: string;
   serviceContractGeneration?: number;
   foregroundActive: boolean;
   heartbeatIntervalMs: number;
-  inflightDispatchMetaByTaskId: Map<string, InflightDispatchMeta>;
-  inflightTaskControlRegistry: InflightTaskControlRegistry;
-  pendingAgentInteractionRegistry: PendingAgentInteractionRegistry;
   // Boot-time placeholder support: while the route catalog is unresolved the
   // session registers the placeholder (lease-neutral on a fresh session),
   // skips cache persistence, and schedules an immediate catalog sync instead
   // of waiting a full interval.
   isRouteCatalogResolved?: () => boolean;
-  ledgerPaths: LedgerPaths;
-  loadRouteCatalog?: () => Promise<RouteCatalog>;
-  localAdapterContainer: LocalDaemonAdapterContainer;
+  loadRouteCatalog: () => Promise<RouteCatalog>;
   localComponentsObservation: ServiceLocalComponentsObservation;
-  localExecutionSlots: LocalExecutionSlots;
   lane: string;
   ownerUserId: string;
   onRuntimeReportingAuthenticationFailure?: (
@@ -483,7 +398,6 @@ export async function runDaemonSocketSession(input: {
   onAgentActivitySessionsChanged?: () => void;
   onLocalProjectConnectionsChanged?: () => void;
   openMeldToolsUpdateCoordinator?: OpenMeldToolsUpdateCoordinator;
-  profileOwnerName: string | null;
   presenter: Presenter;
   persistRouteCatalogCache?: (catalog: RouteCatalog) => Promise<void>;
   reconnectAttempt: number;
@@ -506,11 +420,6 @@ export async function runDaemonSocketSession(input: {
   // The session registers this local runtime, sends heartbeat/capability
   // evidence, receives RuntimeCoordinator-backed deliveries, and reports local
   // execution evidence. Readiness and final outcome remain upstream-owned.
-  const currentSocketRef = input.currentSocketRef ?? {
-    connectionGeneration: null,
-    socket: input.socket,
-  };
-  const { pendingAgentInteractionRegistry } = input;
   const leasesByProfileId = new Map<string, number>();
   const waiters: PendingFrameWaiters = {
     heartbeatResolver: null,
@@ -524,12 +433,17 @@ export async function runDaemonSocketSession(input: {
   let closeReason = "closed";
   const socketConnectedAtMs = Date.now();
   let heartbeatInFlight = false;
+  // Admission may change again before the current heartbeat is acknowledged.
+  // Retain only the need to republish; the next send reads the current state.
+  let admissionHeartbeatPending = false;
   const heartbeatIdleWaiters: Array<() => void> = [];
   // A replacement session must replay every durable result that survived the
   // previous process before it can accept new work. The existing heartbeat
   // admission bit doubles as that startup fence without adding a second source
   // of session readiness.
   let acceptingDispatches = false;
+  let shutdownAdmissionEvidence: RuntimeTransportAdmissionEvidence | null =
+    null;
   let shutdownStopCause: RuntimeTransportStopCause | null = null;
   let controlledShutdownCompleted = false;
   let routeCatalogSyncInFlight = false;
@@ -583,18 +497,76 @@ export async function runDaemonSocketSession(input: {
   let pendingLocalExecutionEvidenceRefreshReason: CatalogSyncForceReason | null =
     null;
   const pendingRouteCatalogSyncRequests: PendingRouteCatalogSyncRequest[] = [];
-  const observeRuntimeReportingAttempt = createRuntimeReportingAttemptObserver({
-    onAuthenticationFailure: input.onRuntimeReportingAuthenticationFailure,
-    serviceIdentity: {
-      contractGeneration: input.serviceContractGeneration ?? 0,
-      deviceId: input.deviceId,
+  const reportHostFailure = (error: unknown) => {
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.execution_host_unavailable",
+      text: `Execution host unavailable: ${toErrorMessage(error)}`,
+    });
+  };
+  const hostLink = createExecutionHostSocketLink({
+    host: input.executionHost,
+    socket: input.socket,
+    onAdmissionChanged: () => {
+      acceptingDispatches = !shutdownStopCause && hostLink.canAccept();
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.admission_changed",
+        text: `Local dispatch admission is ${acceptingDispatches ? "open" : "closed"}.`,
+        payload: shutdownAdmissionEvidence ?? hostLink.admissionEvidence(),
+      });
+      if (heartbeatInFlight || lastHeartbeatSentAtMs !== null) {
+        scheduleHeartbeat({
+          delayMs: 0,
+          reason: "execution_host_admission_changed",
+        });
+      }
     },
+    onInvalidation: (scope) => {
+      if (scope === "routes") {
+        requestLocalExecutionEvidenceRefresh({
+          reason: "local_state_changed",
+          scheduleReason: "host_routes_changed",
+        });
+      }
+      if (scope === "activity") {
+        input.onAgentActivitySessionsChanged?.();
+      }
+    },
+    onAuthenticationFailure: (failure) => {
+      Promise.resolve(
+        input.onRuntimeReportingAuthenticationFailure?.(failure)
+      ).catch(reportHostFailure);
+    },
+    onError: reportHostFailure,
   });
-  const { localExecutionSlots } = input;
+  const configureHostConnection = async () => {
+    if (!executionAdmissionSupported) {
+      reportHostFailure(
+        new Error(
+          "The server does not support execution admission confirmation. New tasks remain unavailable."
+        )
+      );
+      return;
+    }
+    await hostLink.configure({
+      executionAdmissionConfirmation: executionAdmissionSupported,
+      connectionGeneration: activeConnectionGeneration,
+      catalogRevision:
+        input.routeCatalogState.executionHostCatalogRevision ?? 0,
+      leases: [...leasesByProfileId].map(([profileId, leaseEpoch]) => ({
+        profileId,
+        leaseEpoch,
+      })),
+    });
+  };
 
   const waitForClose = new Promise<void>((resolve) => {
     input.socket.onClose((code, reason) => {
       closed = true;
+      admissionHeartbeatPending = false;
+      clearHeartbeatTimer();
+      hostLink.detach().catch(reportHostFailure);
       closeCode = code;
       closeReason = normalizeText(reason) || "closed";
       const closedAtMs = Date.now();
@@ -619,7 +591,8 @@ export async function runDaemonSocketSession(input: {
               : null,
           disconnectClass,
           durationMs,
-          inflightDispatchCount: input.inflightDispatchMetaByTaskId.size,
+          inflightDispatchCount:
+            input.executionHost.snapshot()?.activeCount ?? 0,
           socketConnectedAtMs,
           socketDisconnectedAtMs: closedAtMs,
         },
@@ -764,51 +737,6 @@ export async function runDaemonSocketSession(input: {
     return shouldCloseSocket;
   }
 
-  function replayPendingAgentInteractions(
-    reason: "heartbeat" | "reconnect"
-  ): void {
-    for (const pendingInteraction of pendingAgentInteractionRegistry.list()) {
-      if (pendingInteraction.response) {
-        continue;
-      }
-      const leaseEpoch = leasesByProfileId.get(
-        pendingInteraction.authority.targetProfileId
-      );
-      if (!leaseEpoch) {
-        continue;
-      }
-      sendDispatchInteractionRequestFrame({
-        attemptId: pendingInteraction.authority.attemptId,
-        connectionGeneration: activeConnectionGeneration,
-        daemonSessionId: input.daemonSessionId,
-        dispatchId: pendingInteraction.authority.dispatchId,
-        executionIdentityEcho:
-          pendingInteraction.authority.executionIdentityEcho,
-        executionTokenEcho: pendingInteraction.authority.executionTokenEcho,
-        interaction: pendingInteraction.request,
-        leaseEpoch,
-        runtimeCoordinatorExecutionId:
-          pendingInteraction.authority.runtimeCoordinatorExecutionId,
-        socket: input.socket,
-        taskId: pendingInteraction.taskId,
-      });
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.interaction_replayed",
-        text:
-          reason === "reconnect"
-            ? "replayed a pending local agent interaction after reconnect"
-            : "replayed a pending local agent interaction after heartbeat",
-        payload: {
-          interactionId: pendingInteraction.request.interactionId,
-          interactionKind: pendingInteraction.request.kind,
-          reason,
-          taskId: pendingInteraction.taskId,
-        },
-      });
-    }
-  }
-
   function resolveSuccessfulHeartbeatSchedule(): {
     hasDispatchActivity: boolean;
     reason: "controlled_shutdown" | "dispatch_active" | "idle_growth";
@@ -823,7 +751,10 @@ export async function runDaemonSocketSession(input: {
       lastDispatchActivityAtMs !== null &&
       (lastHeartbeatSentAtMs === null ||
         lastDispatchActivityAtMs > lastHeartbeatSentAtMs);
-    if (hadDispatchActivity || input.inflightDispatchMetaByTaskId.size > 0) {
+    if (
+      hadDispatchActivity ||
+      (input.executionHost.snapshot()?.activeCount ?? 0) > 0
+    ) {
       return {
         hasDispatchActivity: true,
         reason: "dispatch_active",
@@ -835,8 +766,27 @@ export async function runDaemonSocketSession(input: {
     };
   }
 
-  async function sendHeartbeat(): Promise<void> {
-    if (closed || heartbeatInFlight) {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: One ordered transaction owns heartbeat response, cadence, retry, and pending admission publication.
+  async function sendHeartbeat(
+    options: {
+      advanceIdleCadence?: boolean;
+      publishAdmissionAfterInFlight?: boolean;
+      requireAcknowledgement?: boolean;
+    } = {}
+  ): Promise<void> {
+    if (closed) {
+      if (options.requireAcknowledgement) {
+        throw new DaemonServiceRunError({
+          code: "daemon.run.socket_closed",
+          message: "Transport closed before the final heartbeat.",
+        });
+      }
+      return;
+    }
+    if (heartbeatInFlight) {
+      if (options.publishAdmissionAfterInFlight) {
+        admissionHeartbeatPending = true;
+      }
       return;
     }
     heartbeatInFlight = true;
@@ -861,17 +811,31 @@ export async function runDaemonSocketSession(input: {
             acceptingDispatches,
             stopCause: shutdownStopCause,
           }),
+          ...(admissionEvidenceSupported &&
+          (shutdownAdmissionEvidence ?? hostLink.admissionEvidence())
+            ? {
+                admissionEvidence:
+                  shutdownAdmissionEvidence ?? hostLink.admissionEvidence(),
+              }
+            : {}),
           serviceVersion,
           leases,
           runtimeContract: {
             epoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
           },
-          capabilities: resolveDaemonCapabilities({
-            localAdapterContainer: input.localAdapterContainer,
-            localComponentsStatus,
-            profileConfigurationRevision:
-              hasCompleteProfileConfigurationRevisions(input.routeCatalogState),
-          }),
+          capabilities: {
+            ...resolveDaemonCapabilitiesFromAdapterIds({
+              adapterIds: input.executionHost.snapshot()?.adapterIds ?? [],
+              localComponentsStatus,
+              profileConfigurationRevision:
+                hasCompleteProfileConfigurationRevisions(
+                  input.routeCatalogState
+                ),
+            }),
+            ...(computerCareSupported && input.executionHost.observation
+              ? { executionHost: input.executionHost.observation() }
+              : {}),
+          },
           sentAtMs: Date.now(),
         }
       );
@@ -891,6 +855,12 @@ export async function runDaemonSocketSession(input: {
         timeoutMs: HEARTBEAT_RESPONSE_TIMEOUT_MS,
         waiters,
       });
+      if (!heartbeatResponse.ok) {
+        throw new DaemonServiceRunError({
+          code: "daemon.run.heartbeat_rejected",
+          message: "Core rejected the service heartbeat.",
+        });
+      }
       pruneStaleLeases({
         leasesByProfileId,
         staleLeases: heartbeatResponse.staleLeases,
@@ -911,18 +881,23 @@ export async function runDaemonSocketSession(input: {
         }),
         timeoutMs: HEARTBEAT_RUNTIME_STATE_WRITE_TIMEOUT_MS,
       });
-      replayPendingAgentInteractions("heartbeat");
+      hostLink.heartbeat(
+        heartbeatResponse.staleLeases.map((lease) => lease.profileId)
+      );
       consecutiveHeartbeatFailures = 0;
-      flushDispatchResultOutbox({
-        currentSocketRef,
-        ledgerPaths: input.ledgerPaths,
-        presenter: input.presenter,
-      });
+
       const heartbeatSchedule = resolveSuccessfulHeartbeatSchedule();
-      const nextIntervalWithoutJitter = resolveAdaptiveHeartbeatIntervalMs({
-        currentIntervalMs: currentHeartbeatIntervalMs,
-        hasDispatchActivity: heartbeatSchedule.hasDispatchActivity,
-      });
+      // Host admission changes require immediate publication, but are not an
+      // elapsed idle interval. Otherwise one extra readiness ACK can double
+      // the cadence and starve a scheduled controller-report retry.
+      const nextIntervalWithoutJitter =
+        options.advanceIdleCadence === false &&
+        !heartbeatSchedule.hasDispatchActivity
+          ? currentHeartbeatIntervalMs
+          : resolveAdaptiveHeartbeatIntervalMs({
+              currentIntervalMs: currentHeartbeatIntervalMs,
+              hasDispatchActivity: heartbeatSchedule.hasDispatchActivity,
+            });
       updateHeartbeatInterval({
         nextIntervalMs: nextIntervalWithoutJitter,
         reason: heartbeatSchedule.reason,
@@ -946,7 +921,8 @@ export async function runDaemonSocketSession(input: {
       startRouteCatalogSyncIfDue();
       startSupplementalEvidenceSyncs();
     } catch (error) {
-      if (recordHeartbeatFailure(error)) {
+      if (recordHeartbeatFailure(error) && !options.requireAcknowledgement) {
+        admissionHeartbeatPending = false;
         input.socket.terminate();
         return;
       }
@@ -958,8 +934,19 @@ export async function runDaemonSocketSession(input: {
         delayMs: MIN_HEARTBEAT_INTERVAL_MS,
         reason: "heartbeat_retry",
       });
+      if (options.requireAcknowledgement) {
+        throw error;
+      }
     } finally {
       heartbeatInFlight = false;
+      const publishPendingAdmission = admissionHeartbeatPending;
+      admissionHeartbeatPending = false;
+      if (!closed && publishPendingAdmission) {
+        scheduleHeartbeat({
+          delayMs: 0,
+          reason: "execution_host_admission_changed",
+        });
+      }
       resolveHeartbeatIdleWaiters(heartbeatIdleWaiters);
       schedulePendingLocalExecutionEvidenceRefreshIfNeeded();
     }
@@ -982,6 +969,13 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     const normalizedDelayMs = Math.max(0, Math.trunc(inputSchedule.delayMs));
+    if (
+      heartbeatInFlight &&
+      inputSchedule.reason === "execution_host_admission_changed"
+    ) {
+      admissionHeartbeatPending = true;
+      return;
+    }
     const dueAtMs = Date.now() + normalizedDelayMs;
     if (
       heartbeatTimer &&
@@ -995,7 +989,12 @@ export async function runDaemonSocketSession(input: {
     heartbeatTimer = setTimeout(() => {
       heartbeatTimer = null;
       heartbeatTimerDueAtMs = null;
-      sendHeartbeat().catch((error) => {
+      sendHeartbeat({
+        advanceIdleCadence:
+          inputSchedule.reason !== "execution_host_admission_changed",
+        publishAdmissionAfterInFlight:
+          inputSchedule.reason === "execution_host_admission_changed",
+      }).catch((error) => {
         emitRunLine({
           presenter: input.presenter,
           code: "daemon.run.heartbeat_failed",
@@ -1099,6 +1098,9 @@ export async function runDaemonSocketSession(input: {
     (input.isRouteCatalogResolved?.() ?? true) &&
     input.routeCatalogState.profileIds.length === 0;
   const serviceVersion = OPENMELD_VERSION;
+  let computerCareSupported = false;
+  let executionAdmissionSupported = false;
+  let admissionEvidenceSupported = false;
 
   const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
     input.localComponentsObservation.read(() => {
@@ -1130,8 +1132,8 @@ export async function runDaemonSocketSession(input: {
           routeCatalog,
           serviceVersion,
         }),
-        capabilities: resolveDaemonCapabilities({
-          localAdapterContainer: input.localAdapterContainer,
+        capabilities: resolveDaemonCapabilitiesFromAdapterIds({
+          adapterIds: input.executionHost.snapshot()?.adapterIds ?? [],
           localComponentsStatus,
           profileConfigurationRevision:
             hasCompleteProfileConfigurationRevisions(routeCatalog),
@@ -1139,7 +1141,7 @@ export async function runDaemonSocketSession(input: {
         runtimeContract: {
           epoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
         },
-        connectedAtMs: Date.now(),
+        connectedAtMs: socketConnectedAtMs,
       });
     if (!registerPayload.success) {
       throw new DaemonServiceRunError({
@@ -1153,10 +1155,15 @@ export async function runDaemonSocketSession(input: {
       payload: registerPayload.data,
     });
 
-    return await waitForRegisterResponse({
+    const response = await waitForRegisterResponse({
       timeoutMs: REGISTER_RESPONSE_TIMEOUT_MS,
       waiters,
     });
+    computerCareSupported = response.computerCare === true;
+    executionAdmissionSupported =
+      response.executionAdmissionConfirmation === true;
+    admissionEvidenceSupported = response.admissionEvidence === true;
+    return response;
   };
 
   const resolveCatalogSyncForcePayload = (
@@ -1337,27 +1344,12 @@ export async function runDaemonSocketSession(input: {
       catalogState: input.routeCatalogState,
       forceRegister: Boolean(inputSync?.forceReason),
       leasesByProfileId,
-      loadCatalog: async () =>
-        input.loadRouteCatalog
-          ? await input.loadRouteCatalog()
-          : await loadDaemonRouteCatalog({
-              localAdapterContainer: input.localAdapterContainer,
-              localReplyStateMode: "check",
-              ownerUserId: input.ownerUserId,
-              presenter: input.presenter,
-              allowEmpty: true,
-              quiet: true,
-            }),
+      loadCatalog: input.loadRouteCatalog,
       registerCatalog: registerDaemonSession,
     });
 
     if (syncResult.status !== "failed") {
-      const permissionModeOutcomes = await syncActiveTaskPermissionModes({
-        catalogState: input.routeCatalogState,
-        inflightTaskControlRegistry: input.inflightTaskControlRegistry,
-        localAdapterContainer: input.localAdapterContainer,
-      });
-      emitActivePermissionModeSyncOutcomes(permissionModeOutcomes);
+      await configureHostConnection();
     }
 
     if (syncResult.status === "changed") {
@@ -1380,35 +1372,6 @@ export async function runDaemonSocketSession(input: {
 
     handleFailedCatalogSync(syncResult);
     resolvePendingRouteCatalogSyncRequests(syncResult);
-  };
-
-  const emitActivePermissionModeSyncOutcomes = (
-    outcomes: ActivePermissionModeSyncOutcome[]
-  ): void => {
-    for (const outcome of outcomes) {
-      if (outcome.status === "applied") {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.active_permission_mode_updated",
-          text: `updated permission mode for active task ${outcome.taskId}`,
-          payload: outcome,
-        });
-        continue;
-      }
-
-      emitRunLine({
-        presenter: input.presenter,
-        code:
-          outcome.status === "failed"
-            ? "daemon.run.active_permission_mode_update_failed"
-            : "daemon.run.active_permission_mode_not_applied",
-        text:
-          outcome.status === "failed"
-            ? `failed to update permission mode for active task ${outcome.taskId}: ${outcome.errorMessage ?? "unknown error"}`
-            : `active permission mode update was not applied for task ${outcome.taskId} (${outcome.reasonCode})`,
-        payload: outcome,
-      });
-    }
   };
 
   const shouldStartRouteCatalogSync = (): boolean =>
@@ -1462,9 +1425,7 @@ export async function runDaemonSocketSession(input: {
     probePolicy: "background" | "fresh"
   ): Promise<LocalServiceRuntimeAgentControllerReportSyncResult> => {
     try {
-      const result = await syncLocalServiceRuntimeAgentControllerReports({
-        localAdapterContainer: input.localAdapterContainer,
-        onAttempt: observeRuntimeReportingAttempt,
+      const result = await input.executionHost.call("reportControllers", {
         probePolicy,
       });
       const retryInMs =
@@ -1482,7 +1443,7 @@ export async function runDaemonSocketSession(input: {
         resolveNextRuntimeAgentControllerReportSyncAtMs({
           nowMs: Date.now(),
           baseRetryMs: retryInMs,
-          hasArmedReprobe: consumeArmedAgentControllerInterfaceReprobe(),
+          hasArmedReprobe: result.hasArmedReprobe,
         });
       let reportSyncLineText: string;
       if (result.status === "skipped") {
@@ -1604,12 +1565,7 @@ export async function runDaemonSocketSession(input: {
 
     providerConversationProofSyncInFlight = true;
     try {
-      const result = await syncLocalServiceProviderConversationProofs({
-        onAttempt: observeRuntimeReportingAttempt,
-        routeCatalog: createRouteCatalogFromMutableState(
-          input.routeCatalogState
-        ),
-      });
+      const result = await input.executionHost.call("reportConversations", {});
       const retryInMs =
         result.failedCount > 0
           ? PROVIDER_CONVERSATION_PROOF_SYNC_RETRY_INTERVAL_MS
@@ -1669,107 +1625,6 @@ export async function runDaemonSocketSession(input: {
     });
   };
 
-  const handleLocalAgentControlSetEnabledFrame = async (
-    payload: Record<string, unknown>
-  ): Promise<void> => {
-    const parsed =
-      runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema.safeParse(
-        payload
-      );
-    if (!parsed.success) {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_agent_control_frame_invalid",
-        text: "ignored invalid local agent control frame",
-      });
-      return;
-    }
-
-    const responsePayload = await applyLocalAgentControlSetEnabled({
-      enabled: parsed.data.payload.enabled,
-      agentId: parsed.data.payload.agentId,
-    });
-    sendDaemonFrame(input.socket, {
-      code: "daemon.local_agent_control.result",
-      payload: {
-        requestId: parsed.data.requestId,
-        payload: responsePayload,
-      },
-    });
-  };
-
-  const handleLocalAgentControlForkSessionFrame = async (
-    payload: Record<string, unknown>
-  ): Promise<void> => {
-    const parsed =
-      runtimeTransportLocalAgentControlForkSessionFramePayloadSchema.safeParse(
-        payload
-      );
-    if (!parsed.success) {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_session_fork_frame_invalid",
-        text: "ignored invalid Agent Session Fork frame",
-      });
-      return;
-    }
-    const result = await runAgentSessionForkOperation({
-      execute: () => forkAgentSession({ request: parsed.data.request }),
-      ledgerRootPath: input.ledgerPaths.rootDirPath,
-      request: parsed.data.request,
-    });
-    sendDaemonFrame(input.socket, {
-      code: "daemon.local_agent_control.result",
-      payload: {
-        requestId: parsed.data.requestId,
-        payload: result,
-      },
-    });
-    emitRunLine({
-      presenter: input.presenter,
-      code:
-        result.status === "completed"
-          ? "daemon.run.agent_session_fork_completed"
-          : "daemon.run.agent_session_fork_failed",
-      text:
-        result.status === "completed"
-          ? `forked ${result.agentControllerRef} Session ${result.sourceNativeSessionId}.`
-          : `Agent Session Fork ${result.status}: ${result.reasonCode}.`,
-      payload: result,
-    });
-    if (result.status === "completed") {
-      input.onAgentActivitySessionsChanged?.();
-    }
-  };
-
-  const handleLocalAgentControlManageInstallationFrame = async (
-    payload: Record<string, unknown>
-  ): Promise<void> => {
-    const parsed =
-      runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema.safeParse(
-        payload
-      );
-    if (!parsed.success) {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_agent_installation_frame_invalid",
-        text: "ignored invalid local agent installation frame",
-      });
-      return;
-    }
-
-    const responsePayload = await applyLocalAgentControlManageInstallation(
-      parsed.data.payload
-    );
-    sendDaemonFrame(input.socket, {
-      code: "daemon.local_agent_control.result",
-      payload: {
-        requestId: parsed.data.requestId,
-        payload: responsePayload,
-      },
-    });
-  };
-
   const handleLocalAgentControlRefreshCatalogFrame = async (
     payload: Record<string, unknown>
   ): Promise<void> => {
@@ -1824,227 +1679,6 @@ export async function runDaemonSocketSession(input: {
         payload: responsePayload,
       },
     });
-  };
-
-  const handleResumeControllerConversationFrame = async (
-    payload: Record<string, unknown>
-  ): Promise<void> => {
-    const parsed =
-      runtimeTransportResumeControllerConversationFramePayloadSchema.safeParse(
-        payload
-      );
-    if (!parsed.success) {
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.execution_recovery_frame_invalid",
-        text: "ignored invalid execution recovery frame",
-      });
-      return;
-    }
-    const result = await runResumeControllerConversationOperation({
-      execute: () =>
-        resumeExactControllerConversation({
-          computerFileAccessStorePath: input.computerFileAccessStorePath,
-          localAdapterContainer: input.localAdapterContainer,
-          request: parsed.data,
-          routeConfig:
-            input.routeCatalogState.routeByProfileId.get(
-              parsed.data.identity.targetProfileId
-            ) ?? null,
-        }),
-      ledgerRootPath: input.ledgerPaths.rootDirPath,
-      request: parsed.data,
-    });
-    const resultFrame =
-      runtimeTransportResumeControllerConversationResultFramePayloadSchema.parse(
-        {
-          requestId: parsed.data.requestId,
-          result,
-        }
-      );
-    sendDaemonFrame(input.socket, {
-      code: "daemon.execution_recovery.resume_controller_conversation_result",
-      payload: resultFrame,
-    });
-  };
-
-  const applyLocalAgentControlSetEnabled = async (controlInput: {
-    agentId: string;
-    enabled: boolean;
-  }): Promise<OpenMeldDaemonSetLocalAgentEnabledPayload> => {
-    try {
-      const result = await setAgentRegistrationEnabled(controlInput);
-      let reportSyncStatus: OpenMeldDaemonSetLocalAgentEnabledPayload["reportSyncStatus"] =
-        "failed";
-      try {
-        const reportSync = await requestFreshRuntimeAgentControllerReportSync();
-        reportSyncStatus = reportSync.status;
-      } catch (error) {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.local_agent_control_report_sync_failed",
-          text: `runtime agent controller report sync failed after local agent control: ${toErrorMessage(error)}`,
-        });
-      }
-      if (result.changed) {
-        requestLocalExecutionEvidenceRefresh({
-          reason: "local_state_changed",
-          scheduleReason: "local_agent_control_set_enabled",
-        });
-      }
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_agent_control_set_enabled",
-        text: `${result.displayName} is ${result.enabled ? "enabled" : "disabled"}.`,
-        payload: {
-          agentControllerRef: result.agentControllerRef,
-          agentId: result.agentId,
-          changed: result.changed,
-          enabled: result.enabled,
-          reportSyncStatus,
-        },
-      });
-      return {
-        accepted: true,
-        agentControllerRef: result.agentControllerRef,
-        agentId: result.agentId,
-        changed: result.changed,
-        enabled: result.enabled,
-        reportSyncStatus,
-        status: result.status,
-      };
-    } catch (error) {
-      const message = toErrorMessage(error);
-      const reasonCode = resolveLocalAgentEnabledErrorCode(error);
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_agent_control_set_enabled_rejected",
-        text: `local agent control rejected: ${message}`,
-        payload: {
-          agentId: controlInput.agentId,
-          enabled: controlInput.enabled,
-          reasonCode,
-        },
-      });
-      return {
-        accepted: false,
-        agentId: controlInput.agentId,
-        changed: false,
-        enabled: controlInput.enabled,
-        message,
-        reasonCode,
-        reportSyncStatus: "failed",
-        status: "rejected",
-      };
-    }
-  };
-
-  const applyLocalAgentControlManageInstallation = async (controlInput: {
-    agentId: string;
-    installationId?: string;
-    operation: "list" | "select";
-  }): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> => {
-    try {
-      let result: Awaited<
-        ReturnType<typeof manageAgentRegistrationInstallation>
-      >;
-      if (controlInput.operation === "select") {
-        const guardedResult =
-          await localExecutionSlots.runAdapterOperationIfIdle(
-            controlInput.agentId,
-            () => manageAgentRegistrationInstallation(controlInput)
-          );
-        if (!guardedResult.accepted) {
-          if (guardedResult.status === "operation_in_progress") {
-            throw new Error(
-              "agents.installation_change_in_progress: this installation is already being changed; check again in a moment"
-            );
-          }
-          throw new Error(
-            "agents.installation_change_blocked_by_work: this agent has work in progress; wait until it finishes before changing installations"
-          );
-        }
-        result = guardedResult.value;
-      } else {
-        result = await manageAgentRegistrationInstallation(controlInput);
-      }
-      const selectionStatus = localExecutionSlots.getAdapterOperationStatus(
-        controlInput.agentId
-      );
-      let reportSyncStatus: OpenMeldDaemonManageLocalAgentInstallationPayload["reportSyncStatus"] =
-        "skipped";
-      if (result.changed) {
-        try {
-          const reportSync =
-            await requestFreshRuntimeAgentControllerReportSync();
-          reportSyncStatus = reportSync.status;
-        } catch (error) {
-          reportSyncStatus = "failed";
-          emitRunLine({
-            presenter: input.presenter,
-            code: "daemon.run.local_agent_installation_report_sync_failed",
-            text: `runtime agent controller report sync failed after installation change: ${toErrorMessage(error)}`,
-          });
-        }
-        requestLocalExecutionEvidenceRefresh({
-          reason: "local_state_changed",
-          scheduleReason: "local_agent_installation_selected",
-        });
-      }
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_agent_installation_managed",
-        text:
-          controlInput.operation === "list"
-            ? `${result.displayName} installations listed.`
-            : `${result.displayName} installation selected.`,
-        payload: {
-          agentControllerRef: result.agentControllerRef,
-          agentId: result.agentId,
-          changed: result.changed,
-          installationCount: result.installations.length,
-          operation: controlInput.operation,
-          reportSyncStatus,
-          selectionStatus,
-          selectedInstallationId: result.selectedInstallationId,
-        },
-      });
-      return {
-        accepted: true,
-        agentControllerRef: result.agentControllerRef,
-        agentId: result.agentId,
-        changed: result.changed,
-        installations: result.installations,
-        reportSyncStatus,
-        selectionStatus,
-        selectedInstallationId: result.selectedInstallationId,
-        status: result.status,
-      };
-    } catch (error) {
-      const message = toErrorMessage(error);
-      const reasonCode = resolveLocalAgentEnabledErrorCode(error);
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.local_agent_installation_rejected",
-        text: `local agent installation request rejected: ${message}`,
-        payload: {
-          agentId: controlInput.agentId,
-          operation: controlInput.operation,
-          reasonCode,
-        },
-      });
-      return {
-        accepted: false,
-        agentId: controlInput.agentId,
-        changed: false,
-        installations: [],
-        message,
-        reasonCode,
-        reportSyncStatus: "failed",
-        selectedInstallationId: null,
-        status: "rejected",
-      };
-    }
   };
 
   const applyLocalAgentControlSetProfileWorkspace = async (controlInput: {
@@ -2152,45 +1786,6 @@ export async function runDaemonSocketSession(input: {
     });
   });
 
-  const handleLocalAgentRegistrationControlFrame = (frame: {
-    code: string;
-    payload: Record<string, unknown>;
-  }): boolean => {
-    if (frame.code === "daemon.local_agent_control.set_enabled") {
-      handleLocalAgentControlSetEnabledFrame(frame.payload).catch((error) => {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.local_agent_control_failed",
-          text: `local agent control failed: ${toErrorMessage(error)}`,
-        });
-      });
-      return true;
-    }
-    if (frame.code === "daemon.local_agent_control.fork_session") {
-      handleLocalAgentControlForkSessionFrame(frame.payload).catch((error) => {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.agent_session_fork_failed",
-          text: `Agent Session Fork failed: ${toErrorMessage(error)}`,
-        });
-      });
-      return true;
-    }
-    if (frame.code === "daemon.local_agent_control.manage_installation") {
-      handleLocalAgentControlManageInstallationFrame(frame.payload).catch(
-        (error) => {
-          emitRunLine({
-            presenter: input.presenter,
-            code: "daemon.run.local_agent_control_failed",
-            text: `local agent installation control failed: ${toErrorMessage(error)}`,
-          });
-        }
-      );
-      return true;
-    }
-    return false;
-  };
-
   const handleOpenMeldToolsControlFrame = (frame: {
     code: string;
     payload: Record<string, unknown>;
@@ -2242,9 +1837,7 @@ export async function runDaemonSocketSession(input: {
   const handleServiceControlFrame = (frame: {
     code: string;
     payload: Record<string, unknown>;
-  }): boolean =>
-    handleOpenMeldToolsControlFrame(frame) ||
-    handleLocalAgentRegistrationControlFrame(frame);
+  }): boolean => handleOpenMeldToolsControlFrame(frame);
 
   input.socket.onMessage((raw) => {
     // Keepalive PONG (bare "pong", auto-answered by the RuntimeTransportHub DO)
@@ -2309,21 +1902,6 @@ export async function runDaemonSocketSession(input: {
       });
       return;
     }
-    if (
-      parsedFrame.code ===
-      "daemon.execution_recovery.resume_controller_conversation"
-    ) {
-      handleResumeControllerConversationFrame(parsedFrame.payload).catch(
-        (error) => {
-          emitRunLine({
-            presenter: input.presenter,
-            code: "daemon.run.execution_recovery_failed",
-            text: `execution recovery failed: ${toErrorMessage(error)}`,
-          });
-        }
-      );
-      return;
-    }
     const handledCurrentComputerControl =
       handleLocalFolderPickerSocketFrame({
         deviceId: input.deviceId,
@@ -2370,32 +1948,15 @@ export async function runDaemonSocketSession(input: {
       parsedFrame,
       presenter: input.presenter,
     });
-    handleDaemonSocketFrame({
-      computerFileAccessStorePath: input.computerFileAccessStorePath,
-      contextStore: input.contextStore,
-      currentSocketRef,
-      daemonSessionId: input.daemonSessionId,
-      localExecutionSlots,
-      inflightDispatchMetaByTaskId: input.inflightDispatchMetaByTaskId,
-      inflightTaskControlRegistry: input.inflightTaskControlRegistry,
-      pendingAgentInteractionRegistry,
-      ledgerPaths: input.ledgerPaths,
-      leasesByProfileId,
-      localAdapterContainer: input.localAdapterContainer,
-      parsedFrame,
-      profileOwnerName: input.profileOwnerName,
-      profileOwnerUserId: input.ownerUserId,
-      requestCurrentWorkingFolderFactRefresh: () => {
-        requestLocalExecutionEvidenceRefresh({
-          reason: "local_state_changed",
-          scheduleReason: "dispatch_working_folder_fact_rejected",
-        });
-      },
-      presenter: input.presenter,
-      routeByProfileId: input.routeCatalogState.routeByProfileId,
-      socket: input.socket,
-      waiters,
-    });
+    if (
+      !handleDaemonTransportFrame({
+        frame: parsedFrame,
+        presenter: input.presenter,
+        waiters,
+      })
+    ) {
+      hostLink.forward(parsedFrame);
+    }
   });
 
   const registerResponse = await registerDaemonSession(
@@ -2406,32 +1967,7 @@ export async function runDaemonSocketSession(input: {
     leasesByProfileId,
   });
   activeConnectionGeneration = registerResponse.connectionGeneration;
-  currentSocketRef.socket = input.socket;
-  currentSocketRef.connectionGeneration = activeConnectionGeneration;
-  replayPendingAgentInteractions("reconnect");
-  acceptingDispatches = replayStartupResultsBeforeDispatchAdmission({
-    currentSocketRef,
-    ledgerPaths: input.ledgerPaths,
-    onAdmissionOpen: (replayedResultCount) => {
-      acceptingDispatches = true;
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.startup_result_replay_completed",
-        text: "durable local results were replayed before dispatch admission opened",
-        payload: {
-          daemonSessionId: input.daemonSessionId,
-          replayedResultCount,
-        },
-      });
-      scheduleHeartbeat({
-        delayMs: 0,
-        reason: "startup_result_replay_completed",
-      });
-    },
-    presenter: input.presenter,
-    shouldOpenAdmission: () => !(closed || shutdownStopCause),
-    waitForClose,
-  });
+  configureHostConnection().catch(reportHostFailure);
   emitRunLine({
     presenter: input.presenter,
     code: "daemon.run.registered",
@@ -2465,104 +2001,98 @@ export async function runDaemonSocketSession(input: {
       reason: "register_conflict",
       scheduleReason: "register_conflict",
     });
-  } else {
-    const bootstrapPlan = resolveBootstrapCatalogSyncPlan({
-      isRouteCatalogResolved: input.isRouteCatalogResolved?.() ?? true,
-      syncIntervalMs: resolveCatalogSyncIntervalMs({
-        heartbeatIntervalMs: currentHeartbeatIntervalMs,
-      }),
-    });
-    if (bootstrapPlan.persistCache) {
-      await persistAcceptedRouteCatalogCache();
-    }
-    scheduleCatalogSyncNext(bootstrapPlan.nextSyncDelayMs);
   }
-  const initialCatalogSyncSignal = await readDaemonCatalogSyncSignal().catch(
-    () => null
-  );
-  latestCatalogSyncSignalMarker = resolveCatalogSyncSignalMarker(
-    initialCatalogSyncSignal
-  );
-  scheduleCatalogSyncSignalPoll();
-
-  await sendHeartbeat();
-  keepalive.start();
+  const bootstrap = await completeRegisteredSessionBootstrap({
+    heartbeatIntervalMs: currentHeartbeatIntervalMs,
+    isRouteCatalogResolved: input.isRouteCatalogResolved?.() ?? true,
+    persistAcceptedRouteCatalogCache,
+    registerRejected: registerResponse.rejectedProfiles.length > 0,
+    scheduleCatalogSyncNext,
+    shutdownRequested: input.shutdownRequested,
+  });
+  const bootstrapShutdownStopCause = bootstrap.shutdownStopCause;
+  if (!bootstrapShutdownStopCause) {
+    latestCatalogSyncSignalMarker = resolveCatalogSyncSignalMarker(
+      bootstrap.initialCatalogSyncSignal
+    );
+    scheduleCatalogSyncSignalPoll();
+    await sendHeartbeat();
+    keepalive.start();
+  }
 
   async function finishControlledShutdown(
     stopCause: RuntimeTransportStopCause
   ): Promise<boolean> {
-    localExecutionSlots.beginDrain();
     acceptingDispatches = false;
     shutdownStopCause = stopCause;
+    const priorAdmissionEvidence = hostLink.admissionEvidence();
+    shutdownAdmissionEvidence = {
+      acceptingDispatches: false,
+      connectionGeneration: activeConnectionGeneration,
+      revision: (priorAdmissionEvidence?.revision ?? 0) + 1,
+      changedAtMs: Date.now(),
+      reasonCode: "controlled_stop",
+      detailCode: stopCause,
+    };
+    await input.executionHost.call("beginDrain", {});
     clearHeartbeatTimer();
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_started",
+      text: "Controlled shutdown was admitted; waiting for the active heartbeat to settle.",
+    });
     await waitForHeartbeatIdle();
-    await sendHeartbeat();
-    const drainState = localExecutionSlots.getDrainState();
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_inflight_heartbeat_completed",
+      text: "Controlled shutdown finished waiting for the active heartbeat.",
+    });
+    let finalHeartbeatError: unknown;
+    try {
+      await sendHeartbeat({ requireAcknowledgement: true });
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.controlled_shutdown_final_heartbeat_completed",
+        text: "Controlled shutdown completed its final heartbeat.",
+      });
+    } catch (error) {
+      // Failure to publish a stop must not interrupt already accepted work.
+      // Preserve the failed acknowledgement until the existing drain finishes.
+      finalHeartbeatError = error;
+    }
     emitRunLine({
       presenter: input.presenter,
       code: "daemon.run.controlled_shutdown_draining",
-      text: "controlled shutdown is waiting for accepted local agent work to finish",
-      payload: {
-        activeDispatches: drainState.activeGlobal,
-        daemonSessionId: input.daemonSessionId,
-        pendingDispatches: drainState.pendingCount,
-        stopCause: shutdownStopCause,
-      },
+      text: "Waiting for accepted local work to finish in the execution host.",
     });
-    await localExecutionSlots.drain();
-    flushDispatchResultOutbox({
-      currentSocketRef,
-      ledgerPaths: input.ledgerPaths,
-      presenter: input.presenter,
-    });
-    if (!closed) {
-      const acknowledgementAbortController = new AbortController();
-      let socketClosedBeforeAcknowledgement = false;
-      waitForClose.then(() => {
-        socketClosedBeforeAcknowledgement = true;
-        acknowledgementAbortController.abort();
+    await input.executionHost.call("drain", {}, { timeoutMs: null });
+    const result = await input.executionHost.call("settleResults", {});
+    if (finalHeartbeatError) {
+      throw finalHeartbeatError;
+    }
+    if (result.status === "connection_closed") {
+      return false;
+    }
+    if (result.status === "timeout") {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.controlled_shutdown_result_ack_timeout",
+        text: "Controlled shutdown preserved unacknowledged durable results for replay after the receipt deadline.",
       });
-      const acknowledgementTimeout = setTimeout(() => {
-        acknowledgementAbortController.abort();
-      }, CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS);
-      acknowledgementTimeout.unref?.();
-      const acknowledgement = await waitForDispatchResultOutboxAcknowledgement({
-        abortSignal: acknowledgementAbortController.signal,
-        ledgerPaths: input.ledgerPaths,
-        recordKeys: listDispatchResultOutboxPendingAcknowledgementKeys({
-          ledgerPaths: input.ledgerPaths,
-        }),
-      });
-      clearTimeout(acknowledgementTimeout);
-      if (acknowledgement === "aborted") {
-        if (socketClosedBeforeAcknowledgement) {
-          return false;
-        }
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.controlled_shutdown_result_ack_timeout",
-          text: "controlled shutdown preserved unacknowledged durable results for replay after the receipt deadline",
-          payload: {
-            daemonSessionId: input.daemonSessionId,
-            reasonCode: "result_ack_timeout",
-            timeoutMs: CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS,
-          },
-        });
-      }
     }
     if (!closed) {
       input.socket.close(1000, "shutdown");
-      const didClose = await waitForPromiseDeadline({
-        operation: waitForClose,
-        timeoutMs: CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
-      });
-      if (!didClose) {
+      if (
+        !(await waitForPromiseDeadline({
+          operation: waitForClose,
+          timeoutMs: CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
+        }))
+      ) {
         emitRunLine({
           presenter: input.presenter,
           code: "daemon.run.controlled_shutdown_socket_close_timeout",
-          text: "controlled shutdown terminated a half-open daemon stream after the close deadline",
+          text: "Controlled shutdown terminated a half-open transport after the close deadline.",
           payload: {
-            daemonSessionId: input.daemonSessionId,
             reasonCode: "socket_close_timeout",
             timeoutMs: CONTROLLED_SHUTDOWN_SOCKET_CLOSE_TIMEOUT_MS,
           },
@@ -2573,54 +2103,37 @@ export async function runDaemonSocketSession(input: {
     return true;
   }
 
-  const sessionExit = await Promise.race([
-    waitForClose.then(() => ({ kind: "socket_closed" as const })),
-    input.shutdownRequested?.then((stopCause) => ({
-      kind: "shutdown_requested" as const,
-      stopCause,
-    })) ?? new Promise<never>(() => undefined),
-  ]);
-  if (sessionExit.kind === "shutdown_requested" && !closed) {
-    controlledShutdownCompleted = await finishControlledShutdown(
-      sessionExit.stopCause
-    );
+  const sessionExit = bootstrapShutdownStopCause
+    ? ({
+        kind: "shutdown_requested" as const,
+        stopCause: bootstrapShutdownStopCause,
+      } as const)
+    : await Promise.race([
+        waitForClose.then(() => ({ kind: "socket_closed" as const })),
+        input.shutdownRequested?.then((stopCause) => ({
+          kind: "shutdown_requested" as const,
+          stopCause,
+        })) ?? new Promise<never>(() => undefined),
+      ]);
+  try {
+    if (sessionExit.kind === "shutdown_requested" && !closed) {
+      controlledShutdownCompleted = await finishControlledShutdown(
+        sessionExit.stopCause
+      );
+    }
+  } catch (error) {
+    input.socket.terminate();
+    throw error;
+  } finally {
+    hostLink.detach().catch(reportHostFailure);
+    input.attachRouteCatalogSyncInvoker?.(null);
+    clearHeartbeatTimer();
+    keepalive.stop();
+    clearCatalogSyncSignalTimer();
   }
-  if (currentSocketRef.socket === input.socket) {
-    resetReasoningPreference(currentSocketRef);
-    currentSocketRef.socket = null;
-    currentSocketRef.connectionGeneration = null;
-  }
-  input.attachRouteCatalogSyncInvoker?.(null);
-  clearHeartbeatTimer();
-  keepalive.stop();
-  clearCatalogSyncSignalTimer();
   const shouldDrainBeforeExit =
     controlledShutdownCompleted ||
     (closeCode === 1000 && closeReason === "shutdown");
-  if (shouldDrainBeforeExit) {
-    localExecutionSlots.beginDrain();
-    await localExecutionSlots.drain();
-  } else {
-    const droppedPending = localExecutionSlots.dropPendingTasks({
-      reason: "daemon.session.unexpected_close",
-    });
-    const drainState = localExecutionSlots.getDrainState();
-    emitRunLine({
-      presenter: input.presenter,
-      code: "daemon.run.socket_drain_skipped",
-      text: "skipping dispatch drain after unexpected socket close; reconnect may continue while old tasks settle",
-      payload: {
-        activeDispatches: drainState.activeGlobal,
-        closeCode,
-        closeReason,
-        daemonSessionId: input.daemonSessionId,
-        inflightDispatchCount: input.inflightDispatchMetaByTaskId.size,
-        pendingDispatchesDropped: droppedPending.droppedCount,
-        pendingDispatches: drainState.pendingCount,
-      },
-    });
-  }
-
   if (shouldDrainBeforeExit) {
     return;
   }
@@ -2656,6 +2169,74 @@ async function withDaemonRunTimeout<T>(input: {
       clearTimeout(timeout);
     }
   }
+}
+
+async function completeRegisteredSessionBootstrap(input: {
+  heartbeatIntervalMs: number;
+  isRouteCatalogResolved: boolean;
+  persistAcceptedRouteCatalogCache: () => Promise<void>;
+  registerRejected: boolean;
+  scheduleCatalogSyncNext: (delayMs: number) => void;
+  shutdownRequested?: Promise<RuntimeTransportStopCause>;
+}): Promise<{
+  initialCatalogSyncSignal: DaemonCatalogSyncSignal | null;
+  shutdownStopCause: RuntimeTransportStopCause | null;
+}> {
+  if (!input.registerRejected) {
+    const bootstrapPlan = resolveBootstrapCatalogSyncPlan({
+      isRouteCatalogResolved: input.isRouteCatalogResolved,
+      syncIntervalMs: resolveCatalogSyncIntervalMs({
+        heartbeatIntervalMs: input.heartbeatIntervalMs,
+      }),
+    });
+    if (bootstrapPlan.persistCache) {
+      const persistence = await awaitOperationOrShutdown({
+        operation: input.persistAcceptedRouteCatalogCache(),
+        shutdownRequested: input.shutdownRequested,
+      });
+      if (persistence.kind === "shutdown_requested") {
+        return {
+          initialCatalogSyncSignal: null,
+          shutdownStopCause: persistence.stopCause,
+        };
+      }
+    }
+    input.scheduleCatalogSyncNext(bootstrapPlan.nextSyncDelayMs);
+  }
+
+  const catalogSignal = await awaitOperationOrShutdown({
+    operation: readDaemonCatalogSyncSignal().catch(() => null),
+    shutdownRequested: input.shutdownRequested,
+  });
+  if (catalogSignal.kind === "shutdown_requested") {
+    return {
+      initialCatalogSyncSignal: null,
+      shutdownStopCause: catalogSignal.stopCause,
+    };
+  }
+  return {
+    initialCatalogSyncSignal: catalogSignal.value,
+    shutdownStopCause: null,
+  };
+}
+
+async function awaitOperationOrShutdown<T>(input: {
+  operation: Promise<T>;
+  shutdownRequested?: Promise<RuntimeTransportStopCause>;
+}): Promise<
+  | { kind: "completed"; value: T }
+  | { kind: "shutdown_requested"; stopCause: RuntimeTransportStopCause }
+> {
+  if (!input.shutdownRequested) {
+    return { kind: "completed", value: await input.operation };
+  }
+  return await Promise.race([
+    input.operation.then((value) => ({ kind: "completed" as const, value })),
+    input.shutdownRequested.then((stopCause) => ({
+      kind: "shutdown_requested" as const,
+      stopCause,
+    })),
+  ]);
 }
 
 async function waitForPromiseDeadline(input: {
@@ -2785,15 +2366,6 @@ function normalizeFrameInteger(value: unknown): number | null {
     return null;
   }
   return value;
-}
-
-function resolveLocalAgentEnabledErrorCode(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "agents.unexpected_error";
-  }
-  const [code] = error.message.split(":", 1);
-  const normalized = code?.trim();
-  return normalized?.includes(".") ? normalized : "agents.unexpected_error";
 }
 
 function resolveProfileWorkspaceControlErrorCode(error: unknown): string {

@@ -1,4 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: Package entrypoint intentionally exposes the Cursor adapter contract.
+export { projectCursorUsageLimits } from "./usage/cursor-usage-limits.js";
+
 import {
   type AdapterCancelRequest,
   type AdapterCancelResult,
@@ -246,6 +248,7 @@ function createDefaultCursorInvoke(input: {
           cursorWorkdir:
             dispatchInput.runtimeContext.providerRuntimeWorkingDirectory,
           env: dispatchInput.env,
+          spaceActionTools: dispatchInput.spaceActionTools,
           launchContract,
           onActiveTurn: input.registerActiveTurn,
           ...(dispatchInput.onInteractionRequest

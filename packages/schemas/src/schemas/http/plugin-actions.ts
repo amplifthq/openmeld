@@ -19,6 +19,11 @@ export const pluginActionRequestSchema = z.strictObject({
   dispatchId: z.string().trim().min(1).max(256).optional(),
   action: z.discriminatedUnion("operation", [
     z.strictObject({ operation: z.literal("list") }),
+    z.strictObject({
+      operation: z.literal("connect"),
+      service: connectorServiceSchema,
+      account: z.enum(["personal", "shared", "choose"]),
+    }),
     z.strictObject({ operation: z.literal("actions"), ...selection }),
     z.strictObject({
       operation: z.literal("execute"),
@@ -36,6 +41,17 @@ export const pluginActionRpcInputSchema = z.strictObject({
   request: pluginActionRequestSchema,
 });
 export const pluginActionResponseSchema = z.discriminatedUnion("kind", [
+  // Only the new explicit connect operation emits this variant; existing
+  // published CLI operations retain their exact response discriminants.
+  z.strictObject({
+    kind: z.literal("connection_guidance"),
+    service: connectorServiceSchema,
+    scope: z.enum(["member", "shared", "choose"]),
+    url: z.string().url(),
+    replyText: z.string().min(1),
+    canContinueInConversation: z.boolean(),
+    message: z.string().min(1),
+  }),
   z.strictObject({
     kind: z.literal("connections"),
     connections: z.array(selectedAccountSchema),

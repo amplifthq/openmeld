@@ -229,7 +229,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 		onCreateAgent: () => void;
 		onSelectProfile: (profileId: string) => void;
 		onViewChange: (view: "agents" | "requests") => void;
-		pendingRequestCount: number;
+		creationAttentionCount: number;
 		profiles: readonly AuthProfileView[];
 		renderProfilesController: () => ReactNode;
 		renderProfileDetail: (profile: AuthProfileView) => ReactNode;
@@ -797,6 +797,20 @@ describe("PeopleAndAgentsPage", () => {
 		).toBeNull();
 	});
 
+	it("shows the saved Agent avatar from the Organization directory", () => {
+		organizationDirectoryFixture.agentProfiles[0].avatarStyle = "fluid";
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId="agt_11111111-1111-4111-8111-111111111111"
+			/>
+		);
+
+		expect(
+			agentProfilesCardSpy.mock.calls.at(-1)?.[0].agentProfiles[0].avatarStyle
+		).toBe("fluid");
+	});
+
 	it("renders Agents with a secondary sidebar and selected detail", () => {
 		render(
 			<PeopleAndAgentsPage
@@ -1072,7 +1086,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("counts unfinished self-requests without teammate or completed requests", () => {
+	it("counts self-requests needing attention without work in progress or teammate requests", () => {
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
 			const organizationProjection = resolveOrganizationProjectionQuery(
@@ -1137,7 +1151,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		expect(agentProfilesWorkspaceSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ pendingRequestCount: 2 })
+			expect.objectContaining({ creationAttentionCount: 1 })
 		);
 	});
 
@@ -1217,7 +1231,7 @@ describe("PeopleAndAgentsPage", () => {
 		});
 	});
 
-	it("keeps Agent selection in the existing profileId deep-link contract", () => {
+	it("opens the canonical person-owned Agent route when its owner is already known", () => {
 		render(
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
@@ -1227,7 +1241,7 @@ describe("PeopleAndAgentsPage", () => {
 			.onSelectProfile("agt_11111111-1111-4111-8111-111111111111");
 
 		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/agents?profileId=agt_11111111-1111-4111-8111-111111111111",
+			to: "/o/acme/people/11111111-1111-4111-8111-111111111111/agents/agt_11111111-1111-4111-8111-111111111111",
 		});
 	});
 

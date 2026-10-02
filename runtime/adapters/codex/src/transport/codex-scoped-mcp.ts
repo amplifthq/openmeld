@@ -1,10 +1,10 @@
-import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
   OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
+import { execPlatformFile as execFile } from "@openmeld/adapter-core/process-launch";
 import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
 
 const execFileAsync = promisify(execFile);
@@ -112,7 +112,10 @@ export async function buildCodexScopedMcpDisableArgs(input: {
 /** Checks effective tool exposure; dispatch ownership and permissions are separate checks. */
 export function assertCodexScopedMcpInventory(
   value: unknown,
-  options: { expectDispatchServer?: boolean } = {}
+  options: {
+    expectDispatchServer?: boolean;
+    expectedToolNames?: readonly string[];
+  } = {}
 ): void {
   if (
     !(isRecord(value) && Array.isArray(value.data)) ||
@@ -150,7 +153,7 @@ export function assertCodexScopedMcpInventory(
         "the effective MCP inventory contains an unapproved server"
       );
     }
-    assertDispatchTools(row.tools);
+    assertDispatchTools(row.tools, options.expectedToolNames);
     hasDispatchServer = true;
   }
   if ((options.expectDispatchServer ?? true) && !hasDispatchServer) {
@@ -160,16 +163,22 @@ export function assertCodexScopedMcpInventory(
   }
 }
 
-function assertDispatchTools(tools: Record<string, unknown>): void {
+function assertDispatchTools(
+  tools: Record<string, unknown>,
+  expectedToolNames?: readonly string[]
+): void {
+  const expected = expectedToolNames
+    ? new Set(expectedToolNames)
+    : DISPATCH_TOOL_NAMES;
   const toolEntries = Object.entries(tools);
-  if (toolEntries.length !== DISPATCH_TOOL_NAMES.size) {
+  if (toolEntries.length !== expected.size) {
     throw isolationError(
       "the effective MCP inventory has an unexpected tool catalog"
     );
   }
   for (const [name, tool] of toolEntries) {
     if (
-      !(DISPATCH_TOOL_NAMES.has(name) && isRecord(tool)) ||
+      !(expected.has(name) && isRecord(tool)) ||
       tool.name !== name ||
       !Object.hasOwn(tool, "inputSchema")
     ) {

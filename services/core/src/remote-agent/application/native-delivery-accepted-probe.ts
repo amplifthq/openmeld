@@ -48,6 +48,9 @@ export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   enqueued: boolean;
 }> {
+  if (input.delivery.executionReconciliation?.retryState === "paused") {
+    return { delivery: input.delivery, enqueued: false };
+  }
   if (
     input.delivery.acceptedProbeNextDueAtMs !== null &&
     input.delivery.acceptedProbeNextDueAtMs > input.nowMs

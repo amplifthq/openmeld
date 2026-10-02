@@ -28,9 +28,9 @@ export type GitHubAppInstallationVerificationResult =
   | { status: "expired" | "invalid" };
 
 export type PendingGitHubAppInstallation = {
-  installationId: string;
+  installationId: string | null;
   organizationId: string;
-  status: "verifying";
+  status: "installing" | "verifying";
   targetConnectionName: string;
   userId: string;
   verificationConnectionName: string;
@@ -43,7 +43,11 @@ export async function createGitHubAppInstallationState(input: {
   organizationId: string;
   targetConnectionName: string;
   userId: string;
-}): Promise<{ expiresAtMs: number; state: string }> {
+}): Promise<{
+  expiresAtMs: number;
+  state: string;
+  verificationConnectionName: string;
+}> {
   const actorProfileId = requireNonEmptyText(
     input.actorProfileId,
     "actor profile id"
@@ -81,7 +85,11 @@ export async function createGitHubAppInstallationState(input: {
       verificationConnectionName: null,
     },
   });
-  return { expiresAtMs, state };
+  return {
+    expiresAtMs,
+    state,
+    verificationConnectionName: createVerificationConnectionName(stateDigest),
+  };
 }
 
 export async function beginGitHubAppInstallationVerification(input: {
@@ -147,17 +155,56 @@ export async function readPendingGitHubAppInstallation(input: {
   if (!record) {
     return null;
   }
-  if (!(record.installationId && record.verificationConnectionName)) {
+  if (record.status === "completed") {
+    return null;
+  }
+  if (
+    record.status === "verifying" &&
+    !(record.installationId && record.verificationConnectionName)
+  ) {
     throw new Error("Pending GitHub App installation state is incomplete");
   }
   return {
     installationId: record.installationId,
     organizationId: record.organizationId,
-    status: "verifying",
+    status: record.status,
     targetConnectionName: record.targetConnectionName,
     userId: record.userId,
-    verificationConnectionName: record.verificationConnectionName,
+    verificationConnectionName:
+      record.verificationConnectionName ??
+      createVerificationConnectionName(record.stateDigest),
   };
+}
+
+export async function beginExistingGitHubAppInstallationVerification(input: {
+  db: D1Database;
+  installationId: string;
+  nowMs: number;
+  organizationId: string;
+  userId: string;
+  verificationConnectionName: string;
+}): Promise<boolean> {
+  const record = await readPendingGitHubAppInstallationRecord({
+    db: input.db,
+    nowMs: input.nowMs,
+    organizationId: input.organizationId,
+    userId: input.userId,
+  });
+  if (
+    record?.status !== "installing" ||
+    createVerificationConnectionName(record.stateDigest) !==
+      input.verificationConnectionName
+  ) {
+    return false;
+  }
+  const updated = await beginGitHubAppInstallationVerificationRecord({
+    db: input.db,
+    installationId: requireInstallationId(input.installationId),
+    nowMs: input.nowMs,
+    stateDigest: record.stateDigest,
+    verificationConnectionName: input.verificationConnectionName,
+  });
+  return updated !== null;
 }
 
 export async function completeGitHubAppInstallation(input: {

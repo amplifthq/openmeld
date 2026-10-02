@@ -7,10 +7,12 @@ const positiveLimitSchema = z.number().int().positive();
 // This is a new opt-in endpoint contract. Keep its response strict and deploy
 // the Web -> Gateway -> Core consumer/producer chain in one release batch.
 export const organizationUsageOverviewResponseSchema = z.strictObject({
-  centerAgentWakes: z.strictObject({
-    dailyLimit: positiveLimitSchema,
+  aiSpend: z.strictObject({
+    dailyLimitNanoUsd: nonnegativeCountSchema.nullable(),
     resetsAt: z.iso.datetime({ offset: true }),
-    usedToday: nonnegativeCountSchema,
+    usedNanoUsd: nonnegativeCountSchema,
+    missingCostRequests: nonnegativeCountSchema,
+    exhausted: z.boolean(),
   }),
   routines: z.strictObject({
     count: nonnegativeCountSchema,

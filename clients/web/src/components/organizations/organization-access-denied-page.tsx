@@ -8,6 +8,8 @@ import {
 } from "@openmeld/ui/components/card";
 import { Link } from "@tanstack/react-router";
 import { CrossPageHeader } from "#/components/app/cross-page-header";
+import { DesktopAccountLogOutButton } from "#/desktop/desktop-account-actions";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { buildOrganizationDefaultPath } from "#/lib/organizations/organization-routes";
 import type { OrganizationScopeDenied } from "#/lib/organizations/organization-types";
 
@@ -45,12 +47,16 @@ export function OrganizationAccessDeniedPage(input: {
 									Go to OpenMeld
 								</Link>
 							)}
-							<Link
-								className={buttonVariants({ variant: "outline" })}
-								to="/logout"
-							>
-								Sign out
-							</Link>
+							{getDesktopPlatform() ? (
+								<DesktopAccountLogOutButton variant="outline" />
+							) : (
+								<Link
+									className={buttonVariants({ variant: "outline" })}
+									to="/logout"
+								>
+									Sign out
+								</Link>
+							)}
 						</div>
 					</CardContent>
 				</Card>

@@ -1,6 +1,6 @@
 "use client";
 
-import { DrawerPreview as Drawer } from "@base-ui/react/drawer";
+import { Drawer } from "@base-ui/react/drawer";
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type {
 	AuthProfileView,
@@ -35,7 +35,7 @@ import {
 	UsersThreeIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	AnimatePresence,
 	domAnimation,
@@ -63,8 +63,13 @@ import {
 } from "#/lib/spaces/presentation";
 import {
 	organizationProfileDirectoryQueryOptions,
+	organizationQueryKeys,
 	organizationSpaceProfileCandidatesQueryOptions,
 } from "#/query/organizations/organization-directory";
+import {
+	type SpaceMemberDirectoryDisplay,
+	spaceMemberDirectoryDisplayQueryOptions,
+} from "#/query/spaces/member-directory-display";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
@@ -93,6 +98,7 @@ import {
 	buildSpaceMembersRoster,
 	SpaceMembersRosterView,
 } from "./space-members-roster";
+import { SpaceProfileIcon } from "./space-profile-icon";
 import {
 	resolveSpaceWakeStatusTransientState,
 	type SpaceWakeStatusTransientState,
@@ -287,6 +293,7 @@ export function SpaceMembersSidePanel(
 				agentProfileEditContext={input.agentProfileEditContext}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 				autoRefreshExhaustedProfileIds={input.autoRefreshExhaustedProfileIds}
+				cachedMembers={model.cachedMembers}
 				centerAgentProfileId={input.centerAgentProfileId ?? null}
 				currentOwnerUserId={input.currentOwnerUserId}
 				currentProfileId={input.currentProfileId}
@@ -338,7 +345,7 @@ export function SpaceMembersDrawer(
 		>
 			<Drawer.Portal>
 				<Drawer.Backdrop className="fixed inset-0 z-40 bg-background/60 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
-				<Drawer.Viewport className="fixed inset-0 z-50 flex justify-end">
+				<Drawer.Viewport className="fixed inset-0 z-[45] flex justify-end">
 					<Drawer.Popup
 						className="flex h-full translate-x-[var(--drawer-swipe-movement-x,0px)] border-border border-l bg-background outline-none transition-transform duration-200 ease-out data-ending-style:translate-x-full data-starting-style:translate-x-full data-swiping:transition-none motion-reduce:translate-x-0 motion-reduce:transition-opacity motion-reduce:data-ending-style:translate-x-0 motion-reduce:data-starting-style:translate-x-0 motion-reduce:data-ending-style:opacity-0 motion-reduce:data-starting-style:opacity-0"
 						id="space-members-drawer"
@@ -404,6 +411,7 @@ export function SpaceMembersDrawer(
 								autoRefreshExhaustedProfileIds={
 									input.autoRefreshExhaustedProfileIds
 								}
+								cachedMembers={model.cachedMembers}
 								centerAgentProfileId={input.centerAgentProfileId ?? null}
 								currentOwnerUserId={input.currentOwnerUserId}
 								currentProfileId={input.currentProfileId}
@@ -537,6 +545,17 @@ function SpaceMembersCloseButton(input: { onClose: () => void }) {
 }
 
 function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
+	const displayQuery = useQuery(
+		spaceMemberDirectoryDisplayQueryOptions(
+			input.spaceId ?? "",
+			input.currentProfileId
+		)
+	);
+	// Identity-only rows cannot authorize member actions or claim live readiness.
+	const cachedMembers =
+		!input.snapshot && input.isLoading && !input.membersError
+			? (displayQuery.data?.members ?? null)
+			: null;
 	const addMembersDialogId = useId();
 	const addMembersTriggerRef = useRef<HTMLElement | null>(null);
 	const [isAddMembersOpen, setIsAddMembersOpen] = useState(false);
@@ -569,7 +588,8 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 				: null,
 		[directory, deferredQuery]
 	);
-	const totalMembersCount = input.snapshot?.summary.totalCount ?? null;
+	const totalMembersCount =
+		input.snapshot?.summary.totalCount ?? cachedMembers?.length ?? null;
 	const membersCountDescription = resolveMembersCountDescription({
 		hasLoadError: Boolean(input.membersError && !input.snapshot),
 		isLoading: input.isLoading,
@@ -578,6 +598,7 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 
 	return {
 		addMembersDialogId,
+		cachedMembers,
 		addMembersTriggerRef,
 		filteredDirectory,
 		isAddMembersOpen,
@@ -600,6 +621,7 @@ function useSpaceMembersModel(input: SpaceMembersSurfaceProps) {
 }
 
 type SpaceMembersBodyProps = {
+	cachedMembers: SpaceMemberDirectoryDisplay["members"] | null;
 	addMembersDialogId: string;
 	addMembersTriggerRef: RefObject<HTMLElement | null>;
 	accountProfiles: readonly AuthProfileView[];
@@ -744,6 +766,7 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							autoRefreshExhaustedProfileIds={
 								input.autoRefreshExhaustedProfileIds
 							}
+							cachedMembers={input.cachedMembers}
 							centerAgentProfileId={input.centerAgentProfileId}
 							currentOwnerUserId={input.currentOwnerUserId}
 							currentProfileId={input.currentProfileId}
@@ -872,6 +895,7 @@ function SpaceAddProfilesSection(input: SpaceAddProfilesSectionProps) {
 }
 
 function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
+	const queryClient = useQueryClient();
 	const [selectedProfileIds, setSelectedProfileIds] = useState<
 		ReadonlySet<string>
 	>(() => new Set());
@@ -893,10 +917,26 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	);
 	const directoryQuery = useQuery(
 		organizationSpaceProfileCandidatesQueryOptions({
-			enabled: usesOrganizationDirectory || Boolean(input.open && organization),
+			enabled: Boolean(input.open && organization),
 			organizationId: organization?.id ?? "",
 		})
 	);
+	const organizationId = organization?.id;
+	useEffect(() => {
+		if (!(input.open && organizationId)) {
+			return;
+		}
+		// Team and the picker share this identity directory. Revalidate on entry
+		// so Agents created in another window appear without background polling.
+		queryClient.invalidateQueries(
+			{
+				exact: true,
+				queryKey: organizationQueryKeys.profileDirectory(organizationId),
+				refetchType: "active",
+			},
+			{ cancelRefetch: false }
+		);
+	}, [input.open, organizationId, queryClient]);
 
 	const personalProfilesPlan = useMemo(
 		() =>
@@ -1012,6 +1052,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	const canSubmit =
 		canRunAddMutation &&
 		input.snapshot !== null &&
+		!(usesOrganizationDirectory && directoryQuery.isError) &&
 		selectedCount > 0 &&
 		!isSubmitting;
 	const handleOpenChange = (open: boolean) => {
@@ -1185,6 +1226,7 @@ function SpaceAddProfilesSectionView({
 				dialogId={input.dialogId}
 				directoryHasData={Boolean(model.directoryQuery.data)}
 				directoryIsError={model.directoryQuery.isError}
+				directoryIsFetching={model.directoryQuery.isFetching}
 				directoryIsPending={model.directoryQuery.isPending}
 				emptyMessage={resolveAddMembersEmptyMessage({
 					addQuery: model.addQuery,
@@ -1298,6 +1340,7 @@ type SpaceAddProfilesDialogProps = {
 	candidateGroups: SpaceAddMembersCandidateGroups;
 	directoryHasData: boolean;
 	directoryIsError: boolean;
+	directoryIsFetching: boolean;
 	directoryIsPending: boolean;
 	dialogId: string;
 	emptyMessage: string;
@@ -1333,12 +1376,19 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			actions={
 				input.spaceId ? (
 					<div className="flex flex-wrap items-center gap-2">
-						<Button onClick={() => setCreating(true)} size="xs">
+						<Button
+							onClick={() => setCreating(true)}
+							size="xs"
+							variant="outline"
+						>
 							<PlusIcon aria-hidden="true" />
 							New Agent
 						</Button>
 						{input.usesOrganizationDirectory ? (
-							<SpaceInvitationsSection spaceId={input.spaceId} />
+							<SpaceInvitationsSection
+								spaceId={input.spaceId}
+								triggerLabel="Invite by email"
+							/>
 						) : null}
 					</div>
 				) : null
@@ -1347,17 +1397,12 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			canSubmit={input.canSubmit}
 			description={
 				input.usesOrganizationDirectory
-					? `Choose people and their agents from ${input.organizationName}.`
+					? `Select people or agents from ${input.organizationName} to add directly to this Space.`
 					: "Choose people and their agents to add to this Space."
 			}
 			emptyMessage={input.emptyMessage}
 			emptySelectionLabel="Select members to add"
-			errorMessage={
-				input.errorMessage ??
-				(waitsForDirectory && input.directoryIsError
-					? "Couldn’t load the Organization Directory."
-					: null)
-			}
+			errorMessage={input.errorMessage}
 			finalFocus={input.finalFocus}
 			id={input.dialogId}
 			includeAgentOwners
@@ -1366,11 +1411,32 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			}
 			isSubmitting={busy || input.isSubmitting}
 			notice={
-				input.successMessage ? (
-					<p className={cn("text-xs", resolveStatusToneIconClassName("ready"))}>
-						{input.successMessage}
-					</p>
-				) : null
+				<>
+					{input.usesOrganizationDirectory && input.directoryIsError ? (
+						<div className="flex items-center justify-between gap-3">
+							<p className="text-muted-foreground text-sm">
+								{input.directoryHasData
+									? "Couldn’t update the list. Showing the last available results."
+									: "Couldn’t load people and agents. Try again."}
+							</p>
+							<Button
+								disabled={input.directoryIsFetching}
+								onClick={input.onRetryDirectory}
+								size="xs"
+								variant="outline"
+							>
+								{input.directoryIsFetching ? "Retrying…" : "Try again"}
+							</Button>
+						</div>
+					) : null}
+					{input.successMessage ? (
+						<p
+							className={cn("text-xs", resolveStatusToneIconClassName("ready"))}
+						>
+							{input.successMessage}
+						</p>
+					) : null}
+				</>
 			}
 			onClear={input.onClear}
 			onOpenChange={(open) => {
@@ -1380,11 +1446,6 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 				input.onOpenChange(open);
 			}}
 			onQueryChange={input.onAddQueryChange}
-			onRetry={
-				waitsForDirectory && input.directoryIsError
-					? input.onRetryDirectory
-					: undefined
-			}
 			onSubmit={() => {
 				input.onSubmit().catch(input.onSubmitError);
 			}}
@@ -1501,6 +1562,7 @@ function useSpaceMemberAccessStatus(
 }
 
 function SpaceMembersList(input: {
+	cachedMembers: SpaceMemberDirectoryDisplay["members"] | null;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -1647,7 +1709,46 @@ function SpaceMembersList(input: {
 		);
 	};
 
-	if (input.isLoading && !input.snapshot) {
+	if (input.cachedMembers) {
+		const query = input.query.trim().toLocaleLowerCase();
+		const members = input.cachedMembers.filter((member) =>
+			member.profileName.toLocaleLowerCase().includes(query)
+		);
+		return (
+			<div>
+				<output className="block px-1.5 pb-2 text-muted-foreground text-xs">
+					Updating members…
+				</output>
+				<ul aria-label="Members">
+					{members.map((member) => (
+						<li
+							className="flex min-w-0 items-center gap-2 px-1.5 py-2"
+							key={member.profileId}
+						>
+							<SpaceProfileIcon
+								agentControllerRef={member.agentControllerRef}
+								avatarImageUrl={member.avatarUrl}
+								isCenterAgent={member.profileId === input.centerAgentProfileId}
+								profileId={member.profileId}
+								profileKind={member.profileKind}
+								profileName={member.profileName}
+								showPresence={false}
+							/>
+							<span className="truncate text-sm sm:text-[13px]">
+								{member.profileName}
+							</span>
+						</li>
+					))}
+				</ul>
+				{members.length === 0 && query ? (
+					<p className="p-2 text-muted-foreground text-sm">
+						No members match your search.
+					</p>
+				) : null}
+			</div>
+		);
+	}
+	if (input.isLoading && !input.snapshot && !input.membersError) {
 		return (
 			<div className="flex flex-col gap-2">
 				{Array.from({ length: 5 }).map((_, index) => (

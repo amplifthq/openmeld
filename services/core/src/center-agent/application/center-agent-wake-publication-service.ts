@@ -93,6 +93,7 @@ export async function executeCenterAgentWakePublication(input: {
       childSpaceId: publication.command.spaceId,
       clientMessageId: publication.command.clientMessageId,
       completionMode: publication.command.completionMode,
+      replyLanguageTag: publication.command.replyLanguageTag,
       db: input.db,
       destinationNeutralContinuations:
         input.destinationNeutralContinuations === true,

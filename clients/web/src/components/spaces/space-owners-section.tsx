@@ -38,6 +38,7 @@ function describeSpaceMemberRole(
 export function SpaceOwnersSection(input: {
 	spaceId: string;
 	canManage: boolean;
+	collapsible?: boolean;
 	openMeldProfileId?: string;
 }) {
 	const organization = useOptionalAppOrganization()?.currentOrganization;
@@ -87,6 +88,117 @@ export function SpaceOwnersSection(input: {
 		person.profileName.toLowerCase().includes(search.toLowerCase())
 	);
 	const visible = filtered.slice(page * 10, (page + 1) * 10);
+	const content = (
+		<div className="grid gap-3">
+			<p className="text-muted-foreground text-xs">
+				Owners manage this Space. Keep at least one owner so your team can
+				continue using it.
+			</p>
+			{members.isError || status.isError ? (
+				<p className="text-destructive text-xs" role="alert">
+					Couldn't load members.{" "}
+					<Button
+						onClick={() => {
+							members.refetch();
+							status.refetch();
+						}}
+						size="sm"
+						variant="ghost"
+					>
+						Try again
+					</Button>
+				</p>
+			) : null}
+			{people.length > 10 ? (
+				<Input
+					aria-label="Search members"
+					onChange={(event) => {
+						setSearch(event.target.value);
+						setPage(0);
+					}}
+					placeholder="Search members"
+					value={search}
+				/>
+			) : null}
+			{visible.map((person) => (
+				<div
+					className="flex items-center justify-between gap-3"
+					key={person.profileId}
+				>
+					<span className="truncate text-sm">{person.profileName}</span>
+					{input.canManage &&
+					person.ownerUserId &&
+					internalUserIds.has(person.ownerUserId) ? (
+						<Select
+							disabled={mutation.isPending || status.isPending}
+							onValueChange={(role) => {
+								if (
+									(role === "owner" || role === "member") &&
+									person.ownerUserId
+								) {
+									mutation.mutate({ userId: person.ownerUserId, role });
+								}
+							}}
+							value={owners.includes(person.ownerUserId) ? "owner" : "member"}
+						>
+							<SelectTrigger
+								aria-label={`Role for ${person.profileName}`}
+								className="w-fit min-w-0"
+								displayValue={
+									owners.includes(person.ownerUserId) ? "Owner" : "Member"
+								}
+							/>
+							<SelectContent>
+								<SelectItem index={0} value="owner">
+									Owner
+								</SelectItem>
+								<SelectItem index={1} value="member">
+									Member
+								</SelectItem>
+							</SelectContent>
+						</Select>
+					) : (
+						<span className="text-muted-foreground text-xs">
+							{describeSpaceMemberRole(
+								person.ownerUserId,
+								owners,
+								internalUserIds,
+								directory.isSuccess
+							)}
+						</span>
+					)}
+				</div>
+			))}
+			{filtered.length > 10 ? (
+				<div className="flex justify-end gap-2">
+					<Button
+						disabled={page === 0}
+						onClick={() => setPage(page - 1)}
+						size="sm"
+						variant="ghost"
+					>
+						Previous
+					</Button>
+					<Button
+						disabled={(page + 1) * 10 >= filtered.length}
+						onClick={() => setPage(page + 1)}
+						size="sm"
+						variant="ghost"
+					>
+						Next
+					</Button>
+				</div>
+			) : null}
+			{mutation.error ? (
+				<p className="text-destructive text-xs" role="alert">
+					{mutation.error.message}
+				</p>
+			) : null}
+		</div>
+	);
+	if (input.collapsible === false) {
+		return content;
+	}
 	return (
 		<section className="border-border/60 border-t pt-4">
 			<Accordion>
@@ -95,116 +207,7 @@ export function SpaceOwnersSection(input: {
 						Members{members.data ? ` · ${people.length}` : ""}
 					</AccordionTrigger>
 					<AccordionContent>
-						<div className="grid gap-3 pt-3">
-							<p className="text-muted-foreground text-xs">
-								Owners manage this Space. Keep at least one owner so your team
-								can continue using it.
-							</p>
-							{members.isError || status.isError ? (
-								<p className="text-destructive text-xs" role="alert">
-									Couldn't load members.{" "}
-									<Button
-										onClick={() => {
-											members.refetch();
-											status.refetch();
-										}}
-										size="sm"
-										variant="ghost"
-									>
-										Try again
-									</Button>
-								</p>
-							) : null}
-							{people.length > 10 ? (
-								<Input
-									aria-label="Search members"
-									onChange={(event) => {
-										setSearch(event.target.value);
-										setPage(0);
-									}}
-									placeholder="Search members"
-									value={search}
-								/>
-							) : null}
-							{visible.map((person) => (
-								<div
-									className="flex items-center justify-between gap-3"
-									key={person.profileId}
-								>
-									<span className="truncate text-sm">{person.profileName}</span>
-									{input.canManage &&
-									person.ownerUserId &&
-									internalUserIds.has(person.ownerUserId) ? (
-										<Select
-											disabled={mutation.isPending || status.isPending}
-											onValueChange={(role) => {
-												if (
-													(role === "owner" || role === "member") &&
-													person.ownerUserId
-												) {
-													mutation.mutate({ userId: person.ownerUserId, role });
-												}
-											}}
-											value={
-												owners.includes(person.ownerUserId) ? "owner" : "member"
-											}
-										>
-											<SelectTrigger
-												aria-label={`Role for ${person.profileName}`}
-												className="w-fit min-w-0"
-												displayValue={
-													owners.includes(person.ownerUserId)
-														? "Owner"
-														: "Member"
-												}
-											/>
-											<SelectContent>
-												<SelectItem index={0} value="owner">
-													Owner
-												</SelectItem>
-												<SelectItem index={1} value="member">
-													Member
-												</SelectItem>
-											</SelectContent>
-										</Select>
-									) : (
-										<span className="text-muted-foreground text-xs">
-											{describeSpaceMemberRole(
-												person.ownerUserId,
-												owners,
-												internalUserIds,
-												directory.isSuccess
-											)}
-										</span>
-									)}
-								</div>
-							))}
-							{filtered.length > 10 ? (
-								<div className="flex justify-end gap-2">
-									<Button
-										disabled={page === 0}
-										onClick={() => setPage(page - 1)}
-										size="sm"
-										variant="ghost"
-									>
-										Previous
-									</Button>
-									<Button
-										disabled={(page + 1) * 10 >= filtered.length}
-										onClick={() => setPage(page + 1)}
-										size="sm"
-										variant="ghost"
-									>
-										Next
-									</Button>
-								</div>
-							) : null}
-							{mutation.error ? (
-								<p className="text-destructive text-xs" role="alert">
-									{mutation.error.message}
-								</p>
-							) : null}
-						</div>
+						<div className="pt-3">{content}</div>
 					</AccordionContent>
 				</AccordionItem>
 			</Accordion>

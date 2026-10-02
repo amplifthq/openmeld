@@ -12,13 +12,16 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { formatRoutineTimestamp } from "#/lib/organizations/center-agent-routine-presentation";
 import { resolveCenterAgentRoutineErrorMessage } from "#/lib/organizations/center-agent-routines";
 import { centerAgentRoutineRunsInfiniteQueryOptions } from "#/query/organizations/center-agent-routines";
 import { RoutineRunStatusBadge } from "./center-agent-routine-presentation";
 
 export function CenterAgentRoutineRunsDialog(input: {
+	focusRunId?: string | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 	organizationId: string;
@@ -34,6 +37,34 @@ export function CenterAgentRoutineRunsDialog(input: {
 	);
 	const runs = runsQuery.data?.pages.flatMap((page) => page.runs) ?? [];
 	const routineName = input.routine?.name ?? "routine";
+	const focusedRun = runs.find((run) => run.id === input.focusRunId);
+	const focusedRunRef = useRef<HTMLLIElement>(null);
+	useEffect(() => {
+		if (
+			!input.focusRunId ||
+			focusedRun ||
+			!runsQuery.isSuccess ||
+			!runsQuery.hasNextPage ||
+			runsQuery.isFetchingNextPage
+		) {
+			return;
+		}
+		runsQuery.fetchNextPage().catch((error) => {
+			console.error("Failed to find the selected Routine run.", error);
+		});
+	}, [
+		input.focusRunId,
+		focusedRun,
+		runsQuery.isSuccess,
+		runsQuery.hasNextPage,
+		runsQuery.isFetchingNextPage,
+		runsQuery.fetchNextPage,
+	]);
+	useEffect(() => {
+		if (focusedRun) {
+			focusedRunRef.current?.scrollIntoView?.({ block: "nearest" });
+		}
+	}, [focusedRun]);
 
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
@@ -45,11 +76,7 @@ export function CenterAgentRoutineRunsDialog(input: {
 						until they finish.
 					</DialogDescription>
 				</DialogHeader>
-				{runsQuery.isPending ? (
-					<p aria-live="polite" className="text-muted-foreground text-sm">
-						Loading runs.
-					</p>
-				) : null}
+				{runsQuery.isPending ? <SkeletonRows label="Loading runs" /> : null}
 				{runsQuery.isError ? (
 					<div className="rounded-md border border-destructive/50 bg-destructive/5 p-4">
 						<p className="break-words text-destructive text-sm" role="alert">
@@ -76,10 +103,23 @@ export function CenterAgentRoutineRunsDialog(input: {
 						No runs yet.
 					</p>
 				) : null}
+				{input.focusRunId &&
+				runsQuery.isSuccess &&
+				!focusedRun &&
+				!runsQuery.hasNextPage ? (
+					<p className="break-words text-muted-foreground text-sm">
+						Run {input.focusRunId} is no longer in the available history.
+					</p>
+				) : null}
 				{runs.length > 0 ? (
 					<ul className="divide-y divide-border/70 border border-border/70">
 						{runs.map((run) => (
-							<RoutineRunRow key={run.id} run={run} />
+							<RoutineRunRow
+								focused={run.id === input.focusRunId}
+								key={run.id}
+								ref={run.id === input.focusRunId ? focusedRunRef : undefined}
+								run={run}
+							/>
 						))}
 					</ul>
 				) : null}
@@ -102,11 +142,21 @@ export function CenterAgentRoutineRunsDialog(input: {
 	);
 }
 
-function RoutineRunRow(input: { run: CenterAgentRoutineRun }) {
+function RoutineRunRow(input: {
+	focused: boolean;
+	ref?: React.Ref<HTMLLIElement>;
+	run: CenterAgentRoutineRun;
+}) {
 	return (
-		<li className="min-w-0 px-4 py-4">
+		<li
+			className={`min-w-0 px-4 py-4 ${input.focused ? "bg-accent/40" : ""}`}
+			ref={input.ref}
+		>
 			<div className="flex flex-wrap items-center justify-between gap-2">
 				<div className="min-w-0">
+					{input.focused ? (
+						<p className="font-medium text-foreground text-xs">Selected Run</p>
+					) : null}
 					<p className="font-mono text-muted-foreground text-xs">
 						{input.run.id}
 					</p>

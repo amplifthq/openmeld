@@ -28,6 +28,13 @@ vi.mock("cloudflare:workers", async (importOriginal) => ({
       spans.push(captured);
       return callback({
         isTraced: true,
+        updateName(name) {
+          captured.name = name;
+          return this;
+        },
+        setStatus() {
+          return this;
+        },
         setAttribute(key, value) {
           captured.attributes[key] = value;
           return this;

@@ -1,4 +1,5 @@
 import type { WorkspaceClient } from "@cloudflare/computer";
+import { SPACE_FILE_UPLOAD_PART_BYTES } from "@openmeld/schemas";
 import type { SpaceFileDescriptor } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -7,7 +8,9 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { getRemoteAgentOpenMeldToolDefinitions } from "../agent-core/tools";
 import { getComputerSpaceFileTools } from "../flue-adapter/computer-space-files";
+import { materializeSpaceWork } from "../flue-adapter/space-work-materialization";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -39,6 +42,7 @@ describe("Computer Space file transfer", () => {
       id: "file_input",
       kind: "file",
       name: "input.bin",
+      origin: "artifact",
       path: "/input.bin",
       parentId: null,
       spaceId: request.spaceId,
@@ -67,6 +71,23 @@ describe("Computer Space file transfer", () => {
       organizationId: request.organizationId,
       objectKey: "input.bin",
     }));
+    const streamSpaceFileContent = vi.fn<
+      NonNullable<RemoteAgentCoreWorkerBinding["streamSpaceFileContent"]>
+    >(async () => ({
+      bytes: new Blob([bytes.slice().buffer]).stream(),
+      file,
+      revision: file.latestRevision,
+      organizationId: request.organizationId,
+      objectKey: "input.bin",
+    }));
+    const resolveSpaceFileContent = vi.fn<
+      NonNullable<RemoteAgentCoreWorkerBinding["resolveSpaceFileContent"]>
+    >(async () => ({
+      file,
+      revision: file.latestRevision,
+      organizationId: request.organizationId,
+      objectKey: "input.bin",
+    }));
     const writeSpaceFileContent = vi.fn<
       NonNullable<RemoteAgentCoreWorkerBinding["writeSpaceFileContent"]>
     >(async ({ write }) => ({
@@ -77,17 +98,66 @@ describe("Computer Space file transfer", () => {
         ...file.latestRevision,
         id: write.revisionId,
         fileId: write.fileId,
-        revision: 1,
+        revision: (write.baseRevision ?? 0) + 1,
       },
     }));
+    const uploadedParts = new Map<number, Uint8Array>();
+    const spaceFileUpload = vi.fn<
+      NonNullable<RemoteAgentCoreWorkerBinding["spaceFileUpload"]>
+    >(async ({ uploadId, command, body }) => {
+      if (command.action === "part") {
+        if (!body) {
+          throw new Error("Missing part bytes");
+        }
+        uploadedParts.set(
+          command.partNumber,
+          new Uint8Array(await new Response(body).arrayBuffer())
+        );
+      }
+      return {
+        uploadId,
+        expiresAt: new Date(TEST_NOW_MS + 86_400_000).toISOString(),
+        partSizeBytes: SPACE_FILE_UPLOAD_PART_BYTES,
+        parts: Array.from(uploadedParts, ([partNumber, data]) => ({
+          partNumber,
+          etag: `part-${partNumber}`,
+          sizeBytes: data.byteLength,
+        })),
+        ...(command.action === "complete"
+          ? {
+              file: {
+                ...file,
+                id: "file_large",
+                name: "large.mp4",
+                latestRevision: {
+                  ...file.latestRevision,
+                  fileId: "file_large",
+                  revision: 1,
+                  sizeBytes: 11 * 1024 * 1024,
+                  mimeType: "video/mp4",
+                },
+              },
+            }
+          : {}),
+      };
+    });
     const stored = new Map<string, Uint8Array>();
     const workspace = {
       fs: {
         mkdir: vi.fn(async () => undefined),
-        writeFile: vi.fn((path: string, data: Uint8Array) => {
-          stored.set(path, data);
-          return Promise.resolve();
-        }),
+        writeFile: vi.fn(
+          async (
+            path: string,
+            data: Uint8Array | ReadableStream<Uint8Array>
+          ) => {
+            stored.set(
+              path,
+              data instanceof Uint8Array
+                ? data
+                : new Uint8Array(await new Response(data).arrayBuffer())
+            );
+          }
+        ),
         lstat: vi.fn(async (path: string) => ({
           isFile: stored.has(path),
           isDirectory: !stored.has(path),
@@ -105,15 +175,29 @@ describe("Computer Space file transfer", () => {
     } as unknown as WorkspaceClient;
     const tools = getComputerSpaceFileTools({
       context,
-      coreWorker: { readSpaceFileContent, writeSpaceFileContent },
+      coreWorker: {
+        streamSpaceFileContent,
+        resolveSpaceFileContent,
+        writeSpaceFileContent,
+        spaceFileUpload,
+      },
       storage,
       workspaceAccess: {
         withWorkspace: async (operation) => await operation(workspace),
       },
       workingDirectory: "/computer/spaces/current",
     });
-    const [download, upload] = tools;
-    if (!(download && upload)) {
+    const [download, upload, save, attach] = tools;
+    const combined = [
+      ...getRemoteAgentOpenMeldToolDefinitions({
+        storage,
+        coreWorker: {},
+        submissionId: context.submissionId,
+      }),
+      ...tools,
+    ].map((tool) => tool.name);
+    expect(new Set(combined).size).toBe(combined.length);
+    if (!(download && upload && save && attach)) {
       throw new Error("Missing file tools");
     }
     const downloaded = (await download.execute({
@@ -122,7 +206,7 @@ describe("Computer Space file transfer", () => {
     })) as { path: string };
     expect(stored.get(downloaded.path)).toEqual(bytes);
     expect(downloaded).not.toHaveProperty("bytes");
-    expect(readSpaceFileContent.mock.calls[0]?.[0].spaceId).toBe(
+    expect(streamSpaceFileContent.mock.calls[0]?.[0].spaceId).toBe(
       request.spaceId
     );
     await upload.execute({
@@ -152,5 +236,99 @@ describe("Computer Space file transfer", () => {
       })
     ).rejects.toThrow();
     expect(writeSpaceFileContent).toHaveBeenCalledTimes(1);
-  });
+    const saved = await save.execute({
+      path: downloaded.path,
+      fileId: file.id,
+      baseRevision: 2,
+      mimeType: "application/octet-stream",
+      clientMutationId: "save-work",
+    });
+    expect(saved).toMatchObject({
+      attachedToFinalReply: false,
+      file: { id: file.id, latestRevision: { revision: 3 } },
+    });
+    expect(writeSpaceFileContent.mock.calls[1]?.[0].write).toMatchObject({
+      fileId: file.id,
+      baseRevision: 2,
+    });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, "files"))?.outputFiles
+    ).toHaveLength(1);
+    writeSpaceFileContent.mockRejectedValueOnce(
+      new Error("space_file.conflict")
+    );
+    await expect(
+      save.execute({
+        path: downloaded.path,
+        fileId: file.id,
+        baseRevision: 2,
+        mimeType: "application/octet-stream",
+        clientMutationId: "stale-work",
+      })
+    ).rejects.toThrow("space_file.conflict");
+    expect(stored.get(downloaded.path)).toEqual(bytes);
+    await attach.execute({ fileId: file.id, revision: 2 });
+    expect(resolveSpaceFileContent).toHaveBeenCalledTimes(1);
+    expect(
+      (await readRemoteAgentCallbackContext(storage, "files"))?.outputFiles
+    ).toContainEqual(expect.objectContaining({ fileId: file.id, revision: 2 }));
+    const large = new Uint8Array(11 * 1024 * 1024);
+    large.fill(73);
+    const largePath = "/computer/spaces/current/large.mp4";
+    stored.set(largePath, large);
+    await upload.execute({
+      path: largePath,
+      mimeType: "video/mp4",
+      clientMutationId: "publish-large-video",
+    });
+    expect(
+      spaceFileUpload.mock.calls.map(([call]) => call.command.action)
+    ).toEqual(["start", "part", "part", "complete"]);
+    expect(uploadedParts.get(1)).toEqual(
+      large.subarray(0, SPACE_FILE_UPLOAD_PART_BYTES)
+    );
+    expect(uploadedParts.get(2)).toEqual(
+      large.subarray(SPACE_FILE_UPLOAD_PART_BYTES)
+    );
+    expect(
+      (await readRemoteAgentCallbackContext(storage, "files"))?.outputFiles
+    ).toContainEqual(
+      expect.objectContaining({ fileId: "file_large", sizeBytes: large.length })
+    );
+    context.workHandoff = {
+      schemaVersion: 1,
+      files: [
+        { fileId: file.id, revision: 2, relativePath: "inputs/input.bin" },
+        { fileId: "missing", revision: 2, relativePath: "report.bin" },
+      ],
+      skills: [],
+      work: { goal: "Review", completed: "", nextSteps: "Check the inputs" },
+      requirements: [],
+    };
+    const preparation = {
+      context,
+      coreWorker: { readSpaceFileContent },
+      storage,
+      workspaceAccess: {
+        withWorkspace: async <T>(
+          operation: (client: WorkspaceClient) => Promise<T>
+        ) => await operation(workspace),
+      },
+      workingDirectory: "/computer/spaces/current",
+    };
+    await expect(materializeSpaceWork(preparation)).rejects.toThrow(
+      "selected revision"
+    );
+    expect(
+      await storage.get(`space-work:${context.submissionId}`)
+    ).toBeUndefined();
+    context.workHandoff.files.pop();
+    const preparedRoot = await materializeSpaceWork(preparation);
+    expect(stored.get(`${preparedRoot}/inputs/input.bin`)).toEqual(bytes);
+    stored.set(`${preparedRoot}/inputs/input.bin`, new Uint8Array([9]));
+    expect(await materializeSpaceWork(preparation)).toBe(preparedRoot);
+    expect(stored.get(`${preparedRoot}/inputs/input.bin`)).toEqual(
+      new Uint8Array([9])
+    );
+  }, 30_000);
 });

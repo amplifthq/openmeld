@@ -47,7 +47,6 @@ export function createDaemonStreamKeepalive(input: {
   };
 
   const armPongDeadline = (): void => {
-    clearPongDeadline();
     pongDeadlineTimer = setTimeout(() => {
       pongDeadlineTimer = null;
       // Stop before reporting so a dead socket is never pinged again while
@@ -64,6 +63,13 @@ export function createDaemonStreamKeepalive(input: {
     start(): void {
       stop();
       pingTimer = setInterval(() => {
+        // One unanswered probe owns one finite deadline. A later interval can
+        // become runnable alongside that deadline after a long scheduling gap;
+        // sending another PING must not replace the original deadline and keep
+        // a half-open socket alive indefinitely.
+        if (pongDeadlineTimer) {
+          return;
+        }
         let sent = false;
         try {
           sent = input.sendPing();

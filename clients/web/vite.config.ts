@@ -5,23 +5,34 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target";
 // @ts-expect-error Build-only JavaScript helper.
 import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
+import { resolveCliBuildEnvironment } from "./scripts/cli-target-config";
 import { desktopPilotBuildPrerequisites } from "./scripts/desktop-pilot-build";
 import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts";
+import { optionalMediaModules } from "./scripts/optional-media-modules";
 
+const nodeModulesPathPattern = /\/node_modules\//;
+const extendComponentsPathPattern = /\/src\/components\/extend\//;
+const lucideIconsPackagePattern = /^lucide-react$/;
+const phosphorIconsPackagePattern = /^@phosphor-icons\/react$/;
+const streamdownMermaidChunkPattern = /^\.\/mermaid-[\w-]+\.js$/;
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
 
-const config = defineConfig(({ command }) => {
+const config = defineConfig(({ command, mode }) => {
 	const installedTarget = readInstalledDesktopTarget(process.env);
 	if (installedTarget) {
 		Object.assign(process.env, {
 			VITE_BETTER_AUTH_URL: installedTarget.webOrigin,
 		});
 	}
+	const cliBuildEnvironment = resolveCliBuildEnvironment({
+		...loadEnv(mode, import.meta.dirname, "VITE_"),
+		...process.env,
+	});
 	const desktopPilotBuild =
 		process.env.OPENMELD_DESKTOP_PILOT === "1" &&
 		command === "build" &&
@@ -53,6 +64,12 @@ const config = defineConfig(({ command }) => {
 	}
 	return {
 		define: {
+			...Object.fromEntries(
+				Object.entries(cliBuildEnvironment).map(([key, value]) => [
+					`import.meta.env.${key}`,
+					JSON.stringify(value),
+				])
+			),
 			__OPENMELD_DESKTOP_WEB_BUILD__: JSON.stringify(desktopWebBuild),
 			__OPENMELD_DESKTOP_PILOT__: JSON.stringify(desktopPilotBuild),
 			__OPENMELD_WEB_BUILD__: JSON.stringify({
@@ -68,6 +85,24 @@ const config = defineConfig(({ command }) => {
 		},
 		// Keep browser diagnostics private. Full SSR maps exceed the current 4 GB
 		// release build budget; server errors retain native Worker invocation logs.
+		// Extend's document viewers split their worker bundles into ESM chunks.
+		worker: { format: "es" },
+		// Pre-bundling moves these entrypoints away from their sibling worker files.
+		// Keep the package URLs intact so Vite can serve and bundle each worker.
+		optimizeDeps: {
+			exclude: [
+				"@extend-ai/react-docx",
+				"@extend-ai/react-pptx",
+				"@extend-ai/react-xlsx",
+			],
+			// Keep the viewers' CommonJS dependencies pre-bundled separately.
+			include: [
+				"@extend-ai/react-docx > utif",
+				"@extend-ai/react-docx > react-dom/server",
+				"@extend-ai/react-pptx > react-dom/server",
+				"@extend-ai/react-pptx > regl",
+			],
+		},
 		environments: {
 			client: {
 				build: {
@@ -78,6 +113,40 @@ const config = defineConfig(({ command }) => {
 			},
 		},
 		plugins: [
+			{
+				name: "openmeld-client-only-heavy-modules",
+				enforce: "pre",
+				resolveId(source, importer) {
+					if (
+						this.environment.name === "ssr" &&
+						[
+							"#/components/extend/file-system",
+							"#/components/extend/pdf-viewer",
+							"#/components/extend/docx-viewer",
+							"#/components/extend/pptx-viewer",
+							"#/components/extend/xlsx-viewer",
+						].includes(source)
+					) {
+						return "\0openmeld-client-only-extend-viewer";
+					}
+					if (
+						this.environment.name === "ssr" &&
+						streamdownMermaidChunkPattern.test(source) &&
+						importer?.includes("/node_modules/streamdown/dist/")
+					) {
+						return "\0openmeld-client-only-streamdown-mermaid";
+					}
+				},
+				load(id) {
+					if (id === "\0openmeld-client-only-extend-viewer") {
+						return "export const FileSystem = () => null; export const PDFViewer = () => null; export const DocxViewerPreview = () => null; export const PptxViewerPreview = () => null; export const XlsxViewerPreview = () => null;";
+					}
+					if (id === "\0openmeld-client-only-streamdown-mermaid") {
+						return "export const Mermaid = () => null;";
+					}
+				},
+			},
+			optionalMediaModules(),
 			desktopPilotBuildPrerequisites(
 				desktopRendererBuild,
 				installedTarget?.webOrigin
@@ -100,6 +169,9 @@ const config = defineConfig(({ command }) => {
 			},
 			cloudflare({
 				viteEnvironment: { name: "ssr" },
+				...(process.env.OPENMELD_RELEASE_ARTIFACT_CHECK === "1"
+					? { remoteBindings: false, persistState: false, inspectorPort: false }
+					: {}),
 				...(isolatedDev
 					? {
 							config(workerConfig) {
@@ -124,31 +196,60 @@ const config = defineConfig(({ command }) => {
 				},
 			}),
 			viteReact({
+				exclude: [nodeModulesPathPattern, extendComponentsPathPattern],
 				babel: {
-					plugins: ["babel-plugin-react-compiler"],
+					// React Compiler is optional at runtime. Keep it for fast local feedback,
+					// but avoid its whole-app Babel graph in memory-bound release builds.
+					plugins: command === "build" ? [] : ["babel-plugin-react-compiler"],
 				},
 			}),
 			tailwindcss(),
 		],
 		resolve: {
-			alias: {
-				"@openmeld/schemas/schemas": path.resolve(
-					import.meta.dirname,
-					"../../packages/schemas/src/schemas/index.ts"
-				),
-				"@openmeld/schemas/testing": path.resolve(
-					import.meta.dirname,
-					"../../packages/schemas/src/testing/space-members.ts"
-				),
-				"@openmeld/schemas/types": path.resolve(
-					import.meta.dirname,
-					"../../packages/schemas/src/types/index.ts"
-				),
-				"@openmeld/schemas": path.resolve(
-					import.meta.dirname,
-					"../../packages/schemas/src/index.ts"
-				),
-			},
+			alias: [
+				{
+					find: lucideIconsPackagePattern,
+					replacement: path.resolve(
+						import.meta.dirname,
+						"./src/lib/lucide-icons.ts"
+					),
+				},
+				{
+					find: phosphorIconsPackagePattern,
+					replacement: path.resolve(
+						import.meta.dirname,
+						"./src/lib/phosphor-icons.ts"
+					),
+				},
+				{
+					find: "@openmeld/schemas/schemas",
+					replacement: path.resolve(
+						import.meta.dirname,
+						"../../packages/schemas/src/schemas/index.ts"
+					),
+				},
+				{
+					find: "@openmeld/schemas/testing",
+					replacement: path.resolve(
+						import.meta.dirname,
+						"../../packages/schemas/src/testing/space-members.ts"
+					),
+				},
+				{
+					find: "@openmeld/schemas/types",
+					replacement: path.resolve(
+						import.meta.dirname,
+						"../../packages/schemas/src/types/index.ts"
+					),
+				},
+				{
+					find: "@openmeld/schemas",
+					replacement: path.resolve(
+						import.meta.dirname,
+						"../../packages/schemas/src/index.ts"
+					),
+				},
+			],
 		},
 		...(isolatedDev
 			? {

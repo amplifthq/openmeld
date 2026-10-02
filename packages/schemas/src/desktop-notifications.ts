@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { inboxSourceTargetSchema } from "./schemas/http/inbox";
 
 export const inboxVisibleConversationSchema = z.strictObject({
   kind: z.literal("space"),
@@ -15,19 +16,53 @@ export const desktopNotificationReferenceSchema = z.strictObject({
   organizationSlug: z.string().min(1).max(200),
   itemId: z.string().min(1),
 });
+export const desktopTrayComputerSchema = z.strictObject({
+  available: z.boolean(),
+  statusLabel: z.string().trim().min(1).max(120),
+  statusTone: z.enum(["connected", "offline", "attention"]).optional(),
+});
 export const desktopNotificationRequestSchema =
   desktopNotificationReferenceSchema.extend({
     soundEnabled: z.boolean(),
   });
+export const desktopNotificationActivationSchema =
+  desktopNotificationReferenceSchema.extend({
+    sourceTarget: inboxSourceTargetSchema,
+  });
+export type DesktopNotificationActivation = z.infer<
+  typeof desktopNotificationActivationSchema
+>;
 export const desktopNotificationTestSchema = z.strictObject({
   userId: z.string().min(1),
   soundEnabled: z.boolean(),
 });
+export const desktopInboxAttentionSchema = z.strictObject({
+  priorityCount: z.number().int().nonnegative().safe().optional(),
+  needsActionCount: z.number().int().nonnegative().safe().optional(),
+  needsReviewCount: z.number().int().nonnegative().safe().optional(),
+  unreadPriorityUpdateCount: z.number().int().nonnegative().safe().optional(),
+  ordinaryUnreadCount: z.number().int().nonnegative().safe(),
+  unreadMentionCount: z.number().int().nonnegative().safe(),
+  unreadUrgentUpdateCount: z.number().int().nonnegative().safe(),
+  unresolvedActionCount: z.number().int().nonnegative().safe(),
+});
+export type DesktopInboxAttention = z.infer<typeof desktopInboxAttentionSchema>;
 export const desktopNotificationContextSchema = z
   .strictObject({
     userId: z.string().min(1),
     organizationId: z.string().min(1),
+    organizationSlug: z.string().min(1).max(200).optional(),
     enabled: z.boolean(),
+    computer: desktopTrayComputerSchema.optional(),
+    inboxRefreshRevision: z.number().int().nonnegative().safe().optional(),
+    latestUnreadStatus: z.enum(["loading", "ready", "unavailable"]).optional(),
+    unreadCountStatus: z.enum(["loading", "ready", "unavailable"]).optional(),
+    navigationKey: z.string().max(200).optional(),
+    attention: desktopInboxAttentionSchema.nullable().optional(),
+    // Accepted only for compatibility with an older renderer. It is not used
+    // as the native attention title because the scalar mixes quiet backlog
+    // with important work.
+    unreadCount: z.number().int().nonnegative().safe().nullable().optional(),
     visibleConversation: inboxVisibleConversationSchema.nullable(),
   })
   .nullable();

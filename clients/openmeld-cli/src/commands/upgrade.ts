@@ -4,14 +4,21 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
 import {
+  allowUnsignedWindowsInternalPreview,
   type CliBinaryUpdatePlan,
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
+  prepareCliBinaryProcessHelper,
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
-import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
+import type {
+  OpenMeldToolsUpdateFailureCode,
+  OpenMeldToolsUpdateOperation,
+} from "@openmeld/schemas/types";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import { hasIndependentMaintenanceRegistration } from "../config/daemon-service-update-worker-registration";
+import { resolveOpenMeldEnvPreset } from "../config/paths";
 import {
   buildNextVersionState,
   type CliBinaryReleaseInfo,
@@ -35,7 +42,12 @@ import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-s
 import { resolveVersionChangeDirection } from "../local-service/lifecycle/version-change-direction";
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import { createOpenMeldToolsUpdateCoordinator } from "../local-service/maintenance/openmeld-tools-update-coordinator";
+import {
+  OpenMeldToolsUpdateFailureError,
+  withOpenMeldToolsUpdateFailure,
+} from "../local-service/maintenance/openmeld-tools-update-failure";
 import { resolveExternalOpenMeldToolsUpdate } from "../local-service/maintenance/openmeld-tools-update-join";
+import { parseOpenMeldToolsUpdateFailureFrame } from "../local-service/maintenance/openmeld-tools-update-process-frame";
 import {
   formatInlineOpenMeldCliCommands,
   formatOpenMeldCliTextBlock,
@@ -64,13 +76,10 @@ import { formatElapsedTime, resolveElapsedTimeMs } from "../ui/elapsed-time";
 import { emitTopLevelAgentOverview } from "./top-level-agent-overview";
 
 const OPENMELD_PACKAGE_NAME = "openmeld";
-const CLI_BINARY_DOWNLOAD_TIMEOUT_MS = 60_000;
-const BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND =
-  "curl -fsSL 'https://openmeld.ai/setup?dist=binary' | sh";
+const BINARY_UPGRADE_RECOVERY_URL = "https://openmeld.ai";
 const STAGING_BINARY_MANIFEST_URL =
   "https://staging.openmeld.ai/cli/manifest.json";
-const STAGING_BINARY_SETUP_COMMAND =
-  "curl -fsSL 'https://staging.openmeld.ai/setup?lane=canary&dist=binary' | sh";
+const STAGING_BINARY_UPGRADE_RECOVERY_URL = "https://staging.openmeld.ai";
 const INSTALL_SELF_JSON_LINE_SPLIT_RE = /\r?\n/u;
 const SERVICE_CHECK_STARTED_TEXT = "Checking OpenMeld Service";
 const SERVICE_CHECK_COMPLETED_TEXT = "OpenMeld Service check finished.";
@@ -88,16 +97,25 @@ class UpgradeOutputHandledError extends Error {
 export function isUpgradeOutputHandledError(
   error: unknown
 ): error is UpgradeOutputHandledError {
-  return (
-    error instanceof UpgradeOutputHandledError ||
-    (typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: unknown }).code === "openmeld.upgrade.output_handled")
-  );
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if (
+      current instanceof UpgradeOutputHandledError ||
+      (current as { code?: unknown }).code === "openmeld.upgrade.output_handled"
+    ) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 type UpgradeDistribution = "npm" | "binary";
+type ManualUpgradeRecovery =
+  | { kind: "command"; value: string }
+  | { kind: "web"; value: string };
 
 type ResolvedUpgradeStatusBase = {
   distribution: UpgradeDistribution;
@@ -191,27 +209,23 @@ async function runUpgradeWithRuntime(
   }
 
   if (input.internalAlignService) {
-    await runInternalUpgradeServiceAlignment({
+    await alignServiceWithCurrentCli({
       presenter,
       resolvedView: runtime.resolvedView,
-      daemonVersion: await resolveCurrentDaemonExpectedVersion(),
-      ...(process.argv[1] && !isBinaryDistribution()
-        ? { cliScriptPath: process.argv[1] }
-        : {}),
     });
     return;
   }
 
   const allowPrompt = canUseInteractivePrompts(runtime);
   const currentVersion = OPENMELD_VERSION;
-  const { currentGlobalInstall, manualUpgradeCommand } =
+  const { currentGlobalInstall, manualUpgradeRecovery } =
     await resolveUpgradeInstallContext();
   const previousVersionState = await readVersionState();
   if (!previousVersionState) {
     handleMissingVersionMetadata({
       presenter,
       resolvedView: runtime.resolvedView,
-      manualUpgradeCommand,
+      manualUpgradeRecovery,
     });
   }
 
@@ -286,7 +300,7 @@ async function runUpgradeWithRuntime(
       presenter,
       resolvedView: runtime.resolvedView,
       upgradeStatus,
-      manualUpgradeCommand,
+      manualUpgradeRecovery,
     });
   }
 
@@ -303,7 +317,7 @@ async function runUpgradeWithRuntime(
     await installAndReconcileBinaryUpgrade({
       upgradeStatus: installableUpgradeStatus,
       previousVersionState,
-      manualUpgradeCommand,
+      manualUpgradeRecovery,
       resolvedView: runtime.resolvedView,
       currentVersion,
       presenter,
@@ -315,7 +329,7 @@ async function runUpgradeWithRuntime(
     upgradeStatus: installableUpgradeStatus,
     previousVersionState,
     currentGlobalInstall,
-    manualUpgradeCommand,
+    manualUpgradeRecovery,
     resolvedView: runtime.resolvedView,
     currentVersion,
     presenter,
@@ -326,13 +340,20 @@ async function alignServiceWithCurrentCli(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
 }): Promise<void> {
-  await runInternalUpgradeServiceAlignment({
-    ...input,
-    daemonVersion: await resolveCurrentDaemonExpectedVersion(),
-    ...(process.argv[1] && !isBinaryDistribution()
-      ? { cliScriptPath: process.argv[1] }
-      : {}),
-  });
+  try {
+    await runInternalUpgradeServiceAlignment({
+      ...input,
+      daemonVersion: await resolveCurrentDaemonExpectedVersion(),
+      ...(process.argv[1] && !isBinaryDistribution()
+        ? { cliScriptPath: process.argv[1] }
+        : {}),
+    });
+  } catch (error) {
+    throw withOpenMeldToolsUpdateFailure(
+      error,
+      "cli.update.service_alignment_failed"
+    );
+  }
 }
 
 async function requestMaintainedUpgrade(input: {
@@ -489,7 +510,7 @@ function requireInstallableUpgradeStatus(
 async function installAndReconcileBinaryUpgrade(input: {
   upgradeStatus: InstallableUpgradeStatus;
   previousVersionState: OpenMeldVersionStateV1 | null;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
   resolvedView: "human" | "agent";
   currentVersion: string;
   presenter: ReturnType<typeof createPresenter>;
@@ -518,15 +539,16 @@ async function installAndReconcileBinaryUpgrade(input: {
     startedText: `Downloading and installing OpenMeld CLI (about ${bytesToRoundedMb(updatePlan.downloadSizeBytes)} MB)`,
     completedText: `OpenMeld CLI ${input.upgradeStatus.latestVersion} installed.`,
     data: {
-      command: input.manualUpgradeCommand,
+      recoveryUrl: input.manualUpgradeRecovery.value,
       downloadSizeBytes: updatePlan.downloadSizeBytes,
       distribution: input.upgradeStatus.distribution,
       preferredTransport: updatePlan.transport,
     },
+    failureCode: "cli.update.install_failed",
     run: async () =>
       await installLatestCliBinary({
         release: binaryRelease,
-        manualUpgradeCommand: input.manualUpgradeCommand,
+        manualUpgradeRecovery: input.manualUpgradeRecovery,
         updatePlan,
       }),
   });
@@ -547,6 +569,7 @@ async function installAndReconcileBinaryUpgrade(input: {
     code: "upgrade.service_alignment",
     startedText: SERVICE_CHECK_STARTED_TEXT,
     completedText: SERVICE_CHECK_COMPLETED_TEXT,
+    failureCode: "cli.update.service_alignment_failed",
     run: async () =>
       await handoffUpgradeServiceAlignmentToLatestBinary({
         resolvedView: input.resolvedView,
@@ -571,7 +594,7 @@ async function installAndReconcileNpmUpgrade(input: {
   upgradeStatus: InstallableUpgradeStatus;
   previousVersionState: OpenMeldVersionStateV1 | null;
   currentGlobalInstall: CurrentGlobalInstall | null;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
   resolvedView: "human" | "agent";
   currentVersion: string;
   presenter: ReturnType<typeof createPresenter>;
@@ -585,14 +608,15 @@ async function installAndReconcileNpmUpgrade(input: {
     startedText: "Downloading and installing OpenMeld CLI with npm",
     completedText: `OpenMeld CLI ${input.upgradeStatus.latestVersion} installed.`,
     data: {
-      command: input.manualUpgradeCommand,
+      command: input.manualUpgradeRecovery.value,
       distribution: input.upgradeStatus.distribution,
     },
+    failureCode: "cli.update.install_failed",
     run: async () =>
       await installLatestPackage({
         npmCommandSpec,
         currentGlobalInstall: input.currentGlobalInstall,
-        manualUpgradeCommand: input.manualUpgradeCommand,
+        manualUpgradeCommand: input.manualUpgradeRecovery.value,
       }),
   });
 
@@ -613,6 +637,7 @@ async function installAndReconcileNpmUpgrade(input: {
     code: "upgrade.service_alignment",
     startedText: SERVICE_CHECK_STARTED_TEXT,
     completedText: SERVICE_CHECK_COMPLETED_TEXT,
+    failureCode: "cli.update.service_alignment_failed",
     run: async () =>
       await handoffUpgradeServiceAlignmentToLatestBinary({
         resolvedView: input.resolvedView,
@@ -638,12 +663,15 @@ async function resolveUpgradeInstallContext(): Promise<{
   currentGlobalInstall: Awaited<
     ReturnType<typeof resolveCurrentNpmGlobalPackageInstall>
   > | null;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
 }> {
   if (isBinaryDistribution()) {
     return {
       currentGlobalInstall: null,
-      manualUpgradeCommand: resolveBinaryManualOpenMeldUpgradeCommand(),
+      manualUpgradeRecovery: {
+        kind: "web",
+        value: resolveBinaryUpgradeRecoveryUrl(),
+      },
     };
   }
   const currentGlobalInstall = await resolveCurrentNpmGlobalPackageInstall({
@@ -663,28 +691,37 @@ async function resolveUpgradeInstallContext(): Promise<{
   }
   return {
     currentGlobalInstall,
-    manualUpgradeCommand: buildManualOpenMeldUpgradeCommand({
-      globalPrefixPath: currentGlobalInstall?.globalPrefixPath ?? null,
-    }),
+    manualUpgradeRecovery: {
+      kind: "command",
+      value: buildManualOpenMeldUpgradeCommand({
+        globalPrefixPath: currentGlobalInstall?.globalPrefixPath ?? null,
+      }),
+    },
   };
 }
 
-export function resolveBinaryManualOpenMeldUpgradeCommand(
+export function resolveBinaryUpgradeRecoveryUrl(
   env: NodeJS.ProcessEnv = process.env
 ): string {
   return env.OPENMELD_ENV_PRESET === "canary" &&
     env.OPENMELD_CLI_BINARY_MANIFEST_URL === STAGING_BINARY_MANIFEST_URL
-    ? STAGING_BINARY_SETUP_COMMAND
-    : BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND;
+    ? STAGING_BINARY_UPGRADE_RECOVERY_URL
+    : BINARY_UPGRADE_RECOVERY_URL;
+}
+
+function formatManualUpgradeRecovery(recovery: ManualUpgradeRecovery): string {
+  return recovery.kind === "web"
+    ? `Open ${recovery.value}, go to Computers, and use Update manually or Connect Computer to get a fresh setup command. Run that command on this Mac.`
+    : `Run \`${recovery.value}\`.`;
 }
 
 function handleMissingVersionMetadata(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
 }): never {
   const errorMessage = formatOpenMeldCliTextBlock(
-    `OpenMeld version metadata is missing, so automatic upgrade cannot continue.\nManual fallback: \`${input.manualUpgradeCommand}\`\nIf you want to repair local OpenMeld state first, run \`openmeld reset --yes\` before \`openmeld upgrade\`.`
+    `OpenMeld version metadata is missing, so automatic upgrade cannot continue.\nManual fallback: ${formatManualUpgradeRecovery(input.manualUpgradeRecovery)}\nIf you want to repair local OpenMeld state first, run \`openmeld reset --yes\` before \`openmeld upgrade\`.`
   );
   if (input.resolvedView === "agent") {
     input.presenter.data({
@@ -693,12 +730,12 @@ function handleMissingVersionMetadata(input: {
         summary:
           "Local OpenMeld version metadata is missing, so automatic upgrade cannot verify downgrade safety.",
         nextSteps: [
-          input.manualUpgradeCommand,
+          formatManualUpgradeRecovery(input.manualUpgradeRecovery),
           "openmeld-dev reset --yes --view agent",
           "openmeld-dev start",
           "openmeld-dev upgrade --check --view agent",
         ],
-        humanActionRequired: false,
+        humanActionRequired: input.manualUpgradeRecovery.kind === "web",
       },
     });
     throw new UpgradeOutputHandledError(errorMessage);
@@ -710,12 +747,12 @@ function handleUpgradeCheckFailure(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
   upgradeStatus: Extract<UpgradeStatus, { status: "check_failed" }>;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
 }): never {
   const errorMessage = formatOpenMeldCliTextBlock(
     `Version check failed (${input.upgradeStatus.error}). Upgrade stopped because downgrade protection requires confirming that ${formatUpgradeLatestSource(
       input.upgradeStatus.distribution
-    )} is newer than the current CLI.\nManual fallback: \`${input.manualUpgradeCommand}\``
+    )} is newer than the current CLI.\nManual fallback: ${formatManualUpgradeRecovery(input.manualUpgradeRecovery)}`
   );
   if (input.resolvedView === "agent") {
     input.presenter.data({
@@ -723,11 +760,11 @@ function handleUpgradeCheckFailure(input: {
       payload: {
         ...input.upgradeStatus,
         nextSteps: [
-          input.manualUpgradeCommand,
+          formatManualUpgradeRecovery(input.manualUpgradeRecovery),
           "openmeld-dev upgrade --check --view agent",
           "openmeld-dev upgrade --yes --view agent",
         ],
-        humanActionRequired: false,
+        humanActionRequired: input.manualUpgradeRecovery.kind === "web",
       },
     });
     throw new UpgradeOutputHandledError(errorMessage);
@@ -841,7 +878,7 @@ async function resolveUpgradeConfirmation(input: {
 
 async function installLatestCliBinary(input: {
   release: CliBinaryReleaseInfo;
-  manualUpgradeCommand: string;
+  manualUpgradeRecovery: ManualUpgradeRecovery;
   updatePlan: CliBinaryUpdatePlan;
 }): Promise<{
   version: string;
@@ -850,7 +887,7 @@ async function installLatestCliBinary(input: {
   const tmpDir = await mkdtemp(join(tmpdir(), "openmeld-cli-upgrade-"));
   try {
     const artifactBytes = await downloadCliBinaryUpdateArtifact({
-      downloadTimeoutMs: CLI_BINARY_DOWNLOAD_TIMEOUT_MS,
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
       fetchImpl: fetch,
       onDeltaFallback: (error) => {
         process.stderr.write(
@@ -867,9 +904,18 @@ async function installLatestCliBinary(input: {
     await writeFile(artifactPath, artifactBytes);
     await chmod(artifactPath, 0o755);
     await verifyCliBinaryCodeSignature({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath,
+      allowUnsignedForDevelopment: resolveOpenMeldEnvPreset() === "dev-local",
       release: input.release,
       runCommand,
+    });
+    await prepareCliBinaryProcessHelper({
+      allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
+      artifactPath,
+      release: input.release,
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+      fetchImpl: fetch,
     });
 
     const installResult = await runCommand(artifactPath, [
@@ -884,7 +930,7 @@ async function installLatestCliBinary(input: {
         formatOpenMeldCliTextBlock(
           `binary install-self failed (exit ${installResult.code})${
             details ? `: ${details}` : ""
-          }\nManual fallback: \`${input.manualUpgradeCommand}\``
+          }\nManual fallback: ${formatManualUpgradeRecovery(input.manualUpgradeRecovery)}`
         )
       );
     }
@@ -1052,11 +1098,14 @@ async function runInternalUpgradeServiceAlignment(input: {
     throw new UpgradeOutputHandledError(errorMessage);
   }
 
+  const updateContext = readOpenMeldToolsUpdateContextFromEnv();
   const scheduled = await scheduleDaemonServiceUpdate({
     targetVersion: daemonVersion,
     ...(binaryRelease?.version === daemonVersion ? { binaryRelease } : {}),
     urgency: await resolveServiceUpdateUrgency(),
-    ...(readOpenMeldToolsUpdateContextFromEnv() ?? {}),
+    ...(updateContext ?? {}),
+    targetCliVersion: OPENMELD_VERSION,
+    targetServiceVersion: daemonVersion,
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
   });
   if (input.resolvedView === "human") {
@@ -1102,6 +1151,15 @@ async function handoffUpgradeServiceAlignmentToLatestBinary(input: {
     useInheritedOutput
   );
   if (handoffResult.code !== 0) {
+    const processFailure = parseOpenMeldToolsUpdateFailureFrame(
+      handoffResult.stdout
+    );
+    if (processFailure) {
+      throw new OpenMeldToolsUpdateFailureError({
+        failureCode: processFailure.failureCode,
+        message: processFailure.detail,
+      });
+    }
     if (useInheritedOutput) {
       throw new Error(
         formatUpgradeReconcileFailureMessage({
@@ -1218,6 +1276,9 @@ async function runSpawnedCommand(input: {
 }> {
   return await new Promise((resolve, reject) => {
     const child = spawn(input.command, input.args, {
+      // Preserve inherited terminal output, but never allocate a new console
+      // when the same upgrade path runs under the background maintenance task.
+      windowsHide: true,
       stdio:
         input.forwardOutput && input.useInheritedOutput
           ? ["ignore", "inherit", "inherit"]
@@ -1462,6 +1523,7 @@ async function runUpgradeStage<T>(input: {
   startedText: string;
   completedText: string;
   failedText?: string;
+  failureCode?: OpenMeldToolsUpdateFailureCode;
   data?: Record<string, unknown>;
   run: () => Promise<T>;
 }): Promise<T> {
@@ -1472,7 +1534,9 @@ async function runUpgradeStage<T>(input: {
     return result;
   } catch (error) {
     stage.fail(input.failedText ?? `${input.startedText} failed.`);
-    throw error;
+    throw input.failureCode
+      ? withOpenMeldToolsUpdateFailure(error, input.failureCode)
+      : error;
   }
 }
 

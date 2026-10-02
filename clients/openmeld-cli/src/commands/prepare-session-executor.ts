@@ -1,4 +1,6 @@
 import {
+  type ComputerConnectionProgressObservation,
+  type ComputerConnectionProgressPhase,
   PREPARE_SESSION_STREAM_PROTOCOL_VERSION,
   prepareSessionResponseSchema,
   prepareSessionStreamServerFrameSchema,
@@ -300,6 +302,7 @@ async function runPrepareSessionExecutorOnce(input: {
   emitHumanSection(input.input, "OpenMeld setup");
   const connectionProgress = startPrepareProgressStep(input.input, {
     code: "prepare.session.progress.connect_terminal",
+    phase: "connecting_service",
     text: "Connecting Terminal to OpenMeld Web...",
   });
 
@@ -312,6 +315,7 @@ async function runPrepareSessionExecutorOnce(input: {
         opaqueToken: input.input.startSession,
         prepareSessionId: input.initial.prepareSessionId,
       }));
+    input.input.connectedStream = stream;
     const connected = await waitForSnapshotWithProgress({
       input: input.input,
       stream,
@@ -670,6 +674,7 @@ export async function reportLocalAgentCatalogForSelection(input: {
   emitHumanSection(input.input, "Local agents");
   const progress = startPrepareProgressStep(input.input, {
     code: "prepare.session.progress.local_agents",
+    phase: "confirming",
     text: "Checking local agents...",
   });
   const reconciliation = input.input.localAgentSelection
@@ -907,6 +912,7 @@ export async function runTerminalStep(
 ): Promise<PrepareSessionSnapshot> {
   const progress = startPrepareProgressStep(input.input, {
     code: `prepare.session.progress.${input.stepId}`,
+    phase: resolveTerminalStepProgressPhase(input.stepId),
     text: input.message,
   });
   const stepStartRevision = input.snapshot.sessionRevision;
@@ -1948,10 +1954,10 @@ export function formatTerminalStepFailureMessage(input: {
   }
   if (input.stepId === "refresh_service") {
     if (input.serviceJobVerdict === "never_spawned") {
-      return "macOS didn't start OpenMeld Service. Open System Settings > General > Login Items & Extensions, turn on the OpenMeld background item, then return to OpenMeld Web and choose Try again.";
+      return `OpenMeld Service did not start. Run \`${formatOpenMeldCliCommand("openmeld service repair")}\` once. If OpenMeld's background item is off in System Settings > General > Login Items & Extensions, turn it on. Then choose Try again in OpenMeld Web.`;
     }
     if (input.serviceJobVerdict === "crashed") {
-      return `OpenMeld Service keeps stopping after it starts. Run \`${formatOpenMeldCliCommand(
+      return `OpenMeld Service stopped after it started. Run \`${formatOpenMeldCliCommand(
         "openmeld service repair"
       )}\` once; OpenMeld saved the failure details for support.`;
     }
@@ -2047,6 +2053,12 @@ export type PrepareSessionStream = {
     localAgentIds: string[];
   }): void;
   writeTerminalStep(input: TerminalStepWriteInput): void;
+  writeConnectionProgress?(input: {
+    code: string;
+    detail?: string;
+    phase: ComputerConnectionProgressPhase;
+    state: ComputerConnectionProgressObservation["state"];
+  }): void;
 };
 
 export function buildPrepareSessionClientHelloFrame(input: {
@@ -2127,6 +2139,7 @@ export async function waitForSnapshotWithProgress(input: {
     }
     progress = startPrepareProgressStep(input.input, {
       code: "prepare.session.waiting",
+      phase: "connecting_service",
       text: input.waitingMessage,
     });
     progressStartedByWait = true;
@@ -2212,6 +2225,10 @@ export async function connectPrepareSessionStream(input: {
   // predate the diagnostics field reject the whole frame, so the base failure
   // report is resent once without it; snapshots clear the pending copy.
   let pendingStepWriteFallbackFrame: unknown = null;
+  let supportsConnectionProgress = false;
+  const progressOperationId = crypto.randomUUID();
+  const progressStartedAt = new Date().toISOString();
+  let progressSequence = 0;
   const assertStreamOpen = (): void => {
     if (closedError) {
       throw closedError;
@@ -2270,6 +2287,10 @@ export async function connectPrepareSessionStream(input: {
     }
     if (frame.type === "server.error") {
       handleServerErrorFrame(frame.payload);
+      return;
+    }
+    if (frame.type === "server.capabilities") {
+      supportsConnectionProgress = frame.payload.connectionProgress === 1;
       return;
     }
     if (frame.type !== "snapshot" && frame.type !== "snapshot_changed") {
@@ -2353,6 +2374,33 @@ export async function connectPrepareSessionStream(input: {
       sendFrame({
         type: "terminal.step.write",
         payload: { ...basePayload, diagnostics: step.diagnostics },
+      });
+    },
+    writeConnectionProgress: (progress) => {
+      if (!supportsConnectionProgress) {
+        return;
+      }
+      const snapshot = latestSnapshot;
+      const connectionEpoch = snapshot?.terminalConnection.connectionEpoch;
+      if (!(snapshot && connectionEpoch)) {
+        return;
+      }
+      sendFrame({
+        type: "terminal.connection_progress.write",
+        payload: {
+          schemaVersion: 1,
+          operationId: progressOperationId,
+          attemptId: progressOperationId,
+          prepareSessionId: snapshot.prepareSessionId,
+          connectionEpoch,
+          sequence: progressSequence++,
+          startedAt: progressStartedAt,
+          observedAt: new Date().toISOString(),
+          phase: progress.phase,
+          state: progress.state,
+          code: progress.code,
+          ...(progress.detail ? { detail: progress.detail.slice(0, 512) } : {}),
+        },
       });
     },
     writeTerminalLocalAgentCatalog: (catalog) => {
@@ -2489,10 +2537,17 @@ function emitPrepareProgressLine(
   progress: {
     code?: string;
     data?: Record<string, unknown>;
+    phase?: ComputerConnectionProgressPhase;
     state: "pending" | "success";
     text: string;
   }
 ): void {
+  writeConnectionProgressObservation(input, {
+    code: progress.code ?? `prepare.session.progress.${progress.state}`,
+    phase: progress.phase ?? "confirming",
+    state: progress.state === "success" ? "completed" : "active",
+    text: progress.text,
+  });
   createPrepareProgressReporter(input).line({
     code: progress.code ?? `prepare.session.progress.${progress.state}`,
     data: progress.data,
@@ -2504,8 +2559,15 @@ function emitPrepareProgressLine(
 function emitPrepareProgressDetail(
   input: PrepareSessionExecutorInput,
   text: string,
-  code?: string
+  code?: string,
+  phase: ComputerConnectionProgressPhase = "confirming"
 ): void {
+  writeConnectionProgressObservation(input, {
+    code: code ?? "prepare.session.progress.detail",
+    phase,
+    state: "active",
+    text,
+  });
   createPrepareProgressReporter(input).detail({
     code: code ?? "prepare.session.progress.detail",
     text,
@@ -2517,14 +2579,92 @@ function startPrepareProgressStep(
   progress: {
     code: string;
     data?: Record<string, unknown>;
+    phase: ComputerConnectionProgressPhase;
     text: string;
   }
 ): SetupProgressStepHandle {
-  return createPrepareProgressReporter(input).startStep({
+  writeConnectionProgressObservation(input, {
+    code: progress.code,
+    phase: progress.phase,
+    state: "active",
+    text: progress.text,
+  });
+  const handle = createPrepareProgressReporter(input).startStep({
     code: progress.code,
     data: progress.data,
     text: progress.text,
   });
+  return {
+    cancel: handle.cancel,
+    complete: (message) => {
+      handle.complete(message);
+      writeConnectionProgressObservation(input, {
+        code: `${progress.code}.completed`,
+        phase: progress.phase,
+        state: "completed",
+        text: message ?? progress.text,
+      });
+    },
+    detail: (detail) => {
+      handle.detail(detail);
+      writeConnectionProgressObservation(input, {
+        code: detail.code ?? `${progress.code}.detail`,
+        phase: progress.phase,
+        state: "active",
+        text: detail.text,
+      });
+    },
+    fail: (message) => {
+      handle.fail(message);
+      writeConnectionProgressObservation(input, {
+        code: `${progress.code}.failed`,
+        phase: "needs_attention",
+        state: "failed",
+        text: message ?? progress.text,
+      });
+    },
+  };
+}
+
+function writeConnectionProgressObservation(
+  input: PrepareSessionExecutorInput,
+  progress: {
+    code: string;
+    phase: ComputerConnectionProgressPhase;
+    state: "active" | "completed" | "failed";
+    text: string;
+  }
+): void {
+  try {
+    input.connectedStream?.writeConnectionProgress?.({
+      code: progress.code,
+      detail: progress.text,
+      phase: progress.phase,
+      state: progress.state,
+    });
+  } catch {
+    // Progress observation cannot interrupt authoritative Prepare execution.
+  }
+}
+
+function resolveTerminalStepProgressPhase(
+  stepId: PrepareStepId
+): ComputerConnectionProgressPhase {
+  switch (stepId) {
+    case "computer":
+    case "connect_terminal":
+    case "refresh_service":
+      return "connecting_service";
+    case "choose_local_agents":
+    case "prepare_selected_agents":
+    case "report_runtime":
+    case "verify_setup":
+      return "confirming";
+    case "ready":
+      return "connected";
+    default:
+      return "connecting_service";
+  }
 }
 
 function createPrepareProgressReporter(

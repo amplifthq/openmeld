@@ -9,6 +9,12 @@ import { gunzipSync } from "node:zlib";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
+  admitNpmCliArtifact,
+  prepareNpmCliArtifact,
+  verifyPreparedNpmCliArtifact,
+  verifyPublishedNpmCliArtifact,
+} from "./npm-cli-artifact.mjs";
+import {
   readNpmPublicationReceipt,
   recordNpmPublicationReceipt,
 } from "./npm-publication-receipt.mjs";
@@ -49,6 +55,12 @@ export async function runResumableCliRelease(input) {
     fetch: input.adapters?.fetch ?? input.fetch ?? fetch,
     runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
     runStep: input.adapters?.runStep ?? input.release.runStep,
+    prepareNpmArtifact:
+      input.adapters?.prepareNpmArtifact ?? prepareNpmCliArtifact,
+    verifyNpmArtifact:
+      input.adapters?.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact,
+    verifyPreparedNpmArtifact:
+      input.adapters?.verifyPreparedNpmArtifact ?? verifyPreparedNpmCliArtifact,
     publishCliReleaseTag:
       input.adapters?.publishCliReleaseTag ??
       input.release.publishCliReleaseTag,
@@ -107,10 +119,14 @@ export async function runResumableCliRelease(input) {
       write
     );
     printCliReleaseDecisions(initial, write);
-    return initial;
+    return {
+      ...initial,
+      receiptIdentity: buildCliReleaseReceiptIdentity(target, initial.binary),
+      sourceSha: target.headSha,
+    };
   }
 
-  return await executeIncompleteCliRelease({
+  const result = await executeIncompleteCliRelease({
     adapters,
     cwd,
     env,
@@ -120,6 +136,65 @@ export async function runResumableCliRelease(input) {
     withBinary,
     write,
   });
+  return {
+    ...result,
+    receiptIdentity: buildCliReleaseReceiptIdentity(target, result.binary),
+    sourceSha: target.headSha,
+  };
+}
+
+// Reuse the CLI owner's immutable channel checks for receipt recovery without
+// entering any publisher, tag writer or deployment path.
+export async function readCompletedCliRelease(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const adapters = {
+    fetch: input.adapters?.fetch ?? fetch,
+    runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
+    readRemoteTagCommit:
+      input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
+    verifyNpmArtifact:
+      input.adapters?.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact,
+  };
+  const target = resolveCliReleaseTarget({ cwd });
+  const result = await probeCliReleaseStages({ cwd, env, adapters, target });
+  if (result.alignment.action !== "SKIP" || result.tag.action !== "SKIP") {
+    throw new Error(
+      "Retained CLI receipt is not fully aligned; reconcile its immutable stages before continuing."
+    );
+  }
+  return { ...result, sourceSha: target.headSha };
+}
+
+// Train admission uses the CLI owner's immutable npm probe before deciding
+// whether a new local artifact is needed. A genuinely published package is
+// verified from npm and never depends on build scripts from its old source.
+export async function admitCliNpmArtifact(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const target = resolveCliReleaseTarget({ cwd });
+  if (input.sourceSha && target.headSha !== input.sourceSha) {
+    throw new Error(
+      "CLI npm admission source does not match the release train."
+    );
+  }
+  const adapters = {
+    fetch: input.adapters?.fetch ?? input.fetch ?? fetch,
+    runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
+    verifyNpmArtifact:
+      input.adapters?.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact,
+  };
+  const npm = await probeNpmPublishStage({ adapters, cwd, env, target });
+  if (npm.action === "SKIP") {
+    return { npm, sourceSha: target.headSha };
+  }
+  if (npm.action !== "RUN") {
+    throw new Error(npm.reason);
+  }
+  const artifact = await (
+    input.adapters?.admitNpmArtifact ?? admitNpmCliArtifact
+  )({ cwd, env, sourceSha: target.headSha });
+  return { artifact, npm, sourceSha: target.headSha };
 }
 
 async function resumeNpmVerification(input) {
@@ -165,11 +240,13 @@ export function resolveCoreProjectionTag(input = {}) {
 }
 
 export async function probeCliReleaseStages(input) {
-  const [binary, npm, core] = await Promise.all([
-    probeCliBinaryStage(input),
+  const [npm, core] = await Promise.all([
     probeNpmPublishStage(input),
     probeCoreProjectionStage(input),
   ]);
+  // Command adapters may block the event loop; do not consume HTTP deadlines
+  // while synchronous npm/Wrangler probes prevent network progress.
+  const binary = await probeCliBinaryStage(input);
   const tag = input.tag ?? probeReleaseTagStage(input);
   return {
     alignment: decideChannelAlignmentStage({ binary, core, npm }),
@@ -226,8 +303,30 @@ async function executeIncompleteCliRelease(input) {
     failureContext: "The production Core Queue gate did not complete.",
     step: productionQueueGate,
   });
-  runBinaryReleaseStage({ ...input, preTagSteps });
-  const npmPublishedThisRun = runNpmReleaseStage({ ...input, preTagSteps });
+  // Prepare before any immutable upload or npm attempted receipt. A local pack
+  // or install failure must not look like a possibly accepted publication.
+  const npmArtifact =
+    input.initial.npm.action === "RUN"
+      ? await input.adapters.prepareNpmArtifact({
+          cwd: input.cwd,
+          env: input.env,
+        })
+      : null;
+  try {
+    return await publishPreparedCliRelease({
+      ...input,
+      preTagSteps,
+      npmArtifact,
+      target: { ...input.target, npmIntegrity: npmArtifact?.integrity },
+    });
+  } finally {
+    npmArtifact?.cleanup();
+  }
+}
+
+async function publishPreparedCliRelease(input) {
+  runBinaryReleaseStage(input);
+  const npmPublishedThisRun = runNpmReleaseStage(input);
   runReleaseTagStage(input);
   runCoreProjectionStage(input);
 
@@ -300,6 +399,10 @@ function runNpmReleaseStage(input) {
   );
   printStageDecision("npm publish", input.initial.npm, input.write);
   if (input.initial.npm.action === "RUN") {
+    if (!input.npmArtifact?.path) {
+      throw new Error("npm publication requires a verified CLI tarball.");
+    }
+    input.adapters.verifyPreparedNpmArtifact(input.npmArtifact);
     const receiptInput = { cwd: input.cwd, env: input.env, ...input.target };
     input.adapters.recordNpmPublicationReceipt({
       ...receiptInput,
@@ -309,7 +412,10 @@ function runNpmReleaseStage(input) {
       ...input,
       failureContext:
         "npm publish may be incomplete or may already have succeeded.",
-      step: npmStep,
+      step: {
+        ...npmStep,
+        args: ["publish", input.npmArtifact.path, ...npmStep.args.slice(1)],
+      },
     });
     input.adapters.recordNpmPublicationReceipt({
       ...receiptInput,
@@ -351,6 +457,14 @@ export async function waitForNpmPropagation(input) {
       npm.action !== "RUN" ||
       npm.criterion !== "npm-target-version-missing"
     ) {
+      if (
+        npm.action === "SKIP" &&
+        npm.criterion === "npm-artifact-consumable"
+      ) {
+        input.write(
+          "\n[release:cli] npm availability — CONFIRMED: the exact published package is downloadable and verified. Final R2/npm/Core alignment remains to be checked.\n"
+        );
+      }
       break;
     }
   }
@@ -420,6 +534,9 @@ function resolveCliReleaseTarget(input) {
   const packageJson = JSON.parse(
     readFileSync(join(input.cwd, "clients/openmeld-cli/package.json"), "utf8")
   );
+  const releaseManifest = JSON.parse(
+    readFileSync(join(input.cwd, "release/local-components.json"), "utf8")
+  );
   const headSha = execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
     cwd: input.cwd,
     encoding: "utf8",
@@ -428,12 +545,15 @@ function resolveCliReleaseTarget(input) {
     coreTag: resolveCoreProjectionTag(input),
     headSha,
     minRequiredCliVersion: packageJson.openmeld?.minRequiredCliVersion ?? null,
+    serviceVersion:
+      releaseManifest?.components?.service?.bundleVersion ??
+      packageJson.version,
     tagName: `v${packageJson.version}`,
     version: packageJson.version,
   };
 }
 
-async function probeCliBinaryStage(input) {
+export async function probeCliBinaryStage(input) {
   try {
     const manifest = await fetchCliChannelManifest({
       fetch: input.adapters.fetch,
@@ -447,12 +567,18 @@ async function probeCliBinaryStage(input) {
         manifest,
         platform: CLI_BINARY_PLATFORM,
         targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+        targetServiceVersion: input.target.serviceVersion,
         targetVersion: input.target.version,
       });
     }
     const artifact =
       manifest?.channels?.stable?.platforms?.[CLI_BINARY_PLATFORM];
-    const probeArtifact = async ({ archive, url }) => {
+    const selectedService = manifest.channels.stable.service ?? {
+      platforms: manifest.channels.stable.platforms,
+      version: manifest.channels.stable.version,
+    };
+    const serviceArtifact = selectedService.platforms?.[CLI_BINARY_PLATFORM];
+    const probeArtifact = async ({ archive, expectedSizeBytes, url }) => {
       if (typeof url !== "string" || url.length === 0) {
         return null;
       }
@@ -476,7 +602,7 @@ async function probeCliBinaryStage(input) {
           }
           const compressed = Buffer.from(await response.arrayBuffer());
           const reconstructed = gunzipSync(compressed, {
-            maxOutputLength: artifact.sizeBytes,
+            maxOutputLength: expectedSizeBytes,
           });
           return {
             contentLength: compressed.byteLength,
@@ -504,26 +630,85 @@ async function probeCliBinaryStage(input) {
         clearTimeout(timeout);
       }
     };
-    const [artifactProbe, archiveProbe] = await Promise.all([
-      probeArtifact({ archive: false, url: artifact?.url }),
-      probeArtifact({ archive: true, url: artifact?.archiveUrl }),
+    const [
+      artifactProbe,
+      archiveProbe,
+      serviceArtifactProbe,
+      serviceArchiveProbe,
+    ] = await Promise.all([
+      probeArtifact({
+        archive: false,
+        expectedSizeBytes: artifact?.sizeBytes,
+        url: artifact?.url,
+      }),
+      probeArtifact({
+        archive: true,
+        expectedSizeBytes: artifact?.sizeBytes,
+        url: artifact?.archiveUrl,
+      }),
+      input.target.serviceVersion === input.target.version
+        ? Promise.resolve(null)
+        : probeArtifact({
+            archive: false,
+            expectedSizeBytes: serviceArtifact?.sizeBytes,
+            url: serviceArtifact?.url,
+          }),
+      input.target.serviceVersion === input.target.version
+        ? Promise.resolve(null)
+        : probeArtifact({
+            archive: true,
+            expectedSizeBytes: serviceArtifact?.sizeBytes,
+            url: serviceArtifact?.archiveUrl,
+          }),
     ]);
-    return decideCliBinaryStage({
+    const decision = decideCliBinaryStage({
       archiveProbe,
       artifactProbe,
       manifest,
       platform: CLI_BINARY_PLATFORM,
+      serviceArchiveProbe,
+      serviceArtifactProbe,
       targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+      targetServiceVersion: input.target.serviceVersion,
       targetVersion: input.target.version,
     });
+    return decision.action === "SKIP" && artifact
+      ? {
+          ...decision,
+          publishedArtifact: {
+            ...artifact,
+            platform: CLI_BINARY_PLATFORM,
+          },
+        }
+      : decision;
   } catch (error) {
     return decideCliBinaryStage({
       platform: CLI_BINARY_PLATFORM,
       probeError: error instanceof Error ? error.message : String(error),
       targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+      targetServiceVersion: input.target.serviceVersion,
       targetVersion: input.target.version,
     });
   }
+}
+
+function buildCliReleaseReceiptIdentity(target, binary) {
+  if (
+    binary.action !== "SKIP" ||
+    binary.criterion !== "verified-published-record" ||
+    !binary.publishedArtifact
+  ) {
+    throw new Error(
+      "Completed CLI release is missing its verified published binary identity."
+    );
+  }
+  return {
+    artifact: binary.publishedArtifact,
+    kind: "cli-release",
+    npmPackage: "openmeld",
+    tagName: target.tagName,
+    version: target.version,
+  };
 }
 
 async function probeNpmPublishStage(input) {
@@ -534,6 +719,10 @@ async function probeNpmPublishStage(input) {
         `openmeld@${input.target.version}`,
         "version",
         "openmeld.minRequiredCliVersion",
+        "dependencies",
+        "optionalDependencies",
+        "peerDependencies",
+        "dist",
         "--json",
         "--registry=https://registry.npmjs.org/",
         "--prefer-online",
@@ -542,11 +731,34 @@ async function probeNpmPublishStage(input) {
       cwd: input.cwd,
       env: input.env,
     });
-    return decideNpmPublishStage({
+    const decision = decideNpmPublishStage({
       ...result,
       targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
       targetVersion: input.target.version,
     });
+    if (decision.action !== "SKIP") {
+      return decision;
+    }
+    try {
+      await (input.adapters.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact)(
+        {
+          metadata: JSON.parse(result.stdout),
+          target: input.target,
+          env: input.env,
+          fetch: input.adapters.fetch,
+        }
+      );
+      return {
+        ...decision,
+        criterion: "npm-artifact-consumable",
+        reason: `${decision.reason}; its published tarball and npm consumer are verified`,
+      };
+    } catch (error) {
+      return {
+        action: "FAIL",
+        reason: `npm artifact verification failed for openmeld@${input.target.version}: ${error instanceof Error ? error.message : String(error)}. Do not republish this immutable version.`,
+      };
+    }
   } catch (error) {
     return decideNpmPublishStage({
       status: 1,
@@ -587,7 +799,7 @@ function probeReleaseTagStage(input) {
   });
 }
 
-async function probeCoreProjectionStage(input) {
+export async function probeCoreProjectionStage(input) {
   let deploymentsResult;
   let versionsResult;
   try {

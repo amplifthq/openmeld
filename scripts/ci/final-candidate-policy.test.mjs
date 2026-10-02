@@ -11,6 +11,7 @@ import {
   createFinalCandidatePlan,
   evidenceMatchesCandidate,
   executeCandidateChecks,
+  resolveCandidateDependencyScope,
 } from "./final-candidate-policy.mjs";
 
 const BASE_SHA = "1".repeat(40);
@@ -38,6 +39,55 @@ const createPlan = (changedPaths, overrides = {}) =>
   });
 
 const checkIds = (plan) => plan.selectedChecks.map((check) => check.id);
+
+test("documentation tooling needs only root dependencies; executable checks retain the workspace", () => {
+  for (const candidateKind of ["pull-request", "merge-group"]) {
+    for (const confidence of ["standard", "full"]) {
+      assert.equal(
+        resolveCandidateDependencyScope(
+          createPlan(["developing/README.md", "changelog/index.json"], {
+            candidateKind,
+            confidence,
+            mode: "remote",
+          })
+        ),
+        "root"
+      );
+    }
+  }
+  for (const changedPaths of [
+    [],
+    ["clients/web/src/sidebar.tsx"],
+    ["package.json", "README.md"],
+    ["release/openmeld-cli-skill/playbooks/agent-onboarding.md"],
+    ["release/local-components.json"],
+    ["scripts/docs/verify-docs-lifecycle.mjs"],
+  ]) {
+    assert.equal(
+      resolveCandidateDependencyScope(createPlan(changedPaths)),
+      "workspace",
+      changedPaths.join(", ")
+    );
+  }
+  const futurePlan = createPlan(["README.md"]);
+  futurePlan.selectedChecks.push({ id: "new-check" });
+  assert.equal(resolveCandidateDependencyScope(futurePlan), "workspace");
+});
+
+test("Final Candidate checks signed Skill Markdown even when the diff is documentation-only", () => {
+  for (const [path, selected] of [
+    ["release/openmeld-cli-skill/playbooks/agent-onboarding.md", true],
+    ["clients/web/public/skills/openmeld-cli/releases/4/SKILL.md", true],
+    ["developing/engineering/official-cli-skill.md", false],
+    ["clients/web/src/sidebar.tsx", false],
+  ]) {
+    assert.equal(
+      checkIds(createPlan([path])).includes("cli-skill-integrity"),
+      selected,
+      path
+    );
+  }
+});
 
 test("selects a cheap documentation-only gate without pretending unit tests add value", () => {
   const plan = createPlan(["AGENTS.md", "developing/README.md"]);
@@ -80,7 +130,7 @@ test("treats the complete generated Changelog projection as documentation only",
 test("standard final certification does not repeat workspace checks and unit tests", () => {
   const plan = createPlan(["clients/web/src/app.tsx"]);
 
-  assert.deepEqual(checkIds(plan), ["diff-integrity", "repository-contracts"]);
+  assert.deepEqual(checkIds(plan), ["diff-integrity"]);
   assert.ok(!checkIds(plan).includes("affected-integration-tests"));
 });
 
@@ -92,7 +142,6 @@ test("shared schema changes retain database and release guards without broad rer
 
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
-    "repository-contracts",
     "database-contract",
     "local-components-release-ready",
   ]);
@@ -127,7 +176,6 @@ test("keeps engineering-only schemas out of product integration and release gate
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
     "trusted-control-entrypoints",
-    "repository-contracts",
   ]);
   assert.ok(!plan.riskTags.includes("cross-boundary"));
   assert.ok(!plan.riskTags.includes("local-components"));
@@ -145,10 +193,23 @@ test("a mixed engineering and runtime schema diff retains release guards", () =>
   assert.ok(plan.riskTags.includes("local-components"));
 });
 
-test("uses strict release-ready verification only on an exact versioned release branch", () => {
+test("a product change with docs and Changelog runs only their static contracts", () => {
+  const plan = createPlan([
+    "clients/web/src/app.tsx",
+    "developing/clients/web.md",
+    "changelog/entries/web-change.md",
+  ]);
+  assert.deepEqual(checkIds(plan), [
+    "diff-integrity",
+    "documentation-contracts",
+    "changelog-contract",
+  ]);
+});
+
+test("a stamped candidate uses strict release-ready verification on any branch", () => {
   const plan = createPlan(
     ["clients/openmeld-cli/package.json", "release/local-components.json"],
-    { branchName: "codex/release-0.4.0-1234abcd" }
+    { branchName: "codex/feature-and-release" }
   );
 
   assert.deepEqual(
@@ -159,7 +220,16 @@ test("uses strict release-ready verification only on an exact versioned release 
   );
 });
 
-test("delivery infrastructure runs its behavior contracts without an empty Turbo lane", () => {
+test("CLI package metadata alone does not force a release stamp", () => {
+  const plan = createPlan(["clients/openmeld-cli/package.json"]);
+  assert.ok(
+    plan.selectedChecks
+      .find((check) => check.id === "local-components-release-ready")
+      .command.includes("--defer-release")
+  );
+});
+
+test("delivery infrastructure relies on focused owner tests before Ready", () => {
   const plan = createPlan([
     ".github/workflows/final-candidate.yml",
     "scripts/ci/final-candidate.mjs",
@@ -169,12 +239,11 @@ test("delivery infrastructure runs its behavior contracts without an empty Turbo
     "diff-integrity",
     "trusted-control-entrypoints",
     "repository-code-quality",
-    "repository-contracts",
   ]);
   assert.ok(plan.riskTags.includes("delivery-infrastructure"));
 });
 
-test("a scripts and Web mixed diff retains control and affected workspace checks", () => {
+test("a scripts and Web mixed diff avoids a repository-wide rerun", () => {
   const plan = createPlan([
     "scripts/ci/final-candidate.mjs",
     "clients/web/src/app.tsx",
@@ -184,7 +253,6 @@ test("a scripts and Web mixed diff retains control and affected workspace checks
     "diff-integrity",
     "trusted-control-entrypoints",
     "repository-code-quality",
-    "repository-contracts",
   ]);
 });
 
@@ -209,7 +277,7 @@ test("a pure delivery infrastructure diff skips only the empty affected lane", (
   );
 });
 
-test("delivery infrastructure with its owner docs and Changelog skips the empty affected lane", () => {
+test("delivery infrastructure with docs checks only its relevant static contracts", () => {
   const plan = createPlan([
     "scripts/ci/final-candidate-reuse.mjs",
     "scripts/ci/final-candidate-reuse.test.mjs",
@@ -221,15 +289,17 @@ test("delivery infrastructure with its owner docs and Changelog skips the empty 
     "diff-integrity",
     "trusted-control-entrypoints",
     "repository-code-quality",
-    "repository-contracts",
+    "documentation-contracts",
+    "changelog-contract",
   ]);
   assert.deepEqual(plan.riskTags, ["executable", "delivery-infrastructure"]);
 });
 
-test("an unclassified operations script retains repository contracts", () => {
+test("an unclassified operations script does not trigger repository-wide contracts", () => {
   const plan = createPlan(["scripts/ops/rebuild-search-index.mjs"]);
 
   assert.ok(!checkIds(plan).includes("affected-unit-tests"));
+  assert.ok(!checkIds(plan).includes("repository-contracts"));
   assert.ok(!plan.riskTags.includes("delivery-infrastructure"));
 });
 
@@ -273,6 +343,26 @@ test("full confidence does not repeat its affected unit and integration subsets"
   assert.ok(!ids.includes("affected-integration-tests"));
 });
 
+test("a lockfile-only local current-main plan is not a control-plane refuse", () => {
+  const plan = createPlan(["pnpm-lock.yaml"], {
+    controlTrust: "current-main",
+    mode: "local",
+    planSourceSha: BASE_SHA,
+  });
+
+  assert.ok(!checkIds(plan).includes("trusted-control-entrypoints"));
+  assert.ok(checkIds(plan).includes("repository-contracts"));
+});
+
+test("hosted still verifies control entrypoints on a lockfile-only candidate", () => {
+  const plan = createPlan(["pnpm-lock.yaml"], {
+    mode: "remote",
+    planSourceSha: BASE_SHA,
+  });
+
+  assert.ok(checkIds(plan).includes("trusted-control-entrypoints"));
+});
+
 test("a hosted plan adds a trusted current-main entrypoint check", () => {
   const plan = createPlan(["clients/web/src/app.tsx"], {
     mode: "remote",
@@ -304,7 +394,6 @@ test("an explicitly stronger plan replaces affected lanes with full confidence",
 
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
-    "repository-contracts",
     "full-repository-confidence",
   ]);
   assert.ok(plan.riskTags.includes("full-confidence"));

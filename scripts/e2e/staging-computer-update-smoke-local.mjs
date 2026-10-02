@@ -26,6 +26,7 @@ const API_HELPER = path.join(
   "staging-computer-update-smoke-api.mjs"
 );
 const STAGING_VERSION_PATTERN = /^\d+\.\d+\.\d+-staging\./u;
+const LAUNCHD_PID_PATTERN = /\bpid = (\d+)\b/u;
 
 export function assertLiveSmokeHost() {
   if (process.platform !== "darwin" || process.arch !== "arm64") {
@@ -148,10 +149,16 @@ export async function readStagingManifest() {
   }
   const manifest = await response.json();
   const version = String(manifest?.channels?.stable?.version ?? "").trim();
+  const serviceVersion = String(
+    manifest?.channels?.stable?.service?.version ?? version
+  ).trim();
   const release = manifest?.channels?.stable?.platforms?.["darwin-arm64"];
   const artifactUrls = [release?.url, release?.archiveUrl];
   if (
-    !STAGING_VERSION_PATTERN.test(version) ||
+    !(
+      STAGING_VERSION_PATTERN.test(version) &&
+      STAGING_VERSION_PATTERN.test(serviceVersion)
+    ) ||
     artifactUrls.some(
       (url) =>
         typeof url !== "string" ||
@@ -160,7 +167,7 @@ export async function readStagingManifest() {
   ) {
     throw new Error("Staging CLI manifest points outside the Staging channel.");
   }
-  return { version };
+  return { serviceVersion, version };
 }
 
 export async function waitForNewStagingManifest(previousVersion) {
@@ -221,6 +228,56 @@ export function restartCanaryService(input) {
   });
 }
 
+export function runCanaryMaintenanceTick(input) {
+  runCommand({
+    args: [
+      "kickstart",
+      `gui/${String(process.getuid())}/${CANARY_UPDATE_LABEL}`,
+    ],
+    command: "launchctl",
+    label: "run the scheduled Canary maintenance tick",
+    sensitiveValues: input.sensitiveValues,
+  });
+}
+
+export function readCanaryServiceIdentity(input) {
+  const result = runCommand({
+    args: ["print", `gui/${String(process.getuid())}/${CANARY_SERVICE_LABEL}`],
+    command: "launchctl",
+    label: "read Canary Service launchd identity",
+    sensitiveValues: input.sensitiveValues,
+  });
+  const pid = Number(LAUNCHD_PID_PATTERN.exec(result.stdout)?.[1]);
+  if (!(Number.isInteger(pid) && pid > 0)) {
+    throw new Error("Canary Service identity is unavailable while running.");
+  }
+  const processResult = runCommand({
+    args: ["-o", "lstart=", "-o", "command=", "-p", String(pid)],
+    command: "ps",
+    label: "read Canary Service process start time",
+    sensitiveValues: input.sensitiveValues,
+  });
+  const processLines = processResult.stdout.trim().split("\n");
+  const processIdentity = processLines.at(-1)?.trim() ?? "";
+  return {
+    pid,
+    processIdentity,
+    startedAt: processIdentity.slice(0, 24).trim(),
+  };
+}
+
+export function assertCanaryServiceIdentityUnchanged(before, after) {
+  if (
+    before.pid !== after.pid ||
+    before.startedAt !== after.startedAt ||
+    before.processIdentity !== after.processIdentity
+  ) {
+    throw new Error(
+      `Healthy Canary Service changed during a CLI-only update: ${JSON.stringify({ before, after })}`
+    );
+  }
+}
+
 export function assertCliVersion(input) {
   const result = runCanaryCli({
     args: ["--version"],
@@ -252,7 +309,8 @@ export async function waitForServiceRunning(input) {
     accept: (status) =>
       status.runtimeStatus === "running" &&
       (!status.serviceVersion ||
-        status.serviceVersion === input.expectedVersion),
+        status.serviceVersion ===
+          (input.expectedServiceVersion ?? input.expectedVersion)),
   });
 }
 
@@ -296,23 +354,12 @@ export async function waitForUpdateOperation(input) {
   return await waitForValue({
     label: "OpenMeld Tools update operation",
     timeoutMs: input.timeoutMs,
-    read: readCurrentUpdateOperation,
-    accept: (operation) => Boolean(operation && input.predicate(operation)),
-  });
-}
-
-export async function waitForCoreToReportCurrentVersion(input) {
-  await waitForValue({
-    label: `Staging Core current version ${input.expectedVersion}`,
-    timeoutMs: 2 * 60 * 1000,
-    read: () =>
-      runStagingApiHelper({
-        command: "request-update",
-        sensitiveValues: input.sensitiveValues,
-      }),
-    accept: (result) =>
-      result.status === "current" &&
-      result.currentVersion === input.expectedVersion,
+    read: async () =>
+      findMatchingUpdateOperation(
+        await readCurrentUpdateOperations(),
+        input.predicate
+      ),
+    accept: (operation) => Boolean(operation),
   });
 }
 
@@ -391,35 +438,47 @@ export function pass(label, detail) {
   );
 }
 
-async function readCurrentUpdateOperation() {
+async function readCurrentUpdateOperations() {
   const candidates = [
     ["service-update.json", "service"],
     ["tools-update.json", "tools"],
     ["service-update-last.json", "service"],
     ["tools-update-last.json", "tools"],
   ];
-  for (const [filename, kind] of candidates) {
-    const state = await readJsonIfPresent(
-      path.join(UPDATE_STATE_ROOT, filename)
-    );
+  const states = await Promise.all(
+    candidates.map(async ([filename, kind]) => ({
+      kind,
+      state: await readJsonIfPresent(path.join(UPDATE_STATE_ROOT, filename)),
+    }))
+  );
+  return states.flatMap(({ kind, state }) => {
     if (!state) {
-      continue;
+      return [];
     }
     if (kind === "service") {
-      return {
-        errorMessage: state.errorMessage ?? null,
-        operationId: state.jobId,
-        phase: state.phase,
-        requestSource: state.requestSource,
-        targetVersion: state.targetVersion,
-      };
+      return [
+        {
+          errorMessage: state.errorMessage ?? null,
+          operationId: state.jobId,
+          phase: state.phase,
+          requestSource: state.requestSource,
+          targetVersion: state.targetVersion,
+          targetCliVersion: state.targetCliVersion,
+          targetServiceVersion: state.targetServiceVersion,
+        },
+      ];
     }
-    return {
-      errorMessage: state.errorMessage ?? null,
-      ...state.operation,
-    };
-  }
-  return null;
+    return [
+      {
+        errorMessage: state.errorMessage ?? null,
+        ...state.operation,
+      },
+    ];
+  });
+}
+
+export function findMatchingUpdateOperation(operations, predicate) {
+  return operations.find(predicate) ?? null;
 }
 
 async function readJsonIfPresent(filePath) {

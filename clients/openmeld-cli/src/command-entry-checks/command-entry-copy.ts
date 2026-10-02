@@ -287,6 +287,46 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "reading Organization Skills",
     profileAction: null,
   },
+  "files.list": {
+    ...DEFAULT_COPY,
+    signInAction: "listing files",
+    profileAction: null,
+  },
+  "files.read": {
+    ...DEFAULT_COPY,
+    signInAction: "reading a file",
+    profileAction: null,
+  },
+  "files.history": {
+    ...DEFAULT_COPY,
+    signInAction: "reading file history",
+    profileAction: null,
+  },
+  "files.copy": {
+    ...DEFAULT_COPY,
+    signInAction: "copying a file",
+    profileAction: null,
+  },
+  "files.copy-to-space": {
+    ...DEFAULT_COPY,
+    signInAction: "copying a file to a Space",
+    profileAction: null,
+  },
+  "files.upload": {
+    ...DEFAULT_COPY,
+    signInAction: "uploading a file",
+    profileAction: null,
+  },
+  "files.write": {
+    ...DEFAULT_COPY,
+    signInAction: "updating a file",
+    profileAction: null,
+  },
+  "files.download": {
+    ...DEFAULT_COPY,
+    signInAction: "downloading a file",
+    profileAction: null,
+  },
   "skills.ensure": {
     ...DEFAULT_COPY,
     signInAction: null,
@@ -305,6 +345,16 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
   "skills.list": {
     ...DEFAULT_COPY,
     signInAction: "listing Organization Skills",
+    profileAction: null,
+  },
+  "skills.add": {
+    ...DEFAULT_COPY,
+    signInAction: "adding a Team Skill",
+    profileAction: null,
+  },
+  "skills.scan": {
+    ...DEFAULT_COPY,
+    signInAction: "reviewing a GitHub Skill repository",
     profileAction: null,
   },
   "plugins.list": {
@@ -371,6 +421,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "listing computers",
     profileAction: null,
     cliUpdateAction: "listing computers",
+    serviceAction: null,
+  },
+  "computer.disconnect": {
+    signInAction: "disconnecting this computer",
+    profileAction: null,
+    cliUpdateAction: "disconnecting this computer",
     serviceAction: null,
   },
   "computer.current": {
@@ -498,6 +554,18 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "leaving a space",
     profileAction: "leaving a space",
     cliUpdateAction: "leaving a space",
+    serviceAction: null,
+  },
+  "space.files.handoff": {
+    signInAction: "handing off Space files",
+    profileAction: "handing off Space files",
+    cliUpdateAction: "handing off Space files",
+    serviceAction: null,
+  },
+  "space.files.working-copy": {
+    signInAction: "working on Space files locally",
+    profileAction: "working on Space files locally",
+    cliUpdateAction: "working on Space files locally",
     serviceAction: null,
   },
   "space.files.list": {
@@ -666,6 +734,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "joining a public Organization Space",
     profileAction: "joining a public Organization Space",
     cliUpdateAction: "joining a public Organization Space",
+    serviceAction: null,
+  },
+  "space.respond": {
+    signInAction: "answering a task’s request",
+    profileAction: "answering a task’s request",
+    cliUpdateAction: "answering a task’s request",
     serviceAction: null,
   },
   "space.wake_progress": {

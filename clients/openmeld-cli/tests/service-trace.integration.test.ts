@@ -923,6 +923,31 @@ describe("service trace command", () => {
       traceResponse.trace = {
         ...traceResponse.trace,
         result: null,
+        runtimeCoordinatorEvents: [
+          {
+            eventId: "admission-rejection-1",
+            eventType: "delivery_rejected",
+            factSource: "runtime_coordinator_projection",
+            idempotencyKey: "admission-rejection-1",
+            observedAtMs: 1_762_473_605_000,
+            payloadJson: JSON.stringify({
+              deliveryRouteEvidence: {
+                acceptingDispatches: "not_accepting",
+                admissionEvidence: {
+                  acceptingDispatches: false,
+                  connectionGeneration: 1,
+                  revision: 2,
+                  changedAtMs: 1_762_473_604_000,
+                  reasonCode: "host_configure_failed",
+                  detailCode: "host.catalog_replaced",
+                },
+              },
+            }),
+            reasonCode: "daemon.profile.offline",
+            runtimeCoordinatorExecutionId: "rce-demo",
+            statusAfter: "delivery_rejected",
+          },
+        ],
         resultInbox: {
           ...resultInbox,
           publishState: "result_accepted",
@@ -974,6 +999,16 @@ describe("service trace command", () => {
           diagnosticSummary: expect.stringContaining(
             "finalVisibleOutcome=not_applicable delivered=false"
           ),
+          admissionRejections: [
+            {
+              evidenceStatus: "reported",
+              admissionEvidence: {
+                reasonCode: "host_configure_failed",
+                detailCode: "host.catalog_replaced",
+                revision: 2,
+              },
+            },
+          ],
         },
       });
       expect(summary).toMatchObject({

@@ -1,9 +1,14 @@
 import {
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
+import {
   spaceFilePinMutationSchema,
   spaceMessagePinMutationSchema,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
+import { buildGatewaySpaceAccessContext } from "../lib/space-access-context";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
@@ -28,13 +33,19 @@ export function registerMessagePinRoutes(app: Hono<HonoBindings>): void {
       route: fileRoute,
       method: c.req.method === "PATCH" ? "PATCH" : "GET",
       spaceId,
+      includeLegacySpaceFilesOriginWireFields: true,
       execute: async () =>
-        c.var.coreRpc.spaceFilePins({
-          spaceId,
-          password: readSpacePasswordHeader(c.req.raw.headers),
-          context: buildCoreRpcContext(c),
-          ...(mutation?.success ? { mutation: mutation.data } : {}),
-        }),
+        c.var.coreRpc.spaceFilePins(
+          {
+            spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+            spaceId,
+            password: readSpacePasswordHeader(c.req.raw.headers),
+            context: buildCoreRpcContext(c),
+            ...(mutation?.success ? { mutation: mutation.data } : {}),
+          },
+          OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+          OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+        ),
     });
   });
   const route = "/v1/spaces/:spaceId/message-pins";
@@ -57,6 +68,7 @@ export function registerMessagePinRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       execute: async () =>
         c.var.coreRpc.spaceMessagePins({
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
           spaceId,
           password,
           context: buildCoreRpcContext(c),

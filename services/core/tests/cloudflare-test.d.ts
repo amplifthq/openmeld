@@ -4,8 +4,12 @@ declare module "cloudflare:test" {
     OPENMELD_LARK_CHANNEL_CONNECTOR: DurableObjectNamespace<
       import("../src/remote-agent/transport/lark/lark-channel-connector").LarkChannelConnector
     >;
+    OPENMELD_SPACE_ATTACHMENTS: R2Bucket;
     OPENMELD_ORGANIZATION_SKILLS: R2Bucket;
     OPENMELD_SPACES: unknown;
+    OPENMELD_FILE_ROOTS: DurableObjectNamespace<
+      import("../src/files/organization-file-root").OrganizationFileRoot
+    >;
     TEST_MIGRATIONS: D1Migration[];
     // Physical DB split routing gate (wrangler.split-gate.jsonc) binds these as
     // separate per-domain databases; optional so the main integration pool,

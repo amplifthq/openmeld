@@ -1,4 +1,5 @@
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -6,21 +7,9 @@ import {
 	type SettingsSectionDef,
 	toSettingsNavItems,
 } from "@openmeld/ui/lib/settings-contract";
-import {
-	BellIcon,
-	BuildingsIcon,
-	EnvelopeSimpleIcon,
-	type Icon,
-	MegaphoneIcon,
-	PaletteIcon,
-	RobotIcon,
-	ShieldCheckIcon,
-	UserIcon,
-	UsersIcon,
-} from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { redirect, useLocation } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { redirect } from "@tanstack/react-router";
+import { type ReactNode, Suspense, useEffect, useState } from "react";
 import {
 	AppContextualContentFrame,
 	type AppContextualNavGroup,
@@ -33,6 +22,11 @@ import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
 import { SendFeedbackDialog } from "#/components/feedback/send-feedback-dialog";
+import {
+	DESKTOP_UPDATE_ATTENTION_LABEL,
+	DesktopUpdateIndicator,
+	useDesktopUpdateAttention,
+} from "#/desktop/updater";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAccountSettingsPath } from "#/lib/organizations/organization-routes";
 import type {
@@ -44,6 +38,7 @@ import {
 	type AppSidebarPersistedStates,
 } from "#/lib/sidebar-width-cookie";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
+import { SettingsContentErrorBoundary } from "./settings-content-error-boundary";
 import { buildSettingsSections } from "./settings-sections";
 
 type SettingsOrganizationRole = "admin" | "member" | "owner";
@@ -57,22 +52,27 @@ const PERSONAL_SETTINGS_SECTION_IDS = [
 	"notifications",
 	"service",
 	"privacy",
+	"updates",
 ] as const;
 const ORGANIZATION_SETTINGS_SECTION_IDS = [
 	"general",
 	"center-agent",
+	"usage",
 	"members",
 	"invitations",
 	"security",
 ] as const;
 // A Personal Workspace has no Organization roster and no shared coordinator, so
 // its own Center Agent belongs to the Personal group and the workspace group
-// keeps only General.
+// keeps General and Usage.
 const PERSONAL_WORKSPACE_PERSONAL_SECTION_IDS = [
 	...PERSONAL_SETTINGS_SECTION_IDS,
 	"center-agent",
 ] as const;
-const PERSONAL_WORKSPACE_ORGANIZATION_SECTION_IDS = ["general"] as const;
+const PERSONAL_WORKSPACE_ORGANIZATION_SECTION_IDS = [
+	"general",
+	"usage",
+] as const;
 
 /**
  * The Web usage of the shared Settings contract — see
@@ -96,7 +96,6 @@ export function SettingsPage(input: {
 	presentation?: "page" | "dialog";
 	onNavigate?: (section: string) => void;
 }) {
-	const pathname = useLocation({ select: (location) => location.pathname });
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
 	const sections = resolveSettingsSections(
@@ -105,9 +104,19 @@ export function SettingsPage(input: {
 	);
 	const navItems = toSettingsNavItems(sections);
 
-	const activeSection = sections.find(
+	const requestedSection = sections.find(
 		(section) => section.id === input.activeSectionId
 	);
+	const activeSection =
+		requestedSection ??
+		(input.presentation === "dialog"
+			? sections.find((section) => section.id === "account")
+			: undefined);
+	useEffect(() => {
+		if (!requestedSection && input.presentation === "dialog") {
+			input.onNavigate?.("account");
+		}
+	}, [requestedSection, input.presentation, input.onNavigate]);
 
 	// Gated-route guard: if the active leaf's section was filtered out by host
 	// capability (e.g. /o/:orgSlug/settings/service on a plain Web host, which lacks
@@ -115,13 +124,6 @@ export function SettingsPage(input: {
 	// the requested URL. Redirect to the always-present Account leaf instead.
 	// This also protects any future gated leaf added to the registry.
 	if (!activeSection) {
-		if (input.presentation === "dialog") {
-			throw redirect({
-				to: pathname,
-				replace: true,
-				search: (previous) => ({ ...previous, appSettings: "account" }),
-			});
-		}
 		throw redirect({
 			replace: true,
 			to: buildOrganizationAccountSettingsPath(orgSlug),
@@ -131,7 +133,7 @@ export function SettingsPage(input: {
 	return (
 		<SettingsPageShell
 			activeSection={activeSection}
-			activeSectionId={input.activeSectionId}
+			activeSectionId={activeSection.id}
 			currentUserId={currentUserId}
 			initialSidebarStates={input.initialSidebarStates}
 			navItems={navItems}
@@ -177,9 +179,13 @@ function SettingsPageShell(input: {
 			presentation={input.presentation}
 		/>
 	);
-	const content = input.activeSection.render({
-		capabilities: WEB_HOST_CAPABILITIES,
-	});
+	const content = (
+		<SettingsContentErrorBoundary key={input.activeSectionId}>
+			<Suspense fallback={<SettingsContentSkeleton />}>
+				{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
+			</Suspense>
+		</SettingsContentErrorBoundary>
+	);
 	if (input.presentation === "dialog") {
 		return (
 			<>
@@ -226,6 +232,26 @@ function SettingsPageShell(input: {
 	);
 }
 
+function SettingsContentSkeleton() {
+	return (
+		<output aria-label="Loading settings" className="block w-full space-y-8">
+			<div aria-hidden="true" className="space-y-3">
+				<Skeleton className="h-3 w-16 animate-none" />
+				<Skeleton className="h-7 w-40 animate-none" />
+				<Skeleton className="h-4 w-3/4 max-w-md animate-none" />
+			</div>
+			<div aria-hidden="true" className="space-y-6">
+				{[0, 1, 2].map((row) => (
+					<div className="space-y-3 border-border border-t pt-6" key={row}>
+						<Skeleton className="h-4 w-28 animate-none" />
+						<Skeleton className="h-9 w-full max-w-sm animate-none" />
+					</div>
+				))}
+			</div>
+		</output>
+	);
+}
+
 export function SettingsContentFrame(input: { children: ReactNode }) {
 	return (
 		<AppContextualContentFrame
@@ -248,7 +274,9 @@ export function SettingsInnerSidebar(input: {
 	organizationName: string;
 	organizationRole: SettingsOrganizationRole | null;
 }) {
+	const desktopUpdateAttention = useDesktopUpdateAttention();
 	const groups = toContextualSettingsNavGroups({
+		desktopUpdateAttention,
 		isPersonalWorkspace: input.isPersonalWorkspace,
 		items: input.items,
 		organizationName: input.organizationName,
@@ -284,32 +312,8 @@ export function SettingsInnerSidebar(input: {
 	);
 }
 
-function resolveSettingsNavIcon(sectionId: string): Icon {
-	switch (sectionId) {
-		case "account":
-			return UserIcon;
-		case "appearance":
-			return PaletteIcon;
-		case "notifications":
-			return BellIcon;
-		case "privacy":
-			return ShieldCheckIcon;
-		case "center-agent":
-			return RobotIcon;
-		case "general":
-			return BuildingsIcon;
-		case "members":
-			return UsersIcon;
-		case "invitations":
-			return EnvelopeSimpleIcon;
-		case "security":
-			return ShieldCheckIcon;
-		default:
-			throw new Error(`Unsupported Settings sidebar item: ${sectionId}`);
-	}
-}
-
 function toContextualSettingsNavGroups(input: {
+	desktopUpdateAttention: boolean;
 	isPersonalWorkspace: boolean;
 	items: readonly SettingsNavItem[];
 	organizationName: string;
@@ -319,8 +323,13 @@ function toContextualSettingsNavGroups(input: {
 		if (!item.to) {
 			throw new Error(`Settings sidebar item is missing a route: ${item.id}`);
 		}
+		const updateAttention =
+			item.id === "updates" && input.desktopUpdateAttention;
 		return {
-			icon: resolveSettingsNavIcon(item.id),
+			accessory: updateAttention ? <DesktopUpdateIndicator /> : undefined,
+			ariaLabel: updateAttention
+				? `${item.title}, ${DESKTOP_UPDATE_ATTENTION_LABEL}`
+				: undefined,
 			id: item.id,
 			label: item.title,
 			to: item.to,
@@ -339,7 +348,6 @@ function toContextualSettingsNavGroups(input: {
 						: PERSONAL_SETTINGS_SECTION_IDS
 				),
 				{
-					icon: MegaphoneIcon,
 					id: SEND_FEEDBACK_SETTINGS_ITEM_ID,
 					label: "Send feedback",
 				},

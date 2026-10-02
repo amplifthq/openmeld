@@ -19,7 +19,7 @@ import {
 } from "./conversation-footprint";
 import {
   type FlueSubmissionLifecycle,
-  reconcileSettledRemoteAgentExecutionFailures,
+  reconcileSettledRemoteAgentExecutions,
 } from "./execution-reconciliation";
 import type { RemoteAgentProviderContextCapacity } from "./provider-context-capacity";
 
@@ -272,6 +272,7 @@ export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
 }
 
 export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
+  env?: { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   readSubmission: (
@@ -290,7 +291,8 @@ export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
   const retryableContexts = (
     await listDueRetryableCallbackContexts(input.storage, nowMs)
   ).filter((context) => context.callbackStatus === "retryable");
-  const reconciliation = await reconcileSettledRemoteAgentExecutionFailures({
+  const reconciliation = await reconcileSettledRemoteAgentExecutions({
+    env: input.env,
     coreWorker: input.coreWorker,
     nowMs: () => nowMs,
     readSubmission: input.readSubmission,

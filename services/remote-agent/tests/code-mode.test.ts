@@ -1,20 +1,32 @@
+import type { Executor } from "@cloudflare/codemode";
+import { createCodeTool } from "@cloudflare/codemode/ai";
 import type { SessionEnv } from "@flue/runtime";
-import { CENTER_AGENT_DELEGATION_COMPLETION_MODES } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_DELEGATION_COMPLETION_MODES,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+} from "@openmeld/schemas";
 import { asSchema, type ToolExecutionOptions, type ToolSet } from "ai";
 import { pipe, rawCheck, strictObject, string } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
+  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { ConnectorActionOutcomeUnknownError } from "../agent-core/connector-tools";
+import {
+  buildRemoteAgentExecutionIdentity,
+  initializeRemoteAgentExecutionState,
+} from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import { RemoteAgentToolCallBudgetExceededError } from "../agent-core/tool-progress";
-import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
+import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import { getRemoteAgentOpenMeldToolDefinitions } from "../agent-core/tools";
 import {
   createRemoteAgentCodeModeFlueTool,
   type RemoteAgentCodeModeRuntime,
 } from "../flue-adapter/code-mode";
+import { createRemoteAgentReadToolResultDefinition } from "../flue-adapter/retained-tool-results";
 import {
   getRemoteAgentSandboxToolDefinitions,
   REMOTE_AGENT_SANDBOX_TOOL_NAMES,
@@ -24,6 +36,7 @@ import {
   type RemoteAgentStreamPublisher,
 } from "../flue-adapter/streaming";
 import { getRemoteAgentFlueTools } from "../flue-adapter/tools";
+import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -53,6 +66,367 @@ async function runCodeModeTool(
 }
 
 describe("Remote Agent Code Mode", () => {
+  it("marks only the uncertain write in a multi-write script as awaiting confirmation", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const definition = {
+      name: "github_create_issue_comment",
+      description: "Post an authorized comment.",
+      input: strictObject({ operationId: string() }),
+      execute: ({ operationId }) => {
+        if (operationId === "comment-2") {
+          return Promise.reject(
+            new ConnectorActionOutcomeUnknownError({
+              actionId: "github.create_issue_comment",
+              operationId,
+              cause: new Error("private provider transport detail"),
+              input: {
+                owner: "amplifthq",
+                repo: "openmeld",
+                issueNumber: 1397,
+              },
+            })
+          );
+        }
+        return Promise.resolve({ status: "completed", operationId });
+      },
+    } satisfies RemoteAgentToolDefinition;
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const results: unknown[] = [];
+        for (const operationId of ["comment-1", "comment-2", "comment-3"]) {
+          results.push(
+            await tools.github_create_issue_comment?.execute?.(
+              { operationId },
+              { ...TOOL_OPTIONS, toolCallId: operationId }
+            )
+          );
+        }
+        return { result: results };
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [definition],
+      coreWorker: { submitRemoteAgentStreamPart },
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+      submissionId: SUBMISSION_ID,
+    });
+    const output = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(output).toMatchObject({
+      result: [
+        { status: "completed", operationId: "comment-1" },
+        {
+          status: "outcome_unknown",
+          operationId: "comment-2",
+          message: expect.stringContaining("Do not retry this write"),
+        },
+        { status: "completed", operationId: "comment-3" },
+      ],
+    });
+    const parts = submitRemoteAgentStreamPart.mock.calls.map(
+      ([body]) =>
+        body as unknown as {
+          part: {
+            state: string;
+            toolCallId: string;
+            work: { outcome?: string };
+          };
+        }
+    );
+    expect(parts.filter(({ part }) => part.state === "output-error")).toEqual(
+      []
+    );
+    expect(
+      parts
+        .filter(({ part }) => part.work.outcome === "outcome_unknown")
+        .map(({ part }) => part.toolCallId)
+    ).toEqual(["comment-2"]);
+    expect(
+      parts
+        .filter(({ part }) => part.state === "output-available")
+        .map(({ part }) => part.toolCallId)
+    ).toEqual(["comment-1", "comment-2", "comment-3"]);
+    expect(JSON.stringify(output)).not.toContain(
+      "private provider transport detail"
+    );
+  });
+
+  it.each([
+    "bash",
+    "console",
+  ])("retains the middle of actual %s output before display shortening", async (carrier) => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing admitted context");
+    }
+    const coreWorker = {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+    };
+    const text = `${"start\\n".repeat(30_000)}UNIQUE_RAW_LOG_MIDDLE${"end\\n".repeat(30_000)}`;
+    const exec = vi.fn(async () => ({ stdout: text, stderr: "", exitCode: 0 }));
+    const definitions = getRemoteAgentSandboxToolDefinitions({
+      env: { exec } as unknown as SessionEnv,
+    });
+    const reader = createRemoteAgentReadToolResultDefinition({
+      storage,
+      coreWorker,
+      submissionId: SUBMISSION_ID,
+    });
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        if (carrier === "console") {
+          return { result: null, logs: [text] };
+        }
+        const shown = await tools.bash?.execute?.(
+          { command: "build-once" },
+          TOOL_OPTIONS
+        );
+        const id = (
+          shown as { presentation: { continuation: { resultId: string } } }
+        ).presentation.continuation.resultId;
+        return {
+          result: await reader.execute({
+            resultId: id,
+            query: "UNIQUE_RAW_LOG_MIDDLE",
+          }),
+        };
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      storage,
+      coreWorker,
+      submissionId: SUBMISSION_ID,
+      definitions,
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+    });
+    const shown = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(isRemoteAgentToolResultWithinLimit(shown)).toBe(true);
+    if (carrier === "console") {
+      const id = (
+        shown as { presentation: { continuation: { resultId: string } } }
+      ).presentation.continuation.resultId;
+      expect(
+        JSON.stringify(
+          await reader.execute({ resultId: id, query: "UNIQUE_RAW_LOG_MIDDLE" })
+        )
+      ).toContain("UNIQUE_RAW_LOG_MIDDLE");
+    } else {
+      expect(JSON.stringify(shown)).toContain("UNIQUE_RAW_LOG_MIDDLE");
+      expect(exec).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("reads the middle of a large inner result without running the original write again", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Expected an admitted execution");
+    }
+    const coreWorker = {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+    };
+    const write = vi.fn(async () => ({
+      status: "completed",
+      operationId: "write-once",
+      log: `${"before\n".repeat(30_000)}UNIQUE_CODEMODE_MIDDLE_FAILURE${"after\n".repeat(30_000)}`,
+    }));
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const displayed = (await tools.example_write?.execute?.(
+          {},
+          TOOL_OPTIONS
+        )) as { presentation: { continuation: { resultId: string } } };
+        const resultId = displayed.presentation.continuation.resultId;
+        return {
+          result: await tools.openmeld_read_tool_result?.execute?.(
+            { resultId, query: "UNIQUE_CODEMODE_MIDDLE_FAILURE" },
+            TOOL_OPTIONS
+          ),
+        };
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      coreWorker,
+      definitions: [
+        {
+          name: "example_write",
+          description: "Write once and return its log.",
+          input: strictObject({}),
+          execute: write,
+        },
+        createRemoteAgentReadToolResultDefinition({
+          coreWorker,
+          storage,
+          submissionId: SUBMISSION_ID,
+        }),
+      ],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+    const result = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(JSON.stringify(result)).toContain("UNIQUE_CODEMODE_MIDDLE_FAILURE");
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(isRemoteAgentToolResultWithinLimit(result)).toBe(true);
+  });
+
+  it("publishes admitted inner work before the tool finishes", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const started = Promise.withResolvers<void>();
+    const startPublished = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<{ spaces: [] }>();
+    const submitRemoteAgentStreamPart = vi.fn(
+      (body: { sequence: number; part: { state: string } }) => {
+        if (body.part.state === "input-available") {
+          startPublished.resolve();
+        }
+        return Promise.resolve({
+          status: "accepted" as const,
+          lastSequence: body.sequence,
+        });
+      }
+    );
+    const runtime = createRuntime({
+      execute: async (tools) => ({
+        result: await tools.openmeld_list_spaces?.execute?.({}, TOOL_OPTIONS),
+      }),
+      executorOptions: [],
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      coreWorker: { submitRemoteAgentStreamPart },
+      definitions: [
+        {
+          description: "List Spaces.",
+          execute: async () => {
+            started.resolve();
+            return await finish.promise;
+          },
+          input: strictObject({}),
+          name: "openmeld_list_spaces",
+        },
+      ],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+      submissionId: SUBMISSION_ID,
+    });
+
+    const running = runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    await started.promise;
+    await startPublished.promise;
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledOnce();
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        part: expect.objectContaining({ state: "input-available" }),
+      })
+    );
+    finish.resolve({ spaces: [] });
+    await running;
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels inner work through the SDK wrapper and prevents queued work from starting", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const controller = new AbortController();
+    const started = Promise.withResolvers<void>();
+    const following = vi.fn(async () => "unexpected");
+    const executor: Executor = {
+      async execute(_code, providers) {
+        if (!Array.isArray(providers)) {
+          throw new Error("Expected SDK-resolved providers");
+        }
+        const tools = providers[0]?.fns;
+        if (!(tools?.blocking && tools.following)) {
+          throw new Error("Expected both inner operations");
+        }
+        const results = await Promise.allSettled([
+          tools.blocking({}),
+          tools.following({}),
+        ]);
+        expect(results.map((result) => result.status)).toEqual([
+          "rejected",
+          "rejected",
+        ]);
+        return { result: null };
+      },
+    };
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [
+        {
+          name: "blocking",
+          description: "Wait for cancellation",
+          input: strictObject({}),
+          execute: async (_input, options) => {
+            expect(options?.signal).toBe(controller.signal);
+            const pending = new Promise<never>((_resolve, reject) => {
+              options?.signal?.addEventListener(
+                "abort",
+                () => reject(options.signal?.reason),
+                { once: true }
+              );
+            });
+            started.resolve();
+            return await pending;
+          },
+        },
+        {
+          name: "following",
+          description: "Must not start",
+          input: strictObject({}),
+          execute: following,
+        },
+      ],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime: {
+        createExecutor: () => executor,
+        createCodeTool: (input) => createCodeTool({ ...input, executor }),
+      },
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+    const running = runCodeModeTool(tool, {
+      input: { code: "async () => {}" },
+      signal: controller.signal,
+    });
+    await started.promise;
+    controller.abort(new Error("Stopped by user"));
+    await running;
+    expect(following).not.toHaveBeenCalled();
+  });
   it("checks personal execution authority before direct and Code Mode computer calls", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const execute = vi.fn(async () => ({ result: "computer-result" }));
@@ -60,7 +434,7 @@ describe("Remote Agent Code Mode", () => {
     const runtime = createRuntime({
       executorOptions: [],
       execute: async (tools) => {
-        const tool = tools.test_computer;
+        const tool = tools.read;
         if (!tool?.execute) {
           throw new Error("Computer missing from Code Mode");
         }
@@ -69,7 +443,7 @@ describe("Remote Agent Code Mode", () => {
         };
       },
     });
-    const tools = await getRemoteAgentFlueTools({
+    const { tools } = await getRemoteAgentFlueTools({
       personalAgent: true,
       storage,
       submissionId: SUBMISSION_ID,
@@ -78,7 +452,7 @@ describe("Remote Agent Code Mode", () => {
       codeModeRuntime: runtime,
       sandboxDefinitions: [
         {
-          name: "test_computer",
+          name: "read",
           description: "Use computer",
           input: strictObject({ code: string() }),
           execute,
@@ -86,11 +460,11 @@ describe("Remote Agent Code Mode", () => {
       ],
     });
     const names = tools.map((tool) => tool.name);
-    expect(names).toContain("web_search");
-    expect(names).toContain("openmeld_read_org_documents");
+    expect(names).not.toContain("web_search");
+    expect(names).not.toContain("openmeld_read_org_documents");
     expect(names).not.toContain("openmeld_create_project");
-    expect(names).toContain("openmeld_create_routine");
-    const direct = tools.find((tool) => tool.name === "test_computer");
+    expect(names).not.toContain("openmeld_create_routine");
+    const direct = tools.find((tool) => tool.name === "read");
     const codeMode = tools.find((tool) => tool.name === "codemode");
     if (!(direct && codeMode)) {
       throw new Error("Expected both execution paths");
@@ -401,8 +775,18 @@ describe("Remote Agent Code Mode", () => {
     expect(tool.name).toBe("codemode");
     expect(tool.description).toContain("declare const codemode");
     expect(executeLookup).toHaveBeenCalledWith({});
-    expect(submitRemoteAgentStreamPart).toHaveBeenCalledOnce();
-    expect(submitRemoteAgentStreamPart).toHaveBeenCalledWith(
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+    expect(submitRemoteAgentStreamPart).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        part: expect.objectContaining({
+          state: "input-available",
+          toolCallId: "codemode-inner-call",
+        }),
+      })
+    );
+    expect(submitRemoteAgentStreamPart).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         part: {
           type: "tool",
@@ -431,6 +815,8 @@ describe("Remote Agent Code Mode", () => {
           "cloudflare_codemode",
           "execute",
           "succeeded",
+          request.spaceId,
+          SUBMISSION_ID,
           expect.any(String),
         ],
         doubles: [
@@ -441,7 +827,7 @@ describe("Remote Agent Code Mode", () => {
           0,
           0,
         ],
-        indexes: [request.organizationId, request.spaceId, SUBMISSION_ID],
+        indexes: [request.organizationId],
       })
     );
   });
@@ -496,11 +882,103 @@ describe("Remote Agent Code Mode", () => {
     expect(legacyTruncateResult).not.toHaveBeenCalled();
   });
 
-  it("fails an oversized inner result through the shared tool boundary", async () => {
+  it("uses the same Remote creation contract and truthful accepted result through Code Mode", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
+    const response = {
+      replayed: false,
+      request: {
+        actorProfileId: AGENT_PROFILE_ID,
+        completedAt: null,
+        configuration: {
+          ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+          agentControllerRef: "hosted:remote-agent",
+        },
+        createdAgentProfileId: null,
+        createdAt: new Date(TEST_NOW_MS).toISOString(),
+        decidedAt: new Date(TEST_NOW_MS).toISOString(),
+        failureMessage: null,
+        id: "request-code-mode",
+        nativeSessionId: null,
+        organizationId: "org_123",
+        profileName: "Research Partner",
+        requestedSpaceId: null,
+        requesterUserId: "user_1",
+        sessionStrategy: "new",
+        source: "center_agent",
+        status: "approved",
+        statusReason: "self_request",
+        targetOwnerUserId: "user_1",
+        updatedAt: new Date(TEST_NOW_MS).toISOString(),
+      },
+    };
+    const create = vi.fn(async () => response);
+    const definitions = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest: create },
+      storage,
+      submissionId: SUBMISSION_ID,
+    }).filter(
+      (definition) =>
+        definition.name === "openmeld_create_agent_profile_request"
+    );
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions,
+      env: {},
+      loader: {} as WorkerLoader,
+      storage,
+      submissionId: SUBMISSION_ID,
+      runtime: createRuntime({
+        executorOptions: [],
+        execute: async (tools) => {
+          const creation = tools.openmeld_create_agent_profile_request;
+          if (!creation?.execute) {
+            throw new Error("Creation tool is unavailable");
+          }
+          return {
+            result: await creation.execute(
+              {
+                connectionSelection: { kind: "remote" },
+                profileName: "Research Partner",
+                sessionStrategy: "new",
+                targetOwnerUserId: "user_1",
+              },
+              TOOL_OPTIONS
+            ),
+          };
+        },
+      }),
+    });
+    await expect(
+      runCodeModeTool(tool, { input: { code: "async () => null" } })
+    ).resolves.toEqual({ result: response });
+    expect(create).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ configuration: response.request.configuration })
+    );
+  });
+
+  it("returns a bounded partial inner result without repeating a completed operation", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing admitted context");
+    }
+    const coreWorker = {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+    };
+    vi.spyOn(storage, "putExpiring").mockRejectedValue(
+      new Error("retention store unavailable")
+    );
+    const execute = vi.fn(async () => ({
+      content: "A".repeat(200_000),
+      operationId: "write-1",
+      status: "completed",
+    }));
     const definition = {
       description: "Return an oversized result.",
-      execute: async () => ({ content: "A".repeat(200_000) }),
+      execute,
       input: strictObject({}),
       name: "github_list_pull_request_files",
     } satisfies RemoteAgentToolDefinition;
@@ -517,6 +995,7 @@ describe("Remote Agent Code Mode", () => {
       executorOptions: [],
     });
     const tool = await createRemoteAgentCodeModeFlueTool({
+      coreWorker,
       definitions: [definition],
       env: {},
       loader: {} as WorkerLoader,
@@ -525,9 +1004,18 @@ describe("Remote Agent Code Mode", () => {
       submissionId: SUBMISSION_ID,
     });
 
-    await expect(
-      runCodeModeTool(tool, { input: { code: "async () => null" } })
-    ).rejects.toBeInstanceOf(RemoteAgentToolResultTooLargeError);
+    const output = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(output).toMatchObject({
+      result: {
+        toolExecution: "returned",
+        resultMetadata: { operationId: "write-1", status: "completed" },
+        presentation: { kind: "partial", continuation: null },
+      },
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(isRemoteAgentToolResultWithinLimit(output)).toBe(true);
   });
 
   it("gives the exact callable name when a discovered capability is used as a global", async () => {
@@ -603,7 +1091,16 @@ describe("Remote Agent Code Mode", () => {
 
   it("counts outer Code Mode calls toward the submission tool budget", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
+    await initializeRemoteAgentExecutionState({
+      identity: buildRemoteAgentExecutionIdentity({
+        ...createSubmitTurnRequest(),
+        submissionId: SUBMISSION_ID,
+      }),
+      acceptedAtMs: TEST_NOW_MS,
+      storage,
+    });
     const tool = await createRemoteAgentCodeModeFlueTool({
+      callLimit: 64,
       definitions: [],
       env: {},
       loader: {} as WorkerLoader,
@@ -625,10 +1122,15 @@ describe("Remote Agent Code Mode", () => {
     ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
   });
 
-  it("keeps inner tool failures out of Work summary", async () => {
+  it("shows an admitted inner tool failure without publishing private error text", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
-    const submitRemoteAgentStreamPart = vi.fn();
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
     const definition = {
       description: "Read Space context.",
       execute: () => {
@@ -663,7 +1165,22 @@ describe("Remote Agent Code Mode", () => {
     await expect(
       runCodeModeTool(tool, { input: { code: "async () => null" } })
     ).rejects.toThrow("private internal failure");
-    expect(submitRemoteAgentStreamPart).not.toHaveBeenCalled();
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+    expect(submitRemoteAgentStreamPart).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        part: expect.objectContaining({ state: "input-available" }),
+      })
+    );
+    expect(submitRemoteAgentStreamPart).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        part: expect.objectContaining({ state: "output-error" }),
+      })
+    );
+    expect(
+      JSON.stringify(submitRemoteAgentStreamPart.mock.calls)
+    ).not.toContain("private internal failure");
   });
 
   it("does not let optional Work summary publishing change tool truth", async () => {

@@ -12,20 +12,19 @@ import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	FileIcon,
-	PlusIcon,
-	UsersThreeIcon,
-	XIcon,
-} from "@phosphor-icons/react";
+import { FileIcon, PlusIcon, UsersThreeIcon } from "@phosphor-icons/react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import { PromptInputAction } from "#/components/ibelick/prompt-input";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
-import { SpaceFileHtmlBadge } from "./space-file-html-badge";
-import { SpaceImagePreview } from "./space-image-preview";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
+import {
+	SpaceAttachmentFailure,
+	SpaceAttachmentRemoveButton,
+} from "./space-attachment-actions";
+import { SpaceAttachmentStrip } from "./space-attachment-strip";
+import { SpaceLocalAttachmentPreview } from "./space-local-attachment-preview";
 
 export function useSpaceComposerFileInput(input: {
 	disabled: boolean;
@@ -161,86 +160,128 @@ export function SpaceComposerFileTray(input: {
 	disabled: boolean;
 	files: readonly SpaceComposerFile[];
 	onRemove: (localId: string) => void;
+	onRetry?: (localId: string) => void;
 }) {
 	if (input.files.length === 0) {
 		return null;
 	}
 
 	return (
-		<fieldset
-			aria-label="Files to send"
-			className="m-0 flex min-w-0 flex-nowrap items-start gap-2 overflow-x-auto overscroll-x-contain border-0 px-1 pt-1 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+		<SpaceAttachmentStrip
+			className="pb-2"
+			label="Files to send"
+			size="composer"
 		>
+			<SpaceComposerFileItems {...input} />
+		</SpaceAttachmentStrip>
+	);
+}
+
+/** Also composed with existing attachments in the inline editor's single rail. */
+export function SpaceComposerFileItems(input: {
+	disabled: boolean;
+	files: readonly SpaceComposerFile[];
+	onRemove: (localId: string) => void;
+	onRetry?: (localId: string) => void;
+}) {
+	return (
+		<>
 			{input.files.map((file) => (
-				<div className="flex-none" key={file.localId}>
-					<div
-						className={cn(
-							"relative w-fit rounded-xl",
-							surfaceClasses(3, 1),
-							file.status === "failed" && "ring-1 ring-destructive"
-						)}
-					>
-						<Tooltip>
-							<TooltipTrigger render={<span className="block" />}>
-								{file.previewUrl ? (
-									<SpaceImagePreview
-										altText={file.fileName}
-										imageSource={file.previewUrl}
-										isSingle={false}
-										thumbnailClassName="size-16 rounded-xl"
-									/>
-								) : (
-									<span
-										aria-label={file.fileName}
-										className="flex size-16 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground"
-										role="img"
-									>
-										{file.mimeType === "text/html" ? (
-											<SpaceFileHtmlBadge />
-										) : (
-											<FileIcon aria-hidden="true" className="size-7" />
-										)}
-										<span className="max-w-16 truncate text-[10px] uppercase">
-											{file.fileName.includes(".")
-												? file.fileName.split(".").at(-1)
-												: "File"}
-										</span>
-									</span>
-								)}
-							</TooltipTrigger>
-							<TooltipContent
-								className="max-w-80 break-all text-left"
-								side="top"
-							>
-								{file.fileName}
-							</TooltipContent>
-						</Tooltip>
-						<Button
-							aria-label={`Remove ${file.fileName}`}
-							className="absolute top-1 right-1 z-10 size-4 rounded-full bg-white p-0 text-black shadow-sm hover:bg-white/90"
+				<div
+					className={cn(
+						"relative shrink-0 rounded-lg",
+						file.status === "failed" && "ring-1 ring-destructive"
+					)}
+					data-attachment-name={file.fileName}
+					key={file.localId}
+				>
+					<Tooltip>
+						<TooltipTrigger render={<div />}>
+							<SpaceLocalAttachmentPreview
+								editable
+								fileName={file.fileName}
+								mimeType={file.mimeType}
+								previewUrl={file.previewUrl}
+							/>
+						</TooltipTrigger>
+						<TooltipContent className="max-w-80 break-all text-left" side="top">
+							{file.fileName}
+						</TooltipContent>
+					</Tooltip>
+					<SpaceAttachmentRemoveButton
+						disabled={input.disabled}
+						fileName={file.fileName}
+						onRemove={() => input.onRemove(file.localId)}
+					/>
+					{file.status === "failed" && (
+						<SpaceAttachmentFailure
 							disabled={input.disabled}
-							onClick={() => input.onRemove(file.localId)}
-							size="icon-sm"
+							file={file}
+							onRemove={() => input.onRemove(file.localId)}
+							onRetry={
+								input.onRetry ? () => input.onRetry?.(file.localId) : undefined
+							}
+						/>
+					)}
+				</div>
+			))}
+		</>
+	);
+}
+
+export function SpaceComposerAttachmentRecovery(input: {
+	cleanup: readonly ComposerFileDraftCleanup[];
+	onRetryCleanup: (id: string) => void;
+	onRetryRestoration: () => void;
+	restorationError: unknown | null;
+}) {
+	if (!input.restorationError && input.cleanup.length === 0) {
+		return null;
+	}
+	return (
+		<div className="space-y-2 px-1 pb-2 text-xs">
+			{input.restorationError ? (
+				<div className="flex items-center justify-between gap-3" role="alert">
+					<span>Couldn't restore your attachment drafts.</span>
+					<Button
+						onClick={input.onRetryRestoration}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</div>
+			) : null}
+			{input.cleanup.map((cleanup) => (
+				<div
+					className="flex items-center justify-between gap-3"
+					key={`${cleanup.id}:${cleanup.revision}`}
+					role={cleanup.status === "failed" ? "alert" : "status"}
+				>
+					<span>{resolveCleanupMessage(cleanup)}</span>
+					{cleanup.status === "failed" ? (
+						<Button
+							onClick={() => input.onRetryCleanup(cleanup.id)}
+							size="sm"
 							type="button"
-							variant="ghost"
+							variant="outline"
 						>
-							<XIcon aria-hidden="true" className="size-3" />
+							Retry cleanup
 						</Button>
-					</div>
-					{file.status === "failed" ? (
-						<div className="mt-1 max-w-56">
-							<p className="break-words text-destructive text-xs" role="alert">
-								{file.errorMessage ?? "File could not be added."}
-							</p>
-							{file.errorRequestId ? (
-								<p className="mt-0.5 break-all text-[11px] text-muted-foreground">
-									Request ID: {file.errorRequestId}
-								</p>
-							) : null}
-						</div>
 					) : null}
 				</div>
 			))}
-		</fieldset>
+		</div>
 	);
+}
+
+function resolveCleanupMessage(cleanup: ComposerFileDraftCleanup): string {
+	if (cleanup.status === "pending") {
+		return "Removing attachment…";
+	}
+	if (cleanup.reason === "sent") {
+		return "Your message was sent, but its local attachment draft couldn't be cleared.";
+	}
+	return "Couldn't finish removing this attachment from this device.";
 }

@@ -17,6 +17,17 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { CheckCircleIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
+const ATTENTION_TONE_CLASSES = {
+	danger: {
+		ring: "ring-destructive/55",
+		text: "text-destructive",
+	},
+	warning: {
+		ring: "ring-amber-700/45 dark:ring-amber-400/45",
+		text: "text-amber-700 dark:text-amber-300",
+	},
+} as const;
+
 export function AgentConfigurationGrid(input: {
 	children: ReactNode;
 	className?: string;
@@ -69,6 +80,7 @@ export function AgentConfigurationEditorCard(input: {
 export function AgentConfigurationCard(input: {
 	actionLabel?: string;
 	attention?: boolean;
+	attentionTone?: "danger" | "warning";
 	children?: ReactNode;
 	className?: string;
 	description?: string;
@@ -88,10 +100,17 @@ export function AgentConfigurationCard(input: {
 	summaryTitle?: string;
 }) {
 	const surface = useSurface() + 2;
+	const attentionClasses = input.attentionTone
+		? ATTENTION_TONE_CLASSES[input.attentionTone]
+		: null;
+	const attentionTextClassName =
+		attentionClasses?.text ?? "text-muted-foreground";
 	const card = (
 		<div
 			className={cn(
-				"group flex h-full min-h-28 w-full min-w-0 items-start gap-3 rounded-md border border-transparent bg-transparent p-4 text-left data-[attention=true]:ring-1 data-[attention=true]:ring-primary/45",
+				"group flex h-full min-h-28 w-full min-w-0 items-start gap-3 rounded-md border border-transparent bg-transparent p-4 text-left",
+				input.attention && "ring-1",
+				input.attention && (attentionClasses?.ring ?? "ring-primary/45"),
 				input.disabled && "cursor-not-allowed opacity-55",
 				input.className
 			)}
@@ -118,7 +137,12 @@ export function AgentConfigurationCard(input: {
 					</span>
 				</TooltipHint>
 				{input.description ? (
-					<span className="mt-1 block text-muted-foreground text-xs leading-4.5">
+					<span
+						className={cn(
+							"mt-1 block text-xs leading-4.5",
+							attentionTextClassName
+						)}
+					>
 						{input.description}
 					</span>
 				) : null}
@@ -191,7 +215,12 @@ export function AgentConfigurationCard(input: {
 									{input.label}
 								</MorphingDialogTitle>
 								{input.description ? (
-									<MorphingDialogSubtitle className="mt-0.5 text-muted-foreground text-xs leading-4.5">
+									<MorphingDialogSubtitle
+										className={cn(
+											"mt-0.5 text-xs leading-4.5",
+											attentionTextClassName
+										)}
+									>
 										{input.description}
 									</MorphingDialogSubtitle>
 								) : null}
@@ -205,6 +234,31 @@ export function AgentConfigurationCard(input: {
 				</MorphingDialogContent>
 			</MorphingDialogContainer>
 		</MorphingDialog>
+	);
+}
+
+/** A measured/read-only fact shares the dashboard surface, not its edit affordance. */
+export function AgentConfigurationReadoutCard(input: {
+	itemId: string;
+	label: string;
+	headerAccessory?: ReactNode;
+	children: ReactNode;
+}) {
+	return (
+		<AgentConfigurationSurface itemId={input.itemId}>
+			<section
+				aria-label={input.label}
+				className="h-full min-h-28 min-w-0 rounded-md p-4"
+			>
+				<div className="flex items-center justify-between gap-2">
+					<h3 className="font-medium text-muted-foreground text-xs">
+						{input.label}
+					</h3>
+					{input.headerAccessory}
+				</div>
+				<div className="mt-3 min-w-0">{input.children}</div>
+			</section>
+		</AgentConfigurationSurface>
 	);
 }
 

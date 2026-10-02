@@ -18,6 +18,7 @@ import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { projectQueryKeys } from "#/query/organizations/projects";
 import { startQueryKeys } from "#/query/query-keys";
 import {
 	createTestQueryClient,
@@ -63,6 +64,7 @@ const navigateMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
 		error: vi.fn(),
+		info: vi.fn(),
 		success: vi.fn(),
 		warning: vi.fn(),
 	})
@@ -326,6 +328,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		navigateMock.mockReset();
 		toastMock.mockReset();
 		toastMock.error.mockReset();
+		toastMock.info.mockReset();
 		toastMock.success.mockReset();
 		toastMock.warning.mockReset();
 	});
@@ -334,6 +337,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		cleanup();
 		vi.clearAllMocks();
 		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 	});
 
 	it("shows Agent Controller Permission Mode on the card without repeating it in More details", async () => {
@@ -350,7 +354,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("button", { name: "More details" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "More details" }));
 
 		const dialog = screen.getByRole("dialog", { name: "More details" });
 		expect(
@@ -380,7 +384,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Agent options for Research Agent" })
 		);
-		expect(screen.getByRole("button", { name: "More details" })).toBeTruthy();
+		expect(screen.getByRole("menuitem", { name: "More details" })).toBeTruthy();
 		expect(
 			screen.getByTestId(`agent-profile-controller-avatar-${AGENT_PROFILE_ID}`)
 		).toBeTruthy();
@@ -566,7 +570,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Agent options for Research Agent" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "More details" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "More details" }));
 
 		expect(screen.getByRole("heading", { name: "More details" })).toBeTruthy();
 		const dialog = screen.getByRole("dialog", { name: "More details" });
@@ -680,8 +684,11 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			{ presentation: "detail" }
 		);
 
-		const presence = screen.getByTestId("agent-profile-presence");
-		expect(within(presence).getByText("Checking…")).toBeTruthy();
+		const presence = screen.getByRole("status", {
+			name: "Loading Agent availability",
+		});
+		expect(presence.querySelector('[data-slot="skeleton"]')).toBeTruthy();
+		expect(within(presence).queryByText("Available")).toBeNull();
 		expect(
 			within(presence).queryByRole("link", {
 				name: WAKEABILITY_LINK_ACTION_PATTERN,
@@ -891,6 +898,31 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			return cards.indexOf(card);
 		});
 		expect(cardOrder).toEqual([0, 1, 2, 3, 4, 5]);
+		expect(
+			within(overview).getByRole("region", { name: "Usage limits" })
+		).toBeTruthy();
+		expect(
+			screen.getAllByRole("region", { name: "Usage limits" })
+		).toHaveLength(1);
+	});
+
+	it("shows the selected Project instead of assuming an OpenMeld-managed folder", async () => {
+		const profile = {
+			...createAgentProfile(),
+			defaultProjectId: "project-1",
+		};
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const overrides = { agentProfiles: [profile] };
+		const view = renderAgentProfilesCard(overrides, binding, {
+			presentation: "detail",
+		});
+		view.queryClient.setQueryData(projectQueryKeys.organization("org-acme"), {
+			organizationId: "org-acme",
+			projects: [{ id: "project-1", name: "OpenMeld" }],
+		});
+		view.rerenderAgentProfilesCard(overrides, binding);
+		expect(await screen.findByText("Project: OpenMeld")).toBeTruthy();
+		expect(screen.queryByText("OpenMeld managed")).toBeNull();
 	});
 
 	it("shows a missing working folder with one direct recovery action", () => {
@@ -998,7 +1030,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("button", { name: "More details" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "More details" }));
 
 		const dialog = screen.getByRole("dialog", { name: "More details" });
 		expect(within(dialog).queryByText("Activity")).toBeNull();
@@ -1177,6 +1209,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 							currentWorkLocation: "Launch planning",
 							queuedWorkLocations: [],
 							recoveryAction: { kind: "continue_interrupted_work" },
+							recoveryTargetWakeLifecycleId: "twl_interrupted",
 							status: "paused",
 							waitingCount: 0,
 						},
@@ -1192,6 +1225,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 
 		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledWith({
 			action: "continue_interrupted_work",
+			expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
 			agentProfileId: AGENT_PROFILE_ID,
 			organizationId: "org-acme",
 		});
@@ -1209,6 +1243,72 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				"Continuing Research Agent's interrupted work."
 			);
 		});
+	});
+
+	it.each([
+		{
+			upstreamCode: "agent_profile_work_recovery.awaiting_original_stop",
+			message:
+				"OpenMeld kept your choice for Research Agent and is checking whether the original request stopped on your computer. Nothing new has started yet.",
+			refresh: false,
+		},
+		{
+			upstreamCode: "agent_profile_work_recovery.not_pending",
+			message:
+				"This Agent’s paused work has changed. Review its current work before trying again.",
+			refresh: true,
+		},
+	])("handles the Gateway recovery response $upstreamCode without replaying it", async ({
+		upstreamCode,
+		message,
+		refresh,
+	}) => {
+		// Gateway puts Core's reason in upstreamCode, as captured in localhost smoke.
+		executeAgentProfileWorkRecoveryMock.mockRejectedValueOnce({
+			code: "upstream_error",
+			upstreamCode,
+			status: 409,
+			requestId: "smoke-recovery",
+			message: "This recovery action is no longer needed.",
+		});
+		const { queryClient } = renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Launch planning",
+							queuedWorkLocations: [],
+							recoveryAction: { kind: "continue_interrupted_work" },
+							recoveryTargetWakeLifecycleId: "twl_interrupted",
+							status: "paused",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Continue interrupted work" })
+		);
+
+		await waitFor(() => {
+			expect(toastMock.info).toHaveBeenCalledWith(message);
+		});
+		expect(toastMock.error).not.toHaveBeenCalled();
+		expect(executeAgentProfileWorkRecoveryMock).toHaveBeenCalledTimes(1);
+		if (refresh) {
+			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+				queryKey: organizationQueryKeys.agentRuntimeOverview("org-acme"),
+			});
+		} else {
+			expect(invalidateQueriesSpy).not.toHaveBeenCalled();
+		}
 	});
 
 	it("lets the owner skip interrupted work before queued work can continue", async () => {
@@ -1268,7 +1368,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 		expect(
 			within(confirmation).getByText(
-				"This work will not continue. Any queued work can start after you skip it."
+				"OpenMeld will not continue this work, and it asks your computer to stop the original attempt. Anything the work already changed stays as it is. Any queued work can start after you skip it."
 			)
 		).toBeTruthy();
 		fireEvent.click(
@@ -1324,6 +1424,14 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 	});
 
 	it("shows team-safe Profile details for a teammate Agent", async () => {
+		// Base UI mounts AvatarImage only after a browser image reports loaded.
+		vi.stubGlobal(
+			"Image",
+			class {
+				complete = true;
+				naturalWidth = 1;
+			}
+		);
 		const baseBinding = createPrimaryBindingResponse(
 			"codex:approveForMe",
 			"builtin:codex",
@@ -1411,6 +1519,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeTruthy();
 		expect(screen.getAllByText("Codex · GPT-5.5 · high")).toHaveLength(2);
 		expect(screen.getByText("Approve for me")).toBeTruthy();
+		const usage = within(
+			screen.getByTestId("agent-configuration-overview")
+		).getByRole("region", { name: "Usage limits" });
+		expect(usage.closest("[data-fluid-card-item]")).toBeTruthy();
+		expect(
+			within(usage).queryByRole("button", { name: "Edit Usage limits" })
+		).toBeNull();
 		expect(
 			document.querySelector('img[src="https://example.com/felix-avatar.png"]')
 		).toBeTruthy();
@@ -1423,7 +1538,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Agent options for Research Agent" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "More details" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "More details" }));
 		const dialog = screen.getByRole("dialog", { name: "More details" });
 		expect(within(dialog).getByText("Profile details")).toBeTruthy();
 		expect(within(dialog).queryByText("Availability")).toBeNull();
@@ -1750,8 +1865,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 
 		expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
 		expect(
-			screen.queryByRole("heading", { name: "Current activity" })
-		).toBeNull();
+			screen.getByRole("status", { name: "Loading Agent activity" })
+		).toBeTruthy();
+		expect(screen.queryByTestId("agent-current-activity")).toBeNull();
 		expect(screen.queryByText("Ship the Agent Profile upgrade")).toBeNull();
 	});
 
@@ -1847,7 +1963,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(onCreateProfile).toHaveBeenCalledTimes(1);
 	});
 
-	it("places Direct Message and Edit Agent as icon actions outside the dropdown menu", async () => {
+	it("keeps quick icon actions and exposes Edit Agent in the options menu", async () => {
 		renderAgentProfilesCard();
 
 		expect(await screen.findByText("Research Agent")).toBeTruthy();
@@ -1881,16 +1997,18 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		expect(screen.getByRole("button", { name: "More details" })).toBeTruthy();
+		expect(screen.getByRole("menuitem", { name: "More details" })).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Default Project and folder" })
+			screen.getByRole("menuitem", { name: "Default Project and folder" })
 		).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Unbind controller" })
+			screen.getByRole("menuitem", { name: "Unbind controller" })
 		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Remove profile" })).toBeTruthy();
+		expect(
+			screen.getByRole("menuitem", { name: "Remove profile" })
+		).toBeTruthy();
 		expect(screen.queryByText("Direct Message")).toBeNull();
-		expect(screen.queryByText("Edit Agent")).toBeNull();
+		expect(screen.getByRole("menuitem", { name: "Edit Agent" })).toBeTruthy();
 	});
 
 	it("closes the confirmation and removes the Agent from the list cache before deletion settles", async () => {
@@ -1912,7 +2030,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Remove profile" }));
 		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
 
 		await waitFor(() => {
@@ -1970,7 +2088,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Remove profile" }));
 		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
 
 		await waitFor(() => {
@@ -2005,7 +2123,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Remove profile" }));
 		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
 
 		await waitFor(() => {
@@ -2056,7 +2174,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			})
 		);
 		expect(
-			screen.queryByRole("button", { name: "Default Project and folder" })
+			screen.queryByRole("menuitem", { name: "Default Project and folder" })
 		).toBeNull();
 	});
 
@@ -2091,6 +2209,93 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			screen.getByTestId("agent-controller-permission-mode-inline-value")
 				.className
 		).toContain("text-destructive");
+	});
+
+	it.each([
+		"accepted",
+		"rejected",
+	] as const)("keeps Full access model edits responsive when the save is %s", async (outcome) => {
+		const initial = createPrimaryBindingResponse(
+			"codex:fullAccess",
+			"builtin:codex",
+			{ modelId: "gpt-5.5", reasoningLevel: "low" }
+		);
+		let finishSave: (value: unknown) => void = () => undefined;
+		updatePrimaryBindingModelSelectionMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishSave = resolve;
+				})
+		);
+		readPrimaryBindingMock.mockResolvedValue(initial);
+		// A slow or failed refresh must not turn an acknowledged save into a failure.
+		let finishRefresh: () => void = () => undefined;
+		refreshReadinessFactsMock.mockImplementation(
+			() =>
+				new Promise<void>((_resolve, reject) => {
+					finishRefresh = () => reject(new Error("Status refresh unavailable"));
+				})
+		);
+		renderAgentProfilesCard({}, initial.binding, { presentation: "detail" });
+		fireEvent.click(await screen.findByLabelText("Edit Model"));
+		fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+		fireEvent.click(screen.getByRole("option", { name: "High" }));
+		const save = screen.getByText("Save changes") as HTMLButtonElement;
+		expect(save.disabled).toBe(false);
+		expect(screen.queryByRole("checkbox")).toBeNull();
+		fireEvent.click(save);
+		const modelCard = screen.getByLabelText("Edit Model");
+		expect(modelCard.getAttribute("aria-expanded")).toBe("false");
+		expect(modelCard.textContent).toContain("high");
+		expect(modelCard.textContent).toContain("Saving…");
+		expect(toastMock.success).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByLabelText("Edit Collaboration mode"));
+		expect(
+			screen.getByText("Another setting is saving. You can keep editing.")
+		).toBeTruthy();
+		fireEvent.click(
+			within(
+				screen.getByRole("dialog", { name: "Collaboration mode" })
+			).getByText("Cancel")
+		);
+		const saved = createEnsureBindingResponse(
+			"codex:fullAccess",
+			"builtin:codex",
+			{ modelId: "gpt-5.5", reasoningLevel: "high" }
+		);
+		readPrimaryBindingMock.mockResolvedValue({ ...saved, status: "found" });
+		await act(() => {
+			finishSave(outcome === "accepted" ? saved : { status: "rejected" });
+		});
+		await waitFor(() => expect(modelCard.textContent).not.toContain("Saving…"));
+		if (outcome === "accepted") {
+			expect(modelCard.textContent).toContain("high");
+			expect(toastMock.success).toHaveBeenCalledWith("Agent settings saved.");
+		} else {
+			expect(modelCard.textContent).toContain("low");
+			expect(modelCard.textContent).toContain(
+				"Changes weren’t saved. Open to retry."
+			);
+			expect(toastMock.success).not.toHaveBeenCalled();
+			fireEvent.click(modelCard);
+			expect(
+				screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
+			).toContain("High");
+			expect(screen.getByRole("alert").textContent).toContain("could not save");
+		}
+		expect(
+			updatePrimaryBindingAgentControllerPermissionModeMock
+		).not.toHaveBeenCalled();
+		await act(() => {
+			finishRefresh();
+		});
+		if (outcome === "accepted") {
+			expect(toastMock.warning).toHaveBeenCalledWith(
+				"Settings saved. Refresh the page to reload the latest status."
+			);
+			expect(toastMock.error).not.toHaveBeenCalled();
+			expect(modelCard.textContent).toContain("high");
+		}
 	});
 
 	it("updates the Agent Controller Permission Mode from the Agent edit menu", async () => {
@@ -2232,11 +2437,58 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBe("Codex permissions mode: Approve for me");
 	});
 
-	it("updates Codex Collaboration Mode without changing Permission Mode", async () => {
+	it("reads saved collaboration mode from the readiness public configuration", async () => {
+		const binding = createPrimaryBindingResponse("codex:fullAccess").binding;
+		// Captured from the local runtime-overview HTTP response: readiness omits
+		// collaboration mode from primaryBinding and exposes it in this projection.
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			primaryBinding: {
+				...binding,
+				agentControllerCollaborationMode: undefined,
+			},
+			wakeRouteEvidence: {
+				observedAt: "2026-10-01T15:44:04.199Z",
+				reasonCode: "route.not_registered",
+				status: "offline",
+			},
+			publicProfileConfiguration: {
+				agentControllerRef: "builtin:codex",
+				agentControllerCollaborationMode: "codex:plan" as const,
+				agentControllerPermissionMode: "codex:fullAccess" as const,
+				modelSelection: null,
+			},
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard({}, binding, {
+			presentation: "detail",
+			agentExecutionReadinessByProfileId: new Map([
+				[AGENT_PROFILE_ID, readiness],
+			]),
+		});
+		const card = await screen.findByRole("button", {
+			name: "Edit Collaboration mode",
+		});
+		expect(within(card).getByText("Plan")).toBeTruthy();
+		fireEvent.click(card);
+		expect(
+			screen.getByRole("combobox", { name: "Codex collaboration mode" })
+				.textContent
+		).toBe("Plan");
+		expect(
+			screen
+				.getByRole("button", { name: "Save changes" })
+				.hasAttribute("disabled")
+		).toBe(true);
+	});
+
+	it.each([
+		"codex:askForApproval",
+		"codex:fullAccess",
+	])("updates Codex Collaboration Mode without changing %s Permission Mode", async (permissionMode) => {
 		let currentCollaborationMode = "codex:default";
 		readPrimaryBindingMock.mockImplementation(async () =>
 			createPrimaryBindingResponse(
-				"codex:askForApproval",
+				permissionMode,
 				"builtin:codex",
 				null,
 				currentCollaborationMode
@@ -2247,7 +2499,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				currentCollaborationMode = input.agentControllerCollaborationMode;
 				return Promise.resolve(
 					createEnsureBindingResponse(
-						"codex:askForApproval",
+						permissionMode,
 						"builtin:codex",
 						null,
 						currentCollaborationMode
@@ -2258,7 +2510,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		renderAgentProfilesCard(
 			{},
 			createPrimaryBindingResponse(
-				"codex:askForApproval",
+				permissionMode,
 				"builtin:codex",
 				null,
 				currentCollaborationMode
@@ -2820,15 +3072,17 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			})
 		);
 
-		await waitFor(() => {
+		await waitFor(() =>
 			expect(
-				(
-					screen.getByRole("button", { name: "Unbind controller" }) as
-						| HTMLButtonElement
-						| HTMLInputElement
-				).disabled
-			).toBe(true);
-		});
+				screen
+					.getByRole("menuitem", { name: "Unbind controller" })
+					.getAttribute("aria-disabled")
+			).toBe("true")
+		);
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Unbind controller" })
+		);
+		expect(disablePrimaryBindingMock).not.toHaveBeenCalled();
 		expect(screen.getByText("Agent is working")).toBeTruthy();
 	});
 
@@ -3031,28 +3285,35 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).not.toHaveBeenCalled();
 	});
 
-	it("confirms before unbinding a controller and shows the profile as unbound", async () => {
+	it.each([
+		"button",
+		"context",
+	])("confirms before unbinding a controller from the %s menu and shows the profile as unbound", async (entry) => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		const { queryClient } = renderAgentProfilesCard({ refreshAll });
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 
 		expect(await screen.findByText("Research Agent")).toBeTruthy();
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Agent options for Research Agent",
-			})
-		);
-		const unbindControllerButton = screen.getByRole("button", {
+		if (entry === "context") {
+			fireEvent.contextMenu(screen.getByText("Research Agent"));
+		} else {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Agent options for Research Agent" })
+			);
+		}
+		const unbindControllerButton = screen.getByRole("menuitem", {
 			name: "Unbind controller",
 		}) as HTMLButtonElement;
 		await waitFor(() => {
-			expect(unbindControllerButton.disabled).toBe(false);
+			expect(unbindControllerButton.getAttribute("aria-disabled")).not.toBe(
+				"true"
+			);
 		});
 		fireEvent.click(unbindControllerButton);
 
 		expect(
-			screen.getByRole("heading", { name: "Unbind controller?" })
+			await screen.findByRole("heading", { name: "Unbind controller?" })
 		).toBeTruthy();
 		expect(
 			screen.getByText(
@@ -3094,7 +3355,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			})
 		);
 		expect(
-			screen.queryByRole("button", { name: "Unbind controller" })
+			screen.queryByRole("menuitem", { name: "Unbind controller" })
 		).toBeNull();
 	});
 
@@ -3114,7 +3375,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		const unbindControllerButton = screen.getByRole("button", {
+		const unbindControllerButton = screen.getByRole("menuitem", {
 			name: "Unbind controller",
 		}) as HTMLButtonElement;
 		await waitFor(() => {
@@ -3391,6 +3652,59 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.queryByText("Checking")).toBeNull();
 	});
 
+	it("keeps the model hidden while the Agent configuration is still loading", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			primaryBinding: undefined,
+			publicProfileConfiguration: undefined,
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+				agentExecutionReadinessPendingProfileIds: new Set([AGENT_PROFILE_ID]),
+			},
+			null,
+			{
+				agentControllerRefByProfileId: new Map([
+					[AGENT_PROFILE_ID, "builtin:codex"],
+				]),
+				presentation: "detail",
+			}
+		);
+		expect(screen.getAllByLabelText("Loading model")).toHaveLength(2);
+		expect(
+			screen.queryByText("Codex · GPT-5.6 Sol · model default")
+		).toBeNull();
+	});
+
+	it("does not show a catalog default when the saved model cannot be confirmed", () => {
+		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
+		const readiness = {
+			...createReadinessResponseWithPrimaryBinding(binding),
+			primaryBinding: undefined,
+			publicProfileConfiguration: undefined,
+		} as unknown as GetAgentExecutionReadinessResponse;
+		renderAgentProfilesCard(
+			{
+				agentExecutionReadinessByProfileId: new Map([
+					[AGENT_PROFILE_ID, readiness],
+				]),
+			},
+			null,
+			{
+				agentControllerRefByProfileId: new Map([
+					[AGENT_PROFILE_ID, "builtin:codex"],
+				]),
+				presentation: "detail",
+			}
+		);
+		expect(screen.getAllByText("Model unavailable").length).toBeGreaterThan(0);
+		expect(screen.queryByText("GPT-5.6 Sol")).toBeNull();
+	});
+
 	it("keeps self-healing readiness active without rendering controller UI", async () => {
 		const { container, queryClient } = renderAgentProfilesCard(
 			{
@@ -3416,7 +3730,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("keeps a recently Available Agent visually stable during a brief connection check", () => {
+	it("shows a new Checking verdict instead of an older Available badge", () => {
 		const availableReadiness =
 			createWakeAvailabilityReadiness("available_for_wake");
 		const { rerenderAgentProfilesCard } = renderAgentProfilesCard({
@@ -3440,11 +3754,12 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			},
 			createPrimaryBindingResponse("codex:approveForMe").binding
 		);
-
-		expect(screen.queryByText("Checking")).toBeNull();
+		expect(
+			screen.getByTestId("agent-profile-execution-readiness").textContent
+		).toContain("Checking ·");
 		expect(
 			document.querySelector('[data-availability-phase="available"]')
-		).toBeTruthy();
+		).toBeNull();
 	});
 
 	it("hides owner labels by default for personal Agents", async () => {

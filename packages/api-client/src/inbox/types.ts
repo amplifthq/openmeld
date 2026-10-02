@@ -2,8 +2,13 @@ import type {
   CenterAgentInboxSummaryResponse,
   DismissInboxItemResponse,
   GetInboxItemResponse,
+  InboxFeedQuery,
+  InboxFeedResponse,
   InboxMessageNotificationPreferencesResponse,
+  InboxNotificationObservationsQuery,
+  InboxNotificationObservationsResponse,
   InboxNotificationPreferencesResponse,
+  InboxPresentation,
   InboxSummaryResponse,
   InboxView,
   ListInboxItemsResponse,
@@ -11,6 +16,8 @@ import type {
   MarkCenterAgentInboxReadThroughResponse,
   MarkInboxItemReadResponse,
   MarkSpaceInboxReadThroughResponse,
+  MutateInboxFeedBody,
+  MutateInboxFeedResponse,
   OpenMeldRequestContext,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
@@ -25,6 +32,15 @@ export type InboxRequestInput = {
 };
 
 export type InboxApi = {
+  observeNotifications: (
+    input?: InboxRequestInput & InboxNotificationObservationsQuery
+  ) => Promise<InboxNotificationObservationsResponse>;
+  feed: (
+    input?: InboxRequestInput & InboxFeedQuery
+  ) => Promise<InboxFeedResponse>;
+  mutateFeed: (
+    input: InboxRequestInput & MutateInboxFeedBody
+  ) => Promise<MutateInboxFeedResponse>;
   getMessageNotificationPreferences: (
     input?: InboxRequestInput & { spaceId?: string }
   ) => Promise<InboxMessageNotificationPreferencesResponse>;
@@ -65,15 +81,19 @@ export type InboxApi = {
     input?: InboxRequestInput & {
       cursor?: string;
       limit?: number;
+      presentation?: InboxPresentation;
+      notificationPreview?: "true";
       view?: InboxView;
     }
   ) => Promise<ListInboxItemsResponse>;
-  summary: (input?: InboxRequestInput) => Promise<InboxSummaryResponse>;
+  summary: (
+    input?: InboxRequestInput & { presentation?: InboxPresentation }
+  ) => Promise<InboxSummaryResponse>;
   markRead: (
     input: InboxRequestInput & { itemId: string; read: boolean }
   ) => Promise<MarkInboxItemReadResponse>;
   markAllRead: (
-    input?: InboxRequestInput
+    input?: InboxRequestInput & { presentation?: InboxPresentation }
   ) => Promise<MarkAllInboxItemsReadResponse>;
   getPreferences: (
     input?: InboxRequestInput

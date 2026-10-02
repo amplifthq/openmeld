@@ -1,28 +1,115 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type {
+  DesktopInboxAttention,
+  DesktopUpdaterState,
+} from "@openmeld/schemas";
 import type { IpcMainInvokeEvent } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WINDOW_IPC } from "../src/shared/ipc-contract";
 
-vi.mock("../src/main/pilot", () => ({ initializeDesktopPilot: () => null }));
+vi.mock("../src/main/tray-image", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/tray-image")>()),
+  createTrayTemplateImage: (_logo: unknown, unread: boolean) => ({
+    mark: unread ? "unread" : "logo",
+  }),
+}));
+
+const inboxTitle = vi.hoisted(() => ({
+  activate: vi.fn(),
+  setContext: null as ((context: unknown) => void) | null,
+  invalidateScope: null as (() => void) | null,
+  setPresentation: null as ((presentation: unknown) => void) | null,
+  update: null as ((attention: DesktopInboxAttention | null) => void) | null,
+  initial: null as DesktopInboxAttention | null,
+}));
+vi.mock("../src/main/pilot", () => ({
+  initializeDesktopPilot: (
+    _getWindow: unknown,
+    update: (attention: DesktopInboxAttention | null) => void,
+    setPresentation: (presentation: unknown) => void,
+    setContext: (context: unknown) => void,
+    invalidateScope: () => void
+  ) => {
+    inboxTitle.update = update;
+    inboxTitle.setPresentation = setPresentation;
+    inboxTitle.setContext = setContext;
+    inboxTitle.invalidateScope = invalidateScope;
+    update(inboxTitle.initial);
+    return {
+      activateNotification: inboxTitle.activate,
+      auth: {},
+      diagnosticsEnabled: false,
+      dispose: vi.fn(),
+      getSession: vi.fn(() => undefined),
+      install: vi.fn(),
+      installedTarget: undefined,
+      observeWindow: vi.fn(),
+      rendererUrl: "http://desktop.localhost:3200/desktop-shell",
+      webOrigin: "https://openmeld.ai",
+    };
+  },
+}));
+
+const updaterMock = vi.hoisted(() => ({
+  setInstalling: undefined as ((value: boolean) => void) | undefined,
+  setState: undefined as ((state: DesktopUpdaterState) => void) | undefined,
+  controller: {
+    check: vi.fn<() => Promise<void> | undefined>(() => undefined),
+    legacyStatus: vi.fn(async () => ({
+      status: "idle" as const,
+      checked: false,
+      currentVersion: "0.1.1",
+      latestVersion: null,
+      minimumSupportedVersion: null,
+      downloadPageUrl: "https://openmeld.ai/desktop",
+      message: null,
+      macosArm64: null,
+      problem: null,
+    })),
+    showNative: vi.fn(async () => undefined),
+  },
+}));
+
+vi.mock("../src/main/update/register-app-updater", () => ({
+  registerAppUpdater: vi.fn(
+    (input: {
+      onStateChanged: (state: DesktopUpdaterState) => void;
+      setInstalling: (value: boolean) => void;
+    }) => {
+      updaterMock.setInstalling = input.setInstalling;
+      updaterMock.setState = input.onStateChanged;
+      return updaterMock.controller;
+    }
+  ),
+}));
 
 const electronMock = vi.hoisted(() => {
   const desktopVersion = "0.1.0-preview.0";
   const trayInstances: Array<{
     image: unknown;
     on: ReturnType<typeof vi.fn>;
+    closeContextMenu: ReturnType<typeof vi.fn>;
     setContextMenu: ReturnType<typeof vi.fn>;
     setTitle: ReturnType<typeof vi.fn>;
+    setImage: ReturnType<typeof vi.fn>;
     setToolTip: ReturnType<typeof vi.fn>;
   }> = [];
   const windowInstances: Array<{
     center: ReturnType<typeof vi.fn>;
     focus: ReturnType<typeof vi.fn>;
+    isMinimized: ReturnType<typeof vi.fn>;
+    restore: ReturnType<typeof vi.fn>;
     options: Record<string, unknown> | undefined;
+    hide: ReturnType<typeof vi.fn>;
+    maximize: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
     setSize: ReturnType<typeof vi.fn>;
     webContents: {
       mainFrame: { url: string };
       isDestroyed: () => boolean;
+      isLoadingMainFrame: ReturnType<typeof vi.fn>;
+      once: ReturnType<typeof vi.fn>;
       on: ReturnType<typeof vi.fn>;
       send: ReturnType<typeof vi.fn>;
       setWindowOpenHandler: ReturnType<typeof vi.fn>;
@@ -38,6 +125,8 @@ const electronMock = vi.hoisted(() => {
         ).href,
       },
       isDestroyed: () => false,
+      isLoadingMainFrame: vi.fn(() => false),
+      once: vi.fn(),
       on: vi.fn(),
       send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
@@ -52,6 +141,7 @@ const electronMock = vi.hoisted(() => {
     setSize = vi.fn();
     focus = vi.fn();
     hide = vi.fn();
+    maximize = vi.fn();
     loadFile = vi.fn(() => Promise.resolve());
     loadURL = vi.fn((url: string) => {
       this.webContents.mainFrame.url = url;
@@ -67,8 +157,10 @@ const electronMock = vi.hoisted(() => {
 
   class MockTray {
     on = vi.fn();
+    closeContextMenu = vi.fn();
     setContextMenu = vi.fn();
     setTitle = vi.fn();
+    setImage = vi.fn();
     setToolTip = vi.fn();
     image: unknown;
 
@@ -78,9 +170,14 @@ const electronMock = vi.hoisted(() => {
     }
   }
 
+  class MockMenu extends Array<unknown> {
+    on = vi.fn();
+  }
+
   const app = {
     dock: { setIcon: vi.fn() },
     enableSandbox: vi.fn(),
+    getName: vi.fn(() => "OpenMeld"),
     getVersion: vi.fn(() => desktopVersion),
     isPackaged: false,
     on: vi.fn(),
@@ -92,7 +189,11 @@ const electronMock = vi.hoisted(() => {
   };
 
   const menu = {
-    buildFromTemplate: vi.fn((template: unknown) => template),
+    buildFromTemplate: vi.fn((template: unknown[]) => {
+      const built = new MockMenu();
+      built.push(...template);
+      return built;
+    }),
     setApplicationMenu: vi.fn(),
   };
 
@@ -160,6 +261,7 @@ const desktopMock = vi.hoisted(() => {
     openDesktopDownloadPage: vi.fn(),
     openNodeDownloadPage: vi.fn(),
     openWeb: vi.fn(),
+    openExternal: vi.fn(),
     setAgentEnabled: vi.fn(),
     setOpenAtLogin: vi.fn(),
     setServiceAutoStart: vi.fn(),
@@ -239,6 +341,10 @@ const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(
   process,
   "platform"
 );
+const originalSystemVersionDescriptor = Object.getOwnPropertyDescriptor(
+  process,
+  "getSystemVersion"
+);
 
 function setTestPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, "platform", {
@@ -251,6 +357,22 @@ function restoreTestPlatform(): void {
   if (originalPlatformDescriptor) {
     Object.defineProperty(process, "platform", originalPlatformDescriptor);
   }
+  if (originalSystemVersionDescriptor) {
+    Object.defineProperty(
+      process,
+      "getSystemVersion",
+      originalSystemVersionDescriptor
+    );
+  } else {
+    Reflect.deleteProperty(process, "getSystemVersion");
+  }
+}
+
+function setTestSystemVersion(version: string): void {
+  Object.defineProperty(process, "getSystemVersion", {
+    configurable: true,
+    value: () => version,
+  });
 }
 
 async function importMain(): Promise<void> {
@@ -259,13 +381,22 @@ async function importMain(): Promise<void> {
 }
 
 beforeEach(() => {
+  inboxTitle.activate.mockReset();
+  inboxTitle.initial = null;
+  inboxTitle.invalidateScope = null;
+  inboxTitle.setContext = null;
+  inboxTitle.setPresentation = null;
+  inboxTitle.update = null;
   vi.resetModules();
   restoreTestPlatform();
+  setTestSystemVersion("14.4");
   desktopMock.resetHandlers();
   electronMock.trayInstances.length = 0;
   electronMock.windowInstances.length = 0;
   electronMock.app.enableSandbox.mockClear();
   electronMock.app.dock.setIcon.mockClear();
+  electronMock.app.getName.mockReset();
+  electronMock.app.getName.mockReturnValue("OpenMeld");
   electronMock.app.getVersion.mockClear();
   electronMock.app.on.mockClear();
   electronMock.app.quit.mockClear();
@@ -274,10 +405,17 @@ beforeEach(() => {
   electronMock.app.setAboutPanelOptions.mockClear();
   electronMock.app.setName.mockClear();
   electronMock.app.whenReady.mockClear();
+  updaterMock.setInstalling = undefined;
+  updaterMock.setState = undefined;
+  updaterMock.controller.check.mockClear();
+  updaterMock.controller.legacyStatus.mockClear();
+  updaterMock.controller.showNative.mockClear();
   electronMock.ipcMain.handle.mockClear();
   electronMock.dialog.showErrorBox.mockClear();
   electronMock.dialog.showMessageBox.mockClear();
   electronMock.dialog.showMessageBox.mockResolvedValue({ response: 1 });
+  electronMock.shell.openExternal.mockReset();
+  electronMock.shell.openExternal.mockResolvedValue(undefined);
   electronMock.Menu.buildFromTemplate.mockClear();
   electronMock.Menu.setApplicationMenu.mockClear();
   electronMock.appIcon.isEmpty.mockClear();
@@ -290,6 +428,123 @@ beforeEach(() => {
 });
 
 describe("main tray behavior", () => {
+  it.each([
+    "darwin",
+    "win32",
+    "linux",
+  ] as const)("preserves native window controls on %s", async (platform) => {
+    setTestPlatform(platform);
+    await importMain();
+    const options = electronMock.windowInstances.at(0)?.options;
+    expect(options?.titleBarStyle).toBe(
+      platform === "darwin" ? "hiddenInset" : "hidden"
+    );
+    if (platform === "darwin") {
+      expect(options?.titleBarOverlay).toBeUndefined();
+    } else {
+      expect(options?.titleBarOverlay).toMatchObject({ height: 38 });
+    }
+    expect(options?.webPreferences).toMatchObject({
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    });
+  });
+
+  it("keeps the menu bar compact while distinguishing mentions, pending work and ordinary unread", async () => {
+    setTestPlatform("darwin");
+    inboxTitle.initial = {
+      ordinaryUnreadCount: 150,
+      unreadMentionCount: 0,
+      unreadUrgentUpdateCount: 0,
+      unresolvedActionCount: 0,
+    };
+    await importMain();
+    const tray = electronMock.trayInstances[0];
+    expect(tray?.setImage).toHaveBeenLastCalledWith({
+      mark: "unread",
+    });
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("", {
+      fontType: "monospacedDigit",
+    });
+    for (const [nextAttention, title] of [
+      [
+        {
+          ordinaryUnreadCount: 150,
+          unreadMentionCount: 1,
+          unreadUrgentUpdateCount: 1,
+          unresolvedActionCount: 2,
+        },
+        "!3 @1",
+      ],
+      [
+        {
+          ordinaryUnreadCount: 0,
+          unreadMentionCount: 100,
+          unreadUrgentUpdateCount: 0,
+          unresolvedActionCount: 0,
+        },
+        "@99+",
+      ],
+      [
+        {
+          ordinaryUnreadCount: 150,
+          unreadMentionCount: 0,
+          unreadUrgentUpdateCount: 1,
+          unresolvedActionCount: 2,
+        },
+        "!3",
+      ],
+      [
+        {
+          priorityCount: 2,
+          ordinaryUnreadCount: 150,
+          unreadMentionCount: 3,
+          unreadUrgentUpdateCount: 1,
+          unresolvedActionCount: 5,
+        },
+        "!2 @3",
+      ],
+      [
+        {
+          priorityCount: 120,
+          ordinaryUnreadCount: 163,
+          unreadMentionCount: 180,
+          unreadUrgentUpdateCount: 120,
+          unresolvedActionCount: 0,
+        },
+        "!99+ @99+",
+      ],
+      [
+        {
+          ordinaryUnreadCount: 0,
+          unreadMentionCount: 0,
+          unreadUrgentUpdateCount: 0,
+          unresolvedActionCount: 0,
+        },
+        "",
+      ],
+      [null, ""],
+    ] as const) {
+      inboxTitle.update?.(nextAttention);
+      expect(tray?.setTitle).toHaveBeenLastCalledWith(title, {
+        fontType: "monospacedDigit",
+      });
+      expect(tray?.setImage).toHaveBeenLastCalledWith({ mark: "logo" });
+    }
+    inboxTitle.update?.({
+      priorityCount: 0,
+      ordinaryUnreadCount: 0,
+      unreadMentionCount: 0,
+      unreadUrgentUpdateCount: 0,
+      unresolvedActionCount: 5,
+    });
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("", {
+      fontType: "monospacedDigit",
+    });
+    expect(tray?.setImage).toHaveBeenLastCalledWith({ mark: "unread" });
+  });
+
   it("quits duplicate desktop instances before creating another tray", async () => {
     electronMock.app.requestSingleInstanceLock.mockReturnValueOnce(false);
 
@@ -317,7 +572,7 @@ describe("main tray behavior", () => {
     expect(window?.focus).toHaveBeenCalled();
   });
 
-  it("creates the status window at the Desktop workspace size", async () => {
+  it("opens the Desktop window maximized within the current screen", async () => {
     await importMain();
 
     const window = electronMock.windowInstances.at(0);
@@ -328,10 +583,17 @@ describe("main tray behavior", () => {
       minWidth: 960,
       minHeight: 640,
     });
+    expect(window?.maximize).toHaveBeenCalledOnce();
   });
 
-  it("applies OpenMeld Desktop identity to native app, menu, and window surfaces", async () => {
+  it.each([
+    "OpenMeld",
+    "OpenMeld Test",
+    "OpenMeld Dev",
+    "OpenMeld Dev wt-7574cf217e3a",
+  ])("preserves %s on every native application surface", async (appName) => {
     setTestPlatform("darwin");
+    electronMock.app.getName.mockReturnValue(appName);
 
     await importMain();
 
@@ -343,10 +605,10 @@ describe("main tray behavior", () => {
       submenu?: Array<{ label?: string }>;
     }>;
 
-    expect(electronMock.app.setName).toHaveBeenCalledWith("OpenMeld Desktop");
+    expect(electronMock.app.setName).toHaveBeenCalledWith(appName);
     expect(electronMock.app.setAboutPanelOptions).toHaveBeenCalledWith(
       expect.objectContaining({
-        applicationName: "OpenMeld Desktop",
+        applicationName: appName,
         applicationVersion: electronMock.desktopVersion,
         version: electronMock.desktopVersion,
       })
@@ -356,21 +618,28 @@ describe("main tray behavior", () => {
     );
     expect(window?.options).toMatchObject({
       icon: electronMock.appIcon,
-      title: "OpenMeld Desktop",
+      title: appName,
     });
     expect(applicationMenu.at(0)).toEqual(
-      expect.objectContaining({ label: "OpenMeld Desktop" })
+      expect.objectContaining({ label: appName })
     );
     expect(applicationMenu.at(0)?.submenu?.map((item) => item.label)).toEqual(
       expect.arrayContaining([
-        "About OpenMeld Desktop",
+        `About ${appName}`,
+        `Hide ${appName}`,
         "Settings...",
-        "Quit OpenMeld Desktop",
+        `Quit ${appName}`,
       ])
     );
+    expect(electronMock.trayInstances.at(0)?.setToolTip).toHaveBeenCalledWith(
+      appName
+    );
+    expect(trayMenuItem(`Quit ${appName}`)).toBeDefined();
+    trayMenuItem(`Quit ${appName}`)?.click?.();
+    expect(electronMock.app.quit).toHaveBeenCalledOnce();
   });
 
-  it("opens OpenMeld Desktop only from the explicit tray menu item", async () => {
+  it("opens OpenMeld only from the explicit tray menu item", async () => {
     await importMain();
 
     const tray = electronMock.trayInstances.at(0);
@@ -383,15 +652,12 @@ describe("main tray behavior", () => {
       | undefined;
 
     expect((menuTemplate ?? []).flatMap((item) => item.label ?? [])).toEqual(
-      expect.arrayContaining([
-        "Open OpenMeld Desktop",
-        "Open OpenMeld Web App",
-        "Open Settings",
-      ])
+      expect.arrayContaining(["Open App", "Open Inbox", "Settings…"])
     );
   });
 
   it("uses the generated OpenMeld logo resource for the menu bar tray icon", async () => {
+    setTestPlatform("darwin");
     await importMain();
 
     const tray = electronMock.trayInstances.at(0);
@@ -399,29 +665,40 @@ describe("main tray behavior", () => {
     expect(electronMock.nativeImage.createFromPath).toHaveBeenCalledWith(
       expect.stringContaining("resources/tray-icon.png")
     );
-    expect(electronMock.trayIcon.resize).toHaveBeenCalledWith({ height: 18 });
-    expect(electronMock.resizedTrayIcon.setTemplateImage).toHaveBeenCalledWith(
-      true
-    );
-    expect(tray?.image).toBe(electronMock.resizedTrayIcon);
-    expect(tray?.setTitle).not.toHaveBeenCalled();
+    expect(tray?.image).toEqual({ mark: "logo" });
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("", {
+      fontType: "monospacedDigit",
+    });
   });
 
-  it("opens Settings from the tray menu", async () => {
+  it("restores the window and delivers Settings after its document loads", async () => {
     await importMain();
-
-    trayMenuItem("Open Settings")?.click?.();
-
     const window = electronMock.windowInstances.at(0);
-    expect(window).toBeDefined();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(window?.webContents.send).toHaveBeenCalledWith(
+    if (!window) {
+      throw new Error("Missing window");
+    }
+    window.isMinimized.mockReturnValue(true);
+    window.webContents.isLoadingMainFrame.mockReturnValue(true);
+    trayMenuItem("Settings…")?.click?.();
+    expect(window.restore).toHaveBeenCalled();
+    expect(window.show).toHaveBeenCalled();
+    expect(window.focus).toHaveBeenCalled();
+    expect(window.webContents.send).not.toHaveBeenCalled();
+    const loaded = window.webContents.once.mock.calls.find(
+      ([event]) => event === "did-finish-load"
+    )?.[1];
+    if (!loaded) {
+      throw new Error("Missing load listener");
+    }
+    window.webContents.isLoadingMainFrame.mockReturnValue(false);
+    loaded();
+    expect(window.webContents.send).toHaveBeenCalledWith(
       WINDOW_IPC.navigateDestination,
       "settings"
     );
   });
 
-  it("blocks renderer-created windows and renderer-initiated navigation", async () => {
+  it("opens ordinary external links in the system browser without creating an Electron window", async () => {
     await importMain();
 
     const window = electronMock.windowInstances.at(0);
@@ -430,9 +707,82 @@ describe("main tray behavior", () => {
       expect.any(Function)
     );
     const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
-      .calls[0]?.[0] as (() => { action: "deny" }) | undefined;
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
 
-    expect(windowOpenHandler?.()).toEqual({ action: "deny" });
+    expect(
+      windowOpenHandler?.({ url: "https://example.com/docs?q=1#section" })
+    ).toEqual({ action: "deny" });
+    await Promise.resolve();
+    expect(electronMock.shell.openExternal).toHaveBeenCalledOnce();
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
+      "https://example.com/docs?q=1#section"
+    );
+  });
+
+  it.each([
+    "not a URL",
+    "javascript:alert(1)",
+    "file:///tmp/private",
+    "data:text/html,unsafe",
+    "https://user:password@example.com/private",
+  ])("denies unsafe external link %s", async (url) => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
+
+    expect(windowOpenHandler?.({ url })).toEqual({ action: "deny" });
+    expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("opens a requested internal new-window target as its configured Web equivalent", async () => {
+    await importMain();
+    const window = electronMock.windowInstances.at(0);
+    const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
+      .calls[0]?.[0] as (details: { url: string }) => { action: "deny" };
+
+    expect(
+      windowOpenHandler({
+        url: "openmeld-desktop://app/o/team/agents?profileId=agent-%E4%B8%AD#activity",
+      })
+    ).toEqual({ action: "deny" });
+    await Promise.resolve();
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
+      "https://openmeld.ai/o/team/agents?profileId=agent-%E4%B8%AD#activity"
+    );
+  });
+
+  it("reports a rejected system-browser handoff without allowing a new window", async () => {
+    const failure = new Error("Browser unavailable");
+    electronMock.shell.openExternal.mockRejectedValueOnce(failure);
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
+
+    expect(windowOpenHandler?.({ url: "http://example.com/support" })).toEqual({
+      action: "deny",
+    });
+    await vi.waitFor(() =>
+      expect(electronMock.dialog.showErrorBox).toHaveBeenCalledWith(
+        "OpenMeld",
+        failure.message
+      )
+    );
+  });
+
+  it("continues blocking renderer-initiated document navigation", async () => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
     expect(window?.webContents.on).toHaveBeenCalledWith(
       "will-navigate",
       expect.any(Function)
@@ -441,79 +791,175 @@ describe("main tray behavior", () => {
     const navigationEvent = { preventDefault: vi.fn() };
     const navigationHandler = window?.webContents.on.mock.calls.find(
       ([event]) => event === "will-navigate"
-    )?.[1] as ((event: typeof navigationEvent) => void) | undefined;
+    )?.[1] as
+      | ((event: typeof navigationEvent, url: string) => void)
+      | undefined;
 
-    navigationHandler?.(navigationEvent);
+    navigationHandler?.(
+      navigationEvent,
+      "openmeld-desktop://app/o/team/agents?profileId=agent-1#activity"
+    );
 
     expect(navigationEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(window?.webContents.send).toHaveBeenCalledWith(
+      WINDOW_IPC.navigateHref,
+      "/o/team/agents?profileId=agent-1#activity"
+    );
+  });
+
+  it("routes an ordinary trusted Web app URL internally but keeps API paths out of Router", async () => {
+    await importMain();
+    const window = electronMock.windowInstances.at(0);
+    const navigationHandler = window?.webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate"
+    )?.[1] as
+      | ((event: { preventDefault(): void }, url: string) => void)
+      | undefined;
+    const event = { preventDefault: vi.fn() };
+
+    navigationHandler?.(
+      event,
+      "https://openmeld.ai/o/team/spaces/space-1?message=signal-1#thread"
+    );
+    expect(window?.webContents.send).toHaveBeenCalledWith(
+      WINDOW_IPC.navigateHref,
+      "/o/team/spaces/space-1?message=signal-1#thread"
+    );
+
+    navigationHandler?.(event, "openmeld-desktop://app/");
+    expect(window?.webContents.send).toHaveBeenLastCalledWith(
+      WINDOW_IPC.navigateHref,
+      "/"
+    );
+
+    navigationHandler?.(
+      event,
+      "https://openmeld.ai/api/oauth/start?token=secret"
+    );
+    await Promise.resolve();
+    expect(window?.webContents.send).toHaveBeenCalledTimes(2);
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
+      "https://openmeld.ai/api/oauth/start?token=secret"
+    );
   });
 
   function trayMenuLabels(): string[] {
-    return (trayMenuTemplate() ?? []).flatMap((item) =>
+    return Array.from(trayMenuTemplate() ?? []).flatMap((item) =>
       item.label ? [item.label] : []
     );
   }
 
   function trayMenuTemplate():
     | Array<{
+        accessibilityLabel?: string;
         click?: () => void;
         enabled?: boolean;
         icon?: unknown;
         label?: string;
+        sublabel?: string;
+        toolTip?: string;
         type?: string;
       }>
     | undefined {
     const tray = electronMock.trayInstances.at(0);
     return tray?.setContextMenu.mock.calls.at(-1)?.[0] as
       | Array<{
+          accessibilityLabel?: string;
           click?: () => void;
           enabled?: boolean;
           icon?: unknown;
           label?: string;
+          sublabel?: string;
+          toolTip?: string;
           type?: string;
         }>
       | undefined;
   }
 
-  function trayMenuItem(label: string): { click?: () => void } | undefined {
+  function trayMenuItem(label: string) {
     return trayMenuTemplate()?.find((item) => item.label === label);
   }
 
-  it("shows Desktop version information and groups tray actions", async () => {
+  it("shows the compact product menu without version, Web, or service controls", async () => {
+    setTestPlatform("darwin");
     await importMain();
 
     expect(trayMenuLabels()).toEqual([
-      "OpenMeld Service: Running",
-      `OpenMeld Desktop: v${electronMock.desktopVersion}`,
-      "Open OpenMeld Desktop",
-      "Open OpenMeld Web App",
-      "Open Settings",
-      "Reconnect This Computer",
-      "Stop OpenMeld Service",
-      "Quit OpenMeld Desktop",
+      "Loading notifications…",
+      "Open Inbox",
+      "Open App",
+      "Computer — Checking…",
+      "Settings…",
+      "Quit OpenMeld",
     ]);
+    expect(
+      Array.from(trayMenuTemplate() ?? []).map(
+        (item) => item.type ?? item.label
+      )
+    ).toEqual([
+      "Loading notifications…",
+      "Open Inbox",
+      "separator",
+      "Open App",
+      "Computer — Checking…",
+      "Settings…",
+      "separator",
+      "Quit OpenMeld",
+    ]);
+    expect(trayMenuLabels()).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("v0."),
+        "Open Web App",
+        "Start OpenMeld Service",
+        "Stop OpenMeld Service",
+      ])
+    );
+  });
 
-    const menuTemplate = trayMenuTemplate();
-    expect(menuTemplate?.map((item) => item.type ?? item.label)).toEqual([
-      "OpenMeld Service: Running",
-      `OpenMeld Desktop: v${electronMock.desktopVersion}`,
-      "separator",
-      "Open OpenMeld Desktop",
-      "Open OpenMeld Web App",
-      "separator",
-      "Open Settings",
-      "separator",
-      "Reconnect This Computer",
-      "Stop OpenMeld Service",
-      "separator",
-      "Quit OpenMeld Desktop",
-    ]);
-    expect(menuTemplate?.at(0)).toEqual(
-      expect.objectContaining({ enabled: false })
+  it("shows only actionable Desktop updates in the menu and opens the native update flow", async () => {
+    setTestPlatform("darwin");
+    setTestSystemVersion("14.4");
+    await importMain();
+
+    updaterMock.setState?.({
+      status: "available",
+      currentVersion: "0.1.4",
+      version: "0.1.5",
+      percent: null,
+      errorStage: null,
+    });
+
+    const available = trayMenuTemplate()?.find(
+      (item) => item.label === "Update Available…"
     );
-    expect(menuTemplate?.at(1)).toEqual(
-      expect.objectContaining({ enabled: false })
+    expect(available).toEqual(
+      expect.objectContaining({
+        accessibilityLabel:
+          "Update available. Version 0.1.5 is available to download.",
+      })
     );
+    expect(available).not.toHaveProperty("badge");
+    available?.click?.();
+    expect(updaterMock.controller.showNative).toHaveBeenCalledOnce();
+
+    updaterMock.setState?.({
+      status: "downloaded",
+      currentVersion: "0.1.4",
+      version: "0.1.5",
+      percent: 100,
+      errorStage: null,
+    });
+    expect(trayMenuItem("Restart to Update…")).toBeTruthy();
+
+    updaterMock.setState?.({
+      status: "current",
+      currentVersion: "0.1.4",
+      version: null,
+      percent: null,
+      errorStage: null,
+    });
+    expect(trayMenuItem("Restart to Update…")).toBeUndefined();
+    expect(trayMenuItem("Update Available…")).toBeUndefined();
   });
 
   it("adds native icons to every clickable tray action", async () => {
@@ -523,7 +969,7 @@ describe("main tray behavior", () => {
 
     const clickableItems = trayMenuTemplate()?.filter((item) => item.click);
 
-    expect(clickableItems).toHaveLength(6);
+    expect(clickableItems).toHaveLength(5);
     for (const item of clickableItems ?? []) {
       expect(item.icon).toBeTruthy();
     }
@@ -540,144 +986,385 @@ describe("main tray behavior", () => {
     ).toBe(true);
   });
 
-  it("offers Reconnect + Stop (not Start) while the service is running", async () => {
+  it("omits the notification row when there is nothing new", async () => {
+    setTestPlatform("darwin");
     await importMain();
 
-    const labels = trayMenuLabels();
+    inboxTitle.setPresentation?.({ status: "empty" });
 
-    expect(labels).toEqual(
-      expect.arrayContaining([
-        "Reconnect This Computer",
-        "Stop OpenMeld Service",
-      ])
-    );
-    // Binary menu: a running service never also offers Start.
-    expect(labels).not.toContain("Start OpenMeld Service");
-    expect(labels).not.toContain("Install OpenMeld Service");
-    expect(labels.some((label) => label.endsWith("..."))).toBe(false);
+    expect(trayMenuLabels()).toEqual([
+      "Open Inbox",
+      "Open App",
+      "Computer — Checking…",
+      "Settings…",
+      "Quit OpenMeld",
+    ]);
+    inboxTitle.setContext?.({ unreadCount: 163 });
+    inboxTitle.setPresentation?.({ status: "no_unread_messages" });
+    expect(trayMenuLabels()).toContain("No message preview available");
+    expect(trayMenuLabels()).not.toContain("No unread messages");
   });
 
-  it("offers only Start (not Stop) while the service is stopped", async () => {
-    desktopMock.handlers.getServiceStatus.mockResolvedValueOnce({
-      installed: true,
-      lifecycle: "stopped",
-      problem: null,
-      running: false,
-      autoStart: true,
-      cliVersion: null,
-      runtimeProjection: null,
+  it("keeps Computer status inline so the preview can use the menu width", async () => {
+    setTestPlatform("darwin");
+    setTestSystemVersion("14.4");
+    await importMain();
+
+    inboxTitle.setContext?.({
+      computer: { available: true, statusLabel: "Checking…" },
+      unreadCount: 0,
     });
 
-    await importMain();
-
-    const labels = trayMenuLabels();
-
-    expect(labels).toContain("Start OpenMeld Service");
-    expect(labels).not.toContain("Stop OpenMeld Service");
-  });
-
-  it("starts OpenMeld Service from the tray without native confirmation", async () => {
-    desktopMock.handlers.getServiceStatus.mockResolvedValueOnce({
-      installed: true,
-      lifecycle: "stopped",
-      problem: null,
-      running: false,
-      autoStart: true,
-      cliVersion: null,
-      runtimeProjection: null,
-    });
-
-    await importMain();
-
-    trayMenuItem("Start OpenMeld Service")?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showMessageBox).not.toHaveBeenCalled();
-    expect(desktopMock.handlers.startService).toHaveBeenCalledTimes(1);
-  });
-
-  it("confirms Stop OpenMeld Service before the tray stops local execution capacity", async () => {
-    await importMain();
-
-    trayMenuItem("Stop OpenMeld Service")?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showMessageBox).toHaveBeenCalledWith(
+    expect(trayMenuItem("Computer — Checking…")).toEqual(
       expect.objectContaining({
-        buttons: ["Cancel", "Stop OpenMeld Service"],
-        detail:
-          "This Mac cannot receive local Wake work until OpenMeld Service is started again.",
-        message: "Stop OpenMeld Service on this Mac",
-        title: "Stop OpenMeld Service?",
+        accessibilityLabel: "Computer, Checking…",
       })
     );
-    expect(desktopMock.handlers.stopService).toHaveBeenCalledTimes(1);
+    expect(trayMenuItem("Computer — Checking…")).not.toHaveProperty("badge");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Connected",
+        statusTone: "connected",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (trayMenuItem("Computer — Connected")?.icon as { dataUrl: string })
+        .dataUrl
+    ).toContain("%2334d399");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Disconnected",
+        statusTone: "offline",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (trayMenuItem("Computer — Disconnected")?.icon as { dataUrl: string })
+        .dataUrl
+    ).toContain("%23d4d4d4");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Checking OpenMeld status",
+        statusTone: "attention",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (
+        trayMenuItem("Computer — Checking OpenMeld status")?.icon as {
+          dataUrl: string;
+        }
+      ).dataUrl
+    ).toContain("%23fbbf24");
   });
 
-  it("does not stop OpenMeld Service from the tray when confirmation is cancelled", async () => {
-    electronMock.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 });
-
+  it("keeps Computer status and preview text visible before macOS 14.4", async () => {
+    setTestPlatform("darwin");
+    setTestSystemVersion("13.6");
     await importMain();
-
-    trayMenuItem("Stop OpenMeld Service")?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showMessageBox).toHaveBeenCalledTimes(1);
-    expect(desktopMock.handlers.stopService).not.toHaveBeenCalled();
-  });
-
-  it("confirms Reconnect This Computer before tray setup runs", async () => {
-    await importMain();
-
-    trayMenuItem("Reconnect This Computer")?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.objectContaining({
-        buttons: ["Cancel", "Reconnect This Computer"],
-        detail:
-          "This reruns setup for this Mac and may restart OpenMeld Service. It will not sign you out.",
-        message: "Reconnect This Computer",
-        title: "Reconnect this computer?",
-      })
-    );
-    expect(desktopMock.handlers.setupComputer).toHaveBeenCalledTimes(1);
-  });
-
-  it("offers only Set Up while the service is not installed", async () => {
-    desktopMock.handlers.getServiceStatus.mockResolvedValueOnce({
-      installed: false,
-      lifecycle: "not_installed",
-      problem: null,
-      running: false,
-      autoStart: null,
-      cliVersion: null,
-      runtimeProjection: null,
+    inboxTitle.setContext?.({
+      computer: { available: true, statusLabel: "Connected" },
+      unreadCount: 1,
+    });
+    inboxTitle.setPresentation?.({
+      item: {
+        contextLabel: "",
+        occurredAt: new Date().toISOString(),
+        preview: "p".repeat(19),
+        reference: {
+          itemId: "item-1",
+          organizationId: "org-1",
+          organizationSlug: "acme",
+          userId: "user-1",
+        },
+        title: "L".repeat(23),
+      },
+      status: "ready",
     });
 
+    expect(trayMenuItem("Computer — Connected")).toBeTruthy();
+    expect(trayMenuItem(`${"L".repeat(23)} — ${"p".repeat(19)}`)).toBeTruthy();
+  });
+
+  it("renders and activates one exact unread preview", async () => {
+    setTestPlatform("darwin");
     await importMain();
+    inboxTitle.setContext?.({
+      computer: { available: true, statusLabel: "Connected" },
+      unreadCount: 3,
+    });
+    inboxTitle.setPresentation?.({
+      item: {
+        contextLabel: "Design review",
+        occurredAt: new Date().toISOString(),
+        preview: "Please check the latest layout.",
+        reference: {
+          itemId: "item_1",
+          organizationId: "org_1",
+          organizationSlug: "acme",
+          userId: "user_1",
+        },
+        title: "Morgan",
+      },
+      status: "ready",
+    });
 
-    const labels = trayMenuLabels();
+    const preview = trayMenuTemplate()?.find(
+      (item) =>
+        item.accessibilityLabel ===
+        "Morgan · Design review · now — Please check the latest layout."
+    );
+    preview?.click?.();
 
-    expect(labels).toContain("Set Up This Computer");
-    expect(labels).not.toContain("Start OpenMeld Service");
-    expect(labels).not.toContain("Stop OpenMeld Service");
+    expect(inboxTitle.activate).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: "item_1" })
+    );
+    expect(trayMenuItem("Open Inbox")).toEqual(
+      expect.objectContaining({ click: expect.any(Function) })
+    );
+  });
+
+  it("closes an open tray menu immediately when its account scope is invalidated", async () => {
+    await importMain();
+    const tray = electronMock.trayInstances.at(0);
+    const openMenu = tray?.setContextMenu.mock.calls.at(-1)?.[0] as
+      | { on: ReturnType<typeof vi.fn> }
+      | undefined;
+    const willShow = openMenu?.on.mock.calls.find(
+      ([event]) => event === "menu-will-show"
+    )?.[1] as (() => void) | undefined;
+
+    willShow?.();
+    inboxTitle.invalidateScope?.();
+
+    expect(tray?.closeContextMenu).toHaveBeenCalledOnce();
+  });
+
+  it("shares one compact preview budget without losing full text or graphemes", async () => {
+    setTestPlatform("darwin");
+    await importMain();
+    const cases = [
+      {
+        name: "short text",
+        preview: "Short preview",
+        title: "Short title",
+        expectedLabel: "Short title — Short preview",
+      },
+      {
+        name: "source above its overflow allocation still fits in the row",
+        preview: "OK",
+        title: "Amplift Center Agent",
+        expectedLabel: "Amplift Center Agent — OK",
+      },
+      {
+        name: "visible source and message whitespace is normalized",
+        preview: "  Looks   good\nnow  ",
+        title: "  Release   Agent\n ",
+        expectedLabel: "Release Agent — Looks good now",
+      },
+      {
+        name: "complete row exactly at the budget",
+        preview: "p".repeat(32),
+        title: "T".repeat(12),
+        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(32)}`,
+      },
+      {
+        name: "complete row one unit above the budget",
+        preview: "p".repeat(33),
+        title: "T".repeat(12),
+        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(30)}…`,
+      },
+      {
+        name: "long English text",
+        preview: `${"p".repeat(16)}\n${"p".repeat(17)}`,
+        title: "T".repeat(31),
+        expectedLabel: `${"T".repeat(10)}… — ${"p".repeat(16)} ${"p".repeat(13)}…`,
+      },
+      {
+        name: "long Chinese text",
+        preview: "文".repeat(33),
+        title: "标".repeat(31),
+        expectedLabel: `${"标".repeat(5)}… — ${"文".repeat(15)}…`,
+      },
+      {
+        name: "wide English text",
+        preview: "W".repeat(32),
+        title: "W".repeat(22),
+        expectedLabel: `${"W".repeat(5)}… — ${"W".repeat(15)}…`,
+      },
+      {
+        name: "short source leaves room for the message",
+        preview: "p".repeat(60),
+        title: "A",
+        expectedLabel: `A — ${"p".repeat(41)}…`,
+      },
+      {
+        name: "long source without a message uses the full row",
+        preview: " \n\t ",
+        title: "T".repeat(60),
+        expectedLabel: `${"T".repeat(46)}…`,
+      },
+      {
+        name: "empty message",
+        preview: "",
+        title: "Alice",
+        expectedLabel: "Alice",
+      },
+      {
+        name: "missing source has no separator",
+        preview: "Message without a source",
+        title: "",
+        expectedLabel: "Message without a source",
+      },
+      {
+        name: "long context and older mixed-language message",
+        preview: "请检查最新发布计划，release notes 已更新。",
+        title: "Amplift Center Agent",
+        contextLabel: "A long project name that belongs in the full context",
+        ageMs: 42 * 24 * 60 * 60 * 1000,
+        expectedTime: "42d",
+        expectedLabel: "Amplift C… — 请检查最新发布计划，release no…",
+      },
+      {
+        name: "ordinary emoji on the truncation boundary",
+        preview: `${"b".repeat(35)}😀x`,
+        title: `${"a".repeat(10)}😀x`,
+        expectedLabel: `${"a".repeat(10)}… — ${"b".repeat(30)}…`,
+      },
+      {
+        name: "family emoji crossing the truncation boundary",
+        preview: `${"f".repeat(40)}👨‍👩‍👧‍👦xy`,
+        title: "Team",
+        expectedLabel: `Team — ${"f".repeat(37)}…`,
+      },
+      {
+        name: "family emoji fits before the ellipsis",
+        preview: `${"f".repeat(35)}👨‍👩‍👧‍👦xyzz`,
+        title: "Team",
+        expectedLabel: `Team — ${"f".repeat(35)}👨‍👩‍👧‍👦…`,
+      },
+      {
+        name: "combining sequence fits before the ellipsis",
+        preview: `${"c".repeat(35)}e\u0301xyz`,
+        title: "Jose\u0301",
+        expectedLabel: `Jose\u0301 — ${"c".repeat(35)}e\u0301…`,
+      },
+    ];
+
+    for (const testCase of cases) {
+      inboxTitle.setPresentation?.({
+        item: {
+          contextLabel: testCase.contextLabel ?? "",
+          occurredAt: new Date(
+            Date.now() - (testCase.ageMs ?? 0)
+          ).toISOString(),
+          preview: testCase.preview,
+          reference: {
+            itemId: `item-${testCase.name}`,
+            organizationId: "org-1",
+            organizationSlug: "acme",
+            userId: "user-1",
+          },
+          title: testCase.title,
+        },
+        status: "ready",
+      });
+
+      const preview = trayMenuTemplate()?.find((item) =>
+        item.accessibilityLabel?.endsWith(` — ${testCase.preview}`)
+      );
+      expect(preview?.label, testCase.name).toBe(testCase.expectedLabel);
+      expect(preview?.toolTip, testCase.name).toBe(testCase.preview);
+      const source = testCase.contextLabel
+        ? `${testCase.title} · ${testCase.contextLabel}`
+        : testCase.title;
+      expect(preview?.accessibilityLabel, testCase.name).toBe(
+        `${source} · ${testCase.expectedTime ?? "now"} — ${testCase.preview}`
+      );
+      expect(
+        trayMenuItem(`Latest unread · ${testCase.expectedTime ?? "now"}`)
+      ).toEqual(expect.objectContaining({ enabled: false }));
+      expect(preview?.sublabel, testCase.name).toBeUndefined();
+      expect(preview?.label, testCase.name).not.toContain("\n");
+    }
   });
 
   it("quits the desktop app from the tray menu", async () => {
     await importMain();
 
     const tray = electronMock.trayInstances.at(0);
+    const window = electronMock.windowInstances.at(0);
     const menuTemplate = tray?.setContextMenu.mock.calls.at(-1)?.[0] as
       | Array<{ label?: string; click?: () => void }>
       | undefined;
     const quitItem = menuTemplate?.find(
-      (item) => item.label === "Quit OpenMeld Desktop"
+      (item) => item.label === "Quit OpenMeld"
     );
 
     quitItem?.click?.();
 
     expect(electronMock.app.quit).toHaveBeenCalledTimes(1);
+    const close = window?.on.mock.calls.find(
+      ([event]) => event === "close"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const closeEvent = { preventDefault: vi.fn() };
+    close?.(closeEvent);
+    expect(closeEvent.preventDefault).not.toHaveBeenCalled();
+    expect(window?.hide).not.toHaveBeenCalled();
+  });
+
+  it("restores close-to-hide after a page blocks an ordinary quit", async () => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    trayMenuItem("Quit OpenMeld")?.click?.();
+    const willPreventUnload = window?.webContents.on.mock.calls.find(
+      ([event]) => event === "will-prevent-unload"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const unloadEvent = { preventDefault: vi.fn() };
+    willPreventUnload?.(unloadEvent);
+
+    expect(unloadEvent.preventDefault).not.toHaveBeenCalled();
+
+    const close = window?.on.mock.calls.find(
+      ([event]) => event === "close"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const closeEvent = { preventDefault: vi.fn() };
+    close?.(closeEvent);
+
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(window?.hide).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an accepted updater installation in quitting mode when unload is blocked", async () => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    updaterMock.setInstalling?.(true);
+    const beforeQuit = electronMock.app.on.mock.calls.find(
+      ([event]) => event === "before-quit"
+    )?.[1] as (() => void) | undefined;
+    beforeQuit?.();
+    const willPreventUnload = window?.webContents.on.mock.calls.find(
+      ([event]) => event === "will-prevent-unload"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const unloadEvent = { preventDefault: vi.fn() };
+    willPreventUnload?.(unloadEvent);
+
+    expect(unloadEvent.preventDefault).not.toHaveBeenCalled();
+
+    const close = window?.on.mock.calls.find(
+      ([event]) => event === "close"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const closeEvent = { preventDefault: vi.fn() };
+    close?.(closeEvent);
+
+    expect(closeEvent.preventDefault).not.toHaveBeenCalled();
+    expect(window?.hide).not.toHaveBeenCalled();
   });
 
   it("quits the desktop app through the allowlisted window IPC", async () => {
@@ -703,77 +1390,5 @@ describe("main tray behavior", () => {
     } as unknown as IpcMainInvokeEvent);
 
     expect(electronMock.app.quit).toHaveBeenCalledTimes(1);
-  });
-
-  it("labels CLI spawn failure as command-line tool unavailable", async () => {
-    const spawnProblem = {
-      code: "desktop.spawn_failed",
-      kind: "spawn_failed",
-      message: "failed to launch openmeld: spawn openmeld ENOENT",
-      requestId: null,
-    };
-    desktopMock.handlers.getServiceStatus.mockResolvedValueOnce({
-      installed: null,
-      lifecycle: "unknown",
-      problem: spawnProblem,
-      running: null,
-      autoStart: null,
-      cliVersion: null,
-      runtimeProjection: null,
-    });
-
-    await importMain();
-
-    const tray = electronMock.trayInstances.at(0);
-    const menuTemplate = tray?.setContextMenu.mock.calls.at(-1)?.[0] as
-      | Array<{ label?: string }>
-      | undefined;
-
-    expect(menuTemplate?.at(0)?.label).toBe(
-      "OpenMeld Command-Line Tool: Not Available"
-    );
-    expect(tray?.setToolTip).toHaveBeenLastCalledWith(
-      "OpenMeld Command-Line Tool - Not Available"
-    );
-  });
-
-  it("shows a specific dialog title for tray action spawn failures", async () => {
-    const spawnProblem = {
-      code: "desktop.spawn_failed",
-      kind: "spawn_failed",
-      message: "failed to launch openmeld: spawn openmeld ENOENT",
-      requestId: null,
-    };
-    desktopMock.handlers.setupComputer.mockResolvedValueOnce({
-      installed: null,
-      lifecycle: "unknown",
-      problem: spawnProblem,
-      running: null,
-      autoStart: null,
-      cliVersion: null,
-      runtimeProjection: null,
-    });
-
-    await importMain();
-
-    const tray = electronMock.trayInstances.at(0);
-    const menuTemplate = tray?.setContextMenu.mock.calls.at(-1)?.[0] as
-      | Array<{ label?: string; click?: () => void }>
-      | undefined;
-    const setupItem = menuTemplate?.find(
-      (item) => item.label === "Reconnect This Computer"
-    );
-
-    setupItem?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showErrorBox).toHaveBeenCalledWith(
-      "OpenMeld Desktop could not find the OpenMeld command-line tool.",
-      "failed to launch openmeld: spawn openmeld ENOENT"
-    );
-    expect(electronMock.dialog.showErrorBox).not.toHaveBeenCalledWith(
-      "OpenMeld Desktop could not update the service.",
-      expect.any(String)
-    );
   });
 });

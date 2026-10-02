@@ -263,7 +263,10 @@ export function resolveAuthenticationGuidanceFromMessage(
       reason: "revoked",
     });
   }
-  if (loweredMessage.includes("saved sign-in is temporarily unavailable")) {
+  if (
+    loweredMessage.includes("saved sign-in is unavailable") ||
+    loweredMessage.includes("saved sign-in is temporarily unavailable")
+  ) {
     return resolveAuthenticationGuidance({
       reason: "unavailable",
     });
@@ -312,10 +315,10 @@ function resolveRequiredAuthenticationGuidance(
           "Retry the same command. If it still fails, run `openmeld auth status --view agent` for diagnostics."
         ),
         commandErrorMessage: formatInlineOpenMeldCliCommands(
-          "saved sign-in is temporarily unavailable; retry the same command; if it still fails, run `openmeld auth status --view agent` for diagnostics"
+          "saved sign-in is unavailable; retry the same command once; if it still fails, run `openmeld auth status --view agent` for diagnostics"
         ),
         agentErrorMessage: formatInlineOpenMeldCliCommands(
-          "saved sign-in is temporarily unavailable; retry the same command; if it still fails, run `openmeld auth status --view agent` for diagnostics"
+          "saved sign-in is unavailable; retry the same command once; if it still fails, run `openmeld auth status --view agent` for diagnostics"
         ),
       };
     case "expired":

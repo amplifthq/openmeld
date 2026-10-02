@@ -45,6 +45,19 @@ export async function optimisticallyRemoveAgentProfileFromListCaches(input: {
 			),
 	} satisfies AgentProfileDeleteCacheSnapshot;
 
+	removeAgentProfileFromListCaches(input);
+	return snapshot;
+}
+
+export function removeAgentProfileFromListCaches(input: {
+	agentProfileId: string;
+	queryClient: QueryClient;
+	storageScope: string;
+}): void {
+	const profileQueryFilters = {
+		queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
+	};
+
 	input.queryClient.setQueriesData<readonly AuthProfileView[]>(
 		profileQueryFilters,
 		(profiles) => removeAgentProfileFromProfiles(profiles, input.agentProfileId)
@@ -73,8 +86,6 @@ export async function optimisticallyRemoveAgentProfileFromListCaches(input: {
 					}
 				: directory
 	);
-
-	return snapshot;
 }
 
 export function restoreAgentProfileListCaches(
@@ -89,6 +100,63 @@ export function restoreAgentProfileListCaches(
 	}
 	for (const [queryKey, directory] of snapshot.directories) {
 		queryClient.setQueryData(queryKey, directory);
+	}
+}
+
+export function restoreFailedAgentProfilesInListCaches(input: {
+	failedProfileIds: ReadonlySet<string>;
+	queryClient: QueryClient;
+	snapshot: AgentProfileDeleteCacheSnapshot;
+}): void {
+	for (const [queryKey, before] of input.snapshot.profiles) {
+		const failed = before?.filter((profile) =>
+			input.failedProfileIds.has(profile.openMeldProfileId)
+		);
+		if (!failed?.length) {
+			continue;
+		}
+		input.queryClient.setQueryData<readonly AuthProfileView[]>(
+			queryKey,
+			(current) => [
+				...failed.filter(
+					(profile) =>
+						!current?.some(
+							(existing) =>
+								existing.openMeldProfileId === profile.openMeldProfileId
+						)
+				),
+				...(current ?? []),
+			]
+		);
+	}
+	for (const [queryKey, before] of input.snapshot.directories) {
+		if (!before) {
+			continue;
+		}
+		const failed = before.agentProfiles.filter((profile) =>
+			input.failedProfileIds.has(profile.profileId)
+		);
+		if (!failed.length) {
+			continue;
+		}
+		input.queryClient.setQueryData(queryKey, (value: unknown) => {
+			const current = value as typeof before | undefined;
+			if (!current) {
+				return { ...before, agentProfiles: failed };
+			}
+			return {
+				...current,
+				agentProfiles: [
+					...failed.filter(
+						(profile) =>
+							!current.agentProfiles.some(
+								(existing) => existing.profileId === profile.profileId
+							)
+					),
+					...current.agentProfiles,
+				],
+			};
+		});
 	}
 }
 

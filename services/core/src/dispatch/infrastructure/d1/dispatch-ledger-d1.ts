@@ -1453,6 +1453,8 @@ const shouldRetryPreExecutionAdmissionAfterRetryableFailure = (input: {
     (isRuntimeCoordinatorHeadLifecycleRetryableErrorCode(
       input.latestAttempt.errorCode
     ) ||
+      input.latestAttempt.errorCode ===
+        "runtime_coordinator.execution_target_mutation_in_progress" ||
       isAgentWakeAdmissionPreparationPendingReason(
         input.latestAttempt.errorCode ?? ""
       ))
@@ -1464,6 +1466,24 @@ const shouldRetryRuntimeCoordinatorHeadWaitingAfterRouteRecovery = (input: {
   latestAttempt: DispatchAttemptLedgerRow;
   message: OpenMeldDaemonDispatchQueueMessage;
 }): boolean => {
+  // A route that declined admission has no execution token to recover. Re-enter
+  // the existing head admission path; RuntimeCoordinator still decides whether
+  // execution may be created. Never apply this to evidence of delivered work.
+  if (
+    input.latestAttempt?.status ===
+      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable &&
+    input.latestAttempt.errorCode === "daemon.service.draining" &&
+    input.latestAttempt.daemonSessionId === null &&
+    input.latestAttempt.connectionGeneration === null &&
+    input.latestAttempt.leaseEpoch === null
+  ) {
+    return (
+      input.claimDecision.kind === "claim_existing_inside_window" ||
+      ((input.claimDecision.kind === "claim_recovery" ||
+        input.claimDecision.kind === "reset_existing") &&
+        input.claimDecision.deliveryRecoveryReason === "route_lost")
+    );
+  }
   if (
     input.message.deviceWait &&
     input.latestAttempt?.status ===

@@ -1,14 +1,17 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { accountSidebarQueryKey } from "#/query/account/sidebar-preferences";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { startQueryKeys } from "#/query/query-keys";
+import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolution";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import {
 	prefetchAgentsRouteIdentityData,
 	prefetchCenterAgentConversationData,
 	prefetchKnownSpaceConversationData,
+	prefetchPeopleRouteData,
 	prefetchSpaceConversationRouteData,
 	prefetchSpacesRouteData,
 	restoreSpaceConversationRouteData,
@@ -18,9 +21,11 @@ const resolveOrganizationScopeMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const readOrganizationProfileDirectoryMock = vi.hoisted(() => vi.fn());
 const readOrganizationAgentRuntimeOverviewMock = vi.hoisted(() => vi.fn());
+const readAccountSidebarMock = vi.hoisted(() => vi.fn());
 const listOrganizationSpacesMock = vi.hoisted(() => vi.fn());
 const getBootstrapMock = vi.hoisted(() => vi.fn());
 const getStatusMock = vi.hoisted(() => vi.fn());
+const resolveEntryMock = vi.hoisted(() => vi.fn());
 const listSignalEnvelopesMock = vi.hoisted(() => vi.fn());
 const createWebSpaceApiMock = vi.hoisted(() => vi.fn());
 const readThreadSelectionMock = vi.hoisted(() => vi.fn());
@@ -49,6 +54,19 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 
 vi.mock("#/lib/organizations/organization-spaces", () => ({
 	listCurrentOrganizationSpaces: listOrganizationSpacesMock,
+}));
+
+vi.mock("#/query/account/sidebar-preferences", () => ({
+	accountSidebarQueryKey: (profileId: string, organizationId: string) => [
+		"account-sidebar",
+		profileId,
+		organizationId,
+	],
+	accountSidebarQueryOptions: (profileId: string, organizationId: string) => ({
+		queryKey: ["account-sidebar", profileId, organizationId],
+		queryFn: readAccountSidebarMock,
+		staleTime: 30_000,
+	}),
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
@@ -83,6 +101,7 @@ const authorizedScope = {
 		name: "Acme",
 		slug: "acme",
 	},
+	currentUserId: "user-1",
 	organizations: [{ id: "org-acme", name: "Acme", slug: "acme" }],
 	storageScope: "user-1",
 };
@@ -133,12 +152,28 @@ describe("organization app route prefetch", () => {
 		readOrganizationProfileDirectoryMock.mockResolvedValue(
 			organizationProfileDirectory
 		);
+		readAccountSidebarMock.mockResolvedValue({
+			ok: true,
+			preferences: {
+				pinned: { sort: "priority", spaceIds: [] },
+				spaces: { sort: "priority", spaceIds: [] },
+				groups: [],
+			},
+			revision: 1,
+		});
 		readOrganizationAgentRuntimeOverviewMock.mockResolvedValue(
 			organizationAgentRuntimeOverview
 		);
 		listOrganizationSpacesMock.mockResolvedValue(organizationSpaces);
 		getBootstrapMock.mockResolvedValue(createBootstrapResponse());
 		getStatusMock.mockResolvedValue(createBootstrapResponse().status);
+		resolveEntryMock.mockResolvedValue({
+			target: { spaceId: "space-1" },
+			view: { state: "allowed", experience: "member" },
+			participation: { state: "active_member" },
+			safeContext: { organizationId: "org-acme" },
+			recovery: null,
+		});
 		listSignalEnvelopesMock.mockResolvedValue({
 			envelopes: [],
 			nextCursor: null,
@@ -156,6 +191,7 @@ describe("organization app route prefetch", () => {
 			},
 		});
 		createWebSpaceApiMock.mockReturnValue({
+			resolveEntry: resolveEntryMock,
 			getBootstrap: getBootstrapMock,
 			getStatus: getStatusMock,
 			listSignalEnvelopes: listSignalEnvelopesMock,
@@ -181,6 +217,32 @@ describe("organization app route prefetch", () => {
 				organizationQueryKeys.profileDirectory("org-acme")
 			)
 		).toEqual(organizationProfileDirectory);
+		expect(
+			queryClient.getQueryData(accountSidebarQueryKey("user-1", "org-acme"))
+		).toEqual(expect.objectContaining({ revision: 1 }));
+		expect(
+			queryClient.getQueryData(
+				organizationQueryKeys.agentRuntimeOverview("org-acme")
+			)
+		).toBeUndefined();
+	});
+
+	it("warms People and personal sidebar preferences without loading runtime status", async () => {
+		const queryClient = createQueryClient();
+		await prefetchPeopleRouteData({
+			organizationSlug: "acme",
+			queryClient,
+			queryPersistence,
+			routeFamily: "/o/acme/people",
+		});
+		expect(
+			queryClient.getQueryData(
+				organizationQueryKeys.profileDirectory("org-acme")
+			)
+		).toEqual(organizationProfileDirectory);
+		expect(
+			queryClient.getQueryData(accountSidebarQueryKey("user-1", "org-acme"))
+		).toEqual(expect.objectContaining({ revision: 1 }));
 		expect(
 			queryClient.getQueryData(
 				organizationQueryKeys.agentRuntimeOverview("org-acme")
@@ -216,12 +278,15 @@ describe("organization app route prefetch", () => {
 		).toBeLessThan(listOrganizationSpacesMock.mock.invocationCallOrder[0] ?? 0);
 	});
 
-	it("restores the Space display cache and warms one complete bootstrap", async () => {
+	it.each([
+		"human-1",
+		undefined,
+	])("warms the conversation with an explicit or resolved default viewer: %s", async (profileId) => {
 		const queryClient = createQueryClient();
 
 		await prefetchSpaceConversationRouteData({
 			organizationSlug: "acme",
-			profileId: "human-1",
+			profileId,
 			queryClient,
 			queryPersistence,
 			routeFamily: "/o/acme/spaces/space-1?profileId=human-1",
@@ -232,12 +297,53 @@ describe("organization app route prefetch", () => {
 			queryClient.getQueryData(spaceQueryKeys.bootstrap("space-1", "human-1"))
 		).toMatchObject({ status: { spaceId: "space-1" } });
 		expect(getBootstrapMock).toHaveBeenCalledTimes(1);
+		// A cold click consumes the same fresh gate result without a second read,
+		// even though no persisted conversation display snapshot exists yet.
+		expect(
+			queryClient.getQueryData(
+				spaceQueryKeys.displaySnapshot("space-1", "human-1")
+			)
+		).toBeUndefined();
+		const entry = await queryClient.fetchQuery(
+			spaceEntryResolutionQueryOptions({
+				enabled: true,
+				spaceId: "space-1",
+				openMeldProfileId: "human-1",
+			})
+		);
+		expect(entry.view.state).toBe("allowed");
+		expect(resolveEntryMock).toHaveBeenCalledTimes(1);
+		const entryOptions = spaceEntryResolutionQueryOptions({
+			enabled: true,
+			spaceId: "space-1",
+			openMeldProfileId: "human-1",
+		});
+		await queryClient.invalidateQueries({
+			queryKey: entryOptions.queryKey,
+			refetchType: "none",
+		});
+		resolveEntryMock.mockResolvedValueOnce({
+			...entry,
+			view: { state: "unavailable" },
+		});
+		expect((await queryClient.fetchQuery(entryOptions)).view.state).toBe(
+			"unavailable"
+		);
+		expect(resolveEntryMock).toHaveBeenCalledTimes(2);
+		await queryClient.fetchQuery(
+			spaceEntryResolutionQueryOptions({
+				enabled: true,
+				spaceId: "space-1",
+				openMeldProfileId: "human-2",
+			})
+		);
+		expect(resolveEntryMock).toHaveBeenCalledTimes(3);
 		expect(getStatusMock).not.toHaveBeenCalled();
 		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
 		expect(
 			queryClient.getQueryData(spaceQueryKeys.history("space-1", "human-1"))
 		).toEqual({ envelopes: [], nextCursor: null });
-		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledWith({
+		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledWith({
 			organizationId: "org-acme",
 			organizationSlug: "acme",
 			ownerAccountId: "user-1",
@@ -254,6 +360,7 @@ describe("organization app route prefetch", () => {
 			.mockResolvedValue({ signals: [], placements: [] });
 		createWebSpaceApiMock.mockReturnValue({
 			getBootstrap: getBootstrapMock,
+			resolveEntry: resolveEntryMock,
 			listThreadSignals,
 		});
 		let completeBootstrap:
@@ -332,6 +439,7 @@ describe("organization app route prefetch", () => {
 		);
 		createWebSpaceApiMock.mockReturnValue({
 			getBootstrap: getBootstrapMock,
+			resolveEntry: resolveEntryMock,
 			listThreads,
 			listThreadSignals,
 		});
@@ -367,6 +475,7 @@ describe("organization app route prefetch", () => {
 			.mockResolvedValue({ threads: [], previews: [] });
 		createWebSpaceApiMock.mockReturnValue({
 			getBootstrap: getBootstrapMock,
+			resolveEntry: resolveEntryMock,
 			listThreads,
 			listThreadSignals,
 		});
@@ -398,7 +507,7 @@ describe("organization app route prefetch", () => {
 			spaceId: "space-1",
 		});
 
-		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledWith({
+		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledWith({
 			organizationId: "org-acme",
 			organizationSlug: "acme",
 			ownerAccountId: "user-1",
@@ -415,7 +524,7 @@ describe("organization app route prefetch", () => {
 	it("starts the current bootstrap only after the saved conversation is restored", async () => {
 		const queryClient = createQueryClient();
 		let finishRestore: (() => void) | undefined;
-		queryPersistence.activateSpaceConversation = vi.fn(
+		queryPersistence.restoreSpaceConversation = vi.fn(
 			async () =>
 				await new Promise<void>((resolve) => {
 					finishRestore = resolve;
@@ -432,7 +541,7 @@ describe("organization app route prefetch", () => {
 		});
 
 		await vi.waitFor(() => {
-			expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledTimes(
+			expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledTimes(
 				1
 			);
 		});
@@ -460,7 +569,7 @@ describe("organization app route prefetch", () => {
 
 		expect(resolveOrganizationScopeMock).not.toHaveBeenCalled();
 		expect(listStartProfilesMock).not.toHaveBeenCalled();
-		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledTimes(1);
+		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledTimes(1);
 		expect(getBootstrapMock).toHaveBeenCalledTimes(1);
 		expect(getStatusMock).not.toHaveBeenCalled();
 		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
@@ -481,7 +590,7 @@ describe("organization app route prefetch", () => {
 			readCurrentCenterAgentDirectMessageSpaceProjectionMock
 		).toHaveBeenCalledOnce();
 		expect(openCurrentCenterAgentDirectMessageSpaceMock).not.toHaveBeenCalled();
-		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledWith({
+		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledWith({
 			organizationId: "org-acme",
 			organizationSlug: "acme",
 			ownerAccountId: "user-1",
@@ -513,7 +622,7 @@ describe("organization app route prefetch", () => {
 		});
 
 		expect(openCurrentCenterAgentDirectMessageSpaceMock).not.toHaveBeenCalled();
-		expect(queryPersistence.activateSpaceConversation).not.toHaveBeenCalled();
+		expect(queryPersistence.restoreSpaceConversation).not.toHaveBeenCalled();
 		expect(getBootstrapMock).not.toHaveBeenCalled();
 		expect(getStatusMock).not.toHaveBeenCalled();
 		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
@@ -530,6 +639,7 @@ function createQueryPersistenceMock(): BrowserQueryPersistenceController {
 	return {
 		activateAuthorizedScope: vi.fn(async () => undefined),
 		activateSpaceConversation: vi.fn(async () => undefined),
+		restoreSpaceConversation: vi.fn(async () => undefined),
 		clearActiveAccount: vi.fn(async () => undefined),
 		clearSpaceConversation: vi.fn(async () => undefined),
 		clearOrganization: vi.fn(async () => undefined),

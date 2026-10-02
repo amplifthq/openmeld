@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	formatModelRetirementNotice,
 	getAgentControllerPermissionModeDisplayMetadata,
 	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
@@ -8,6 +9,7 @@ import {
 import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
+	AgentControllerUsageLimits,
 	AgentProfileBindingOpenCodePermission,
 	ModelCatalog,
 	ModelCatalogModel,
@@ -41,6 +43,11 @@ import {
 } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
+import {
+	HostedModelSelect,
+	HostedReasoningSelect,
+	personalRemoteModelChoices,
+} from "#/components/models/hosted-model-select";
 import { ModelBadge } from "#/components/models/model-badge";
 import { SpinnerButton } from "#/components/spinner-button";
 import type {
@@ -68,6 +75,7 @@ import {
 	resolveAgentProfileConfigurationSummaries,
 	resolveCreateProfileSubmitBlockReason,
 	resolveModelCompatibility,
+	resolveModelRetirementDisplay,
 	resolveSelectedModelCompatibility,
 } from "./create-profile-form-logic";
 import { DitherProfileAvatar } from "./dither-profile-avatar";
@@ -94,6 +102,8 @@ const PROFILE_KIND_TABS = [
 	title: string;
 }[];
 export type AgentProfileModelCompatibilityContext = {
+	agentControllerRef?: string;
+	authType?: string | null;
 	agentControllerId: string;
 	controllerDisplayName: string;
 	installedVersion: string | null;
@@ -114,9 +124,33 @@ export type AgentProfileLocalAgentEmptyState = {
 	onRetry?: () => void;
 };
 
+export type AgentProfileLocalAgentSelectionState = {
+	agentId: string;
+	blocksCreation: boolean;
+	canEnable?: boolean;
+	displayName: string;
+	guideHref?: string;
+	kind:
+		| "available"
+		| "checking"
+		| "check_failed"
+		| "computer"
+		| "disabled"
+		| "not_installed"
+		| "signed_out"
+		| "unavailable";
+	manageHref?: string | null;
+	message?: string | null;
+	onEnable?: () => Promise<void>;
+	onRetry?: () => void;
+	selectionKey?: string;
+	usageLimits?: AgentControllerUsageLimits;
+	usageLoading?: boolean;
+};
+
 // Presentational, route-free Create Profile form. All state lives in the
-// parent dialog; this component only renders an available kind choice, the
-// name input, the agent binding radio, and the recoverable error block. It
+// parent dialog; this component only renders the kind choice, the name input,
+// the agent catalog and Binding state, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
 export type CreateProfileFormProps = {
 	remoteProfileName?: string;
@@ -127,6 +161,7 @@ export type CreateProfileFormProps = {
 			idempotencyKey: string;
 			modelId: string | null;
 			profileName: string;
+			reasoningLevel: string | null;
 		}) => void;
 	};
 	additionalHumanProfileCreationEnabled: boolean;
@@ -158,6 +193,7 @@ export type CreateProfileFormProps = {
 	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	localFolderPickerDeviceId: string | null;
 	localAgentEmptyState?: AgentProfileLocalAgentEmptyState;
+	localAgentSelectionState?: AgentProfileLocalAgentSelectionState | null;
 	projectSelectionBlockReason?: string | null;
 	onUseManagedWorkspace?: () => void;
 	projectSelectionSlot?: ReactNode;
@@ -689,7 +725,11 @@ export function AgentControllerPermissionModeFields(input: {
 		agentControllerRef,
 	});
 	if (options.length === 0) {
-		return null;
+		return (
+			<p className="text-muted-foreground text-sm">
+				Permission options are not available for this agent.
+			</p>
+		);
 	}
 	const selectedOption =
 		options.find((option) => option.value === input.value) ?? options[0];
@@ -783,12 +823,42 @@ export function AgentProfileModelSelectionFields(
 	const modelSelectId = useId();
 	const state = resolveAgentProfileModelSelectionState(input);
 
+	if (input.agentId === "center-agent") {
+		const selectedModel = input.modelCatalog?.agentControllers[
+			"center-agent"
+		]?.models.find((model) => model.id === input.modelId);
+		return (
+			<div className="grid min-w-0 gap-5">
+				<HostedModelSelect
+					choices={personalRemoteModelChoices(input.modelCatalog)}
+					disabled={input.disabled || !input.modelCatalog}
+					onValueChange={input.onChangeModelId}
+					value={input.modelId}
+				/>
+				{selectedModel?.hostedRuntime ? (
+					<HostedReasoningSelect
+						defaultLevel={selectedModel.hostedRuntime.reasoningLevel}
+						disabled={input.disabled}
+						levels={selectedModel.supportedReasoningLevels}
+						onValueChange={input.onChangeReasoningLevel}
+						value={input.reasoningLevel}
+					/>
+				) : null}
+			</div>
+		);
+	}
+
 	if (!state) {
-		return null;
+		return (
+			<p className="text-muted-foreground text-sm">
+				Model options are not available right now. Close this panel and try
+				again.
+			</p>
+		);
 	}
 
 	return (
-		<div className="grid min-w-0 gap-3">
+		<div className="grid min-w-0 gap-5">
 			<div className="grid min-w-0 gap-2">
 				<Label htmlFor={modelSelectId}>Model</Label>
 				<Select
@@ -831,6 +901,10 @@ export function AgentProfileModelSelectionFields(
 						})}
 					</SelectContent>
 				</Select>
+				<ModelRetirementNotice
+					context={state.modelCompatibilityContext}
+					model={state.selectedModel}
+				/>
 				<ModelCompatibilityNotice
 					compatibility={state.selectedCompatibility}
 					context={state.modelCompatibilityContext}
@@ -872,14 +946,18 @@ function resolveAgentProfileModelSelectionState(
 			? input.modelCompatibilityContext
 			: null;
 	const availableModels = controller.models.filter(
-		(model) => !model.unavailable
+		(model) =>
+			resolveModelCompatibility({
+				controller,
+				context: modelCompatibilityContext,
+				modelId: model.id,
+			}).status !== "catalog_unavailable"
 	);
-	if (availableModels.length === 0) {
-		return null;
-	}
 	const currentUnavailableModel =
 		controller.models.find(
-			(model) => model.id === input.modelId && model.unavailable
+			(model) =>
+				model.id === input.modelId &&
+				!availableModels.some((available) => available.id === model.id)
 		) ?? null;
 	const effectiveModelId = input.modelId || controller.defaultModelId;
 	const selectedModel =
@@ -1098,6 +1176,35 @@ function ModelOptionPresentation({
 	);
 }
 
+function ModelRetirementNotice(input: {
+	model: ModelCatalogModel | null;
+	context: AgentProfileModelCompatibilityContext | null;
+}) {
+	const notice = resolveModelRetirementDisplay(input.model, input.context);
+	if (!notice) {
+		return null;
+	}
+	return (
+		<p
+			className={
+				notice.status === "withdrawn"
+					? "text-destructive text-xs leading-5"
+					: "text-amber-700 text-xs leading-5 dark:text-amber-300"
+			}
+		>
+			{formatModelRetirementNotice(notice)}{" "}
+			<a
+				className="underline"
+				href={notice.sourceUrl}
+				rel="noreferrer"
+				target="_blank"
+			>
+				Official notice
+			</a>
+		</p>
+	);
+}
+
 function ModelCompatibilityNotice(input: {
 	compatibility: ResolvedModelCompatibility | null;
 	context: AgentProfileModelCompatibilityContext | null;
@@ -1110,7 +1217,8 @@ function ModelCompatibilityNotice(input: {
 			<p className="text-destructive text-xs leading-5">
 				{input.compatibility.message}
 			</p>
-			{input.context?.managePath ? (
+			{input.context?.managePath &&
+			input.compatibility.status !== "catalog_unavailable" ? (
 				<Link
 					className={buttonVariants({ size: "sm", variant: "outline" })}
 					to={input.context.managePath}

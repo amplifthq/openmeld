@@ -28,7 +28,6 @@ import {
 	projectMessageMutations,
 } from "#/lib/spaces/message-mutation-presentation";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
-import { writeSpaceHistoryEnvelopesToCache } from "#/query/spaces/history";
 import type { SpaceMentionPickerItem } from "./use-space-mention-authoring";
 
 type Message = SpaceMessageMutationResponse["message"];
@@ -84,7 +83,6 @@ export function SpaceMessageEditingScope(input: {
 	readOnly?: boolean;
 	hasDraft: boolean;
 	draftKey: string;
-	threadRootSignalId?: string;
 	onRestore: (
 		message: Message,
 		canReplaceDraft: () => boolean
@@ -107,10 +105,8 @@ export function SpaceMessageEditingScope(input: {
 	latestDraftKey.current = input.draftKey;
 	const [error, setError] = useState<string | null>(null);
 	const client = useQueryClient();
-	const api = useMemo(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input.selfProfileId }),
-		[input.selfProfileId]
-	);
+	const createMutationApi = () =>
+		createUnscopedWebSpaceApi({ openMeldProfileId: input.selfProfileId });
 
 	async function run(operation: () => Promise<void>) {
 		if (inFlight.current) {
@@ -139,14 +135,8 @@ export function SpaceMessageEditingScope(input: {
 		}
 	}
 	async function refresh(message: Message) {
-		if (!input.threadRootSignalId || message.id === input.threadRootSignalId) {
-			writeSpaceHistoryEnvelopesToCache({
-				envelopes: [message],
-				queryClient: client,
-				spaceId: message.spaceId,
-				openMeldProfileId: input.selfProfileId,
-			});
-		}
+		// The accepted edit remains in the optimistic projection while the
+		// owning history and thread queries refresh from the server.
 		await client.invalidateQueries({
 			predicate: (query) => query.queryKey.includes(message.spaceId),
 		});
@@ -154,7 +144,7 @@ export function SpaceMessageEditingScope(input: {
 	async function restore(item: SpaceTimelineItem) {
 		const draftKey = latestDraftKey.current;
 		await run(async () => {
-			const result = await api.mutateMessage({
+			const result = await createMutationApi().mutateMessage({
 				spaceId: item.spaceId,
 				signalId: item.id,
 				body: { action: "restore_draft" },
@@ -179,7 +169,7 @@ export function SpaceMessageEditingScope(input: {
 			let message: Message;
 			try {
 				message = (
-					await api.mutateMessage({
+					await createMutationApi().mutateMessage({
 						spaceId: item.spaceId,
 						signalId: item.id,
 						body,

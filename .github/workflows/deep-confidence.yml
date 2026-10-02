@@ -5,6 +5,17 @@ permissions:
 
 on:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "Run the full suite, client artifact checks, or a read-only Web handoff"
+        type: choice
+        default: full
+        options: [full, release-artifacts, artifact-handoff]
+      artifact_scopes:
+        description: "Client artifacts to verify when scope is release-artifacts"
+        type: choice
+        default: web,desktop
+        options: ["web,desktop", web, desktop]
 
 concurrency:
   group: deep-confidence-${{ github.ref }}
@@ -12,6 +23,7 @@ concurrency:
 
 jobs:
   verify:
+    if: inputs.scope == 'full'
     name: Deep Confidence / ${{ matrix.check.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -54,6 +66,7 @@ jobs:
         run: ${{ matrix.check.command }}
 
   workers-integration:
+    if: inputs.scope == 'full'
     name: Deep Confidence / Workers Integration ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -78,6 +91,7 @@ jobs:
         run: pnpm exec vitest run --config vitest.config.ts --shard=${{ matrix.shard }}/8
 
   cli-integration:
+    if: inputs.scope == 'full'
     name: Deep Confidence / CLI Integration Tests ${{ matrix.shard }}/10
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -110,6 +124,7 @@ jobs:
         run: pnpm exec turbo run test:integration --filter=openmeld -- --shard=${{ matrix.shard }}/10
 
   runtime:
+    if: inputs.scope == 'full'
     name: Deep Confidence / Runtime
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -124,3 +139,135 @@ jobs:
 
       - name: Run runtime lane
         run: pnpm run test:runtime
+
+  release-artifacts:
+    name: Production client artifacts
+    if: inputs.scope == 'release-artifacts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENMELD_ARTIFACT_SCOPES: ${{ inputs.artifact_scopes }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Run exact-source renderer, prerender, and Workerd SSR checks
+        shell: bash
+        env:
+          OPENMELD_HOME: ${{ runner.temp }}/openmeld-artifact-check
+        run: |
+          set -euo pipefail
+          case "$OPENMELD_ARTIFACT_SCOPES" in
+            web|desktop|web,desktop) ;;
+            *) echo "Unsupported client artifact scope" >&2; exit 1 ;;
+          esac
+          if [[ "$OPENMELD_ARTIFACT_SCOPES" == *desktop* ]]; then
+            node scripts/release/production-artifact-check.mjs --scope desktop --source-sha "$GITHUB_SHA"
+          fi
+          if [[ "$OPENMELD_ARTIFACT_SCOPES" == *web* ]]; then
+            node scripts/release/production-artifact-check.mjs --scope web --source-sha "$GITHUB_SHA"
+          fi
+      - name: Retain source and artifact receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-client-artifacts-${{ github.sha }}
+          path: dev-tmp/release-artifact-check/*.json
+          if-no-files-found: warn
+
+  validate_release_source:
+    name: Build and admit Web handoff
+    if: inputs.scope == 'artifact-handoff'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      parent_admission_evidence: ${{ steps.admission.outputs.parent_admission_evidence }}
+      parent_web_artifact_id: ${{ steps.snapshot.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: release-control
+          ref: ${{ github.sha }}
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: release-source
+          ref: ${{ github.sha }}
+      - uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          control_directory: release-control
+          working_directory: release-source
+      - name: Admit a fresh Web artifact with Workerd SSR
+        id: admission
+        working-directory: release-source
+        env:
+          OPENMELD_HOME: ${{ runner.temp }}/openmeld-artifact-handoff
+        run: node ../release-control/scripts/release/production-train-admission-handoff.mjs issue
+      - name: Upload the admitted Web snapshot
+        id: snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-train-web-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release-source/dev-tmp/release-artifact-check/web.json
+            release-source/dev-tmp/release-artifact-check/artifacts/web/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      - name: Retain parent handoff evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: admission-handoff-parent-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-source/dev-tmp/release-artifact-handoff/issue.json
+          if-no-files-found: error
+
+  verify_web_admission:
+    name: Verify Web handoff on a clean runner
+    if: inputs.scope == 'artifact-handoff'
+    needs: validate_release_source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: release-control
+          ref: ${{ github.sha }}
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: release-source
+          ref: ${{ github.sha }}
+      - uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          node_version: ${{ fromJSON(needs.validate_release_source.outputs.parent_admission_evidence).buildInputs.node }}
+          control_directory: release-control
+          working_directory: release-source
+      - name: Download this run's admitted Web snapshot
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.validate_release_source.outputs.parent_web_artifact_id }}
+          merge-multiple: true
+          path: release-source/dev-tmp/release-artifact-check
+      - name: Verify restore, preflight reuse, and rejection cases
+        working-directory: release-source
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+          OPENMELD_HOME: ${{ runner.temp }}/openmeld-artifact-handoff
+          OPENMELD_PARENT_TRAIN_ADMISSION: ${{ needs.validate_release_source.outputs.parent_admission_evidence }}
+          OPENMELD_PARENT_WEB_ARTIFACT_ID: ${{ needs.validate_release_source.outputs.parent_web_artifact_id }}
+        run: node ../release-control/scripts/release/production-train-admission-handoff.mjs verify
+      - name: Retain child handoff evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: admission-handoff-child-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-source/dev-tmp/release-artifact-handoff/verify.json
+          if-no-files-found: error

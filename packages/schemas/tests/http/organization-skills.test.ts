@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ORGANIZATION_SKILL_FILE_MAX_BYTES,
   organizationSkillBundleSchema,
+  organizationSkillGitHubPreviewSchema,
+  organizationSkillRuntimeCatalogResponseSchema,
   organizationSkillRuntimeSnapshotResponseSchema,
   updateOrganizationSkillBodySchema,
 } from "../../src/schemas/http/organization-skills";
@@ -85,6 +88,67 @@ describe("Organization Skill contracts", () => {
         ],
       })
     ).toThrow("Skill file content is not valid base64.");
+  });
+
+  it("accepts a binary file at the documented byte limit", () => {
+    const content = Buffer.alloc(
+      ORGANIZATION_SKILL_FILE_MAX_BYTES,
+      0x7f
+    ).toString("base64");
+    const file = {
+      content,
+      encoding: "base64",
+      mediaType: "application/octet-stream",
+      path: "assets/template.bin",
+      size: ORGANIZATION_SKILL_FILE_MAX_BYTES,
+    };
+    expect(
+      organizationSkillBundleSchema.parse({ ...bundle, files: [file] })
+    ).toMatchObject({ files: [file] });
+    expect(() =>
+      organizationSkillBundleSchema.parse({
+        ...bundle,
+        files: [{ ...file, size: ORGANIZATION_SKILL_FILE_MAX_BYTES + 1 }],
+      })
+    ).toThrow();
+  });
+
+  it("does not apply inline content limits to resource catalogs", () => {
+    const files = Array.from({ length: 129 }, (_, index) => ({
+      encoding: "base64" as const,
+      mediaType: "application/octet-stream",
+      path: `assets/resource-${index}.bin`,
+      size: ORGANIZATION_SKILL_FILE_MAX_BYTES + 1,
+    }));
+    expect(
+      organizationSkillRuntimeCatalogResponseSchema.parse({
+        organizationId: "org_123",
+        releases: [
+          {
+            digest: "a".repeat(64),
+            releaseId: "release_123",
+            skillId: "skill_123",
+            instructions: bundle.instructions,
+            portable: bundle.portable,
+            files,
+          },
+        ],
+      }).releases[0]?.files
+    ).toHaveLength(files.length);
+    expect(
+      organizationSkillGitHubPreviewSchema.parse({
+        files,
+        instructionsCharacters: bundle.instructions.length,
+        portable: bundle.portable,
+        source: {
+          kind: "github",
+          commitSha: "a".repeat(40),
+          path: "skills/release-review",
+          repository: "https://github.com/example/skills",
+        },
+        warnings: [],
+      }).files
+    ).toHaveLength(files.length);
   });
 
   it("requires optimistic concurrency for every save", () => {

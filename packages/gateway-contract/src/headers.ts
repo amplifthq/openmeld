@@ -52,12 +52,18 @@ export const OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION =
 export const OPENMELD_HEADER_SPACE_ADDRESSING_VERSION =
   "x-openmeld-space-addressing-version";
 export const OPENMELD_SPACE_ADDRESSING_VERSION = "1";
+export const OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION =
+  "x-openmeld-space-files-origin-version";
+export const OPENMELD_SPACE_FILES_ORIGIN_VERSION = "1";
+export const OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION =
+  "x-openmeld-space-image-geometry-version";
+export const OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION = "1";
 export const OPENMELD_INBOX_ITEM_KIND_VERSION = "1";
 export const OPENMELD_HEADER_INBOX_SUMMARY_VERSION =
   "x-openmeld-inbox-summary-version";
-export const OPENMELD_INBOX_SUMMARY_VERSION = "2";
+export const OPENMELD_INBOX_SUMMARY_VERSION = "3";
 export const OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION = "3";
-export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "7";
+export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "9";
 export const OPENMELD_EXPECTED_FORWARDED_BY = "openmeld-gateway";
 
 const MAX_HEADER_LENGTH = 128;

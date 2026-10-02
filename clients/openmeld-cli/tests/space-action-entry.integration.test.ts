@@ -6,6 +6,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { expect, it } from "vitest";
 import {
+  OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV,
+  OPENMELD_DISPATCH_RUNTIME_MODE_ENV,
+  OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV,
+} from "../src/runtime/dispatch-runtime-env";
+import {
   createDispatchSpaceActionContext,
   readDispatchSpaceActionRecord,
   writeDispatchSpaceActionRecord,
@@ -52,10 +57,19 @@ it("discovers every packaged Wake tool before recording a reply", async () => {
     await client.connect(transport);
     const catalog = await client.listTools();
     expect(catalog.tools.map((tool) => tool.name).sort()).toEqual([
+      "cancel_task",
+      "create_task",
+      "list_tasks",
       "read_file",
+      "read_history",
+      "read_receipt",
+      "read_result",
       "reply",
-      "status",
+      "review_task",
+      "start_task",
       "stay_silent",
+      "submit_task_result",
+      "working_copy",
     ]);
     expect(
       catalog.tools.find((tool) => tool.name === "read_file")?.inputSchema
@@ -201,6 +215,9 @@ it("records a scoped reply without initializing unrelated global state", () => {
         timeout: 15_000,
         env: {
           ...process.env,
+          [OPENMELD_DISPATCH_RUNTIME_MODE_ENV]: undefined,
+          [OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV]: undefined,
+          [OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV]: undefined,
           OPENMELD_HOME: root,
           OPENMELD_SPACE_ACTION_CONTEXT_PATH: contextPath,
         },

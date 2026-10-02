@@ -1,4 +1,5 @@
 import type {
+  AgentControllerInterfaceSnapshot,
   RuntimeAgentControllerLaunchCandidate,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
@@ -21,6 +22,7 @@ export type LocalControllerInstallStatus =
 
 export type LocalControllerInstallResolution = {
   detail: string | null;
+  failureReason?: AgentControllerInterfaceSnapshot["launch"]["failureReason"];
   installChoices: LocalControllerInstallChoice[];
   launchContract: RuntimeAgentControllerLaunchContract | null;
   status: LocalControllerInstallStatus;
@@ -162,6 +164,19 @@ export async function resolveBuiltinControllerInstallResolution(input: {
         status: "needs_repair",
       };
     }
+    const verificationError = await verifySelectedInstall({
+      displayName: input.displayName,
+      resolver,
+      selectedInstall: candidate,
+    });
+    if (verificationError) {
+      return {
+        detail: verificationError,
+        installChoices: installedCandidates.candidates,
+        launchContract: null,
+        status: "needs_repair",
+      };
+    }
     return {
       detail: null,
       installChoices: [],
@@ -176,6 +191,19 @@ export async function resolveBuiltinControllerInstallResolution(input: {
       preferredInstallId: installedCandidates.preferredInstallId,
     });
     if (selectedInstall) {
+      const verificationError = await verifySelectedInstall({
+        displayName: input.displayName,
+        resolver,
+        selectedInstall,
+      });
+      if (verificationError) {
+        return {
+          detail: verificationError,
+          installChoices: installedCandidates.candidates,
+          launchContract: null,
+          status: "needs_repair",
+        };
+      }
       return {
         detail: null,
         installChoices: [],
@@ -236,6 +264,9 @@ async function resolvePersistedControllerInstall(input: {
 
   return {
     detail: persistedVerification.errorMessage,
+    ...(persistedVerification.failureReason
+      ? { failureReason: persistedVerification.failureReason }
+      : {}),
     installChoices:
       installedCandidates.ok && installedCandidates.candidates.length === 1
         ? installedCandidates.candidates
@@ -312,6 +343,19 @@ export async function repairBuiltinControllerInstall(input: {
         ok: false,
       };
     }
+    const verificationError = await verifySelectedInstall({
+      displayName: input.displayName,
+      resolver,
+      selectedInstall,
+    });
+    if (verificationError) {
+      return {
+        errorCode: "controller.launch.needs_repair",
+        errorMessage: verificationError,
+        installChoices: installedCandidates.candidates,
+        ok: false,
+      };
+    }
     return {
       launchContract: selectedInstall.launchContract,
       ok: true,
@@ -326,6 +370,19 @@ export async function repairBuiltinControllerInstall(input: {
         errorCode: "controller.launch.needs_repair",
         errorMessage: `${input.displayName} needs repair on this computer before OpenMeld can start it.`,
         installChoices: [],
+        ok: false,
+      };
+    }
+    const verificationError = await verifySelectedInstall({
+      displayName: input.displayName,
+      resolver,
+      selectedInstall,
+    });
+    if (verificationError) {
+      return {
+        errorCode: "controller.launch.needs_repair",
+        errorMessage: verificationError,
+        installChoices: installedCandidates.candidates,
         ok: false,
       };
     }
@@ -351,6 +408,23 @@ export async function repairBuiltinControllerInstall(input: {
     installChoices: [],
     ok: false,
   };
+}
+
+async function verifySelectedInstall(input: {
+  displayName: string;
+  resolver: BuiltinControllerInstallResolver;
+  selectedInstall: LocalControllerInstallChoice;
+}): Promise<string | null> {
+  const verification = await input.resolver.verifyLaunchContract({
+    launchContract: input.selectedInstall.launchContract,
+  });
+  if (verification.ok) {
+    return null;
+  }
+  if (verification.failureKind === "incomplete_check") {
+    return `OpenMeld couldn't finish checking whether this ${input.displayName} install can start. Try again.`;
+  }
+  return verification.errorMessage;
 }
 
 function resolveBuiltinControllerInstallResolverOrNull(

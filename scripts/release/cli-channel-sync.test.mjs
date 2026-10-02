@@ -66,15 +66,23 @@ test("isEnvFlagEnabled treats only 1/true (case-insensitive) as truthy", () => {
   assert.equal(isEnvFlagEnabled(""), false);
 });
 
-test("flags cli.packageVersion / service.bundleVersion mismatch as an error", () => {
+test("allows a canonical retained Service older than the CLI", () => {
   assert.deepEqual(
     resolveCliServiceVersionConsistencyErrors({
       cli: { packageVersion: "0.2.21" },
       service: { bundleVersion: "0.2.20" },
     }),
-    [
-      "release/local-components.json is internally inconsistent: cli.packageVersion (0.2.21) must equal service.bundleVersion (0.2.20) because the CLI binary is the OpenMeld Service runtime.",
-    ]
+    []
+  );
+});
+
+test("rejects a selected Service newer than the CLI", () => {
+  assert.equal(
+    resolveCliServiceVersionConsistencyErrors({
+      cli: { packageVersion: "0.2.21" },
+      service: { bundleVersion: "0.2.22" },
+    }).length,
+    1
   );
 });
 
@@ -387,7 +395,7 @@ test("evaluateChannelSync rejects a matching manifest with no platform artifacts
   assert.match(result.outcome.error.message, EMPTY_PLATFORM_MAP_RE);
 });
 
-test("evaluateChannelSync still reports cli/service inconsistency alongside a channel outcome", async () => {
+test("evaluateChannelSync still reports an invalid selected pair alongside a channel outcome", async () => {
   const stubFetch = () =>
     Promise.resolve({
       json: () => Promise.resolve(PRODUCTION_MANIFEST_FIXTURE),
@@ -398,8 +406,38 @@ test("evaluateChannelSync still reports cli/service inconsistency alongside a ch
     fetch: stubFetch,
     manifestComponents: {
       cli: { packageVersion: "0.2.21" },
-      service: { bundleVersion: "0.2.20" },
+      service: { bundleVersion: "0.2.22" },
     },
   });
   assert.equal(result.consistencyErrors.length, 1);
+});
+
+test("evaluateChannelSync verifies the retained Service selected by a newer CLI", async () => {
+  const alignedManifest = cloneManifestWithVersion("0.2.21");
+  alignedManifest.channels.stable.service = {
+    platforms: compressedPlatforms(),
+    version: "0.2.20",
+  };
+  const stubFetch = (_url, init) => {
+    if (init?.method === "HEAD") {
+      return Promise.resolve({ ok: true, status: 200 });
+    }
+    return Promise.resolve({
+      json: () => Promise.resolve(alignedManifest),
+      ok: true,
+      status: 200,
+    });
+  };
+  const result = await evaluateChannelSync({
+    fetch: stubFetch,
+    manifestComponents: {
+      cli: { packageVersion: "0.2.21" },
+      service: { bundleVersion: "0.2.20" },
+    },
+  });
+  assert.deepEqual(result.consistencyErrors, []);
+  assert.deepEqual(
+    result.outcome.platformProbe.map((probe) => probe.artifactKind),
+    ["binary", "archive", "service-binary", "service-archive"]
+  );
 });

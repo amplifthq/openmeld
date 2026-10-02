@@ -13,7 +13,10 @@
 // - non-trivial parser/codec logic
 // - provider-specific failure/diagnostics mapping
 
-import { openMeldDaemonProviderAccessEvidenceSchema } from "@openmeld/schemas";
+import {
+  aiUsageObservationSchema,
+  openMeldDaemonProviderAccessEvidenceSchema,
+} from "@openmeld/schemas";
 import type {
   AgentControllerConversationRef,
   AgentControllerPermissionMode,
@@ -21,8 +24,10 @@ import type {
   AgentControllerUsageLimit,
   AgentInteractionRequest,
   AgentInteractionResponse,
+  AiUsageObservation,
   ComputerFileAccessPolicy,
   ConversationPolicy,
+  ExecutionContextGitMetadata,
   ExecutionContextTask,
   OpenCodePermissionConfig,
   OpenMeldDaemonProviderAccessEvidence,
@@ -32,6 +37,17 @@ import type {
 } from "@openmeld/schemas/types";
 import type { AgentControllerProcessSignalTarget } from "./agent-controller-process.js";
 import type { AdapterConversationBridgeSpec } from "./conversation-bridge.js";
+import type { AdapterDispatchSpaceTools } from "./dispatch-space-tools.js";
+
+export {
+  type AdapterDispatchSpaceTool,
+  type AdapterDispatchSpaceToolResult,
+  type AdapterDispatchSpaceTools,
+  DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV,
+  describeDispatchSpaceTools,
+  isDispatchSpaceActionDeliveryOnly,
+} from "./dispatch-space-tools.js";
+
 import { createProviderOriginalError } from "./provider-original-error.js";
 
 export {
@@ -128,6 +144,10 @@ export {
   verifyCliLaunchContract,
   verifyLaunchContractFiles,
 } from "./launch-contract.js";
+export {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "./process-environment.js";
 export { createProviderOriginalError } from "./provider-original-error.js";
 export {
   type AdapterProviderUsageLimit,
@@ -170,7 +190,10 @@ export type AdapterDispatchExecutionMode = "normal" | "repair";
 export type AdapterComputerFileAccessBoundary = Extract<
   ComputerFileAccessPolicy,
   { mode: "block_selected_folders" | "only_selected_folders" }
-> & { executionContextAccess?: ExecutionContextTask["access"] };
+> & {
+  executionContextAccess?: ExecutionContextTask["access"];
+  gitMetadata?: ExecutionContextGitMetadata;
+} & import("@openmeld/schemas").SpaceWorkingCopyAccess;
 export type AdapterComputerFileAccessVerificationRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   boundary: AdapterComputerFileAccessBoundary;
@@ -290,6 +313,7 @@ export type AdapterTokenUsage = {
 declare const setTimeout: (callback: () => void, delay?: number) => unknown;
 
 export type AdapterDispatchRequest = {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   agentId: string;
   newSessionTitle?: AgentControllerSessionTitle;
   agentControllerConversationId?: string | null;
@@ -339,6 +363,7 @@ export type AdapterDispatchContextDelta = {
 };
 
 export type AdapterDispatchTelemetry = {
+  aiUsage?: AiUsageObservation[];
   completedAtMs: number;
   contextCompactionObserved?: boolean;
   contextHealed?: boolean;
@@ -358,6 +383,13 @@ export type AdapterDispatchTelemetry = {
   timeoutTriggeredAtMs?: number;
   tokenUsage?: AdapterTokenUsage;
 };
+
+export function readAdapterAiUsageObservation(
+  value: unknown
+): AiUsageObservation | null {
+  const result = aiUsageObservationSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
 
 export type AdapterModelNegotiationDiagnostics = {
   checkAttempt: 1 | 2;
@@ -493,8 +525,27 @@ export type AdapterCancelRequest = {
   taskId: string;
 };
 
+/**
+ * What accepting a cancellation actually established about the attempt.
+ *
+ * `accepted` only says the control request was taken, which is a weaker fact
+ * than the caller usually wants: a signal can be registered before the provider
+ * turn has even been acknowledged, and sending an interrupt is not the same
+ * barrier as the turn completing. Work that replaces this attempt needs the
+ * distinction, so an adapter that knows it states it.
+ *
+ * `withdrawn_before_start` means no provider turn was running and none can now
+ * begin for this task. `stop_requested_after_start` means a turn had already
+ * started, so its result and any effects it produced still stand. An adapter
+ * that cannot tell leaves this unset, and callers must treat that as unproven.
+ */
+export type AdapterLocalAttemptOutcome =
+  | "stop_requested_after_start"
+  | "withdrawn_before_start";
+
 export type AdapterCancelResult = AdapterControlResultBase & {
   deliveryPath?: "cancel" | "force_interrupt_fallback";
+  localAttemptOutcome?: AdapterLocalAttemptOutcome;
   signalDelivery: "not_sent" | "sent";
 };
 
@@ -1057,8 +1108,16 @@ const extractDispatchTelemetry = (
       ? { timeoutTriggeredAtMs: telemetry.timeoutTriggeredAtMs }
       : {}),
     ...(tokenUsage ? { tokenUsage } : {}),
+    ...extractAiUsageTelemetry(telemetry.aiUsage),
   };
 };
+
+function extractAiUsageTelemetry(
+  value: unknown
+): Pick<AdapterDispatchTelemetry, "aiUsage"> {
+  const result = aiUsageObservationSchema.array().safeParse(value);
+  return result.success ? { aiUsage: result.data } : {};
+}
 
 function extractAdapterTokenUsage(value: unknown): AdapterTokenUsage | null {
   const usage = toUnknownRecord(value);

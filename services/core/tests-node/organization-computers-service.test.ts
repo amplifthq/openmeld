@@ -11,6 +11,7 @@ describe("Organization Computers service", () => {
         devices: [
           {
             deviceId: "computer-1",
+            connectedComputerId: "enrolled-computer-1",
             deviceType: "laptop",
             firstSeenAtMs: 1,
             lastObservedAtMs: 2,
@@ -43,6 +44,10 @@ describe("Organization Computers service", () => {
     } satisfies Parameters<typeof listOrganizationComputers>[0];
 
     const legacyResponse = await listOrganizationComputers(input);
+    expect(legacyResponse.computers[0]).toMatchObject({
+      computerId: "computer-1",
+      connectedComputerId: "enrolled-computer-1",
+    });
     expect(
       legacyResponse.computers[0]?.localAgents[0]?.details?.usageLimits
     ).toBeUndefined();

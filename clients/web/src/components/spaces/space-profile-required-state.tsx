@@ -47,9 +47,9 @@ export function SpaceProfileRequiredState(input: {
 								size: "sm",
 								variant: "default",
 							})}
+							search={{ profileId: recommendedHumanProfile.profileId }}
 							to={buildOrganizationSpacePath({
 								orgSlug,
-								search: { profileId: recommendedHumanProfile.profileId },
 								spaceId: recommendedHumanProfile.spaceId,
 							})}
 						>

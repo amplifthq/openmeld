@@ -35,6 +35,7 @@ import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	setSpaceWakeProgressPresentationItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
+	spaceWakeProgressPresentationQueryOptions,
 } from "#/query/spaces/active-wake-progress";
 import { ConversationsSidebar } from "./conversations-sidebar";
 import {
@@ -161,18 +162,40 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 		Link: ({
 			children,
 			to,
+			search,
+			hash,
 			resetScroll: _resetScroll,
 			...props
 		}: {
 			children: ReactNode;
 			to: string;
+			search?: Record<string, string>;
+			hash?: string;
 			resetScroll?: boolean;
-		} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-			<a href={to} {...props}>
-				{children}
-			</a>
-		),
+		} & React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+			const href = new URL(to, "https://openmeld.invalid");
+			for (const [key, value] of Object.entries(search ?? {})) {
+				href.searchParams.set(key, value);
+			}
+			if (hash) {
+				href.hash = hash;
+			}
+			return (
+				<a
+					data-router-to={to}
+					href={`${href.pathname}${href.search}${href.hash}`}
+					{...props}
+				>
+					{children}
+				</a>
+			);
+		},
 		useNavigate: () => navigateMock,
+		useLocation: ({
+			select,
+		}: {
+			select: (location: { href: string }) => unknown;
+		}) => select({ href: "/o/acme/spaces" }),
 		useRouterState: ({
 			select,
 		}: {
@@ -218,6 +241,14 @@ vi.mock("#/lib/spaces/api", () => ({
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 	useDefaultHumanProfile: () => ({
 		defaultHumanProfile: { openMeldProfileId: "human-1" },
+		profilesQuery: {
+			isPending: false,
+			isError: false,
+			isSuccess: true,
+			isFetching: false,
+			fetchStatus: "idle",
+			refetch: vi.fn(),
+		},
 	}),
 }));
 vi.mock("./new-chat-dialog", () => ({ NewChatDialog: () => null }));
@@ -386,9 +417,20 @@ describe("ConversationsSidebar", () => {
 			queryClient
 		);
 		const row = await screen.findByRole("link", { name: "Alpha" });
-		expect(row.querySelector("time")?.getAttribute("datetime")).toBe(
-			new Date(timestamp).toISOString()
+		expect(
+			getConversationRow(row).querySelector("time")?.getAttribute("datetime")
+		).toBe(new Date(timestamp).toISOString());
+		const previewLink = screen.getByRole("link", {
+			name: "Open preview message in Alpha: Ready for review.",
+		});
+		expect(previewLink.getAttribute("href")).toContain(
+			"focusSignalId=message-alpha"
 		);
+		expect(previewLink.getAttribute("data-router-to")).toBe(
+			"/o/acme/spaces/space-alpha"
+		);
+		expect(row.getAttribute("href")).not.toContain("focusSignalId");
+		expect(previewLink.parentElement?.closest("a")).toBeNull();
 		expect(
 			queryClient
 				.getQueryCache()
@@ -535,7 +577,7 @@ describe("ConversationsSidebar", () => {
 			Node.DOCUMENT_POSITION_PRECEDING
 		);
 		expect(
-			newSpace
+			getConversationRow(newSpace)
 				.querySelector("[data-conversation-title]")
 				?.classList.contains("font-semibold")
 		).toBe(true);
@@ -781,7 +823,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("[S11] keeps cached Spaces visible when a foreground refresh fails", async () => {
+	it("[S11] keeps cached conversations visible and recovers a failed refresh through its retry", async () => {
 		focusManager.setFocused(false);
 		listAccountSpaceItemsMock
 			.mockResolvedValueOnce({
@@ -800,7 +842,7 @@ describe("ConversationsSidebar", () => {
 			);
 		const queryClient = createSidebarQueryClient();
 
-		renderSidebar(
+		const view = renderSidebar(
 			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />,
 			queryClient
 		);
@@ -817,7 +859,40 @@ describe("ConversationsSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Existing" })).toBeTruthy();
 		expect(
-			screen.queryByText("OpenMeld could not load your spaces.")
+			screen.getByText(
+				"Couldn't refresh conversations. Showing saved conversations."
+			)
+		).toBeTruthy();
+		view.rerender(
+			<ConversationsSidebar
+				currentProfileId="human-1"
+				currentSpaceId=""
+				hideAccountSpacesFailure
+			/>
+		);
+		expect(
+			screen.queryByText(
+				"Couldn't refresh conversations. Showing saved conversations."
+			)
+		).toBeNull();
+		view.rerender(
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
+		);
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-recovered",
+					spaceName: "Recovered",
+				}),
+			],
+		});
+		fireEvent.click(screen.getByLabelText("Retry conversations"));
+		await screen.findByText("Recovered");
+		expect(
+			screen.queryByText(
+				"Couldn't refresh conversations. Showing saved conversations."
+			)
 		).toBeNull();
 	});
 
@@ -970,7 +1045,9 @@ describe("ConversationsSidebar", () => {
 
 		for (const spaceName of ["Pinned Alpha", "Regular Beta"]) {
 			const row = await screen.findByRole("link", { name: spaceName });
-			expect(row?.querySelector('svg[aria-label="Space"]')).toBeTruthy();
+			expect(
+				getConversationRow(row).querySelector('svg[aria-label="Space"]')
+			).toBeTruthy();
 		}
 	});
 
@@ -1137,16 +1214,20 @@ describe("ConversationsSidebar", () => {
 
 		const link = await screen.findByRole("link", { name: "Alpha" });
 		expect(
-			link
+			getConversationRow(link)
 				.querySelector('[data-sidebar="menu-heading"]')
 				?.classList.contains("min-w-0")
 		).toBe(true);
 		expect(
-			link
+			getConversationRow(link)
 				.querySelector("[data-conversation-title]")
 				?.classList.contains("truncate")
 		).toBe(true);
-		expect(link.style.getPropertyValue("--row-gutter")).toBe("8px");
+		expect(
+			link
+				.closest<HTMLElement>('[data-sidebar="menu-button"]')
+				?.style.getPropertyValue("--row-gutter")
+		).toBe("8px");
 		expect(screen.getByRole("button", { name: "Pin Alpha" })).toBeTruthy();
 		// The browser geometry check exercises the actual narrow-width allocation (S20/S32).
 		expect(
@@ -1430,6 +1511,14 @@ describe("ConversationsSidebar", () => {
 				spaceId: "space-alpha",
 			});
 		queryClient.setQueryData(currentSpaceSummaryOptions.queryKey, {
+			presentationEpoch: (
+				await queryClient.fetchQuery(
+					spaceWakeProgressPresentationQueryOptions({
+						spaceId: "space-alpha",
+						openMeldProfileId: "human-1",
+					})
+				)
+			).epoch,
 			items: [
 				createWakeProgressItem({
 					clientMessageId: "client-message-alpha",
@@ -1502,6 +1591,14 @@ describe("ConversationsSidebar", () => {
 				spaceId: "space-alpha",
 			});
 		queryClient.setQueryData(currentSpaceSummaryOptions.queryKey, {
+			presentationEpoch: (
+				await queryClient.fetchQuery(
+					spaceWakeProgressPresentationQueryOptions({
+						spaceId: "space-alpha",
+						openMeldProfileId: "human-1",
+					})
+				)
+			).epoch,
 			items: [
 				createWakeProgressItem({
 					clientMessageId: "client-message-alpha",
@@ -1766,14 +1863,20 @@ describe("ConversationsSidebar", () => {
 			screen.queryByRole("link", { name: "Waiting for activity" })
 		).toBeNull();
 		expect(screen.getByRole("link", { name: "Stable pin" })).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Conversation view" }));
+		fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Conversation view" })
+		);
 		fireEvent.click(
 			await screen.findByRole("menuitemradio", { name: "Recent" })
 		);
 		expect(
 			await screen.findByRole("link", { name: "Waiting for activity" })
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Conversation view" }));
+		fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Conversation view" })
+		);
 		fireEvent.click(
 			await screen.findByRole("menuitemradio", { name: "Grouped" })
 		);
@@ -1891,9 +1994,12 @@ describe("ConversationsSidebar", () => {
 		);
 
 		const link = await screen.findByRole("link", { name: "Alpha" });
-		expect(link.style.getPropertyValue("--row-gutter")).toBe("8px");
+		const rowButton = link.closest<HTMLElement>('[data-sidebar="menu-button"]');
+		expect(rowButton?.style.getPropertyValue("--row-gutter")).toBe("8px");
 		expect(
-			Number.parseFloat(link.style.getPropertyValue("--row-gutter-hover"))
+			Number.parseFloat(
+				rowButton?.style.getPropertyValue("--row-gutter-hover") ?? ""
+			)
 		).toBeGreaterThan(8);
 		expect(screen.getByRole("button", { name: "Unpin Alpha" })).toBeTruthy();
 		// S32's hover geometry is verified at real browser widths, not inferred from jsdom.
@@ -2346,7 +2452,23 @@ function seedCurrentSpaceWakeRace(queryClient: QueryClient): void {
 			spaceId: "space-alpha",
 		}
 	);
+	setSpaceWakeProgressPresentationItems({
+		queryClient,
+		spaceId: "space-alpha",
+		openMeldProfileId: "human-1",
+		items: [],
+	});
+	const presentation = queryClient.getQueryData(
+		spaceWakeProgressPresentationQueryOptions({
+			spaceId: "space-alpha",
+			openMeldProfileId: "human-1",
+		}).queryKey
+	);
+	if (!presentation) {
+		throw new Error("Expected the Space presentation cache");
+	}
 	queryClient.setQueryData(currentSpaceSummaryOptions.queryKey, {
+		presentationEpoch: presentation.epoch,
 		items: [
 			createWakeProgressItem({
 				clientMessageId: "client-message-alpha",

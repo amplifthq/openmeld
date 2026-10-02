@@ -23,7 +23,6 @@ import {
   type WakeRouteStatus,
 } from "@openmeld/agent-runtime";
 import {
-  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isHostedAgentControllerRef,
 } from "@openmeld/schemas";
@@ -41,10 +40,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { resolveCurrentWorkingFolderObservation } from "../../agent-profile-binding/application/current-working-folder-observation";
-import {
-  readPrimaryAgentProfileBindingRecord,
-  readPrimaryAgentProfileBindingRecordByControllerConversation,
-} from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { readPrimaryAgentProfileBindingRecordByControllerConversation } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   isAgentProfileEligibleForOrganization,
   readAgentProfileOrganizationContext,
@@ -53,6 +49,7 @@ import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
 } from "../../center-agent/center-agent-repository";
+import { resolveCurrentAgentModelAvailability } from "../../config/agent-model-availability";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
@@ -62,6 +59,7 @@ import {
   identityDb,
   localStateDb,
 } from "../../lib/bindings";
+import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { resolveRemoteAgentRuntimeAvailability } from "../../remote-agent/application/remote-agent-runtime-policy";
 import {
@@ -310,11 +308,7 @@ export async function resolveCoreAgentExecutionReadiness(input: {
     agentProfileId: input.agent.profileId,
     binding: bindingSnapshot.agentExecutionBinding,
     claimDiagnostics: bindingSnapshot.claimDiagnostics,
-    executionFamily: isHostedAgentControllerRef(
-      bindingSnapshot.agentControllerRef
-    )
-      ? "native"
-      : "workstation",
+    executionFamily: resolveReadinessExecutionFamily(bindingSnapshot),
     route:
       bindingSnapshot.routeEvidence ??
       createAgentExecutionRouteEvidence({
@@ -367,6 +361,17 @@ export async function resolveCoreAgentExecutionReadiness(input: {
       agentExecutionReadiness
     ),
   };
+}
+
+function resolveReadinessExecutionFamily(
+  snapshot: AgentBindingSnapshot
+): "native" | "workstation" | "unknown" {
+  if (!snapshot.agentControllerRef) {
+    return "unknown";
+  }
+  return isHostedAgentControllerRef(snapshot.agentControllerRef)
+    ? "native"
+    : "workstation";
 }
 
 async function resolveAgentBindingSnapshot(
@@ -681,6 +686,33 @@ async function enrichAgentBindingSnapshot(input: {
     bindingProjection?.bindingState === "enabled_primary"
       ? ("bound" as const)
       : ("missing" as const);
+  if (!parsedAgentControllerRef) {
+    // Retain identity/binding failures, without guessing that this Agent uses
+    // the member's local Computer or probing that unrelated Service.
+    return {
+      ...createProfileIdentityOnlyBindingSnapshot({
+        agent: input.agent,
+        generatedAt: input.generatedAt,
+        ownerUserId: input.snapshot.ownerUserId,
+        profileEvidence: input.snapshot.profileEvidence,
+        profileName: input.snapshot.profileName,
+      }),
+      agentExecutionBinding,
+      primaryBinding: bindingProjection,
+      claimDiagnostics: await resolveAgentProfileOrganizationClaimDiagnostics({
+        reads: input.reads,
+        activeOrganizationId: input.activeOrganizationId,
+        binding: agentExecutionBinding,
+        env: input.env,
+        resolveRuntimeClaimDiagnostics: async () => ({ status: "not_checked" }),
+      }),
+      routeEvidence: {
+        status: "unavailable",
+        source: "not_checked",
+        reasonCodes: [],
+      },
+    };
+  }
   if (
     bindingProjection &&
     isHostedAgentControllerRef(parsedAgentControllerRef?.ref)
@@ -1140,12 +1172,13 @@ async function resolveAgentExecutionBindingEvidence(input: {
         },
       };
     }
-    const bindingRecord = await readPrimaryAgentProfileBindingRecord({
-      agentProfileId: input.agentProfileId,
-      db: domainDb,
-      owner,
-      readBatch: input.reads.readBatch,
-    });
+    const bindingRecord =
+      await input.reads.readPrimaryAgentProfileBindingRecord({
+        agentProfileId: input.agentProfileId,
+        db: domainDb,
+        owner,
+        readBatch: input.reads.readBatch,
+      });
     if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
         await readPrimaryAgentProfileBindingRecordByControllerConversation({
@@ -1303,6 +1336,23 @@ async function resolveAgentRuntimeReadiness(input: {
       (report) =>
         report.agentControllerRef === executionTarget.agentControllerRef
     );
+    const modelAvailability = resolveCurrentAgentModelAvailability({
+      agentControllerRef: executionTarget.agentControllerRef,
+      modelId: input.binding.modelSelection?.modelId,
+      openMeldServiceRuntimeId: createAuthorityOpenMeldServiceRuntimeId({
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+        source: "runtime_registry_authority",
+      }).value,
+      currentReport,
+      nowMs: parseGeneratedAtMs(input.generatedAt),
+    });
+    if (!modelAvailability.available) {
+      return {
+        displayState: "unavailable",
+        ready: false,
+        reasonCodes: [modelAvailability.reasonCode, ...readiness.reasonCodes],
+      };
+    }
     const usageWakeability = resolveAgentProfileUsageWakeability({
       agentControllerRef: executionTarget.agentControllerRef,
       nowMs: parseGeneratedAtMs(input.generatedAt),
@@ -2199,7 +2249,7 @@ function createServiceEvidenceFromCompatibility(
   if (compatibility.status === "compatible") {
     return {
       executionCompatible: true,
-      expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+      expectedEpoch: compatibility.expectedEpoch,
       observedEpoch: compatibility.observedEpoch,
       reasonCodes: [],
       source: "runtime_transport",
@@ -2208,7 +2258,7 @@ function createServiceEvidenceFromCompatibility(
 
   return {
     executionCompatible: false,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: compatibility.expectedEpoch,
     observedEpoch: compatibility.observedEpoch,
     reasonCodes: ["service.update_required", compatibility.reasonCode],
     source: "runtime_transport",
@@ -2275,7 +2325,7 @@ function doesBindingRuntimeMatchTargetRuntime(input: {
 function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "not_checked",
@@ -2285,7 +2335,7 @@ function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
 function createUnavailableServiceEvidence(): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "unavailable",
@@ -2409,7 +2459,7 @@ function toSpaceMemberAgentExecutionReadiness(
       },
       service: {
         executionCompatible: readiness.facts.service.executionCompatible,
-        expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+        expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
         observedEpoch: readiness.facts.service.observedEpoch,
         reasonCodes: [...readiness.facts.service.reasonCodes],
         source: readiness.facts.service.source,
@@ -2641,15 +2691,7 @@ async function resolveRuntimeRouteSnapshot(input: {
           status: "online",
         }),
         agentWakeRouteRegistration,
-        wakeRouteStatus: {
-          connectionGeneration: result.connectionGeneration,
-          daemonSessionId: result.daemonSessionId,
-          deviceId: result.deviceId,
-          lane: toWakeRouteLane(result.lane),
-          lastHeartbeatMs: result.lastHeartbeatMs,
-          leaseEpoch: result.leaseEpoch,
-          status: "ready",
-        },
+        ...resolveWakeRouteAdmissionSnapshot(result, input.generatedAt),
         hasFreshRouteLease: false,
         localWakeRouteReport: toNullableLocalWakeRouteReport(
           result.localWakeRouteReport
@@ -2767,6 +2809,37 @@ function toNullableLocalWakeRouteReport(
   report: LocalWakeRouteReport | undefined
 ): LocalWakeRouteReport | null {
   return report ?? null;
+}
+
+function resolveWakeRouteAdmissionSnapshot(
+  result: Extract<RuntimeTransportLookupRouteResponse, { online: true }>,
+  generatedAt: string
+): Pick<RuntimeRouteSnapshot, "wakeRouteStatus" | "routeEvidence"> {
+  // A live socket can keep reporting accepted work while the Service drains
+  // or waits for its host. It is not a route for a new Wake.
+  if (result.acceptingDispatches === false) {
+    return {
+      routeEvidence: {
+        deviceId: result.deviceId,
+        lane: result.lane,
+        observedAt: generatedAt,
+        reasonCodes: ["local_service.not_accepting_wakes"],
+        status: "unavailable",
+      },
+      wakeRouteStatus: { status: "unavailable" },
+    };
+  }
+  return {
+    wakeRouteStatus: {
+      connectionGeneration: result.connectionGeneration,
+      daemonSessionId: result.daemonSessionId,
+      deviceId: result.deviceId,
+      lane: toWakeRouteLane(result.lane),
+      lastHeartbeatMs: result.lastHeartbeatMs,
+      leaseEpoch: result.leaseEpoch,
+      status: "ready",
+    },
+  };
 }
 
 function createSkippedRuntimeRouteSnapshot(input: {

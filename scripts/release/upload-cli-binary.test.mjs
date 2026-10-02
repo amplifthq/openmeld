@@ -1,9 +1,12 @@
+const WINDOWS_SERVICE_POLICY_PATTERN = /Prepare a Service release/u;
+
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { createCliBinaryDelta } from "./cli-binary-delta.mjs";
 import {
   buildCliManifest,
@@ -15,8 +18,12 @@ import {
   DEFAULT_CLI_R2_BUCKET,
   prepareSignedCliBinary,
   prepareVerifiedCliBinary,
+  resolveCliBinaryComponentPolicy,
   resolveCliMinRequiredVersion,
+  resolveRetainedCliServiceSelection,
+  verifyRetainedCliServiceArtifacts,
 } from "./upload-cli-binary.mjs";
+import { resolveWindowsPreviewComponentPolicy } from "./windows-preview-policy.mjs";
 
 const CAPTURED_MANIFEST = JSON.parse(
   readFileSync(
@@ -30,6 +37,10 @@ const CAPTURED_MANIFEST = JSON.parse(
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const SECURE_STORAGE_SMOKE_FAILURE_PATTERN = /secure storage smoke failed/u;
 const STOP_AFTER_BUILD_INPUT_PATTERN = /stop after build input/u;
+const WRONG_RETAINED_SERVICE_PATTERN = /not retained target 0\.2\.13/u;
+const RETAINED_SERVICE_MISMATCH_PATTERN = /gzip artifact does not match/u;
+const RETAINED_SERVICE_BYTES = Buffer.from("verified retained service");
+const RETAINED_SERVICE_ARCHIVE = gzipSync(RETAINED_SERVICE_BYTES);
 
 test("publishes the proven CLI compatibility floor without forcing every older supported release", () => {
   const packageJson = JSON.parse(
@@ -40,7 +51,10 @@ test("publishes the proven CLI compatibility floor without forcing every older s
   );
   const minRequiredCliVersion = resolveCliMinRequiredVersion();
 
-  assert.equal(minRequiredCliVersion, "0.3.198");
+  assert.equal(
+    minRequiredCliVersion,
+    packageJson.openmeld.minRequiredCliVersion
+  );
   assert.notEqual(
     minRequiredCliVersion,
     packageJson.version,
@@ -100,6 +114,66 @@ test("builds the captured stable CLI binary manifest shape", () => {
       },
     },
   });
+});
+
+test("selects the exact published Service for a newer CLI", () => {
+  const service = resolveRetainedCliServiceSelection({
+    channelManifest: CAPTURED_MANIFEST,
+    targetCliVersion: "0.2.15",
+    targetServiceVersion: "0.2.14",
+  });
+  assert.equal(service.version, "0.2.14");
+  assert.deepEqual(
+    service.platforms,
+    CAPTURED_MANIFEST.channels.stable.platforms
+  );
+  assert.throws(
+    () =>
+      resolveRetainedCliServiceSelection({
+        channelManifest: CAPTURED_MANIFEST,
+        targetCliVersion: "0.2.16",
+        targetServiceVersion: "0.2.13",
+      }),
+    WRONG_RETAINED_SERVICE_PATTERN
+  );
+});
+
+test("verifies retained Service bytes before publishing a split manifest", async () => {
+  const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+  const service = {
+    version: "0.2.14",
+    platforms: {
+      "darwin-arm64": {
+        url: "https://openmeld.ai/cli/download/service-raw",
+        sha256: sha256(RETAINED_SERVICE_BYTES),
+        sizeBytes: RETAINED_SERVICE_BYTES.byteLength,
+        archiveFormat: "gzip",
+        archiveUrl: "https://openmeld.ai/cli/download/service-raw.gz",
+        archiveSha256: sha256(RETAINED_SERVICE_ARCHIVE),
+        archiveSizeBytes: RETAINED_SERVICE_ARCHIVE.byteLength,
+      },
+    },
+  };
+  const fetch = (url, options = {}) => {
+    if (options.method === "HEAD") {
+      return new Response(null, {
+        headers: {
+          "content-length": String(RETAINED_SERVICE_BYTES.byteLength),
+        },
+        status: 200,
+      });
+    }
+    assert.equal(url, service.platforms["darwin-arm64"].archiveUrl);
+    return new Response(RETAINED_SERVICE_ARCHIVE, { status: 200 });
+  };
+
+  await verifyRetainedCliServiceArtifacts({ fetch, service });
+  const wrongService = structuredClone(service);
+  wrongService.platforms["darwin-arm64"].archiveSha256 = "0".repeat(64);
+  await assert.rejects(
+    verifyRetainedCliServiceArtifacts({ fetch, service: wrongService }),
+    RETAINED_SERVICE_MISMATCH_PATTERN
+  );
 });
 
 test("passes an isolated staging version into the binary build", async () => {
@@ -394,5 +468,82 @@ test("rejects a signed binary when the secure storage smoke fails", async () => 
       },
     }),
     SECURE_STORAGE_SMOKE_FAILURE_PATTERN
+  );
+});
+
+test("policy provenance does not attach production identity to custom staging artifacts", () => {
+  const releaseManifest = JSON.parse(
+    readFileSync(
+      new URL("../../release/local-components.json", import.meta.url),
+      "utf8"
+    )
+  );
+  const cliVersion = releaseManifest.components.cli.packageVersion;
+  const serviceVersion = releaseManifest.components.service.bundleVersion;
+  assert.deepEqual(
+    resolveCliBinaryComponentPolicy({
+      releaseManifest,
+      cliVersion,
+      serviceVersion,
+    }),
+    {
+      cli: releaseManifest.components.cli,
+      service: releaseManifest.components.service,
+    }
+  );
+  assert.equal(
+    resolveCliBinaryComponentPolicy({
+      releaseManifest,
+      cliVersion: `${cliVersion}-staging.fixture`,
+      serviceVersion,
+    }),
+    undefined
+  );
+  assert.equal(
+    resolveCliBinaryComponentPolicy({
+      releaseManifest,
+      cliVersion,
+      serviceVersion: "0.0.0",
+    }),
+    undefined
+  );
+});
+test("native preview refuses retained policy before rebuilding or relabelling a Service", () => {
+  const releaseManifest = JSON.parse(
+    readFileSync(
+      new URL("../../release/local-components.json", import.meta.url),
+      "utf8"
+    )
+  );
+  const version = releaseManifest.components.cli.packageVersion;
+  const matching = {
+    ...releaseManifest,
+    components: {
+      ...releaseManifest.components,
+      service: {
+        ...releaseManifest.components.service,
+        bundleVersion: version,
+      },
+    },
+  };
+  assert.equal(
+    resolveWindowsPreviewComponentPolicy({ releaseManifest: matching, version })
+      .service.bundleVersion,
+    version
+  );
+  const retained = {
+    ...matching,
+    components: {
+      ...matching.components,
+      service: { ...matching.components.service, bundleVersion: "0.0.0" },
+    },
+  };
+  assert.throws(
+    () =>
+      resolveWindowsPreviewComponentPolicy({
+        releaseManifest: retained,
+        version,
+      }),
+    WINDOWS_SERVICE_POLICY_PATTERN
   );
 });

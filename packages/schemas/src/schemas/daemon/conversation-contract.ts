@@ -25,6 +25,7 @@ export const conversationPolicySchema = z.strictObject({
 export const BUILTIN_AGENT_CONTROLLER_CONVERSATION_KIND_BY_CONTROLLER_ID: Readonly<
   Record<string, z.infer<typeof agentControllerConversationKindSchema>>
 > = {
+  antigravity: "session",
   codex: "thread",
   "claude-code": "session",
   cursor: "session",

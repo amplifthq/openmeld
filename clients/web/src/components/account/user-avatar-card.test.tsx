@@ -19,6 +19,8 @@ const useAccountSessionMock = vi.hoisted(() => vi.fn());
 const useDefaultHumanProfileMock = vi.hoisted(() => vi.fn());
 const useRemoveAccountAvatarMock = vi.hoisted(() => vi.fn());
 const useUpdateAccountAvatarMock = vi.hoisted(() => vi.fn());
+const useSignOutMock = vi.hoisted(() => vi.fn());
+const signOutMutateMock = vi.hoisted(() => vi.fn());
 const createIdentityImageCropDraftMock = vi.hoisted(() => vi.fn());
 const cropIdentityImageMock = vi.hoisted(() => vi.fn());
 const releaseIdentityImageCropDraftMock = vi.hoisted(() => vi.fn());
@@ -30,6 +32,10 @@ vi.mock("#/hooks/account.hooks", () => ({
 	useAccountSession: useAccountSessionMock,
 	useRemoveAccountAvatar: useRemoveAccountAvatarMock,
 	useUpdateAccountAvatar: useUpdateAccountAvatarMock,
+}));
+
+vi.mock("#/hooks/auth.hooks", () => ({
+	useSignOut: useSignOutMock,
 }));
 
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
@@ -59,6 +65,7 @@ vi.mock("@tanstack/react-router", () => ({
 			{children}
 		</a>
 	),
+	useNavigate: () => vi.fn(),
 }));
 
 describe("UserAvatarCard", () => {
@@ -126,6 +133,8 @@ describe("UserAvatarCard", () => {
 		useDefaultHumanProfileMock.mockReset();
 		useRemoveAccountAvatarMock.mockReset();
 		useUpdateAccountAvatarMock.mockReset();
+		useSignOutMock.mockReset();
+		signOutMutateMock.mockReset();
 		createIdentityImageCropDraftMock.mockReset();
 		cropIdentityImageMock.mockReset();
 		releaseIdentityImageCropDraftMock.mockReset();
@@ -186,6 +195,36 @@ describe("UserAvatarCard", () => {
 				.getByRole("link", { name: LOG_OUT_LINK_NAME_PATTERN })
 				.getAttribute("href")
 		).toBe("/logout");
+	});
+
+	it("uses Desktop sign-out from the account card instead of the Web logout route", () => {
+		useSignOutMock.mockReturnValue({
+			isPending: false,
+			mutate: signOutMutateMock,
+		});
+		useAccountSessionMock.mockReturnValue({
+			data: {
+				user: {
+					createdAt: "2024-01-02T00:00:00.000Z",
+					email: "ada@example.com",
+					emailVerified: true,
+					id: "user-1",
+					image: null,
+					name: "Ada Lovelace",
+				},
+			},
+			isPending: false,
+		});
+
+		render(<UserAvatarCard desktop />);
+
+		expect(
+			screen.queryByRole("link", { name: LOG_OUT_LINK_NAME_PATTERN })
+		).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: LOG_OUT_LINK_NAME_PATTERN })
+		);
+		expect(signOutMutateMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps the account card without inventing a Dither identity when the default Human Profile is unavailable", () => {

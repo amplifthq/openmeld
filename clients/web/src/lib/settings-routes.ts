@@ -15,10 +15,12 @@ export function buildSettingsRoutes(orgSlug: string) {
 	return {
 		account: buildOrganizationAccountSettingsPath(orgSlug),
 		appearance: buildOrganizationAppearanceSettingsPath(orgSlug),
+		updates: `${buildOrganizationSettingsRootPath(orgSlug)}/updates`,
 		// Key name matches the Settings section id and the `?appSettings=` value.
 		"center-agent": buildOrganizationCenterAgentSettingsPath(orgSlug),
 		connectedApps: buildOrganizationConnectedPluginsSettingsPath(orgSlug),
 		general: buildOrganizationOrgSettingsPath(orgSlug),
+		usage: `${buildOrganizationSettingsRootPath(orgSlug)}/usage`,
 		members: `${buildOrganizationSettingsRootPath(orgSlug)}/members`,
 		invitations: `${buildOrganizationSettingsRootPath(orgSlug)}/invitations`,
 		security: `${buildOrganizationSettingsRootPath(orgSlug)}/security`,

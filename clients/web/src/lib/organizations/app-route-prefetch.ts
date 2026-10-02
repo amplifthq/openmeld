@@ -1,11 +1,14 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { findActiveProfileById } from "#/lib/profiles/profiles";
+import { resolveAppSpacesProfile } from "#/lib/spaces/app-spaces-profile";
+import { readLastUsedHumanProfileId } from "#/lib/spaces/last-used-profile";
 import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
 import {
 	resolveSpaceThreadTarget,
 	type SpaceMessageTarget,
 } from "#/lib/spaces/thread-navigation";
 import { readSpaceThreadPanelSelection } from "#/lib/spaces/thread-panel-storage";
+import { accountSidebarQueryOptions } from "#/query/account/sidebar-preferences";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
 	organizationProfileDirectoryQueryOptions,
@@ -18,6 +21,7 @@ import {
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
+import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolution";
 import type { SpaceHistorySnapshot } from "#/query/spaces/history";
 import { spaceHistoryPrefetchQueryOptions } from "#/query/spaces/history-sync";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -37,6 +41,29 @@ type OrganizationRoutePrefetchInput = {
 	routeFamily: string;
 };
 
+export async function prefetchPeopleRouteData(
+	input: OrganizationRoutePrefetchInput
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+	await Promise.all([
+		input.queryClient.prefetchQuery(
+			organizationProfileDirectoryQueryOptions({
+				enabled: true,
+				organizationId: scope.currentOrganization.id,
+			})
+		),
+		input.queryClient.prefetchQuery(
+			accountSidebarQueryOptions(
+				scope.currentUserId,
+				scope.currentOrganization.id
+			)
+		),
+	]);
+}
+
 export async function prefetchAgentsRouteIdentityData(
 	input: OrganizationRoutePrefetchInput
 ): Promise<void> {
@@ -51,6 +78,12 @@ export async function prefetchAgentsRouteIdentityData(
 				enabled: true,
 				storageScope: scope.storageScope,
 			})
+		),
+		input.queryClient.prefetchQuery(
+			accountSidebarQueryOptions(
+				scope.currentUserId,
+				scope.currentOrganization.id
+			)
 		),
 	];
 	if (scope.currentOrganization.isPersonal !== true) {
@@ -107,13 +140,15 @@ export async function prefetchSpaceConversationRouteData(
 			storageScope: scope.storageScope,
 		})
 	);
-	if (!input.profileId) {
-		return;
-	}
-	const selectedHumanProfile = findActiveProfileById(profiles, {
-		profileId: input.profileId,
-		profileKind: "human",
-	});
+	const selectedHumanProfile = input.profileId
+		? findActiveProfileById(profiles, {
+				profileId: input.profileId,
+				profileKind: "human",
+			})
+		: resolveAppSpacesProfile({
+				profiles,
+				selectedHumanProfileId: readLastUsedHumanProfileId(scope.storageScope),
+			});
 	if (!selectedHumanProfile) {
 		return;
 	}
@@ -144,7 +179,7 @@ export async function restoreSpaceConversationRouteData(
 	if (!scope) {
 		return;
 	}
-	await input.queryPersistence.activateSpaceConversation({
+	await input.queryPersistence.restoreSpaceConversation({
 		organizationId: scope.currentOrganization.id,
 		organizationSlug: scope.currentOrganization.slug,
 		ownerAccountId: scope.storageScope,
@@ -207,7 +242,7 @@ export async function prefetchKnownSpaceConversationData(
 		openMeldProfileId: string;
 	}
 ): Promise<void> {
-	await input.queryPersistence.activateSpaceConversation({
+	await input.queryPersistence.restoreSpaceConversation({
 		organizationId: input.organizationId,
 		organizationSlug: input.organizationSlug,
 		ownerAccountId: input.ownerAccountId,
@@ -215,6 +250,17 @@ export async function prefetchKnownSpaceConversationData(
 		spaceId: input.spaceId,
 		openMeldProfileId: input.openMeldProfileId,
 	});
+	// Warm the exact access query consumed by the gate, including linked targets.
+	// A bootstrap is display data and cannot stand in for this server decision.
+	const entryPrefetch = input.queryClient.prefetchQuery(
+		spaceEntryResolutionQueryOptions({
+			enabled: true,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.openMeldProfileId,
+			signalId: input.focusSignalId,
+			threadRootSignalId: input.focusThreadRootSignalId,
+		})
+	);
 	prefetchTargetThread(input).catch((error: unknown) =>
 		console.error("Could not prefetch the linked Thread.", error)
 	);
@@ -231,6 +277,7 @@ export async function prefetchKnownSpaceConversationData(
 		await input.queryClient.prefetchQuery(
 			spaceHistoryPrefetchQueryOptions(input.queryClient, input)
 		);
+		await entryPrefetch;
 		return;
 	}
 	const bootstrap = await input.queryClient.fetchQuery(
@@ -249,6 +296,7 @@ export async function prefetchKnownSpaceConversationData(
 		spaceId: input.spaceId,
 		viewerProfileId: input.openMeldProfileId,
 	});
+	await entryPrefetch;
 }
 
 async function prefetchTargetThread(

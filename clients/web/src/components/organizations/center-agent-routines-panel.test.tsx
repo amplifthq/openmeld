@@ -63,6 +63,9 @@ const FORBIDDEN_PATTERN =
 	/You can view this routine, but only its creator or an organization owner or admin can manage it/;
 
 function CenterAgentRoutinesPanel(input: {
+	focusRoutineId?: string;
+	focusRunId?: string;
+	onClearFocusedRun?: () => void;
 	organizationId: string;
 	orgSlug: string;
 }) {
@@ -106,6 +109,93 @@ describe("CenterAgentRoutinesPanel", () => {
 	afterEach(() => {
 		cleanup();
 		vi.unstubAllGlobals();
+	});
+
+	it("opens the linked Routine run and finds it in older history", async () => {
+		const routine = buildRoutine({ canManage: false, id: "routine-linked" });
+		const runsPath = `${ROUTINES_PATH}/${routine.id}/runs`;
+		const latestRuns = Array.from({ length: 5 }, (_, index) => ({
+			failureCode: null,
+			failureDetail: null,
+			finishedAtMs: 1_752_300_020_000,
+			id: `run-latest-${index}`,
+			nativeDeliveryId: null,
+			organizationId: ORGANIZATION_ID,
+			publishedSignalId: "signal-1",
+			routineId: routine.id,
+			scheduledFor: 1_752_300_000_000 - index * 1000,
+			startedAtMs: 1_752_300_001_000,
+			status: "completed" as const,
+		}));
+		const cursor = latestRuns.at(-1)?.scheduledFor;
+		const onClearFocusedRun = vi.fn();
+		vi.stubGlobal(
+			"fetch",
+			createRouteFetch(
+				new Map([
+					[
+						`GET ${window.location.origin}${ROUTINES_PATH}`,
+						() =>
+							jsonResponse({
+								currentUserId: "user-1",
+								organizationId: ORGANIZATION_ID,
+								routines: [routine],
+							}),
+					],
+					[
+						`GET ${window.location.origin}${runsPath}?limit=5`,
+						() =>
+							jsonResponse({
+								organizationId: ORGANIZATION_ID,
+								routineId: routine.id,
+								runs: latestRuns,
+							}),
+					],
+					[
+						`GET ${window.location.origin}${runsPath}?beforeScheduledFor=${cursor}&limit=5`,
+						() =>
+							jsonResponse({
+								organizationId: ORGANIZATION_ID,
+								routineId: routine.id,
+								runs: [
+									{
+										...latestRuns[0],
+										id: "run-linked",
+										scheduledFor: Number(cursor) - 1000,
+									},
+								],
+							}),
+					],
+				])
+			)
+		);
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentRoutinesPanel
+					focusRoutineId={routine.id}
+					focusRunId="run-linked"
+					onClearFocusedRun={onClearFocusedRun}
+					organizationId={ORGANIZATION_ID}
+					orgSlug="acme"
+				/>
+			</TestQueryClientProvider>
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: `Runs for ${routine.name}`,
+		});
+		expect(await within(dialog).findByText("run-linked")).toBeTruthy();
+		expect(within(dialog).getByText("Selected Run")).toBeTruthy();
+		expect(
+			vi
+				.mocked(fetch)
+				.mock.calls.some(
+					([resource, init]) =>
+						resolveRequestRoute(resource, init) ===
+						`GET ${window.location.origin}${runsPath}?beforeScheduledFor=${cursor}&limit=5`
+				)
+		).toBe(true);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+		expect(onClearFocusedRun).toHaveBeenCalledOnce();
 	});
 
 	it("explains the empty state and gives every member a Create action", async () => {
@@ -1160,7 +1250,7 @@ describe("CenterAgentRoutinesPanel", () => {
 		});
 	});
 
-	it("shows an honest loading state while the Routine owner read is pending", () => {
+	it("shows an honest loading state after a Routine owner read stays pending", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(() => new Promise<Response>(() => undefined)) as typeof fetch
@@ -1173,7 +1263,12 @@ describe("CenterAgentRoutinesPanel", () => {
 				/>
 			</TestQueryClientProvider>
 		);
-		expect(screen.getByText("Loading routines.")).toBeTruthy();
+		expect(
+			screen.queryByRole("status", { name: "Loading routines" })
+		).toBeNull();
+		expect(
+			await screen.findByRole("status", { name: "Loading routines" })
+		).toBeTruthy();
 	});
 
 	it("keeps owner truth unchanged when pause or delete is rejected", async () => {

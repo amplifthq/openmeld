@@ -78,15 +78,20 @@ becomes a first-class, user-selectable property of an Agent Profile.
    is explicitly cataloged. Cursor ACP's `default[]` model is one such ID; it is
    shown as **Auto** and is not silently substituted for another selection.
 4. **Runtime default per agent controller**, maintained through `defaultModelId`,
-   remains the unset-profile/runtime fallback. Optional `creationDefaults`
+   remains the unset-profile default, never an explicit-selection fallback. Optional `creationDefaults`
    independently selects the model and reasoning proposed at first creation;
    without it, creation uses `defaultModelId` with model-default reasoning.
    Interactive selectors present the runtime default model once as
    `<model> (default)` rather than adding a second abstract controller-default
    option. Choosing an independent reasoning effort materializes the concrete
    model ID because reasoning validity is model-specific.
-5. **Single availability flag.** A catalog model is either usable or
-   `unavailable`. No separate deprecated/retired states.
+5. **Reviewed availability, never a shutdown clock.** The existing global
+   `unavailable` flag remains. Optional `retirement` records an `announced`
+   notice or a separately confirmed `withdrawn` decision, with exact controller,
+   provider/sign-in scope, date meaning, HTTPS source and verification time.
+   Announced dates are advisory even after they pass. Only a reviewed withdrawal
+   with matching execution evidence blocks use. Keep old model identity and
+   explicit selections; never silently replace them with the default.
 6. **No computed "latest" concept.** The optional catalog-owned `badgeLabel`
    is reviewed presentation metadata, such as `New`, and appears beside local
    model options and the selected value. It does not change defaults, ordering,
@@ -109,6 +114,13 @@ becomes a first-class, user-selectable property of an Agent Profile.
    served read-only by core; the CLI keeps an embedded snapshot as offline
    fallback only. Changing the catalog is a core deploy, not a CLI publish and
    not a DB edit.
+
+   Antigravity is included in both catalogs. Its exact model IDs come from
+   `agy models`; the September 22, 2026 CLI 1.2.7 capture lists 14 choices
+   covering Gemini, Claude, and GPT-OSS. Gemini High/Medium/Low variants and
+   GPT-OSS Medium are distinct native model IDs, not OpenMeld aliases.
+   The hosted catalog must not omit a controller that exists only in the CLI
+   offline snapshot: Web reads the hosted catalog, not the offline snapshot.
 9. **Do not bump the dispatch queue schema.** The selection rides binding
    metadata down to the daemon and is resolved locally.
 10. **Selection logic is shared headless code**, not duplicated per client.
@@ -131,7 +143,7 @@ becomes a first-class, user-selectable property of an Agent Profile.
     The authored catalog's optional controller `creationDefaults` contains
     `{modelId, reasoningLevel}`; `null` reasoning means use the model default.
     The model must be available and any reasoning level supported. It currently
-    preserves Codex's GPT-5.6 Sol / `high` recommendation. Once the user creates an Agent, the
+    recommends Codex's GPT-6.1 Sol / `medium`. Once the user creates an Agent, the
     existing per-user, per-controller creation defaults remember explicit model
     and reasoning choices, including `Use model default`. The public model
     catalog's public projection omits `creationDefaults`: Core supplies the
@@ -292,6 +304,17 @@ failures never mean model retirement. The brief lists uncataloged discovery
 candidates, exact automatic additions, source discrepancies and bounded official
 excerpts; full snapshots remain available for review. The repository formatter
 keeps unrelated catalog formatting out of the diff.
+
+A new draft requires a model addition, a newly observed discovery candidate or
+reasoning option, a new existing-model parameter/visibility discrepancy, or a
+changed retirement passage about a cataloged model. Compare these review facts
+with the last committed evidence snapshot. Repeated candidates and discrepancies,
+collection timestamps, harness releases, unrelated documentation and marketplace
+metadata changes do not create proposals. Every scan still preserves its raw
+evidence and review brief in the Actions artifact, including scans with no
+substantive changes. A changed or removed retirement passage requires review;
+the collector never treats it as an automatic retirement or withdrawal decision.
+
 Actions uses its existing token only for `api.github.com` requests to avoid
 shared anonymous rate limits. Local collectors may supply `GH_TOKEN`; the token
 is never sent to model discovery or vendor documentation hosts.
@@ -300,12 +323,23 @@ Run `pnpm verify:model-catalog` for the collector and real disposable-Git
 publication/recovery tests. A pushed branch whose PR creation failed is recovered
 without rewriting it; external branch changes stop automatic recovery.
 
-One open catalog bot PR is a review handoff: subsequent runs leave its
-branch and body untouched so a coding agent can safely continue there. A closed
-PR suppresses the same combined source fingerprint; changed facts may produce a new
-proposal. Merging the evidence snapshot acknowledges that revision, including
-when the reviewer elects to make no product change. Collection timestamps alone
-do not trigger another proposal. There is no bot force-push or auto-merge.
+One open catalog bot PR is the active review inbox. Subsequent successful Actions
+runs leave its branch and body untouched so a coding agent can safely continue
+there, but upsert one bot-owned **Latest model catalog scan** comment with the
+newest generated brief and the current Actions run link. A local publisher
+invocation without an Actions run context leaves the open PR untouched rather
+than authoring that bot marker under a human account. This refresh happens even when
+the scan has no deterministic additions, so the PR always exposes fresh evidence
+without rewriting reviewer-owned commits. A closed PR suppresses the same combined
+review-facts fingerprint; unrelated source edits cannot reopen that proposal.
+New model facts may produce a new proposal. Individual evidence fingerprints
+still identify the raw source snapshots. Merging the evidence snapshot
+acknowledges that revision, including when the reviewer
+elects to make no product change. Collection timestamps alone do not trigger a
+new proposal after the prior PR is closed. A pushed proposal whose PR request
+failed can be recovered after unrelated source edits when its review facts still
+match, without rewriting the original evidence. There is no bot force-push or
+auto-merge.
 
 The reviewing coding agent reads the captured evidence first, decides
 `creationDefaults`, presentation and adapter changes, and fills only actual
@@ -325,6 +359,81 @@ collection and generation only, not hosted PR creation or deployment.
 Reviewed bot proposals follow the same maintenance workflow above. A catalog-only
 change selects Core; a proposal that also changes the offline snapshot, a schema
 reader, or a controller adapter selects the corresponding additional components.
+
+### Practical retirement and recovery
+
+The existing Action's retirement recheck section includes all currently cataloged
+models, independent of the new-model discovery cutoff. It preserves reviewed
+notices and extracts relevant official passages. A reviewer records **stopped,
+postponed, or unconfirmed** in the PR before changing authored policy. Missing
+inventory, generic 404s, failed collection and `not_before` dates are never proof
+of withdrawal. Coverage gaps remain explicit; the collector cannot claim to
+monitor unconfigured controllers. Automatic publication remains additions-only.
+
+The initial reviewed cases are Codex `gpt-5.4` and `gpt-5.4-mini` (withdrawn from
+ChatGPT sign-in on 2026-08-31), and `gpt-5.5` (announced for 2026-10-14). The
+[official source](https://learn.chatgpt.com/docs/models#deprecated-codex-models)
+was rechecked on 2026-09-23. These notices do not disable API-key access or
+same-name models in other controllers. The default model is unchanged.
+
+Core composes applicable confirmed model unavailability into existing Wakeability
+and dispatch admission. It does not rewrite Profile status, Binding selection,
+manual disabling, history or an in-flight outcome. Fresh identity-matched account
+reports establish sign-in scope; unknown scope is not proof of retirement. The
+local route guard rejects explicit selections marked globally unavailable or
+withdrawn for the entire controller, and supplies no fallback model. Route
+construction has installation settings, not fresh sign-in/provider evidence;
+it does not independently enforce account-scoped withdrawal. Do not infer that
+scope from a controller name, launch configuration, or old account snapshot.
+A registered route is not Wake admission: Core remains the scoped decision
+owner. Unset native Codex resumes remain native; OpenMeld does not guess
+that thread's effective model. Provider failures on that path still receive
+recovery guidance, not a fabricated global retirement verdict.
+
+Model settings show the notice and retain an unavailable current selection.
+Wake failures and Agent recovery actions open that exact Profile. The model card
+is labeled **Change model** when a relevant notice exists. A viewer known not to
+manage the Agent is told to ask its owner. Codex's captured model-not-found and
+ChatGPT-account-unsupported responses map conservatively to `model.unavailable`;
+they do not establish retirement or persist a global provider/account blocker.
+
+Normal accepted controller reports, successful user model edits, and explicit
+unbinding reconcile one source-owned Inbox issue per affected Profile/model
+episode. Owner-only source facts name both `agentProfileIds` and the exact
+`personalAgentProfileIds`; normal Inbox access checks still verify current
+personal ownership and Organization before listing or counting an item. It is
+ordinary Needs action, not urgent email. Projection uses the current Binding rather than
+an old report's model, deduplicates refreshes, and resolves only the relevant
+model issue after a change. Unknown same-model account evidence retains the
+issue. A successful authoritative read that finds no enabled Binding clears the
+model issue; a failed read or unverified owner does not. Unbind reconciles while
+holding target-mutation admission, including no-op retries after an earlier
+projection failure. Read state and historical rows stay intact; no old work is
+resumed.
+Unscoped legacy Profiles retain inline recovery but do not gain a guessed
+Organization Inbox destination. Offline Profiles are reconciled when their normal
+account report returns; this is not an immediate global notification sweep.
+
+#### Retirement contract rollout
+
+New clients request `GET /v1/config/model-catalog?retirement=1`; legacy requests
+receive the unchanged strict version-1 shape with retirement omitted. Core RPC
+accepts the equivalent optional read preference. New clients tolerate an old
+server returning the legacy projection. `creationDefaults` remains private.
+New `model.retired` / `model.unavailable` routing reasons and short recovery copy
+are shared schema/runtime contracts, not a new public availability enum. Deploy
+accepting Core/Gateway readers before publishing the updated local Service/CLI;
+Web readers may precede Core because the added metadata is optional. Older local
+components retain their previous fallback/error behavior; this PR must not be
+described as a pure catalog-only rollout or protection for all offline clients.
+Core admission can block a known explicit selection with reliable legacy account
+evidence, but missing evidence still does not authorize a guessed block.
+
+No database migration, dispatch payload, permission contract, Service lifecycle
+or automatic update policy changes. Local component changes need the normal
+release manifest stamp and release-ready validation before publishing; production
+smoke and release are separate from this Draft PR. No policy depends on a local
+clock reaching the advisory date.
 
 ### 5.4 Claude Opus 5 vendor verification
 
@@ -356,11 +465,21 @@ The same manifest now includes the code-owned `center-agent` controller. This
 is a hosted-runtime policy catalog, not a local Agent Profile controller:
 
 - `defaultModelId` is the system default resolved for each new Center Agent
-  turn. The current default is `z-ai/glm-5.3-flash` (**GLM 5.3 Flash**).
-- The curated list covers six model vendors: OpenAI (GPT-5.6 Terra and GPT-5.6
-  Luna), Anthropic (Claude Opus 5 and Claude Sonnet 5), Google (Gemini 3.8 Flash,
+  turn. The current default is `anthropic/claude-opus-5.5` (**Claude Opus 5.5**)
+  at `medium` reasoning.
+- `hostedRuntimePolicy.personalRemoteAgentDefaultModelId` is the distinct
+  system default for an unselected personal Remote Agent Binding and the model
+  initially offered in its creation form. It is `openai/gpt-6-sol` (**GPT-6
+  Sol**) at `medium` reasoning. Both defaults reference the same hosted model
+  list; there is no second model catalog. Public catalog callers opt in with
+  `personalRemoteAgentDefault=1`; the legacy response omits the new field so
+  published strict-schema CLI clients continue to read the catalog.
+- The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Sol,
+  GPT-6 Astra (Pro mode), GPT-6.1 Sol, GPT-6.1 Sol (Pro mode), GPT-6 Luna,
+  GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
+  Claude Opus 5.5, Claude Opus 5, Claude Sonnet 5.5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
   Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
-  V4 Flash), xAI (Grok 4.6 and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
+  V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
   OpenRouter IDs remain in `release/vendor-models.json`; a preview model remains
   labeled Preview.
 - A hosted model may declare one optional `badgeLabel` as catalog-owned
@@ -372,9 +491,13 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   window, output budget, and reasoning level. Admission freezes these values
   into the turn request; the worker does not rebuild them from mutable catalog
   state.
-- Hosted reasoning remains catalog-owned and fixed to `high`. The worker reads
-  that frozen value dynamically for each admitted route. It is not a separate
-  Organization preference or Web setting in the current product.
+- Each hosted model declares its supported reasoning efforts and a catalog
+  default. A nullable Binding `reasoningLevel` selects a supported effort for
+  that model; absent means the catalog default. Core validates the pair and
+  freezes the effective effort into each admitted route. Web, CLI, and Center
+  Agent tools use this same selection contract. The catalog default is `medium`
+  where the provider supports it; GLM 5.3 Flash and the two DeepSeek Flash
+  models retain `high` because they do not offer `medium`.
 - `hostedRuntimePolicy.imageUnderstandingModelId` names the image-capable
   auxiliary model used for every current-version image turn before persistent
   primary-model admission. The auxiliary returns an untrusted text
@@ -411,11 +534,30 @@ continuation through the actual provider adapter before network dispatch.
 This proves local contract compatibility, not live provider availability or
 successful hosted execution for a particular account.
 
-No catalog schema changes are required. Older Web clients can show the expanded
-flat list; the provider-aware Web client can also consume the older catalog.
-Core deployment publishes the added choices; Web deployment publishes the
-two-level picker. Existing Remote Agent route readers consume the same frozen
-fields. CLI, Service, and local Agent settings are unaffected.
+The September 22 expansion adds GPT-6 Astra, GPT-5.6 Sol, Claude Fable 5.1,
+Claude Fable 5, and Grok 4.7 using the same capacity and reasoning policy.
+Their captured OpenRouter metadata is retained in
+`services/remote-agent/tests/fixtures/openrouter-hosted-models-2026-09-22.json`.
+Both Center Agent and personal Remote Agent choices use this hosted catalog;
+there is no second Remote Agent model list. Shared edit capabilities, Web model
+editing, and Core Binding validation resolve `hosted:remote-agent` to the
+`center-agent` catalog through `getAgentControllerModelCatalogId`; the actual
+Remote Agent controller and Binding identity remain `hosted:remote-agent`.
+
+The September 22 model expansion required no catalog schema change. The
+subsequent reasoning control adds optional supported-effort fields to the
+Center Agent model configuration response and accepts an optional effort in
+its update request. Remote Agent model and effort changes use the existing
+owner-authorized Binding command and execution admission. Deploy a compatible
+Web reader before Core emits the expanded response, then deploy the Remote
+Agent worker's model-discovery tool after Core. Existing local Agent settings
+and already admitted hosted executions retain their frozen routes.
+
+The later default change selects Claude Opus 5.5 for an unset Center Agent
+Binding and GPT-6 Sol for an unset personal Remote Agent Binding. An explicitly
+selected Binding model remains pinned. Core resolves the runtime-specific
+default before freezing each new turn, so changing the catalog does not rewrite
+or reroute work already admitted.
 
 ### 5.6 GLM 5.3 Flash hosted verification
 
@@ -427,8 +569,8 @@ The 2026-08-27 default change follows the official OpenRouter contract:
   never sends video parts and the schema bounds modalities to what the worker
   actually consumes;
 - the supported reasoning efforts are `max`, `high`, and `low` with `max` as
-  the provider default; hosted reasoning stays frozen to the catalog-owned
-  `high` value that the worker reads per admitted route;
+  the provider default; the OpenMeld catalog default for this model is `high`
+  because the provider does not offer `medium`;
 - the frozen capacity caps are deliberate: the catalog `contextWindow` uses
   OpenRouter's top-provider context length (`1,048,576`, below the larger
   catalog-wide context length of `1,310,720` so compaction triggers before a
@@ -441,13 +583,14 @@ Sources: the official OpenRouter models API response for `z-ai/glm-5.3-flash`
 captured on 2026-08-27 (`https://openrouter.ai/api/v1/models`; captured shape
 mirrored in `services/remote-agent/tests/fixtures/openrouter-model-z-ai-glm-5.3-flash.json`).
 
-`x-ai/grok-4.6` remains the dedicated `imageUnderstandingModelId`: the
-auxiliary image path stays on the production-proven model while the primary
-default changes independently. GLM 5.3 Flash is declared `["text", "image"]`
-to reflect the verified provider capability and selector contract, but the
-current version still sends every raw image through the frozen Grok 4.6
-auxiliary before GLM receives the bounded text description. Explicitly
-selected Grok 4.6 turns remain Grok 4.6 as the primary model as well.
+At this refresh, `x-ai/grok-4.6` remained the dedicated
+`imageUnderstandingModelId` while the primary default changed independently.
+The later auxiliary-model change selects `openai/gpt-6-luna` at medium
+reasoning. GLM 5.3 Flash is declared `["text", "image"]` to reflect the verified
+provider capability and selector contract, but current-version images still
+pass through the frozen auxiliary route before GLM receives the bounded text
+description. Explicitly selected Grok 4.6 turns remain Grok 4.6 as the primary
+model; the auxiliary route remains GPT-6 Luna.
 
 ### 5.7 OpenCode controller catalog refresh
 
@@ -493,7 +636,181 @@ display name **Qwen3.8 Flash** and the exact variant keys `low`, `medium`, and
 so the catalog entry is checked against observed vendor fields rather than a
 fixture shaped after OpenMeld's manifest.
 
+### 5.8 September 22 local model refresh
+
+Authenticated Cursor 2026.09.18 ACP returns
+`grok-4.7[context=256k,reasoning_effort=high,fast=true]` in matching model
+config options and legacy session inventory. Its reasoning remains part of the
+exact ID; no independent effort selector is introduced.
+
+Grok Build 1.0.40 returns `grok-4.7` and `grok-4.7-build-fast` in both
+initialize and session inventories, with `low`, `medium`, `high`, and `xhigh`
+efforts. Its existing default remains `grok-4.6`; current account inventory
+still gates every prompt.
+
+OpenCode 1.18.31's refreshed provider inventory adds
+`opencode/mimo-v2.6-flash-free`, `opencode-go/grok-4.7`,
+`opencode-go/mimo-v2.6-flash`, and `opencode-go/mimo-v2.6-pro`.
+Only Grok exposes separate variants (`low`, `medium`, `high`, `xhigh`);
+the MiMo entries have none. Provider-shaped captures are retained in
+`packages/schemas/tests/fixtures/local-model-catalog-2026.09.22.json`.
+
+The same complete free-provider inventory no longer contains the former
+default `opencode/mimo-v2.5-free`, and a direct invocation returns
+`ProviderModelNotFoundError`. The default therefore moves to the successfully
+invoked free successor `opencode/mimo-v2.6-flash-free`. The old entry is marked
+unavailable. Existing explicit selections now require a user model change;
+stored Bindings and preferences are not rewritten. Public discovery also lists
+`opencode/deepseek-v4.1-flash`, but the observed free-provider inventory does
+not expose it. That additional route is not authored from marketplace data;
+the existing `opencode-go/deepseek-v4.1-flash` remains selectable.
+
+These are online catalog changes served by Core. The CLI offline snapshot,
+shared schemas, adapter protocols, and local-component version floors are
+unchanged. Provider acceptance and an OpenMeld Wake remain separate evidence.
+
+The 2026-09-29 manual review of OpenCode 1.18.33's local `opencode models
+opencode --verbose` inventory found `opencode/longcat-2.5-preview-free` and
+`opencode/space-bunny-free` with exact variant keys `low, medium, high` and
+`low, medium, high, xhigh, max`, respectively. Both completed a direct
+`opencode run --pure` prompt on the review machine. The catalog adds only these
+verified free-provider routes. Other discovery candidates and routes in the
+local inventory are not assumed usable by every member's account; a real
+OpenMeld Wake remains deployment acceptance evidence.
+For a client without a reported ACI model inventory, the new routes require
+at least the observed OpenCode 1.18.33 version.
+
 ---
+
+### 5.9 Claude Opus 5.5
+
+The September 23 catalog adds `claude-opus-5-5` for Claude Code 2.1.280
+or later, as published in the official Claude Code changelog. Anthropic's
+effort contract supports `low`, `medium`, `high`, `xhigh`, and `max`.
+The existing Claude Code default remains unchanged.
+
+Center Agent and personal Remote Agents share the OpenRouter route
+`anthropic/claude-opus-5.5`. Captured OpenRouter metadata confirms tool calling,
+text/image input, a 1M context window, and the existing hosted `high` effort.
+OpenMeld retains its 16,384 output-token budget, below the provider's 128K
+limit. This is a Core-served catalog addition; it changes neither the fixed
+CLI offline snapshot nor any adapter or execution contract.
+
+### 5.10 GPT-6 Sol and Luna
+
+The September 23 refresh adds `gpt-6-sol` and `gpt-6-luna` for Codex.
+An authenticated Codex 0.155.1 `model/list` establishes the exact IDs and
+reasoning efforts: Sol supports `low`, `medium`, `high`, `xhigh`, `max`, and
+`ultra`; Luna supports the same list except `ultra`. The catalog uses 0.155.1
+as the verified client floor; it is not a claim about the earliest upstream
+release that could run either model. Existing creation defaults stay unchanged.
+
+The shared hosted routes are `openai/gpt-6-sol` and `openai/gpt-6-luna`.
+Captured OpenRouter metadata establishes 1,050,000 context tokens, text/image
+input, tool calling, and `high` reasoning. OpenMeld retains its 16,384 output
+budget. Direct OpenAI Chat Completions has a separate tool/effort limitation;
+OpenRouter is the actual hosted boundary and must pass live tool continuation
+before support is claimed. The API model names alone are not adapter evidence.
+
+The hosted auxiliary image route uses GPT-6 Luna at `medium` reasoning to
+preserve accurate transcription and explicit uncertainty; the independent
+session-title request uses `low` reasoning for its short, structured output.
+Both efforts are in the captured OpenRouter model metadata at
+`services/remote-agent/tests/fixtures/openrouter-gpt-6-sol-luna-2026-09-23.json`.
+The title request omits temperature because that model's captured supported
+parameters do not include it. Live image and title latency remain release
+smoke evidence, not catalog assumptions.
+
+### 5.11 October 1 channel additions
+
+The reviewed online catalog adds Sonnet 5.5 for Claude Code, Sonnet 5.5 and
+Opus 5.5 for Cursor, ten recent OpenCode provider/model choices, and Sonnet 5.5,
+GPT-6.1 Sol, and GPT-6.1 Sol Pro for the shared hosted catalog.
+
+Claude Code's [official model configuration](https://code.claude.com/docs/en/model-config)
+requires version 2.1.284 or later for Sonnet 5.5 and supports the same five
+efforts as Opus 5.5. Cursor 2026.09.28's authenticated ACP model config and
+legacy session inventory agree on the exact compound IDs for both additions.
+Their effort remains embedded in those IDs. OpenCode 1.18.33's provider
+inventory supplies exact active IDs and variant keys for the Go and OpenAI
+additions; its free `opencode` provider reports no additional model. The reduced
+vendor-shaped captures live in
+`packages/schemas/tests/fixtures/local-model-catalog-2026.10.01.json`.
+
+Captured OpenRouter metadata establishes tool calling, text/image input, context
+limits, and five supported efforts for the three hosted additions. They retain
+the existing 16,384 output budget and start at `medium`. OpenRouter's Sol Pro
+model route selects Pro mode upstream; OpenMeld uses the existing exact-model
+route and effort contract. The hosted provider tests serialize a tool
+continuation through that same adapter before network dispatch.
+
+Marketplace candidates that are absent from the selected controller inventory
+are not added. This includes the GPT-6 candidates for Cursor and the paid
+models advertised under OpenCode's free provider. Historical uncurated models
+and asynchronous batch routes remain outside this refresh.
+
+All controller defaults, creation preferences, saved selections, fixed CLI
+offline data, and adapter contracts remain unchanged. These checks establish
+catalog and parameter compatibility, not successful inference or account
+entitlement. Live inference and OpenMeld Wake smoke were explicitly waived by
+the delivery owner for this refresh; Claude Code subscription access was
+unavailable. Delivery selects Core only.
+
+### 5.12 October 1 freshness review and hosted candidate audit
+
+New is manually reviewed catalog metadata. Review the complete catalog when
+adding models, including previous labels in other controllers and the CLI
+offline snapshot. A new channel entry for an older model does not make the
+underlying model new. Provider aliases and speed variants follow the underlying
+model's release; an unknown release date does not justify a New label. Clients
+still do not calculate or expire labels.
+
+This review retains New for the September 25–29 release batch: GPT-6.1 Sol
+(including its Fast and Pro routes), Claude Sonnet 5.5, and LongCat 2.5 Preview
+Free. Remove the earlier labels across Codex, Claude Code, Grok Build, Cursor,
+OpenCode, and the shared hosted catalog. The fixed CLI fallback retains its
+model IDs and capabilities and removes only its stale GLM 5.3 Flash label.
+
+The latest hosted GPT-6.1 Sol, Sol Pro, and Sonnet 5.5 routes were already added
+by PR #1410. The October 1 production catalog inspection still returned
+`updatedAt: 2026-09-30T01:12:59.582Z`, omitted those routes, and labeled GLM 5.3
+Flash New; the authenticated Center Agent settings selector showed the same
+choices. This is a Core catalog delivery gap, not a Web filter or a Claude Code
+subscription requirement. Source support does not establish production delivery.
+
+The hosted candidate audit also adds the existing OpenRouter route
+`openai/gpt-6-astra-pro`. Its captured metadata in
+`services/remote-agent/tests/fixtures/openrouter-models-2026-10-01.json` declares
+tool calling, text/image input, a 1,050,000-token context, and five reasoning
+efforts. It follows the existing Sol Pro registration and tool-continuation
+path, keeps the 16,384 output budget, and defaults to medium. Its September 4
+release does not receive New. The existing Opus 5.5, GPT-6 Astra, Fable 5.1,
+Gemini 3.1 Pro Preview, Grok 4.7, and DeepSeek V4.1 Flash choices remain available;
+the current provider inventory has no newer Google Pro route to substitute.
+
+Contract impact: removing optional presentation metadata from the CLI fallback
+does not change commands, setup, Wake, Space actions, diagnostics, provider
+parameters, or transport payloads. Old and new CLI/Service/Skills work with old
+and new Core/Gateway/Web; no ordering dependency or contract bump is needed.
+The packaged CLI artifact changes; its eventual release policy can be available.
+This unstamped feature PR uses the normal deferred release-readiness gate against its
+exact main base. The final release must stamp and verify the packaged artifact.
+Catalog delivery
+still belongs to Core; shipping the offline cleanup also requires CLI delivery.
+No runtime state, readiness, identity, admission, or execution authority changes;
+the scoped architecture contracts remain intact. Live inference and Wake smoke
+remain outside this PR's evidence, under the delivery owner's prior waiver.
+
+Display hosted Pro routes as `GPT-6.1 Sol (Pro mode)` and
+`GPT-6 Astra (Pro mode)`. OpenRouter's
+[Sol route](https://openrouter.ai/openai/gpt-6.1-sol-pro) and
+[Astra route](https://openrouter.ai/openai/gpt-6-astra-pro) use the same underlying
+models with Pro reasoning mode. This is a compute mode, not a distinct base model
+or a subscription tier. OpenAI's
+[reasoning contract](https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode)
+keeps mode separate from effort: High, Max, and other effort settings do not
+mean Pro mode. Retain the exact provider route IDs and existing effort controls;
+the display label does not add a Codex option or change provider parameters.
 
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 
@@ -520,8 +837,8 @@ reasoning only under a model) and exports pure functions and view-model types:
 - `resolveSelectableModels(catalog, agentControllerId)` → list of
   `{ id, displayName, isDefault, isUnavailable }`.
 - `resolveEffectiveModel(profileSelection, catalog)` → the model that will
-  actually be used (late-binds an unset/`unavailable` selection to the
-  controller default).
+  actually be used (uses the controller default only for unset new sessions;
+  unavailable explicit selections return a rejection, not another model).
 - `resolveSupportedReasoningLevels(catalog, agentControllerId, modelId)` → the
   reasoning options menu (empty when the vendor has no per-call control).
 - `validateSelection(selection, catalog)` → advisory issues for client guidance;
@@ -695,9 +1012,9 @@ delivery and preserves the previous behavior during rollout.
 
 | | Pass model | Pass reasoning | Fallback | Error classification |
 |---|---|---|---|---|
-| **Claude Code** ([Claude Agent SDK transport](../../runtime/adapters/claude-code/src/transport/claude-agent-sdk-transport.ts), legacy argv in [buildClaudeArgs](../../runtime/adapters/claude-code/src/transport/claude-cli-transport.ts)) | `model` SDK option / `--model <pinned id>` | `effort` SDK option / `--effort <level>` | `fallbackModel` SDK option / `--fallback-model <controller default>` (native) | Classifies invalid/retired models as `config.invalid`, temporary availability separately, and a signal-terminated CLI process as `provider.process_terminated` |
-| **Codex** ([CLI transport](../../runtime/adapters/codex/src/transport/codex-cli-transport.ts), [App Server transport](../../runtime/adapters/codex/src/transport/codex-app-server-transport.ts)) | Explicit Binding selection: CLI `-m <pinned id>` (also on `exec resume`); App Server `thread/resume.model` and `turn/start.model`. New conversation with no selection: catalog default. Existing thread with no selection: omit the override. | Explicit Binding selection: CLI `-c model_reasoning_effort=<level>`; App Server `turn/start.effort`. Existing thread with no selection: omit the override. | resolve explicit `unavailable` → default before dispatch | Already classifies bad model → `config.invalid` |
-| **OpenCode** ([buildOpenCodeArgs](../../runtime/adapters/opencode/src/transport/opencode-cli-transport.ts)) | `--model <provider/model>` | `--variant <level>` where the level comes from OpenCode model variants | resolve `unavailable` → default before dispatch | Use OpenCode provider error classification; provider/model errors must stay visible |
+| **Claude Code** ([Claude Agent SDK transport](../../runtime/adapters/claude-code/src/transport/claude-agent-sdk-transport.ts), legacy argv in [buildClaudeArgs](../../runtime/adapters/claude-code/src/transport/claude-cli-transport.ts)) | `model` SDK option / `--model <pinned id>` | `effort` SDK option / `--effort <level>` | No alternative fallback is passed for explicit user selections | Classifies invalid/retired models as `config.invalid`, temporary availability separately, and a signal-terminated CLI process as `provider.process_terminated` |
+| **Codex** ([CLI transport](../../runtime/adapters/codex/src/transport/codex-cli-transport.ts), [App Server transport](../../runtime/adapters/codex/src/transport/codex-app-server-transport.ts)) | Explicit Binding selection: CLI `-m <pinned id>` (also on `exec resume`); App Server `thread/resume.model` and `turn/start.model`. New conversation with no selection: catalog default. Existing thread with no selection: omit the override. | Explicit Binding selection: CLI `-c model_reasoning_effort=<level>`; App Server `turn/start.effort`. Existing thread with no selection: omit the override. | Reject explicit unavailable selection before dispatch, without substitution | Captured model-access failures use `model.unavailable`; they are not global retirement proof |
+| **OpenCode** ([buildOpenCodeArgs](../../runtime/adapters/opencode/src/transport/opencode-cli-transport.ts)) | `--model <provider/model>` | `--variant <level>` where the level comes from OpenCode model variants | Reject explicit unavailable selection before dispatch | Use OpenCode provider error classification; provider/model errors must stay visible |
 | **Cursor** ([Cursor ACP transport](../../runtime/adapters/cursor/src/transport/cursor-acp-transport.ts)) | `session/set_config_option` with `configId: "model"`, `type: "id"`, and the exact model ID returned in the session's model config option; fall back to legacy `session/set_model` only when ACP explicitly reports that the standard method is unavailable | Not exposed independently by Cursor ACP; reasoning-bearing variants remain part of the exact model ID | Catalog defaults to Cursor's `default[]` (**Auto**); the adapter validates the requested ID against one complete session inventory | Reject a complete inventory that excludes the requested ID as `model.unavailable`; classify a still-missing or conflicting inventory as `model.inventory_unavailable`; reject independent reasoning as `model.reasoning_unsupported` |
 | **Grok Build** ([Grok ACP transport](../../runtime/adapters/grok-build/src/transport/grok-build-acp-transport.ts)) | ACP session model selection using the exact model ID advertised by the authenticated account | ACP effort selection using an effort advertised for that exact live model | No adapter-side substitute after live negotiation; an unavailable explicit model or effort fails before `session/prompt` | Reject incomplete or conflicting live inventory as `model.inventory_unavailable`, a missing requested model as `model.unavailable`, and an unsupported effort as `model.reasoning_unsupported` |
 
@@ -729,23 +1046,17 @@ an optional `unselectedModelCommandTemplate`. Codex uses the latter when the
 Binding has no explicit model selection, so its copy-paste resume hint preserves
 the thread-owned model instead of injecting the current catalog default.
 
-### 8.2 Resilience — one mechanism, three problems
+### 8.2 Resilience — preserve the selected model
 
-A single fallback path covers pinned-ID retirement, CLI-version-floor misses,
-and multi-device divergence:
+Reviewed unavailability rejects explicit intent before dispatch; a provider
+model-access failure stays visible with the appropriate recovery action. Neither
+case authorizes a different model or automatic rerun. The maintained controller
+default applies only where the unset/new-session contract calls for it. A native
+Codex resume without explicit intent keeps its thread-owned model.
 
-- **Proactive:** when the catalog marks a model `unavailable`, the effective
-  model late-binds to the controller default before dispatch.
-- **Reactive:** Claude uses native `--fallback-model`; Codex relies on the
-  proactive path plus its `config.invalid` classifier (an optional single retry
-  to the controller default is a possible fast-follow).
-- The controller default is the last line of defense and must always be a valid,
-  maintained ID.
-- Runtime fallback is only the final defense against catalog-version drift or a
-  previously stored selection becoming unavailable. It must not silently accept
-  a catalog-invalid explicit Binding write.
-- A model failure is a **dispatch-level outcome**, never a service-down signal;
-  it must not affect liveness or reap a lease.
+A model failure is a **dispatch-level outcome**, never a service-down signal;
+it must not affect liveness or reap a lease. Model compatibility and account
+scope remain distinct: unknown evidence is not proof of retirement.
 
 ### 8.3 Create / maintain profile UX
 

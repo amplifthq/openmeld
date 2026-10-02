@@ -1,7 +1,103 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { projectClaudeCodeUsageLimits } = await import("../dist/index.js");
+const {
+  projectClaudeCodeUsageLimits,
+  projectClaudeCodeAccountUsageLimits,
+  probeClaudeCodeUsageLimits,
+} = await import("../dist/index.js");
+
+// SDKControlGetUsageResponse in the upstream 0.3.286 sdk.d.ts: account
+// utilization is a percentage, independently of the event's fraction.
+const accountUsage = {
+  session: {
+    total_cost_usd: 0,
+    total_api_duration_ms: 0,
+    total_duration_ms: 0,
+    total_lines_added: 0,
+    total_lines_removed: 0,
+    model_usage: {},
+  },
+  subscription_type: "pro",
+  rate_limits_available: true,
+  rate_limits: {
+    five_hour: { utilization: 0.9, resets_at: "2026-10-01T13:00:00Z" },
+    seven_day: { utilization: null, resets_at: "2026-10-08T00:00:00Z" },
+    model_scoped: [
+      { display_name: "Fable", utilization: 100, resets_at: null },
+    ],
+    extra_usage: {
+      is_enabled: true,
+      monthly_limit: 100,
+      used_credits: 20,
+      utilization: 20,
+    },
+  },
+  behaviors: null,
+};
+
+test("reads account percentages and dynamic model windows without projecting billing data", () => {
+  const limits = projectClaudeCodeAccountUsageLimits({
+    value: accountUsage,
+    observedAt: "2026-10-01T08:00:00Z",
+  });
+  assert.equal(limits.length, 3);
+  assert.equal(limits[0].usedPercent, 0.9);
+  assert.equal(limits[1].reason, "not_reported");
+  assert.equal(limits[1].resetsAt, "2026-10-08T00:00:00.000Z");
+  assert.equal(limits[2].status, "exhausted");
+  assert.equal(limits[2].key, "claude-code:seven-day-fable");
+  assert.ok(!JSON.stringify(limits).includes("credits"));
+  const unavailable = projectClaudeCodeAccountUsageLimits({
+    value: { ...accountUsage, rate_limits_available: false, rate_limits: null },
+    observedAt: "2026-10-01T08:00:00Z",
+  });
+  assert.equal(unavailable[0].reason, "not_applicable");
+});
+
+test("the control probe never sends a prompt or reads behaviors and refuses a different account", async () => {
+  for (const email of ["owner@example.com", "other@example.com"]) {
+    let prompt;
+    let closed = false;
+    let usageRequested = false;
+    const limits = await probeClaudeCodeUsageLimits({
+      expectedEmail: "owner@example.com",
+      launchContract: { kind: "executable", commandPath: "/fake/claude" },
+      workingDirectory: "/tmp",
+      observedAt: "2026-10-01T08:00:00Z",
+      queryFn: (input) => {
+        prompt = input.prompt;
+        assert.equal(input.options.persistSession, false);
+        assert.deepEqual(input.options.allowedTools, []);
+        assert.deepEqual(input.options.mcpServers, {});
+        assert.equal(input.options.strictMcpConfig, true);
+        assert.equal(input.options.settings.disableAllHooks, true);
+        return {
+          initializationResult: async () => ({
+            account: { email, apiProvider: "firstParty", apiKeySource: "none" },
+          }),
+          usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: (
+            options
+          ) => {
+            usageRequested = true;
+            assert.deepEqual(options, { skipBehaviors: true });
+            return Promise.resolve(accountUsage);
+          },
+          close: () => {
+            closed = true;
+          },
+        };
+      },
+    });
+    assert.equal(closed, true);
+    assert.equal((await prompt.next()).done, true);
+    assert.equal(usageRequested, email === "owner@example.com");
+    assert.equal(
+      limits[0].usedPercent,
+      email === "owner@example.com" ? 0.9 : null
+    );
+  }
+});
 
 test("projects a native Claude SDK rate-limit event into 0-100 semantics", () => {
   assert.deepEqual(

@@ -89,6 +89,7 @@ import { resolveRuntimeCoordinatorHeadWaitingDecision } from "../runtime-transpo
 import { CORE_LOG_EVENTS } from "../shared/observability/log-events";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as spaceFinalOutcomeClaimReader from "../space/application/space-final-outcome-claim-reader";
+import { EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS } from "../strategy-constants";
 
 const COMPATIBLE_DAEMON_EXECUTION_COMPATIBILITY = {
   status: "compatible",
@@ -684,6 +685,7 @@ describe("handleDispatchQueueBatch", () => {
     runtimeDisplayState?: "unknown";
     runtimeReasonCode?:
       | "controller.registry.disabled"
+      | "local_service.not_accepting_wakes"
       | "service.update_required"
       | "usage_checking"
       | "usage_exhausted"
@@ -1050,7 +1052,7 @@ describe("handleDispatchQueueBatch", () => {
       };
     }
     if (
-      input.normalizedSql.includes("space_index_spaces") &&
+      input.normalizedSql.includes("profile_organization_id") &&
       input.normalizedSql.includes("openmeld_profiles")
     ) {
       const organizationId =
@@ -1171,6 +1173,7 @@ describe("handleDispatchQueueBatch", () => {
     targetProfileId: string;
     visitedProfileIdsHash: string;
     enqueuedAtMs?: number;
+    outboxCreatedAtMs?: number;
     sourceProfileNameSnapshot?: string;
     sourceProfileId?: string;
     sourceProfileKind?: "agent" | "human";
@@ -1254,6 +1257,9 @@ describe("handleDispatchQueueBatch", () => {
         : {}),
       ...(input.threadContext ? { threadContext: input.threadContext } : {}),
       idempotencyKey: `5:${input.sourceEventId}|5:${targetProfileId}`,
+      ...(input.outboxCreatedAtMs !== undefined
+        ? { outboxCreatedAtMs: input.outboxCreatedAtMs }
+        : {}),
       enqueuedAtMs: input.enqueuedAtMs ?? Date.now(),
     };
   };
@@ -2081,6 +2087,176 @@ describe("handleDispatchQueueBatch", () => {
         status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       })
     );
+  });
+
+  it("delivers the Wake once when a mutation lease clears on outbox redrive", async () => {
+    const body = createDispatchBody({
+      dispatchId: "dispatch-mutation-release",
+      sourceEventId: "evt-mutation-release",
+      targetProfileId: "agt-mutation-release",
+      visitedProfileIdsHash: "stable32:mutation-release",
+    });
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockResolvedValueOnce({
+      ok: false,
+      primaryDispatchId: null,
+      reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+      status: "retry_later",
+      targetWakeLifecycleId: "wake-mutation-release",
+    });
+    const env = makeEnvWithBindings();
+    const first = await dispatchOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env,
+      message: body,
+    });
+    const second = await dispatchOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env,
+      message: body,
+    });
+
+    expect(first.status).toBe("retry_scheduled");
+    expect(second.status).toBe("submitted");
+    expect(claimDispatchAttempt).toHaveBeenCalledTimes(2);
+    expect(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).toHaveBeenCalledTimes(1);
+    expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+  });
+
+  it("publishes a visible failure when a mutation lease keeps rejecting head admission", async () => {
+    const body = createDispatchBody({
+      dispatchId: "dispatch-mutation-expired",
+      enqueuedAtMs: Date.now(),
+      outboxCreatedAtMs:
+        Date.now() - EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS,
+      sourceEventId: "evt-mutation-expired",
+      targetProfileId: "agt-mutation-expired",
+      visitedProfileIdsHash: "stable32:mutation-expired",
+    });
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockResolvedValueOnce({
+      ok: false,
+      primaryDispatchId: null,
+      reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+      status: "retry_later",
+      targetWakeLifecycleId: "wake-mutation-expired",
+    });
+
+    const outcome = await dispatchOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env: makeEnvWithBindings(),
+      message: body,
+    });
+
+    expect(outcome.status).toBe("submitted");
+    expect(rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          noticeType: "terminal_failure",
+          reasonCode:
+            "runtime_coordinator.execution_target_mutation_wait_expired",
+          text: expect.stringContaining("send the Wake again"),
+        }),
+      })
+    );
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "runtime_coordinator.execution_target_mutation_wait_expired",
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+  });
+
+  it("keeps other head retry reasons retryable after the mutation wait limit", async () => {
+    const body = createDispatchBody({
+      dispatchId: "dispatch-other-head-retry",
+      enqueuedAtMs: Date.now() - EXECUTION_TARGET_MUTATION_WAKE_WAIT_MAX_MS,
+      sourceEventId: "evt-other-head-retry",
+      targetProfileId: "agt-other-head-retry",
+      visitedProfileIdsHash: "stable32:other-head-retry",
+    });
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    ).mockResolvedValueOnce({
+      ok: false,
+      primaryDispatchId: null,
+      reasonCode: "runtime_coordinator.head_accept_unavailable",
+      status: "retry_later",
+      targetWakeLifecycleId: "wake-other-head-retry",
+    });
+
+    const outcome = await dispatchOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env: makeEnvWithBindings(),
+      message: body,
+    });
+
+    expect(outcome.status).toBe("retry_scheduled");
+    expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+  });
+
+  it("honors a pre-agent Stop while a mutation-blocked Wake waits in the outbox", async () => {
+    const body = createDispatchBody({
+      dispatchId: "dispatch-mutation-stopped",
+      sourceEventId: "evt-mutation-stopped",
+      targetProfileId: "agt-mutation-stopped",
+      visitedProfileIdsHash: "stable32:mutation-stopped",
+    });
+    vi.mocked(
+      runtimeCoordinatorClient.acceptRuntimeTransportRuntimeCoordinatorHead
+    )
+      .mockResolvedValueOnce({
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode: "runtime_coordinator.execution_target_mutation_in_progress",
+        status: "retry_later",
+        targetWakeLifecycleId: "wake-mutation-stopped",
+      })
+      .mockResolvedValueOnce({
+        action: "skip_duplicate",
+        ok: true,
+        primaryDispatchId: body.dispatchId,
+        reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+        runtimeCoordinatorExecutionId: null,
+        status: "stopped_before_execution",
+        targetWakeLifecycleId: "wake-mutation-stopped",
+      });
+    const env = makeEnvWithBindings();
+
+    const first = await dispatchOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env,
+      message: body,
+    });
+    const second = await dispatchOutboxMessageDirectly({
+      ctx: { waitUntil: vi.fn() },
+      env,
+      message: body,
+    });
+
+    expect(first.status).toBe("retry_scheduled");
+    expect(second.status).toBe("submitted");
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "runtime_coordinator.pre_agent_stop_requested",
+        status: OPENMELD_DAEMON_DISPATCH_STATE.cancelled,
+      })
+    );
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
   });
 
   const mockCompletedFailedTaskResult = (
@@ -3313,6 +3489,7 @@ describe("handleDispatchQueueBatch", () => {
     });
     const body = message.body as OpenMeldDaemonDispatchQueueMessage;
     body.deliveryRecoveryReason = "route_lost";
+    body.organizationId = "org-default";
     const bindingId = `binding-${body.targetProfileId}`;
     const openMeldServiceRuntimeId = `runtime-${body.targetProfileId}`;
     vi.mocked(
@@ -10667,6 +10844,7 @@ describe("handleDispatchQueueBatch", () => {
   it.each([
     undefined,
     "usage_checking",
+    "local_service.not_accepting_wakes",
     "working_folder.observation_coverage_invalid",
   ] as const)("retains a first Wake while readiness is unconfirmed (%s) without authorizing execution", async (runtimeReasonCode) => {
     const message = createDispatchBody({
@@ -10703,6 +10881,8 @@ describe("handleDispatchQueueBatch", () => {
     ["disabled", "working_folder.observation_coverage_invalid"],
     ["ready", "usage_checking"],
     ["disabled", "usage_checking"],
+    ["ready", "local_service.not_accepting_wakes"],
+    ["disabled", "local_service.not_accepting_wakes"],
   ] as const)("redrives the same first Wake after preparation (%s, %s) without publishing an early failure", async (nextState, preparationReason) => {
     const message = createDispatchQueueMessage({
       dispatchId: "dispatch-first-preparing",

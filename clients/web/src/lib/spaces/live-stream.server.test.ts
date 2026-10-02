@@ -33,8 +33,10 @@ describe("space live stream server helpers", () => {
 				},
 				capabilities: {
 					agentReplyPlacement: true,
+					agentWorkOutcomes: true,
 					liveSignalHistory: true,
 					spaceMessageAddressing: true,
+					spaceImageGeometry: true,
 				},
 			})
 		);
@@ -61,8 +63,10 @@ describe("space live stream server helpers", () => {
 				},
 				capabilities: {
 					agentReplyPlacement: true,
+					agentWorkOutcomes: true,
 					liveSignalHistory: true,
 					spaceMessageAddressing: true,
+					spaceImageGeometry: true,
 				},
 			})
 		);
@@ -303,8 +307,10 @@ describe("space live stream server helpers", () => {
 				},
 				capabilities: {
 					agentReplyPlacement: true,
+					agentWorkOutcomes: true,
 					liveSignalHistory: true,
 					spaceMessageAddressing: true,
+					spaceImageGeometry: true,
 				},
 			})
 		);

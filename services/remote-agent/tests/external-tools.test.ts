@@ -43,7 +43,8 @@ describe("Remote Agent external tools", () => {
         },
       ]);
       expect(body.provider).toEqual({ allow_fallbacks: true });
-      expect(body.tool_choice).toBe("required");
+      expect(body.tool_choice).toBeUndefined();
+      expect(body.messages[0].content).toContain("Search the live web");
       const response = {
         choices: [
           {
@@ -131,11 +132,17 @@ describe("Remote Agent external tools", () => {
     );
     expect(writeDataPoint).toHaveBeenCalledWith(
       expect.objectContaining({
-        blobs: expect.arrayContaining([
+        indexes: ["org_123"],
+        blobs: [
           "remote_agent.tool_usage.v1",
           "web_search",
           "openrouter",
-        ]),
+          "web_search",
+          "succeeded",
+          request.spaceId,
+          SUBMISSION_ID,
+          expect.any(String),
+        ],
       })
     );
   });
@@ -157,7 +164,7 @@ describe("Remote Agent external tools", () => {
         },
       ]);
       expect(body.provider).toEqual({ allow_fallbacks: true });
-      expect(body.tool_choice).toBe("required");
+      expect(body.tool_choice).toBeUndefined();
       const response = {
         choices: [
           {
@@ -321,6 +328,7 @@ describe("Remote Agent external tools", () => {
         sizeBytes: imageBytes.byteLength,
       },
       name: "home.png",
+      origin: "artifact" as const,
       parentId: null,
       path: "/home.png",
       spaceId: request.spaceId,
@@ -367,6 +375,7 @@ describe("Remote Agent external tools", () => {
         fileId: expect.any(String),
         mimeType: "image/png",
         name: "home.png",
+        origin: "artifact",
         parentId: null,
         revisionId: expect.any(String),
         sizeBytes: 8,

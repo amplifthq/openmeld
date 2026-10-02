@@ -1,4 +1,8 @@
 import type { SpaceApi } from "@openmeld/api-client";
+import {
+	appendPluginConnectionReplyLink,
+	buildOpenMeldNavigationAction,
+} from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -12,6 +16,8 @@ import {
 import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
+import { spaceFileMediaResources } from "#/query/spaces/space-file-media-resource";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
 	SPACE_RESPONSE_TRUNCATED_MARKER,
@@ -118,6 +124,18 @@ describe("SpaceMessageBody", () => {
 		expect(link.getAttribute("href")).toBe("https://example.com/docs");
 		expect(link.getAttribute("target")).toBe("_blank");
 		expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+	});
+
+	it("shows one blank line between Human paragraphs without changing fenced text", () => {
+		const text =
+			"First paragraph.\n\n  \n\t\nSecond paragraph.\n\n```ts\n\n\nconst value = 1;\n```";
+		const view = render(
+			<SpaceMessageBody item={{ isAgentFinalReply: false, text }} />
+		);
+
+		expect(view.container.querySelector("p")?.textContent).toBe(
+			"First paragraph.\n\nSecond paragraph.\n\n```ts\n\n\nconst value = 1;\n```"
+		);
 	});
 
 	it("makes bare links clickable without treating code or dangerous schemes as links", () => {
@@ -284,9 +302,9 @@ describe("SpaceMessageBody", () => {
 		);
 
 		const referenceButton = screen.getByRole("button", {
-			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Mention only)`,
+			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Reference)`,
 		});
-		expect(within(referenceButton).getByText("Mention only")).toBeTruthy();
+		expect(within(referenceButton).getByText("Reference")).toBeTruthy();
 		fireEvent.click(referenceButton);
 		expect(onOpenProfile).toHaveBeenCalledWith(REFERENCE_TARGET_PROFILE_ID);
 	});
@@ -314,7 +332,7 @@ describe("SpaceMessageBody", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByText("Mention only", {
+			screen.getByText("Reference", {
 				selector: '[data-slot="space-message-profile-mention"] span',
 			})
 		).toBeTruthy();
@@ -868,6 +886,79 @@ describe("SpaceMessageBody", () => {
 		).toBeTruthy();
 	});
 
+	it("enhances a compatible Plugin reply without changing the stored message or loading connection state", async () => {
+		const organization = { id: "org-acme", name: "Acme", slug: "acme" };
+		const text = appendPluginConnectionReplyLink({
+			action: buildOpenMeldNavigationAction({
+				organizationWebUrl: `${window.location.origin}/o/acme`,
+				target: {
+					kind: "plugin_connection",
+					service: "linear",
+					scope: "member",
+				},
+			}),
+			text: "Connect Linear to continue.",
+		});
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		render(
+			<QueryClientProvider client={client}>
+				<AppOrganizationProvider
+					scope={{
+						access: "authorized",
+						account: { name: "Alex" },
+						activeOrganization: organization,
+						currentOrganization: organization,
+						currentUserId: "user-alex",
+						organizations: [organization],
+						storageScope: "org-acme",
+					}}
+				>
+					<SpaceMessageBody
+						item={{ isAgentFinalReply: true, actorProfileKind: "agent", text }}
+						orgSlug="acme"
+					/>
+				</AppOrganizationProvider>
+			</QueryClientProvider>
+		);
+		expect(
+			await screen.findByRole("button", { name: "Connect or review Linear" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Open Plugin connection" })
+		).toBeNull();
+		expect(screen.getByText("Connect Linear to continue.")).toBeTruthy();
+		expect(client.getQueryCache().getAll()).toHaveLength(0);
+		expect(text).toContain("#openmeld-plugin-connection)");
+	});
+
+	it("does not enhance another organization's Plugin link", () => {
+		const text = appendPluginConnectionReplyLink({
+			action: buildOpenMeldNavigationAction({
+				organizationWebUrl: `${window.location.origin}/o/other`,
+				target: {
+					kind: "plugin_connection",
+					service: "github",
+					scope: "shared",
+				},
+			}),
+			text: "Review access.",
+		});
+		render(
+			<SpaceMessageBody
+				item={{ isAgentFinalReply: true, actorProfileKind: "agent", text }}
+				orgSlug="acme"
+			/>
+		);
+		expect(
+			screen.getByRole("link", { name: "Open Plugin connection" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Connect or review GitHub" })
+		).toBeNull();
+	});
+
 	it("renders a trusted Navigation Action as a button link", () => {
 		render(
 			<SpaceMessageBody
@@ -1061,7 +1152,9 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(screen.getByLabelText("2 attached images")).toBeTruthy();
+		expect(
+			screen.getByRole("group", { name: "Message attachments" })
+		).toBeTruthy();
 		expect(
 			screen.getByRole("img", { name: "diagram.png" }).getAttribute("src")
 		).toBe(
@@ -1129,15 +1222,24 @@ describe("SpaceMessageBody", () => {
 				constructor(callback: IntersectionObserverCallback) {
 					reveal = () =>
 						callback(
-							[{ isIntersecting: true } as IntersectionObserverEntry],
+							[
+								{
+									isIntersecting: true,
+									target: this.target,
+								} as IntersectionObserverEntry,
+							],
 							this as unknown as IntersectionObserver
 						);
 				}
-				observe = vi.fn();
+				target: Element | undefined;
+				observe = vi.fn((target: Element) => {
+					this.target = target;
+				});
 				disconnect = vi.fn();
 			}
 		);
-		const createUrl = vi.fn(() => "blob:remote-preview");
+		let sourceSequence = 0;
+		const createUrl = vi.fn(() => `blob:remote-preview-${++sourceSequence}`);
 		const revokeUrl = vi.fn();
 		vi.stubGlobal(
 			"URL",
@@ -1146,11 +1248,11 @@ describe("SpaceMessageBody", () => {
 				static revokeObjectURL = revokeUrl;
 			}
 		);
-		downloadFileContent.mockResolvedValue({
+		downloadFileContent.mockImplementation(async ({ revision }) => ({
 			bytes: new Uint8Array([137, 80, 78, 71]).buffer,
 			mimeType: "image/png",
-			revision: 1,
-		});
+			revision: revision ?? 1,
+		}));
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
@@ -1182,7 +1284,7 @@ describe("SpaceMessageBody", () => {
 		await screen.findByRole("img", { name: "remote.png" });
 		expect(downloadFileContent).toHaveBeenCalledTimes(1);
 		view.unmount();
-		expect(revokeUrl).toHaveBeenCalledWith("blob:remote-preview");
+		expect(revokeUrl).not.toHaveBeenCalled();
 		view = render(image(1));
 		await screen.findByRole("img", { name: "remote.png" });
 		expect(downloadFileContent).toHaveBeenCalledTimes(1);
@@ -1199,12 +1301,65 @@ describe("SpaceMessageBody", () => {
 			})
 		);
 		expect(createUrl).toHaveBeenCalled();
+		view.unmount();
+		client.clear();
+	});
+
+	it.each([
+		false,
+		true,
+	])("renders video first-frame previews for human and Agent replies without a full download (%s)", (isAgentFinalReply) => {
+		const client = new QueryClient();
+		const view = render(
+			<QueryClientProvider client={client}>
+				<SpaceMessageBody
+					item={{
+						isAgentFinalReply,
+						spaceId: "space-123",
+						text: "Here is the demonstration.",
+						files: [
+							{
+								fileId: "demo",
+								revision: 3,
+								name: "demo.mp4",
+								mimeType: "video/mp4",
+								sizeBytes: 200 * 1024 * 1024,
+								localPreviewUrl: null,
+							},
+						],
+					}}
+				/>
+			</QueryClientProvider>
+		);
+		expect(screen.getByRole("button", { name: "Play demo.mp4" })).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Expand demo.mp4" })
+		).toBeNull();
+		expect(document.querySelector("video")?.getAttribute("src")).toContain(
+			"/files/demo/content?revision=3"
+		);
+		expect(downloadFileContent).not.toHaveBeenCalled();
+		view.unmount();
+		client.clear();
 	});
 
 	it("keeps canonical Space image files as morphing image previews", () => {
 		const onOpenSpaceFile = vi.fn();
-		render(
-			<QueryClientProvider client={new QueryClient()}>
+		vi.stubGlobal(
+			"URL",
+			class extends URL {
+				static createObjectURL = vi.fn(() => "blob:space-photo-preview");
+				static revokeObjectURL = vi.fn();
+			}
+		);
+		const client = new QueryClient();
+		const resource = spaceFileMediaResources(client).create(
+			new Blob(["image"]),
+			"space-123",
+			"file-photo"
+		);
+		const view = render(
+			<QueryClientProvider client={client}>
 				<SpaceMessageBody
 					item={{
 						files: [
@@ -1237,6 +1392,9 @@ describe("SpaceMessageBody", () => {
 		expect(screen.getByRole("dialog")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Open in Files" }));
 		expect(onOpenSpaceFile).toHaveBeenCalledWith("file-photo", 2);
+		view.unmount();
+		resource.release();
+		client.clear();
 	});
 
 	it("replaces a broken attachment image with a stable placeholder", () => {
@@ -1263,6 +1421,90 @@ describe("SpaceMessageBody", () => {
 
 		expect(screen.getByText("Image unavailable")).toBeTruthy();
 		expect(screen.queryByRole("img", { name: "broken.jpg" })).toBeNull();
+	});
+
+	it.each([
+		1, 4, 5, 10, 50,
+	])("keeps %s mixed attachments in one ordered rail without dropping files", (count) => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const types = [
+			"image/png",
+			"application/pdf",
+			"video/mp4",
+			"text/html",
+			"audio/mpeg",
+			"application/zip",
+			"text/csv",
+			"application/octet-stream",
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			"application/json",
+		];
+		const files = Array.from({ length: count }, (_, index) => ({
+			fileId: `file-${index}`,
+			name: `attachment-${index}`,
+			mimeType: types[index % types.length],
+			isLocal:
+				types[index % types.length].startsWith("image/") ||
+				types[index % types.length].startsWith("video/"),
+			revision: 3,
+			sizeBytes: 4096,
+			localPreviewUrl:
+				types[index % types.length].startsWith("image/") ||
+				types[index % types.length].startsWith("video/")
+					? `blob:preview-${index}`
+					: null,
+		}));
+		const onOpenSpaceFile = vi.fn();
+		const view = render(
+			<QueryClientProvider client={client}>
+				<SpaceMessageBody
+					item={{ text: "", spaceId: "space-123", files }}
+					onOpenSpaceFile={onOpenSpaceFile}
+				/>
+			</QueryClientProvider>
+		);
+		expect(
+			screen.getAllByRole("group", { name: "Message attachments" })
+		).toHaveLength(1);
+		expect(
+			Array.from(
+				view.container.querySelectorAll("[data-attachment-name]"),
+				(element) => element.getAttribute("data-attachment-name")
+			)
+		).toEqual(files.map((file) => file.name));
+		if (count > 1) {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Open attachment-1 in Files" })
+			);
+			expect(onOpenSpaceFile).toHaveBeenCalledWith("file-1", 3);
+		}
+		expect(downloadFileContent).not.toHaveBeenCalled();
+		view.unmount();
+		client.clear();
+	});
+
+	it("does not create empty text content when the transcript owns the attachments", () => {
+		const view = render(
+			<SpaceMessageBody
+				includeAttachments={false}
+				item={{
+					text: "",
+					files: [
+						{
+							fileId: "pdf",
+							name: "brief.pdf",
+							mimeType: "application/pdf",
+							revision: 1,
+							sizeBytes: 12,
+							localPreviewUrl: null,
+						},
+					],
+				}}
+			/>
+		);
+		expect(view.container.childElementCount).toBe(0);
 	});
 
 	it("locally collapses long complete messages with Show more and Show less", () => {

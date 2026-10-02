@@ -149,9 +149,13 @@ const baseFinalizationCommand = {
 
 describe("accepted dispatch finalization", () => {
   it.each([
-    false,
-    true,
-  ])("elects one actual Space final claim when Stop races a reply (reply first: %s)", async (replyFirst) => {
+    [false, null],
+    [true, null],
+    [false, "computer.file_access.owner_declined"],
+    [true, "computer.file_access.owner_declined"],
+    [false, "context.workspace_recovery_declined"],
+    [true, "context.workspace_recovery_declined"],
+  ] as const)("elects one actual Space final claim (reply first: %s, owner refused: %s)", async (replyFirst, ownerRefused) => {
     const spaces = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
@@ -167,11 +171,30 @@ describe("accepted dispatch finalization", () => {
       organizationId: "org-1",
       visibility: "private",
     });
-    const command = {
+    const command: RuntimeCoordinatorFinalizationCommand = {
       ...baseFinalizationCommand,
       spaceId,
       dispatchFact: { ...baseFact, spaceId },
     };
+    if (ownerRefused) {
+      command.acceptedResult = {
+        ...command.acceptedResult,
+        taskResult: {
+          ...baseInboxRecord.taskResult,
+          payload: {
+            agentId: baseFact.targetProfileId,
+            attemptId: baseFact.attemptId,
+            deduped: false,
+            taskId: baseFact.taskId,
+            sourceEventId: baseFact.sourceEventId,
+            status: "failed",
+            errorType: "policy",
+            errorCode: ownerRefused,
+            errorMessage: "Private path must not become public copy",
+          },
+        },
+      };
+    }
     const reply: SignalEnvelope = {
       ...sourceSignal,
       spaceId,
@@ -214,6 +237,13 @@ describe("accepted dispatch finalization", () => {
         )
         .toArray();
       expect(rows).toHaveLength(1);
+      if (!replyFirst && ownerRefused) {
+        expect(JSON.parse(rows[0]?.payload_json ?? "null").data).toMatchObject({
+          noticeType: "wake_stopped",
+          reasonCode: ownerRefused,
+          text: "The Computer owner stopped this task before the Agent started.",
+        });
+      }
       expect(JSON.parse(rows[0]?.payload_json ?? "null")).toMatchObject(
         replyFirst
           ? { id: reply.id }
@@ -856,6 +886,7 @@ describe("accepted dispatch finalization", () => {
     const message = buildAcceptedDispatchFinalizationQueueMessage({
       fact: baseFact,
       inboxRecord: baseInboxRecord,
+      organizationId: "org-1",
       sourceSignal,
       spaceContract: buildDefaultSpaceContract(),
       threadContext: {
@@ -866,6 +897,7 @@ describe("accepted dispatch finalization", () => {
 
     expect(message).toMatchObject({
       dispatchId: "dispatch-1",
+      organizationId: "org-1",
       dispatchOwner: {
         id: "owner-1",
         kind: "owner_account",
@@ -978,6 +1010,12 @@ describe("accepted dispatch finalization", () => {
   });
 
   it("publishes accepted post_status finalization through Space action delivery without a space password", async () => {
+    const historicalSpaceContract: ReturnType<
+      typeof buildDefaultSpaceContract
+    > = {
+      ...buildDefaultSpaceContract(),
+      allowedActions: ["post_message", "post_status", "stay_silent"],
+    };
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";
@@ -1061,7 +1099,7 @@ describe("accepted dispatch finalization", () => {
       fact: dispatchFact,
       inboxRecord,
       sourceSignal: source,
-      spaceContract: buildDefaultSpaceContract(),
+      spaceContract: historicalSpaceContract,
       threadContext: null,
     });
     expect(dispatchMessage && "spacePassword" in dispatchMessage).toBe(false);
@@ -1164,7 +1202,7 @@ describe("accepted dispatch finalization", () => {
         }),
       },
       readSpaceContractRecord: {
-        value: vi.fn(() => buildDefaultSpaceContract()),
+        value: vi.fn(() => historicalSpaceContract),
       },
       readSpaceMetaRecord: {
         value: vi.fn(() => ({
@@ -1913,9 +1951,13 @@ describe("accepted dispatch finalization", () => {
   });
 
   it.each([
-    true,
-    false,
-  ])("requires a readable stored threaded final reply (readable: %s)", async (readableFinal) => {
+    { readableFinal: true, sourceInThread: true },
+    { readableFinal: true, sourceInThread: false },
+    { readableFinal: false, sourceInThread: true },
+  ])("publishes a threaded final reply for a main or thread Wake and requires a readable result ($sourceInThread/$readableFinal)", async ({
+    readableFinal,
+    sourceInThread,
+  }) => {
     const spaceId =
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const targetProfileId = "agt_33333333-3333-4333-8333-333333333333";
@@ -1984,7 +2026,7 @@ describe("accepted dispatch finalization", () => {
       inboxRecord,
       sourceSignal: source,
       spaceContract: buildDefaultSpaceContract(),
-      threadContext,
+      threadContext: sourceInThread ? threadContext : null,
     });
     expect(dispatchMessage).toBeTruthy();
     if (!dispatchMessage) {
@@ -2066,6 +2108,9 @@ describe("accepted dispatch finalization", () => {
         plannerContext: null;
       };
       readSignalById: (signalId: string) => SignalEnvelope | null;
+      rpcResolveNativeReplyPlacement: () => Promise<{
+        threadContext: typeof threadContext;
+      }>;
       readSpaceMetaRecord: () => {
         createdAt: string;
         name: string;
@@ -2087,7 +2132,9 @@ describe("accepted dispatch finalization", () => {
           space.spaceId = nextSpaceId;
         }),
       },
-      bindings: { value: {} },
+      // Final-reply delivery reads caller identity before its persisted reply.
+      // Keep the real test binding instead of failing before the intended read.
+      bindings: { value: env },
       broadcastSignal: { value: vi.fn() },
       ctx: {
         value: { storage: projectionStorage, waitUntil: vi.fn() },
@@ -2113,6 +2160,9 @@ describe("accepted dispatch finalization", () => {
           const row = signalRows.get(signalId);
           return row ? (JSON.parse(row.payloadJson) as SignalEnvelope) : null;
         }),
+      },
+      rpcResolveNativeReplyPlacement: {
+        value: vi.fn().mockResolvedValue({ threadContext }),
       },
       readSpaceMetaRecord: {
         value: vi.fn(() => ({
@@ -2411,8 +2461,10 @@ describe("accepted dispatch finalization", () => {
           agentReplyObservation: {
             observedThroughSignalId: string;
             sourceSignalId: string;
+            sourceThreadId?: string | null;
             targetProfileId: string;
           };
+          threadContext?: { rootSignalId: string; threadId: string };
         }
       ) => {
         persistedSignal: boolean;
@@ -2446,7 +2498,12 @@ describe("accepted dispatch finalization", () => {
       agentReplyObservation: {
         observedThroughSignalId: source.id,
         sourceSignalId: source.id,
+        sourceThreadId: null,
         targetProfileId,
+      },
+      threadContext: {
+        rootSignalId: source.id,
+        threadId: "thr_33333333-3333-4333-8333-333333333333",
       },
     });
 
@@ -2854,6 +2911,9 @@ describe("accepted dispatch finalization", () => {
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
       },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
+      },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
     });
@@ -2930,6 +2990,9 @@ describe("accepted dispatch finalization", () => {
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
       },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
+      },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
     });
@@ -2987,6 +3050,9 @@ describe("accepted dispatch finalization", () => {
       },
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
+      },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
       },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },

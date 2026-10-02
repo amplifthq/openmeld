@@ -125,10 +125,8 @@ export function messageReactionsKey(spaceId: string, signalId?: string) {
 }
 export function useMessageReactions(input?: MessageReactionInput) {
 	const queryClient = useQueryClient();
-	const api = useMemo(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input?.profileId }),
-		[input?.profileId]
-	);
+	const createReactionApi = () =>
+		createUnscopedWebSpaceApi({ openMeldProfileId: input?.profileId });
 	const key = useMemo(
 		() => [
 			...messageReactionsKey(input?.spaceId ?? "", input?.signalId ?? ""),
@@ -159,7 +157,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 			}
 			return saveHistoryReactions(
 				(
-					await api.getMessageReactions({
+					await createReactionApi().getMessageReactions({
 						spaceId: input.spaceId,
 						signalId: input.signalId,
 					})
@@ -192,6 +190,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 	const inFlight = useRef(new Set<string>());
 	const [error, setError] = useState<string | null>(null);
 	const [viewerOpen, setViewerOpen] = useState(false);
+	const [pickerOpen, setPickerOpen] = useState(false);
 	const groups = reactions.groups
 		.map((group) => {
 			const change = pending[group.emoji];
@@ -231,7 +230,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		}));
 		setError(null);
 		try {
-			const response = await api.setMessageReaction({
+			const response = await createReactionApi().setMessageReaction({
 				spaceId: input.spaceId,
 				signalId: input.signalId,
 				emoji: emoji.emoji,
@@ -275,6 +274,8 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		},
 		viewerOpen,
 		setViewerOpen,
+		pickerOpen,
+		setPickerOpen,
 		snapshot: reactions,
 	};
 }
@@ -298,8 +299,9 @@ export function MessageReactionPicker({
 	state: MessageReactionsState;
 	buttonClassName: string;
 }) {
-	const [open, setOpen] = useState(false),
-		[expanded, setExpanded] = useState(false);
+	const open = state.pickerOpen;
+	const setOpen = state.setPickerOpen;
+	const [expanded, setExpanded] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		if (!open) {
@@ -318,7 +320,7 @@ export function MessageReactionPicker({
 		document.addEventListener("scroll", closeOnMessageScroll, true);
 		return () =>
 			document.removeEventListener("scroll", closeOnMessageScroll, true);
-	}, [open]);
+	}, [open, setOpen]);
 	return (
 		<Popover
 			onOpenChange={(value) => {
@@ -566,10 +568,6 @@ export function MessageReactionViewer({
 	const emoji = state.groups.some((group) => group.emoji === selected)
 		? (selected ?? undefined)
 		: state.groups[0]?.emoji;
-	const api = useMemo(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId }),
-		[input.profileId]
-	);
 	const query = useInfiniteQuery({
 		queryKey: [
 			...messageReactionsKey(input.spaceId, input.signalId),
@@ -581,7 +579,9 @@ export function MessageReactionViewer({
 		enabled: state.viewerOpen && Boolean(emoji),
 		initialPageParam: undefined as string | undefined,
 		queryFn: ({ pageParam }) =>
-			api.getMessageReactions({
+			createUnscopedWebSpaceApi({
+				openMeldProfileId: input.profileId,
+			}).getMessageReactions({
 				spaceId: input.spaceId,
 				signalId: input.signalId,
 				emoji,

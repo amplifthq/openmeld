@@ -44,6 +44,16 @@ type CapabilityCatalogEntry = {
 const CAPABILITY_CATALOG_OVERRIDES: Readonly<
   Record<string, CapabilityCatalogEntry>
 > = {
+  github_publish_computer_file: {
+    aliases: [
+      "publish image to GitHub",
+      "upload screenshot to GitHub",
+      "publish Computer image to GitHub branch",
+      "把电脑里的图片发到 GitHub 分支",
+      "发布一张图到 GitHub 分支",
+    ],
+    namespace: "github",
+  },
   openmeld_connect_agent_profile_to_local_agent: {
     aliases: [
       "connect an Agent Profile to a local agent",
@@ -59,15 +69,26 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
       "create a working Agent Profile",
       "set up a complete Agent Profile",
       "create a local agent",
+      "create a remote agent",
       "创建可工作的代理配置文件",
       "完整设置代理配置文件",
       "创建本地代理",
+      "创建远程代理",
     ],
     dependencies: [
       "openmeld_read_organization_directory",
       "openmeld_read_agent_profile_creation_defaults",
+      "openmeld_list_hosted_models",
       "openmeld_list_local_agent_connection_candidates",
       "openmeld_list_projects",
+    ],
+    namespace: "agents_and_computers",
+  },
+  openmeld_list_hosted_models: {
+    aliases: [
+      "list Remote Agent models and reasoning efforts",
+      "find hosted model reasoning options",
+      "查看远程代理模型和推理强度",
     ],
     namespace: "agents_and_computers",
   },
@@ -107,12 +128,26 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     aliases: [
       "check my computer",
       "computer diagnostics",
+      "diagnose execution host",
+      "why is my agent not working",
+      "电脑在线但任务不运行",
       "OpenMeld Tools status",
       "local agent status",
       "检查我的电脑",
       "电脑诊断",
       "OpenMeld 工具状态",
       "本地代理状态",
+    ],
+    namespace: "agents_and_computers",
+  },
+  openmeld_read_space_wake_progress: {
+    aliases: [
+      "why is my task queued",
+      "task stuck waiting",
+      "pending approval",
+      "任务为什么排队",
+      "任务卡住",
+      "等待审批",
     ],
     namespace: "agents_and_computers",
   },
@@ -222,6 +257,66 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_read_organization_directory"],
     namespace: "agents_and_computers",
   },
+  openmeld_read_center_agent_activity: {
+    aliases: [
+      "Center Agent 操作记录",
+      "Center Agent action audit",
+      "who created this Space",
+    ],
+    namespace: "organization",
+  },
+  openmeld_read_agent_activity: {
+    aliases: [
+      "查看编码代理活动概览",
+      "coding agent activity overview",
+      "current coding work",
+    ],
+    dependencies: ["openmeld_list_agent_activity_sessions"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_read_ai_usage: {
+    aliases: [
+      "AI token usage",
+      "model spend",
+      "Local Agent consumption",
+      "组织 AI 用量",
+      "Computer token usage",
+    ],
+    namespace: "organization",
+  },
+  openmeld_list_routine_runs: {
+    aliases: [
+      "Routine run history",
+      "past scheduled runs",
+      "Routine 历史记录",
+      "定时任务历史",
+    ],
+    dependencies: ["openmeld_list_routines"],
+    namespace: "organization",
+  },
+  openmeld_read_routine_run_diagnostics: {
+    aliases: [
+      "diagnose a Routine run",
+      "scheduled report never arrived",
+      "Routine execution and publication",
+      "定时任务为什么没有结果",
+      "定时任务诊断",
+    ],
+    dependencies: ["openmeld_list_routine_runs"],
+    namespace: "organization",
+  },
+  openmeld_search_center_agent_memory: {
+    aliases: [
+      "recall a previous conclusion",
+      "what did we decide",
+      "search remembered context",
+      "查找之前的结论",
+      "我们之前怎么决定的",
+      "跨对话记忆",
+    ],
+    dependencies: ["openmeld_read_space_context"],
+    namespace: "organization",
+  },
   openmeld_read_center_agent_turn_diagnostics: {
     aliases: [
       "diagnose a recent Center Agent turn",
@@ -273,6 +368,15 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
   openmeld_watch_agent_task: {
     aliases: ["watch an agent task", "wait for an agent task", "观察代理任务"],
     dependencies: ["openmeld_list_agent_tasks"],
+    namespace: "spaces_and_tasks",
+  },
+  openmeld_continue_task_summary: {
+    aliases: [
+      "continue a failed summary",
+      "summarize existing results",
+      "继续汇总",
+      "基于已有结果汇总",
+    ],
     namespace: "spaces_and_tasks",
   },
   openmeld_list_organization_members: {

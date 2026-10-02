@@ -1,4 +1,5 @@
 import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
+import { isCliSkillCheckPath } from "../release/cli-skill-check.mjs";
 import {
   isEngineeringOnlySchemaPath,
   isReleaseReadyPath,
@@ -14,8 +15,6 @@ export const FINAL_CANDIDATE_STATUS_CONTEXT = "OpenMeld Final Candidate";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const SAFE_COMMAND_PART_PATTERN = /^[\w./:=@+-]+$/u;
-const VERSIONED_RELEASE_BRANCH_PATTERN =
-  /^codex\/release-\d+\.\d+\.\d+-[0-9a-f]{8,40}$/iu;
 const DOCUMENT_PATH_PATTERN = /(?:^|\/)(?:AGENTS|CLAUDE|README)\.md$|\.md$/u;
 const DELIVERY_INFRASTRUCTURE_PREFIXES = [".github/", ".husky/"];
 const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
@@ -25,6 +24,8 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-bootstrap.test.mjs",
   "scripts/ci/final-candidate-output.mjs",
   "scripts/ci/final-candidate-control-paths.mjs",
+  "scripts/ci/final-candidate-control-projection.mjs",
+  "scripts/ci/final-candidate-control-yaml.mjs",
   "scripts/ci/final-candidate-policy.mjs",
   "scripts/ci/final-candidate-policy.test.mjs",
   "scripts/ci/final-candidate-publisher.mjs",
@@ -54,6 +55,7 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
 ]);
 const REPOSITORY_CONTROL_PREFIXES = [".github/", ".husky/", "scripts/"];
 const REPOSITORY_CONTROL_PATHS = new Set([
+  ".npmrc",
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
@@ -133,7 +135,7 @@ export function createFinalCandidatePlan(input) {
     repositoryControlChange: changedPaths.some(isRepositoryControlPath),
     strictRelease:
       candidateKind === "merge-group" ||
-      isVersionedReleaseBranch(input.branchName),
+      changedPaths.includes("release/local-components.json"),
   };
   const selectedChecks = [
     check(
@@ -192,7 +194,31 @@ export function createFinalCandidatePlan(input) {
   };
 }
 
+// These checks consume only root tooling. Any additional check keeps the full
+// workspace install, including signed Skill and release-readiness checks.
+export function resolveCandidateDependencyScope(plan) {
+  const rootChecks = new Set([
+    "diff-integrity",
+    "trusted-control-entrypoints",
+    "documentation-contracts",
+    "changelog-contract",
+  ]);
+  return plan.riskTags.includes("documentation") &&
+    plan.selectedChecks.every((item) => rootChecks.has(item.id))
+    ? "root"
+    : "workspace";
+}
+
 function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
+  if (context.changedPaths.some(isCliSkillCheckPath)) {
+    selectedChecks.push(
+      check(
+        "cli-skill-integrity",
+        ["pnpm", "run", "verify:cli-skill"],
+        "Signed CLI Skill content must match its source before merge."
+      )
+    );
+  }
   if (context.docsOnly) {
     selectedChecks.push(
       check(
@@ -233,15 +259,35 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
       )
     );
   }
-  selectedChecks.push(
-    check(
-      "repository-contracts",
-      ["pnpm", "run", "verify:pre-push:checks"],
-      context.repositoryControlChange
-        ? "CI, release, dependency, or repository control files changed."
-        : "Executable source changed, so repository-wide static contracts remain relevant."
-    )
-  );
+  if (context.changedPaths.some((path) => DEPENDENCY_CONTROL_PATHS.has(path))) {
+    selectedChecks.push(
+      check(
+        "repository-contracts",
+        ["pnpm", "run", "verify:pre-push:checks"],
+        "Dependency or task-graph controls changed; validate their repository-wide contracts."
+      )
+    );
+  } else if (context.changedPaths.some(isDocumentationPath)) {
+    selectedChecks.push(
+      check(
+        "documentation-contracts",
+        ["pnpm", "run", "verify:docs", "--", "--strict"],
+        "Tracked documentation changed."
+      )
+    );
+  }
+  if (
+    !context.changedPaths.some((path) => DEPENDENCY_CONTROL_PATHS.has(path)) &&
+    context.changedPaths.some(isChangelogPath)
+  ) {
+    selectedChecks.push(
+      check(
+        "changelog-contract",
+        ["pnpm", "run", "verify:changelog"],
+        "Changelog source or projection changed."
+      )
+    );
+  }
   if (context.confidence === "full") {
     selectedChecks.push(
       check(
@@ -319,7 +365,7 @@ function selectReleaseReadyCheck(context, selectedChecks, skippedChecks) {
             context.baseSha,
           ],
       context.strictRelease
-        ? "A versioned release branch must prove the stamped local-component artifact."
+        ? "A stamped candidate must prove its local-component artifact."
         : `Local-component source changed on a feature branch; deferred verification preserves the release invariant for ${context.releaseReadyPaths.length} path(s).`
     )
   );
@@ -555,10 +601,6 @@ function isBoundaryPath(path) {
 
 function isDatabasePath(path) {
   return DATABASE_PREFIXES.some((prefix) => path.startsWith(prefix));
-}
-
-function isVersionedReleaseBranch(branchName) {
-  return VERSIONED_RELEASE_BRANCH_PATTERN.test(String(branchName ?? ""));
 }
 
 function skipped(id, reason) {

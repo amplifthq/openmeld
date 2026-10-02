@@ -25,35 +25,60 @@ const {
   reportPrepareHandoffStoppedMock,
   waitForExternalOpenMeldToolsUpdateMock,
   readPendingDaemonServiceUpdateMock,
+  readPendingOpenMeldToolsUpdateAttemptMock,
   scheduleDaemonServiceUpdateMock,
-} = vi.hoisted(() => ({
-  beginAuthSessionTransitionMock: vi.fn(),
-  bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
-  completeInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
-  promptConfirmMock: vi.fn(),
-  exchangeComputerAuthorizationGrantMock: vi.fn(),
-  exchangeOneTimeTokenAuthSessionMock: vi.fn(),
-  getAuthSessionStateMock: vi.fn(),
-  getAuthSessionMetadataMock: vi.fn(),
-  getInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
-  markInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
-  recordInterruptedComputerAuthSessionRecoveryFailureMock: vi.fn(),
-  resolveBaseUrlMock: vi.fn(),
-  resolveExternalOpenMeldToolsUpdateMock: vi.fn(),
-  resolvePrepareSessionForHandoffMock: vi.fn(),
-  revokePreparedAuthSessionMock: vi.fn(),
-  runDaemonServiceParticipationGateMock: vi.fn(),
-  runPrepareSessionExecutorMock: vi.fn(),
-  connectPrepareSessionStreamMock: vi.fn(async () => ({ close: vi.fn() })),
-  reportPrepareHandoffStoppedMock: vi.fn(),
-  waitForExternalOpenMeldToolsUpdateMock: vi.fn(),
-  readPendingDaemonServiceUpdateMock: vi.fn(),
-  scheduleDaemonServiceUpdateMock: vi.fn(),
-}));
+  startDaemonServiceUpdateWorkerMock,
+  writeConnectionProgressMock,
+} = vi.hoisted(() => {
+  const writeConnectionProgressMock = vi.fn();
+  return {
+    beginAuthSessionTransitionMock: vi.fn(),
+    bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
+    completeInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
+    promptConfirmMock: vi.fn(),
+    exchangeComputerAuthorizationGrantMock: vi.fn(),
+    exchangeOneTimeTokenAuthSessionMock: vi.fn(),
+    getAuthSessionStateMock: vi.fn(),
+    getAuthSessionMetadataMock: vi.fn(),
+    getInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
+    markInterruptedComputerAuthSessionRecoveryMock: vi.fn(),
+    recordInterruptedComputerAuthSessionRecoveryFailureMock: vi.fn(),
+    resolveBaseUrlMock: vi.fn(),
+    resolveExternalOpenMeldToolsUpdateMock: vi.fn(),
+    resolvePrepareSessionForHandoffMock: vi.fn(),
+    revokePreparedAuthSessionMock: vi.fn(),
+    runDaemonServiceParticipationGateMock: vi.fn(),
+    runPrepareSessionExecutorMock: vi.fn(),
+    connectPrepareSessionStreamMock: vi.fn(async () => ({
+      close: vi.fn(),
+      writeConnectionProgress: writeConnectionProgressMock,
+    })),
+    reportPrepareHandoffStoppedMock: vi.fn(),
+    waitForExternalOpenMeldToolsUpdateMock: vi.fn(),
+    readPendingDaemonServiceUpdateMock: vi.fn(),
+    readPendingOpenMeldToolsUpdateAttemptMock: vi.fn(),
+    scheduleDaemonServiceUpdateMock: vi.fn(),
+    startDaemonServiceUpdateWorkerMock: vi.fn(),
+    writeConnectionProgressMock,
+  };
+});
 
 vi.mock("../src/local-service/lifecycle/daemon-service-update-state", () => ({
   readPendingDaemonServiceUpdate: readPendingDaemonServiceUpdateMock,
 }));
+vi.mock(
+  "../src/local-service/maintenance/openmeld-tools-update-attempt-state",
+  () => ({
+    readPendingOpenMeldToolsUpdateAttempt:
+      readPendingOpenMeldToolsUpdateAttemptMock,
+  })
+);
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-worker-manager",
+  () => ({
+    startDaemonServiceUpdateWorker: startDaemonServiceUpdateWorkerMock,
+  })
+);
 vi.mock(
   "../src/local-service/lifecycle/daemon-service-update-coordinator",
   () => ({
@@ -165,6 +190,22 @@ const presenter = {
 } satisfies Presenter;
 
 describe("Computer authorization handoff", () => {
+  it("wakes an unclaimed update before waiting for it", async () => {
+    readPendingOpenMeldToolsUpdateAttemptMock.mockResolvedValue({
+      attempts: 0,
+      operation: { operationId: "old-update" },
+    });
+    await waitForOpenMeldToolsUpdateBeforeComputerHandoff({ presenter });
+    expect(startDaemonServiceUpdateWorkerMock).toHaveBeenCalledOnce();
+    expect(
+      startDaemonServiceUpdateWorkerMock.mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      waitForExternalOpenMeldToolsUpdateMock.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(waitForExternalOpenMeldToolsUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ unclaimedTimeoutMs: 60_000 })
+    );
+  });
   it("advances an older waiting update before joining it, never racing it", async () => {
     readPendingDaemonServiceUpdateMock.mockResolvedValue({
       jobId: "older-pending-update",
@@ -191,6 +232,8 @@ describe("Computer authorization handoff", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     readPendingDaemonServiceUpdateMock.mockResolvedValue(null);
+    readPendingOpenMeldToolsUpdateAttemptMock.mockResolvedValue(null);
+    startDaemonServiceUpdateWorkerMock.mockResolvedValue(undefined);
     getAuthSessionMetadataMock.mockResolvedValue(null);
     resolveBaseUrlMock.mockResolvedValue("https://gateway.openmeld.test");
     resolveExternalOpenMeldToolsUpdateMock.mockResolvedValue(null);
@@ -269,6 +312,55 @@ describe("Computer authorization handoff", () => {
       expect.objectContaining({
         expectedOwnerUserId: "user-1",
         intent: "start",
+      })
+    );
+  });
+
+  it("streams real rollback recovery while retaining the original handoff failure", async () => {
+    let releaseStop: (() => void) | undefined;
+    bestEffortStopCurrentLaneDaemonServiceMock.mockImplementationOnce(
+      async () =>
+        await new Promise<{ status: "stopped" }>((resolve) => {
+          releaseStop = () => resolve({ status: "stopped" });
+        })
+    );
+    getInterruptedComputerAuthSessionRecoveryMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        candidateSession,
+        gatewayUrl: "https://gateway.openmeld.test",
+        id: "transition-recovery",
+        previousSession: existingSession,
+        remoteSessionRevoked: true,
+        serviceReconciled: false,
+      });
+    runPrepareSessionExecutorMock.mockRejectedValueOnce(
+      new Error("OpenMeld Service could not connect")
+    );
+
+    const handoff = runAgentHandoff();
+    await vi.waitFor(() =>
+      expect(writeConnectionProgressMock).toHaveBeenCalledWith({
+        code: "setup.computer_handoff_recovery.started",
+        phase: "restoring",
+        state: "active",
+        text: "Restoring the previous computer connection.",
+      })
+    );
+    expect(presenter.line).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "setup.computer_handoff_recovery.started",
+        data: { phase: "restoring", state: "active" },
+      })
+    );
+
+    releaseStop?.();
+    await expect(handoff).rejects.toThrow("OpenMeld Service could not connect");
+    expect(writeConnectionProgressMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        code: "setup.computer_handoff_recovery.completed",
+        phase: "restoring",
+        state: "completed",
       })
     );
   });

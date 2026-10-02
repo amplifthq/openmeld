@@ -31,6 +31,10 @@
       "types": "./dist/facts.d.mts",
       "default": "./dist/facts.mjs"
     },
+    "./query": {
+      "types": "./dist/query.d.mts",
+      "default": "./dist/query.mjs"
+    },
     "./tooling": {
       "types": "./dist/tooling.d.mts",
       "default": "./dist/tooling.mjs"
@@ -61,7 +65,7 @@
   },
   "dependencies": {
     "@openmeld/schemas": "workspace:*",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

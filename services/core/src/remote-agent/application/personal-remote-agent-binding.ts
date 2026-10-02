@@ -89,12 +89,18 @@ export async function createPersonalRemoteAgentBinding(input: {
   createdByProfileId: string;
   db: D1Database;
   modelId: string | null;
+  reasoningLevel: string | null;
   organizationId: string;
   ownerUserId: string;
 }): Promise<void> {
   await requirePersonalRemoteAgentOwner(input);
   resolveCenterAgentModelRouteForBinding({
-    binding: { configurationRevision: 1, modelId: input.modelId },
+    binding: {
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      configurationRevision: 1,
+      modelId: input.modelId,
+      reasoningLevel: input.reasoningLevel,
+    },
     catalog: readModelCatalog(),
   });
   const nowMs = Date.now();
@@ -110,6 +116,7 @@ export async function createPersonalRemoteAgentBinding(input: {
         HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY
       ),
       modelId: input.modelId,
+      reasoningLevel: input.reasoningLevel,
       openMeldServiceRuntimeId: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
       owner: { id: input.ownerUserId, kind: "owner_account" },
       runtimeKind: "hosted_remote_agent",

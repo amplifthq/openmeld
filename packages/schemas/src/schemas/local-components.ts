@@ -40,15 +40,49 @@ export const openMeldToolsUpdateRequestSourceSchema = z.enum([
   "web",
 ]);
 
+export const OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS = 2048 as const;
+
+export const openMeldToolsUpdateFailureCodeSchema = z.enum([
+  "cli.update.download_stalled",
+  "cli.update.download_timed_out",
+  "cli.update.download_failed",
+  "cli.update.integrity_check_failed",
+  "cli.update.install_failed",
+  "cli.update.service_alignment_failed",
+  "cli.update.failed",
+]);
+
+export const openMeldToolsUpdateProcessFailureFrameSchema = z.strictObject({
+  detail: nonEmptyStringSchema.max(
+    OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS
+  ),
+  failureCode: openMeldToolsUpdateFailureCodeSchema,
+  schema: z.literal("openmeld-tools-update-process-failure-v1"),
+  v: z.literal(1),
+});
+
 export const openMeldToolsUpdateOperationSchema = z.strictObject({
   operationId: nonEmptyStringSchema,
   phase: openMeldToolsUpdateOperationPhaseSchema,
   requestSource: openMeldToolsUpdateRequestSourceSchema,
   requestedAt: z.iso.datetime({ offset: true }),
+  targetCliVersion: nonEmptyStringSchema.optional(),
+  targetServiceVersion: nonEmptyStringSchema.optional(),
   targetVersion: nonEmptyStringSchema,
   updatedAt: z.iso.datetime({ offset: true }),
   urgency: z.enum(["available", "required"]),
 });
+
+export function resolveOpenMeldToolsUpdateTargetVersions(operation: {
+  targetCliVersion?: string;
+  targetServiceVersion?: string;
+  targetVersion: string;
+}): { cliVersion: string; serviceVersion: string } {
+  return {
+    cliVersion: operation.targetCliVersion ?? operation.targetVersion,
+    serviceVersion: operation.targetServiceVersion ?? operation.targetVersion,
+  };
+}
 
 export const openMeldToolsMaintenanceProjectionSchema = z.strictObject({
   automaticUpdatesEnabled: z.boolean(),
@@ -162,6 +196,7 @@ export const localComponentsReleaseManifestSchema = z.strictObject({
     }),
     service: z.strictObject({
       bundleHash: nullableNonEmptyStringSchema,
+      portableBundleHash: nullableNonEmptyStringSchema.optional(),
       bundleVersion: nonEmptyStringSchema,
       runtimeContractEpoch: nonEmptyStringSchema,
       serviceContractVersion: nonEmptyStringSchema,
@@ -177,6 +212,53 @@ export const localComponentsReleaseManifestSchema = z.strictObject({
     }),
   }),
 });
+
+// Installation source is reported from the owning managed installation, never
+// inferred from an OS or an arbitrary update URL. Missing means unconfirmed.
+export const localComponentsInstallationSourceSchema = z
+  .strictObject({
+    distribution: z.enum(["binary", "npm"]),
+    channel: z.enum(["stable", "windows-preview"]),
+    platform: nonEmptyStringSchema,
+  })
+  .superRefine((source, context) => {
+    if (source.distribution === "npm" && source.channel !== "stable") {
+      context.addIssue({
+        code: "custom",
+        message: "npm uses the stable channel",
+      });
+    }
+  });
+
+export const localComponentsBinaryReleasePolicySchema = z.strictObject({
+  cli: localComponentsReleaseManifestSchema.shape.components.shape.cli,
+  service: localComponentsReleaseManifestSchema.shape.components.shape.service,
+});
+
+export const localComponentsAvailabilityCatalogSchema = z
+  .strictObject({
+    schemaVersion: z.literal(1),
+    entries: z.array(
+      z.strictObject({
+        channel: z.enum(["stable", "windows-preview"]),
+        platform: nonEmptyStringSchema,
+        policy: localComponentsBinaryReleasePolicySchema,
+      })
+    ),
+  })
+  .superRefine((catalog, context) => {
+    const selectors = new Set<string>();
+    for (const entry of catalog.entries) {
+      const selector = `${entry.channel}:${entry.platform}`;
+      if (selectors.has(selector)) {
+        context.addIssue({
+          code: "custom",
+          message: "duplicate binary release selector",
+        });
+      }
+      selectors.add(selector);
+    }
+  });
 
 export const installedLocalComponentsSnapshotSchema = z.strictObject({
   schemaVersion: z.literal(LOCAL_COMPONENTS_SCHEMA_VERSION),
@@ -223,6 +305,7 @@ export const localSkillsComponentProjectionSchema =
   });
 
 export const localComponentsStatusSchema = z.strictObject({
+  installationSource: localComponentsInstallationSourceSchema.optional(),
   schemaVersion: z.literal(LOCAL_COMPONENTS_SCHEMA_VERSION),
   generatedAt: z.iso.datetime({ offset: true }),
   entrypoint: localSetupEntrypointSchema,
@@ -309,6 +392,43 @@ export function formatLocalSetupActionLabel(
       return exhaustive;
     }
   }
+}
+
+export function formatOpenMeldToolsUpdateFailureMessage(
+  code: zod.infer<typeof openMeldToolsUpdateFailureCodeSchema>
+): string {
+  switch (code) {
+    case "cli.update.download_stalled":
+      return "The update download stopped making progress. Check this computer's connection and try again.";
+    case "cli.update.download_timed_out":
+      return "The update download exceeded its recovery time. Check this computer's connection and try again.";
+    case "cli.update.download_failed":
+      return "The update could not be downloaded. Check this computer's connection and try again.";
+    case "cli.update.integrity_check_failed":
+      return "The downloaded update did not pass integrity checks, so it was not installed.";
+    case "cli.update.install_failed":
+      return "The update could not be installed.";
+    case "cli.update.service_alignment_failed":
+      return "OpenMeld Service could not finish updating.";
+    case "cli.update.failed":
+      return "The update could not be completed. Try again or update manually.";
+    default: {
+      const exhaustive: never = code;
+      return exhaustive;
+    }
+  }
+}
+
+export function findOpenMeldToolsUpdateFailureCode(
+  reasonCodes: readonly string[]
+): zod.infer<typeof openMeldToolsUpdateFailureCodeSchema> | null {
+  for (const reasonCode of reasonCodes) {
+    const parsed = openMeldToolsUpdateFailureCodeSchema.safeParse(reasonCode);
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+  return null;
 }
 
 export function formatLocalComponentsSummaryLabel(input: {

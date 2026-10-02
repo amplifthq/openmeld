@@ -1,3 +1,4 @@
+import type { AgentSubmissionProjection } from "@flue/runtime/internal";
 import type {
   RemoteAgentWorkerExecutionQuery,
   RemoteAgentWorkerExecutionQueryResponse,
@@ -8,11 +9,13 @@ import {
   type RemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
+  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
   RemoteAgentTerminalExecutionOwnerMissingError,
   readRemoteAgentExecutionState,
+  readRemoteAgentRequestedExecutionFailure,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
 import {
@@ -20,10 +23,16 @@ import {
   projectRemoteAgentTerminalOutcomeToCallback,
 } from "../agent-core/terminal-callback-projection";
 import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
+import { normalizeFluePromptUsage } from "../agent-core/usage";
+import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
 
-export type FlueSubmissionLifecycle = Pick<AgentSubmission, "error" | "status">;
+export type FlueSubmissionLifecycle = Pick<
+  AgentSubmissionProjection,
+  "error" | "status" | "completedOutput" | "terminalMetadata"
+>;
 
-export async function reconcileSettledRemoteAgentExecutionFailures(input: {
+export async function reconcileSettledRemoteAgentExecutions(input: {
+  env?: { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   readSubmission: (
@@ -52,6 +61,7 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
   for (const context of candidates.values()) {
     try {
       const result = await reconcileRemoteAgentExecution({
+        env: input.env,
         coreWorker: input.coreWorker,
         identity: {
           idempotencyKey: context.idempotencyKey,
@@ -66,7 +76,8 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
       });
       if (
         result.status === "found" &&
-        (result.execution.status === "failed" ||
+        (result.execution.status === "completed" ||
+          result.execution.status === "failed" ||
           result.execution.status === "aborted")
       ) {
         reconciled += 1;
@@ -82,6 +93,7 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
 }
 
 export async function reconcileRemoteAgentExecution(input: {
+  env?: { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs?: () => number;
@@ -121,27 +133,62 @@ export async function reconcileRemoteAgentExecution(input: {
   }
 
   const cancelled = current.execution.status === "cancellation_requested";
-  // Successful settlement can precede the observer callback. A durable Flue
-  // error or an already-requested cancellation is the only terminal fact this
-  // reconciler is allowed to project.
-  if (!(cancelled || submission.error)) {
+  if (
+    submission.terminalMetadata &&
+    submission.terminalMetadata.submissionId !== input.identity.submissionId
+  ) {
+    throw new Error(
+      "Remote Agent terminal consumption has mismatched execution identity."
+    );
+  }
+  const requestedFailure =
+    await readRemoteAgentRequestedExecutionFailure(input);
+  // A crash can leave Flue canonically complete before the application stores
+  // its terminal owner. Recover only an exact canonical result, never a
+  // partial visible stream, and use the same cleanup/CAS/publication path.
+  if (!(cancelled || submission.error || requestedFailure)) {
+    if (submission.completedOutput) {
+      await reconcileCompletedRemoteAgentExecution({
+        ...input,
+        output: submission.completedOutput,
+      });
+      return await readRemoteAgentExecutionState(input);
+    }
     return current;
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
 
+  await finishRemoteAgentComputerCommands({
+    context: await readRemoteAgentCallbackContext(
+      input.storage,
+      input.identity.submissionId
+    ),
+    env: input.env,
+    storage: input.storage,
+  });
+
   const settledExecution = await completeRemoteAgentExecutionState({
+    ...(submission.terminalMetadata
+      ? {
+          completionMetadata: normalizeTerminalMetadata(
+            submission.terminalMetadata
+          ),
+        }
+      : {}),
     identity: input.identity,
     nowMs,
     status: cancelled ? "aborted" : "failed",
     storage: input.storage,
-    terminalFailure: createRemoteAgentTerminalFailureFact({
-      error: cancelled
-        ? (current.execution.cancellationReason ??
-          "Remote Agent execution was cancelled.")
-        : submission.error,
-      status: cancelled ? "aborted" : "failed",
-    }),
+    terminalFailure:
+      requestedFailure ??
+      createRemoteAgentTerminalFailureFact({
+        error: cancelled
+          ? (current.execution.cancellationReason ??
+            "Remote Agent execution was cancelled.")
+          : submission.error,
+        status: cancelled ? "aborted" : "failed",
+      }),
   });
   await projectRemoteAgentTerminalExecution({
     coreWorker: input.coreWorker,
@@ -155,6 +202,84 @@ export async function reconcileRemoteAgentExecution(input: {
     identity: input.identity,
     storage: input.storage,
   });
+}
+
+async function reconcileCompletedRemoteAgentExecution(input: {
+  env?: { AGENT_COMPUTER?: unknown };
+  coreWorker?: RemoteAgentCoreWorkerBinding;
+  identity: RemoteAgentWorkerExecutionQuery;
+  nowMs?: () => number;
+  storage: RemoteAgentStorage;
+  output: NonNullable<AgentSubmissionProjection["completedOutput"]>;
+}): Promise<void> {
+  if (input.output.submissionId !== input.identity.submissionId) {
+    throw new Error(
+      "Remote Agent canonical result has mismatched execution identity."
+    );
+  }
+  const context = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.identity.submissionId
+  );
+  if (!context) {
+    throw new Error("Remote Agent canonical result has no callback context.");
+  }
+  if (
+    context.organizationId !== input.identity.organizationId ||
+    context.spaceId !== input.identity.spaceId ||
+    context.idempotencyKey !== input.identity.idempotencyKey
+  ) {
+    throw new Error(
+      "Remote Agent canonical result has mismatched callback authority."
+    );
+  }
+  await finishRemoteAgentComputerCommands({ ...input, context });
+  const nowMs = input.nowMs?.() ?? Date.now();
+  const completionMetadata = normalizeTerminalMetadata(input.output);
+  const common = {
+    identity: input.identity,
+    storage: input.storage,
+    nowMs,
+    completionMetadata,
+  };
+  let execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
+  if (context.workLoopCheckpoint) {
+    execution = await completeRemoteAgentExecutionState({
+      ...common,
+      status: "checkpoint",
+      checkpoint: context.workLoopCheckpoint,
+    });
+  } else if (input.output.text.trim()) {
+    execution = await completeRemoteAgentExecutionState({
+      ...common,
+      status: "completed",
+      completedText: input.output.text,
+    });
+  } else {
+    execution = await completeRemoteAgentExecutionState({
+      ...common,
+      status: "failed",
+      terminalFailure: createRemoteAgentTerminalFailureFact({
+        status: "failed",
+        error: "Canonical execution completed without an assistant answer.",
+      }),
+    });
+  }
+  await projectRemoteAgentTerminalExecution({ ...input, execution, nowMs });
+}
+
+function normalizeTerminalMetadata(
+  metadata: NonNullable<AgentSubmissionProjection["terminalMetadata"]>
+) {
+  const model = metadata.model;
+  let modelId: string | null = null;
+  if (model?.id) {
+    modelId = model.provider ? `${model.provider}/${model.id}` : model.id;
+  }
+  return {
+    modelId,
+    usage: normalizeFluePromptUsage(metadata.usage),
+  };
 }
 
 async function projectRemoteAgentTerminalExecution(input: {
@@ -188,5 +313,3 @@ async function projectRemoteAgentTerminalExecution(input: {
     submissionId: input.identity.submissionId,
   });
 }
-
-import type { AgentSubmission } from "@flue/runtime/adapter";

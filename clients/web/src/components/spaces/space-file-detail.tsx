@@ -42,22 +42,28 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import {
 	type CSSProperties,
+	lazy,
 	type ReactNode,
+	Suspense,
 	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
+import { OfficeFileViewer } from "#/components/extend/office-file-viewer";
 import { UnsavedChangesDialog } from "#/components/forms/unsaved-changes-guard";
 import { markFileRevisionSeen } from "#/lib/spaces/file-update-seen";
 import { baseQueryOptions } from "#/query/query-config";
+import type { SpaceFileMediaResource } from "#/query/spaces/space-file-media-resource";
 import {
 	spaceFileContentQueryOptions,
 	spaceFileQueryKeys,
+	supportsSpaceFileDocumentPreview,
 } from "#/query/spaces/space-files";
 import {
 	buildSpaceFileHtmlPreviewPath,
@@ -71,12 +77,107 @@ import {
 	resolveSpaceFileErrorMessage,
 	utf8ByteLength,
 } from "./space-file-utils";
+import {
+	SpaceVideoPreview,
+	type SpaceVideoTarget,
+} from "./space-video-preview";
+import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
 export type SpaceFileLeaveGuard = {
 	discard: () => void;
 	hasUnsavedChanges: boolean;
 	save: () => Promise<boolean>;
 };
+
+const PDFViewer = import.meta.env.SSR
+	? lazy(async () => ({ default: () => null }))
+	: lazy(() =>
+			import("#/components/extend/pdf-viewer").then((module) => ({
+				default: module.PDFViewer,
+			}))
+		);
+const CsvViewer = import.meta.env.SSR
+	? lazy(async () => ({ default: () => null }))
+	: lazy(() =>
+			import("#/components/extend/csv-viewer").then((module) => ({
+				default: module.CsvViewer,
+			}))
+		);
+const noPreviewUrl = () => null;
+const noPreviewSubscription = () => () => {
+	// There is no browser resource to observe before the authorized read succeeds.
+};
+
+function useSpaceFileDocumentUrl(resource: SpaceFileMediaResource | undefined) {
+	return useSyncExternalStore(
+		resource?.subscribe ?? noPreviewSubscription,
+		resource?.getSnapshot ?? noPreviewUrl,
+		resource?.getServerSnapshot ?? noPreviewUrl
+	);
+}
+
+function needsSpaceFileContent(mimeType: string, editable: boolean): boolean {
+	return (
+		editable ||
+		isSpaceFileHtml(mimeType) ||
+		mimeType === "text/csv" ||
+		mimeType === "text/tab-separated-values" ||
+		mimeType.startsWith("image/") ||
+		supportsSpaceFileDocumentPreview(mimeType)
+	);
+}
+
+function hasSpaceFilePreviewError(input: {
+	contentError: boolean;
+	contentReady: boolean;
+	mimeType: string;
+	previewUrl: string | null;
+}): boolean {
+	return (
+		input.contentError ||
+		(supportsSpaceFileDocumentPreview(input.mimeType) &&
+			input.contentReady &&
+			!input.previewUrl)
+	);
+}
+
+function SpaceFilePreviewSurface(input: {
+	mimeType?: string;
+	fileName: string;
+	target: SpaceVideoTarget;
+	fallback: ReturnType<typeof SpaceFileContent>;
+	isError: boolean;
+	onRetry: () => void;
+}) {
+	if (!input.mimeType) {
+		return (
+			<output className="p-4 text-muted-foreground text-sm">
+				{input.isError
+					? "This file version couldn't be loaded."
+					: "Loading file version…"}
+				{input.isError && (
+					<button
+						className="ml-3 underline"
+						onClick={input.onRetry}
+						type="button"
+					>
+						Retry
+					</button>
+				)}
+			</output>
+		);
+	}
+	if (input.mimeType.startsWith("video/")) {
+		return (
+			<SpaceVideoPreview
+				fileName={input.fileName}
+				key={`${input.target.fileId}:${input.target.revision}`}
+				target={input.target}
+			/>
+		);
+	}
+	return input.fallback;
+}
 
 export function SpaceFileDetail(input: {
 	onUpdateSettings?: () => void;
@@ -101,6 +202,7 @@ export function SpaceFileDetail(input: {
 			? input.initialRevision
 			: null;
 	const [draft, setDraft] = useState("");
+	const [csvEditMode, setCsvEditMode] = useState(false);
 	const [savedDraft, setSavedDraft] = useState("");
 	const [loadedRevision, setLoadedRevision] = useState<number | null>(null);
 	const [saving, setSaving] = useState(false);
@@ -151,19 +253,38 @@ export function SpaceFileDetail(input: {
 		displayedMimeType === "text/x-markdown";
 	const imagePreviewable = displayedMimeType.startsWith("image/");
 	const html = isSpaceFileHtml(displayedMimeType);
+	const needsContent = needsSpaceFileContent(displayedMimeType, editable);
+	const contentEnabled = displayedRevisionDescriptor !== null && needsContent;
 	const contentQuery = useQuery(
 		spaceFileContentQueryOptions({
 			api: input.api,
-			enabled: editable || html || imagePreviewable || previewRevision !== null,
+			enabled: contentEnabled,
 			fileId: input.file.id,
 			revision: displayedRevision,
 			spaceId: input.spaceId,
 		})
 	);
-	const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+	const documentPreviewUrl = useSpaceFileDocumentUrl(
+		contentQuery.data?.mediaPreview
+	);
+	const csvPreviewData = useMemo(() => {
+		const bytes = contentQuery.data?.bytes;
+		return bytes instanceof ArrayBuffer
+			? new TextDecoder().decode(bytes)
+			: null;
+	}, [contentQuery.data?.bytes]);
+	const imageSource = useSpaceFileImageSource({
+		api: input.api,
+		enabled: contentEnabled && imagePreviewable,
+		fileId: input.file.id,
+		mimeType: displayedMimeType,
+		revision: displayedRevision,
+		spaceId: input.spaceId,
+	});
+	const imagePreviewUrl = imageSource.sourceUrl;
 	const revisionVisible =
-		contentQuery.isSuccess ||
-		!(editable || html || imagePreviewable || previewRevision !== null);
+		displayedRevisionDescriptor !== null &&
+		(contentQuery.isSuccess || !needsContent);
 	useEffect(() => {
 		if (revisionVisible) {
 			markFileRevisionSeen(
@@ -185,21 +306,14 @@ export function SpaceFileDetail(input: {
 		input.file.id,
 	]);
 	useEffect(() => {
-		if (!(imagePreviewable && contentQuery.data)) {
-			setImagePreviewUrl(null);
-			return;
-		}
-		const objectUrl = URL.createObjectURL(
-			new Blob([contentQuery.data.bytes], { type: contentQuery.data.mimeType })
-		);
-		setImagePreviewUrl(objectUrl);
-		return () => URL.revokeObjectURL(objectUrl);
-	}, [contentQuery.data, imagePreviewable]);
-	useEffect(() => {
 		if (
 			!(editable && contentQuery.data) ||
 			loadedRevision === contentQuery.data.revision
 		) {
+			return;
+		}
+		// Only images are cached as Blobs; editable text retains its ArrayBuffer.
+		if (contentQuery.data.bytes instanceof Blob) {
 			return;
 		}
 		const content = new TextDecoder().decode(contentQuery.data.bytes);
@@ -369,13 +483,20 @@ export function SpaceFileDetail(input: {
 		<SpaceFileContent
 			canWrite={input.canWrite && previewRevision === null}
 			contentLimitExceeded={draftOverLimit}
+			csvData={csvPreviewData}
+			csvEditMode={csvEditMode}
+			documentPreviewUrl={documentPreviewUrl}
 			draft={draft}
 			editable={editable}
 			editorKey={`${input.file.id}:${loadedRevision ?? "loading"}`}
 			fileName={input.file.name}
 			hasUnsavedChanges={hasUnsavedChanges}
 			html={html}
-			htmlBytes={contentQuery.data?.bytes ?? null}
+			htmlBytes={
+				contentQuery.data?.bytes instanceof ArrayBuffer
+					? contentQuery.data.bytes
+					: null
+			}
 			htmlDraft={
 				loadedRevision === displayedRevision && editable ? draft : null
 			}
@@ -389,10 +510,17 @@ export function SpaceFileDetail(input: {
 			htmlPreviewKey={`${input.file.id}:${displayedRevision}`}
 			imagePreviewable={imagePreviewable}
 			imagePreviewUrl={imagePreviewUrl}
-			isError={contentQuery.isError}
+			isError={hasSpaceFilePreviewError({
+				contentError: contentQuery.isError,
+				contentReady: contentQuery.isSuccess,
+				mimeType: displayedMimeType,
+				previewUrl: documentPreviewUrl,
+			})}
 			isLoading={contentQuery.isPending}
 			markdown={markdown}
+			mimeType={displayedMimeType}
 			onChange={setDraft}
+			onCsvEditModeChange={setCsvEditMode}
 			onDownload={() => downloadRevision()}
 			onRetry={() => contentQuery.refetch()}
 			onSave={save}
@@ -437,7 +565,19 @@ export function SpaceFileDetail(input: {
 			/>
 
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5 lg:overflow-hidden">
-				{fileContent}
+				<SpaceFilePreviewSurface
+					fallback={fileContent}
+					fileName={input.file.name}
+					isError={revisionsQuery.isError}
+					mimeType={displayedRevisionDescriptor?.mimeType}
+					onRetry={() => revisionsQuery.refetch()}
+					target={{
+						spaceId: input.spaceId,
+						fileId: input.file.id,
+						revision: displayedRevision,
+						organizationSlug: input.organizationSlug,
+					}}
+				/>
 			</div>
 			<SpaceFileHistoryDrawer
 				currentRevision={input.file.latestRevision.revision}
@@ -678,9 +818,13 @@ function SpaceFileDetailNotices(input: {
 	);
 }
 
-function SpaceFileContent(input: {
+type SpaceFileContentInput = {
 	canWrite: boolean;
+	csvData: string | null;
+	csvEditMode: boolean;
+	onCsvEditModeChange: (editing: boolean) => void;
 	contentLimitExceeded: boolean;
+	documentPreviewUrl: string | null;
 	draft: string;
 	editable: boolean;
 	editorKey: string;
@@ -696,13 +840,101 @@ function SpaceFileContent(input: {
 	isError: boolean;
 	isLoading: boolean;
 	markdown: boolean;
+	mimeType: string;
 	onChange: (value: string) => void;
 	onDownload: () => void;
 	onRetry: () => void;
 	onSave: () => Promise<boolean>;
 	saveBlockedByConflict: boolean;
 	saving: boolean;
-}): ReactNode {
+};
+
+function SpaceFileCsvContent(input: SpaceFileContentInput): ReactNode {
+	if (input.csvEditMode && input.editable && input.canWrite) {
+		return (
+			<div className="flex min-h-64 flex-1 flex-col gap-2">
+				<Button
+					className="self-end"
+					onClick={() => input.onCsvEditModeChange(false)}
+					size="sm"
+					variant="outline"
+				>
+					Preview table
+				</Button>
+				<FileTextEditor {...input} />
+			</div>
+		);
+	}
+	return (
+		<div className="flex min-h-64 flex-1 flex-col overflow-hidden rounded-lg border border-border/70">
+			{input.editable && input.canWrite ? (
+				<div className="flex justify-end border-border border-b p-2">
+					<Button
+						onClick={() => input.onCsvEditModeChange(true)}
+						size="sm"
+						variant="outline"
+					>
+						Edit text
+					</Button>
+				</div>
+			) : null}
+			{input.csvData === null ? (
+				<div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 text-muted-foreground text-sm">
+					<p>
+						{input.isError ? "Preview couldn't be loaded." : "Loading preview…"}
+					</p>
+					{input.isError ? (
+						<Button onClick={input.onRetry} size="sm" variant="outline">
+							Try again
+						</Button>
+					) : null}
+				</div>
+			) : (
+				<Suspense fallback={<Skeleton className="min-h-64 flex-1" />}>
+					<CsvViewer
+						className="min-h-64 flex-1"
+						data={input.hasUnsavedChanges ? input.draft : input.csvData}
+						search
+						showUpload={false}
+					/>
+				</Suspense>
+			)}
+		</div>
+	);
+}
+
+function SpaceFileContent(input: SpaceFileContentInput): ReactNode {
+	if (
+		input.mimeType === "text/csv" ||
+		input.mimeType === "text/tab-separated-values"
+	) {
+		return <SpaceFileCsvContent {...input} />;
+	}
+	if (supportsSpaceFileDocumentPreview(input.mimeType)) {
+		if (!input.documentPreviewUrl) {
+			return (
+				<div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 text-muted-foreground text-sm">
+					<p>
+						{input.isError ? "Preview couldn't be loaded." : "Loading preview…"}
+					</p>
+					{input.isError ? (
+						<Button onClick={input.onRetry} size="sm" variant="outline">
+							Try again
+						</Button>
+					) : null}
+				</div>
+			);
+		}
+		return (
+			<Suspense fallback={<Skeleton className="min-h-64 flex-1" />}>
+				<SpaceFileDocumentViewer
+					fileName={input.fileName}
+					mimeType={input.mimeType}
+					url={input.documentPreviewUrl}
+				/>
+			</Suspense>
+		);
+	}
 	if (input.html) {
 		return (
 			<SpaceFileHtmlPreview
@@ -774,6 +1006,56 @@ function SpaceFileContent(input: {
 			</Button>
 		</div>
 	);
+}
+
+function SpaceFileDocumentViewer(input: {
+	fileName: string;
+	mimeType: string;
+	url: string;
+}): ReactNode {
+	const common = {
+		className: "min-h-0 flex-1",
+		fileName: input.fileName,
+		showDownload: false,
+		showUpload: false,
+		src: input.url,
+	};
+	switch (input.mimeType) {
+		case "application/pdf":
+			return <PDFViewer {...common} />;
+		case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+			return (
+				<OfficeFileViewer
+					className={common.className}
+					fileName={input.fileName}
+					kind="docx"
+					showToolbar
+					url={input.url}
+				/>
+			);
+		case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+			return (
+				<OfficeFileViewer
+					className={common.className}
+					fileName={input.fileName}
+					kind="pptx"
+					showToolbar
+					url={input.url}
+				/>
+			);
+		case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+			return (
+				<OfficeFileViewer
+					className={common.className}
+					fileName={input.fileName}
+					kind="xlsx"
+					showToolbar
+					url={input.url}
+				/>
+			);
+		default:
+			return null;
+	}
 }
 
 function SpaceFileImagePreview(input: {

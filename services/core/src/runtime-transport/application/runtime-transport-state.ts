@@ -3,7 +3,10 @@ import type {
   DaemonServiceLane,
   LocalWakeRouteReport,
   OpenMeldDaemonTaskResultEnvelope,
+  RuntimeCoordinatorDeliveryRouteEvidence,
+  RuntimeTransportAdmissionEvidence,
   RuntimeTransportCapabilities,
+  RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLifecyclePhase,
@@ -26,6 +29,7 @@ export type RuntimeTransportSessionState = {
   lastHeartbeatMs: number;
   deliveryDisconnectedAtMs: number | null;
   acceptingDispatches?: boolean;
+  admissionEvidence?: RuntimeTransportAdmissionEvidence;
   stopCause?: RuntimeTransportStopCause;
   capabilities: RuntimeTransportCapabilities;
   executionCompatibility: DaemonExecutionCompatibility;
@@ -141,6 +145,11 @@ export type RuntimeTransportMutableState = {
     string,
     {
       attemptId: string;
+      routeWitness: Promise<{
+        evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+        observedAtMs: number;
+        request: RuntimeTransportDeliverDispatchRequest;
+      }>;
       response: Promise<RuntimeTransportDeliverDispatchResponse>;
     }
   >;

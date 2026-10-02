@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { mock } from "node:test";
+import { z } from "zod/v4";
 
 const AUTH_401_RE = /401 Unauthorized/;
 const MODEL_NOT_FOUND_RE = /model_not_found|requested model/i;
@@ -20,6 +21,8 @@ const CODEX_COMMAND_DENIED_BY_SANDBOX_RE = /command denied by sandbox/i;
 const CODEX_EXECUTION_DENIED_RE = /execution denied/i;
 const FORK_CHECKPOINT_UNAVAILABLE_RE =
   /execution_context.fork_checkpoint_unavailable/;
+const FORK_BOUNDARY_CONFLICT_RE =
+  /a fork takes either sourceCompletedTurnId or forkFullHistory/;
 const QUOTA_RE = /insufficient_quota/;
 const RATE_LIMIT_RE = /rate limit/i;
 const USAGE_LIMIT_RE = /usage limit/i;
@@ -34,6 +37,9 @@ const createRuntimeContext = (
 ) => ({
   providerRuntimeWorkingDirectory,
 });
+const READ_CODEX_DISPATCH_STOP_EVIDENCE = Symbol.for(
+  "openmeld.codex.readDispatchStopEvidence"
+);
 const createNodeScriptLaunchContract = (scriptPath) => ({
   kind: "node_script",
   nodePath: process.execPath,
@@ -294,6 +300,99 @@ test("codex Stop fences the default app-server path while writer occupancy waits
   }
 });
 
+test("codex Stop keeps the turn a released writer retry already started", async () => {
+  const { createCodexAdapter } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "codex-default-writer-stop-after-turn-")
+  );
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-default-writer-stop-after-turn-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const startupAttemptPath = join(fixtureDir, "startup-attempt.txt");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const events = [];
+    const adapter = createCodexAdapter({
+      codexTimeoutMs: 5000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      waitForThreadWriterAvailability: () =>
+        Promise.resolve("release_observed"),
+    });
+    let acceptTurn;
+    const acceptedTurn = new Promise((resolve) => {
+      acceptTurn = resolve;
+    });
+    const dispatchOutcome = adapter.dispatch({
+      agentControllerConversationId: "thread-default-stop-after-turn",
+      agentId: "agt-demo",
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_RESUME_WRITER_ATTEMPTS: "1",
+        OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: startupAttemptPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "5000",
+      },
+      onRuntimeEvent: (event) => {
+        if (event.phase.startsWith("agent_controller_conversation_")) {
+          events.push(event.phase);
+        }
+        if (event.phase === "provider_turn_accepted") {
+          acceptTurn();
+        }
+      },
+      prompt: "continue after the writer releases",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-default-stop-after-turn",
+      spaceId: "space-1",
+      taskId: "task-default-stop-after-turn",
+      transportMode: "codex-app-server",
+    });
+
+    // The retry won the writer lock and the native turn is running, so this
+    // Stop lands after `turn/start` rather than ahead of it.
+    // Use actual native admission rather than assuming two controller starts
+    // and writer reconciliation fit inside an unrelated one-second file poll.
+    await Promise.race([
+      acceptedTurn,
+      dispatchOutcome.then((result) =>
+        assert.fail(
+          `The dispatch ended before accepting the native turn: ${JSON.stringify(result)}`
+        )
+      ),
+    ]);
+    const stopResult = await adapter.interrupt({
+      mode: "force",
+      taskId: "task-default-stop-after-turn",
+    });
+    const dispatchResult = await dispatchOutcome;
+    const methods = await readFakeAppServerMethods(logPath);
+
+    assert.equal(stopResult.accepted, true);
+    assert.equal(
+      methods.filter((method) => method === "thread/resume").length,
+      2
+    );
+    assert.equal(methods.filter((method) => method === "turn/start").length, 1);
+    assert.equal(
+      methods.filter((method) => method === "turn/interrupt").length,
+      1
+    );
+    // The RPC log proves a turn ran, so the dispatch must not come back as a
+    // request that was stopped before starting one.
+    assert.equal(dispatchResult.status, "success");
+    assert.deepEqual(events, [
+      "agent_controller_conversation_occupied",
+      "agent_controller_conversation_available",
+    ]);
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
 test("codex clears occupied evidence when the retry is accepted", async () => {
   const { CodexAppServerTransportError, createCodexAdapter } = await import(
     "../dist/index.js"
@@ -424,16 +523,74 @@ test("codex Stop aborts an occupied writer wait without resuming the thread agai
     assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
     assert.equal(dispatchCalls, 1);
     assert.deepEqual(events, ["agent_controller_conversation_occupied"]);
+    // The Stop must stay readable after the dispatch call it ended, because the
+    // handoff decides on it, and it must say whether a turn was in flight.
+    assert.equal(
+      adapter[READ_CODEX_DISPATCH_STOP_EVIDENCE](`task-stop-${control}`)
+        .turnWasRunning,
+      false
+    );
+    // A retry for a stopped task must not resume the thread: the successor that
+    // took the reservation is the only remaining claimant on that writer.
+    const retry = await adapter.dispatch({
+      agentControllerConversationId: `thread-stop-${control}`,
+      agentId: "agt-demo",
+      prompt: "continue",
+      runtimeContext: createRuntimeContext(),
+      sourceEventId: `evt-stop-${control}-retry`,
+      spaceId: "space-1",
+      taskId: `task-stop-${control}`,
+      transportMode: "codex-app-server",
+    });
+    assert.equal(retry.errorCode, "runtime.turn.cancelled");
+    assert.equal(dispatchCalls, 1);
   }
 });
 
-for (const acceptedBeforeStop of [false, true]) {
-  test(`codex Stop fences a released writer retry (already accepted: ${acceptedBeforeStop})`, async () => {
+// A Stop that lands while the released-writer retry is in flight must be
+// reported by what the retry actually did. `runtime.turn.cancelled` is the
+// transport's own "stopped before starting a turn" code, so handing it back for
+// a retry that already won the writer lock would tell Core nothing ran while a
+// native turn had run — the premise that invites the same work running twice.
+const stopAfterReleaseScenarios = [
+  {
+    expectedErrorCode: "runtime.turn.cancelled",
+    expectedErrorMessage:
+      "runtime.turn.cancelled: This OpenMeld request was stopped",
+    name: "landed before the turn started",
+    retryFailure: {
+      code: "runtime.turn.cancelled",
+      message:
+        "runtime.turn.cancelled: Codex was stopped before starting a turn",
+    },
+    startsTurn: false,
+  },
+  {
+    expectedOutput: "retry completed",
+    name: "landed after the turn started and the turn finished",
+    retryFailure: null,
+    startsTurn: true,
+  },
+  {
+    expectedErrorCode: "runtime.turn.failed",
+    expectedErrorMessage: "runtime.turn.failed: the turn ended while stopping",
+    name: "landed after the turn started and the turn failed",
+    retryFailure: {
+      code: "runtime.turn.failed",
+      message: "runtime.turn.failed: the turn ended while stopping",
+    },
+    startsTurn: true,
+  },
+];
+
+for (const scenario of stopAfterReleaseScenarios) {
+  test(`codex Stop fences a released writer retry (${scenario.name})`, async () => {
     const { CodexAppServerTransportError, createCodexAdapter } = await import(
       "../dist/index.js"
     );
     let dispatchCalls = 0;
     let turnStartCount = 0;
+    let retryObservedCancellation = false;
     let retryReachedProviderBoundaryResolve;
     const retryReachedProviderBoundary = new Promise((resolve) => {
       retryReachedProviderBoundaryResolve = resolve;
@@ -461,13 +618,19 @@ for (const acceptedBeforeStop of [false, true]) {
               rpcErrorCode: -32_600,
             });
           }
-          if (acceptedBeforeStop) {
+          if (scenario.startsTurn) {
             turnStartCount += 1;
           }
           retryReachedProviderBoundaryResolve();
           await releaseRetry;
-          if (!input.cancellationSignal?.aborted) {
-            turnStartCount += 1;
+          retryObservedCancellation =
+            input.cancellationSignal?.aborted === true;
+          if (scenario.retryFailure) {
+            throw new CodexAppServerTransportError({
+              code: scenario.retryFailure.code,
+              errorType: "adapter",
+              message: scenario.retryFailure.message,
+            });
           }
           return {
             contextDelta: {
@@ -498,14 +661,17 @@ for (const acceptedBeforeStop of [false, true]) {
     const dispatchResult = await dispatchOutcome;
 
     assert.equal(stopResult.accepted, true);
-    assert.equal(dispatchResult.status, "failed");
-    assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
     assert.equal(dispatchCalls, 2);
-    assert.equal(turnStartCount, acceptedBeforeStop ? 1 : 0);
-    assert.equal(
-      dispatchResult.errorMessage,
-      "runtime.turn.cancelled: This OpenMeld request was stopped"
-    );
+    assert.equal(turnStartCount, scenario.startsTurn ? 1 : 0);
+    assert.equal(retryObservedCancellation, true);
+    if (scenario.expectedOutput) {
+      assert.equal(dispatchResult.status, "success");
+      assert.equal(dispatchResult.output, scenario.expectedOutput);
+    } else {
+      assert.equal(dispatchResult.status, "failed");
+      assert.equal(dispatchResult.errorCode, scenario.expectedErrorCode);
+      assert.equal(dispatchResult.errorMessage, scenario.expectedErrorMessage);
+    }
   });
 }
 
@@ -628,6 +794,32 @@ test("codex writer wait backs off when an occupied thread lock is not visible", 
   }
 });
 
+test("codex model-access errors offer recovery without claiming global retirement", async () => {
+  const { classifyCodexProviderAccountFailure } = await import(
+    "../dist/output/codex-provider-failure.js"
+  );
+  for (const message of [
+    "Model not found gpt-5.4",
+    "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account.",
+  ]) {
+    const failure = classifyCodexProviderAccountFailure({ message });
+    assert.equal(failure.code, "model.unavailable");
+    assert.equal(failure.providerAccessEvidence, undefined);
+    assert.ok(failure.originalError);
+  }
+  for (const message of [
+    "404 Not Found",
+    "The server is temporarily unavailable",
+    "Example: Model not found gpt-5.4",
+  ]) {
+    assert.equal(classifyCodexProviderAccountFailure({ message }), null);
+  }
+  assert.equal(
+    classifyCodexProviderAccountFailure({ message: "401 Unauthorized" }).code,
+    "auth.required"
+  );
+});
+
 test("codex distinguishes subscription access from a transient rate limit", async () => {
   const { classifyCodexProviderAccountFailure } = await import(
     "../dist/output/codex-provider-failure.js"
@@ -725,7 +917,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  const failureMessage = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_FAILURE_MESSAGE;",
       "  const turn = status === 'interrupted' ? buildInterruptedTurn() : failureMessage ? buildFailedTurn(failureMessage) : buildCompletedTurn(activeTurn.threadId, activeTurn.prompt, activeTurn.cwd);",
       "  const tokenUsage = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TOKEN_USAGE;",
-      "  if (tokenUsage) write({ jsonrpc: '2.0', method: 'thread/tokenUsage/updated', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, tokenUsage: JSON.parse(tokenUsage) } });",
+      // Codex can rebroadcast unchanged usage during a rate-limit update.
+      "  if (tokenUsage) for (let repeat = 0; repeat < 2; repeat++) write({ jsonrpc: '2.0', method: 'thread/tokenUsage/updated', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, tokenUsage: JSON.parse(tokenUsage) } });",
       "  if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_CONTEXT_COMPACTION === '1') write({ jsonrpc: '2.0', method: 'item/completed', params: { threadId: activeTurn.threadId, turnId: activeTurn.turnId, item: { id: 'compact-1', type: 'contextCompaction' } } });",
       "  for (const delta of readDeltaOutput()) {",
       "    write({ jsonrpc: '2.0', method: 'item/agentMessage/delta', params: { itemId: 'msg-delta-1', delta } });",
@@ -742,10 +935,12 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  if (message.method === 'initialize') {",
       "    const hangingStartupAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_STARTUP_ATTEMPTS ?? '0');",
       "    if (startupAttempt <= hangingStartupAttempts) return;",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { userAgent: 'fake-codex-app-server', codexHome: '/tmp/fake-codex-home', platformFamily: 'unix', platformOs: 'macos' } });",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { userAgent: process.env.OPENMELD_FAKE_CODEX_NATIVE_VERSION ? 'openmeld/' + process.env.OPENMELD_FAKE_CODEX_NATIVE_VERSION : 'fake-codex-app-server', codexHome: '/tmp/fake-codex-home', platformFamily: 'unix', platformOs: 'macos' } });",
       "    return;",
       "  }",
       "  if (message.method === 'initialized') return;",
+      "  if (message.method === 'config/read') { write({ id: message.id, result: { config: { mcp_servers: { openmeld_internal_dispatch_space_action: JSON.parse(process.env.OPENMELD_FAKE_CODEX_SPACE_POLICY ?? '{}') } }, origins: {}, layers: null } }); return; }",
+      "  if (message.method === 'configRequirements/read') { write({ id: message.id, result: { requirements: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS ?? 'null') } }); return; }",
       "  if (message.method === 'command/exec') { write({ jsonrpc: '2.0', id: message.id, result: { exitCode: 0, stdout: 'denied:denied:allowed:denied', stderr: '' } }); return; }",
       "  if (message.method === 'mcpServerStatus/list') { write({ jsonrpc: '2.0', id: message.id, result: { data: [], nextCursor: null } }); return; }",
       "  if (message.method === 'collaborationMode/list') {",
@@ -783,6 +978,16 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread('thread-fork-1') } });",
       "    return;",
       "  }",
+      "  if (message.method === 'thread/read') {",
+      "    const statuses = JSON.parse(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_READ_STATUSES ?? JSON.stringify(['completed']));",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_THREAD_READ === '1') {",
+      "      write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'no rollout found for thread id ' + message.params.threadId } });",
+      "      return;",
+      "    }",
+      "    const turns = statuses.map((status, index) => ({ id: 'turn-read-' + (index + 1), items: [], itemsView: 'complete', status, error: null, startedAt: 1, completedAt: status === 'completed' ? 1 : null, durationMs: null }));",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(message.params.threadId, process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user'), turns: message.params.includeTurns ? turns : [] } } });",
+      "    return;",
+      "  }",
       "  if (message.method === 'thread/name/set') {",
       "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_NAME_RESULT === 'hang') return;",
       "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_NAME_RESULT === 'reject') { write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'Name unavailable' } }); return; }",
@@ -790,7 +995,14 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'thread/start') {",
+      "    if (message.params.dynamicTools && process.env.OPENMELD_FAKE_CODEX_REJECT_DYNAMIC_DEFINITION === '1') { write({ id: message.id, error: { code: -32600, message: 'Invalid request: unknown field `dynamicTools`' } }); return; }",
+      "    const requiredMcpFailure = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUIRED_MCP_FAILURE;",
+      "    if (requiredMcpFailure) { write({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: requiredMcpFailure } }); return; }",
       "    const hangingThreadStartAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS ?? '0');",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_DIAGNOSTICS === '1') {",
+      "      process.stderr.write('DEBUG session_init.mcp_manager_init: new secret=private-test-secret /private/customer-repo\\n');",
+      "      write({ method: 'mcpServer/startupStatus/updated', params: { threadId: 'thread-private', name: 'private-server', status: 'starting', error: null } });",
+      "    }",
       "    if (startupAttempt <= hangingThreadStartAttempts) return;",
       "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: 'gpt-5' };",
       "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread('thread-new-1', message.params.threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
@@ -801,19 +1013,24 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    if (startupAttempt <= hangingTurnStartAttempts) return;",
       "    const prompt = message.params.input[0].text;",
       "    const cwd = message.params.cwd;",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { turn: { id: 'turn-1', items: [], itemsView: 'complete', status: 'inProgress', error: null, startedAt: 1, completedAt: null, durationMs: null } } });",
-      "    activeTurn = { cwd, prompt, threadId: message.params.threadId, turnId: 'turn-1' };",
-      "    turnCompleted = false;",
-      "    const serverRequest = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST;",
-      "    if (serverRequest) {",
-      "      const parsed = JSON.parse(serverRequest);",
-      "      pendingServerRequest = { id: 700, method: parsed.method };",
-      "      write({ jsonrpc: '2.0', id: pendingServerRequest.id, method: parsed.method, params: parsed.params });",
-      "      if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_EXIT_AFTER_REQUEST === '1') setImmediate(() => process.exit(0));",
-      "      return;",
-      "    }",
-      "    const delayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS ?? '10');",
-      "    completionTimer = setTimeout(() => completeTurn('completed'), delayMs);",
+      "    const startDelayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_START_RESPONSE_DELAY_MS ?? '0');",
+      "    const onStart = () => {",
+      "      write({ jsonrpc: '2.0', id: message.id, result: { turn: { id: 'turn-1', items: [], itemsView: 'complete', status: 'inProgress', error: null, startedAt: 1, completedAt: null, durationMs: null } } });",
+      "      activeTurn = { cwd, prompt, threadId: message.params.threadId, turnId: 'turn-1' };",
+      "      write({ method: 'turn/started', params: { threadId: activeTurn.threadId, turn: { id: activeTurn.turnId, status: 'inProgress', items: [] } } });",
+      "      turnCompleted = false;",
+      "      const serverRequest = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST;",
+      "      if (serverRequest) {",
+      "        const parsed = JSON.parse(serverRequest);",
+      "        pendingServerRequest = { id: 700, method: parsed.method };",
+      "        write({ jsonrpc: '2.0', id: pendingServerRequest.id, method: parsed.method, params: parsed.params });",
+      "        if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_EXIT_AFTER_REQUEST === '1') setImmediate(() => process.exit(0));",
+      "        return;",
+      "      }",
+      "      const delayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS ?? '10');",
+      "      completionTimer = setTimeout(() => completeTurn('completed'), delayMs);",
+      "    };",
+      "    if (startDelayMs > 0) setTimeout(onStart, startDelayMs); else onStart();",
       "    return;",
       "  }",
       "  if (message.method === 'turn/interrupt') {",
@@ -839,6 +1056,334 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
     "utf8"
   );
 };
+
+for (const scenario of [
+  { name: "new native thread", version: "0.150.1", native: true },
+  { name: "older controller", version: "0.149.0", native: false },
+  {
+    name: "legacy MCP thread",
+    version: "0.150.1",
+    existing: true,
+    native: false,
+  },
+  {
+    name: "resumed native thread",
+    version: "0.150.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    native: true,
+  },
+  {
+    name: "explicit MCP denial",
+    version: "0.150.1",
+    policy: { disabled_tools: ["reply"] },
+    native: false,
+  },
+  {
+    name: "explicit MCP approval",
+    version: "0.150.1",
+    policy: { default_tools_approval_mode: "prompt" },
+    native: false,
+  },
+  {
+    name: "custom configuration",
+    version: "0.150.1",
+    custom: true,
+    native: false,
+  },
+  {
+    name: "disabled server",
+    version: "0.150.1",
+    policy: { enabled: false },
+    native: false,
+  },
+  {
+    name: "explicit allowlist",
+    version: "0.150.1",
+    policy: { enabled_tools: [] },
+    native: false,
+  },
+  {
+    name: "per-tool policy",
+    version: "0.150.1",
+    policy: { tools: { reply: { approval_mode: "prompt" } } },
+    native: false,
+  },
+  {
+    name: "unknown future policy",
+    version: "0.150.1",
+    policy: { future_policy: "deny" },
+    native: false,
+  },
+  {
+    name: "managed restrictions",
+    version: "0.150.1",
+    requirements: { featureRequirements: { hooks: true } },
+    native: false,
+  },
+  {
+    name: "changed native-thread policy",
+    version: "0.150.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    policy: { disabled_tools: ["reply"] },
+    error: "context.space_tool_policy_changed",
+  },
+  {
+    name: "native repair fork",
+    version: "0.150.1",
+    existing: true,
+    source: "user/openmeld-space-tools-v1",
+    repair: true,
+    native: true,
+  },
+  {
+    name: "foreign thread callback",
+    version: "0.150.1",
+    native: true,
+    request: { threadId: "foreign-thread" },
+  },
+  {
+    name: "stale turn callback",
+    version: "0.150.1",
+    native: true,
+    request: { turnId: "old-turn" },
+  },
+  {
+    name: "unknown tool callback",
+    version: "0.150.1",
+    native: true,
+    request: { tool: "openmeld_space_status" },
+  },
+  {
+    name: "unknown handler result",
+    version: "0.150.1",
+    native: true,
+    handlerThrows: true,
+  },
+  ...["codex:fullAccess", "codex:approveForMe", "codex:askForApproval"].map(
+    (mode) => ({
+      name: `delivery-only preserves ${mode}`,
+      version: "0.150.1",
+      native: true,
+      existing: true,
+      source: "user/openmeld-space-tools-v1",
+      repair: true,
+      deliveryOnly: true,
+      mode,
+    })
+  ),
+  {
+    name: "delivery-only rejects unsupported controller",
+    version: "0.149.0",
+    deliveryOnly: true,
+    error: "space.action.delivery_only_unsupported",
+  },
+  {
+    name: "delivery-only preserves managed requirements",
+    version: "0.150.1",
+    deliveryOnly: true,
+    requirements: { featureRequirements: { hooks: true } },
+    error: "space.action.delivery_only_unverified",
+  },
+  {
+    name: "pre-thread native rejection",
+    version: "0.150.1",
+    native: false,
+    rejectedDefinition: true,
+  },
+]) {
+  test(`codex Space Dynamic Tools preserve one transport: ${scenario.name}`, async () => {
+    const { createCodexAdapter } = await import("../dist/index.js");
+    const root = await mkdtemp(join(tmpdir(), "codex-space-tools-"));
+    const scriptPath = join(root, "controller.mjs");
+    const logPath = join(root, "rpc.jsonl");
+    await writeFakeCodexAppServerFixture(scriptPath);
+    const threadId = scenario.existing ? "existing-thread" : "thread-new-1";
+    const executionThreadId = scenario.repair ? "thread-fork-1" : threadId;
+    const calls = [];
+    try {
+      const result = await createCodexAdapter({
+        codexTimeoutMs: 5000,
+        launchContract: createNodeScriptLaunchContract(scriptPath),
+      }).dispatch({
+        agentId: "agt-demo",
+        agentControllerConversationId: scenario.existing ? threadId : undefined,
+        agentControllerPermissionMode:
+          scenario.mode ??
+          (scenario.custom ? "codex:customConfig" : "codex:askForApproval"),
+        executionMode: scenario.repair ? "repair" : "normal",
+        sourceEventId: "evt-delivery",
+        spaceId: "space-1",
+        taskId: "task-delivery",
+        transportMode: "codex-app-server",
+        runtimeContext: createRuntimeContext(root),
+        prompt:
+          "Use the supplied reply tool to explain that no repository is available.",
+        spaceActionTools: {
+          deliveryOnly: Boolean(scenario.deliveryOnly),
+          tools: [
+            {
+              name: "reply",
+              description: "Submit an explicit public reply.",
+              inputSchema: z.strictObject({ message: z.string().min(1) }),
+            },
+          ],
+          call: (name, args) => {
+            calls.push({ name, args });
+            if (scenario.handlerThrows) {
+              return Promise.reject(new Error("Synthetic lost receipt"));
+            }
+            return Promise.resolve({
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({ status: "proposal_saved_locally" }),
+                },
+              ],
+            });
+          },
+          close: () => undefined,
+        },
+        env: {
+          HOME: root,
+          CODEX_HOME: root,
+          OPENMELD_SPACE_ACTION_CONTEXT_PATH: join(root, "context.json"),
+          OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: join(root, "openmeld"),
+          OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_NATIVE_VERSION: scenario.version,
+          ...(scenario.deliveryOnly
+            ? { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" }
+            : {}),
+          OPENMELD_FAKE_CODEX_SPACE_POLICY: JSON.stringify(
+            scenario.policy ?? {}
+          ),
+          OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS: JSON.stringify(
+            scenario.requirements ?? null
+          ),
+          OPENMELD_FAKE_CODEX_REJECT_DYNAMIC_DEFINITION:
+            scenario.rejectedDefinition ? "1" : "0",
+          OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE:
+            scenario.source ?? "user",
+          OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST: JSON.stringify({
+            method: "item/tool/call",
+            params: {
+              threadId: executionThreadId,
+              turnId: "turn-1",
+              callId: "delivery-1",
+              namespace: null,
+              tool: "openmeld_space_reply",
+              arguments: { message: "I cannot access the repository." },
+              ...scenario.request,
+            },
+          }),
+        },
+      });
+      const messages = await readFakeAppServerMessages(logPath);
+      if (scenario.error) {
+        assert.equal(result.status, "failed");
+        assert.equal(result.errorCode, scenario.error);
+        assert.equal(calls.length, 0);
+        assert.equal(
+          messages.some((message) => message.method === "turn/start"),
+          false
+        );
+        return;
+      }
+      assert.equal(result.status, "success");
+      const executed = scenario.native && !scenario.request;
+      assert.equal(calls.length, executed ? 1 : 0);
+      let threadMethod = scenario.existing ? "thread/resume" : "thread/start";
+      if (scenario.repair) {
+        threadMethod = "thread/fork";
+      }
+      const thread = messages.findLast(
+        (message) => message.method === threadMethod
+      );
+      assert.equal(
+        Boolean(thread.params.dynamicTools),
+        scenario.native && !scenario.existing
+      );
+      if (scenario.native) {
+        assert.equal(
+          scenario.deliveryOnly
+            ? thread.params.config.mcp_servers
+                .openmeld_internal_dispatch_space_action.enabled
+            : thread.params.config[
+                "mcp_servers.openmeld_internal_dispatch_space_action.enabled"
+              ],
+          false
+        );
+        if (executed) {
+          assert.deepEqual(calls[0], {
+            name: "reply",
+            args: { message: "I cannot access the repository." },
+          });
+        }
+      }
+      if (scenario.deliveryOnly) {
+        const turn = messages.find(
+          (message) => message.method === "turn/start"
+        ).params;
+        assert.deepEqual(turn.environments, []);
+        assert.equal(thread.params.config["agents.enabled"], false);
+        assert.equal(
+          thread.params.approvalPolicy,
+          scenario.mode === "codex:fullAccess" ? "never" : "on-request"
+        );
+        assert.equal(
+          thread.params.sandbox,
+          scenario.mode === "codex:fullAccess"
+            ? "danger-full-access"
+            : "workspace-write"
+        );
+        if (scenario.mode !== "codex:fullAccess") {
+          assert.equal(
+            thread.params.approvalsReviewer,
+            scenario.mode === "codex:approveForMe" ? "auto_review" : "user"
+          );
+        }
+      }
+      if (scenario.existing) {
+        assert.equal(
+          messages.some((message) => message.method === "thread/start"),
+          false
+        );
+        assert.equal(thread.params.threadId, threadId);
+      }
+      const callback = messages.find(
+        (message) =>
+          message.method === undefined && message.result?.success !== undefined
+      );
+      assert.equal(
+        callback.result.success,
+        Boolean(executed && !scenario.handlerThrows)
+      );
+      assert.equal(
+        messages.filter((message) => message.method === "turn/start").length,
+        1
+      );
+      if (scenario.rejectedDefinition) {
+        assert.equal(
+          messages.filter((message) => message.method === "thread/start")
+            .length,
+          2
+        );
+      }
+      if (scenario.policy) {
+        const argv = messages[0].argv.join("\n");
+        assert.equal(argv.includes(".disabled_tools=[]"), false);
+        assert.equal(
+          argv.includes('.default_tools_approval_mode="approve"'),
+          false
+        );
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
 
 const readFakeAppServerMethods = async (logPath) => {
   const text = await readFile(logPath, "utf8");
@@ -1115,7 +1660,9 @@ console.log(JSON.stringify({ type: "response.completed", response: { output_text
       "-s",
       "read-only",
       "-a",
-      "untrusted",
+      "on-request",
+      "-c",
+      'approvals_reviewer="user"',
       "exec",
       "--json",
       "--skip-git-repo-check",
@@ -1138,7 +1685,9 @@ console.log(JSON.stringify({ type: "response.completed", response: { output_text
       "-s",
       "read-only",
       "-a",
-      "untrusted",
+      "on-request",
+      "-c",
+      'approvals_reviewer="user"',
       "exec",
       "resume",
       "--json",
@@ -1427,6 +1976,17 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
       streamingMode: "final",
     });
     assert.equal(result.telemetry.contextCompactionObserved, true);
+    assert.equal(result.telemetry.aiUsage.length, 1);
+    assert.equal(result.telemetry.aiUsage[0].model, "gpt-5.5");
+    assert.deepEqual(result.telemetry.aiUsage[0].tokens, {
+      input: 1000,
+      output: 40,
+      cacheRead: 800,
+      cacheWrite: 0,
+      reasoning: 20,
+      total: 1060,
+    });
+    assert.equal(result.telemetry.aiUsage[0].cost, null);
     assert.deepEqual(result.telemetry.tokenUsage, {
       last: {
         cacheWriteInputTokens: 0,
@@ -1449,6 +2009,49 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("codex app-server reports required MCP startup failure as task setup", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-required-mcp-"));
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const originalError =
+    "error creating thread: required MCP servers failed to initialize: openmeld_internal_dispatch_space_action";
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    await assert.rejects(
+      invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: fixtureDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_REQUIRED_MCP_FAILURE: originalError,
+        },
+        prompt: "start the required task tools",
+        taskId: "task-required-mcp-failure",
+        threadId: null,
+      }),
+      (error) => {
+        assert.equal(
+          error.code,
+          "execution_context.mcp_server_initialization_failed"
+        );
+        assert.equal(error.errorType, "config");
+        assert.equal(error.rpcErrorCode, -32_603);
+        assert.equal(error.originalError, originalError);
+        assert.equal(
+          error.message,
+          "execution_context.mcp_server_initialization_failed: required tools could not start"
+        );
+        return true;
+      }
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
   }
 });
 
@@ -1622,9 +2225,6 @@ test(
           OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
         },
         prompt: "launch the official packaged native runtime",
-        // This is a real child-process startup under the full parallel suite.
-        // Keep the assertion bounded without making scheduler contention the test.
-        startupTimeoutMs: 3000,
         taskId: "task-native-runtime",
         threadId: null,
       });
@@ -2668,6 +3268,72 @@ test("codex adapter interrupts active app-server turns by task id", async () => 
   }
 });
 
+test("stop evidence records turnWasRunning=true when cancelled while turn/start is in flight", async () => {
+  const { createCodexAdapter, READ_CODEX_DISPATCH_STOP_EVIDENCE } =
+    await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-stop-ack-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-stop-ack-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const adapter = createCodexAdapter({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    const dispatchOutcome = adapter.dispatch({
+      agentControllerConversationId: "thread-stop-during-start",
+      agentId: "agt-demo",
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_TURN_START_RESPONSE_DELAY_MS: "300",
+      },
+      prompt: "continue",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-stop-during-start",
+      spaceId: "space-1",
+      taskId: "task-stop-during-start",
+      transportMode: "codex-app-server",
+    });
+
+    await waitForFakeAppServerMethod(logPath, "turn/start");
+    const controlResult = await adapter.cancel({
+      taskId: "task-stop-during-start",
+    });
+    await dispatchOutcome;
+
+    assert.equal(controlResult.accepted, true);
+    const stopEvidence = adapter[READ_CODEX_DISPATCH_STOP_EVIDENCE](
+      "task-stop-during-start"
+    );
+    assert.ok(stopEvidence, "stopEvidence should be recorded");
+    assert.equal(
+      stopEvidence.turnWasRunning,
+      true,
+      "turnWasRunning must be true when cancelled while turn/start is in flight"
+    );
+
+    // Repeated stop should not overwrite turnWasRunning to false
+    await adapter.cancel({
+      taskId: "task-stop-during-start",
+    });
+    const stopEvidenceAfter = adapter[READ_CODEX_DISPATCH_STOP_EVIDENCE](
+      "task-stop-during-start"
+    );
+    assert.equal(
+      stopEvidenceAfter.turnWasRunning,
+      true,
+      "repeated stop must preserve turnWasRunning=true"
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
 test("invokeCodexAppServerTransport preserves thread id when app-server turn completes without agent output", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-server-empty-"));
@@ -2790,6 +3456,7 @@ test("invokeCodexAppServer stops after one automatic startup retry", async () =>
       (error) =>
         error.code === "runtime.startup_timeout" &&
         error.errorType === "timeout" &&
+        error.originalError.includes("did not initialize") &&
         STARTUP_RETRY_FAILURE_RE.test(error.message)
     );
     const methods = await readFakeAppServerMethods(logPath);
@@ -2841,6 +3508,83 @@ test("codex app-server admission budgets allow cold start and resume", async () 
     50
   );
 });
+
+for (const handshakeFailures of [0, 1]) {
+  test(`invokeCodexAppServer does not retry an unacknowledged thread creation after ${handshakeFailures} handshake failures`, async () => {
+    const { invokeCodexAppServer } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(
+      join(tmpdir(), "codex-thread-create-timeout-")
+    );
+    const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+    const logPath = join(fixtureDir, "rpc-log.jsonl");
+    const processEvents = [];
+    await writeFakeCodexAppServerFixture(fixturePath);
+    await chmod(fixturePath, 0o755);
+    try {
+      await assert.rejects(
+        invokeCodexAppServer({
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          codexTimeoutMs: null,
+          codexWorkdir: fixtureDir,
+          controlRequestTimeoutMs: 100,
+          env: {
+            OPENMELD_FAKE_CODEX_APP_SERVER_HANG_STARTUP_ATTEMPTS:
+              String(handshakeFailures),
+            OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS: String(
+              handshakeFailures + 1
+            ),
+            OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: join(
+              fixtureDir,
+              "attempt.txt"
+            ),
+            OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+            OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_DIAGNOSTICS: "1",
+          },
+          onProcessControlEvent: (event) => processEvents.push(event),
+          prompt:
+            "never allocate a second thread after an unknown create outcome",
+          startupTimeoutMs: 500,
+          taskId: "task-thread-create-timeout",
+          threadId: null,
+        }),
+        (error) => {
+          assert.equal(error.code, "runtime.thread_start_timeout");
+          assert.ok(error.message.includes("thread/start"));
+          assert.ok(error.message.includes("mcp_manager_init"));
+          assert.ok(error.message.includes("mcpStartupStatus=starting"));
+          assert.equal(
+            error.originalError?.includes("did not initialize") ?? false,
+            handshakeFailures === 1
+          );
+          for (const secret of [
+            "private-test-secret",
+            "customer-repo",
+            "private-server",
+            "thread-private",
+          ]) {
+            assert.equal(error.message.includes(secret), false);
+          }
+          return true;
+        }
+      );
+      assert.deepEqual(await readFakeAppServerMethods(logPath), [
+        ...new Array(handshakeFailures).fill("initialize"),
+        "initialize",
+        "initialized",
+        "thread/start",
+      ]);
+      assert.deepEqual(
+        processEvents.map((event) => event.phase),
+        Array.from({ length: handshakeFailures + 1 }, () => [
+          "process_spawned",
+          "process_exit",
+        ]).flat()
+      );
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
 
 test("invokeCodexAppServer fails closed after an ambiguous resume timeout", async () => {
   const { invokeCodexAppServer } = await import("../dist/index.js");
@@ -3171,14 +3915,16 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
     assert.equal(forkParams.threadId, "thread-existing-repair-policy");
     assert.equal(forkParams.ephemeral, true);
     assert.equal(forkParams.cwd, dispatchDir);
-    assert.equal(forkParams.approvalPolicy, "untrusted");
+    assert.equal(forkParams.approvalPolicy, "on-request");
+    assert.equal(forkParams.approvalsReviewer, "user");
     assert.equal(forkParams.sandbox, "read-only");
     assert.equal(
       messages.some((message) => message.method === "thread/resume"),
       false
     );
     assert.equal(turnParams.threadId, "thread-fork-1");
-    assert.equal(turnParams.approvalPolicy, "untrusted");
+    assert.equal(turnParams.approvalPolicy, "on-request");
+    assert.equal(turnParams.approvalsReviewer, "user");
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
@@ -3503,7 +4249,7 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
     );
 
     await invokeCodexAppServerTransport({
-      agentControllerPermissionMode: "codex:approveForMe",
+      agentControllerPermissionMode: "codex:askForApproval",
       computerFileAccessBoundary: {
         folders: [boundedDispatchDir],
         mode: "only_selected_folders",
@@ -3531,6 +4277,16 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
       true
     );
     assert.equal(boundedThreadParams.approvalPolicy, "on-request");
+    assert.equal(boundedThreadParams.approvalsReviewer, "user");
+    assert.equal(
+      boundedMessages.find((message) => message.method === "turn/start").params
+        .approvalsReviewer,
+      "user"
+    );
+    assert.equal(
+      boundedMessages[0].argv.includes('approvals_reviewer="user"'),
+      true
+    );
     assert.equal("sandbox" in boundedThreadParams, false);
     assert.equal("sandboxPolicy" in boundedThreadParams, false);
   } finally {
@@ -3598,6 +4354,7 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
   await chmod(fixturePath, 0o755);
 
   try {
+    // A scoped fork has to prove the completed prefix it copies.
     await assert.rejects(
       forkCodexAppServerThread({
         launchContract: createNodeScriptLaunchContract(fixturePath),
@@ -3614,6 +4371,29 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
       }),
       FORK_CHECKPOINT_UNAVAILABLE_RE
     );
+    // So does an unscoped one: without a cutoff the child would inherit the
+    // source's whole history, including a turn that is still running.
+    await assert.rejects(
+      forkCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        sourceThreadId: "thread-source-1",
+      }),
+      FORK_CHECKPOINT_UNAVAILABLE_RE
+    );
+    // Copying everything is a decision the caller has to name.
+    await assert.rejects(
+      forkCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        forkFullHistory: true,
+        sourceCompletedTurnId: "turn-1",
+        sourceThreadId: "thread-source-1",
+      }),
+      FORK_BOUNDARY_CONFLICT_RE
+    );
     const result = await forkCodexAppServerThread({
       launchContract: createNodeScriptLaunchContract(fixturePath),
       codexTimeoutMs: 5000,
@@ -3621,15 +4401,26 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
       env: {
         OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
       },
+      forkFullHistory: true,
       sourceThreadId: "thread-source-1",
       title: "OpenMeld · Release Agent",
     });
     const messages = await readFakeAppServerMessages(logPath);
 
+    assert.deepEqual(
+      messages.find((message) => message.method === "thread/read").params,
+      { threadId: "thread-source-1", includeTurns: false }
+    );
     assert.equal(result.threadId, "thread-fork-1");
     assert.deepEqual(
       messages.map((message) => message.method),
-      ["initialize", "initialized", "thread/fork", "thread/name/set"]
+      [
+        "initialize",
+        "initialized",
+        "thread/read",
+        "thread/fork",
+        "thread/name/set",
+      ]
     );
     assert.deepEqual(
       messages.find((message) => message.method === "thread/fork").params,
@@ -3638,6 +4429,126 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
     assert.deepEqual(
       messages.find((message) => message.method === "thread/name/set").params,
       { name: "OpenMeld · Release Agent", threadId: "thread-fork-1" }
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("forkCodexAppServerThread sends the proven cutoff as lastTurnId", async () => {
+  const { forkCodexAppServerThread } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-fork-cutoff-"));
+  const dispatchDir = await mkdtemp(join(tmpdir(), "codex-fork-cutoff-cwd-"));
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const result = await forkCodexAppServerThread({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: 5000,
+      codexWorkdir: dispatchDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+      },
+      sourceCompletedTurnId: "turn-completed-7",
+      sourceThreadId: "thread-source-1",
+    });
+    const forkParams = (await readFakeAppServerMessages(logPath)).find(
+      (message) => message.method === "thread/fork"
+    ).params;
+
+    assert.equal(result.threadId, "thread-fork-1");
+    // The cutoff must reach the provider, and the copied child must inherit
+    // exactly that prefix rather than everything the source has stored.
+    assert.deepEqual(forkParams, {
+      excludeTurns: true,
+      lastTurnId: "turn-completed-7",
+      threadId: "thread-source-1",
+    });
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("resolveCodexAppServerCompletedTurn reads the last settled turn as a fork boundary", async () => {
+  const { resolveCodexAppServerCompletedTurn } = await import(
+    "../dist/index.js"
+  );
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-read-"));
+  const dispatchDir = await mkdtemp(join(tmpdir(), "codex-read-cwd-"));
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const result = await resolveCodexAppServerCompletedTurn({
+      codexTimeoutMs: 5000,
+      codexWorkdir: dispatchDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        // The source is mid-turn: the newest turn is not a boundary a fork may
+        // inherit, so the reader has to step back to the last completed one.
+        OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_READ_STATUSES: JSON.stringify([
+          "completed",
+          "inProgress",
+        ]),
+      },
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      threadId: "thread-source-mid-turn",
+    });
+    const readParams = (await readFakeAppServerMessages(logPath)).find(
+      (message) => message.method === "thread/read"
+    ).params;
+
+    assert.equal(result.completedTurnId, "turn-read-1");
+    assert.equal(result.threadId, "thread-source-mid-turn");
+    // Reading the source's history must not ask the provider for its writer.
+    assert.deepEqual(readParams, {
+      includeTurns: true,
+      threadId: "thread-source-mid-turn",
+    });
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("resolveCodexAppServerCompletedTurn refuses a source with no settled turn", async () => {
+  const { resolveCodexAppServerCompletedTurn } = await import(
+    "../dist/index.js"
+  );
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-read-empty-"));
+  const dispatchDir = await mkdtemp(join(tmpdir(), "codex-read-empty-cwd-"));
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    await assert.rejects(
+      resolveCodexAppServerCompletedTurn({
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_READ_STATUSES: JSON.stringify([
+            "inProgress",
+          ]),
+        },
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        threadId: "thread-source-all-in-flight",
+      }),
+      (error) =>
+        error?.code === "execution_context.fork_checkpoint_unavailable" &&
+        FORK_CHECKPOINT_UNAVAILABLE_RE.test(error.message)
     );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
@@ -3663,6 +4574,7 @@ test("codex withholds workspace quiescence when the process group remains presen
   });
   try {
     await forkCodexAppServerThread({
+      forkFullHistory: true,
       launchContract: createNodeScriptLaunchContract(fixture),
       codexTimeoutMs: 5000,
       codexWorkdir: directory,
@@ -3836,53 +4748,64 @@ test("adapter-codex default wait delays force escalation", async () => {
   assert.deepEqual(observedWaits, [expectedEscalationDelayMs]);
 });
 
-test("adapter-codex reuses one exact file access capability attestation", async () => {
-  const { createCodexAdapter } = await import("../dist/index.js");
-  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-boundary-probe-"));
-  const fixturePath = join(fixtureDir, "codex-boundary-probe.mjs");
-  const probeLogPath = join(fixtureDir, "probe-log.txt");
-  await writeFile(
-    fixturePath,
-    [
-      "#!/usr/bin/env node",
-      "import { appendFileSync } from 'node:fs';",
-      `appendFileSync(${JSON.stringify(probeLogPath)}, "probe\\n", "utf8");`,
-      "process.exit(0);",
-    ].join("\n"),
-    "utf8"
-  );
-  await chmod(fixturePath, 0o755);
+for (const probeExit of [0, 2]) {
+  test(`adapter-codex caches path-free file access attestation (probe exit ${probeExit})`, async () => {
+    const { createCodexAdapter } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-boundary-probe-"));
+    const fixturePath = join(fixtureDir, "codex-boundary-probe.mjs");
+    const probeLogPath = join(fixtureDir, "probe-log.txt");
+    await writeFile(
+      fixturePath,
+      [
+        "#!/usr/bin/env node",
+        "import { appendFileSync } from 'node:fs';",
+        `appendFileSync(${JSON.stringify(probeLogPath)}, "probe\\n", "utf8");`,
+        `if (process.argv.includes('--strict-config')) { console.error(${JSON.stringify(`Rejected private configuration at ${fixtureDir}`)}); process.exit(${probeExit}); }`,
+        "process.exit(0);",
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fixturePath, 0o755);
 
-  try {
-    const adapter = createCodexAdapter({
-      launchContract: createNodeScriptLaunchContract(fixturePath),
-    });
-    const request = {
-      agentControllerPermissionMode: "codex:askForApproval",
-      boundary: {
-        folders: [fixtureDir],
-        mode: "only_selected_folders",
-        revision: 2,
-        updatedAtMs: 100,
-      },
-      executionMode: "normal",
-      launchContract: createNodeScriptLaunchContract(fixturePath),
-      transportMode: "local-cli",
-      workingDirectory: fixtureDir,
-    };
+    try {
+      const adapter = createCodexAdapter({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+      });
+      const request = {
+        agentControllerPermissionMode: "codex:askForApproval",
+        boundary: {
+          folders: [fixtureDir],
+          mode: "only_selected_folders",
+          revision: 2,
+          updatedAtMs: 100,
+        },
+        executionMode: "normal",
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        transportMode: "local-cli",
+        workingDirectory: fixtureDir,
+      };
 
-    assert.deepEqual(await adapter.verifyComputerFileAccessBoundary(request), {
-      supported: true,
-    });
-    const firstAttestationLog = await readFile(probeLogPath, "utf8");
-    assert.deepEqual(await adapter.verifyComputerFileAccessBoundary(request), {
-      supported: true,
-    });
-    assert.equal(await readFile(probeLogPath, "utf8"), firstAttestationLog);
-  } finally {
-    await rm(fixtureDir, { force: true, recursive: true });
-  }
-});
+      const expected =
+        probeExit === 0
+          ? { supported: true }
+          : {
+              supported: false,
+              reasonCode: "computer.file_access.launch_rejected",
+            };
+      const result = await adapter.verifyComputerFileAccessBoundary(request);
+      assert.deepEqual(result, expected);
+      assert.equal(JSON.stringify(result).includes(fixtureDir), false);
+      const firstAttestationLog = await readFile(probeLogPath, "utf8");
+      assert.deepEqual(
+        await adapter.verifyComputerFileAccessBoundary(request),
+        expected
+      );
+      assert.equal(await readFile(probeLogPath, "utf8"), firstAttestationLog);
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
 
 test("codex cli transport maps auth failures from stdout events", async () => {
   const { invokeCodexCliTransport } = await import("../dist/index.js");

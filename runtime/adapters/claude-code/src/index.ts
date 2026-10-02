@@ -104,7 +104,11 @@ export {
   ClaudeCliTransportError,
   invokeClaudeCliTransport,
 } from "./transport/claude-cli-transport.js";
-export { projectClaudeCodeUsageLimits } from "./usage/claude-code-usage-limits.js";
+export {
+  projectClaudeCodeAccountUsageLimits,
+  projectClaudeCodeUsageLimits,
+} from "./usage/claude-code-usage-limits.js";
+export { probeClaudeCodeUsageLimits } from "./usage/claude-code-usage-probe.js";
 
 const CLAUDE_CODE_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("claude-code");
@@ -291,6 +295,7 @@ const resolveDefaultClaudeCodeInvoke = (input: {
         }
       : undefined;
     const result = await invokeClaudeWithSingleContextHealLocal({
+      spaceActionTools: dispatchInput.spaceActionTools,
       executionContext: dispatchInput.executionContext,
       agentControllerPermissionMode:
         dispatchInput.agentControllerPermissionMode,

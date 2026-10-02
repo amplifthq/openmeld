@@ -2,13 +2,13 @@ import { useElementScrollRestoration } from "@tanstack/react-router";
 import {
 	type RefObject,
 	useCallback,
-	useEffectEvent,
 	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { getAppScrollRestorationKey } from "#/lib/app-scroll-restoration";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import {
 	readSpaceConversationPosition,
 	type SpaceConversationPosition,
@@ -16,6 +16,8 @@ import {
 } from "#/lib/space-conversation-position";
 
 const TOP_OVERLAY_HEIGHT_PROPERTY = "--space-conversation-top-overlay-height";
+
+export type SpaceConversationRestorationStatus = "restoring" | "ready";
 
 export function getSpaceConversationVisibleTop(
 	viewport: HTMLDivElement
@@ -68,12 +70,7 @@ export function resolveSpaceConversationPosition(
 
 export function useSpaceConversationPosition(input: {
 	historyIsPending: boolean;
-	hasEarlierHistory: boolean;
-	isLoadingEarlierHistory: boolean;
 	historyVersion: unknown;
-	onLoadEarlierHistory: () => Promise<void>;
-	onLoadHistoryAround?: ((id: string) => Promise<boolean>) | undefined;
-	historyError: string | null;
 	hasExplicitFocus: boolean;
 	messageElementsRef: RefObject<Map<string, HTMLElement>>;
 	restorationId: string;
@@ -88,7 +85,7 @@ export function useSpaceConversationPosition(input: {
 	// Restoration reads the entry at mount, not the cache updated by scrolling.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: A new viewport starts a new restoration session.
 	const initialRouterEntry = useMemo(
-		() => routerEntry,
+		() => (routerEntry ? { scrollY: routerEntry.scrollY } : undefined),
 		[positionKey, input.viewport]
 	);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: A remounted viewport must read the position saved by its previous instance.
@@ -99,14 +96,24 @@ export function useSpaceConversationPosition(input: {
 	const shouldRestore =
 		!input.hasExplicitFocus &&
 		Boolean(rememberedPosition || initialRouterEntry);
+	const [restoration, setRestoration] = useState<{
+		key: string;
+		status: SpaceConversationRestorationStatus;
+	}>({
+		key: positionKey,
+		status: shouldRestore ? "restoring" : "ready",
+	});
+	const restorationStatus =
+		restoration.key === positionKey
+			? restoration.status
+			: initialRestorationStatus(shouldRestore);
 	const saveRef = useRef<() => void>(() => undefined);
 	const releaseRef = useRef<() => void>(() => undefined);
-	const loadingRef = useRef(false);
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const loadHistory = useEffectEvent(() =>
-		loadSavedHistory(input, rememberedPosition)
-	);
 	const releasedKeyRef = useRef<string | null>(null);
+	const restorationReadyKeyRef = useRef<string | null>(
+		restorationStatus === "ready" ? positionKey : null
+	);
 	const viewportRef = useRef<HTMLDivElement | null>(null);
 	const [followingViewport, setFollowingViewport] =
 		useState<HTMLDivElement | null>(null);
@@ -117,7 +124,8 @@ export function useSpaceConversationPosition(input: {
 		if (!viewport) {
 			return;
 		}
-		if (viewportRef.current !== viewport) {
+		const isNewViewport = viewportRef.current !== viewport;
+		if (isNewViewport) {
 			viewportRef.current = viewport;
 			releasedKeyRef.current = null;
 		}
@@ -125,6 +133,20 @@ export function useSpaceConversationPosition(input: {
 		let ready = false;
 		let protectedAnchor =
 			shouldRestore && releasedKeyRef.current !== positionKey;
+		if (isNewViewport || restoration.key !== positionKey) {
+			const status = protectedAnchor ? "restoring" : "ready";
+			restorationReadyKeyRef.current = status === "ready" ? positionKey : null;
+			recordReactUpdate("conversation_position_restore");
+			setRestoration({ key: positionKey, status });
+		}
+		const markReady = () => {
+			if (restorationReadyKeyRef.current === positionKey) {
+				return;
+			}
+			restorationReadyKeyRef.current = positionKey;
+			recordReactUpdate("conversation_position_ready");
+			setRestoration({ key: positionKey, status: "ready" });
+		};
 		const save = () => {
 			if (!ready || input.historyIsPending || protectedAnchor) {
 				return;
@@ -135,26 +157,6 @@ export function useSpaceConversationPosition(input: {
 			}
 		};
 		saveRef.current = save;
-		const requestEarlierHistory = () => {
-			if (
-				input.isLoadingEarlierHistory ||
-				loadingRef.current ||
-				input.historyError
-			) {
-				return;
-			}
-			loadingRef.current = true;
-			loadHistory()
-				.catch((error: unknown) => {
-					console.error(
-						"Failed to load the saved Space reading position.",
-						error
-					);
-				})
-				.finally(() => {
-					loadingRef.current = false;
-				});
-		};
 		const restore = () => {
 			if (disposed || input.historyIsPending) {
 				return;
@@ -168,11 +170,11 @@ export function useSpaceConversationPosition(input: {
 						rememberedPosition.anchorSignalId
 					)
 				: undefined;
-			const waitingForAnchor = Boolean(rememberedPosition && !anchor);
-			const canLoadAnchor =
-				input.hasEarlierHistory || input.isLoadingEarlierHistory;
-			if (waitingForAnchor && canLoadAnchor) {
-				requestEarlierHistory();
+			if (rememberedPosition && !anchor) {
+				// A saved coordinate without its cached message is not useful enough to
+				// block or later move the reader. The bounded Space history cache owns
+				// instant restoration; an evicted anchor falls back to the live view.
+				release();
 				return;
 			}
 			alignReadingPosition(
@@ -182,11 +184,13 @@ export function useSpaceConversationPosition(input: {
 				ready ? undefined : initialRouterEntry?.scrollY
 			);
 			ready = true;
+			markReady();
 		};
 		const release = () => {
 			protectedAnchor = false;
 			releasedKeyRef.current = positionKey;
 			ready = !input.historyIsPending;
+			markReady();
 		};
 		releaseRef.current = release;
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -240,12 +244,11 @@ export function useSpaceConversationPosition(input: {
 	}, [
 		input.viewport,
 		input.historyIsPending,
-		input.hasEarlierHistory,
-		input.isLoadingEarlierHistory,
 		input.historyVersion,
-		input.historyError,
 		input.messageElementsRef,
 		positionKey,
+		restoration.key,
+		restoration.status,
 		rememberedPosition,
 		initialRouterEntry,
 		shouldRestore,
@@ -262,6 +265,7 @@ export function useSpaceConversationPosition(input: {
 				releasedKeyRef.current === positionKey &&
 				viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 12
 			) {
+				recordReactUpdate("conversation_position_follow");
 				setFollowingViewport(viewport);
 			}
 		},
@@ -278,11 +282,13 @@ export function useSpaceConversationPosition(input: {
 	);
 	const followLatest = useCallback(() => {
 		releaseRef.current();
+		recordReactUpdate("conversation_position_follow");
 		setFollowingViewport(input.viewport);
 	}, [input.viewport]);
 	const releaseReadingPosition = useCallback(() => releaseRef.current(), []);
 	return {
 		releaseReadingPosition,
+		restorationStatus,
 		followLatest,
 		autoScroll:
 			!shouldRestore ||
@@ -293,6 +299,12 @@ export function useSpaceConversationPosition(input: {
 		onScroll: scheduleSave,
 		onScrollEnd: save,
 	};
+}
+
+function initialRestorationStatus(
+	shouldRestore: boolean
+): SpaceConversationRestorationStatus {
+	return shouldRestore ? "restoring" : "ready";
 }
 
 function alignReadingPosition(
@@ -314,17 +326,4 @@ function alignReadingPosition(
 			Math.max(0, viewport.scrollHeight - viewport.clientHeight)
 		);
 	}
-}
-
-function loadSavedHistory(
-	input: {
-		onLoadEarlierHistory: () => Promise<void>;
-		onLoadHistoryAround?: ((id: string) => Promise<boolean>) | undefined;
-	},
-	position: SpaceConversationPosition | null
-) {
-	if (position && input.onLoadHistoryAround) {
-		return input.onLoadHistoryAround(position.anchorSignalId);
-	}
-	return input.onLoadEarlierHistory();
 }

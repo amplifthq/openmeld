@@ -1,5 +1,6 @@
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import {
+  agentProfileCreationIntentSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentProfileCreationRequestSelectorSchema,
   centerAgentCreateConfiguredAgentProfileBodySchema,
@@ -36,6 +37,7 @@ import type {
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetCurrentAgentProfileWorkspaceResponse,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { resolveAgentActivitySessionInventoryExecutionSelection } from "../agent-activity/activity-session-inventory-repository";
 import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { projectCenterAgentLocalAgentConnectionCandidates } from "../center-agent/application/product-operations";
@@ -58,6 +60,10 @@ import {
 import { scheduleAgentProfileCreation } from "./agent-profile-creation-execution";
 import { evaluateAgentProfileCreationModelGuard } from "./agent-profile-creation-model-guard";
 import { runAgentProfileCreationPostBindingFollowUps } from "./agent-profile-creation-post-binding-follow-ups";
+import {
+  checkpointAgentProfileCreationPostBindingStep,
+  readAgentProfileCreationPostBindingProgress,
+} from "./agent-profile-creation-post-binding-progress";
 import { createD1AgentProfileCreationRequestInboxProjectionService } from "./agent-profile-creation-request-inbox-projection";
 import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
 import {
@@ -161,24 +167,25 @@ export async function rpcCenterAgentCreateAgentProfileCreationRequest(
       organizationId: prepared.organizationId,
       targetOwnerUserId: input.targetOwnerUserId,
     });
-  return await rpcCreateAgentProfileCreationRequest(env, {
+  const body = {
     configuration,
-    context: prepared.context,
-    idempotencyKey: await buildCenterAgentCreationRequestIdempotencyKey({
-      configuration,
-      context: prepared.context,
-      nativeSessionId: input.nativeSessionId ?? null,
-      profileName: input.profileName,
-      sessionStrategy: input.sessionStrategy,
-      targetOwnerUserId: input.targetOwnerUserId,
-    }),
     nativeSessionId: input.nativeSessionId,
-    organizationId: prepared.organizationId,
     profileName: input.profileName,
     requestedSpaceId: input.requestedSpaceId,
     sessionStrategy: input.sessionStrategy,
-    source: "center_agent",
+    source: "center_agent" as const,
     targetOwnerUserId: input.targetOwnerUserId,
+  };
+  return await rpcCreateAgentProfileCreationRequest(env, {
+    ...body,
+    context: prepared.context,
+    idempotencyKey: await resolveCenterAgentCreationRequestIdempotencyKey({
+      body,
+      context: prepared.context,
+      db: requireDb(env),
+      organizationId: prepared.organizationId,
+    }),
+    organizationId: prepared.organizationId,
   });
 }
 
@@ -191,6 +198,12 @@ async function resolveCenterAgentProfileCreationRequestConfiguration(input: {
 }): Promise<AgentProfileCreationConfiguration | undefined> {
   if (!input.localAgentConnectionCandidateId) {
     return input.configuration;
+  }
+  if (
+    input.configuration?.agentControllerRef ===
+    HOSTED_REMOTE_AGENT_CONTROLLER_REF
+  ) {
+    throw invalidPayload("Choose Remote or a Local Agent candidate, not both.");
   }
   const targetContext = await buildMemberHumanContext({
     env: input.env,
@@ -660,21 +673,63 @@ async function prepareCenterAgentRepresentedMemberRequest(input: {
   };
 }
 
-async function buildCenterAgentCreationRequestIdempotencyKey(input: {
-  configuration?: AgentProfileCreationConfiguration;
+async function resolveCenterAgentCreationRequestIdempotencyKey(input: {
+  body: Omit<CreateAgentProfileCreationRequestBody, "idempotencyKey">;
   context: OpenMeldRequestContext;
-  nativeSessionId: string | null;
-  profileName: string;
-  sessionStrategy: AgentProfileCreationSessionStrategy;
-  targetOwnerUserId: string;
+  db: D1Database;
+  organizationId: string;
+}): Promise<string> {
+  // The intent owner drops transport fields, including this placeholder key.
+  // Hash exactly what replay equality compares, including the target Space.
+  const intent = agentProfileCreationIntentSchema.safeParse({
+    ...input.body,
+    idempotencyKey: "center-agent",
+  });
+  if (!intent.success) {
+    throw invalidPayload(intent.error.issues[0]?.message);
+  }
+  const requestId = input.context.actorContext.requestId;
+  const fingerprint = await digestCanonicalJson({
+    requestId,
+    intent: intent.data,
+  });
+  const legacyKey =
+    await buildLegacyCenterAgentCreationRequestIdempotencyKey(input);
+  const legacy = await createD1AgentProfileCreationRequestRepository(
+    input.db
+  ).findByIdempotencyKey({
+    idempotencyKey: legacyKey,
+    organizationId: input.organizationId,
+    requesterUserId: requireCallerUserId(input.context),
+  });
+  // The old key omitted Space. Reuse only an exact, actor-bound intent; the
+  // normal service still authorizes and replays the existing durable request.
+  if (
+    legacy &&
+    legacy.actorProfileId === input.context.actorContext.openMeldProfileId &&
+    (await digestCanonicalJson({
+      requestId,
+      intent: agentProfileCreationIntentSchema.parse(legacy),
+    })) === fingerprint
+  ) {
+    return legacyKey;
+  }
+  return `center-agent:agent-profile-request:${fingerprint}`;
+}
+
+// Lookup-only compatibility for persisted pre-canonical requests. Keep the
+// original field order and omitted-value behavior; never create with this key.
+async function buildLegacyCenterAgentCreationRequestIdempotencyKey(input: {
+  body: Omit<CreateAgentProfileCreationRequestBody, "idempotencyKey">;
+  context: OpenMeldRequestContext;
 }): Promise<string> {
   const payload = JSON.stringify({
-    configuration: input.configuration,
-    nativeSessionId: input.nativeSessionId,
-    profileName: input.profileName,
+    configuration: input.body.configuration,
+    nativeSessionId: input.body.nativeSessionId ?? null,
+    profileName: input.body.profileName,
     requestId: input.context.actorContext.requestId,
-    sessionStrategy: input.sessionStrategy,
-    targetOwnerUserId: input.targetOwnerUserId,
+    sessionStrategy: input.body.sessionStrategy,
+    targetOwnerUserId: input.body.targetOwnerUserId,
   });
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -778,6 +833,7 @@ async function completeRequestedAgentProfileSetup(input: {
       createdByProfileId: input.request.actorProfileId,
       db: requireDb(input.env),
       modelId: input.request.configuration.modelId,
+      reasoningLevel: input.request.configuration.reasoningLevel,
       organizationId: input.request.organizationId,
       ownerUserId: input.request.targetOwnerUserId,
     });
@@ -902,7 +958,22 @@ async function connectRequestedAgentProfile(input: {
       `OpenMeld couldn't connect the selected local agent: ${binding.reasonCodes.join(", ") || "unknown reason"}.`
     );
   }
+  const progress = await readAgentProfileCreationPostBindingProgress({
+    agentProfileId: input.agentProfileId,
+    db: requireDb(input.env),
+    profileCreationAttempt: input.request.profileCreationAttempt,
+    requestId: input.request.id,
+  });
   await runAgentProfileCreationPostBindingFollowUps({
+    checkpoint: async (step) =>
+      await checkpointAgentProfileCreationPostBindingStep({
+        agentProfileId: input.agentProfileId,
+        db: requireDb(input.env),
+        profileCreationAttempt: input.request.profileCreationAttempt,
+        requestId: input.request.id,
+        step,
+      }),
+    completed: progress,
     setWorkspace: async () =>
       await rpcSetCurrentAgentProfileWorkspace(input.env, {
         agentProfileId: input.agentProfileId,

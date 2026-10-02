@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import type {
   OpenMeldSpaceEgressAction,
+  SpaceMessageFileReference,
   SpaceStatus,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
@@ -12,6 +13,7 @@ import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
 import {
   type DispatchSpaceActionContext,
   type DispatchSpaceActionRecord,
+  DispatchSpaceActionRejectedError,
   type DispatchSpaceActionSendTargetReference,
   readDispatchSpaceActionContextForReceiptFromEnv,
   readDispatchSpaceActionContextFromEnv,
@@ -40,6 +42,7 @@ export function runSpaceActionReply(input: {
   filePaths?: readonly string[];
   messageFilePath?: string;
   messageParts: readonly string[];
+  placement?: "conversation" | "thread";
   mentionTargets?: readonly string[];
   referenceTargets?: readonly string[];
   wakeTargets?: readonly string[];
@@ -49,6 +52,7 @@ export function runSpaceActionReply(input: {
     filePaths: input.filePaths,
     messagePartCount: input.messageParts.length,
     mentionTargets: input.mentionTargets,
+    placement: input.placement,
     referenceTargets: input.referenceTargets,
     text,
     wakeTargets: input.wakeTargets,
@@ -62,9 +66,12 @@ export function runSpaceActionReply(input: {
 }
 
 export function recordDispatchSpaceReply(input: {
+  env?: NodeJS.ProcessEnv;
+  files?: readonly SpaceMessageFileReference[];
   filePaths?: readonly string[];
   messagePartCount?: number;
   mentionTargets?: readonly string[];
+  placement?: "conversation" | "thread";
   referenceTargets?: readonly string[];
   text: string;
   wakeTargets?: readonly string[];
@@ -80,12 +87,18 @@ export function recordDispatchSpaceReply(input: {
     wakeTargetCount: input.wakeTargets?.length ?? 0,
   });
   const filePaths = input.filePaths ?? [];
+  if (filePaths.length && input.files?.length) {
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.invalid_input",
+      "Choose uploaded paths or saved file revisions for this reply."
+    );
+  }
   // Uploading a file is a new effect. Expired contexts may recover an exact
   // already-recorded action, but never perform an upload to reconstruct one.
   const context =
     filePaths.length > 0
-      ? readDispatchSpaceActionContextFromEnv()
-      : readDispatchSpaceActionContextForReceiptFromEnv();
+      ? readDispatchSpaceActionContextFromEnv(input.env)
+      : readDispatchSpaceActionContextForReceiptFromEnv(input.env);
   timing.emit("context_ready", context);
   assertAllowedAction(context, "post_message");
   const text = normalizeRequiredText(input.text, "Reply message is required.");
@@ -104,8 +117,9 @@ export function recordDispatchSpaceReply(input: {
   if (filePaths.length === 0) {
     return writeSpaceActionReplyRecord({
       context,
-      files: [],
+      files: input.files ? [...input.files] : [],
       targetIds,
+      placement: input.placement,
       text,
       timing,
     });
@@ -114,6 +128,7 @@ export function recordDispatchSpaceReply(input: {
     context,
     filePaths,
     targetIds,
+    placement: input.placement,
     text,
     timing,
   });
@@ -150,6 +165,7 @@ async function uploadAndRecordSpaceActionReply(input: {
     mentionTargets: string[];
     referenceTargets: string[];
   };
+  placement?: "conversation" | "thread";
   text: string;
   timing: ReturnType<typeof createSpaceActionReplyTiming>;
 }): Promise<DispatchSpaceActionRecord> {
@@ -168,11 +184,13 @@ function writeSpaceActionReplyRecord(input: {
     mentionTargets: string[];
     referenceTargets: string[];
   };
+  placement?: "conversation" | "thread";
   text: string;
   timing: ReturnType<typeof createSpaceActionReplyTiming>;
 }): DispatchSpaceActionRecord {
   const action: OpenMeldSpaceEgressAction = {
     type: "post_message",
+    ...(input.placement ? { placement: input.placement } : {}),
     ...(input.files.length > 0 ? { files: [...input.files] } : {}),
     messageEnvelope: {
       activationTargets: input.targetIds.activationTargets,
@@ -264,6 +282,7 @@ export function runSpaceActionStatus(input: {
   emitActionRecorded(record);
 }
 
+/** Legacy CLI/in-flight compatibility only; not offered to current Agent tool catalogs. */
 export function recordDispatchSpaceStatus(input: {
   status: string;
   text: string;
@@ -286,9 +305,10 @@ export function runSpaceActionSilent(input: { reason?: string | null }): void {
 }
 
 export function recordDispatchSpaceSilent(input: {
+  env?: NodeJS.ProcessEnv;
   reason?: string | null;
 }): DispatchSpaceActionRecord {
-  const context = readDispatchSpaceActionContextForReceiptFromEnv();
+  const context = readDispatchSpaceActionContextForReceiptFromEnv(input.env);
   assertAllowedAction(context, "stay_silent");
   const reason = normalizeRequiredText(
     input.reason,
@@ -379,13 +399,6 @@ export function runSpaceActionHelp(): void {
     formatSpaceActionHelpExample(
       "Reply and mention a person",
       'reply --mention <human-profile-id> "message"',
-      context
-    )
-  );
-  outLine(
-    formatSpaceActionHelpExample(
-      "Final status",
-      'status done "short completion update"',
       context
     )
   );
@@ -545,13 +558,15 @@ function assertDistinctMessageEnvelopeTargets(input: {
         continue;
       }
       if (existingRelation === relation) {
-        throw new Error(
+        throw new DispatchSpaceActionRejectedError(
+          "space_action.invalid_input",
           `The same target (${profileId}) was listed more than once as ${formatRelation(
             relation
           )}. Choose it once, or send separate messages.`
         );
       }
-      throw new Error(
+      throw new DispatchSpaceActionRejectedError(
+        "space_action.invalid_input",
         `The same target (${profileId}) cannot be both ${formatRelation(
           existingRelation
         )} and ${formatRelation(
@@ -568,7 +583,10 @@ function assertAllowedAction(
 ): void {
   const allowedActions = context.spaceContractSnapshot?.allowedActions ?? null;
   if (allowedActions && !allowedActions.includes(actionType)) {
-    throw new Error(`This Space does not allow ${actionType}.`);
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.not_allowed",
+      `This Space does not allow ${actionType}. Do not retry it through another tool or transport.`
+    );
   }
 }
 
@@ -622,13 +640,15 @@ function resolveTargetProfileId(input: {
     (target) => target.profileId === query
   );
   if (!selected) {
-    throw new Error(
-      `No current Space target has Profile ID "${query}". Run openmeld space action targets and use the full Profile ID.`
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.invalid_input",
+      `No current Space target has Profile ID "${query}". Use a full Profile ID from this Wake's current send target reference, or omit the target for a plain reply.`
     );
   }
   if (!selected.allowedRelations[input.relation]) {
-    throw new Error(
-      `${formatRelation(input.relation)} is not allowed for ${selected.primaryMentionLabel}.`
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.not_allowed",
+      `${formatRelation(input.relation)} is not allowed for ${selected.primaryMentionLabel}. Do not bypass this restriction through another transport.`
     );
   }
   return selected.profileId;
@@ -640,8 +660,9 @@ function requireLoadedTargets(
   if (targetReference.status === "loaded") {
     return targetReference;
   }
-  throw new Error(
-    `Current Space targets are not available for this dispatch: ${targetReference.errorMessage}`
+  throw new DispatchSpaceActionRejectedError(
+    "space_action.targets_unavailable",
+    `Current Space targets are not available for this dispatch: ${targetReference.errorMessage}. Do not guess recipients. A plain reply needs no recipients.`
   );
 }
 
@@ -677,7 +698,10 @@ function normalizeRequiredText(
 ): string {
   const normalized = String(value ?? "").trim();
   if (normalized.length === 0) {
-    throw new Error(errorMessage);
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.invalid_input",
+      errorMessage
+    );
   }
   return normalized;
 }

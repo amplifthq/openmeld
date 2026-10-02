@@ -127,7 +127,7 @@ export function InboxViewContent(input: {
 	);
 }
 
-function InboxInfiniteScrollTrigger(input: {
+export function InboxInfiniteScrollTrigger(input: {
 	onLoadMore: () => Promise<unknown>;
 	state: InboxLoadMoreState;
 }) {
@@ -271,7 +271,7 @@ function compareInboxAttention(left: InboxItem, right: InboxItem): number {
 	return right.occurredAt.localeCompare(left.occurredAt);
 }
 
-function InboxListSkeleton() {
+export function InboxListSkeleton() {
 	return (
 		<div
 			aria-busy="true"
@@ -295,15 +295,24 @@ function InboxListSkeleton() {
 	);
 }
 
-function InboxEmptyState(input: { view: InboxView; unreadOnly?: boolean }) {
-	const copy = resolveInboxEmptyStateCopy(input.view, input.unreadOnly);
+export function InboxEmptyState(input: {
+	view: InboxView;
+	unreadOnly?: boolean;
+	filtered?: boolean;
+}) {
+	const copy = input.filtered
+		? {
+				title: "No matching items",
+				description: "Try different filters to see more activity.",
+			}
+		: resolveInboxEmptyStateCopy(input.view, input.unreadOnly);
 	return (
 		<div className="flex min-h-60 flex-col items-center justify-center rounded-md border border-border/70 bg-card px-6 py-12 text-center">
 			<span className="grid size-10 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground">
 				<TrayIcon aria-hidden="true" className="size-4" />
 			</span>
 			<h2 className="mt-4 font-medium text-foreground text-sm">{copy.title}</h2>
-			<p className="mt-1 max-w-sm text-muted-foreground text-sm leading-6">
+			<p className="mt-1 max-w-lg text-muted-foreground text-sm leading-6">
 				{copy.description}
 			</p>
 		</div>
@@ -328,16 +337,22 @@ function resolveInboxEmptyStateCopy(
 			title: titles[view as keyof typeof titles] ?? "No unread items",
 		};
 	}
+	if (view === "mentions") {
+		return {
+			title: "No mentions",
+			description:
+				"Messages that explicitly mention you or your personal Agents appear here.",
+		};
+	}
 	if (view === "needs_review") {
 		return {
 			title: "No pending reviews",
-			description: "Requests you can approve or decline will appear here.",
+			description: "Requests to approve or decline appear here.",
 		};
 	}
 	if (view === "needs_action") {
 		return {
-			description:
-				"Requests that need a response or recovery will appear here.",
+			description: "Requests and recovery steps appear here.",
 			title: "No pending actions",
 		};
 	}
@@ -347,7 +362,7 @@ function resolveInboxEmptyStateCopy(
 	};
 }
 
-function InboxInitialError(input: { onRetry: () => Promise<unknown> }) {
+export function InboxInitialError(input: { onRetry: () => Promise<unknown> }) {
 	return (
 		<div
 			className="flex min-h-60 flex-col items-center justify-center rounded-md border border-border/70 bg-card px-6 py-12 text-center"

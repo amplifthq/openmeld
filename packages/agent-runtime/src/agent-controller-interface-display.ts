@@ -96,6 +96,10 @@ export function createAgentControllerInterfaceDisplayRows(
       value: snapshot.message,
     });
   }
+  const launchIssue = resolveAgentControllerLaunchIssue(snapshot);
+  if (launchIssue && !snapshot.message) {
+    rows.splice(1, 0, { label: "Message", value: launchIssue });
+  }
   if (
     snapshot.versionAdvisory?.status === "behind_latest" &&
     snapshot.versionAdvisory.updateCommand
@@ -118,6 +122,10 @@ export function resolveAgentControllerInterfaceDescription(input: {
   if (!input.snapshot) {
     return input.displayDescription;
   }
+  const launchIssue = resolveAgentControllerLaunchIssue(input.snapshot);
+  if (launchIssue) {
+    return launchIssue;
+  }
   if (input.snapshot.check?.status === "failed") {
     return `${input.snapshot.displayName} check is delayed. OpenMeld will retry automatically.`;
   }
@@ -136,6 +144,17 @@ export function resolveAgentControllerInterfaceDescription(input: {
   }
   if (input.snapshot.message) {
     return input.snapshot.message;
+  }
+  if (
+    input.snapshot.check?.status === "succeeded" &&
+    input.snapshot.auth.status === "unknown" &&
+    input.snapshot.status === "warning" &&
+    input.snapshot.usageLimits?.length &&
+    input.snapshot.usageLimits.every((limit) => limit.status === "unsupported")
+  ) {
+    // Cloud snapshots intentionally omit private diagnostic messages. Explain
+    // unavailable automatic checks from the public evidence, not sign-in guesses.
+    return `OpenMeld cannot automatically check sign-in status or usage limits for ${input.snapshot.displayName}. Check them directly in the agent's app or CLI.`;
   }
   if (input.snapshot.status === "ready") {
     return "OpenMeld can launch this controller on this computer.";
@@ -316,6 +335,22 @@ function formatAgentControllerNativeInterface(
   }
 }
 
+function resolveAgentControllerLaunchIssue(
+  snapshot: AgentControllerInterfaceSnapshot
+): string | null {
+  if (snapshot.launch.status !== "needs_repair") {
+    return null;
+  }
+  switch (snapshot.launch.failureReason) {
+    case "installation_missing":
+      return "The selected installation is no longer at its saved location. Choose an available installation, or reinstall the app and check again.";
+    case "installation_access_denied":
+      return "OpenMeld does not have permission to start the selected installation. Check its file permissions or choose another installation.";
+    default:
+      return "OpenMeld could not start the selected installation. Choose another installation or check it on this computer.";
+  }
+}
+
 function formatAgentControllerLaunch(
   snapshot: AgentControllerInterfaceSnapshot
 ): string {
@@ -323,7 +358,6 @@ function formatAgentControllerLaunch(
   if (snapshot.launch.commandPath) {
     parts.push(snapshot.launch.commandPath);
   }
-  appendLocalInstallCount(parts, snapshot.launch.installChoiceCount);
   return parts.join(" · ");
 }
 
@@ -337,16 +371,7 @@ function formatAgentControllerOperationalLaunchParts(
   snapshot: Pick<OrganizationComputerLocalAgentDetails, "launch">
 ): string[] {
   const parts = [formatLocalAgentLaunchStatus(snapshot.launch.status)];
-  appendLocalInstallCount(parts, snapshot.launch.installChoiceCount);
   return parts;
-}
-
-function appendLocalInstallCount(parts: string[], count: number): void {
-  if (count > 0) {
-    parts.push(
-      count === 1 ? "1 local install found" : `${count} local installs found`
-    );
-  }
 }
 
 function formatLocalAgentLaunchStatus(

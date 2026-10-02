@@ -8,6 +8,9 @@ type SqliteBindValue = number | string | null;
 const RUN_IN_TRANSACTION = Symbol("runInTransaction");
 const CREATE_TABLE_NAME_PATTERN =
   /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`([^`]+)`/i;
+const CREATED_INDEX_OWNER_PATTERN =
+  /^CREATE(?: UNIQUE)? INDEX\s+`([^`]+)`\s+ON\s+`([^`]+)`/i;
+const DROPPED_INDEX_NAME_PATTERN = /^DROP INDEX(?: IF EXISTS)?\s+`([^`]+)`/i;
 const SQL_LINE_COMMENT_PATTERN = /^\s*--.*$/gm;
 const MUTATED_TABLE_NAME_PATTERN =
   /^(?:INSERT(?: OR \w+)? INTO|UPDATE|ALTER TABLE|DROP TABLE(?: IF EXISTS)?)\s+`([^`]+)`/i;
@@ -507,6 +510,19 @@ function readDrizzleMigrationStatementsForTables(
   const requestedTableNames = new Set(
     focusedTableNames.flatMap((tableName) => [tableName, `__new_${tableName}`])
   );
+  // Index names need not contain their full table name. Preserve their actual
+  // ownership so focused fixtures apply DROP INDEX migrations such as 0063.
+  const ownedIndexNames = new Set(
+    migrationStatements.flatMap((statement) => {
+      const match = statement
+        .replace(SQL_LINE_COMMENT_PATTERN, "")
+        .trim()
+        .match(CREATED_INDEX_OWNER_PATTERN);
+      return match?.[1] && match[2] && requestedTableNames.has(match[2])
+        ? [match[1]]
+        : [];
+    })
+  );
   return migrationStatements.slice(firstCreationIndex).filter((statement) => {
     // Cross-table backfills are covered by full migration-history tests.
     if (statement.includes("-- full-shared-schema-only")) {
@@ -526,6 +542,10 @@ function readDrizzleMigrationStatementsForTables(
     }
     const createdTableName = readCreatedTableName(statement);
     const sql = statement.replace(SQL_LINE_COMMENT_PATTERN, "").trim();
+    const droppedIndexName = sql.match(DROPPED_INDEX_NAME_PATTERN)?.[1];
+    if (droppedIndexName) {
+      return ownedIndexNames.has(droppedIndexName);
+    }
     const ownedTableName =
       createdTableName ??
       sql.match(MUTATED_TABLE_NAME_PATTERN)?.[1] ??
@@ -613,7 +633,7 @@ function createPreparedStatement(
     // D1 batch SELECTs return rows (verified by tests/d1-read-batch.test.ts).
     // Keep the existing mutation path and change-count semantics intact.
     [RUN_IN_TRANSACTION]: () =>
-      statement.sourceSQL.trimStart().toLowerCase().startsWith("select")
+      statement.columns().length > 0
         ? {
             ...toD1RunResult({ changes: 0 }),
             results: statement.all(...params),

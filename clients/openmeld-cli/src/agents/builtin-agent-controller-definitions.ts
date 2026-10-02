@@ -1,9 +1,14 @@
 import {
+  resolveInstalledAntigravityLaunchCandidates,
+  verifyAntigravityLaunchContract,
+} from "@openmeld/adapter-antigravity";
+import {
   resolveInstalledClaudeCodeLaunchCandidates,
   verifyClaudeCodeLaunchContract,
 } from "@openmeld/adapter-claude-code";
 import {
   isCodexHostApplicationCommandPath,
+  refreshCodexPersistedLaunchContract,
   resolveInstalledCodexLaunchCandidates,
   verifyCodexLaunchContract,
 } from "@openmeld/adapter-codex";
@@ -116,6 +121,29 @@ export const EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES = {
 
 const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
   {
+    adapterId: "antigravity",
+    agentId: "antigravity",
+    capabilities: {
+      approvals: false,
+      cancel: true,
+      interrupt: true,
+      modelSelection: true,
+      nativeEventStream: true,
+      permissionModes: true,
+      structuredUserInput: false,
+    },
+    conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
+    installResolver: {
+      resolveInstalledLaunchCandidates:
+        resolveInstalledAntigravityLaunchCandidates,
+      verifyLaunchContract: verifyAntigravityLaunchContract,
+    },
+    nativeInterface: "local-cli",
+    usageLimitSupport: resolveAgentControllerUsageLimitSupport(
+      "builtin:antigravity"
+    ),
+  },
+  {
     adapterId: "claude-code",
     agentId: "claude-code",
     capabilities: {
@@ -167,6 +195,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
     },
     installResolver: {
       resolveInstalledLaunchCandidates: resolveInstalledCodexLaunchCandidates,
+      refreshPersistedLaunchContract: refreshCodexPersistedLaunchContract,
       verifyLaunchContract: verifyCodexLaunchContract,
     },
     nativeInterface: "codex-app-server",

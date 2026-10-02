@@ -10,16 +10,53 @@ export type {
   ServiceConnectionIncidentsReadRpcInput,
   ServiceConnectionIncidentsResponse,
 } from "../schemas/daemon/service-connection-evidence";
-
 export type {
   LocalAgentReasoningPreferences,
   LocalAgentReasoningPreferencesRpc,
   LocalAgentReasoningState,
 } from "../schemas/http/local-agent-reasoning";
 export type {
+  SpaceFileStreamMetadata,
+  SpaceFileStreamOptions,
+} from "../schemas/http/space-file-stream";
+export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type { AgentFailureFacts } from "../schemas/runtime/agent-failure";
+export type {
+  GenerateCenterAgentSessionTitleInput,
+  GenerateCenterAgentSessionTitleResponse,
+} from "../schemas/runtime/center-agent-session-title";
+export type { MessageChannelCardHistory } from "../schemas/runtime/message-channel-card-history";
+export type {
+  AiUsageObservation,
+  AiUsageQuery,
+  AiUsageQueryResponse,
+  AiUsageRecord,
+  AiUsageSummary,
+  CenterAgentAiUsageRpcInput,
+  OrganizationAiUsageRpcInput,
+  RemoteAiUsageWrite,
+  RemoteAiUsageWriteResponse,
+} from "./ai-usage";
+export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
+export type {
+  CenterAgentReadAuditJournalResponse,
+  CenterAgentReadAuditJournalRpcInput,
+} from "./http/center-agent-evidence";
+export type {
+  CenterAgentMemorySourceReference,
+  CenterAgentSearchMemoryResponse,
+  CenterAgentSearchMemoryRpcInput,
+} from "./http/center-agent-memory-search";
+export type {
+  CenterAgentListRoutineRunsToolResponse,
+  CenterAgentListRoutineRunsToolRpcInput,
+  CenterAgentReadRoutineRunDiagnosticsResponse,
+  CenterAgentReadRoutineRunDiagnosticsRpcInput,
+  CenterAgentRoutineRunEvidence,
+} from "./http/center-agent-routine-evidence";
 export type {
   OrganizationMemberPresenceBody,
   OrganizationMemberPresenceResponse,
@@ -33,6 +70,7 @@ export type {
 export type OpenMeldSchemaVersion =
   typeof import("../schemas/index")["OPENMELD_SCHEMA_VERSION"];
 
+export type { RemoteAgentExecutionReconciliationObservation } from "../remote-agent-execution-reconciliation";
 export type {
   SpaceFileUpdateSettings,
   SpaceFileUpdateSettingsCommand,

@@ -1,8 +1,42 @@
-import { describe, expect, it } from "vitest";
-import { resolveFirstUseAgentProfileCreationDefaults } from "../src/agent-profile-binding/application/agent-profile-creation-defaults-service";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import publishedManifest from "../../../release/local-components.json";
+import {
+  rememberAgentProfileCreationDefaults,
+  resolveFirstUseAgentProfileCreationDefaults,
+} from "../src/agent-profile-binding/application/agent-profile-creation-defaults-service";
 import { readAuthoredModelCatalog as readModelCatalog } from "../src/config/model-catalog";
 
 describe("first-use Agent Profile creation defaults", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("does not save a new permission preference before the compatible release", async () => {
+    const receiverManifest = structuredClone(publishedManifest);
+    receiverManifest.components.service.runtimeContractEpoch =
+      "runtime-transport-epoch-2026-09-image-geometry";
+    vi.stubGlobal(
+      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
+      JSON.stringify(receiverManifest)
+    );
+    const prepare = vi.fn();
+    await expect(
+      rememberAgentProfileCreationDefaults({
+        agentControllerRef: "builtin:antigravity",
+        db: { prepare } as unknown as D1Database,
+        nowMs: 1000,
+        organizationId: "org-1",
+        userId: "user-1",
+        selection: {
+          agentControllerCollaborationMode: null,
+          agentControllerPermissionMode: "antigravity:acceptEdits",
+          defaultProjectId: null,
+          modelId: "claude-sonnet-4-6",
+          reasoningLevel: null,
+          openCodePermission: null,
+        },
+      })
+    ).rejects.toThrow("Antigravity permission settings are not available yet");
+    expect(prepare).not.toHaveBeenCalled();
+  });
   it("uses a creation recommendation independently of the runtime default", () => {
     const catalog = readModelCatalog();
     const controller = catalog.agentControllers.codex;
@@ -19,7 +53,7 @@ describe("first-use Agent Profile creation defaults", () => {
         modelCatalog: catalog,
       })
     ).toEqual(controller.creationDefaults);
-    expect(controller.defaultModelId).toBe("gpt-5.6-sol");
+    expect(controller.defaultModelId).toBe("gpt-6.1-sol");
   });
 
   it("supports an explicit model-default reasoning preference", () => {
@@ -39,15 +73,15 @@ describe("first-use Agent Profile creation defaults", () => {
       })
     ).toEqual({ modelId: "gpt-5.5", reasoningLevel: null });
   });
-  it("starts Codex on the catalog default model with High reasoning", () => {
+  it("starts Codex on GPT-6.1 Sol with Medium reasoning", () => {
     expect(
       resolveFirstUseAgentProfileCreationDefaults({
         agentControllerRef: "builtin:codex",
         modelCatalog: readModelCatalog(),
       })
     ).toEqual({
-      modelId: "gpt-5.6-sol",
-      reasoningLevel: "high",
+      modelId: "gpt-6.1-sol",
+      reasoningLevel: "medium",
     });
   });
 

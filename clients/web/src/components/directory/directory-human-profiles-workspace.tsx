@@ -1,6 +1,4 @@
-import { TeamHeader } from "./team-header";
-
-("use client");
+"use client";
 
 import type {
 	CenterAgentMemberResearchBatch,
@@ -8,10 +6,16 @@ import type {
 	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import {
+	SkeletonRegion,
+	SkeletonRows,
+} from "@openmeld/ui/components/skeleton-content";
 import { PlusIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
+import { ComputerCardsSkeleton } from "#/components/computers/computer-cards-skeleton";
 import { ComputersPicker } from "#/components/computers/computers-picker";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import {
@@ -30,7 +34,9 @@ import { useHumanPresence } from "#/components/profiles/human-presence";
 import { localPeopleSidebarFixtures } from "#/lib/dev/people-sidebar-fixtures";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { PeopleSidebar } from "./people-sidebar";
+import { TeamHeader } from "./team-header";
 import { TeamHome } from "./team-home";
+import { TeamHomeSkeleton } from "./team-home-skeleton";
 
 type LocalAgentRecoveryController = ReturnType<
 	typeof useLocalAgentRecoveryController
@@ -82,6 +88,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	researchErrorMessage: string | null;
 	selectedProfileId: string | null;
 	state: DirectoryHumanProfilesViewState;
+	strictComputerGroups?: readonly OrganizationComputerGroup[];
 }) {
 	const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
 	const presence = useHumanPresence();
@@ -101,7 +108,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 		selectedProfileId: input.selectedProfileId,
 	});
 	const selectedComputerGroup = selectedMember
-		? (preview.computerGroups.find(
+		? ((input.strictComputerGroups ?? preview.computerGroups).find(
 				(group) => group.ownerUserId === selectedMember.userId
 			) ?? null)
 		: null;
@@ -167,7 +174,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 				)
 			}
 			mainSidebarContent={sidebar}
-			showMainHeader
+			showMainHeader={!input.selectedProfileId}
 		>
 			{input.researchErrorMessage ? (
 				<p className="m-4 rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm">
@@ -211,13 +218,16 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			{!selectedMember && showTeamHome && (
 				<TeamHome
 					activityNowMs={activityNowMs}
+					chatPending={input.state.directMessage === "pending"}
 					computerGroups={preview.computerGroups}
 					members={preview.members}
+					onChat={input.onOpenDirectMessage}
 					onSelect={input.onSelectProfile}
 				/>
 			)}
 			{!(selectedMember || showTeamHome) && (
 				<HumanProfileWorkspaceState
+					detail={Boolean(input.selectedProfileId)}
 					emptyMessage={input.emptyMessage}
 					errorMessage={input.errorMessage}
 					loading={input.state.profiles === "loading"}
@@ -305,18 +315,42 @@ function HumanProfileComputers(input: {
 	profileId: string;
 	recovery: LocalAgentRecoveryController;
 }) {
-	if (input.directoryError) {
+	// The current user's inventory is independently authorized. Another member's
+	// projection cannot hold it back, but remains required for that member's list.
+	const needsTeamProjection = !input.group?.isCurrentUser;
+	const inventory = input.recovery.localRuntimesQuery;
+	if (
+		!needsTeamProjection &&
+		(inventory.isError || inventory.fetchStatus === "paused")
+	) {
+		return (
+			<div className="space-y-3 p-4">
+				<p className="text-muted-foreground text-sm" role="alert">
+					Your computers could not be loaded.
+				</p>
+				<Button
+					disabled={inventory.isFetching}
+					onClick={() => inventory.refetch()}
+					size="sm"
+					variant="outline"
+				>
+					Try again
+				</Button>
+			</div>
+		);
+	}
+	if (needsTeamProjection && input.directoryError) {
 		return (
 			<p className="px-4 py-3 text-destructive text-sm" role="alert">
 				{input.directoryError}
 			</p>
 		);
 	}
-	if (input.directoryIsPending) {
+	if (needsTeamProjection && input.directoryIsPending) {
 		return (
-			<p className="px-4 py-3 text-muted-foreground text-sm">
-				Loading computers…
-			</p>
+			<div className="p-4">
+				<ComputerCardsSkeleton />
+			</div>
 		);
 	}
 	if (!input.group) {
@@ -333,8 +367,8 @@ function HumanProfileComputers(input: {
 		<div className="p-4">
 			<ComputersPicker
 				computerGroups={[input.group]}
-				directoryError={input.directoryError}
-				directoryIsPending={input.directoryIsPending}
+				directoryError={needsTeamProjection ? input.directoryError : null}
+				directoryIsPending={needsTeamProjection && input.directoryIsPending}
 				isOrganizationContext={input.isOrganizationContext}
 				isPending={
 					input.group.isCurrentUser &&
@@ -350,13 +384,35 @@ function HumanProfileComputers(input: {
 }
 
 function HumanProfileWorkspaceState(input: {
+	detail: boolean;
 	emptyMessage: string;
 	errorMessage: string | null;
 	loading: boolean;
 }) {
-	const message = input.loading
-		? "Loading people…"
-		: (input.errorMessage ?? input.emptyMessage);
+	if (input.loading) {
+		return input.detail ? (
+			<SkeletonRegion
+				className="mx-auto w-full max-w-5xl space-y-6 p-6"
+				label="Loading member"
+			>
+				<div className="space-y-6">
+					<div className="flex items-center gap-4">
+						<Skeleton className="size-24 rounded-full" />
+						<div className="min-w-0 space-y-3">
+							<Skeleton className="h-6 w-40" />
+							<Skeleton className="h-4 w-48" />
+						</div>
+					</div>
+					<Skeleton className="h-4 w-24" />
+					<SkeletonRows label="Loading profile details" />
+					<ComputerCardsSkeleton />
+				</div>
+			</SkeletonRegion>
+		) : (
+			<TeamHomeSkeleton className="p-6" label="Loading people" />
+		);
+	}
+	const message = input.errorMessage ?? input.emptyMessage;
 	return (
 		<div className="grid min-h-full place-items-center px-6 py-12 text-center">
 			<p className="max-w-md text-muted-foreground text-sm">{message}</p>

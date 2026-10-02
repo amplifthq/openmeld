@@ -5,19 +5,23 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuRadioItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { BellIcon, BellSlashIcon } from "@phosphor-icons/react";
 import { useState } from "react";
+import { ClientNotificationControl } from "#/components/inbox/client-notification-control";
 import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
 import {
 	MESSAGE_NOTIFICATION_LABELS,
 	useMessageNotificationPreferences,
 } from "#/components/inbox/use-message-notification-preferences";
 import { useAppSettings } from "#/components/settings/use-app-settings";
+import { resolveClientNotificationDescription } from "#/lib/inbox/client-notifications";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 
 export function SpaceNotificationMenu(input: {
@@ -42,7 +46,12 @@ function ConversationNotificationMenu(input: {
 	userId: string;
 }) {
 	const { query, mutation } = useMessageNotificationPreferences(input.spaceId);
-	const { settings } = useInboxNotificationSettings(input.userId);
+	const {
+		settings,
+		setEnabled,
+		isPending: notificationPending,
+		error: notificationError,
+	} = useInboxNotificationSettings(input.userId);
 	const openSettings = useAppSettings();
 	const [navigationError, setNavigationError] = useState<string | null>(null);
 	const muted = query.data?.effectiveMode === "muted";
@@ -66,6 +75,7 @@ function ConversationNotificationMenu(input: {
 				render={
 					<Button
 						aria-label={`Conversation notifications: ${summary}`}
+						className="hidden sm:inline-flex"
 						size="icon-sm"
 						title={summary}
 						variant="ghost"
@@ -103,22 +113,24 @@ function ConversationNotificationMenu(input: {
 						}}
 						value={query.data.overrideMode ?? "default"}
 					>
-						<DropdownMenuRadioItem
+						<FluidDropdownMenuRadioItem
 							disabled={mutation.isPending || query.isError}
+							index={0}
 							value="default"
 						>
 							Use default ·{" "}
 							{MESSAGE_NOTIFICATION_LABELS[query.data.defaultMode]}
-						</DropdownMenuRadioItem>
+						</FluidDropdownMenuRadioItem>
 						{Object.entries(MESSAGE_NOTIFICATION_LABELS).map(
-							([value, label]) => (
-								<DropdownMenuRadioItem
+							([value, label], index) => (
+								<FluidDropdownMenuRadioItem
 									disabled={mutation.isPending || query.isError}
+									index={index + 1}
 									key={value}
 									value={value}
 								>
 									{label}
-								</DropdownMenuRadioItem>
+								</FluidDropdownMenuRadioItem>
 							)
 						)}
 					</DropdownMenuRadioGroup>
@@ -152,19 +164,35 @@ function ConversationNotificationMenu(input: {
 					</div>
 				) : null}
 				<DropdownMenuSeparator />
-				<p className="px-2 py-2 text-muted-foreground text-xs">
-					Only changes your message notifications for this conversation. Urgent
-					email alerts are controlled in Settings.
-				</p>
-				{settings && !settings.enabled ? (
-					<p className="px-2 py-2 text-muted-foreground text-xs">
-						{settings.permission === "unknown"
-							? "Desktop notifications are off on this Mac."
-							: "Browser notifications are off in this browser."}
+				{settings ? (
+					<>
+						<div className="flex items-center justify-between gap-3 px-2 py-3">
+							<span className="text-sm">
+								{settings.permission === "unknown"
+									? "Desktop notifications"
+									: "Browser notifications"}
+							</span>
+							<ClientNotificationControl
+								disabled={notificationPending}
+								onChange={setEnabled}
+								settings={settings}
+							/>
+						</div>
+						{settings.permission === "denied" ||
+						settings.permission === "unsupported" ? (
+							<p className="px-2 pb-2 text-muted-foreground text-xs">
+								{resolveClientNotificationDescription(settings.permission)}
+							</p>
+						) : null}
+					</>
+				) : null}
+				{notificationError ? (
+					<p className="px-2 pb-2 text-destructive text-xs" role="alert">
+						{notificationError}
 					</p>
 				) : null}
 				<Button
-					className="w-full justify-start"
+					className="w-full"
 					onClick={() =>
 						openSettings("notifications").catch((error: unknown) =>
 							setNavigationError(
@@ -175,7 +203,7 @@ function ConversationNotificationMenu(input: {
 						)
 					}
 					size="sm"
-					variant="ghost"
+					variant="default"
 				>
 					Open notification settings
 				</Button>

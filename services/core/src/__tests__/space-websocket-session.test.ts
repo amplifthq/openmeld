@@ -95,22 +95,30 @@ describe("space websocket session", () => {
         profile: HELLO_PROFILE,
         capabilities: {
           liveSignalHistory: true,
+          agentWorkOutcomes: true,
           spaceMessageAddressing: true,
+          spaceImageGeometry: true,
         },
       },
     });
 
     expect(session.supportsLiveSignalHistory).toBe(true);
+    expect(session.supportsAgentWorkOutcomes).toBe(true);
     expect(session.supportsSpaceMessageAddressing).toBe(true);
+    expect(session.supportsSpaceImageGeometry).toBe(true);
     const attachment = buildSpaceWebSocketSessionAttachment(session);
     expect(attachment).toMatchObject({
       supportsLiveSignalHistory: true,
+      supportsAgentWorkOutcomes: true,
       supportsSpaceMessageAddressing: true,
+      supportsSpaceImageGeometry: true,
     });
 
     const restored = restoreSpaceWebSocketSessionFromAttachment(attachment);
     expect(restored.supportsLiveSignalHistory).toBe(true);
+    expect(restored.supportsAgentWorkOutcomes).toBe(true);
     expect(restored.supportsSpaceMessageAddressing).toBe(true);
+    expect(restored.supportsSpaceImageGeometry).toBe(true);
   });
 
   it("restores accepted sessions from legacy attachments without helloAccepted", () => {
@@ -123,6 +131,8 @@ describe("space websocket session", () => {
     expect(restored.helloAccepted).toBe(true);
     expect(restored.profile).toEqual(ENFORCED_PROFILE);
     expect(restored.enforcedProfile).toEqual(ENFORCED_PROFILE);
+    expect(restored.supportsSpaceImageGeometry).toBe(false);
+    expect(restored.supportsAgentWorkOutcomes).toBe(false);
   });
 
   it("restores accepted sessions from enforced profile when the serialized profile is missing", () => {

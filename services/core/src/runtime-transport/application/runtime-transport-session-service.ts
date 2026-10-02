@@ -17,6 +17,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { RUNTIME_TRANSPORT_LEASE_TTL_MS } from "../../strategy-constants";
 import { writeRuntimeTransportSocketAttachment } from "../infrastructure/runtime-transport-socket-attachment";
+import { selectCurrentSessionsByDeviceLane } from "./current-owner-service-sessions";
 import {
   createMissingDaemonExecutionCompatibility,
   isDaemonExecutionCompatible,
@@ -40,13 +41,16 @@ const isRuntimeTransportSessionFresh = (
   nowMs: number
 ): boolean => nowMs - session.lastHeartbeatMs <= LEASE_TTL_MS;
 
-const isRuntimeTransportSessionExplicitlyStopped = (
+/** Computer connectivity is lease evidence, independent of delivery or execution readiness. */
+export const isRuntimeTransportSessionOnline = (
   session: Pick<
     RuntimeTransportSessionState,
-    "acceptingDispatches" | "stopCause"
-  >
+    "lastHeartbeatMs" | "acceptingDispatches" | "stopCause"
+  >,
+  nowMs: number
 ): boolean =>
-  session.acceptingDispatches === false && session.stopCause === "user_stop";
+  isRuntimeTransportSessionFresh(session, nowMs) &&
+  !(session.acceptingDispatches === false && session.stopCause === "user_stop");
 
 export const compareRuntimeTransportSessionsByFreshness = (
   left: RuntimeTransportSessionState,
@@ -130,11 +134,24 @@ export const handleRegisterSession = (
   session.lane = request.lane;
   session.serviceVersion = normalizeServiceVersion(request.serviceVersion);
   session.connectionGeneration = nextConnectionGeneration;
-  session.connectedAtMs = request.connectedAtMs;
+  if (!isSameSocketReRegister) {
+    session.connectedAtMs = request.connectedAtMs;
+  }
   session.lastHeartbeatMs = nowMs;
   session.acceptingDispatches = isSameSocketReRegister
     ? previousAcceptingDispatches
     : false;
+  session.admissionEvidence = isSameSocketReRegister
+    ? existingSession?.admissionEvidence
+    : {
+        acceptingDispatches: false,
+        connectionGeneration: nextConnectionGeneration,
+        revision: 0,
+        changedAtMs: nowMs,
+        reasonCode: existingSession
+          ? "connection_replaced"
+          : "connection_initializing",
+      };
   session.stopCause = isSameSocketReRegister ? previousStopCause : undefined;
   session.capabilities = request.capabilities;
   session.executionCompatibility = resolveDaemonExecutionCompatibility(
@@ -522,6 +539,20 @@ export const handleHeartbeat = (
   session.serviceVersion = normalizeServiceVersion(request.serviceVersion);
   session.lastHeartbeatMs = nowMs;
   session.acceptingDispatches = request.acceptingDispatches !== false;
+  const reportedAdmissionEvidence = request.admissionEvidence;
+  const previousAdmissionEvidence = session.admissionEvidence;
+  session.admissionEvidence =
+    reportedAdmissionEvidence &&
+    reportedAdmissionEvidence.connectionGeneration ===
+      session.connectionGeneration &&
+    reportedAdmissionEvidence.acceptingDispatches ===
+      session.acceptingDispatches &&
+    (!previousAdmissionEvidence ||
+      previousAdmissionEvidence.connectionGeneration !==
+        session.connectionGeneration ||
+      reportedAdmissionEvidence.revision >= previousAdmissionEvidence.revision)
+      ? reportedAdmissionEvidence
+      : undefined;
   session.stopCause =
     request.acceptingDispatches === false ? request.stopCause : undefined;
   session.capabilities = request.capabilities ?? session.capabilities;
@@ -839,14 +870,12 @@ export const lookupOwnerService = (
   // not a socket-reference question. The socket only matters for delivery
   // (lookupRoute); requiring it here made hibernation timing flap the
   // user-facing connected/not-connected verdict.
-  const sessions = [...state.sessionsById.values()]
-    .filter(
-      (session) =>
-        session.ownerUserId === request.ownerUserId &&
-        isRuntimeTransportSessionFresh(session, nowMs) &&
-        !isRuntimeTransportSessionExplicitlyStopped(session)
-    )
-    .sort(compareRuntimeTransportSessionsByFreshness)
+  const sessions = selectCurrentSessionsByDeviceLane(
+    [...state.sessionsById.values()]
+      .filter((session) => session.ownerUserId === request.ownerUserId)
+      .sort(compareRuntimeTransportSessionsByFreshness)
+  )
+    .filter((session) => isRuntimeTransportSessionOnline(session, nowMs))
     .map((session) => ({
       daemonSessionId: session.daemonSessionId,
       deviceId: session.deviceId,

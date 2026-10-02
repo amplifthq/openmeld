@@ -10,6 +10,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
+  rpcCenterAgentCheckAgentProfileReadiness,
   rpcCenterAgentListLocalAgentConnectionCandidates,
   rpcCenterAgentReadPeopleComputers,
   rpcCenterAgentRequestOpenMeldToolsUpdate,
@@ -17,6 +18,60 @@ import {
 
 describe("Center Agent PeopleComputers authorization", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("reads readiness as the represented owner and rejects missing, revoked or different owners", async () => {
+    const fixture = await seedFixture();
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    const resolveProfileById = vi
+      .fn<
+        NonNullable<
+          NonNullable<
+            CoreBindings["OPENMELD_AUTH_WORKER"]
+          >["resolveProfileById"]
+        >
+      >()
+      .mockResolvedValue({
+        ok: true,
+        profile: {
+          profileId: agentProfileId,
+          profileKind: "agent",
+          profileName: "Member Agent",
+          profileHandle: "member-agent",
+          ownerUserId: fixture.member.userId,
+          status: "active",
+        },
+      });
+    const coreEnv = {
+      ...fixture.coreEnv,
+      OPENMELD_AUTH_WORKER: { resolveProfileById },
+    } as CoreBindings;
+    const request = {
+      agentProfileId,
+      context: fixture.context,
+      onBehalfOf: { profileId: fixture.member.profileId },
+    };
+    await expect(
+      rpcCenterAgentCheckAgentProfileReadiness(coreEnv, request)
+    ).resolves.toMatchObject({ agentProfileId, canReply: false });
+    await expect(
+      rpcCenterAgentCheckAgentProfileReadiness(coreEnv, {
+        agentProfileId,
+        context: fixture.context,
+      })
+    ).rejects.toThrow("verified requesting member");
+    await expect(
+      rpcCenterAgentCheckAgentProfileReadiness(coreEnv, {
+        ...request,
+        onBehalfOf: { profileId: fixture.owner.profileId },
+      })
+    ).rejects.toThrow("agent profile not found");
+    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
+      .bind(fixture.member.memberId)
+      .run();
+    await expect(
+      rpcCenterAgentCheckAgentProfileReadiness(coreEnv, request)
+    ).rejects.toThrow("requesting member is no longer available");
+  });
 
   it("returns only the represented member's inventory without claiming a current computer", async () => {
     const fixture = await seedFixture();
@@ -69,6 +124,11 @@ describe("Center Agent PeopleComputers authorization", () => {
         service: { connected: false },
       },
       fileAccess: { status: "unavailable" },
+      care: {
+        connection: "unavailable",
+        supervisor: "unknown",
+        executionHost: null,
+      },
     });
     await expect(
       rpcCenterAgentReadPeopleComputers(fixture.coreEnv, {
@@ -126,6 +186,38 @@ describe("Center Agent PeopleComputers authorization", () => {
         runtimeLane: "canary" as const,
       },
     };
+    const host = {
+      hostInstanceId: "c8229897-5b9c-4e8f-afc9-ed79f93d45ca",
+      observedAtMs: Date.now(),
+      responsive: false,
+      admission: "open" as const,
+      activeCount: 1,
+      pendingCount: 2,
+      unacknowledgedResultCount: 1,
+      startupReplayPending: false,
+    };
+    const memberSession = ownerService.sessions[0];
+    if (!memberSession) {
+      throw new Error("Missing member session fixture");
+    }
+    memberSession.capabilities.executionHost = host;
+    const diagnostics = await rpcCenterAgentReadPeopleComputers(
+      fixture.coreEnv,
+      request
+    );
+    expect(diagnostics.selectedComputer?.care).toMatchObject({
+      connection: "connected",
+      supervisor: "responding",
+      executionHost: host,
+    });
+    const wrongLane = await rpcCenterAgentReadPeopleComputers(fixture.coreEnv, {
+      ...request,
+      target: { ...request.target, runtimeLane: "prod" },
+    });
+    expect(wrongLane.selectedComputer?.care).toMatchObject({
+      connection: "unavailable",
+      executionHost: null,
+    });
     await expect(
       rpcCenterAgentRequestOpenMeldToolsUpdate(fixture.coreEnv, {
         ...request,

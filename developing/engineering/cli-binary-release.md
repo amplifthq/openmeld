@@ -26,7 +26,7 @@ node scripts/release/build-cli-binary.mjs
 ```
 
 - The build reads `clients/openmeld-cli/package.json` as the only version source.
-- The current output is written under `clients/openmeld-cli/dist/binary/`.
+- The current output is written under `cli/dist/`, outside the npm package.
 - The artifact name is `openmeld-cli-<platform>-<version>`.
 - Local and production download channels also publish
   `openmeld-cli-<platform>-<version>.gz`. Setup and current binary CLI upgrades
@@ -42,7 +42,24 @@ node scripts/release/build-cli-binary.mjs
   version, size, and sha256 all match that previous release. Any base, download,
   parse, reconstruction, or final-hash failure automatically falls back to the
   complete gzip archive.
-- The supported platform for this milestone is `darwin-arm64`.
+- The signed stable production binary channel currently supports `darwin-arm64`.
+  An explicitly selected, separate `windows-preview` manifest can carry the
+  unsigned internal Windows x64 trial; it does not change the signed stable
+  channel or authorize a public Windows release.
+- Signed Windows release records require `windows.publisherName` and an immutable
+  `windows.processHelper` URL, size, and SHA-256 alongside the primary carrier.
+  CLI and Service records use the same shape. Windows publisher metadata is
+  rejected on another platform and cannot be combined with Apple signing
+  identity. The shared native Authenticode verifier is used by CLI acquisition
+  and Desktop updates; missing Windows publisher metadata is an integrity
+  failure, not permission to run an unsigned binary. Companion acquisition
+  reuses the existing bounded download policy and verifies the same publisher
+  before installation. The caller owns the disposable directory and failure
+  cleanup. The separate internal preview record instead declares
+  `mode: internal-unsigned-preview` and requires exact manifest opt-in in the
+  production Windows clients. Its size/hash checks do not authenticate the
+  publisher, so it is limited to known coworkers and may encounter Windows
+  warnings or enterprise blocks.
 - The binary distribution marker is injected at compile time by `bun build --compile`.
 - Release builds minify bundled code while preserving function and class names
   for diagnostics. This reduces the current executable by about 4.4 MiB and
@@ -53,6 +70,24 @@ node scripts/release/build-cli-binary.mjs
 - Managed installs also retain the active binary Service's source version while
   it remains referenced, even if several CLI versions have been installed since.
   Service retention is independent of CLI rollback selection.
+- The Windows managed layout uses immutable `versions/<version>/openmeld.exe`
+  plus its process helper, and one `bin/cli-installation.json` selection record.
+  When the exact production Windows internal-preview manifest and explicit
+  preview opt-in installed that version, this record also retains the preview
+  channel. Only the selected managed CLI restores that choice for later update
+  checks, upgrades, and Service registration; a temporary bootstrap or unrelated
+  executable does not inherit it. Version metadata caches are scoped to their
+  release source so a stable minimum version cannot gate a preview installation.
+  `bin/openmeld.exe` is a thin native console launcher built from the same helper
+  artifact; it forwards argv, inherited streams, and exit status to that selected
+  CLI. It has no account, connection, or update authority. Windows never creates
+  privileged symlinks or overwrites mapped executable bytes. Install and existing
+  maintenance reconcile an interrupted launcher replacement from the selected
+  immutable version. A retained running launcher is removed on a later pass.
+  The shared installer lock and semver/rollback policy remain the owners. Native
+  version cleanup acquires all known bundle files before removal; an in-use or
+  unrecognized directory is retained. These installation changes remain under
+  native acceptance and do not advertise a Windows production channel.
 - Managed installs retain the active CLI version and one usable rollback
   version older than the active version. Incomplete and older managed
   semantic-version directories are removed during `install-self`; unrecognized
@@ -83,6 +118,99 @@ node scripts/release/build-cli-binary.mjs
   setup. Follow-up commands name the managed binary path, so they remain usable
   even when the current terminal still resolves the older npm command;
   an already-authoritative command adds no npm install or network round trip.
+
+### Windows native carrier acceptance
+
+For the internal Windows x64 trial, `.github/workflows/windows-internal-preview.yml`
+builds CLI, Service, and the process helper on a native Windows runner and
+exercises the delivered carriers without user Node/Bun in the fixture PATH.
+It exports an independently validated CLI artifact before building the unsigned
+production-account Desktop installer. The Desktop stage inspects the actual
+installer payload and exports a separate complete artifact. A Desktop build
+failure does not invalidate the earlier CLI carrier result. The workflow runs
+on explicit dispatch, not every Draft or Ready update. Check the run's source
+SHA:
+
+```sh
+gh workflow run windows-internal-preview.yml --ref <candidate-branch>
+```
+
+Run its
+read-only handoff check from a clean checkout of the artifact's source SHA:
+
+```sh
+node scripts/release/publish-windows-internal-preview.mjs check <extracted-artifact-directory>
+```
+
+For the `windows-cli-preview-*` artifact, use `check-cli` instead. Its guarded
+`publish-cli` mode publishes only the exact CLI, Service, helper, and Windows
+preview manifest. It does not change the Desktop pointer. The complete
+`windows-internal-preview-*` artifact still uses `check` and `publish`.
+
+The guarded publish modes are separate, authorized release actions after
+merging; do not run them merely to mark the feature PR Ready. On release, build
+again from the exact merged main SHA and check the downloaded artifact. Publish
+immutable executables before their preview manifest or Desktop pointer. The Web
+deployment must include the preview routes before the command or Desktop link
+is shared. This trial does not change the signed stable CLI publisher, supply
+Authenticode trust, or enable Desktop auto-updates.
+
+On a Windows x64 build machine, build the console CLI and GUI-subsystem
+background Service from the same production entry:
+
+```powershell
+node scripts/release/build-windows-process-helper.mjs
+node scripts/release/build-cli-binary.mjs --platform windows-x64
+node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
+```
+
+Artifacts are `cli/dist/openmeld-cli-windows-x64-<version>.exe` and
+`cli/dist/openmeld-service-windows-x64-<version>.exe`, with the shared
+`cli/dist/openmeld-windows-process.exe` next to them. The native helper is built
+with .NET SDK 10.0.401 / Native AOT on Windows; it needs no user-installed .NET
+runtime or compiler. Both the binary version bundle and npm's `dist/windows`
+must carry that helper. Signing and multi-platform publication assembly remain
+part of the installation/release gate; these development artifacts must not be
+published as a complete Windows channel. The builder verifies the carriers'
+actual PE subsystem values; a build flag alone is not sufficient evidence.
+The Windows acceptance workflow pins Bun 1.4.2: the previous 1.3.14 Windows
+compiler returned before applying `--windows-hide-console`. This does not change
+the macOS publisher's toolchain.
+
+`native-artifacts` in Windows compatibility exercises the real Service/private
+Host channel, account fencing and shutdown, plus compiled SQLite and Agent SDK
+protocol boundaries. Its child consumption environment uses disposable user
+state and Windows-system-only PATH. Build tools on the hosted runner are not a
+clean standard-user environment, and the protocol peer is not model inference.
+Any failed native acceptance step fails its job. Artifacts are unsigned and
+retained for bounded review, not published to a product channel.
+This native workflow is also explicit, and is not a required PR check. Run it
+when changing Windows carrier or process behavior, or before a Windows release;
+check that the run used the intended candidate SHA:
+
+```sh
+gh workflow run windows-compatibility.yml --ref <candidate-branch>
+```
+
+For Mac development, a successful native artifact job also retains a small
+`windows-process-<run>-<attempt>` artifact. Download that exact artifact from a
+run of this branch, then import it with:
+
+```sh
+gh run download <run> --name windows-process-<run>-<attempt> --dir dev-tmp/windows-process-download
+node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-download
+```
+
+Import verifies the pinned native build inputs and binary hash before copying
+the helper into the workspace outputs. A changed C# source, SDK selection, or
+helper build script requires a new Windows build. CLI packaging verifies it
+again and rejects stale bytes; it never compiles C# on a user's machine. This
+is build-input integrity, not Authenticode or production provenance. Production
+assembly must consume its own trusted source-matched Windows build. That
+release integration is still required before this implementation can be ready.
+
+The implementation status and exact native evidence live in
+[Windows Computer Connection Design](../architecture/windows-computer-connection-design.md).
 
 ### Local Web Setup Download Smoke
 
@@ -119,7 +247,7 @@ http://127.0.0.1:3197/cli/download/openmeld-cli-darwin-arm64-<version>.gz
   manifest download, gzip download and verification, decompression, final
   executable verification, `install-self`, managed CLI path, and
   `openmeld setup`.
-- Directly running `clients/openmeld-cli/dist/binary/<artifact>` is useful for
+- Directly running `cli/dist/<artifact>` is useful for
   CLI debugging, but it does not test the Web setup download, manifest, sha256,
   or managed install path.
 
@@ -307,17 +435,14 @@ Keychain identity and `openmeld-notary` profile instead.
 
 For the normal GitHub production path:
 
-1. Confirm the exact release commit is on `main`; run
-   `pnpm run release:preflight`, then prepare the tracked release version and
-   `release/local-components.json` with the base-aware
+1. Start from current `main` in a dedicated release worktree; prepare the tracked
+   version and `release/local-components.json` with the base-aware
    `pnpm release:local-components stamp --next ...` command. The command reads
    npm `latest` and R2 stable, prints the decision, and fails without guessing
    when either channel is unavailable. Use mutually exclusive
-   `--version X.Y.Z` only for an already-approved explicit target. Then pass
-   `pnpm run verify:release-ready`.
-2. Confirm the six Apple secret names above exist in the GitHub `production`
-   Environment.
-3. Before `.github/workflows/cli-release.yml`, use the separate Scoped
+   `--version X.Y.Z` only for an already-approved explicit target. The stamp
+   verifies its output; the release workflow repeats readiness before upload.
+2. Before `.github/workflows/cli-release.yml`, use the separate Scoped
    Production Release workflow with scope `database` when the exact release SHA
    has pending migrations. CLI Release verifies the remote D1 pending list
    before any publication because it also deploys Core; it fails closed instead
@@ -326,28 +451,24 @@ For the normal GitHub production path:
    release commit SHA. The publish command verifies release readiness before
    its first irreversible action, so a separate repeated verification run is
    unnecessary.
-4. Require an `Apple notarization accepted` submission ID before treating the
+3. Require an `Apple notarization accepted` submission ID before treating the
    binary upload as valid.
-5. Close the release only after the npm version, production CLI manifest,
+4. Close the release only after the npm version, production CLI manifest,
    downloadable raw and gzip artifacts, release tag, and Core projection all
    agree.
-
-For the first release that introduces gzip manifest fields, deploy Web from the
-same approved SHA before step 3. The old Web manifest parser removes unknown
-fields when it reserializes R2 metadata; the new Web is therefore the consumer
-that must be live before the CLI channel can expose the archive. See
-`developing/engineering/production-release.md` for the first-launch order.
 
 For an explicitly approved local production release:
 
 1. Use a clean worktree at the exact `main` commit intended for release.
 2. Confirm the local Developer ID identity, `openmeld-notary` Keychain profile,
    npm authentication, and Cloudflare production credentials are available.
-3. Run `pnpm run release:verify:local -- --scope cli` for full confidence, then
-   run `pnpm run release:deploy:local -- --scope cli`; deploy owns the cheap
-   preflight and the complete binary release path without repeating tests.
+3. Run `pnpm run release:deploy:local -- --scope cli`; deploy owns the required
+   preflight and the complete binary release path.
 4. Require the same notarization, upload, npm, tag, Core, and channel-alignment
    results as the GitHub path.
+
+For a separate go/no-go handoff, `pnpm run release:verify:local -- --scope cli`
+provides full validation before the deploy. It is not a default extra step.
 
 Do not run `upload-cli-binary.mjs` as the normal production entrypoint. It is a
 scoped binary-channel operation for an approved recovery or diagnostics flow;
@@ -387,10 +508,13 @@ node scripts/release/upload-cli-binary.mjs
   Binary builds can receive the same immutable selection from the publisher;
   it is embedded at compile time and written unchanged to the channel manifest.
   Staging `publish --retain-service` exercises that path against the existing
-  staging-only Service artifact. Production publication is still gated: publishers must not emit an independent
-  target until installation, repair, maintenance, and channel verification all
-  support it. Deploy Web manifest readers before publishing the field; older
-  Web readers strip unknown metadata. Current coupled-release guards remain.
+  staging-only Service artifact. Production may retain the prior published
+  Service only when the base-aware release classifier proves no Service-owned
+  input changed. The selected Service version must be no newer than the CLI,
+  and the publisher, resumable stage probes, and channel-sync gate all verify
+  its exact raw and gzip artifacts before the manifest can move. Any
+  Service-owned change keeps the release coupled. Deploy Web manifest readers
+  before publishing the field; older Web readers strip unknown metadata.
 - Each platform record keeps `url`, `sha256`, and `sizeBytes` for the raw
   executable so older clients continue to work. The additive
   `archiveFormat`, `archiveUrl`, `archiveSha256`, and `archiveSizeBytes` fields
@@ -452,5 +576,38 @@ pnpm run release:deploy:local -- --scope cli
   same names with different values. This does not require Node.js or jq.
 - The dev-local setup script also defaults to binary distribution. Use
   `?dist=npm` to force the npm lane during local testing.
-- Windows setup commands remain on `?dist=npm` until Windows binary artifacts
-  exist.
+- Windows binary setup selects the public Windows preview entrypoint when the
+  signed stable channel lacks Windows artifacts. Its channel choice must remain
+  attached to the managed installation; a newer macOS stable version is not a
+  Windows update target.
+
+## Source-specific binary update projection
+
+Binary publishers include `componentPolicy` from the exact source release manifest.
+Each policy version must match its selected CLI or Service artifact; never rewrite
+a bundle hash to an executable SHA-256. Both guarded Core deployment paths compile
+the same availability mechanism. Stable snapshot reuse avoids conflicting mutable
+reads in receiver deployment. A Windows-preview 404 means channel absence; malformed
+metadata or network failure aborts compilation. Catalogue SHA-256 is logged for the
+exact define passed to startup admission and is associated with the newly admitted
+Worker version. The global projection tag proves compatibility identity only,
+not catalogue freshness.
+
+Windows preview publication is not release closeout by itself. After the preview
+manifest becomes public, a fresh guarded Core activation must compile that
+manifest. The Core stage of a CLI publication or another guarded Core release
+can already satisfy this requirement: retain its exact-source catalogue
+digest/admission evidence and verify Windows status on that Worker. Do not
+redeploy again when that proof already exists. Otherwise run the guarded Core
+release with `--redeploy`. A tag-only no-op/resume receipt or an activation before
+preview publication does not prove catalogue freshness. Deploy all strict
+Gateway/Core/Web report receivers before publishing the new CLI/Service source field.
+This code-only change uses base-aware deferred release readiness; version and
+release manifest stamping remain a separate authorized publication action.
+
+The native Windows preview builder currently builds a fresh GUI Service carrier
+at the CLI version. It rejects a retained older Service policy before compilation;
+prepare the corresponding Service release rather than relabelling the new image.
+The stable publisher supports verified separately retained Service artifacts.
+Staging/custom binary versions omit production component policy unless the caller
+supplies an exact-artifact policy; they never inherit production version identity.

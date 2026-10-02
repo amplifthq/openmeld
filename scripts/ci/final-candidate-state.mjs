@@ -12,6 +12,7 @@ import {
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const GITHUB_REPOSITORY_PATTERN = /^[^/\s]+\/[^/\s]+$/u;
 const LINE_SPLIT_PATTERN = /\r?\n/u;
+const TRAILING_SLASH_PATTERN = /\/$/u;
 const gitBinary = process.platform === "win32" ? "git.exe" : "git";
 
 export function resolveCandidateState(input) {
@@ -134,6 +135,54 @@ export function publishCommitStatus(input) {
     fields.push("-f", `target_url=${input.targetUrl}`);
   }
   runGh(fields);
+}
+
+export function updateSkippedCheckRunOutput(input) {
+  const response = runGhJson([
+    "api",
+    "-H",
+    "Accept: application/vnd.github+json",
+    `repos/${input.repository}/commits/${input.headSha}/check-runs?filter=all&per_page=100`,
+  ]);
+  const checkRun = selectSkippedCheckRun(response, input);
+  runGhJson(
+    [
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${input.repository}/check-runs/${String(checkRun.id)}`,
+      "--input",
+      "-",
+    ],
+    {
+      output: {
+        summary: input.summary,
+        title: input.title,
+      },
+    }
+  );
+}
+
+export function selectSkippedCheckRun(response, input) {
+  if (!Array.isArray(response?.check_runs)) {
+    throw new Error("GitHub returned invalid check-run facts.");
+  }
+  const detailsPrefix = `${input.targetUrl.replace(TRAILING_SLASH_PATTERN, "")}/job/`;
+  const matches = response.check_runs.filter(
+    (checkRun) =>
+      checkRun?.name === input.checkName &&
+      checkRun.app?.slug === "github-actions" &&
+      checkRun.status === "completed" &&
+      checkRun.conclusion === "skipped" &&
+      typeof checkRun.details_url === "string" &&
+      checkRun.details_url.startsWith(detailsPrefix)
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected one skipped ${input.checkName} check for this workflow run, found ${String(matches.length)}.`
+    );
+  }
+  return matches[0];
 }
 
 export function publishPullRequestComment(input) {

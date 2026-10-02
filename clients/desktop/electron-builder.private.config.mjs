@@ -1,15 +1,16 @@
 import { readFileSync } from "node:fs";
-import { DESKTOP_AUTH_SCHEME } from "@openmeld/schemas";
+import { desktopAuthIdentity } from "../../packages/schemas/src/desktop-auth-identity.ts";
+import { withDesktopAppName } from "../../scripts/desktop/app-name.ts";
 
-const { build } = JSON.parse(
+const { build: baseBuild } = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8")
 );
 
 // Private existing-Service pilot; no preview metadata or publishing target.
+const identity = desktopAuthIdentity(false, "private", process.env.WEB_APP_URL);
+const build = withDesktopAppName(baseBuild, identity.authScheme);
 export default {
   ...build,
-  appId: "sh.openmeld.desktop.dev",
-  productName: "OpenMeld Desktop Private",
   directories: { output: "dist/private" },
   files: build.files
     .filter((file) => file !== "out/**/*")
@@ -18,7 +19,7 @@ export default {
   protocols: [
     {
       name: "OpenMeld Desktop development sign-in",
-      schemes: [DESKTOP_AUTH_SCHEME],
+      schemes: [identity.authScheme],
     },
   ],
   dmg: {

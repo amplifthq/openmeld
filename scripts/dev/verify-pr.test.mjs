@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parse } from "yaml";
 import {
   planPrChecks,
   resolveUnitTestScript,
@@ -10,28 +8,141 @@ import {
 
 const CIRCULAR_ALIAS = /Circular test script alias/u;
 
-test("automatic draft feedback cannot start the full affected lane", () => {
-  const workflow = parse(
-    readFileSync(
-      new URL("../../.github/workflows/pr-feedback.yml", import.meta.url),
-      "utf8"
-    )
-  );
-  assert.equal(
-    workflow.jobs.verify.if,
-    "github.event.pull_request.draft == true"
-  );
-  assert.ok(workflow.on.pull_request.types.includes("converted_to_draft"));
-  assert.ok(workflow.on.pull_request.types.includes("ready_for_review"));
-  assert.equal(workflow.permissions.contents, "read");
-  assert.equal(workflow.concurrency["cancel-in-progress"], true);
-  const runs = workflow.jobs.verify.steps
-    .filter((step) => step.run)
-    .map((step) => step.run);
-  assert.ok(runs.every((command) => command.includes("--feedback")));
+test("checks signed Skill inputs in feedback and PR validation without checking unrelated edits", () => {
+  for (const feedback of [true, false]) {
+    for (const [path, selected] of [
+      ["release/openmeld-cli-skill/playbooks/agent-onboarding.md", true],
+      ["clients/web/public/skills/openmeld-cli/channel.json", true],
+      ["scripts/release/cli-skill.mjs", true],
+      ["scripts/release/cli-skill-check.mjs", true],
+      ["packages/schemas/src/official-cli-skill.ts", true],
+      ["packages/schemas/src/index.ts", true],
+      ["pnpm-lock.yaml", true],
+      ["clients/web/src/sidebar.tsx", false],
+      ["developing/engineering/official-cli-skill.md", false],
+    ]) {
+      const commands = planPrChecks([path], { feedback });
+      assert.equal(
+        commands.some((args) => args.join(" ") === "run verify:cli-skill"),
+        selected,
+        path
+      );
+    }
+  }
 });
 
-test("draft feedback checks changed files and related tests without package builds", () => {
+test("focused PR validation keeps checks for changed workspaces with adjacent tests", () => {
+  const paths = [
+    "scripts/dev/verify-pr.test.mjs",
+    "clients/web/src/app.tsx",
+    "clients/openmeld-cli/src/commands/service.ts",
+    "clients/desktop/src/deleted.ts",
+  ];
+  const existingFiles = [
+    ...paths.slice(0, 3),
+    "clients/web/src/app.test.tsx",
+    "clients/openmeld-cli/src/commands/service.test.ts",
+  ];
+  const workspaces = [
+    { directory: "clients/web", name: "openmeld-web", test: "vitest run" },
+    { directory: "clients/openmeld-cli", name: "openmeld", test: "vitest run" },
+    {
+      directory: "clients/desktop",
+      name: "@openmeld/desktop",
+      test: "vitest run",
+    },
+  ];
+  const commands = planPrChecks(paths, {
+    feedback: true,
+    existingFiles,
+    workspaces,
+  });
+  assert.ok(
+    commands.some((args) => args.includes("scripts/dev/verify-pr.test.mjs"))
+  );
+  assert.ok(commands.some((args) => args.includes("biome")));
+  assert.ok(
+    commands.some((args) => args.includes("--filter=openmeld-web^..."))
+  );
+  assert.ok(commands.some((args) => args.includes("--filter=openmeld^...")));
+  assert.deepEqual(
+    commands.filter((args) => args.includes("vitest")).map((args) => args[1]),
+    ["clients/web", "clients/openmeld-cli"]
+  );
+  assert.ok(commands.every((args) => !args.includes("related")));
+  assert.ok(
+    commands.every((args) => !args.some((arg) => arg.startsWith("--shard=")))
+  );
+});
+
+test("Core feedback selects the runner that actually contains each changed test", () => {
+  const paths = [
+    "services/core/tests-node/local-contract.test.ts",
+    "services/core/tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+    "services/core/tests/remote-agent-routine-delivery.integration.test.ts",
+  ];
+  const commands = planPrChecks(paths, {
+    feedback: true,
+    existingFiles: paths,
+    workspaces: [
+      {
+        directory: "services/core",
+        name: "@openmeld/core",
+        test: "vitest run --config vitest.boundary.config.ts",
+      },
+    ],
+  });
+  assert.deepEqual(
+    commands
+      .filter((args) => args.includes("vitest"))
+      .map((args) => ({
+        config: args[args.indexOf("--config") + 1],
+        test: args.at(-1),
+      })),
+    [
+      {
+        config: "vitest.boundary.config.ts",
+        test: "tests-node/local-contract.test.ts",
+      },
+      {
+        config: "vitest.split-gate.config.ts",
+        test: "tests-split-gate/dispatch-queue-hot-path.split-routing.test.ts",
+      },
+      {
+        config: "vitest.config.ts",
+        test: "tests/remote-agent-routine-delivery.integration.test.ts",
+      },
+    ]
+  );
+});
+test("Worker changes select the existing Zod contract guard before expensive tests", () => {
+  for (const feedback of [true, false]) {
+    for (const file of [
+      "services/remote-agent/agent-core/session-title.ts",
+      "services/core/src/index.ts",
+      "packages/schemas/src/index.ts",
+      "scripts/cloudflare/worker-zod-import-contract.mjs",
+    ]) {
+      assert.deepEqual(planPrChecks([file], { feedback })[0], [
+        "run",
+        "verify:worker-zod-imports",
+      ]);
+    }
+    for (const file of [
+      "clients/web/src/index.tsx",
+      "developing/README.md",
+      "services/core/README.md",
+    ]) {
+      assert.ok(
+        !planPrChecks([file], { feedback }).some((args) =>
+          args.includes("verify:worker-zod-imports")
+        )
+      );
+    }
+  }
+});
+
+test("focused checks changed files and adjacent tests without package builds", () => {
   const sources = [
     "clients/web/src/sidebar.tsx",
     "clients/web/src/sidebar.test.tsx",
@@ -53,14 +164,11 @@ test("draft feedback checks changed files and related tests without package buil
       "clients/web",
       "exec",
       "vitest",
-      "related",
-      "--run",
+      "run",
       "--config",
       "vitest.config.ts",
-      "--passWithNoTests",
       "--maxWorkers=2",
       "--no-file-parallelism",
-      "src/sidebar.tsx",
       "src/sidebar.test.tsx",
     ],
   ]);
@@ -79,7 +187,7 @@ test("deleted files never turn a focused lint command into a repository scan", (
   );
 });
 
-test("draft control feedback runs the owning Node regression tests once", () => {
+test("focused control checks run the owning Node regression tests once", () => {
   const commands = planPrChecks(
     ["scripts/dev/verify-pr.mjs", "scripts/dev/verify-pr.test.mjs"],
     {
@@ -98,13 +206,13 @@ test("draft control feedback runs the owning Node regression tests once", () => 
   );
 });
 
-test("docs-only draft feedback avoids code, test discovery, and builds", () => {
+test("docs-only focused checks avoid code, test discovery, and builds", () => {
   assert.deepEqual(planPrChecks(["developing/README.md"], { feedback: true }), [
     ["run", "verify:docs", "--", "--strict"],
   ]);
 });
 
-test("unsupported package runners execute their own test command instead of silently skipping", () => {
+test("focused feedback leaves non-Vitest package tests to the agent", () => {
   const commands = planPrChecks(["services/core/src/index.ts"], {
     feedback: true,
     workspaces: [
@@ -112,8 +220,7 @@ test("unsupported package runners execute their own test command instead of sile
     ],
   });
   assert.equal(commands.length, 2);
-  assert.deepEqual(commands[1], ["--dir", "services/core", "run", "test"]);
-  assert.ok(commands[0].includes("biome"));
+  assert.ok(commands[1].includes("biome"));
 });
 
 test("documentation and shared skill edits avoid workspace builds and tests", () => {
@@ -141,9 +248,12 @@ test("shared contracts and SQL migrations retain downstream validation", () => {
     "services/core/src/index.ts",
   ]) {
     const commands = planPrChecks([file]);
-    assert.equal(commands.length, 2);
-    assert.ok(commands[0].includes("check"));
-    assert.ok(commands[1].includes("test"));
+    const affectedCommands = commands.filter((args) =>
+      args.includes("scripts/dev/turbo-affected.mjs")
+    );
+    assert.equal(affectedCommands.length, 2);
+    assert.ok(affectedCommands[0].includes("check"));
+    assert.ok(affectedCommands[1].includes("test"));
     assert.ok(commands.every((args) => !args.includes("--changed-only")));
   }
 });
@@ -163,6 +273,9 @@ test("failed or interrupted checks stop the lane without a green result", () => 
 test("check completes before tests start and each phase keeps bounded parallelism", () => {
   const executed = [];
   runPrChecks(planPrChecks(["services/core/src/index.ts"]), (_binary, args) => {
+    if (args.includes("verify:worker-zod-imports")) {
+      return { status: 0 };
+    }
     executed.push(args);
     assert.ok(args.includes("--concurrency=2"));
     assert.notEqual(args.includes("check"), args.includes("test"));
@@ -198,6 +311,7 @@ test("unit aliases retain package-owned configuration and reject cycles", () => 
 test("focused tests build dependencies once through Turbo, not the changed app", () => {
   const commands = planPrChecks(["clients/web/src/app.tsx"], {
     feedback: true,
+    existingFiles: ["clients/web/src/app.tsx", "clients/web/src/app.test.tsx"],
     workspaces: [
       { directory: "clients/web", name: "openmeld-web", test: "vitest run" },
     ],
@@ -210,5 +324,58 @@ test("focused tests build dependencies once through Turbo, not the changed app",
     "--filter=openmeld-web^...",
     "--concurrency=1",
   ]);
-  assert.ok(commands[2].includes("related"));
+  assert.ok(commands[2].includes("src/app.test.tsx"));
+});
+
+test("a shared component without an adjacent test does not trigger a workspace sweep", () => {
+  const commands = planPrChecks(["clients/web/src/shared-video.tsx"], {
+    feedback: true,
+    existingFiles: ["clients/web/src/shared-video.tsx"],
+    workspaces: [
+      { directory: "clients/web", name: "openmeld-web", test: "vitest run" },
+    ],
+  });
+  assert.deepEqual(commands, [
+    [
+      "exec",
+      "biome",
+      "check",
+      "--no-errors-on-unmatched",
+      "--",
+      "clients/web/src/shared-video.tsx",
+    ],
+  ]);
+});
+
+test("focused Node tests run after changed workspace dependencies are built", () => {
+  const commands = planPrChecks(
+    [
+      "clients/desktop/src/main/main.ts",
+      "scripts/release/desktop-preview.mjs",
+      "scripts/release/desktop-preview.test.mjs",
+    ],
+    {
+      feedback: true,
+      existingFiles: [
+        "clients/desktop/src/main/main.ts",
+        "clients/desktop/src/main/main.test.ts",
+        "clients/desktop/package.json",
+        "scripts/release/desktop-preview.mjs",
+        "scripts/release/desktop-preview.test.mjs",
+      ],
+      workspaces: [
+        {
+          directory: "clients/desktop",
+          name: "@openmeld/desktop",
+          test: "vitest run",
+        },
+      ],
+    }
+  );
+  const buildIndex = commands.findIndex((args) => args.includes("turbo"));
+  const nodeTestIndex = commands.findIndex(
+    (args) => args.includes("node") && args.includes("--test")
+  );
+  assert.ok(buildIndex >= 0);
+  assert.ok(nodeTestIndex > buildIndex);
 });

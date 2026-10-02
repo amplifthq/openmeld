@@ -241,7 +241,7 @@ describe("SpaceComposerEditor", () => {
 		}
 	});
 
-	it("keeps @all open for an audience choice and inserts ordinary People and Agent tokens", async () => {
+	it("keeps @all open for an audience choice and inserts one group token", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
 		render(
@@ -272,7 +272,13 @@ describe("SpaceComposerEditor", () => {
 			await screen.findByRole("option", { name: BOTH_OPTION_NAME })
 		);
 		await waitFor(() => {
-			const mentions = onChange.mock.lastCall?.[0].authoredMentions;
+			const change = onChange.mock.lastCall?.[0];
+			const mentions = change?.authoredMentions;
+			expect(change?.text).toBe("@all");
+			expect(
+				screen.getAllByTestId("space-composer-audience-token")
+			).toHaveLength(1);
+			expect(screen.queryByTestId("space-composer-profile-token")).toBeNull();
 			expect(mentions).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
@@ -650,6 +656,45 @@ describe("SpaceComposerEditor", () => {
 				text: "@Runner review this.",
 			});
 		});
+	});
+
+	it.each([
+		"",
+		"Remember this.",
+	])("makes an implicit Direct Message recipient a visible Reference without losing draft %s", async (text) => {
+		const onChange = vi.fn();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[createBlockedAgentTarget()]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text={text}
+			/>
+		);
+		act(() => composerRef.current?.setAgentMentionOnly?.([AGENT_PROFILE_ID]));
+		await waitFor(() =>
+			expect(onChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					text: `@Runner ${text}`,
+					authoredMentions: [
+						expect.objectContaining({
+							profileId: AGENT_PROFILE_ID,
+							relation: "reference",
+						}),
+					],
+				})
+			)
+		);
+		act(() => composerRef.current?.setAgentMentionOnly?.([AGENT_PROFILE_ID]));
+		expect(screen.getAllByTestId("space-composer-profile-token")).toHaveLength(
+			1
+		);
 	});
 
 	it("changes one Agent to Mention only while preserving another Agent's Wake and the draft", async () => {

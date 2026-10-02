@@ -269,6 +269,8 @@ export const openMeldDaemonSyncRouteCatalogStatusSchema = z.enum([
 ]);
 
 export const DAEMON_PROFILE_SKIP_REASON_VALUES = [
+  "model.retired",
+  "model.unavailable",
   "projection.missing",
   "controller.registry.disabled",
   "controller.launch.needs_repair",
@@ -467,6 +469,24 @@ export const openMeldDaemonInterruptPayloadSchema = z.strictObject({
   note: z.string().min(1).optional(),
   reasonCode: z.string().min(1).optional(),
 });
+
+/**
+ * What accepting a cancellation established, carried on `reasonCode`.
+ *
+ * `accepted` alone only means the control request was taken: an adapter can
+ * register a stop signal before the provider turn is acknowledged, and
+ * interrupting a started turn is a request, not a completion barrier. Work that
+ * replaces the attempt needs `adapter.cancel.withdrawn_before_start`.
+ *
+ * This rides the existing free-form reason code on purpose. These payloads are
+ * strict objects, so a Service that emitted a new key would have its whole
+ * frame rejected by a Core that predates it, and local components can reach a
+ * user before the matching Core deploy.
+ */
+export const OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE =
+  "adapter.cancel.withdrawn_before_start" as const;
+export const OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE =
+  "adapter.cancel.stop_requested_after_start" as const;
 
 export const openMeldDaemonCancelPayloadSchema = z.strictObject({
   accepted: z.boolean(),

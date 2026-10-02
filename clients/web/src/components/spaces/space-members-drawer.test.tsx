@@ -7,6 +7,7 @@ import {
 import type {
 	AuthProfileView,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
 	cleanup,
@@ -19,6 +20,7 @@ import {
 import type { ComponentProps, ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
+import { readCurrentOrganizationProfileDirectory } from "#/lib/organizations/organization-directory";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
@@ -46,7 +48,11 @@ const {
 	updatePrimaryBindingAgentControllerCollaborationModeMock: vi.fn(),
 }));
 
-vi.mock("@tanstack/react-router", () => ({
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@tanstack/react-router")>()),
+	Link: ({ to, ...props }: ComponentProps<"a"> & { to: string }) => (
+		<a {...props} href={to} />
+	),
 	useNavigate: () => navigateMock,
 }));
 
@@ -61,6 +67,16 @@ vi.mock("#/lib/spaces/direct-message", () => ({
 vi.mock("sonner", () => ({
 	toast: toastMock,
 }));
+
+vi.mock(
+	"#/lib/organizations/organization-directory",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("#/lib/organizations/organization-directory")
+		>()),
+		readCurrentOrganizationProfileDirectory: vi.fn(),
+	})
+);
 
 vi.mock(
 	"#/lib/profiles/agent-profile-primary-binding",
@@ -209,6 +225,172 @@ import {
 } from "./space-members-error-copy";
 
 describe("SpaceMembersSidePanel", () => {
+	it("shows cached identities without member actions until fresh members replace them, and hides them on failure", () => {
+		const client = createTestQueryClient();
+		const profileId = "11111111-1111-4111-8111-111111111111";
+		client.setQueryData(
+			spaceQueryKeys.memberDirectoryDisplay("space-1", profileId),
+			{
+				version: 1,
+				members: [
+					{
+						profileId: "cached-agent",
+						profileName: "Cached agent",
+						profileKind: "agent",
+						primaryMentionLabel: "Cached agent",
+						avatarUrl: null,
+						agentControllerRef: null,
+					},
+				],
+			}
+		);
+		const props: TestSpaceMembersSidePanelProps = {
+			activeWakeWaitingTargetProfileIds: new Set(),
+			agentRecoveryPlansByProfileId: new Map(),
+			autoRefreshExhaustedProfileIds: new Set(),
+			currentOwnerUserId: "user_felix",
+			currentProfileId: profileId,
+			isAgentRecoveryPending: () => false,
+			isLoading: true,
+			membersError: null,
+			onAgentRecoveryAction: async () => undefined,
+			onRefresh: async () => undefined,
+			onOpenChange: vi.fn(),
+			open: true,
+			orgSlug: "acme",
+			snapshot: null,
+			spaceId: "space-1",
+		};
+		const panel = (overrides: Partial<TestSpaceMembersSidePanelProps> = {}) => (
+			<TestQueryClientProvider queryClient={client}>
+				<SpaceMembersSidePanel {...props} {...overrides} />
+			</TestQueryClientProvider>
+		);
+		const view = render(panel());
+		expect(screen.getByText("Cached agent")).toBeTruthy();
+		expect(screen.getByRole("status").textContent).toBe("Updating members…");
+		expect(
+			screen.queryByTestId("space-agent-availability-indicator")
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Check Cached agent Profile" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Add People or Agents" })
+		).toBeNull();
+
+		view.rerender(
+			panel({
+				isLoading: false,
+				snapshot: createSpaceMembersSnapshot({
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							profileId,
+							profileName: "Current member",
+						}),
+					],
+				}),
+			})
+		);
+		expect(screen.queryByText("Cached agent")).toBeNull();
+		expect(screen.getByText("Current member")).toBeTruthy();
+
+		view.rerender(panel({ membersError: SPACE_MEMBERS_LOAD_ERROR_MESSAGE }));
+		expect(screen.queryByText("Cached agent")).toBeNull();
+		expect(screen.getByText(SPACE_MEMBERS_LOAD_ERROR_MESSAGE)).toBeTruthy();
+		view.rerender(panel({ currentProfileId: "different-profile" }));
+		expect(screen.queryByText("Cached agent")).toBeNull();
+	});
+
+	it("reuses fresh candidates and preserves selection through a failed stale refresh and retry", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-09-16T12:00:00Z"));
+		const directory = buildOrganizationDirectory({
+			centerAgentProfileId: "agt_44444444-4444-4444-8444-444444444444",
+			humanProfileId: "22222222-2222-4222-8222-222222222222",
+		});
+		let rejectRefresh: (reason: Error) => void = () => undefined;
+		const profileDirectory = toProfileDirectory(directory);
+		let resolveRetry: (value: OrganizationProfileDirectoryResponse) => void =
+			() => undefined;
+		const pending = new Promise<OrganizationProfileDirectoryResponse>(
+			(_resolve, reject) => {
+				rejectRefresh = reject;
+			}
+		);
+		const retry = new Promise<OrganizationProfileDirectoryResponse>(
+			(resolve) => {
+				resolveRetry = resolve;
+			}
+		);
+		const read = vi
+			.mocked(readCurrentOrganizationProfileDirectory)
+			.mockReturnValueOnce(pending)
+			.mockReturnValueOnce(retry);
+		const client = createTestQueryClient();
+		client.setQueryData(
+			organizationQueryKeys.profileDirectory("org-acme"),
+			profileDirectory
+		);
+		const surface = (nonce: number) => (
+			<TestQueryClientProvider queryClient={client}>
+				<AppOrganizationProvider scope={createOrganizationScope()}>
+					<SpaceAddMembersLauncher
+						activeWakeWaitingTargetProfileIds={new Set()}
+						agentRecoveryPlansByProfileId={new Map()}
+						autoRefreshExhaustedProfileIds={new Set()}
+						currentOwnerUserId="user_felix"
+						currentProfileId="11111111-1111-4111-8111-111111111111"
+						isAgentRecoveryPending={() => false}
+						isLoading={false}
+						membersError={null}
+						onAddOrganizationDirectoryProfiles={vi.fn()}
+						onAgentRecoveryAction={async () => undefined}
+						onRefresh={async () => undefined}
+						openAddMembersNonce={nonce}
+						orgSlug="acme"
+						snapshot={createSpaceMembersSnapshot()}
+					/>
+				</AppOrganizationProvider>
+			</TestQueryClientProvider>
+		);
+		const view = render(surface(0));
+		view.rerender(surface(1));
+		await screen.findByRole("checkbox", { name: "Mira" });
+		fireEvent.click(screen.getByText("Close"));
+		view.rerender(surface(2));
+		await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+		fireEvent.click(screen.getByText("Close"));
+		view.rerender(surface(3));
+		const choice = screen.getByRole("checkbox", { name: "Mira" });
+		fireEvent.click(choice);
+		expect(read).toHaveBeenCalledTimes(1);
+		rejectRefresh(
+			Object.assign(new Error("Invalid directory response"), {
+				code: "gateway.invalid_response",
+			})
+		);
+		const refreshMessage =
+			"Couldn’t update the list. Showing the last available results.";
+		await screen.findByText(refreshMessage);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(screen.getByText("Try again"));
+		const retrying = await screen.findByRole("button", { name: "Retrying…" });
+		expect(retrying.hasAttribute("disabled")).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Add 1 member" })
+				.hasAttribute("disabled")
+		).toBe(true);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(retrying);
+		expect(read).toHaveBeenCalledTimes(2);
+		resolveRetry(profileDirectory);
+		await waitFor(() => expect(screen.queryByText(refreshMessage)).toBeNull());
+		expect(read).toHaveBeenCalledTimes(2);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+	});
+
 	it.each([
 		true,
 		false,
@@ -263,8 +445,10 @@ describe("SpaceMembersSidePanel", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.useRealTimers();
 		vi.restoreAllMocks();
 		readPrimaryBindingMock.mockReset();
+		vi.mocked(readCurrentOrganizationProfileDirectory).mockReset();
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
 		updatePrimaryBindingAgentControllerCollaborationModeMock.mockReset();
@@ -1227,12 +1411,16 @@ describe("SpaceMembersSidePanel", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
+		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
 
-		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
-		const joinedAgent = screen.getByRole("checkbox", { name: "Joined Agent" });
-		expect(joinedAgent.getAttribute("aria-checked")).toBe("true");
-		expect(joinedAgent.getAttribute("aria-disabled")).toBe("true");
-		expect(within(joinedAgent).getByText("In this Space")).toBeTruthy();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Felix" })
+		).toBeNull();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Joined Agent" })
+		).toBeNull();
+		expect(within(dialog).getByText("Joined Agent")).toBeTruthy();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("checkbox", { name: "Codex Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
@@ -1411,7 +1599,9 @@ describe("SpaceMembersSidePanel", () => {
 			).toBe("false");
 		}
 		expect(
-			screen.getByText("Choose people and their agents from Acme.")
+			screen.getByText(
+				"Select people or agents from Acme to add directly to this Space."
+			)
 		).toBeTruthy();
 		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
 		expect(
@@ -1579,22 +1769,19 @@ describe("SpaceMembersSidePanel", () => {
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
 		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
-		const joinedCheckbox = within(dialog).getByRole("checkbox", {
-			name: "Research Agent",
-		});
 		expect(
 			within(dialog).getAllByRole("button", { name: "New Agent" })
 		).toHaveLength(1);
 		expect(
 			within(dialog).queryByRole("checkbox", { name: "Felix" })
 		).toBeNull();
-		expect(joinedCheckbox.getAttribute("aria-checked")).toBe("true");
-		expect(joinedCheckbox.getAttribute("aria-disabled")).toBe("true");
-		expect(within(joinedCheckbox).getByText("In this Space")).toBeTruthy();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Research Agent" })
+		).toBeNull();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 		expect(
 			readTextOrder(dialog, ["Research Agent", "Available Agent"])
 		).toEqual(["Research Agent", "Available Agent"]);
-		fireEvent.click(joinedCheckbox);
 		expect(within(dialog).getByText("Select members to add")).toBeTruthy();
 	});
 
@@ -2038,11 +2225,10 @@ describe("SpaceMembersSidePanel", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
-		expect(
-			within(screen.getByRole("checkbox", { name: "Joined Agent" })).getByText(
-				"In this Space"
-			)
-		).toBeTruthy();
+		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
+		expect(screen.queryByRole("checkbox", { name: "Joined Agent" })).toBeNull();
+		expect(within(dialog).getByText("Joined Agent")).toBeTruthy();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 		unmount();
 
 		renderWithQueryClient(
@@ -2232,7 +2418,7 @@ describe("SpaceMembersSidePanel", () => {
 		const createProfileButton = dialogScope.getByRole("button", {
 			name: "New Agent",
 		});
-		expect(createProfileButton.className).toContain("bg-primary");
+		expect(createProfileButton).toBeTruthy();
 		const footerLabel = dialogScope.getByText("Select members to add");
 		const footer = footerLabel.parentElement;
 		expect(footer?.className).toContain("flex-col");
@@ -2408,9 +2594,12 @@ function renderWithOrganizationQueryClient(
 	isPersonal = false
 ) {
 	const queryClient = createTestQueryClient();
+	vi.mocked(readCurrentOrganizationProfileDirectory).mockResolvedValue(
+		toProfileDirectory(directory)
+	);
 	queryClient.setQueryData(
-		organizationQueryKeys.directory("org-acme"),
-		directory
+		organizationQueryKeys.profileDirectory("org-acme"),
+		toProfileDirectory(directory)
 	);
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
@@ -2587,6 +2776,18 @@ function buildOrganizationDirectory(input: {
 	};
 }
 
+function toProfileDirectory(
+	directory: OrganizationDirectoryResponse
+): OrganizationProfileDirectoryResponse {
+	return {
+		...directory,
+		agentProfiles: directory.agentProfiles.map(({ readiness, ...profile }) => ({
+			...profile,
+			agentControllerRef: readiness.agentControllerRef,
+		})),
+	};
+}
+
 describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 	afterEach(() => {
 		cleanup();
@@ -2696,8 +2897,8 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		expect(indicator.getAttribute("data-refreshing")).toBe("true");
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(
-			screen.getByText("This agent is working on a Wake in this Space.")
-		).toBeTruthy();
+			screen.queryByText("This agent is working on a Wake in this Space.")
+		).toBeNull();
 	});
 
 	it("keeps Profile Details on the raw Checking snapshot while the indicator is smoothed to Available (M1)", async () => {

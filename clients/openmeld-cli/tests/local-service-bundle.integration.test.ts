@@ -41,11 +41,61 @@ import {
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { ensureDaemonSystemServiceCommandFiles } from "../src/local-service/lifecycle/daemon-service-command-spec";
 import { persistPendingDaemonServiceUpdate } from "../src/local-service/lifecycle/daemon-service-update-state";
+import {
+  hashBinaryServiceBundle,
+  prepareWindowsMaintenanceBinary,
+} from "../src/local-service/lifecycle/windows-service-binary";
 import { withTempHome } from "./helpers/fs";
 
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/u;
 
 describe("installed Service artifact independence", () => {
+  it("retains an independent complete Windows maintenance copy when its Service source disappears", async () => {
+    await withTempHome(async (home) => {
+      const source = join(home, "windows-source");
+      await mkdir(source);
+      const executable = join(source, "openmeld.exe");
+      const helper = "openmeld-windows-process.exe";
+      await writeFile(executable, "service image fixture");
+      await writeFile(join(source, helper), "native companion fixture");
+      const sourceDistFingerprint = await hashBinaryServiceBundle(
+        executable,
+        true
+      );
+      const now = new Date().toISOString();
+      const bundle = {
+        v: 2 as const,
+        schema: "openmeld-daemon-active-bundle-v2" as const,
+        bundleId: "windows-fixture",
+        daemonVersion: "1.2.3",
+        entryScriptRelativePath: "openmeld.exe",
+        bundleFormat: "binary_v1" as const,
+        sourceEntryScriptPath: executable,
+        sourcePackageRootPath: source,
+        sourceDistRootPath: source,
+        sourceDistFingerprint,
+        sourceKind: "package_install" as const,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const maintenance = await prepareWindowsMaintenanceBinary(bundle);
+      expect(maintenance).not.toBe(executable);
+      expect((await lstat(maintenance)).isSymbolicLink()).toBe(false);
+      await rm(source, { recursive: true });
+      expect(await prepareWindowsMaintenanceBinary(bundle)).toBe(maintenance);
+      expect(await readFile(maintenance, "utf8")).toBe("service image fixture");
+      expect(await readFile(join(dirname(maintenance), helper), "utf8")).toBe(
+        "native companion fixture"
+      );
+      await writeFile(
+        join(dirname(maintenance), helper),
+        "corrupted companion"
+      );
+      expect(await hashBinaryServiceBundle(maintenance, true)).not.toBe(
+        sourceDistFingerprint
+      );
+    });
+  });
   it("keeps a copied Service valid after its source CLI changes, but detects installed corruption", async () => {
     await withTempHome(async () => {
       const fixture = await createDaemonBundleFixture("package_install");
@@ -93,11 +143,13 @@ type DaemonBundleFixture = {
   cliScriptPath: string;
   distRootPath: string;
   packageRootPath: string;
+  setPackageVersion: (version: string) => Promise<void>;
   cleanup: () => Promise<void>;
 };
 
 async function createDaemonBundleFixture(
-  layout: DaemonBundleFixtureLayout
+  layout: DaemonBundleFixtureLayout,
+  packageVersion = "1.2.3"
 ): Promise<DaemonBundleFixture> {
   const fixtureRoot = await mkdtemp(
     join(
@@ -122,22 +174,25 @@ async function createDaemonBundleFixture(
   await mkdir(distRootPath, { recursive: true });
   await mkdir(commanderRootPath, { recursive: true });
   await mkdir(kleurRootPath, { recursive: true });
-  await writeFile(
-    join(packageRootPath, "package.json"),
-    `${JSON.stringify(
-      {
-        name: "openmeld",
-        version: "0.1.9",
-        type: "module",
-        dependencies: {
-          commander: "^14.0.0",
+  const setPackageVersion = async (version: string): Promise<void> => {
+    await writeFile(
+      join(packageRootPath, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "openmeld",
+          version,
+          type: "module",
+          dependencies: {
+            commander: "^14.0.0",
+          },
         },
-      },
-      null,
-      2
-    )}\n`,
-    "utf8"
-  );
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+  };
+  await setPackageVersion(packageVersion);
   await writeFile(
     join(distRootPath, "openmeld.js"),
     'import "commander";\nconsole.log("ok");\n',
@@ -189,6 +244,7 @@ async function createDaemonBundleFixture(
     cliScriptPath: join(distRootPath, "openmeld.js"),
     distRootPath,
     packageRootPath,
+    setPackageVersion,
     cleanup: async () => {
       await rm(fixtureRoot, { recursive: true, force: true });
     },
@@ -492,13 +548,17 @@ async function runNodeScript(
 describe("local service bundle", () => {
   it("stages and validates a replacement without changing the active service bundle", async () => {
     await withTempHome(async () => {
-      const fixture = await createDaemonBundleFixture("package_install");
+      const fixture = await createDaemonBundleFixture(
+        "package_install",
+        "1.2.2"
+      );
 
       try {
         const currentBundle = await prepareDaemonServiceBundle({
           daemonVersion: "1.2.2",
           cliScriptPath: fixture.cliScriptPath,
         });
+        await fixture.setPackageVersion("1.2.3");
         const replacementBundle = await prepareDaemonServiceBundle({
           activate: false,
           daemonVersion: "1.2.3",
@@ -553,6 +613,29 @@ describe("local service bundle", () => {
     });
   });
 
+  it("refuses to label an older npm CLI source as a newer Service", async () => {
+    await withTempHome(async () => {
+      const fixture = await createDaemonBundleFixture(
+        "package_install",
+        "1.2.2"
+      );
+
+      try {
+        await expect(
+          prepareDaemonServiceBundle({
+            daemonVersion: "1.2.3",
+            cliScriptPath: fixture.cliScriptPath,
+          })
+        ).rejects.toThrow(
+          "Cannot prepare OpenMeld Service 1.2.3 from CLI source 1.2.2"
+        );
+        await expect(readDaemonActiveBundleState()).resolves.toBeNull();
+      } finally {
+        await fixture.cleanup();
+      }
+    });
+  });
+
   it("prepares an active bundle and stable launcher under OpenMeld runtime", async () => {
     await withTempHome(async () => {
       const previousPreset = process.env.OPENMELD_ENV_PRESET;
@@ -577,6 +660,12 @@ describe("local service bundle", () => {
           "utf8"
         );
         await mkdir(join(fixture.distRootPath, "native"), { recursive: true });
+        await mkdir(join(fixture.distRootPath, "windows"), { recursive: true });
+        await writeFile(
+          join(fixture.distRootPath, "windows", "openmeld-windows-process.exe"),
+          "Service process helper fixture\n",
+          "utf8"
+        );
         await writeFile(
           join(fixture.distRootPath, "native", "openmeld-keychain.node"),
           "macOS secure storage addon\n",
@@ -647,6 +736,17 @@ describe("local service bundle", () => {
           stat(join(bundleRootPath, "dist", "native", "openmeld-keychain.node"))
         ).rejects.toMatchObject({ code: "ENOENT" });
         await expect(stat(bundlePackageJsonPath)).resolves.toBeDefined();
+        await expect(
+          readFile(
+            join(
+              bundleRootPath,
+              "dist",
+              "windows",
+              "openmeld-windows-process.exe"
+            ),
+            "utf8"
+          )
+        ).resolves.toBe("Service process helper fixture\n");
         await expect(
           readFile(bundlePackageJsonPath, "utf8")
         ).resolves.toContain('"type": "module"');
@@ -1242,7 +1342,10 @@ describe("local service bundle", () => {
 
   it("bundles runtime dependencies from a package install with hoisted node_modules", async () => {
     await withTempHome(async () => {
-      const fixture = await createDaemonBundleFixture("package_install");
+      const fixture = await createDaemonBundleFixture(
+        "package_install",
+        "0.1.9"
+      );
 
       try {
         const bundleState = await prepareDaemonServiceBundle({

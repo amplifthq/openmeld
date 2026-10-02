@@ -1,4 +1,5 @@
 import type { AuthRpcResolveProfileByIdResult } from "@openmeld/schemas/types";
+import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import type { CoreBindings } from "../../lib/bindings";
 import { createD1ReadBatch } from "../../lib/d1-read-batch";
@@ -18,6 +19,14 @@ export function createAgentExecutionReadinessReads(input?: {
   batchProfileReads?: boolean;
 }) {
   const readBatch = input?.batchProfileReads ? createD1ReadBatch() : undefined;
+  const profiles = new Map<
+    object,
+    Map<string, Promise<AuthRpcResolveProfileByIdResult>>
+  >();
+  const bindings = new Map<
+    D1Database,
+    Map<string, ReturnType<typeof readPrimaryAgentProfileBindingRecord>>
+  >();
   const runtimeById = new Map<
     D1Database,
     Map<string, ReturnType<typeof readRuntimeRegistryRecordByRuntimeId>>
@@ -59,9 +68,33 @@ export function createAgentExecutionReadinessReads(input?: {
       if (profile !== undefined) {
         return { ok: true, profile };
       }
-      return await request.authWorker.resolveProfileById({
-        openMeldProfileId: request.profileId,
-      });
+      return await shareRead(
+        profiles,
+        request.authWorker,
+        request.profileId,
+        () =>
+          request.authWorker.resolveProfileById({
+            openMeldProfileId: request.profileId,
+          })
+      );
+    },
+    readPrimaryAgentProfileBindingRecord(
+      request: Parameters<typeof readPrimaryAgentProfileBindingRecord>[0]
+    ) {
+      return shareRead(
+        bindings,
+        request.db,
+        JSON.stringify([
+          request.agentProfileId,
+          request.owner.kind,
+          request.owner.id,
+        ]),
+        () =>
+          readPrimaryAgentProfileBindingRecord({
+            ...request,
+            readBatch: request.readBatch ?? readBatch,
+          })
+      );
     },
     readRuntimeRegistryRecordByRuntimeId(
       input: Parameters<typeof readRuntimeRegistryRecordByRuntimeId>[0]
@@ -109,9 +142,9 @@ export type AgentExecutionReadinessReads = ReturnType<
   typeof createAgentExecutionReadinessReads
 >;
 
-function shareRead<T>(
-  reads: Map<D1Database, Map<string, Promise<T>>>,
-  db: D1Database,
+function shareRead<Key, T>(
+  reads: Map<Key, Map<string, Promise<T>>>,
+  db: Key,
   key: string,
   read: () => Promise<T>
 ): Promise<T> {

@@ -118,6 +118,7 @@ export type UnpublishedFailedRoutineRun = {
   failureCode: string;
   failureDetail: string | null;
   organizationId: string;
+  routineId: string;
   routineName: string;
   runId: string;
   slackChannelId: string | null;
@@ -1165,6 +1166,7 @@ export async function listUnpublishedFailedRoutineRuns(input: {
       `
         SELECT
           id,
+          routine_id,
           organization_id,
           failure_code,
           failure_detail,
@@ -1221,6 +1223,7 @@ export async function listUnpublishedFailedRoutineRuns(input: {
       failure_publication_attempt_count: number;
       id: string;
       organization_id: string;
+      routine_id: string;
       routine_name_snapshot: string;
       message_channel_destination_json_snapshot: string | null;
       destination_kind_snapshot:
@@ -1245,6 +1248,7 @@ export async function listUnpublishedFailedRoutineRuns(input: {
     failureCode: row.failure_code,
     failureDetail: row.failure_detail,
     organizationId: row.organization_id,
+    routineId: row.routine_id,
     routineName: row.routine_name_snapshot,
     runId: row.id,
     slackChannelId: row.slack_channel_id_snapshot,
@@ -1255,22 +1259,29 @@ export async function listUnpublishedFailedRoutineRuns(input: {
   }));
 }
 
-export async function listPendingRoutineWorkflowRunIds(input: {
+export async function claimRoutineWorkflowCheckBatch(input: {
   db: D1Database;
   limit: number;
+  nowMs: number;
 }): Promise<string[]> {
   const result = await input.db
     .prepare(
       `
-        SELECT id
-        FROM routine_runs
-        WHERE execution_engine = 'workflow'
-          AND status IN ('claimed', 'submitted')
-        ORDER BY started_at_ms ASC, id ASC
-        LIMIT ?
+        UPDATE routine_runs
+        SET workflow_last_checked_at_ms = ?
+        WHERE id IN (
+          SELECT id
+          FROM routine_runs
+          WHERE execution_engine = 'workflow'
+            AND status IN ('claimed', 'submitted')
+            AND workflow_last_checked_at_ms < ?
+          ORDER BY workflow_last_checked_at_ms ASC, started_at_ms ASC, id ASC
+          LIMIT ?
+        )
+        RETURNING id
       `
     )
-    .bind(input.limit)
+    .bind(input.nowMs, input.nowMs, input.limit)
     .all<{ id: string }>();
   return (result.results ?? []).map((row) => row.id);
 }

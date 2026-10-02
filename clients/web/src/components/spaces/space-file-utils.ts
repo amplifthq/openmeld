@@ -36,7 +36,7 @@ export function resolveSpaceFileErrorMessage(error: unknown): string {
 
 export function downloadContent(
 	fileName: string,
-	content: SpaceFileContent
+	content: Pick<SpaceFileContent, "mimeType"> & { bytes: ArrayBuffer | Blob }
 ): void {
 	const url = URL.createObjectURL(
 		new Blob([content.bytes], { type: content.mimeType })
@@ -46,6 +46,23 @@ export function downloadContent(
 	anchor.download = fileName;
 	anchor.click();
 	URL.revokeObjectURL(url);
+}
+
+export async function downloadUrlContent(
+	fileName: string,
+	url: string
+): Promise<void> {
+	const response = await fetch(url, { credentials: "include" });
+	if (!response.ok) {
+		throw new Error("OpenMeld couldn’t download this file.");
+	}
+	const blob = await response.blob();
+	const objectUrl = URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = objectUrl;
+	anchor.download = fileName;
+	anchor.click();
+	URL.revokeObjectURL(objectUrl);
 }
 
 export function formatFileSize(sizeBytes: number): string {

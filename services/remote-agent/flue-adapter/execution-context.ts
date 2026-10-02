@@ -17,11 +17,16 @@ const REMOTE_AGENT_EXECUTION_INSTRUMENTATION_KEY = Symbol.for(
 );
 const executionSubmissionStorage = new AsyncLocalStorage<string>();
 let instrumentationInstalled = false;
-let prepareExecution: (() => Promise<unknown>) | undefined;
-const executionResources = new AsyncLocalStorage<unknown>();
+type PreparedExecutionResources = {
+  beforeModel?: () => Promise<void>;
+  deferredToolCount?: number;
+  [name: string]: unknown;
+};
+let prepareExecution: (() => Promise<PreparedExecutionResources>) | undefined;
+const executionResources = new AsyncLocalStorage<PreparedExecutionResources>();
 
 export function registerRemoteAgentExecutionPreparation(
-  prepare: () => Promise<unknown>
+  prepare: () => Promise<PreparedExecutionResources>
 ): () => void {
   const previous = prepareExecution;
   prepareExecution = prepare;
@@ -50,6 +55,12 @@ export const REMOTE_AGENT_EXECUTION_INSTRUMENTATION: FlueInstrumentation = {
     context: FlueExecutionContext,
     next: () => Promise<T>
   ): Promise<T> => {
+    if (operation.type === "model") {
+      // A fenced tool round must not become an unbounded model/error loop.
+      // Throw through the existing runtime boundary; its lifecycle still owns
+      // settlement and Computer cleanup, not the admission guard.
+      await executionResources.getStore()?.beforeModel?.();
+    }
     if (operation.type !== "agent" || !context.submissionId) {
       return await next();
     }
@@ -83,6 +94,10 @@ export function installRemoteAgentExecutionInstrumentation(): void {
 
 export function getRemoteAgentExecutionSubmissionId(): string | null {
   return executionSubmissionStorage.getStore() ?? null;
+}
+
+export function getRemoteAgentDeferredToolCount(): number {
+  return executionResources.getStore()?.deferredToolCount ?? 0;
 }
 
 export function runWithRemoteAgentSubmissionExecution<T>(

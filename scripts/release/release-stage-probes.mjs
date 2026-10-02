@@ -1,5 +1,5 @@
 import { cliBinaryCompressedReleaseSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
-
+import { assertNpmRuntimeDependencies } from "./npm-cli-artifact.mjs";
 import { compareSemverCore } from "./release-semver.mjs";
 
 const NO_PENDING_D1_MIGRATIONS_PATTERN = /No migrations to apply[.!]?/iu;
@@ -59,57 +59,73 @@ export function decideCliBinaryStage(input) {
       reason: `the production CLI manifest for ${input.targetVersion} is immutable with required floor ${String(stable.minRequiredCliVersion ?? "missing")}, not target ${input.targetMinRequiredCliVersion}; publish a new release instead of retrying this version`,
     };
   }
+  const targetServiceVersion =
+    input.targetServiceVersion ?? input.targetVersion;
+  const selectedService = stable.service ?? {
+    platforms: stable.platforms,
+    version: stable.version,
+  };
+  if (selectedService.version !== targetServiceVersion) {
+    return {
+      action: "FAIL",
+      reason: `the production CLI manifest for ${input.targetVersion} selects Service ${selectedService.version}, not target ${targetServiceVersion}; immutable CLI and Service selection must agree before this stage can be skipped`,
+    };
+  }
   const artifact = stable.platforms?.[input.platform];
-  if (!cliBinaryCompressedReleaseSchema.safeParse(artifact).success) {
-    return immutableCliBinaryArtifactFailure(
-      input,
-      "the manifest record is incomplete"
-    );
+  const cliArtifactFailure = resolvePublishedArtifactFailure({
+    archiveProbe: input.archiveProbe,
+    artifact,
+    label: "the",
+    rawProbe: input.artifactProbe,
+  });
+  if (cliArtifactFailure) {
+    return immutableCliBinaryArtifactFailure(input, cliArtifactFailure);
   }
-  if (!input.artifactProbe?.ok) {
-    return immutableCliBinaryArtifactFailure(
-      input,
-      `the raw artifact is not downloadable (HTTP ${String(input.artifactProbe?.status ?? "unknown")})`
-    );
-  }
-  if (input.artifactProbe.contentLength !== artifact.sizeBytes) {
-    return immutableCliBinaryArtifactFailure(
-      input,
-      `the raw artifact size does not match the manifest record (${String(input.artifactProbe.contentLength ?? "missing")} != ${String(artifact.sizeBytes)})`
-    );
-  }
-  if (!input.archiveProbe?.ok) {
-    return immutableCliBinaryArtifactFailure(
-      input,
-      `the gzip archive is not downloadable (HTTP ${String(input.archiveProbe?.status ?? "unknown")})`
-    );
-  }
-  if (input.archiveProbe.contentLength !== artifact.archiveSizeBytes) {
-    return immutableCliBinaryArtifactFailure(
-      input,
-      `the gzip archive size does not match the manifest record (${String(input.archiveProbe.contentLength ?? "missing")} != ${String(artifact.archiveSizeBytes)})`
-    );
-  }
-  if (input.archiveProbe.sha256 !== artifact.archiveSha256) {
-    return immutableCliBinaryArtifactFailure(
-      input,
-      "the gzip archive sha256 does not match the manifest record"
-    );
-  }
-  if (
-    input.archiveProbe.reconstructedSizeBytes !== artifact.sizeBytes ||
-    input.archiveProbe.reconstructedSha256 !== artifact.sha256
-  ) {
-    return immutableCliBinaryArtifactFailure(
-      input,
-      "the gzip archive does not reconstruct the recorded binary"
-    );
+  if (targetServiceVersion !== input.targetVersion) {
+    const serviceArtifact = selectedService.platforms?.[input.platform];
+    const serviceArtifactFailure = resolvePublishedArtifactFailure({
+      archiveProbe: input.serviceArchiveProbe,
+      artifact: serviceArtifact,
+      label: "the retained Service",
+      rawProbe: input.serviceArtifactProbe,
+    });
+    if (serviceArtifactFailure) {
+      return immutableCliBinaryArtifactFailure(input, serviceArtifactFailure);
+    }
   }
   return {
     action: "SKIP",
     criterion: "verified-published-record",
     reason: `the production manifest has ${input.targetVersion} with required floor ${input.targetMinRequiredCliVersion}, the ${input.platform} raw URL matches its recorded size, and the gzip archive hashes and reconstructs the recorded binary`,
   };
+}
+
+function resolvePublishedArtifactFailure(input) {
+  if (!cliBinaryCompressedReleaseSchema.safeParse(input.artifact).success) {
+    return `${input.label} manifest record is incomplete`;
+  }
+  if (!input.rawProbe?.ok) {
+    return `${input.label} raw artifact is not downloadable (HTTP ${String(input.rawProbe?.status ?? "unknown")})`;
+  }
+  if (input.rawProbe.contentLength !== input.artifact.sizeBytes) {
+    return `${input.label} raw artifact size does not match the manifest record (${String(input.rawProbe.contentLength ?? "missing")} != ${String(input.artifact.sizeBytes)})`;
+  }
+  if (!input.archiveProbe?.ok) {
+    return `${input.label} gzip archive is not downloadable (HTTP ${String(input.archiveProbe?.status ?? "unknown")})`;
+  }
+  if (input.archiveProbe.contentLength !== input.artifact.archiveSizeBytes) {
+    return `${input.label} gzip archive size does not match the manifest record (${String(input.archiveProbe.contentLength ?? "missing")} != ${String(input.artifact.archiveSizeBytes)})`;
+  }
+  if (input.archiveProbe.sha256 !== input.artifact.archiveSha256) {
+    return `${input.label} gzip archive sha256 does not match the manifest record`;
+  }
+  if (
+    input.archiveProbe.reconstructedSizeBytes !== input.artifact.sizeBytes ||
+    input.archiveProbe.reconstructedSha256 !== input.artifact.sha256
+  ) {
+    return `${input.label} gzip archive does not reconstruct the recorded binary`;
+  }
+  return null;
 }
 
 function decideCliBinaryManifestVersionStage(input, stable) {
@@ -185,6 +201,14 @@ export function decideNpmPublishStage(input) {
   const published = parseNpmPackageProjection(input.stdout);
   const publishedVersion = published.version;
   if (publishedVersion === input.targetVersion) {
+    try {
+      assertNpmRuntimeDependencies(JSON.parse(input.stdout));
+    } catch (error) {
+      return {
+        action: "FAIL",
+        reason: `npm openmeld@${input.targetVersion} is not consumable: ${error instanceof Error ? error.message : String(error)} Publish a corrected new version instead of retrying this immutable package.`,
+      };
+    }
     if (
       input.targetMinRequiredCliVersion &&
       published.minRequiredCliVersion !== input.targetMinRequiredCliVersion
@@ -302,6 +326,9 @@ export function decideCoreProjectionStage(input) {
       action: "SKIP",
       criterion: "active-worker-version-tag",
       currentVersionIds,
+      versionId: matchingTraffic.version_id,
+      deploymentId: currentDeployment.id,
+      targetTag: input.targetTag,
       reason: `Core production version ${matchingTraffic.version_id} already carries ${input.targetTag}`,
     };
   }

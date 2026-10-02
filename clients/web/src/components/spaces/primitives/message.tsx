@@ -35,7 +35,7 @@ function MessageAvatar({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			className={cn(
-				"flex w-fit min-w-8 shrink-0 items-center justify-center self-end overflow-hidden rounded-full bg-muted group-has-data-[slot=message-footer]/message:-translate-y-8",
+				"flex w-fit min-w-8 shrink-0 items-center justify-center self-end overflow-hidden rounded-full bg-muted",
 				className
 			)}
 			data-slot="message-avatar"
@@ -44,13 +44,18 @@ function MessageAvatar({ className, ...props }: ComponentProps<"div">) {
 	);
 }
 
-function MessageContent({ className, ...props }: ComponentProps<"div">) {
+function MessageContent({
+	className,
+	directMessage = false,
+	...props
+}: ComponentProps<"div"> & { directMessage?: boolean }) {
 	return (
 		<div
 			className={cn(
 				"wrap-break-word flex w-full min-w-0 flex-col gap-2 group-data-[align=end]/message:*:data-slot:self-end",
 				className
 			)}
+			data-direct-message={directMessage || undefined}
 			data-slot="message-content"
 			{...props}
 		/>
@@ -61,7 +66,7 @@ function MessageHeader({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			className={cn(
-				"mb-1.5 flex min-w-0 max-w-full items-center px-2.5 font-medium text-muted-foreground text-xs group-has-data-[variant=ghost]/message:px-0",
+				"mb-0.5 flex min-w-0 max-w-full items-start px-2.5 font-normal text-muted-foreground text-xs group-has-data-[variant=ghost]/message:px-0",
 				className
 			)}
 			data-slot="message-header"

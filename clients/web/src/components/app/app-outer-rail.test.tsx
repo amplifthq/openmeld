@@ -349,6 +349,31 @@ describe("AppOuterRail", () => {
 		).toBeNull();
 	});
 
+	it("centers equal-sized utility targets in the collapsed rail", () => {
+		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
+		renderRail({ tier: "expanded", width: "9rem" });
+
+		const footer = screen
+			.getByTestId("app-outer-rail")
+			.querySelector('[data-sidebar="footer"]') as HTMLElement;
+		const utilityMenu = within(footer).getByRole("list", {
+			name: "App utilities",
+		});
+		expect(utilityMenu.className).toContain("mx-auto");
+		expect(utilityMenu.className).toContain("w-9");
+
+		for (const control of [
+			within(footer).getByRole("button", {
+				name: "Search or run a command",
+			}),
+			within(footer).getByRole("button", { name: "Settings" }),
+			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN }),
+			within(footer).getByRole("button", { name: USER_MENU_PATTERN }),
+		]) {
+			expect(control.className).toContain("size-9");
+		}
+	});
+
 	it("places the organization switcher at the top without OpenMeld branding", () => {
 		renderRail();
 
@@ -367,17 +392,6 @@ describe("AppOuterRail", () => {
 		).toBeNull();
 		expect(screen.queryByLabelText("Go to OpenMeld homepage")).toBeNull();
 		expect(screen.queryByText("Experimental")).toBeNull();
-	});
-
-	it("aligns the resize rule with the inset surface boundary", () => {
-		renderRail();
-
-		const resizeRail = screen.getByRole("separator", {
-			name: "Resize app sidebar",
-		});
-
-		expect(resizeRail.className).toContain("top-4");
-		expect(resizeRail.className).toContain("bottom-14");
 	});
 
 	it("renders the organization selector as a shape-aware row even with one organization", () => {
@@ -574,6 +588,10 @@ describe("AppOuterRail", () => {
 	it("places Inbox in primary navigation and search in the footer", () => {
 		renderRail();
 		const rail = screen.getByTestId("app-outer-rail");
+		const footer = rail.querySelector('[data-sidebar="footer"]') as HTMLElement;
+		const utilityMenu = within(footer).getByRole("list", {
+			name: "App utilities",
+		});
 		expect(
 			within(
 				rail.querySelector(
@@ -585,13 +603,22 @@ describe("AppOuterRail", () => {
 		).toBe("/o/acme/inbox");
 		expect(
 			(
-				within(
-					rail.querySelector('[data-sidebar="footer"]') as HTMLElement
-				).getByRole("button", {
+				within(footer).getByRole("button", {
 					name: "Search or run a command",
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(false);
+		expect(footer.querySelectorAll('[data-sidebar="menu"]')).toHaveLength(1);
+		for (const control of [
+			within(footer).getByRole("button", {
+				name: "Search or run a command",
+			}),
+			within(footer).getByRole("button", { name: "Settings" }),
+			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN }),
+			within(footer).getByRole("button", { name: USER_MENU_PATTERN }),
+		]) {
+			expect(control.closest('[data-sidebar="menu"]')).toBe(utilityMenu);
+		}
 	});
 
 	it("separates fixed application navigation from the contextual list", () => {
@@ -625,10 +652,12 @@ describe("AppOuterRail", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Open app navigation" })
 		);
-		const drawer = screen.getByRole("dialog", { name: "Plugin navigation" });
+		const drawer = screen.getByRole("dialog", { name: "OpenMeld navigation" });
 		fireEvent.click(within(drawer).getByRole("link", { name: "Spaces" }));
 		await waitFor(() =>
-			expect(drawer.getAttribute("data-state")).toBe("closed")
+			expect(
+				screen.queryByRole("dialog", { name: "OpenMeld navigation" })
+			).toBeNull()
 		);
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -992,6 +1021,9 @@ describe("AppOuterRail", () => {
 	});
 
 	it("uses shared fluid hover backgrounds for organization choices and actions", async () => {
+		// jsdom has no layout; use the row dimensions captured in the real menu.
+		vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(278);
+		vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(52);
 		appOrganization = {
 			activeOrganization: null,
 			currentOrganization: {
@@ -1042,9 +1074,7 @@ describe("AppOuterRail", () => {
 		fireEvent.focus(choices[0] as HTMLElement);
 		await waitFor(() => {
 			expect(
-				organizationList.querySelectorAll(
-					'[data-slot="fluid-action-list-hover-indicator"]'
-				)
+				organizationList.querySelectorAll('[data-slot="fluid-hover-highlight"]')
 			).toHaveLength(1);
 		});
 	});

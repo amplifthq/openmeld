@@ -1,3 +1,5 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
+import { webApplicationErrorReportSchema } from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
 	createSpaceMemberHumanSnapshot,
@@ -23,6 +25,7 @@ import {
 } from "@testing-library/react";
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeSpaceConversationPosition } from "#/lib/space-conversation-position";
 import {
 	buildSpaceTimelineItems,
 	type SpaceTimelineItem,
@@ -37,6 +40,7 @@ import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-a
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
 
+const COMPACT_TIME_PATTERN = /^\d{2}:\d{2}$/;
 type SpaceConversationPanelInput = ComponentProps<
 	typeof SpaceConversationPanel
 >;
@@ -49,7 +53,7 @@ type SpaceConversationPanelOverrides = Partial<
 };
 
 const FAILED_TEXT_PATTERN = /failed/i;
-const THREAD_REPLY_LINK_PATTERN = /^Open reply from Felix:/;
+const THREAD_REPLY_PREVIEW_PATTERN = /^Open reply from Felix:/;
 const UNREAD_JUMP_PATTERN = /Jump to first unread/;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
@@ -59,6 +63,7 @@ const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
 const RUNNER_WORKING_NAME_PATTERN = /runner is working/u;
+const EARLIER_DECISION_PATTERN = /Earlier decision/;
 
 // The Message Details dialog fetches through `useQuery`. Every test in this
 // file except the ones that open that dialog only checks for the trigger
@@ -143,10 +148,58 @@ describe("SpaceConversationPanel", () => {
 
 	afterEach(() => {
 		cleanup();
+		sessionStorage.clear();
+		localStorage.clear();
 		Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		useQueryMock.mockReset();
+	});
+
+	it("keeps the conversation interactive when a saved anchor is not cached", () => {
+		writeSpaceConversationPosition(
+			"human-profile-1:space-conversation:space-view-test",
+			{
+				anchorSignalId: "saved-anchor",
+				offsetFromVisibleTop: 20,
+			}
+		);
+		const onLoadHistoryAround = vi.fn(async () => true);
+		const historyNavigation = {
+			activeWindow: null,
+			directory: undefined,
+			directoryError: false,
+			directoryPending: false,
+			error: null,
+			errorDirection: undefined,
+			hasHiddenLiveHistory: false,
+			latest: vi.fn(),
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open: onLoadHistoryAround,
+			hrefForSignalId: undefined,
+			earlierHref: undefined,
+			latestHref: undefined,
+			newerHref: undefined,
+			pending: false,
+			pendingDirection: undefined,
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [],
+		};
+		renderSpaceConversationPanel({
+			historyNavigation,
+			timelineItems: [createTimelineItem({ text: "Temporary latest message" })],
+		});
+
+		expect(screen.queryByText("Restoring your reading position…")).toBeNull();
+		const history = document.querySelector<HTMLElement>(
+			"[data-scroll-restoration-id='space-conversation:space-view-test']"
+		);
+		expect(history?.getAttribute("aria-hidden")).toBeNull();
+		expect(history?.hasAttribute("inert")).toBe(false);
+		expect(history?.textContent).toContain("Temporary latest message");
+		expect(onLoadHistoryAround).not.toHaveBeenCalled();
 	});
 
 	it("returns from the retained Graph view to Messages with the draft intact", async () => {
@@ -188,6 +241,30 @@ describe("SpaceConversationPanel", () => {
 		).toBe("Draft the follow-up.");
 	});
 
+	it("keeps the Messages reading position mounted across Space tabs", () => {
+		vi.spyOn(console, "error").mockImplementation(() => undefined);
+		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "messages",
+			allowedActions: ["post_message"],
+			readOnly: false,
+			timelineItems: [
+				createTimelineItem({ id: "message-source", text: "Keep this spot." }),
+			],
+		});
+		const history = screen.getByRole("log", { name: "Conversation history" });
+		fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+		expect(
+			screen.queryByRole("log", { name: "Conversation history" })
+		).toBeNull();
+		expect(
+			screen.getByRole("tab", { name: "Files" }).getAttribute("aria-selected")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
+		expect(screen.getByRole("log", { name: "Conversation history" })).toBe(
+			history
+		);
+	});
+
 	it("opens Graph from Message details and focuses the selected message", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
@@ -209,9 +286,10 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.mouseEnter(messageRow as HTMLElement);
 		fireEvent.click(
 			within(messageRow as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: "More actions",
 			})
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 		expect(
 			await screen.findByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
@@ -224,7 +302,9 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.queryByRole("dialog", { name: "Message details" })
 		).toBeNull();
-		const graphMessage = screen.getByText("Review the release plan.");
+		const graphMessage = within(
+			screen.getByRole("region", { name: "Space Graph" })
+		).getByText("Review the release plan.");
 		expect(graphMessage.closest(".group")?.className).toContain("ring-2");
 	});
 
@@ -403,8 +483,8 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			conversationLog.style.getPropertyValue("--space-conversation-sticky-top")
 		).toBe("56px");
-		expect(stickyDateItem?.className).toContain(
-			"top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)]"
+		expect((stickyDateItem as HTMLElement | null)?.style.top).toContain(
+			"var(--space-conversation-sticky-top, 0px)"
 		);
 	});
 
@@ -482,14 +562,14 @@ describe("SpaceConversationPanel", () => {
 		Object.defineProperty(secondDateMarker, "getBoundingClientRect", {
 			configurable: true,
 			value: () => ({
-				bottom: 72,
+				bottom: 60,
 				height: 32,
 				left: 0,
 				right: 800,
-				top: 40,
+				top: 28,
 				width: 800,
 				x: 0,
-				y: 40,
+				y: 28,
 				toJSON: () => ({}),
 			}),
 		});
@@ -764,9 +844,6 @@ describe("SpaceConversationPanel", () => {
 				expect(inFlowPill.firstElementChild?.className).toContain(
 					"conversation-floating-surface"
 				);
-				expect(inFlowPill.firstElementChild?.className).toContain(
-					"conversation-floating-surface"
-				);
 			}
 			expect(
 				landmark.querySelector("[data-conversation-date-marker-placeholder]")
@@ -781,8 +858,8 @@ describe("SpaceConversationPanel", () => {
 			expect(pillItem?.className).toContain("absolute");
 			expect(pillItem?.className).toContain("h-8");
 			expect(pillItem?.className).toContain("max-lg:h-11");
-			expect(pillItem?.className).toContain(
-				"top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)]"
+			expect((pillItem as HTMLElement).style.top).toContain(
+				"var(--space-conversation-sticky-top, 0px)"
 			);
 			expect(pillItem?.className).not.toContain("bg-background");
 			expect(pillItem?.className).not.toContain("backdrop-blur");
@@ -792,18 +869,19 @@ describe("SpaceConversationPanel", () => {
 		);
 		expect(stickyPillViewport?.className).toContain("h-[calc(100%+0.25rem)]");
 		expect(stickyPillViewport?.className).toContain("py-0.5");
-		expect(stickyPillViewport?.className).toContain("overflow-hidden");
+		expect(stickyPillViewport?.className).not.toContain("overflow-hidden");
 		expect(stickyDatePills[0]?.className).not.toContain("overflow-clip");
+		const floatingDateTrack = document.querySelector(
+			"[data-slot='conversation-date-pill-track']"
+		);
 		expect(
-			document.querySelector(
-				"[data-slot='conversation-date-pill-track'] > :first-child > *"
-			)?.className
-		).toContain("conversation-floating-surface");
+			floatingDateTrack?.querySelectorAll(":scope > span[aria-hidden]")
+		).toHaveLength(0);
 		expect(
-			document.querySelector(
-				"[data-slot='conversation-date-pill-track'] > :first-child > *"
-			)?.className
-		).toContain("conversation-floating-surface");
+			floatingDateTrack?.querySelector(
+				"[data-slot='conversation-date-pill-surface'] .conversation-floating-surface"
+			)
+		).not.toBeNull();
 
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
@@ -885,7 +963,7 @@ describe("SpaceConversationPanel", () => {
 				document.querySelector<HTMLElement>(
 					"[data-slot='conversation-date-pill-track']"
 				)?.style.transform
-			).toBe("translate3d(0, -40px, 0)");
+			).toBe("translate3d(0, -36px, 0)");
 		});
 		expect(
 			screen.getAllByRole("button", {
@@ -942,11 +1020,13 @@ describe("SpaceConversationPanel", () => {
 		const unreadBoundary = screen.getByRole("separator", {
 			name: "New messages",
 		});
-		for (const divider of [...dateLandmarks, unreadBoundary]) {
+		for (const divider of dateLandmarks) {
 			expect(divider.className).toContain("before:bg-border");
 			expect(divider.className).toContain("after:bg-border");
 		}
-		expect(unreadBoundary.className).toContain("text-foreground");
+		expect(unreadBoundary.className).toContain("before:bg-unread");
+		expect(unreadBoundary.className).toContain("after:bg-unread");
+		expect(unreadBoundary.className).toContain("text-unread");
 		const firstNewMessage = screen
 			.getByText("First new message")
 			.closest("[data-message-id='signal-new']");
@@ -959,7 +1039,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeLessThan(conversationItems.indexOf(firstNewMessage as Element));
 	});
 
-	it("offers one chronological unread jump for updates above and below, then hides the navigation batch", async () => {
+	it("keeps the canonical unread total while viewport targets change, then hides the navigation batch", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -989,12 +1069,12 @@ describe("SpaceConversationPanel", () => {
 				{ occurredAtMs: 2, signalId: "signal-2", threadRootSignalId: null },
 				{ occurredAtMs: 3, signalId: "signal-3", threadRootSignalId: null },
 			],
-			unreadCount: 3,
+			unreadCount: 139,
 			unreadStateReady: true,
 		});
 
 		const jumpButton = await screen.findByRole("button", {
-			name: "3 unread updates. Jump to first unread",
+			name: "139 unread updates. Jump to first unread",
 		});
 		expect(
 			screen.getAllByRole("button", { name: UNREAD_JUMP_PATTERN })
@@ -1055,6 +1135,33 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
+	it("shows which Agent will resume from a child result without address targets", () => {
+		const childResult = createTimelineItem({
+			actorName: "Runner",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorProfileKind: "agent",
+			actorProfileName: "Runner",
+			id: "signal-child-result",
+			text: "The review is complete.",
+		});
+		renderSpaceConversationPanel({
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem({ sourceSignalId: childResult.id }),
+					clientMessageId: null,
+					message: "@Amplift Center Agent is working...",
+					targetLabel: "@Amplift Center Agent",
+					targetProfileId: "agent-profile-center",
+				},
+			],
+			timelineItems: [childResult],
+		});
+
+		expect(screen.getByTestId("space-message-continuation").textContent).toBe(
+			"Auto resumes Amplift Center Agent"
+		);
+	});
+
 	it("can hide unread navigation without reading its messages", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
@@ -1069,6 +1176,7 @@ describe("SpaceConversationPanel", () => {
 			});
 		renderSpaceConversationPanel({
 			timelineItems: [createTimelineItem({ id: "signal-1" })],
+			unreadBatchOccurredAtMs: 100,
 			unreadTargets: [
 				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
 			],
@@ -1090,7 +1198,7 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
-	it("highlights the main thread root and opens its first unread reply only on explicit request", async () => {
+	it("opens the exact unread thread reply from the unread navigation", async () => {
 		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 			configurable: true,
 			value: vi.fn(),
@@ -1134,18 +1242,10 @@ describe("SpaceConversationPanel", () => {
 				screen.queryByRole("button", { name: UNREAD_JUMP_PATTERN })
 			).toBeNull()
 		);
-		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
-			"thread-root"
-		);
-		expect(onOpenUnreadThread).not.toHaveBeenCalled();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Open thread (1 unread)" })
-		);
 		await waitFor(() => {
 			expect(onOpenUnreadThread).toHaveBeenCalledWith({
 				rootSignalId: "thread-root",
 				signalId: "thread-reply",
-				threadId: thread.threadId,
 			});
 		});
 		rectSpy.mockRestore();
@@ -1312,16 +1412,16 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(
-			screen.getByRole("link", { name: "Open Space Launch Planning" })
-		).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("link", { name: "Open Space Launch Planning" })
-		);
-		expect(onOpenThread).not.toHaveBeenCalled();
-		const preview = screen.getByRole("link", {
-			name: THREAD_REPLY_LINK_PATTERN,
+		const memberSpaceLink = screen.getByRole("link", {
+			name: "Open Space Launch Planning",
 		});
+		const memberExternalLink = screen.getByRole("link", {
+			name: "https://example.com",
+		});
+		fireEvent.click(memberSpaceLink);
+		fireEvent.click(memberExternalLink);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		const preview = screen.getByLabelText(THREAD_REPLY_PREVIEW_PATTERN);
 		fireEvent.click(preview);
 		fireEvent.keyDown(preview, { key: "Enter" });
 		fireEvent.keyDown(preview, { key: " " });
@@ -1337,6 +1437,66 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(preview);
 		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
 		selection.mockRestore();
+		fireEvent.pointerDown(preview, { clientX: 0, clientY: 0 });
+		fireEvent.click(preview, { clientX: 10, clientY: 0 });
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open reply from Felix" })
+		);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(4);
+
+		cleanup();
+		onOpenThread.mockClear();
+		onOpenUnreadThread.mockClear();
+		renderSpaceConversationPanel({
+			onOpenThread,
+			onOpenUnreadThread,
+			readOnly: true,
+			spaceId: "space-123",
+			spaceReferencesById: createSpaceReferences(),
+			threadPreviews: [createThreadPreview(thread.threadId)],
+			threads: [thread],
+			timelineItems: [
+				createTimelineItem({ id: thread.rootSignalId, text: "Root message" }),
+			],
+		});
+		const publicSpaceLink = screen.getByRole("link", {
+			name: "Open Space Launch Planning",
+		});
+		const externalLink = screen.getByRole("link", {
+			name: "https://example.com",
+		});
+		const replyLink = screen.getByRole("link", {
+			name: "Open reply from Felix",
+		});
+		const publicPreview = screen.getByLabelText(THREAD_REPLY_PREVIEW_PATTERN);
+		expect(publicSpaceLink.parentElement?.closest("a")).toBeNull();
+		expect(externalLink.parentElement?.closest("a")).toBeNull();
+		expect(replyLink.getAttribute("href")).toContain(
+			"threadRootSignalId=sig-root"
+		);
+		expect(replyLink.getAttribute("href")).toContain(
+			"signalId=sig-thread-preview"
+		);
+		fireEvent.click(publicSpaceLink);
+		fireEvent.click(externalLink);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		fireEvent.click(publicPreview);
+		expect(onOpenUnreadThread).toHaveBeenLastCalledWith({
+			rootSignalId: thread.rootSignalId,
+			signalId: "sig-thread-preview",
+			threadId: thread.threadId,
+		});
+		fireEvent.click(replyLink);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(2);
+		const modifiedReplyClick = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+			metaKey: true,
+		});
+		expect(replyLink.dispatchEvent(modifiedReplyClick)).toBe(true);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(2);
 	});
 
 	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {
@@ -1461,6 +1621,34 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 		expect(screen.queryByTestId("space-message-wake-receipt")).toBeNull();
 		expect(screen.getByText("Please investigate.")).toBeTruthy();
+	});
+
+	it.each([
+		["Wake", "wakeTargetProfileIds"],
+		["Mention", "mentionTargetProfileIds"],
+		["Reference", "referenceTargetProfileIds"],
+	] as const)("shows structured Agent %s once as an inline token", (label, field) => {
+		renderSpaceConversationPanel({
+			membersSnapshot: createWakeReceiptMembersSnapshot(),
+			timelineItems: [
+				createTimelineItem({
+					actorName: "Center Agent",
+					actorProfileId: "agent-profile-center",
+					actorProfileKind: "agent",
+					actorProfileName: "Center Agent",
+					[field]: [TARGET_PROFILE_ID],
+					text: "@Codex 5.6 Sol Please check this.",
+				}),
+			],
+		});
+
+		expect(screen.queryByText(`${label} Codex 5.6 Sol`)).toBeNull();
+		expect(screen.queryByTestId("space-message-continuation")).toBeNull();
+		expect(
+			screen.getByRole("button", {
+				name: `Open Codex 5.6 Sol profile (${label === "Mention" ? "Mention only" : label})`,
+			})
+		).toBeTruthy();
 	});
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
@@ -1891,7 +2079,9 @@ describe("SpaceConversationPanel", () => {
 					(child) => child.textContent === longMessage
 				)
 		);
-		const messageBubble = messageText.closest("[data-signal-id]");
+		const messageBubble = messageText.closest(
+			"[data-slot='space-message-text-surface']"
+		);
 
 		expect(messageBubble?.className).not.toContain("min-w-[16rem]");
 		expect(messageBubble?.className).toContain("max-w-full");
@@ -1919,10 +2109,10 @@ describe("SpaceConversationPanel", () => {
 
 		const agentBubble = screen
 			.getByText("Agent reply")
-			.closest("[data-signal-id]");
+			.closest("[data-slot='space-message-text-surface']");
 		const selfBubble = screen
 			.getByText("Self message")
-			.closest("[data-signal-id]");
+			.closest("[data-slot='space-message-text-surface']");
 		expect(agentBubble?.classList.contains("border")).toBe(true);
 		expect(agentBubble?.classList.contains("border-transparent")).toBe(true);
 		expect(agentBubble?.classList.contains("bg-muted/35")).toBe(true);
@@ -1983,7 +2173,7 @@ describe("SpaceConversationPanel", () => {
 		expect(agentMessage?.className).not.toContain("rounded-sm");
 		expect(agentMessage?.textContent).toContain("Runner");
 		expect(agentMessage?.textContent).toContain("Agent reply");
-		expect(agentHeader?.className ?? "").toContain("mb-1.5");
+		expect(agentHeader?.className ?? "").toContain("mb-0.5");
 		expect(agentHeader?.className ?? "").not.toContain("hover:bg-muted/35");
 		expect(agentRow?.className).toContain("hover:bg-transparent");
 		expect(agentRow?.className).toContain("focus-within:bg-transparent");
@@ -2020,11 +2210,10 @@ describe("SpaceConversationPanel", () => {
 		expect(selfScrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
 	});
 
-	it("shows every grouped message's own timestamp in its reserved footer", () => {
+	it("shows only the first message's compact time in a grouped run", () => {
 		const firstCreatedAtMs = Date.UTC(2026, 4, 27, 10, 0, 0);
 		const secondCreatedAtMs = Date.UTC(2026, 4, 27, 10, 3, 0);
 		const firstTimeText = formatTestTime(firstCreatedAtMs);
-		const secondTimeText = formatTestTime(secondCreatedAtMs);
 
 		renderSpaceConversationPanel({
 			readOnly: false,
@@ -2042,16 +2231,21 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		for (const [messageText, timestamp] of [
-			["First message in the run", firstTimeText],
-			["Second message in the run", secondTimeText],
-		] as const) {
-			const row = screen
-				.getByText(messageText)
-				.closest("[data-message-row-id]");
-			const time = within(row as HTMLElement).getByText(timestamp);
-			expect(time.closest('[data-slot="message-footer"]')).not.toBeNull();
-		}
+		const firstMessage = screen.getByText("First message in the run");
+		const firstContent = firstMessage.closest('[data-slot="message-content"]');
+		expect(
+			within(firstContent as HTMLElement)
+				.getByText(firstTimeText)
+				.closest('[data-slot="message-header"]')
+		).not.toBeNull();
+		expect(firstContent?.querySelector("time")?.textContent).toMatch(
+			COMPACT_TIME_PATTERN
+		);
+		const secondMessage = screen.getByText("Second message in the run");
+		const secondContent = secondMessage.closest(
+			'[data-slot="message-content"]'
+		);
+		expect(secondContent?.querySelector("time")).toBeNull();
 	});
 	it("removes external gaps between consecutive bubbles in the same run", () => {
 		renderSpaceConversationPanel({
@@ -2087,9 +2281,9 @@ describe("SpaceConversationPanel", () => {
 		expect(firstMessage?.className).toContain("pt-1.5");
 		expect(firstMessage?.className).toContain("pb-0");
 		expect(firstMessage?.className).not.toContain("py-2");
-		expect(middleMessage?.className).toContain("pt-1");
+		expect(middleMessage?.className).toContain("pt-px");
 		expect(middleMessage?.className).toContain("pb-0");
-		expect(lastMessage?.className).toContain("pt-1");
+		expect(lastMessage?.className).toContain("pt-px");
 		expect(lastMessage?.className).toContain("pb-1.5");
 		expect(lastMessage?.className).not.toContain("py-2");
 	});
@@ -2192,6 +2386,20 @@ describe("SpaceConversationPanel", () => {
 				],
 			]),
 			allowedActions: ["post_message"],
+			composerAddressingTargets: [
+				{
+					allowedRelations: { mention: false, reference: true, wake: false },
+					primaryMentionLabel: "Runner",
+					profileId: blockedProfileId,
+					profileName: "Runner",
+					relation: "wake",
+					wakeAvailability: {
+						reasonCodes: ["agent_profile_binding.missing"],
+						reasonText: "Runner can't reply right now.",
+						status: "blocked",
+					},
+				},
+			],
 			composerBlockedWakeProfileId: blockedProfileId,
 			composerErrorMessage: "Runner can't reply right now.",
 			readOnly: false,
@@ -2237,7 +2445,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByText("Remove the failed file to continue.")
+			screen.getByText("Retry or remove the failed attachment to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
 		expect(sendButton).toHaveProperty("disabled", true);
@@ -2270,12 +2478,17 @@ describe("SpaceConversationPanel", () => {
 		expect(onAddPeopleOrAgents).toHaveBeenCalledOnce();
 	});
 
-	it("opens a conversation file in the same Space Files view", () => {
+	it.each([
+		false,
+		true,
+	])("keeps attachment-only messages outside the text bubble and opens the exact file (DM=%s)", (isDirectMessage) => {
 		const onOpenSpaceFile = vi.fn();
 		renderSpaceConversationPanel({
+			isDirectMessage,
 			onOpenSpaceFile,
 			timelineItems: [
 				createTimelineItem({
+					editedAt: Date.UTC(2026, 8, 26),
 					files: [
 						{
 							fileId: "file-1",
@@ -2293,6 +2506,20 @@ describe("SpaceConversationPanel", () => {
 
 		const fileButton = screen.getByText("launch-brief.pdf").closest("button");
 		expect(fileButton).not.toBeNull();
+		expect(
+			fileButton?.closest("[data-slot='space-message-text-surface']")
+		).toBeNull();
+		const message = fileButton?.closest("[data-slot='bubble-content']");
+		expect(
+			message?.querySelector("[data-slot='space-message-edited']")?.textContent
+		).toBe("(edited)");
+		expect(
+			message?.querySelectorAll("[data-slot='space-attachment-strip']")
+		).toHaveLength(1);
+		expect(
+			message?.querySelector("[data-slot='space-message-text-surface']")
+				?.childElementCount
+		).toBe(0);
 		expect(
 			fileButton?.closest("[data-slot='bubble']")?.className
 		).not.toContain("hidden");
@@ -2497,7 +2724,43 @@ describe("SpaceConversationPanel", () => {
 		expect(scrollerContent?.className).not.toContain("max-w-6xl");
 	});
 
-	it("keeps the scroll viewport full width and constrains only messages and the composer", () => {
+	it("keeps direct-message times in each message toolbar instead of above the bubbles", () => {
+		renderSpaceConversationPanel({
+			isDirectMessage: true,
+			timelineItems: [
+				createTimelineItem({
+					createdAtMs: Date.UTC(2026, 8, 23, 10, 7),
+					id: "dm-first",
+					text: "First DM message",
+				}),
+				createTimelineItem({
+					createdAtMs: Date.UTC(2026, 8, 23, 10, 9),
+					id: "dm-second",
+					text: "Second DM message",
+				}),
+			],
+		});
+
+		const rows = ["dm-first", "dm-second"].map((id) =>
+			document.querySelector(`[data-message-row-id="${id}"]`)
+		);
+		for (const row of rows) {
+			expect(row).toBeTruthy();
+			expect(
+				row?.querySelector('[data-slot="message-footer"] time')?.textContent
+			).toMatch(COMPACT_TIME_PATTERN);
+			expect(
+				row
+					?.closest('[data-slot="message-content"]')
+					?.querySelector('[data-slot="message-header"] time')
+			).toBeNull();
+		}
+		expect(rows[0]?.querySelector("time")?.textContent).not.toBe(
+			rows[1]?.querySelector("time")?.textContent
+		);
+	});
+
+	it("keeps the scroll viewport full width while constraining conversation content and the composer", () => {
 		const view = renderSpaceConversationPanel({ readOnly: false });
 		let conversation = screen.getByRole("region", {
 			name: "Space conversation",
@@ -2505,9 +2768,6 @@ describe("SpaceConversationPanel", () => {
 		let conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
-		let contentRails = conversation.querySelectorAll(
-			"[data-space-conversation-content-width]"
-		);
 
 		expect(
 			conversation.hasAttribute("data-space-conversation-content-width")
@@ -2515,7 +2775,6 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			conversationLog.hasAttribute("data-space-conversation-content-width")
 		).toBe(false);
-		expect(contentRails).toHaveLength(2);
 		expect(
 			conversationLog.querySelector("[data-space-conversation-content-width]")
 		).toBeTruthy();
@@ -2536,9 +2795,6 @@ describe("SpaceConversationPanel", () => {
 		conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
-		contentRails = conversation.querySelectorAll(
-			"[data-space-conversation-content-width]"
-		);
 
 		expect(
 			conversation.hasAttribute("data-space-conversation-content-width")
@@ -2546,7 +2802,9 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			conversationLog.hasAttribute("data-space-conversation-content-width")
 		).toBe(false);
-		expect(contentRails).toHaveLength(2);
+		expect(
+			conversationLog.querySelector("[data-space-conversation-content-width]")
+		).toBeTruthy();
 	});
 
 	it("separates the main composer with spacing instead of a top divider", () => {
@@ -2565,14 +2823,23 @@ describe("SpaceConversationPanel", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
 			agentDirectConversationKind: "direct_message",
+			centerAgentProfileId: TARGET_PROFILE_ID,
 			hasEarlierHistory: false,
 			isCenterAgentDirectMessage: true,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					{
+						...createSpaceMemberAgentSnapshot({ profileId: TARGET_PROFILE_ID }),
+						avatarStyle: "clover",
+					},
+				],
+			}),
 			readOnly: false,
 			timelineItems: [
 				createTimelineItem({
 					actorControllerDisplay: "Remote Agent",
 					actorName: "Center Agent",
-					actorProfileId: "agent-profile-center",
+					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
 					actorProfileName: "Center Agent",
 					id: "signal-center-agent",
@@ -2588,9 +2855,11 @@ describe("SpaceConversationPanel", () => {
 			"Hi Felix. I can help coordinate OpenMeld."
 		);
 		const centerAgentAvatar = screen.getByTestId(
-			"space-center-agent-profile-avatar-agent-profile-center"
+			`space-center-agent-profile-avatar-${TARGET_PROFILE_ID}`
 		);
-		expect(centerAgentAvatar.getAttribute("data-shape")).toBe("circle");
+		expect(
+			centerAgentAvatar.querySelector("canvas[data-bot-avatar]")
+		).toBeTruthy();
 		const intro = introHeading.closest(
 			"[data-center-agent-direct-message-intro]"
 		);
@@ -2634,15 +2903,23 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
-	it("uses circular Fluid avatars for Center Agent messages in an ordinary Space", () => {
+	it("uses the saved Bot avatar for Center Agent messages in an ordinary Space", () => {
 		renderSpaceConversationPanel({
-			centerAgentProfileId: "agent-profile-center",
+			centerAgentProfileId: TARGET_PROFILE_ID,
 			isCenterAgentDirectMessage: false,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					{
+						...createSpaceMemberAgentSnapshot({ profileId: TARGET_PROFILE_ID }),
+						avatarStyle: "clover",
+					},
+				],
+			}),
 			timelineItems: [
 				createTimelineItem({
 					actorAgentControllerRef: "builtin:codex",
 					actorName: "Center Agent",
-					actorProfileId: "agent-profile-center",
+					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
 					actorProfileName: "Center Agent",
 					id: "signal-center-agent-in-space",
@@ -2652,9 +2929,9 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const avatar = screen.getByTestId(
-			"space-center-agent-profile-avatar-agent-profile-center"
+			`space-center-agent-profile-avatar-${TARGET_PROFILE_ID}`
 		);
-		expect(avatar.getAttribute("data-shape")).toBe("circle");
+		expect(avatar.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();
 	});
 
@@ -2932,7 +3209,7 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(jumpButton);
 
 		expect(scrollToMock).toHaveBeenCalledWith({
-			behavior: "smooth",
+			behavior: "auto",
 			top: 700,
 		});
 		await waitFor(() => {
@@ -2942,7 +3219,331 @@ describe("SpaceConversationPanel", () => {
 		});
 	});
 
+	it("catches up unread main messages even when the short conversation is already at the latest position", async () => {
+		const commitCatchUpUnread = vi.fn(async () => undefined);
+		const onPrepareCatchUpUnread = vi.fn(async () => ({
+			abandon: vi.fn(),
+			commit: commitCatchUpUnread,
+		}));
+		renderSpaceConversationPanel({
+			onPrepareCatchUpUnread,
+			timelineItems: [createTimelineItem({ text: "Unread short message" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+
+		const jumpButton = screen.getByRole("button", {
+			name: "Jump to latest and mark messages as read",
+		});
+		expect(
+			jumpButton.closest("[data-active]")?.getAttribute("data-active")
+		).toBe("true");
+
+		fireEvent.click(jumpButton);
+
+		await waitFor(() => expect(commitCatchUpUnread).toHaveBeenCalledOnce());
+		expect(onPrepareCatchUpUnread).toHaveBeenCalledOnce();
+	});
+
+	it("keeps catch-up retryable after reaching latest when the read write fails", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+		);
+		const writeError = new OpenMeldApiClientHttpError({
+			code: "auth.unauthenticated",
+			message: "private response body",
+			rawBody: "private response body",
+			requestId: "req-catch-up-write",
+			status: 401,
+		});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		renderSpaceConversationPanel({
+			onPrepareCatchUpUnread: vi.fn(async () => ({
+				abandon: vi.fn(),
+				commit: () => Promise.reject(writeError),
+			})),
+			timelineItems: [createTimelineItem({ text: "Unread short message" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Jump to latest and mark messages as read",
+			})
+		);
+
+		expect(
+			await screen.findByText(
+				"You’re at the latest messages, but OpenMeld couldn’t mark them as read. Try again."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "Try again to mark the latest messages as read",
+			})
+		).toBeTruthy();
+		const reports = vi
+			.mocked(fetch)
+			.mock.calls.filter(
+				([url]) => url === "/v1/observability/application-errors"
+			)
+			.map(([, options]) =>
+				webApplicationErrorReportSchema.parse(JSON.parse(String(options?.body)))
+			);
+		expect(reports).toHaveLength(1);
+		expect(reports[0]?.query).toEqual({
+			category: "inbox",
+			stage: "persist",
+			failure: {
+				code: "auth.unauthenticated",
+				requestId: "req-catch-up-write",
+				status: 401,
+			},
+		});
+		consoleError.mockRestore();
+	});
+
+	it("abandons catch-up when the reader navigates history during preparation", async () => {
+		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
+		vi.stubGlobal("CSS", {
+			...globalThis.CSS,
+			escape: (value: string) => value,
+		});
+		let resolvePreparation:
+			| ((prepared: {
+					abandon: () => void;
+					commit: () => Promise<void>;
+			  }) => void)
+			| undefined;
+		const abandon = vi.fn();
+		const commit = vi.fn(async () => undefined);
+		const latest = vi.fn();
+		const open = vi.fn(async () => true);
+		const onPrepareCatchUpUnread = vi.fn(
+			() =>
+				new Promise<{
+					abandon: () => void;
+					commit: () => Promise<void>;
+				}>((resolve) => {
+					resolvePreparation = resolve;
+				})
+		);
+		renderSpaceConversationPanel({
+			historyNavigation: {
+				activeWindow: null,
+				directory: {
+					entries: [
+						{
+							author: "Felix",
+							count: 1,
+							endAt: Date.UTC(2026, 4, 26),
+							endSignalId: "signal-history",
+							preview: "Earlier decision",
+							signalId: "signal-history",
+							startAt: Date.UTC(2026, 4, 26),
+						},
+					],
+					total: 61,
+				},
+				directoryError: false,
+				directoryPending: false,
+				error: null,
+				errorDirection: undefined,
+				latest,
+				loadAfter: vi.fn(async () => false),
+				loadBefore: vi.fn(async () => false),
+				open,
+				hrefForSignalId: undefined,
+				earlierHref: undefined,
+				latestHref: undefined,
+				newerHref: undefined,
+				pending: false,
+				pendingDirection: undefined,
+				retryDirectory: vi.fn(),
+				revealCachedBefore: vi.fn(),
+				visibleLiveEnvelopes: [],
+				hasHiddenLiveHistory: false,
+			},
+			onPrepareCatchUpUnread,
+			timelineItems: [createTimelineItem({ text: "Current position" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+		const conversationLog = screen.getByRole("log", {
+			name: "Conversation history",
+		});
+		const currentMessage = conversationLog.querySelector<HTMLElement>(
+			"[data-history-signal-id='signal-1']"
+		);
+		if (!currentMessage) {
+			throw new Error("Expected the current message position anchor");
+		}
+		vi.spyOn(currentMessage, "getBoundingClientRect").mockImplementation(() =>
+			createTestDomRect({ bottom: 180, height: 80, top: 100 })
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: EARLIER_DECISION_PATTERN })
+		);
+		await waitFor(() => expect(open).toHaveBeenCalledWith("signal-history"));
+		const back = await screen.findByRole("button", {
+			name: "Back to previous position",
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Jump to latest and mark messages as read",
+			})
+		);
+		expect(onPrepareCatchUpUnread).toHaveBeenCalledOnce();
+
+		fireEvent.click(back);
+		await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
+		expect(open).toHaveBeenNthCalledWith(2, "signal-1");
+		act(() => {
+			resolvePreparation?.({ abandon, commit });
+		});
+
+		await waitFor(() => expect(abandon).toHaveBeenCalledOnce());
+		expect(latest).not.toHaveBeenCalled();
+		expect(commit).not.toHaveBeenCalled();
+	});
+
+	it("lets an anchored public history view navigate to the real latest URL", () => {
+		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
+		const latest = vi.fn();
+		const signal = {
+			...createThreadPreviewSignal(),
+			data: { text: "Old anchored message" },
+			id: "sig-old",
+		};
+		const historyNavigation = {
+			activeWindow: {
+				envelopes: [signal],
+				confirmedAtLiveTail: false,
+				hasAfter: true,
+				hasBefore: true,
+				identity: "space-123:public",
+			},
+			directory: {
+				entries: [
+					{
+						author: "Felix",
+						count: 30,
+						endAt: 20,
+						endSignalId: signal.id,
+						preview: "Old anchored message",
+						signalId: signal.id,
+						startAt: 10,
+					},
+				],
+				total: 240,
+			},
+			directoryError: false,
+			directoryPending: false,
+			earlierHref: "/spaces/space-123?signalId=sig-earlier",
+			error: null,
+			errorDirection: undefined,
+			hasHiddenLiveHistory: false,
+			hrefForSignalId: (signalId: string) =>
+				`/spaces/space-123?signalId=${signalId}`,
+			latest,
+			latestHref: "/spaces/space-123",
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open: vi.fn(async () => true),
+			newerHref: "/spaces/space-123?signalId=sig-old",
+			pending: false,
+			pendingDirection: undefined,
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [signal],
+		} as NonNullable<SpaceConversationPanelInput["historyNavigation"]>;
+		renderSpaceConversationPanel({
+			historyNavigation,
+			timelineItems: buildSpaceTimelineItems({
+				envelopes: [signal],
+				membersSnapshot: null,
+			}),
+		});
+
+		const latestLink = screen.getByRole("button", {
+			name: "Jump to latest message",
+		});
+		expect(latestLink.getAttribute("href")).toBe("/spaces/space-123");
+		const click = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+		});
+		expect(latestLink.dispatchEvent(click)).toBe(true);
+		expect(latest).not.toHaveBeenCalled();
+		expect(document.querySelector(".space-history-tick")?.tagName).toBe("A");
+		expect(screen.queryByText("Load newer messages")).toBeNull();
+		const viewport = document.querySelector<HTMLElement>(
+			'[aria-label="Conversation history"]'
+		);
+		expect(viewport).not.toBeNull();
+		Object.defineProperties(viewport, {
+			clientHeight: { configurable: true, value: 500 },
+			scrollHeight: { configurable: true, value: 1000 },
+		});
+		if (viewport) {
+			viewport.scrollTop = 300;
+			fireEvent.scroll(viewport);
+		}
+		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
+
+		cleanup();
+		renderSpaceConversationPanel({
+			historyNavigation: {
+				...historyNavigation,
+				earlierHref: undefined,
+				hrefForSignalId: undefined,
+				latestHref: undefined,
+				newerHref: undefined,
+			},
+			timelineItems: buildSpaceTimelineItems({
+				envelopes: [signal],
+				membersSnapshot: null,
+			}),
+		});
+		expect(document.querySelector(".space-history-tick")?.tagName).toBe(
+			"BUTTON"
+		);
+	});
+
 	it("renders profile avatars and keeps message time outside the bubble", () => {
+		const imageComplete = vi
+			.spyOn(HTMLImageElement.prototype, "complete", "get")
+			.mockReturnValue(true);
+		const imageWidth = vi
+			.spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
+			.mockReturnValue(24);
 		const createdAtMs = Date.UTC(2026, 4, 27, 10, 0, 7);
 		const expectedTime = formatTestTime(createdAtMs);
 		renderSpaceConversationPanel({
@@ -2972,10 +3573,13 @@ describe("SpaceConversationPanel", () => {
 		).toBe("https://example.com/felix.png");
 		expect(avatar.className).toContain("size-6");
 		expect(avatar.className).toContain("after:border-0");
-		expect(profileName.className).toContain("font-bold");
-		expect(profileName.className).toContain("text-sm");
+		expect(profileName.className).toContain("font-normal");
+		expect(profileName.className).toContain("text-xs");
+		expect(profileName.className).toContain("text-muted-foreground");
 		expect(screen.getByText(expectedTime)).toBeTruthy();
 		expect(messageBubble?.textContent).not.toContain(expectedTime);
+		imageComplete.mockRestore();
+		imageWidth.mockRestore();
 	});
 
 	it("only adds pending message status after sending takes eight seconds", () => {
@@ -3294,14 +3898,19 @@ describe("SpaceConversationPanel", () => {
 		).toContain("runner is working");
 	});
 
-	it("renders completed Agent Activity once inside its durable reply", () => {
+	it.each([
+		["Center Agent", "hosted:center-agent"],
+		["Remote Agent", "hosted:remote-agent"],
+		["Local Agent", "codex"],
+	] as const)("puts completed %s work before its durable reply", (name, controller) => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
-					actorName: "Center Agent",
+					actorAgentControllerRef: controller,
+					actorName: name,
 					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
-					actorProfileName: "Center Agent",
+					actorProfileName: name,
 					agentActivity: {
 						v: 1,
 						steps: [
@@ -3330,7 +3939,7 @@ describe("SpaceConversationPanel", () => {
 
 		const bubbleContent = screen
 			.getByText("Here is the Space summary.")
-			.closest("[data-slot='bubble-content']");
+			.closest("[data-slot='space-message-text-surface']");
 		expect(bubbleContent?.contains(activityTriggers[0] ?? null)).toBe(true);
 		const answerElement = screen.getByText("Here is the Space summary.");
 		const directChildren = Array.from(bubbleContent?.children ?? []);
@@ -3340,8 +3949,8 @@ describe("SpaceConversationPanel", () => {
 		const activitySection = directChildren.find((child) =>
 			child.contains(activityTriggers[0] ?? null)
 		);
-		expect(directChildren.indexOf(answerSection as Element)).toBeLessThan(
-			directChildren.indexOf(activitySection as Element)
+		expect(directChildren.indexOf(activitySection as Element)).toBeLessThan(
+			directChildren.indexOf(answerSection as Element)
 		);
 	});
 
@@ -3369,6 +3978,204 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			document.querySelector('[data-message-id^="active-wake:"]')
 		).not.toBeNull();
+	});
+
+	it("keeps a selected thread Wake's status and Stop on the Open thread entrance", () => {
+		const progress = {
+			...createWakeProgressItem(),
+			targetLabel: "Center Agent",
+		};
+		const agentStreams = [
+			{
+				createdAtMs: progress.startedAtMs ?? 0,
+				dispatchId: "dispatch-1",
+				observedRevision: 1,
+				profileId: TARGET_PROFILE_ID,
+				reasonCode: null,
+				replyThreadRootSignalId: "sig-source",
+				sequence: 1,
+				spaceId: "space-1",
+				status: "streaming" as const,
+				streamId: "stream-1",
+				text: "",
+				textSequence: 0,
+				triggerMessageId: "sig-source",
+				updatedAtMs: progress.updatedAtMs,
+			},
+		];
+		const props = createSpaceConversationPanelProps({
+			agentStreams,
+			centerAgentProfileId: TARGET_PROFILE_ID,
+			ephemeralActivityItems: [progress],
+			onWakeStopRequest: vi.fn(),
+			readOnly: false,
+			threads: [
+				{
+					createdAt: "2026-04-11T00:00:00.000Z",
+					createdByProfileId: "human-profile-1",
+					rootSignalId: "sig-source",
+					spaceId: "space-1",
+					threadId: "thread-1",
+					updatedAt: "2026-04-11T00:00:00.000Z",
+				},
+			],
+			timelineItems: [
+				createTimelineItem({
+					id: "sig-source",
+					text: "@Center Agent please investigate",
+					wakeClientMessageId: "client-message-1",
+					wakeSourceSignalId: "sig-source",
+					wakeTargetProfileIds: [TARGET_PROFILE_ID],
+				}),
+			],
+		});
+		const view = render(
+			<SpaceConversationPanel {...props} agentStreams={[]} />
+		);
+
+		const source = screen
+			.getByText("@Center Agent please investigate")
+			.closest("[data-message-row-id='sig-source']");
+		expect(source).not.toBeNull();
+		expect(
+			within(source as HTMLElement).queryByLabelText("Center Agent is working")
+		).toBeNull();
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
+
+		view.rerender(
+			<SpaceConversationPanel
+				{...props}
+				agentStreams={agentStreams.map((stream) => ({
+					...stream,
+					replyThreadRootSignalId: null,
+				}))}
+			/>
+		);
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).not.toBeNull();
+		expect(
+			within(source as HTMLElement).queryByLabelText("Center Agent is working")
+		).toBeNull();
+
+		view.rerender(<SpaceConversationPanel {...props} />);
+		const status = within(source as HTMLElement).getByLabelText(
+			"Center Agent is working"
+		);
+		const entrance = status.parentElement;
+		expect(entrance).not.toBeNull();
+		expect(
+			within(entrance as HTMLElement).getByRole("button", {
+				name: "Open thread",
+			})
+		).toBeTruthy();
+		expect(
+			within(entrance as HTMLElement).getByRole("button", {
+				name: "Stop Wake for Center Agent",
+			})
+		).toBeTruthy();
+		expect(
+			(source as HTMLElement).querySelector(
+				'[data-slot="space-wake-thinking-row"]'
+			)
+		).toBeNull();
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
+
+		const finalReply = {
+			...createThreadPreviewSignal(),
+			data: {
+				meta: { dispatchId: "dispatch-1", purpose: "agent_reply_final" },
+				text: "Here is the answer.",
+			},
+			profile: {
+				kind: "agent" as const,
+				profileId: TARGET_PROFILE_ID,
+				profileName: "Center Agent",
+			},
+		};
+		view.rerender(
+			<SpaceConversationPanel
+				{...props}
+				threadPreviews={[
+					{
+						placements: [],
+						replyCount: 1,
+						signals: [finalReply],
+						threadId: "thread-1",
+					},
+				]}
+			/>
+		);
+		expect(
+			within(source as HTMLElement).getByText("Here is the answer.")
+		).toBeTruthy();
+		expect(
+			within(source as HTMLElement).queryByLabelText("Center Agent is working")
+		).toBeNull();
+		expect(
+			within(source as HTMLElement).queryByRole("button", {
+				name: "Stop Wake for Center Agent",
+			})
+		).toBeNull();
+	});
+
+	it("keeps an undecided Center Agent stream out of the main conversation", () => {
+		const progress = createWakeProgressItem();
+		const streamId = "stream-undecided";
+		renderSpaceConversationPanel({
+			agentStreams: [
+				{
+					createdAtMs: progress.startedAtMs ?? 0,
+					dispatchId: "dispatch-1",
+					observedRevision: 1,
+					profileId: TARGET_PROFILE_ID,
+					reasonCode: null,
+					sequence: 1,
+					spaceId: "space-1",
+					status: "streaming",
+					streamId,
+					text: "",
+					textSequence: 0,
+					triggerMessageId: "sig-source",
+					updatedAtMs: progress.updatedAtMs,
+				},
+			],
+			centerAgentProfileId: TARGET_PROFILE_ID,
+			ephemeralActivityItems: [progress],
+			timelineItems: [
+				createTimelineItem({
+					id: "sig-source",
+					text: "Please investigate",
+					wakeTargetProfileIds: [TARGET_PROFILE_ID],
+				}),
+				createTimelineItem({
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 1,
+						status: "streaming",
+						streamId,
+					},
+					actorProfileId: TARGET_PROFILE_ID,
+					actorProfileKind: "agent",
+					id: streamId,
+					isAgentFinalReply: true,
+					replyToSignalId: "sig-source",
+					text: "",
+				}),
+			],
+		});
+
+		expect(screen.getByText("Please investigate")).toBeTruthy();
+		expect(
+			document.querySelector(`[data-message-id="${streamId}"]`)
+		).toBeNull();
+		expect(
+			document.querySelector('[data-message-id^="active-wake:"]')
+		).toBeNull();
 	});
 
 	it("replaces the optimistic Center Agent reply shell with the first real stream projection", () => {
@@ -3703,7 +4510,7 @@ describe("SpaceConversationPanel", () => {
 		const activityTrigger = screen.getByRole("button", {
 			name: "Agent is working. Work summary: Reviewing source files…",
 		});
-		expect(activityTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
 			'[data-slot="space-message-progress-row"]'
 		);
@@ -3713,8 +4520,11 @@ describe("SpaceConversationPanel", () => {
 		expect(progressRow).not.toBeNull();
 		expect(bubbleContent?.contains(progressRow)).toBe(true);
 		fireEvent.click(
-			screen.getByRole("button", { name: "Open message details" })
+			within(
+				bubbleContent?.closest("[data-message-row-id]") as HTMLElement
+			).getByRole("button", { name: "More actions" })
 		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
@@ -4138,8 +4948,10 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		expect(footer?.className).toContain("justify-end");
-		expect(footer?.className).not.toContain("justify-start");
+		expect(footer?.className).toContain("absolute");
+		expect(
+			row?.closest('[data-slot="message"]')?.getAttribute("data-align")
+		).toBe("end");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});
 
@@ -4170,8 +4982,10 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		expect(footer?.className).toContain("justify-start");
-		expect(footer?.className).not.toContain("justify-end");
+		expect(footer?.className).toContain("absolute");
+		expect(
+			row?.closest('[data-slot="message"]')?.getAttribute("data-align")
+		).toBe("start");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});
 
@@ -4280,13 +5094,16 @@ describe("SpaceConversationPanel", () => {
 			name: "Check Felix Profile",
 		});
 		expect(profileHeader.className).toContain("touch-manipulation");
-		expect(profileHeader.className).toContain("max-lg:min-h-11");
 		expect(profileHeader.textContent).toContain("Felix");
 		expect(profileHeader.textContent).not.toContain(expectedTime);
 		const messageRow = screen
 			.getByText("Message from Felix")
 			.closest("[data-message-row-id]");
-		expect(messageRow?.querySelector("time")?.textContent).toBe(expectedTime);
+		expect(
+			messageRow
+				?.closest('[data-slot="message-content"]')
+				?.querySelector("time")?.textContent
+		).toBe(expectedTime);
 		expect(
 			profileHeader.contains(
 				screen.getByTestId(`space-human-profile-avatar-${profileId}`)
@@ -4930,6 +5747,7 @@ function createReadyComposerFile() {
 		},
 		errorMessage: null,
 		errorRequestId: null,
+		failurePhase: null,
 		fileName: "launch-brief.pdf",
 		localId: "local-file-1",
 		mimeType: "application/pdf",
@@ -4959,6 +5777,7 @@ function createFailedComposerFile() {
 		upload: null,
 		errorMessage: "OpenMeld couldn't add this file. Try again.",
 		errorRequestId: "request-file-failed",
+		failurePhase: "stage" as const,
 		fileName: "broken.pdf",
 		localId: "local-file-failed",
 		mimeType: "application/pdf",
@@ -5087,9 +5906,14 @@ function createThreadPreview(threadId: string): SpaceThreadPreview {
 	};
 }
 
-function createThreadPreviewSignal(): SignalEnvelope {
+function createThreadPreviewSignal(): Extract<
+	SignalEnvelope,
+	{ type: "signal.text" }
+> {
 	return {
-		data: { text: `/spaces/${REFERENCED_SPACE_ID}` },
+		data: {
+			text: `https://example.com /spaces/${REFERENCED_SPACE_ID}`,
+		},
 		id: "sig-thread-preview",
 		profile: {
 			kind: "human",
@@ -5251,8 +6075,8 @@ function createMatchMediaMock(matches = false): typeof window.matchMedia {
 
 function formatTestTime(createdAtMs: number): string {
 	return new Intl.DateTimeFormat("en-US", {
-		hour: "numeric",
+		hour: "2-digit",
 		minute: "2-digit",
-		second: "2-digit",
+		hourCycle: "h23",
 	}).format(createdAtMs);
 }

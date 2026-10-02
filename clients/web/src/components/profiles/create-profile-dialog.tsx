@@ -67,16 +67,25 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import { isLocalAgentControlStillRunningError } from "#/components/agents/agents-page-formatters";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AgentCreationComputerSetup } from "#/components/connect/agent-creation-computer-setup";
 import { canConfigureLocalComputer } from "#/desktop/platform";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
+import {
+	buildLocalAgentGuideDetailPath,
+	getLocalAgentInstallGuide,
+} from "#/lib/local-agent-install-guides";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationComputerPath,
 } from "#/lib/organizations/organization-routes";
+import {
+	readAgentCreationIntent,
+	rememberAgentCreationIntent,
+} from "#/lib/profiles/agent-creation-intent";
 import { resolveRememberedAgentProfileCreationDefaults } from "#/lib/profiles/agent-profile-creation-defaults";
 import {
 	type AgentProfileCreationJourneyDraft,
@@ -147,6 +156,7 @@ import {
 } from "./agent-profile-session-choice";
 import {
 	type AgentProfileLocalAgentEmptyState,
+	type AgentProfileLocalAgentSelectionState,
 	type AgentProfileModelCompatibilityContext,
 	CreateProfileForm,
 } from "./create-profile-form";
@@ -159,6 +169,13 @@ import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
 const PROJECT_PATH_SEPARATOR_PATTERN = /[\\/]/u;
 const PROJECT_PATH_TRAILING_SEPARATOR_PATTERN = /[\\/]+$/u;
+// A local agent control request can outlive the Gateway's five-second response
+// timeout while the Service completes a fresh controller report. Keep the
+// pending state local to this switch and reconcile against the canonical
+// Computer projection long enough for that report to arrive.
+const LOCAL_AGENT_ENABLE_CONFIRMATION_DELAYS_MS = [
+	0, 1000, 2000, 4000, 5000, 5000, 5000, 5000, 5000,
+];
 
 export type { CreateProfileSpaceContext } from "#/lib/profiles/create-profile-orchestration";
 
@@ -426,7 +443,8 @@ export type CreateProfileDialogProps = {
 	currentUserId?: string;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	onAgentRequestCreated?: (
-		request: AgentProfileCreationRequest
+		request: AgentProfileCreationRequest,
+		customWorkingFolderIssue: string | null
 	) => void | Promise<void>;
 	onAgentRequestAccepted?: (
 		request: AgentProfileCreationRequest,
@@ -434,6 +452,10 @@ export type CreateProfileDialogProps = {
 	) => void | Promise<void>;
 	onAgentRequestFailed?: (creation: OptimisticAgentProfileCreation) => void;
 	onAgentRequestStarted?: (creation: OptimisticAgentProfileCreation) => void;
+	waitForAgentRequestCompletion?: boolean;
+	intentStorageScope?: string;
+	clearIntentOnAcceptance?: boolean;
+	manageAgentCreationCachesExternally?: boolean;
 	onOpenChange: (open: boolean) => void;
 	onProfileCreated?: (profile: AuthProfileView) => void | Promise<void>;
 	open: boolean;
@@ -535,6 +557,9 @@ export function CreateProfileDialogStep(
 export function CreateAgentProfilePage(
 	input: Omit<CreateProfileDialogProps, "onOpenChange" | "open"> & {
 		onCancel: () => void;
+		hideRuntimeSelection?: boolean;
+		hidePageHeading?: boolean;
+		compactTop?: boolean;
 	}
 ) {
 	const view = useCreateProfileDialogController(
@@ -547,9 +572,13 @@ export function CreateAgentProfilePage(
 	);
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-			<div className="@container/agent-creation mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-6 px-4 pt-10 pb-6 sm:px-6 lg:px-8">
+			<div
+				className={`@container/agent-creation mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-6 px-4 pb-6 sm:px-6 lg:px-8 ${input.compactTop ? "pt-4" : "pt-10"}`}
+			>
 				<AgentProfileGenerator
 					form={view.formProps}
+					hidePageHeading={input.hidePageHeading}
+					hideRuntimeSelection={input.hideRuntimeSelection}
 					onCancel={input.onCancel}
 					surface="page"
 				/>
@@ -896,6 +925,42 @@ function useCreateProfileDialogController(
 		ownerMode,
 		recoveryActionHref,
 	});
+	const selectedLocalAgentId = resolveOwnerBindingValue({
+		agentBindingValue,
+		boundAgentId,
+		ownerMode,
+	});
+	const localAgentSelectionState = resolveLocalAgentSelectionState({
+		bindingTarget,
+		computerRecovery,
+		creationGuidance,
+		isResolvingLocalAgents,
+		onRetry: retryCreationConnection,
+		orgSlug,
+		ownerMode,
+		recovery,
+		selectedLocalAgentId,
+	});
+	const selectedLocalAgentBindable =
+		ownLocalAgentIds.includes(selectedLocalAgentId);
+	useEffect(() => {
+		if (ownerMode !== "self" || sessionPreset || !selectedLocalAgentId) {
+			return;
+		}
+		const nextBoundAgentId = selectedLocalAgentBindable
+			? selectedLocalAgentId
+			: "";
+		if (boundAgentId !== nextBoundAgentId) {
+			setBoundAgentId(nextBoundAgentId);
+		}
+	}, [
+		boundAgentId,
+		ownerMode,
+		selectedLocalAgentId,
+		selectedLocalAgentBindable,
+		sessionPreset,
+		setBoundAgentId,
+	]);
 	const localFolderPickerDeviceId = resolveLocalFolderPickerDeviceId(
 		recovery.currentComputer
 	);
@@ -1022,7 +1087,11 @@ function useCreateProfileDialogController(
 	const createProfileMutation = useMutation({
 		mutationFn: async (submission: {
 			idempotencyKey: string;
-			remote?: { modelId: string | null; profileName: string };
+			remote?: {
+				modelId: string | null;
+				profileName: string;
+				reasoningLevel: string | null;
+			};
 		}) => {
 			if (submission.remote) {
 				const result = await createAgentProfileCreationRequest({
@@ -1031,8 +1100,12 @@ function useCreateProfileDialogController(
 						...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 						agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 						modelId: submission.remote.modelId,
+						reasoningLevel: submission.remote.reasoningLevel,
 					},
 					idempotencyKey: submission.idempotencyKey,
+					intentStorageScope: input.intentStorageScope,
+					clearIntentOnAcceptance: input.clearIntentOnAcceptance,
+					waitForCompletion: input.waitForAgentRequestCompletion,
 					organizationId,
 					onAccepted: input.onAgentRequestAccepted,
 					onFailed: input.onAgentRequestFailed,
@@ -1068,10 +1141,13 @@ function useCreateProfileDialogController(
 				boundReasoningLevel,
 				currentUserId,
 				idempotencyKey: submission.idempotencyKey,
+				intentStorageScope: input.intentStorageScope,
+				clearIntentOnAcceptance: input.clearIntentOnAcceptance,
 				onAfterJoin: input.onAfterJoin,
 				onAgentRequestAccepted: input.onAgentRequestAccepted,
 				onAgentRequestFailed: input.onAgentRequestFailed,
 				onAgentRequestStarted: input.onAgentRequestStarted,
+				waitForAgentRequestCompletion: input.waitForAgentRequestCompletion,
 				organizationId,
 				ownerMode,
 				profileKind: selectableProfileKind,
@@ -1107,6 +1183,8 @@ function useCreateProfileDialogController(
 			await handleProfileCreationSuccess({
 				onAfterJoin: input.onAfterJoin,
 				onAgentRequestCreated: input.onAgentRequestCreated,
+				manageAgentCreationCachesExternally:
+					input.manageAgentCreationCachesExternally,
 				onClose: () => input.onOpenChange(false),
 				onProfileCreated: input.onProfileCreated,
 				onReset: resetForm,
@@ -1289,10 +1367,11 @@ function useCreateProfileDialogController(
 		ownerBlockReason:
 			ownerSubmitBlockReason ??
 			resolveSelectedLocalAgentSubmitBlockReason({
-				boundAgentId,
 				emptyState: localAgentEmptyState,
+				localAgentSelectionState,
 				ownLocalAgentIds,
 				ownerMode,
+				selectedLocalAgentId,
 			}),
 		sessionMode,
 		sessionPreset,
@@ -1384,6 +1463,7 @@ function useCreateProfileDialogController(
 					idempotencyKey: string;
 					modelId: string | null;
 					profileName: string;
+					reasoningLevel: string | null;
 				}) => {
 					if (submissionInFlightRef.current) {
 						return;
@@ -1420,6 +1500,7 @@ function useCreateProfileDialogController(
 		isResolvingLocalAgents,
 		isSubmitting: createProfileMutation.isPending,
 		localAgentEmptyState,
+		localAgentSelectionState,
 		localFolderPickerDeviceId: resolveOwnerLocalFolderPickerDeviceId({
 			localFolderPickerDeviceId,
 			ownerMode,
@@ -1430,11 +1511,15 @@ function useCreateProfileDialogController(
 		onChangeAgentBindingValue: (value: string) => {
 			journeyDraftRestorationDismissedRef.current = true;
 			setAgentBindingValue(value);
-			const nextAgentId = resolveOwnerBoundAgentId({
+			const selectedAgentId = resolveOwnerBoundAgentId({
 				ownerMode,
 				teammateBindingOptions,
 				value,
 			});
+			const nextAgentId =
+				ownerMode === "self" && !ownLocalAgentIds.includes(selectedAgentId)
+					? ""
+					: selectedAgentId;
 			appliedCreationDefaultsKeyRef.current = null;
 			creationDefaultsEditedRef.current = false;
 			setBoundAgentId(nextAgentId);
@@ -2185,13 +2270,30 @@ function resolveAgentProfileSubmitBlockReason(input: {
 }
 
 function resolveSelectedLocalAgentSubmitBlockReason(input: {
-	boundAgentId: string;
 	emptyState: AgentProfileLocalAgentEmptyState;
+	localAgentSelectionState: AgentProfileLocalAgentSelectionState | null;
 	ownLocalAgentIds: readonly string[];
 	ownerMode: AgentProfileOwnerMode;
+	selectedLocalAgentId: string;
 }): string | null {
-	if (input.ownerMode !== "self" || !input.boundAgentId) {
+	if (input.ownerMode !== "self" || !input.selectedLocalAgentId) {
 		return null;
+	}
+	if (input.localAgentSelectionState?.blocksCreation) {
+		switch (input.localAgentSelectionState.kind) {
+			case "checking":
+				return `Checking ${input.localAgentSelectionState.displayName}. Wait for the check to finish.`;
+			case "check_failed":
+				return `Couldn’t check ${input.localAgentSelectionState.displayName}. Check again to continue.`;
+			case "computer":
+				return "Connect the selected computer before creating this Agent.";
+			case "disabled":
+				return `Turn on ${input.localAgentSelectionState.displayName} before creating this Agent.`;
+			case "not_installed":
+				return `Install ${input.localAgentSelectionState.displayName} before creating this Agent.`;
+			default:
+				return `${input.localAgentSelectionState.displayName} isn’t available for Agent creation yet.`;
+		}
 	}
 	switch (input.emptyState.kind) {
 		case "checking":
@@ -2201,9 +2303,238 @@ function resolveSelectedLocalAgentSubmitBlockReason(input: {
 		case "connect_computer":
 			return "Connect the selected computer before creating this Agent.";
 		default:
-			return input.ownLocalAgentIds.includes(input.boundAgentId)
+			return input.ownLocalAgentIds.includes(input.selectedLocalAgentId)
 				? null
 				: "Set up the selected local agent on this computer before creating this Agent.";
+	}
+}
+
+function resolveLocalAgentSelectionState(input: {
+	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
+	computerRecovery:
+		| import("./agent-creation-computer-recovery").AgentCreationComputerRecovery
+		| undefined;
+	creationGuidance: ReturnType<typeof resolveLocalAgentCreationGuidance>;
+	isResolvingLocalAgents: boolean;
+	onRetry: () => void;
+	orgSlug: string | null | undefined;
+	ownerMode: AgentProfileOwnerMode;
+	recovery: RecoveryController;
+	selectedLocalAgentId: string;
+}): AgentProfileLocalAgentSelectionState | null {
+	if (input.ownerMode !== "self" || !input.selectedLocalAgentId) {
+		return null;
+	}
+	const guide = getLocalAgentInstallGuide(input.selectedLocalAgentId);
+	const displayName =
+		guide?.displayName ??
+		formatLocalAgentDisplayName(input.selectedLocalAgentId);
+	const guideHref = guide
+		? buildLocalAgentGuideDetailPath(guide.agentId)
+		: undefined;
+	const base = {
+		agentId: input.selectedLocalAgentId,
+		displayName,
+		guideHref,
+		onRetry: input.onRetry,
+		selectionKey: [
+			input.bindingTarget?.deviceId ?? input.recovery.deviceId ?? "no-device",
+			input.bindingTarget?.runtimeLane ??
+				input.recovery.runtimeLane ??
+				"no-lane",
+			input.selectedLocalAgentId,
+		].join(":"),
+	};
+	if (
+		input.computerRecovery &&
+		input.computerRecovery.state !== "local_agents"
+	) {
+		return {
+			...base,
+			blocksCreation: true,
+			kind: "computer",
+		};
+	}
+	if (!input.bindingTarget) {
+		return {
+			...base,
+			blocksCreation: true,
+			kind: input.isResolvingLocalAgents ? "checking" : "computer",
+		};
+	}
+	return resolveLocalAgentSelectionStateForTarget({
+		base,
+		creationGuidance: input.creationGuidance,
+		isResolvingLocalAgents: input.isResolvingLocalAgents,
+		orgSlug: input.orgSlug,
+		recovery: input.recovery,
+		target: input.bindingTarget,
+	});
+}
+
+function resolveLocalAgentSelectionStateForTarget(input: {
+	base: Pick<
+		AgentProfileLocalAgentSelectionState,
+		"agentId" | "displayName" | "guideHref" | "onRetry" | "selectionKey"
+	>;
+	creationGuidance: ReturnType<typeof resolveLocalAgentCreationGuidance>;
+	isResolvingLocalAgents: boolean;
+	orgSlug: string | null | undefined;
+	recovery: RecoveryController;
+	target: NonNullable<
+		ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>
+	>;
+}): AgentProfileLocalAgentSelectionState {
+	const { base, target } = input;
+	const entry = target.localAgentCatalog.entries.find(
+		(candidate) => candidate.agentId === base.agentId
+	);
+	if (!entry) {
+		return {
+			...base,
+			blocksCreation: true,
+			kind: input.isResolvingLocalAgents ? "checking" : "check_failed",
+		};
+	}
+	const agentControllerRef = buildBuiltinAgentControllerRef(base.agentId);
+	const capability = target.capabilities.find(
+		(candidate) => candidate.agentControllerRef === agentControllerRef
+	);
+	const snapshot = capability?.agentControllerInterface;
+	const manageHref = input.orgSlug
+		? buildOrganizationComputerPath({
+				deviceId: target.deviceId,
+				orgSlug: input.orgSlug,
+			})
+		: null;
+	const bindable = bindableLocalAgentIdsFromTarget(target).includes(
+		base.agentId
+	);
+	const usage = {
+		usageLimits: snapshot?.usageLimits,
+		usageLoading: Boolean(
+			!snapshot && input.recovery.localRuntimesQuery.isPending
+		),
+	};
+	if (!entry.detected) {
+		return {
+			...base,
+			...usage,
+			blocksCreation: true,
+			kind: "not_installed",
+			manageHref,
+		};
+	}
+	if (!entry.enabled || entry.lifecycleStatus === "suspended") {
+		return {
+			...base,
+			...usage,
+			blocksCreation: true,
+			canEnable: target.localAgentControl.setEnabled,
+			kind: "disabled",
+			manageHref,
+			onEnable: () =>
+				enableLocalAgentWithOutcomeConfirmation({
+					agentId: base.agentId,
+					recovery: input.recovery,
+					target,
+				}),
+		};
+	}
+	if (!bindable) {
+		return {
+			...base,
+			...usage,
+			blocksCreation: true,
+			kind:
+				input.creationGuidance === "check_failed" ||
+				snapshot?.check?.status === "failed"
+					? "check_failed"
+					: "unavailable",
+			manageHref,
+			message: snapshot?.message,
+		};
+	}
+	if (snapshot?.auth?.status === "unauthenticated") {
+		return {
+			...base,
+			...usage,
+			blocksCreation: false,
+			kind: "signed_out",
+			manageHref,
+		};
+	}
+	if (
+		snapshot?.check?.status === "failed" ||
+		entry.launchStatus === "needs_repair" ||
+		snapshot?.status === "error" ||
+		snapshot?.status === "unavailable"
+	) {
+		return {
+			...base,
+			...usage,
+			blocksCreation: false,
+			kind:
+				snapshot?.check?.status === "failed" ? "check_failed" : "unavailable",
+			manageHref,
+			message:
+				snapshot?.message ??
+				`${base.displayName} needs attention before it can run.`,
+		};
+	}
+	return {
+		...base,
+		...usage,
+		blocksCreation: false,
+		kind: "available",
+		manageHref,
+	};
+}
+
+async function enableLocalAgentWithOutcomeConfirmation(input: {
+	agentId: string;
+	recovery: RecoveryController;
+	target: PeopleComputerTarget;
+}): Promise<void> {
+	try {
+		await input.recovery.setLocalAgentEnabled({
+			agentId: input.agentId,
+			deviceId: input.target.deviceId,
+			enabled: true,
+			runtimeLane: input.target.runtimeLane,
+		});
+		return;
+	} catch (error) {
+		if (!isLocalAgentControlStillRunningError(error)) {
+			throw error;
+		}
+		for (const delayMs of LOCAL_AGENT_ENABLE_CONFIRMATION_DELAYS_MS) {
+			if (delayMs > 0) {
+				await new Promise<void>((resolve) => {
+					setTimeout(resolve, delayMs);
+				});
+			}
+			const refreshed = await input.recovery.localRuntimesQuery
+				.refetch()
+				.catch(() => null);
+			const refreshedTarget = refreshed?.data?.localRuntimes
+				.flatMap((computer) => computer.executionTargets)
+				.find(
+					(candidate) =>
+						candidate.deviceId === input.target.deviceId &&
+						candidate.runtimeLane === input.target.runtimeLane
+				);
+			const enabled = refreshedTarget?.localAgentCatalog.entries.some(
+				(candidate) =>
+					candidate.agentId === input.agentId &&
+					candidate.enabled &&
+					candidate.lifecycleStatus !== "suspended"
+			);
+			if (enabled) {
+				return;
+			}
+		}
+		throw error;
 	}
 }
 
@@ -2226,6 +2557,9 @@ type CreateProfileSubmissionInput = {
 	) => void | Promise<void>;
 	onAgentRequestFailed?: (creation: OptimisticAgentProfileCreation) => void;
 	onAgentRequestStarted?: (creation: OptimisticAgentProfileCreation) => void;
+	waitForAgentRequestCompletion?: boolean;
+	intentStorageScope?: string;
+	clearIntentOnAcceptance?: boolean;
 	organizationId: string;
 	ownerMode: AgentProfileOwnerMode;
 	profileKind: NewProfileKind | null;
@@ -2264,9 +2598,11 @@ async function submitProfileCreation(input: CreateProfileSubmissionInput) {
 }
 
 async function handleProfileCreationSuccess(input: {
+	manageAgentCreationCachesExternally?: boolean;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	onAgentRequestCreated?: (
-		request: AgentProfileCreationRequest
+		request: AgentProfileCreationRequest,
+		customWorkingFolderIssue: string | null
 	) => void | Promise<void>;
 	onClose: () => void;
 	onProfileCreated?: (profile: AuthProfileView) => void | Promise<void>;
@@ -2284,23 +2620,28 @@ async function handleProfileCreationSuccess(input: {
 		});
 		// Creation is committed. Mark caches stale immediately, but don't hold
 		// navigation or the submit state hostage to background network reads.
-		refreshAgentProfileCreationRequestCaches({
-			createdAgentProfileId: input.result.request.createdAgentProfileId,
-			onAfterJoin: input.onAfterJoin,
-			organizationId: input.organizationId,
-			queryClient: input.queryClient,
-			requestStatus: input.result.request.status,
-			requestedSpaceId: input.result.request.requestedSpaceId,
-			spaceContext: input.spaceContext,
-			storageScope: input.storageScope,
-		}).catch((error) => {
-			console.warn(
-				"OpenMeld created the Agent request but could not refresh its current status.",
-				error
-			);
-		});
+		if (!input.manageAgentCreationCachesExternally) {
+			refreshAgentProfileCreationRequestCaches({
+				createdAgentProfileId: input.result.request.createdAgentProfileId,
+				onAfterJoin: input.onAfterJoin,
+				organizationId: input.organizationId,
+				queryClient: input.queryClient,
+				requestStatus: input.result.request.status,
+				requestedSpaceId: input.result.request.requestedSpaceId,
+				spaceContext: input.spaceContext,
+				storageScope: input.storageScope,
+			}).catch((error) => {
+				console.warn(
+					"OpenMeld created the Agent request but could not refresh its current status.",
+					error
+				);
+			});
+		}
 		await Promise.resolve(
-			input.onAgentRequestCreated?.(input.result.request)
+			input.onAgentRequestCreated?.(
+				input.result.request,
+				input.result.customWorkingFolderIssue
+			)
 		).catch((error) => {
 			console.warn(
 				"OpenMeld created the Agent but could not open its current profile.",
@@ -2403,6 +2744,14 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 
 async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 	const defaultProjectId = input.selectedProjectId || null;
+	const customWorkspacePath =
+		input.waitForAgentRequestCompletion === false &&
+		input.ownerMode === "self" &&
+		input.boundAgentId &&
+		!defaultProjectId &&
+		input.projectFolderPath.trim()
+			? input.projectFolderPath
+			: null;
 	const connection = resolveRequestedAgentConnection(input);
 	if (!(connection.agentControllerRef && connection.targetComputerId)) {
 		throw new Error(
@@ -2432,6 +2781,8 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 			targetComputerId: connection.targetComputerId,
 		},
 		idempotencyKey: input.idempotencyKey,
+		intentStorageScope: input.intentStorageScope,
+		clearIntentOnAcceptance: input.clearIntentOnAcceptance,
 		nativeSessionId:
 			input.sessionStrategy === "new"
 				? null
@@ -2439,15 +2790,34 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 		organizationId: input.organizationId,
 		onAccepted: input.onAgentRequestAccepted,
 		onFailed: input.onAgentRequestFailed,
-		onStarted: input.onAgentRequestStarted,
+		onStarted:
+			customWorkspacePath && input.intentStorageScope
+				? (creation) => {
+						const intent = readAgentCreationIntent(
+							input.intentStorageScope ?? "",
+							input.organizationId
+						);
+						if (intent) {
+							rememberAgentCreationIntent({
+								...intent,
+								customWorkspacePath,
+								organizationId: input.organizationId,
+								scope: input.intentStorageScope ?? "",
+							});
+						}
+						input.onAgentRequestStarted?.(creation);
+					}
+				: input.onAgentRequestStarted,
 		profileName: input.profileName,
 		requestedSpaceId: input.spaceContext?.spaceId ?? null,
+		waitForCompletion: input.waitForAgentRequestCompletion,
 		sessionStrategy: input.sessionStrategy,
 		targetOwnerUserId: resolveRequestedAgentOwnerUserId(input),
 	});
 	const customWorkingFolderIssue =
 		await configureRequestedAgentCustomWorkingFolder({
 			defaultProjectId,
+			deferUntilCommitted: input.waitForAgentRequestCompletion === false,
 			request: result.request,
 			submission: input,
 		});
@@ -2782,6 +3152,7 @@ function resolveRequestedAgentOwnerUserId(
 
 async function configureRequestedAgentCustomWorkingFolder(input: {
 	defaultProjectId: string | null;
+	deferUntilCommitted?: boolean;
 	request: AgentProfileCreationRequest;
 	submission: CreateProfileSubmissionInput;
 }): Promise<string | null> {
@@ -2801,6 +3172,11 @@ async function configureRequestedAgentCustomWorkingFolder(input: {
 			requestId: input.request.id,
 			storageScope: input.submission.recovery.storageScope,
 		});
+		if (input.deferUntilCommitted) {
+			return remembered
+				? null
+				: "OpenMeld couldn't keep your custom working folder for retry. Keep this window open and try again.";
+		}
 		const continuation = await continuePendingAgentProfileCreationLocalSetup({
 			organizationId: input.submission.organizationId,
 			pendingSetup,
@@ -3089,7 +3465,7 @@ function resolveOwnerBindingValue(input: {
 	ownerMode: AgentProfileOwnerMode;
 }): string {
 	return input.ownerMode === "self"
-		? input.boundAgentId
+		? input.agentBindingValue || input.boundAgentId
 		: input.agentBindingValue;
 }
 
@@ -3668,6 +4044,9 @@ function resolveCreateModelCompatibilityContext(input: {
 	return {
 		agentControllerId: input.boundAgentId,
 		controllerDisplayName: formatLocalAgentDisplayName(input.boundAgentId),
+		agentControllerRef,
+		authType:
+			snapshot?.auth.status === "authenticated" ? snapshot.auth.type : null,
 		installedVersion: snapshot?.version ?? null,
 		managePath:
 			input.orgSlug && input.bindingTarget

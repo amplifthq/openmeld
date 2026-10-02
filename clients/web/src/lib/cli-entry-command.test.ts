@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildWebSetupCommand,
@@ -13,17 +12,32 @@ import {
 	resolveWebStartCommand,
 } from "./cli-entry-command";
 
-const POWERSHELL_ENCODED_COMMAND_RE =
-	/^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$/u;
+function expectedPosixSetupCommand(url: string, args: string): string {
+	const protocolOptions = url.startsWith("https:")
+		? " --proto '=https' --proto-redir '=https'"
+		: "";
+	const quotedUrl = url.includes("?") ? `'${url}'` : url;
+	return `curl -fsSL${protocolOptions} ${quotedUrl} | sh -s -- ${args}`;
+}
 
-vi.hoisted(() => {
-	// Configuration is captured at module load. These formatting fixtures supply
-	// lane homes explicitly and must not inherit the focused runner's temp home.
-	vi.stubEnv("VITE_OPENMELD_HOME", "");
-});
+// The composed compiled-target tests cover the real environment loader. These
+// formatting fixtures supply explicit configuration and vary it per case.
+vi.mock("#/env", () => ({
+	env: {
+		get VITE_OPENMELD_HOME() {
+			return import.meta.env.VITE_OPENMELD_HOME;
+		},
+		get VITE_OPENMELD_SETUP_USER_FACING_COMMAND() {
+			return import.meta.env.VITE_OPENMELD_SETUP_USER_FACING_COMMAND;
+		},
+	},
+}));
 
 describe("cli-entry-command", () => {
-	beforeEach(() => vi.stubEnv("VITE_OPENMELD_HOME", ""));
+	beforeEach(() => {
+		vi.stubEnv("VITE_OPENMELD_HOME", "");
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld-dev");
+	});
 	afterEach(() => {
 		vi.unstubAllEnvs();
 		vi.unstubAllGlobals();
@@ -62,8 +76,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("uses readable npx commands for production Web handoff setup", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 		vi.stubEnv("VITE_OPENMELD_HOME", "/tmp/openmeld-web-start-fresh");
 
 		expect(
@@ -91,7 +104,10 @@ describe("cli-entry-command", () => {
 				oneTimeToken: "ott_demo",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session starttok_demo --ott ott_demo --view human"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session starttok_demo --ott ott_demo --view human"
+			)
 		);
 		expect(
 			resolveWebAgentsRepairCommand({
@@ -110,8 +126,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("hands Connect Computer an approved device code instead of the browser session", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		expect(
 			buildWebSetupCommand({
@@ -119,7 +134,10 @@ describe("cli-entry-command", () => {
 				startSession: "starttok_demo",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session starttok_demo --device-code device-secret --view human"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session starttok_demo --device-code device-secret --view human"
+			)
 		);
 	});
 
@@ -154,8 +172,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("uses the production setup bootstrap for Prepare Session commands only", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		expect(
 			buildWebSetupCommand({
@@ -163,7 +180,10 @@ describe("cli-entry-command", () => {
 				oneTimeToken: "ott_demo",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session preptok_demo --ott ott_demo --view human"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session preptok_demo --ott ott_demo --view human"
+			)
 		);
 		expect(
 			buildWebSetupCommand({
@@ -176,8 +196,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("builds an agent-view setup session command with local agent selection", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		expect(
 			buildWebSetupCommand({
@@ -187,7 +206,10 @@ describe("cli-entry-command", () => {
 				view: "agent",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session preptok_demo --local-agents all --ott ott_demo --view agent"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session preptok_demo --local-agents all --ott ott_demo --view agent"
+			)
 		);
 		expect(
 			buildWebSetupCommand({
@@ -197,13 +219,15 @@ describe("cli-entry-command", () => {
 				view: "agent",
 			})
 		).toBe(
-			"curl -fsSL https://openmeld.ai/setup | sh -s -- setup --start-session preptok_demo --local-agent codex claude-code --ott ott_demo --view agent"
+			expectedPosixSetupCommand(
+				"https://openmeld.ai/setup",
+				"setup --start-session preptok_demo --local-agent codex claude-code --ott ott_demo --view agent"
+			)
 		);
 	});
 
 	it("builds a Windows PowerShell bootstrap for Prepare Session commands", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		const command = buildWebSetupCommand({
 			oneTimeToken: "ott_demo",
@@ -211,9 +235,8 @@ describe("cli-entry-command", () => {
 			startSession: "preptok_demo",
 		});
 
-		expect(command).toMatch(POWERSHELL_ENCODED_COMMAND_RE);
-		expect(decodePowerShellCommand(command)).toBe(
-			"& ([scriptblock]::Create((irm 'https://openmeld.ai/setup?platform=windows&dist=npm'))) 'setup' '--start-session' 'preptok_demo' '--ott' 'ott_demo' '--view' 'human'"
+		expect(command).toBe(
+			"powershell -NoProfile -OutputFormat Text -Command { & ([scriptblock]::Create((irm 'https://openmeld.ai/setup?platform=windows&dist=binary'))) 'setup' '--start-session' 'preptok_demo' '--ott' 'ott_demo' '--view' 'human' }"
 		);
 	});
 
@@ -226,7 +249,10 @@ describe("cli-entry-command", () => {
 				oneTimeToken: "ott_demo",
 			})
 		).toBe(
-			"curl -fsSL 'http://localhost:3000/setup?lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh' | sh -s -- setup --start-session preptok_demo --ott ott_demo --view human"
+			expectedPosixSetupCommand(
+				"http://localhost:3000/setup?lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh",
+				"setup --start-session preptok_demo --ott ott_demo --view human"
+			)
 		);
 	});
 
@@ -244,13 +270,15 @@ describe("cli-entry-command", () => {
 				view: "agent",
 			})
 		).toBe(
-			"curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+			expectedPosixSetupCommand(
+				"https://staging.openmeld.ai/setup?dist=binary&lane=canary",
+				"setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+			)
 		);
 	});
 
 	it("defaults fresh Staging computers to the canary binary channel", async () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		// Staging is explicitly canary, regardless of build mode.
 		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld-canary");
 		vi.stubGlobal("window", {
 			location: { origin: "https://staging.openmeld.ai" },
@@ -268,7 +296,10 @@ describe("cli-entry-command", () => {
 				view: "agent",
 			})
 		).toBe(
-			"curl -fsSL 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+			expectedPosixSetupCommand(
+				"https://staging.openmeld.ai/setup?dist=binary&lane=canary",
+				"setup --start-session start_staging_demo --local-agents none --ott ott_staging_demo --view agent"
+			)
 		);
 	});
 
@@ -281,9 +312,8 @@ describe("cli-entry-command", () => {
 			startSession: "preptok_demo",
 		});
 
-		expect(command).toMatch(POWERSHELL_ENCODED_COMMAND_RE);
-		expect(decodePowerShellCommand(command)).toBe(
-			"& ([scriptblock]::Create((irm 'http://localhost:3000/setup?platform=windows&dist=npm&lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh'))) 'setup' '--start-session' 'preptok_demo' '--ott' 'ott_demo' '--view' 'human'"
+		expect(command).toBe(
+			"powershell -NoProfile -OutputFormat Text -Command { & ([scriptblock]::Create((irm 'http://localhost:3000/setup?platform=windows&dist=binary&lane=dev-local&openMeldHome=%2Ftmp%2Fopenmeld+web+start+fresh'))) 'setup' '--start-session' 'preptok_demo' '--ott' 'ott_demo' '--view' 'human' }"
 		);
 	});
 
@@ -309,8 +339,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("keeps npx for non-default production gateways", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		expect(
 			buildWebSetupCommand({
@@ -411,7 +440,7 @@ describe("cli-entry-command", () => {
 		);
 	});
 
-	it("uses the selected dev execution target command without OPENMELD_HOME lane overrides", () => {
+	it("keeps the selected dev execution target on its configured OPENMELD_HOME", () => {
 		vi.stubEnv("VITE_OPENMELD_HOME", "/tmp/openmeld web start fresh");
 
 		expect(
@@ -422,7 +451,7 @@ describe("cli-entry-command", () => {
 				userFacingCommand: "openmeld-dev",
 			})
 		).toBe(
-			"OPENMELD_GATEWAY_URL=http://localhost:8080 openmeld-dev setup --agent codex --ott ott_demo --view human"
+			"OPENMELD_HOME='/tmp/openmeld web start fresh' OPENMELD_GATEWAY_URL=http://localhost:8080 openmeld-dev setup --agent codex --ott ott_demo --view human"
 		);
 	});
 
@@ -460,15 +489,10 @@ describe("cli-entry-command", () => {
 				oneTimeToken: "ott_demo",
 			})
 		).toBe(
-			"curl -fsSL 'http://localhost:3000/setup?lane=dev-local' | sh -s -- setup --start-session starttok_demo --ott ott_demo --view human"
+			expectedPosixSetupCommand(
+				"http://localhost:3000/setup?lane=dev-local",
+				"setup --start-session starttok_demo --ott ott_demo --view human"
+			)
 		);
 	});
 });
-
-function decodePowerShellCommand(command: string): string {
-	const encoded = POWERSHELL_ENCODED_COMMAND_RE.exec(command)?.[1];
-	if (!encoded) {
-		throw new Error(`Expected an encoded PowerShell command: ${command}`);
-	}
-	return Buffer.from(encoded, "base64").toString("utf16le");
-}

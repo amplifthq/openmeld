@@ -5,6 +5,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import {
 	SidebarGroup as FluidSidebarGroup,
 	SidebarGroupContent,
@@ -23,7 +24,12 @@ import {
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { ReactElement, ReactNode } from "react";
+import {
+	type ReactElement,
+	type ReactNode,
+	type RefObject,
+	useRef,
+} from "react";
 import {
 	APP_NAV_GROUP_CLASS_NAME,
 	APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
@@ -32,6 +38,7 @@ import {
 } from "#/components/app/app-nav-item-style";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
+import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
 import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
 import type { useInboxAttention } from "#/components/inbox/use-inbox-attention";
@@ -53,6 +60,7 @@ type AppRailDestination = {
 	attentionTone?: "danger" | "warning" | null;
 	attentionCount?: number;
 	icon: ReactNode;
+	inboxAttention?: ReturnType<typeof useInboxAttention>;
 	id: AppRailDestinationId;
 	label: string;
 	onIntentPrefetch?: () => void;
@@ -84,19 +92,9 @@ export function buildAppRailGroups(input: {
 					id: "inbox",
 					label: "Inbox",
 					accessibleLabel: input.inboxAttention?.label,
+					inboxAttention: input.inboxAttention,
 					to: buildOrganizationInboxPath(input.orgSlug),
-					icon: (
-						<>
-							<TrayIcon aria-hidden="true" className="size-5" />
-							{input.inboxAttention ? (
-								<InboxAttentionBadge
-									count={input.inboxAttention.count}
-									indicatorTone={input.inboxAttention.indicatorTone}
-									tone={input.inboxAttention.tone}
-								/>
-							) : null}
-						</>
-					),
+					icon: <TrayIcon aria-hidden="true" className="size-5" />,
 				},
 				{
 					id: "directMessages",
@@ -124,26 +122,36 @@ export function AppRailNavigationGroup(input: {
 	tier: SidebarMode;
 }) {
 	const { presentation } = useAppNavigationPresentation();
+	const links = input.group.destinations.map((destination) => (
+		<AppRailLink
+			active={
+				destination.id === input.activeDestination ||
+				(destination.id === "directMessages" &&
+					input.activeDestination === "spaces") ||
+				(destination.id === "people" && input.activeDestination === "agents")
+			}
+			destination={destination}
+			key={destination.id}
+			tier={input.tier}
+		/>
+	));
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
 			<SidebarMenu
-				activeLayoutId={`main-sidebar-selection-${presentation}`}
-				className={input.tier === "icon" ? "gap-1.5" : undefined}
+				activeLayoutId={
+					input.tier === "expanded"
+						? `main-sidebar-selection-${presentation}`
+						: undefined
+				}
+				className={cn(
+					input.tier === "icon" && "gap-1.5",
+					presentation === "drawer" && "gap-2"
+				)}
+				indicatorTargetSelector={
+					input.tier === "icon" ? '[data-slot="app-rail-icon"]' : undefined
+				}
 			>
-				{input.group.destinations.map((destination) => (
-					<AppRailLink
-						active={
-							destination.id === input.activeDestination ||
-							(destination.id === "directMessages" &&
-								input.activeDestination === "spaces") ||
-							(destination.id === "people" &&
-								input.activeDestination === "agents")
-						}
-						destination={destination}
-						key={destination.id}
-						tier={input.tier}
-					/>
-				))}
+				{links}
 			</SidebarMenu>
 		</nav>
 	);
@@ -160,6 +168,7 @@ export function AppRailNavigationGroup(input: {
 }
 
 export function CollapsedRailTooltip(input: {
+	anchor?: RefObject<Element | null>;
 	children: ReactElement;
 	disabled?: boolean;
 	label: string;
@@ -168,7 +177,7 @@ export function CollapsedRailTooltip(input: {
 	return (
 		<Tooltip disabled={input.disabled}>
 			<TooltipTrigger render={input.children} />
-			<TooltipContent side={input.side ?? "right"}>
+			<TooltipContent anchor={input.anchor} side={input.side ?? "right"}>
 				{input.label}
 			</TooltipContent>
 		</Tooltip>
@@ -180,8 +189,10 @@ export function AppRailLink(input: {
 	destination: AppRailDestination;
 	tier: SidebarMode;
 }) {
-	const { dismiss } = useAppNavigationPresentation();
+	const { dismiss, presentation } = useAppNavigationPresentation();
 	const isIcon = input.tier === "icon";
+	const isDrawer = presentation === "drawer";
+	const iconRef = useRef<HTMLSpanElement>(null);
 
 	const attentionCount = Math.max(0, input.destination.attentionCount ?? 0);
 	const unreadCount = Math.max(0, input.destination.unreadCount ?? 0);
@@ -216,11 +227,15 @@ export function AppRailLink(input: {
 			<AppRailDestinationIcon
 				attentionCount={attentionCount}
 				destination={input.destination}
+				iconRef={iconRef}
 				statusIndicator={statusIndicator}
 				tier={input.tier}
 			/>
 			{isIcon ? (
-				<span className="max-w-full whitespace-normal text-center text-[10px] leading-tight">
+				<span
+					className="max-w-full whitespace-normal text-center text-[10px] leading-tight"
+					data-slot="app-rail-label"
+				>
 					{input.destination.label}
 				</span>
 			) : (
@@ -240,9 +255,12 @@ export function AppRailLink(input: {
 		"flex min-w-0 items-center border border-transparent outline-none focus-visible:text-sidebar-accent-foreground",
 		APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 		APP_NAV_ITEM_TONE_CLASS_NAME,
-		isIcon && "h-12 w-full flex-col justify-center gap-1 px-1 py-1",
-		input.tier === "expanded" && APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
-		input.tier === "expanded" && "gap-1.5 ps-[5px]",
+		isIcon && "h-[3.25rem] w-full flex-col justify-center gap-0.5 px-1 py-0",
+		input.tier === "expanded" &&
+			!isDrawer &&
+			APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
+		input.tier === "expanded" && !isDrawer && "gap-1.5 ps-[5px]",
+		isDrawer && "h-12 w-full gap-3 px-3 text-[15px]",
 		input.active && "text-sidebar-accent-foreground"
 	);
 	const link = (
@@ -251,6 +269,7 @@ export function AppRailLink(input: {
 			aria-current={input.active ? "page" : undefined}
 			aria-label={accessibleLabel}
 			className={className}
+			data-app-rail-link
 			onClick={(event) => {
 				if (
 					!(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
@@ -268,51 +287,72 @@ export function AppRailLink(input: {
 		</Link>
 	);
 
-	const Item = SidebarMenuItem;
-	const MenuButton = SidebarMenuButton;
-	return (
-		<Item
-			className={isIcon ? "mx-auto h-12 w-full" : "group/destination relative"}
-		>
-			{isIcon ? (
-				<CollapsedRailTooltip label={accessibleLabel}>
-					<SidebarMenuButton
-						className="h-12"
-						isActive={input.active}
-						render={link}
+	if (isIcon) {
+		return (
+			<SidebarMenuItem
+				className="mx-auto h-[3.25rem] w-full"
+				data-app-rail-item
+			>
+				<CollapsedRailTooltip anchor={iconRef} label={accessibleLabel}>
+					<FluidContextMenu
+						target={
+							<SidebarMenuButton isActive={input.active} render={link}>
+								{children}
+							</SidebarMenuButton>
+						}
 					>
+						<ObjectMenuItems href={input.destination.to} />
+					</FluidContextMenu>
+				</CollapsedRailTooltip>
+			</SidebarMenuItem>
+		);
+	}
+
+	return (
+		<SidebarMenuItem className="group/destination relative">
+			<FluidContextMenu
+				target={
+					<SidebarMenuButton isActive={input.active} render={link}>
 						{children}
 					</SidebarMenuButton>
-				</CollapsedRailTooltip>
-			) : (
-				<MenuButton isActive={input.active} render={link}>
-					{children}
-				</MenuButton>
+				}
+			>
+				<ObjectMenuItems href={input.destination.to} />
+			</FluidContextMenu>
+			{(input.destination.id === "directMessages" ||
+				input.destination.id === "home" ||
+				input.destination.id === "people" ||
+				input.destination.id === "spaces" ||
+				input.destination.id === "agents") && (
+				<SidebarDestinationActionSlot
+					active={input.active}
+					destination={input.destination.id}
+				/>
 			)}
-			{!isIcon &&
-				(input.destination.id === "directMessages" ||
-					input.destination.id === "home" ||
-					input.destination.id === "people" ||
-					input.destination.id === "spaces" ||
-					input.destination.id === "agents") && (
-					<SidebarDestinationActionSlot
-						active={input.active}
-						destination={input.destination.id}
-					/>
-				)}
-		</Item>
+		</SidebarMenuItem>
 	);
 }
 
 function AppRailDestinationIcon(input: {
 	attentionCount: number;
 	destination: AppRailDestination;
+	iconRef: RefObject<HTMLSpanElement | null>;
 	statusIndicator: AppRailStatusIndicator | null;
 	tier: SidebarMode;
 }) {
 	return (
-		<span className="relative flex size-5 shrink-0 items-center justify-center">
+		<span
+			className={cn(
+				"relative flex shrink-0 items-center justify-center rounded-md",
+				input.tier === "icon" ? "size-9" : "size-5"
+			)}
+			data-slot={input.tier === "icon" ? "app-rail-icon" : undefined}
+			ref={input.iconRef}
+		>
 			{input.destination.icon}
+			{input.destination.inboxAttention && input.tier === "icon" ? (
+				<InboxAttentionBadge {...input.destination.inboxAttention} />
+			) : null}
 			{input.statusIndicator && input.tier !== "expanded" ? (
 				<AppRailStatusDot
 					indicator={input.statusIndicator}
@@ -345,6 +385,12 @@ function AppRailDestinationLabel(input: {
 			)}
 		>
 			<CenterTruncatedText text={input.destination.label} />
+			{input.destination.inboxAttention && input.tier === "expanded" ? (
+				<InboxAttentionBadge
+					{...input.destination.inboxAttention}
+					placement="trailing"
+				/>
+			) : null}
 			{input.statusIndicator && input.tier === "expanded" ? (
 				<AppRailStatusDot
 					indicator={input.statusIndicator}
@@ -374,7 +420,7 @@ function AppRailAttentionBadge(input: {
 			className={cn(
 				"inline-flex items-center justify-center rounded-full border font-semibold tabular-nums leading-none",
 				input.placement === "overlay"
-					? "absolute -end-2 -top-2 h-4 min-w-4 px-1 text-[9px] shadow-sm"
+					? "absolute -end-1.5 -top-1.5 h-4 min-w-4 px-1 text-[9px] shadow-sm"
 					: "ms-auto h-5 min-w-5 px-1.5 text-[10px]",
 				resolveStatusToneCompactBadgeClassName("warning")
 			)}
@@ -404,7 +450,7 @@ function AppRailStatusDot(input: {
 			className={cn(
 				"status-dot",
 				resolveInboxIndicatorClassName(input.indicator.tone),
-				input.placement === "overlay" && "absolute end-0 top-0"
+				input.placement === "overlay" && "absolute end-1 top-1"
 			)}
 			data-app-rail-status-indicator={input.indicator.kind}
 			data-app-rail-status-placement={input.placement}

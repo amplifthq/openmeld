@@ -1,6 +1,6 @@
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useLayoutEffect, useRef } from "react";
-import { getDesktopPlatform } from "#/desktop/platform";
+import { isInboxDocumentFocused } from "#/lib/inbox/desktop-notifications";
 
 // Both conversation surfaces use the same visibility and dwell policy. The
 // server's scoped read-through watermark remains the only durable read owner.
@@ -28,8 +28,7 @@ export function SpaceMessageReadObserver(input: {
 		let inFlight = false;
 		function visibleThrough() {
 			if (
-				document.visibilityState !== "visible" ||
-				(getDesktopPlatform() !== null && !document.hasFocus()) ||
+				!isInboxDocumentFocused() ||
 				viewport?.closest('[inert], [aria-hidden="true"]') ||
 				!current.current.onViewedThroughTs ||
 				!viewport

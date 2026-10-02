@@ -93,7 +93,11 @@ async function runUseCase(input: {
 describe("space access mode service", () => {
   it("reuses the existing Space password when join password mode is enabled", async () => {
     const { response, written } = await runUseCase({
-      body: { accessMode: "public_view_join_password" },
+      body: {
+        accessMode: "public_view_join_password",
+        allowGuests: true,
+        visibility: "public",
+      },
       meta: createMeta({
         accessMode: "protected",
         passwordProof: PASSWORD_PROOF,
@@ -107,7 +111,9 @@ describe("space access mode service", () => {
     });
     expect(written).toMatchObject({
       accessMode: "public_view_join_password",
+      allowGuests: true,
       passwordProof: PASSWORD_PROOF,
+      visibility: "public",
     });
   });
 
@@ -153,5 +159,31 @@ describe("space access mode service", () => {
       accessMode: "public",
     });
     expect(written?.passwordProof).toBeUndefined();
+  });
+
+  it("commits public reading and invite-only joining in one access update", async () => {
+    const { response, written } = await runUseCase({
+      body: { accessMode: "public", linkJoinPolicy: "invite_only" },
+      meta: createMeta({ accessMode: "members_only" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(written).toMatchObject({
+      accessMode: "public",
+      linkJoinPolicy: "invite_only",
+    });
+  });
+
+  it("preserves an existing invite-only fence when an older writer omits it", async () => {
+    const { response, written } = await runUseCase({
+      body: { accessMode: "public" },
+      meta: {
+        ...createMeta({ accessMode: "members_only" }),
+        linkJoinPolicy: "invite_only",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(written?.linkJoinPolicy).toBe("invite_only");
   });
 });

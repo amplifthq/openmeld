@@ -1,9 +1,17 @@
+import {
+  ensureFileCopyRequestSchema,
+  ensureFileRepositorySchema,
+} from "../../../files/file-schema-repo";
 import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
 import { SpaceFileUpdateRepository } from "./space-file-update-repo";
+import { ensureSpaceInboxContactTable } from "./space-inbox-contact-repo";
+import { ensureSpaceInboxProjectionSelectionsTable } from "./space-inbox-projection-outbox-repo";
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
+import { SpaceTaskDeliveryRepository } from "./space-task-delivery-repo";
+import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 40;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v40";
+export const SPACE_SQL_SCHEMA_VERSION = 48;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v48";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -16,17 +24,24 @@ const SPACE_META_PASSWORD_PROOF_COLUMN = "password_proof_json";
 const SPACE_META_PURPOSE_COLUMN = "purpose";
 const SPACE_META_DIRECT_MESSAGE_COLUMN = "direct_message_json";
 const SPACE_META_GUIDE_COLUMN = "guide";
+const SPACE_META_LINK_JOIN_POLICY_COLUMN = "link_join_policy";
 const SPACE_META_GUIDELINES_LEGACY_COLUMN = "guidelines";
 const SPACE_CURSORS_MENTION_ALIAS_COLUMN = "mention_alias";
+const SPACE_FILE_ENTRIES_ORIGIN_COLUMN = "origin";
 const SPACE_SIGNALS_CLIENT_MESSAGE_ID_COLUMN = "client_message_id";
 export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceSchemaMigrationsTable(sql);
+  ensureFileCopyRequestSchema(sql);
   if (hasCurrentSpaceSqlSchema(sql)) {
     return;
   }
   ensureSpaceExecutionInputOutbox(sql);
   new SpaceFileUpdateRepository(sql).initialize();
   ensureSpaceReactionTables(sql);
+  ensureSpaceInboxContactTable(sql);
+  ensureSpaceInboxProjectionSelectionsTable(sql);
+  ensureSpaceTaskTables(sql);
+  new SpaceTaskDeliveryRepository(sql).initialize();
   sql.exec(`CREATE TABLE IF NOT EXISTS space_file_pins (
     signal_id TEXT PRIMARY KEY,
     pinned_by_profile_id TEXT NOT NULL,
@@ -54,6 +69,8 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
 	        CHECK (organization_visibility IN ('public', 'private')),
 	      guide TEXT NULL,
       access_mode TEXT NULL,
+      link_join_policy TEXT NULL
+        CHECK (link_join_policy IN ('invite_only', 'access_mode')),
       password_proof_json TEXT NULL,
       archive_cursor_ts INTEGER NULL,
       created_at INTEGER NOT NULL,
@@ -65,6 +82,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceMetaDirectMessageColumn(sql);
   ensureSpaceMetaPasswordProofColumn(sql);
   ensureSpaceMetaAccessModeColumn(sql);
+  ensureSpaceMetaLinkJoinPolicyColumn(sql);
   ensureSpaceMetaOrganizationColumns(sql);
 
   // retired: role_instructions is no longer read or written
@@ -202,6 +220,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
       status TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
       queued_at_ms INTEGER NULL,
+      native_admission_started_at_ms INTEGER NULL,
       poison_failure_count INTEGER NOT NULL DEFAULT 0,
       poisoned_at_ms INTEGER NULL,
       poison_reason_code TEXT NULL
@@ -302,92 +321,19 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
 
-  sql.exec(`
-    CREATE TABLE IF NOT EXISTS space_file_entries (
-      entry_id TEXT PRIMARY KEY,
-      space_id TEXT NOT NULL,
-      kind TEXT NOT NULL
-        CHECK (kind IN ('file', 'folder')),
-      parent_id TEXT NULL,
-      parent_key TEXT NOT NULL,
-      name TEXT NOT NULL,
-      name_key TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      created_by_json TEXT NOT NULL,
-      updated_by_json TEXT NOT NULL,
-      trashed_at_ms INTEGER NULL,
-      trashed_by_json TEXT NULL
-    )
-  `);
+  ensureFileRepositorySchema(sql);
+  ensureSpaceFileEntriesOriginColumn(sql);
 
-  sql.exec(`
-    CREATE TABLE IF NOT EXISTS space_file_revisions (
-      revision_id TEXT PRIMARY KEY,
-      file_id TEXT NOT NULL,
-      revision INTEGER NOT NULL,
-      mime_type TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      created_by_json TEXT NOT NULL,
-      client_mutation_id TEXT NOT NULL,
-      UNIQUE (file_id, revision),
-      UNIQUE (file_id, client_mutation_id)
+  // Additive, idempotent migration: historical bytes are never read or rewritten.
+  if (
+    !listTableColumnNames(sql, "space_file_revisions").has(
+      "image_dimensions_json"
     )
-  `);
-
-  sql.exec(`
-    CREATE TABLE IF NOT EXISTS space_file_mutations (
-      client_mutation_id TEXT PRIMARY KEY,
-      action TEXT NOT NULL,
-      request_fingerprint TEXT NOT NULL,
-      response_json TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL
-    )
-  `);
-
-  sql.exec(`
-    CREATE TABLE IF NOT EXISTS space_file_audit_events (
-      event_id TEXT PRIMARY KEY,
-      operation_id TEXT NOT NULL,
-      request_id TEXT NOT NULL,
-      organization_id TEXT NOT NULL,
-      space_id TEXT NOT NULL,
-      entry_id TEXT NOT NULL,
-      revision_id TEXT NULL,
-      operation TEXT NOT NULL
-        CHECK (operation IN (
-          'content_read',
-          'content_write',
-          'folder_create',
-          'entry_update',
-          'entry_trash',
-          'entry_restore'
-        )),
-      actor_kind TEXT NOT NULL
-        CHECK (actor_kind IN (
-          'authenticated',
-          'anonymous_viewer',
-          'dispatch_continuation'
-        )),
-      actor_profile_id TEXT NULL,
-      represented_human_profile_id TEXT NULL,
-      result TEXT NOT NULL
-        CHECK (result IN ('succeeded', 'failed')),
-      error_code TEXT NULL,
-      created_at_ms INTEGER NOT NULL,
-      CHECK (
-        (actor_kind = 'anonymous_viewer' AND actor_profile_id IS NULL)
-        OR
-        (actor_kind <> 'anonymous_viewer' AND actor_profile_id IS NOT NULL)
-      ),
-      CHECK (
-        (result = 'succeeded' AND error_code IS NULL)
-        OR
-        (result = 'failed' AND error_code IS NOT NULL)
-      )
-    )
-  `);
+  ) {
+    sql.exec(
+      "ALTER TABLE space_file_revisions ADD COLUMN image_dimensions_json TEXT NULL"
+    );
+  }
 
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_signals_ts_id ON space_signals (ts, id)"
@@ -452,24 +398,6 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   );
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_thread_events_thread_created ON space_thread_events (thread_id, created_at_ms, event_id)"
-  );
-  sql.exec(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_space_file_entries_active_parent_name ON space_file_entries (parent_key, name_key) WHERE trashed_at_ms IS NULL"
-  );
-  sql.exec(
-    "CREATE INDEX IF NOT EXISTS idx_space_file_entries_parent_updated ON space_file_entries (parent_key, updated_at_ms, entry_id)"
-  );
-  sql.exec(
-    "CREATE INDEX IF NOT EXISTS idx_space_file_revisions_file_revision ON space_file_revisions (file_id, revision DESC)"
-  );
-  sql.exec(
-    "CREATE INDEX IF NOT EXISTS idx_space_file_mutations_created_at ON space_file_mutations (created_at_ms)"
-  );
-  sql.exec(
-    "CREATE INDEX IF NOT EXISTS idx_space_file_audit_entry_created ON space_file_audit_events (entry_id, created_at_ms, event_id)"
-  );
-  sql.exec(
-    "CREATE INDEX IF NOT EXISTS idx_space_file_audit_operation_id ON space_file_audit_events (operation, operation_id)"
   );
 
   const metaColumns = sql
@@ -690,8 +618,68 @@ function ensureSpaceCursorsMentionAliasColumn(sql: SqlStorage): void {
   `);
 }
 
+function ensureSpaceFileEntriesOriginColumn(sql: SqlStorage): void {
+  const columnNames = listTableColumnNames(sql, "space_file_entries");
+  if (!columnNames.has(SPACE_FILE_ENTRIES_ORIGIN_COLUMN)) {
+    sql.exec(`
+      ALTER TABLE space_file_entries
+      ADD COLUMN origin TEXT NULL
+        CHECK (origin IS NULL OR origin IN ('artifact', 'chat_upload'))
+    `);
+  }
+  // Unconditional and idempotent, matching the
+  // `ensureSpaceMetaAccessModeColumn` repair pattern: this must run every
+  // time this function runs, not only on the call that just added the
+  // column. A database that already has the column from an earlier,
+  // interrupted, or previously buggy schema pass can still have NULL file
+  // rows; gating the backfill on "column was just added" would leave those
+  // rows unrepaired forever. `SPACE_SQL_SCHEMA_VERSION` is bumped whenever
+  // this repair logic changes so a durable database that already recorded
+  // an older version (even one that ran a stale copy of this function)
+  // re-enters this whole migration and gets repaired.
+  backfillSpaceFileEntriesOrigin(sql);
+}
+
+/**
+ * Every file row that predates this column was written by the same code
+ * path the current "artifact" write default now uses explicitly — chat
+ * uploads only gained a distinct write path (and always set `origin`
+ * themselves) in the same change that added this column. There is no
+ * reliable signal in existing rows that would let this backfill tell a
+ * historical chat upload apart from historical deliberately-created work,
+ * so every pre-existing file defaults to 'artifact', matching the
+ * repository's create-time default and keeping historical files visible in
+ * the default Files view instead of hiding them behind a filter that did
+ * not exist when they were created.
+ *
+ * Folders never carry an origin (they are excluded from this UPDATE by the
+ * `kind = 'file'` guard) and are never affected by the origin filter.
+ *
+ * After this backfill runs, a NULL origin on a file row is not normal
+ * historical data — it is an exceptional/corrupt state that must fail
+ * closed (stay out of the default "artifact" view) rather than being
+ * silently reclassified. This UPDATE is itself the repair for that state:
+ * it is safe and correct to run on every schema pass, whether the column
+ * was just added, already existed with every row classified, or already
+ * existed with some rows still NULL from an earlier incomplete run.
+ */
+function backfillSpaceFileEntriesOrigin(sql: SqlStorage): void {
+  sql.exec(`
+    UPDATE space_file_entries
+    SET origin = 'artifact'
+    WHERE kind = 'file' AND origin IS NULL
+  `);
+}
+
 function ensureOpenMeldDaemonOutboxPoisonColumns(sql: SqlStorage): void {
   const columnNames = listTableColumnNames(sql, "openMeldDaemon_outbox");
+  if (!columnNames.has("native_admission_started_at_ms")) {
+    // Historical/in-flight rows remain unknown, never "not yet admitted".
+    sql.exec(`
+      ALTER TABLE openMeldDaemon_outbox
+      ADD COLUMN native_admission_started_at_ms INTEGER NULL
+    `);
+  }
   if (!columnNames.has(OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN)) {
     sql.exec(`
       ALTER TABLE openMeldDaemon_outbox
@@ -815,6 +803,21 @@ function ensureSpaceMetaAccessModeColumn(sql: SqlStorage): void {
     END
     WHERE access_mode IS NULL
       OR trim(access_mode) = ''
+  `);
+}
+
+function ensureSpaceMetaLinkJoinPolicyColumn(sql: SqlStorage): void {
+  const hasLinkJoinPolicyColumn = listTableColumnNames(sql, "space_meta").has(
+    SPACE_META_LINK_JOIN_POLICY_COLUMN
+  );
+  if (hasLinkJoinPolicyColumn) {
+    return;
+  }
+
+  sql.exec(`
+    ALTER TABLE space_meta
+    ADD COLUMN link_join_policy TEXT NULL
+      CHECK (link_join_policy IN ('invite_only', 'access_mode'))
   `);
 }
 

@@ -23,13 +23,6 @@ export async function resolveNativeDeliveryReplyPlacement(input: {
   if (delivery.conversationKind !== "space" || delivery.routineRunId) {
     return null;
   }
-  const request = delivery.executionRecoverySubmitRequest;
-  if (
-    request?.v === 4 &&
-    request.conversationIdentity?.kind === "personal_agent"
-  ) {
-    return null;
-  }
   const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, delivery.spaceId);
   if (!stub) {
     throw new Error("space.reply_placement.space_unavailable");

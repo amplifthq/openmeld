@@ -60,12 +60,14 @@ import {
   rpcCenterAgentReadSlackWorkspaceDirectory,
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
+  rpcCenterAgentReadSpaceWakeProgress,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRemoveAgentProfilesFromSpace,
   rpcCenterAgentRequestOpenMeldToolsUpdate,
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentSelectLocalAgentInstallation,
   rpcCenterAgentSetOpenMeldToolsMaintenance,
+  rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
   rpcClearSpacePassword,
@@ -3085,8 +3087,8 @@ describe("organization Core RPC", () => {
       canManage: false,
       configurationRevision: 4,
       effectiveModel: {
-        displayName: "GLM 5.3 Flash",
-        modelId: "z-ai/glm-5.3-flash",
+        displayName: "Claude Opus 5.5",
+        modelId: "anthropic/claude-opus-5.5",
       },
       preference: { kind: "system_default" },
     });
@@ -3393,10 +3395,14 @@ describe("organization Core RPC", () => {
           userId: "user-a",
         }),
         name: "Planning",
+        onBehalfOf: { profileId: HUMAN_PROFILE_ID },
         visibility: "private",
       })
     ).resolves.toMatchObject({
-      attribution: { actorProfileId: AGENT_PROFILE_ID, onBehalfOf: null },
+      attribution: {
+        actorProfileId: AGENT_PROFILE_ID,
+        onBehalfOf: { profileId: HUMAN_PROFILE_ID, userId: "user-a" },
+      },
       organizationId: "org-a",
       resource: { type: "space" },
     });
@@ -3451,6 +3457,7 @@ describe("organization Core RPC", () => {
           userId: "user-a",
         }),
         name: "After resume",
+        onBehalfOf: { profileId: HUMAN_PROFILE_ID },
         visibility: "private",
       })
     ).resolves.toMatchObject({ organizationId: "org-a" });
@@ -3509,6 +3516,43 @@ describe("organization Core RPC", () => {
     }
   });
 
+  it.each([
+    ["missing", undefined],
+    ["invalid", { profileId: SECOND_HUMAN_PROFILE_ID }],
+  ])("rejects %s represented humans before writing", async (_case, onBehalfOf) => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const spaceStub = createSpaceStub();
+    await expect(
+      rpcCenterAgentCreateSpace(buildEnv({ db, spaceStub }), {
+        context: buildCenterAgentContext({
+          activeOrganizationId: "org-a",
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          profileName: "Center Agent",
+          userId: "user-a",
+        }),
+        name: "No owner",
+        ...(onBehalfOf ? { onBehalfOf } : {}),
+        visibility: "private",
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.represented_member_required",
+      status: 403,
+    });
+    expect(spaceStub.rpcPatchMeta).not.toHaveBeenCalled();
+    expect(spaceStub.rpcPatchMetaWithPasswordAtomic).not.toHaveBeenCalled();
+  });
+
   it("records Center Agent audit entries with on-behalf-of attribution", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
@@ -3532,14 +3576,6 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    spaceStub.rpcPatchMeta.mockImplementationOnce(async (request) => ({
-      accessMode: "members_only" as const,
-      name: request.name ?? "Untitled space",
-      organizationId: request.organizationId ?? "org-a",
-      passwordProtected: false,
-      spaceId: request.spaceId,
-      visibility: request.visibility ?? "private",
-    }));
     const env = buildEnv({ db, spaceStub });
     const agentContext = buildCenterAgentContext({
       activeOrganizationId: "org-a",
@@ -3575,8 +3611,14 @@ describe("organization Core RPC", () => {
     expect(spaceStub.rpcPatchMeta).toHaveBeenCalledWith(
       expect.objectContaining({
         creator: expect.objectContaining({ profileName: "Codex" }),
+        initialOwnerMember: expect.objectContaining({
+          ownerUserId: "user-a",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human",
+        }),
       })
     );
+    expect(spaceStub.rpcPostMembers).not.toHaveBeenCalled();
 
     await expect(
       rpcListCenterAgentAuditJournal(env, {
@@ -3895,6 +3937,7 @@ describe("organization Core RPC", () => {
     const created = await rpcCenterAgentCreateSpace(env, {
       context,
       name: "Friday Demo",
+      onBehalfOf: { profileId: HUMAN_PROFILE_ID },
       visibility: "private",
     });
     const members = await rpcCenterAgentAddMembersToSpace(env, {
@@ -3939,10 +3982,7 @@ describe("organization Core RPC", () => {
       ],
       spaceId: created.spaceId,
     });
-    expect(agents.membership.addedMemberIds).toEqual([
-      SECOND_AGENT_PROFILE_ID,
-      HUMAN_PROFILE_ID,
-    ]);
+    expect(agents.membership.addedMemberIds).toEqual([SECOND_AGENT_PROFILE_ID]);
     if (wake.publicationStatus === "pending") {
       throw new Error("direct Center Agent Wake must be accepted");
     }
@@ -6506,6 +6546,7 @@ describe("organization Core RPC", () => {
   });
 
   it("records attributed connector write attempts and outcomes in Core", async () => {
+    const connectionName = "github-user-a";
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
@@ -6515,6 +6556,14 @@ describe("organization Core RPC", () => {
           organizationId: "org-a",
         }),
       ],
+      connectorConnection: {
+        connectionName,
+        organizationId: "org-a",
+        scope: "member",
+        service: "github",
+        status: "active",
+        userId: "user-a",
+      },
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const env = buildEnv({ db });
@@ -6549,6 +6598,7 @@ describe("organization Core RPC", () => {
       await expect(
         rpcCenterAgentRecordConnectorActionAudit(env, {
           actionId: "github.create_issue",
+          connectionName,
           context,
           operationId: `batch:abcdef:${outcome}`,
           outcome,
@@ -6743,14 +6793,7 @@ describe("organization Core RPC", () => {
       expect.objectContaining({
         action: "wake_agent_profiles_in_space",
         actorProfileId: AGENT_PROFILE_ID,
-        onBehalfOfProfileId: HUMAN_PROFILE_ID,
-        organizationId: "org-a",
-        resourceId: JOINED_PRIVATE_SPACE_ID,
-        resourceType: "space",
-      }),
-      expect.objectContaining({
-        action: "wake_agent_profiles_in_space",
-        actorProfileId: AGENT_PROFILE_ID,
+        id: `center-agent-wake:${firstWake.signal.data.meta?.clientMessageId}`,
         onBehalfOfProfileId: HUMAN_PROFILE_ID,
         organizationId: "org-a",
         resourceId: JOINED_PRIVATE_SPACE_ID,
@@ -7417,7 +7460,7 @@ describe("organization Core RPC", () => {
     });
     expect(spaceStub.rpcListSpaceFiles).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: { parentId: null, view: "trash" },
+        query: { parentId: null, view: "trash", origin: "artifact" },
         spaceAccess: expect.objectContaining({
           actor: expect.objectContaining({
             kind: "authenticated",
@@ -7430,6 +7473,108 @@ describe("organization Core RPC", () => {
         }),
       })
     );
+  });
+
+  it("projects Remote Agent file responses without display geometry and negotiates origin independently", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Launch Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const originBearingFile = {
+      createdAt: "2026-08-23T00:00:00.000Z",
+      createdBy: {
+        displayName: "Ava",
+        profileId: HUMAN_PROFILE_ID,
+        profileKind: "human" as const,
+      },
+      id: "file-1",
+      kind: "file" as const,
+      latestRevision: {
+        imageDimensions: { width: 300, height: 900 },
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: {
+          displayName: "Ava",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human" as const,
+        },
+        fileId: "file-1",
+        id: "revision-1",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 12,
+      },
+      name: "brief.md",
+      origin: "artifact" as const,
+      parentId: null,
+      path: "/brief.md",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      trashedAt: null,
+      trashedBy: null,
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      updatedBy: {
+        displayName: "Ava",
+        profileId: HUMAN_PROFILE_ID,
+        profileKind: "human" as const,
+      },
+    };
+    spaceStub.rpcListSpaceFiles.mockResolvedValue({
+      breadcrumbs: [{ id: null, name: "Files" }],
+      capabilities: { canRead: true as const, canWrite: true },
+      entries: [originBearingFile],
+      origin: "artifact" as const,
+      parentId: null,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      view: "active" as const,
+    } as unknown as Awaited<ReturnType<typeof spaceStub.rpcListSpaceFiles>>);
+    const env = buildEnv({ db, spaceStub });
+    const context = buildCenterAgentContext({
+      activeOrganizationId: "org-a",
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+    const entrypoint = createCenterAgentRpcEntrypoint(env);
+
+    // An already-published Remote Agent has no `requestedOriginModel` field
+    // and never sends it — this is exactly that shape.
+    const legacy = await entrypoint.centerAgentListSpaceFiles({
+      context,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+    const current = await entrypoint.centerAgentListSpaceFiles({
+      context,
+      requestedOriginModel: "origin_aware",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+
+    expect(JSON.stringify(legacy)).not.toContain("origin");
+    expect(legacy.entries[0]).not.toHaveProperty("origin");
+    expect(current).toMatchObject({
+      entries: [{ origin: "artifact" }],
+      origin: "artifact",
+    });
+    expect(JSON.stringify(legacy)).not.toContain("imageDimensions");
+    expect(JSON.stringify(current)).not.toContain("imageDimensions");
+    expect(originBearingFile.latestRevision.imageDimensions).toEqual({
+      width: 300,
+      height: 900,
+    });
   });
 
   it("rejects Center Agent Space context reads outside the active Organization", async () => {
@@ -10911,6 +11056,197 @@ describe("organization Core RPC", () => {
   });
 });
 
+describe("Center Agent Wake Stop delegation", () => {
+  const stopBody = {
+    target: {
+      by: "source_signal" as const,
+      sourceSignalId: "signal-center-wake",
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    },
+  };
+  const centerContext = (submissionId?: string) =>
+    buildCenterAgentContext({
+      activeOrganizationId: "org-a",
+      ...(submissionId ? { agentControllerConversationId: submissionId } : {}),
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+  const setup = (withDelivery: boolean) => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "member")],
+      nativeDeliveries: withDelivery
+        ? [
+            nativeDeliveryLedgerRow({
+              deliveryId: "delivery-center-stop",
+              submissionId: "submission-center-stop",
+            }),
+          ]
+        : [],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PUBLIC_SPACE_ID,
+          spaceName: "Stop test",
+          visibility: "public",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const stop = vi.fn((input: { context: OpenMeldRequestContext }) => {
+      if (input.context.actorContext.profileKind === "agent") {
+        return Promise.reject(
+          Object.assign(new Error("Only the requester can stop this Wake"), {
+            status: 403,
+          })
+        );
+      }
+      return Promise.resolve({
+        cancellationState: {
+          observedAtMs: TEST_NOW_MS,
+          reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+          status: "cancelled" as const,
+        },
+        ok: true as const,
+        runtimeCoordinatorExecutionId: null,
+        status: "cancelled" as const,
+        stopMode: "openmeld_owned_pre_agent" as const,
+        targetProfileId: SECOND_AGENT_PROFILE_ID,
+      });
+    });
+    Object.assign(spaceStub, { rpcPostWakeStop: stop });
+    return { env: buildEnv({ db, spaceStub }), spaceStub, stop };
+  };
+
+  it("uses the same Space Stop RPC for a verified current requester", async () => {
+    const { env, stop } = setup(true);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).resolves.toMatchObject({ status: "cancelled" });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(
+      stop.mock.calls.map(([request]) => request.context.actorContext)
+    ).toEqual([
+      expect.objectContaining({
+        openMeldProfileId: HUMAN_PROFILE_ID,
+        ownerUserId: "user-a",
+        profileKind: "human",
+      }),
+    ]);
+  });
+
+  it("does not turn membership alone into Stop authority", async () => {
+    const { env, stop } = setup(false);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext(),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).rejects.toMatchObject({ status: 403 });
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("does not call Space Stop across Organizations", async () => {
+    const { env, stop } = setup(true);
+    await expect(
+      rpcCenterAgentStopSpaceWake(env, {
+        body: stopBody,
+        context: centerContext("submission-center-stop"),
+        spaceId: OTHER_ORG_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).rejects.toMatchObject({ status: 404 });
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps Center progress available when the requester cannot read that Space", async () => {
+    const { env, spaceStub } = setup(true);
+    const progress = {
+      items: [
+        {
+          clientMessageId: "client-1",
+          dispatchId: "dispatch-1",
+          sourceSignalId: "signal-center-wake",
+          targetProfileId: SECOND_AGENT_PROFILE_ID,
+          wakeStopEligibility: { status: "eligible" as const },
+        },
+      ],
+    };
+    const read = vi.fn((input: { context: OpenMeldRequestContext }) => {
+      if (input.context.actorContext.profileKind === "human") {
+        return Promise.reject(
+          Object.assign(new Error("Space access denied"), { status: 403 })
+        );
+      }
+      return Promise.resolve(progress);
+    });
+    Object.assign(spaceStub, { rpcGetActiveWakeProgress: read });
+    await expect(
+      rpcCenterAgentReadSpaceWakeProgress(env, {
+        context: centerContext("submission-center-stop"),
+        spaceId: JOINED_PUBLIC_SPACE_ID,
+        speakerMember: { memberId: "member-a", userId: "user-a" },
+      })
+    ).resolves.toMatchObject({
+      items: [{ wakeStopEligibility: null }],
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a verified requester's Stop eligibility on the exact Wake", async () => {
+    const { env, spaceStub } = setup(true);
+    const wake = {
+      clientMessageId: "client-1",
+      dispatchId: "dispatch-1",
+      sourceSignalId: "signal-center-wake",
+      targetProfileId: SECOND_AGENT_PROFILE_ID,
+    };
+    const eligible = {
+      controlMode: "cancel" as const,
+      reasonCode: null,
+      reliability: "native_cancel" as const,
+      status: "eligible" as const,
+    };
+    Object.assign(spaceStub, {
+      rpcGetActiveWakeProgress: vi.fn(
+        (input: { context: OpenMeldRequestContext }) =>
+          Promise.resolve({
+            items: [
+              {
+                ...wake,
+                wakeStopEligibility:
+                  input.context.actorContext.profileKind === "human"
+                    ? eligible
+                    : null,
+              },
+            ],
+          })
+      ),
+    });
+    const response = await rpcCenterAgentReadSpaceWakeProgress(env, {
+      context: centerContext("submission-center-stop"),
+      spaceId: JOINED_PUBLIC_SPACE_ID,
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+    });
+    expect(response.items[0]?.wakeStopEligibility).toEqual(eligible);
+  });
+});
+
 function buildEnv(
   input: Partial<Parameters<typeof createOrganizationRpcDb>[0]> & {
     authWorker?: {
@@ -11512,6 +11848,14 @@ function createOrganizationRpcDb(input: {
     typeof centerAgentDesignationRow
   > | null;
   centerAgentAuditJournal?: CenterAgentAuditJournalTestRow[];
+  connectorConnection?: {
+    connectionName: string;
+    organizationId: string;
+    scope: "member" | "shared";
+    service: "github" | "gmail";
+    status: "active" | "disconnected";
+    userId: string | null;
+  };
   dispatchLedgerEntries?: DispatchLedgerTestEntry[];
   memberActivities?: Array<{
     humanProfileId: string;
@@ -11676,11 +12020,13 @@ function createOrganizationRpcDb(input: {
               agentProfiles: input.agentProfiles,
               args,
               authorizationRows,
+              centerAgentAuditRows,
               centerAgentDesignationRows,
               centerAgentDesignationReadbackOverride:
                 input.centerAgentDesignationReadbackOverride,
               centerAgentMemoryPolicyRows,
               centerAgentPublicationRows,
+              connectorConnection: input.connectorConnection,
               informationProtectionPolicyRows,
               members: input.members,
               nativeDeliveries: input.nativeDeliveries,
@@ -11846,11 +12192,22 @@ function createOrganizationRpcDb(input: {
               return createD1RunResult(1);
             }
             if (
-              normalizedSql.includes("insert into center_agent_audit_journal")
+              normalizedSql.includes(
+                "insert into center_agent_audit_journal"
+              ) ||
+              normalizedSql.includes(
+                "insert or ignore into center_agent_audit_journal"
+              )
             ) {
               if (remainingCenterAgentAuditWriteFailures > 0) {
                 remainingCenterAgentAuditWriteFailures -= 1;
                 throw new Error("Test Center Agent audit write failure.");
+              }
+              if (
+                normalizedSql.includes("insert or ignore") &&
+                centerAgentAuditRows.some((row) => row.id === String(args[0]))
+              ) {
+                return createD1RunResult(0);
               }
               centerAgentAuditRows.push({
                 id: String(args[0] ?? ""),
@@ -12297,6 +12654,7 @@ function resolveFirstRow(input: {
   agentProfiles: Parameters<typeof createOrganizationRpcDb>[0]["agentProfiles"];
   args: unknown[];
   authorizationRows: Map<string, ReturnType<typeof authorizationRow>>;
+  centerAgentAuditRows: CenterAgentAuditJournalTestRow[];
   centerAgentDesignationRows: Map<
     string,
     ReturnType<typeof centerAgentDesignationRow>
@@ -12313,6 +12671,9 @@ function resolveFirstRow(input: {
     }
   >;
   centerAgentPublicationRows: CenterAgentPublicationOperationTestRow[];
+  connectorConnection?: Parameters<
+    typeof createOrganizationRpcDb
+  >[0]["connectorConnection"];
   informationProtectionPolicyRows: Map<
     string,
     {
@@ -12339,6 +12700,72 @@ function resolveFirstRow(input: {
   }>;
   spaces?: ReturnType<typeof spaceRow>[];
 }) {
+  if (
+    input.normalizedSql.includes("from center_agent_audit_journal") &&
+    input.normalizedSql.includes("where id = ?")
+  ) {
+    const row = input.centerAgentAuditRows.find(
+      (entry) => entry.id === String(input.args[0] ?? "")
+    );
+    return row
+      ? {
+          id: row.id,
+          action: row.action,
+          actor_profile_id: row.actorProfileId,
+          organization_id: row.organizationId,
+          on_behalf_of_profile_id: row.onBehalfOfProfileId,
+          on_behalf_of_user_id: row.onBehalfOfUserId,
+          on_behalf_of_display_name: row.onBehalfOfDisplayName,
+          resource_type: row.resourceType,
+          resource_id: row.resourceId,
+          source_native_delivery_id: row.sourceNativeDeliveryId,
+          source_space_id: row.sourceSpaceId,
+          local_agent_client: null,
+          context_manifest_estimated_token_count: null,
+          context_manifest_included_message_count: null,
+          context_manifest_truncated: null,
+          context_load_estimated_token_count: null,
+          context_load_included_message_count: null,
+          context_load_manifest_id: null,
+          created_at: row.createdAtMs,
+        }
+      : null;
+  }
+  if (input.normalizedSql.includes("from connector_connections")) {
+    const organizationId = String(input.args[0] ?? "");
+    const connectionName = String(input.args[1] ?? "");
+    const connection = input.connectorConnection;
+    if (
+      !connection ||
+      connection.organizationId !== organizationId ||
+      connection.connectionName !== connectionName
+    ) {
+      return null;
+    }
+    if (input.normalizedSql.includes("access_policy")) {
+      const activeOnly = Number(input.args[2] ?? 0) === 1;
+      if (activeOnly && connection.status !== "active") {
+        return null;
+      }
+      return {
+        access_policy: null,
+        access_revision: 1,
+        scope: connection.scope,
+      };
+    }
+    return {
+      connection_name: connection.connectionName,
+      created_at_ms: TEST_NOW_MS,
+      disconnected_at_ms: null,
+      organization_id: connection.organizationId,
+      scope: connection.scope,
+      service: connection.service,
+      status: connection.status,
+      updated_at_ms: TEST_NOW_MS,
+      user_id: connection.userId,
+    };
+  }
+
   if (
     input.normalizedSql.includes("from openmeld_profiles as profiles") &&
     input.normalizedSql.includes("profiles.owner_user_id = ?") &&
@@ -13006,6 +13433,9 @@ function resolveAllRows(input: {
   }
 
   if (input.normalizedSql.includes("from center_agent_audit_journal")) {
+    const exactId = input.normalizedSql.includes("where id = ?")
+      ? String(input.args[0] ?? "")
+      : null;
     const organizationId = String(input.args[0] ?? "");
     const excludesActions = input.normalizedSql.includes("action not in");
     const excludedActions = new Set(
@@ -13013,11 +13443,13 @@ function resolveAllRows(input: {
         ? input.args.slice(1, -1).map((value) => String(value ?? ""))
         : []
     );
-    const limit = Number(input.args.at(-1) ?? 100);
+    const limit = exactId ? 1 : Number(input.args.at(-1) ?? 100);
     return [...(input.centerAgentAuditRows ?? [])]
       .filter(
         (row) =>
-          row.organizationId === organizationId &&
+          (exactId
+            ? row.id === exactId
+            : row.organizationId === organizationId) &&
           !excludedActions.has(row.action)
       )
       .sort(
@@ -13723,6 +14155,17 @@ function createSpaceStub(
       ([spaceId, profileIds]) => [spaceId, new Set(profileIds)] as const
     )
   );
+  const memberKindsBySpace = new Map(
+    [...memberProfileIdsBySpace].map(([spaceId, profileIds]) => [
+      spaceId,
+      new Map(
+        [...profileIds].map((profileId) => [
+          profileId,
+          profileId.startsWith("agt_") ? "agent" : "human",
+        ])
+      ),
+    ])
+  );
   const signals: SignalTextEnvelope[] = [...(input.initialSignals ?? [])];
   const patchSpaceMeta = vi.fn(
     (request: {
@@ -13732,6 +14175,8 @@ function createSpaceStub(
         | "public"
         | "public_view_join_password";
       name?: string;
+      creator?: { profileId: string; kind: "agent" | "human" };
+      initialOwnerMember?: { profileId: string; profileKind: "human" };
       organizationId?: string;
       purpose?: string;
       spaceId: string;
@@ -13756,6 +14201,30 @@ function createSpaceStub(
             visibility: request.visibility ?? "private",
           })
         );
+      }
+      if (!existing && request.initialOwnerMember) {
+        const memberIds = new Set(
+          [
+            request.creator?.profileId,
+            request.initialOwnerMember.profileId,
+          ].filter((profileId): profileId is string => Boolean(profileId))
+        );
+        memberProfileIdsBySpace.set(request.spaceId, memberIds);
+        memberKindsBySpace.set(
+          request.spaceId,
+          new Map([
+            ...(request.creator
+              ? [[request.creator.profileId, request.creator.kind] as const]
+              : []),
+            [request.initialOwnerMember.profileId, "human" as const],
+          ])
+        );
+        const space = spaces.find((item) => item.spaceId === request.spaceId);
+        if (space) {
+          space.activeMemberCount = memberIds.size;
+          space.activeHumanCount = 1;
+          space.activeAgentCount = request.creator?.kind === "agent" ? 1 : 0;
+        }
       }
       return Promise.resolve({
         accessMode: request.accessMode ?? "public",
@@ -14019,7 +14488,13 @@ function createSpaceStub(
     rpcPatchMeta: patchSpaceMeta,
     rpcPatchMetaWithPasswordAtomic: patchSpaceMeta,
     rpcListSpaceFiles: vi.fn(
-      (request: { query?: { view?: "active" | "trash" }; spaceId: string }) =>
+      (request: {
+        query?: {
+          view?: "active" | "trash";
+          origin?: "artifact" | "all";
+        };
+        spaceId: string;
+      }) =>
         Promise.resolve({
           breadcrumbs:
             request.query?.view === "trash"
@@ -14033,6 +14508,7 @@ function createSpaceStub(
           parentId: null,
           spaceId: request.spaceId,
           view: request.query?.view ?? "active",
+          origin: request.query?.origin ?? "artifact",
         })
     ),
     rpcListSignals: vi.fn(listSignals),
@@ -14069,22 +14545,33 @@ function createSpaceStub(
           memberProfileIds = new Set();
           memberProfileIdsBySpace.set(request.spaceId, memberProfileIds);
         }
+        const memberKinds =
+          memberKindsBySpace.get(request.spaceId) ?? new Map();
+        memberKindsBySpace.set(request.spaceId, memberKinds);
+        const addedMemberIds: string[] = [];
+        const alreadyMemberIds: string[] = [];
         for (const member of request.members) {
-          memberProfileIds.add(member.profileId);
+          if (memberProfileIds.has(member.profileId)) {
+            alreadyMemberIds.push(member.profileId);
+          } else {
+            addedMemberIds.push(member.profileId);
+            memberProfileIds.add(member.profileId);
+          }
+          memberKinds.set(member.profileId, member.profileKind ?? "human");
         }
         const space = spaces.find((item) => item.spaceId === request.spaceId);
         if (space) {
-          space.activeMemberCount = request.members.length;
-          space.activeHumanCount = request.members.filter(
-            (member) => member.profileKind === "human"
+          space.activeMemberCount = memberProfileIds.size;
+          space.activeHumanCount = [...memberKinds.values()].filter(
+            (kind) => kind === "human"
           ).length;
-          space.activeAgentCount = request.members.filter(
-            (member) => member.profileKind === "agent"
+          space.activeAgentCount = [...memberKinds.values()].filter(
+            (kind) => kind === "agent"
           ).length;
         }
         return Promise.resolve({
-          addedMemberIds: request.members.map((member) => member.profileId),
-          alreadyMemberIds: [],
+          addedMemberIds,
+          alreadyMemberIds,
           items: [],
         });
       }

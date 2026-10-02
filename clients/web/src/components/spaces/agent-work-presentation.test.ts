@@ -3,6 +3,25 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentWorkPresentation } from "./agent-work-presentation";
 
 describe("Agent work presentation", () => {
+	it.each([
+		"output-available",
+		"output-error",
+	] as const)("keeps an uncertain write neutral even when the transport state is %s", (state) => {
+		expect(
+			resolveAgentWorkPresentation(
+				{
+					v: 1,
+					key: "github.issue.comment",
+					outcome: "outcome_unknown",
+				},
+				state,
+				false
+			)
+		).toEqual({
+			status: "complete",
+			text: "Action outcome awaiting confirmation",
+		});
+	});
 	it("does not report a confirmation proposal as an executed action", () => {
 		expect(
 			resolveAgentWorkPresentation(
@@ -95,6 +114,48 @@ describe("Agent work presentation", () => {
 				false
 			).text
 		).toBe("Checked recent Agent tasks");
+	});
+
+	it.each([
+		{
+			active: "Submitting a GitHub workflow run request…",
+			complete: "Submitted a GitHub workflow run request",
+			failed: "Couldn't submit the GitHub workflow run request",
+			key: "github.workflow.dispatch" as const,
+		},
+		{
+			active: "Checking a GitHub Release…",
+			complete: "Checked a GitHub Release",
+			failed: "Couldn't check the GitHub Release",
+			key: "github.releases.read" as const,
+		},
+	])("presents $key without overstating its outcome", (copy) => {
+		const work = { v: 1 as const, key: copy.key };
+		expect(
+			resolveAgentWorkPresentation(work, "input-available", true).text
+		).toBe(copy.active);
+		expect(
+			resolveAgentWorkPresentation(work, "output-available", false).text
+		).toBe(copy.complete);
+		expect(resolveAgentWorkPresentation(work, "output-error", false).text).toBe(
+			copy.failed
+		);
+
+		const repository = "acme/widget";
+		const repositoryWork = {
+			...work,
+			subject: { kind: "repository" as const, label: repository },
+		};
+		expect(
+			resolveAgentWorkPresentation(repositoryWork, "input-available", true).text
+		).toBe(`${copy.active.slice(0, -1)} — ${repository}…`);
+		expect(
+			resolveAgentWorkPresentation(repositoryWork, "output-available", false)
+				.text
+		).toBe(`${copy.complete} — ${repository}`);
+		expect(
+			resolveAgentWorkPresentation(repositoryWork, "output-error", false).text
+		).toBe(`${copy.failed} — ${repository}`);
 	});
 
 	it("describes Slack channel reads in plain language", () => {

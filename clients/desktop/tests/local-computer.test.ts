@@ -2,7 +2,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { readComputerConnection } from "../src/main/computer-connection";
 import { createLocalComputerReader } from "../src/main/local-computer";
 
-vi.mock("../src/main/computer-connection", () => ({
+vi.mock("../src/main/computer-connection", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/computer-connection")>()),
   readComputerConnection: vi.fn(),
 }));
 afterEach(() => vi.clearAllMocks());
@@ -21,6 +22,7 @@ it.each([
   "account mismatch",
   "account changed",
   "disconnected",
+  "read failed",
 ])("reads native identity without mutating the Service: %s", async (scenario) => {
   vi.mocked(readComputerConnection).mockResolvedValue({
     protocol: "computer-connection-v1",
@@ -35,10 +37,23 @@ it.each([
         : { deviceId: "mac-a", runtimeLane: "dev-local" },
   });
   const session = vi.fn().mockResolvedValue({ user });
+  if (scenario === "read failed") {
+    vi.mocked(readComputerConnection).mockRejectedValue(
+      new Error("CLI unavailable")
+    );
+    await expect(
+      createLocalComputerReader({ session }, deps)()
+    ).rejects.toThrow("Couldn’t check this Mac’s connection");
+    return;
+  }
   if (scenario === "account changed") {
     session
       .mockResolvedValueOnce({ user })
       .mockResolvedValue({ user: { ...user, id: "owner-b" } });
+    await expect(
+      createLocalComputerReader({ session }, deps)()
+    ).rejects.toThrow("Couldn’t check this Mac’s connection");
+    return;
   }
   const result = await createLocalComputerReader({ session }, deps)();
   expect(result.status).toBe(

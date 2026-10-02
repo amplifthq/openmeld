@@ -319,6 +319,11 @@ const AGENT_WORK_COPY = {
 		"Created a GitHub ref",
 		"Couldn't create the GitHub ref"
 	),
+	"github.releases.read": workCopy(
+		"Checking a GitHub Release…",
+		"Checked a GitHub Release",
+		"Couldn't check the GitHub Release"
+	),
 	"github.repositories.read": workCopy(
 		"Reviewing GitHub repositories…",
 		"Reviewed GitHub repositories",
@@ -328,6 +333,11 @@ const AGENT_WORK_COPY = {
 		"Reviewing a GitHub repository…",
 		"Reviewed a GitHub repository",
 		"Couldn't review the GitHub repository"
+	),
+	"github.workflow.dispatch": workCopy(
+		"Submitting a GitHub workflow run request…",
+		"Submitted a GitHub workflow run request",
+		"Couldn't submit the GitHub workflow run request"
 	),
 	"github.workflow.rerun": workCopy(
 		"Rerunning a GitHub workflow…",
@@ -355,19 +365,19 @@ const AGENT_WORK_COPY = {
 		"Couldn't prepare the navigation link"
 	),
 	"organization.document.draft": workCopy(
-		"Drafting an Organization Document…",
-		"Drafted an Organization Document",
-		"Couldn't draft the Organization Document"
+		"Drafting a Team knowledge file…",
+		"Drafted a Team knowledge file",
+		"Couldn't draft the Team knowledge file"
 	),
 	"organization.documents.manage": workCopy(
-		"Organizing Organization Documents…",
-		"Organized Organization Documents",
-		"Couldn't organize Organization Documents"
+		"Organizing Team knowledge files…",
+		"Organized Team knowledge files",
+		"Couldn't organize Team knowledge files"
 	),
 	"organization.documents.read": workCopy(
-		"Reviewing Organization Documents…",
-		"Reviewed Organization Documents",
-		"Couldn't review Organization Documents"
+		"Reviewing Team knowledge files…",
+		"Reviewed Team knowledge files",
+		"Couldn't review Team knowledge files"
 	),
 	"organization.invite.create": workCopy(
 		"Creating an organization invitation…",
@@ -599,6 +609,16 @@ const AGENT_WORK_COPY = {
 		"Updated Space files",
 		"Couldn't update Space files"
 	),
+	"team.files.read": workCopy(
+		"Reading Team files…",
+		"Read Team files",
+		"Couldn't read Team files"
+	),
+	"team.files.update": workCopy(
+		"Saving a Team file…",
+		"Saved a Team file",
+		"Couldn't save the Team file"
+	),
 	"space.members.add": workCopy(
 		"Adding members to the Space…",
 		"Added members to the Space",
@@ -613,6 +633,11 @@ const AGENT_WORK_COPY = {
 		"Updating Space settings…",
 		"Updated Space settings",
 		"Couldn't update Space settings"
+	),
+	"space.tasks.manage": workCopy(
+		"Coordinating Space Tasks…",
+		"Coordinated Space Tasks",
+		"Couldn't coordinate Space Tasks"
 	),
 	"spaces.read": workCopy(
 		"Checking available Spaces…",
@@ -677,6 +702,14 @@ export function resolveAgentWorkPresentation(
 	isLive: boolean
 ): AgentWorkPresentation {
 	const copy = resolveAgentWorkCopy(work);
+	if (state !== "input-available" && work.outcome === "outcome_unknown") {
+		return {
+			status: "complete",
+			text: work.subject?.label
+				? `Awaiting confirmation: ${work.subject.label}`
+				: "Action outcome awaiting confirmation",
+		};
+	}
 	if (state === "output-error") {
 		return { status: "failed", text: copy.failed };
 	}

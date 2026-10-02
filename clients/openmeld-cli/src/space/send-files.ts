@@ -1,4 +1,5 @@
 import { openAsBlob } from "node:fs";
+import { access } from "node:fs/promises";
 import { basename } from "node:path";
 import {
   type StructuredApiClientFailure,
@@ -94,6 +95,7 @@ export async function uploadPreparedSpaceFiles(input: {
         clientMutationId: crypto.randomUUID(),
         mimeType: file.mimeType,
         name: file.name,
+        origin: "chat_upload",
         parentId: null,
         requestContext: input.requestContext,
         spaceId: input.spaceId,
@@ -200,6 +202,9 @@ async function prepareSpaceSendFile(
 ): Promise<PreparedSpaceFile> {
   let bytes: Blob;
   try {
+    // openAsBlob collapses missing paths into ERR_INVALID_ARG_VALUE on Node 24.
+    // Preserve the filesystem error code for the user-facing failure category.
+    await access(sourcePath);
     bytes = await openAsBlob(sourcePath);
   } catch (error) {
     const code = readNodeErrorCode(error);

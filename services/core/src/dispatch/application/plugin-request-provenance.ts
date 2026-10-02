@@ -15,10 +15,14 @@ export async function readPluginDispatchRequester(input: {
 }) {
   const ledger = await wakeEvidenceDb(input.env)
     ?.prepare(
-      "SELECT space_id, source_profile_id FROM openMeldDaemon_dispatch_ledger WHERE dispatch_id = ? AND target_profile_id = ? LIMIT 1"
+      "SELECT space_id, source_event_id, source_profile_id FROM openMeldDaemon_dispatch_ledger WHERE dispatch_id = ? AND target_profile_id = ? LIMIT 1"
     )
     .bind(input.dispatchId, input.agentProfileId)
-    .first<{ space_id: string; source_profile_id: string | null }>();
+    .first<{
+      space_id: string;
+      source_event_id: string;
+      source_profile_id: string | null;
+    }>();
   const space =
     ledger &&
     (await identityDb(input.env)
@@ -35,5 +39,9 @@ export async function readPluginDispatchRequester(input: {
       status: 403,
     });
   }
-  return { profileId: ledger.source_profile_id, spaceId: ledger.space_id };
+  return {
+    profileId: ledger.source_profile_id,
+    spaceId: ledger.space_id,
+    sourceSignalId: ledger.source_event_id,
+  };
 }

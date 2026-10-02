@@ -33,6 +33,11 @@ import {
 } from "./openmeld-tools-update-attempt-state";
 import type { OpenMeldToolsUpdateContext } from "./openmeld-tools-update-context";
 import {
+  encodePersistedOpenMeldToolsUpdateFailure,
+  OpenMeldToolsUpdateFailureError,
+  resolveOpenMeldToolsUpdateFailure,
+} from "./openmeld-tools-update-failure";
+import {
   type OpenMeldToolsUpgradeProcessResult,
   resolveMaintenanceCliInstallation,
   runOpenMeldToolsUpgradeProcess,
@@ -96,7 +101,6 @@ export function createOpenMeldToolsUpdateCoordinator(
 
   const startAttempt = (attempt: OpenMeldToolsUpdateAttempt): void => {
     if (options.executeUpdates === false) {
-      deps.wakeWorker().catch(deps.reportBackgroundError);
       return;
     }
     if (inFlight) {
@@ -161,7 +165,7 @@ export function createOpenMeldToolsUpdateCoordinator(
       return { status: "unavailable" };
     }
     const serviceVersion =
-      assessment.serviceVersion ?? assessment.currentVersion;
+      assessment.serviceVersion ?? assessment.latestVersion;
     if (
       !(
         assessment.updateAvailable ||
@@ -184,6 +188,8 @@ export function createOpenMeldToolsUpdateCoordinator(
         phase: "updating",
         requestSource,
         requestedAt: now,
+        targetCliVersion: assessment.latestVersion,
+        targetServiceVersion: serviceVersion,
         targetVersion: assessment.updateAvailable
           ? assessment.latestVersion
           : serviceVersion,
@@ -199,12 +205,35 @@ export function createOpenMeldToolsUpdateCoordinator(
   };
 
   return {
-    requestUpdate: async (input) =>
-      await runSerialized(
+    requestUpdate: async (input) => {
+      const result = await runSerialized(
         async () => await deps.withCoordinationLock(() => requestUpdate(input))
-      ),
-    resumePendingUpdate: async () =>
-      await runSerialized(() => deps.withCoordinationLock(resumePendingUpdate)),
+      );
+      if (
+        options.executeUpdates === false &&
+        (result.status === "started" || result.status === "already_running") &&
+        (await deps.readPendingAttempt())?.operation.operationId ===
+          result.operation.operationId
+      ) {
+        // Release the lifecycle lock before waking the worker. It must be able
+        // to acquire that same lock when Task Scheduler starts it.
+        await deps.wakeWorker();
+      }
+      return result;
+    },
+    resumePendingUpdate: async () => {
+      const resumed = await runSerialized(() =>
+        deps.withCoordinationLock(resumePendingUpdate)
+      );
+      if (
+        resumed &&
+        options.executeUpdates === false &&
+        (await deps.readPendingAttempt()) !== null
+      ) {
+        await deps.wakeWorker();
+      }
+      return resumed;
+    },
     waitForIdle: async () => {
       await coordination;
       while (inFlight) {
@@ -234,11 +263,15 @@ async function runAttempt(
       operationId: running.operation.operationId,
       requestedAt: running.operation.requestedAt,
       requestSource: running.operation.requestSource,
+      targetCliVersion: running.operation.targetCliVersion,
+      targetServiceVersion: running.operation.targetServiceVersion,
     });
     if (result.exitCode !== 0) {
-      throw new Error(
-        `OpenMeld update process exited with status ${String(result.exitCode)}.`
-      );
+      const fallbackMessage = `OpenMeld update process exited with status ${String(result.exitCode)}.`;
+      throw new OpenMeldToolsUpdateFailureError({
+        failureCode: result.processFailure?.failureCode ?? "cli.update.failed",
+        message: result.processFailure?.detail ?? fallbackMessage,
+      });
     }
     const serviceJob = await deps.readPendingServiceJob();
     if (serviceJob) {
@@ -255,9 +288,14 @@ async function runAttempt(
       },
     });
   } catch (error) {
+    const failureCode =
+      resolveOpenMeldToolsUpdateFailure(error) ?? "cli.update.failed";
     await deps.completeAttempt({
       ...running,
-      errorMessage: toErrorMessage(error),
+      errorMessage: encodePersistedOpenMeldToolsUpdateFailure({
+        detail: toErrorMessage(error),
+        failureCode,
+      }),
       operation: {
         ...running.operation,
         phase: "needs_help",
@@ -335,6 +373,10 @@ function projectServiceJob(
     requestSource: job.requestSource,
     requestedAt: job.requestedAt,
     targetVersion: job.targetVersion,
+    ...(job.targetCliVersion ? { targetCliVersion: job.targetCliVersion } : {}),
+    ...(job.targetServiceVersion
+      ? { targetServiceVersion: job.targetServiceVersion }
+      : {}),
     updatedAt: job.updatedAt,
     urgency: job.urgency,
   };

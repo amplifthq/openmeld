@@ -1,12 +1,17 @@
 import type {
   AdapterCancelResult,
   AdapterInterruptResult,
+  AdapterLocalAttemptOutcome,
 } from "@openmeld/adapter-core";
 import type {
   InflightTaskControlRecord,
   InflightTaskControlRegistry,
   LocalDaemonAdapterContainer,
 } from "@openmeld/local-service";
+import {
+  OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE,
+  OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
+} from "@openmeld/schemas";
 import type {
   OpenMeldDaemonCancelRequestPayload,
   OpenMeldDaemonControlPlaneResponse,
@@ -32,7 +37,9 @@ export async function handleLocalControlPlaneCancel(input: {
 }): Promise<LocalControlCancelPayload> {
   const resolution = input.registry.resolveTarget(input.payload.target);
   if (!resolution) {
-    return rejectMissingInflightTarget(input);
+    return (
+      replayRecordedWithdrawal(input) ?? rejectMissingInflightTarget(input)
+    );
   }
 
   if (
@@ -71,11 +78,17 @@ export async function handleLocalControlPlaneCancel(input: {
       currentRecord.runtimeCoordinatorExecutionId ===
         resolution.record.runtimeCoordinatorExecutionId
     ) {
+      if (result.localAttemptOutcome) {
+        input.registry.settleWithdrawnTask({
+          localAttemptOutcome: result.localAttemptOutcome,
+          record: currentRecord,
+        });
+      }
       input.registry.removeTask(resolution.record.taskId);
     }
   }
   const reasonCode = result.accepted
-    ? "adapter.cancel.accepted"
+    ? resolveAcceptedCancelReasonCode(result.localAttemptOutcome)
     : result.reasonCode;
   emitRunLine({
     presenter: input.presenter,
@@ -104,6 +117,62 @@ export async function handleLocalControlPlaneCancel(input: {
         }
       : {}),
     resolvedTaskId: resolution.record.taskId,
+    target: input.payload.target,
+  };
+}
+
+/**
+ * Names what an accepted cancellation established.
+ *
+ * The distinction rides the existing reason code rather than a new payload key:
+ * these control payloads are strict objects, so a Service that emitted a new
+ * key would have its whole frame rejected by a Core that predates it, and a
+ * local component can reach a user before the matching Core deploy.
+ */
+function resolveAcceptedCancelReasonCode(
+  localAttemptOutcome: AdapterLocalAttemptOutcome | undefined
+): string {
+  if (localAttemptOutcome === "withdrawn_before_start") {
+    return OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE;
+  }
+  return localAttemptOutcome === "stop_requested_after_start"
+    ? OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE
+    : "adapter.cancel.accepted";
+}
+
+/**
+ * Answers a repeat request from what the withdrawal already established.
+ *
+ * Accepting a withdrawal removes the inflight record, so without this a repeat
+ * could only answer "no such task". That is a weaker statement than what was
+ * actually established and cannot be turned back into proof, which would leave
+ * work that replaces this attempt blocked on evidence merely lost in transit.
+ */
+function replayRecordedWithdrawal(input: {
+  payload: OpenMeldDaemonCancelRequestPayload;
+  registry: InflightTaskControlRegistry;
+}): LocalControlCancelPayload | null {
+  const receipt = input.registry.readWithdrawnTaskReceipt(input.payload.target);
+  if (
+    !receipt ||
+    (input.payload.runtimeCoordinatorExecutionId &&
+      receipt.record.runtimeCoordinatorExecutionId !==
+        input.payload.runtimeCoordinatorExecutionId)
+  ) {
+    return null;
+  }
+  return {
+    accepted: true,
+    note: "Replayed the recorded withdrawal for this attempt.",
+    reasonCode: resolveAcceptedCancelReasonCode(receipt.localAttemptOutcome),
+    resolvedDispatchId: receipt.record.dispatchId,
+    ...(receipt.record.runtimeCoordinatorExecutionId
+      ? {
+          resolvedRuntimeCoordinatorExecutionId:
+            receipt.record.runtimeCoordinatorExecutionId,
+        }
+      : {}),
+    resolvedTaskId: receipt.record.taskId,
     target: input.payload.target,
   };
 }

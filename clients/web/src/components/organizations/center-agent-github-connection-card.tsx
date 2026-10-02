@@ -27,6 +27,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+	type AuthorizationBrowser,
+	closeAuthorizationBrowser,
+	openAuthorizationBrowser,
+	prepareAuthorizationBrowser,
+} from "#/desktop/authorization-browser";
+import {
 	disconnectOrganizationGitHubConnection,
 	disconnectSharedOrganizationGitHubConnection,
 	resolveConnectorConnectionErrorMessage,
@@ -58,7 +64,10 @@ type WaitingAuthorization = {
 	scope: AuthorizationScope;
 };
 type GitHubConnectionCardMode = "all" | "member" | "shared";
-type GitHubConnectionCardPresentation = "management" | "onboarding";
+type GitHubConnectionCardPresentation =
+	| "management"
+	| "onboarding"
+	| "conversation";
 
 export function CenterAgentGitHubConnectionCard(input: {
 	organizationName?: string;
@@ -78,7 +87,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 		useState<WaitingAuthorization | null>(null);
 	const waitingScope = waitingAuthorization?.scope ?? null;
 	const [localError, setLocalError] = useState<string | null>(null);
-	const authorizationPopupRef = useRef<Window | null>(null);
+	const authorizationPopupRef = useRef<AuthorizationBrowser | null>(null);
 	const connectionsQuery = useQuery(
 		organizationPluginServiceConnectionsQueryOptions({
 			organizationId: input.organizationId,
@@ -127,7 +136,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 			setWaitingAuthorization(null);
 			setLocalError(null);
 			input.onAuthorizationStateChange?.(false);
-			popup?.close();
+			closeAuthorizationBrowser(popup);
 			toast.success(
 				waitingScope === "shared"
 					? `${sharedScopeName} GitHub access connected.`
@@ -155,7 +164,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 					"GitHub setup timed out. Start again when you are ready."
 				);
 				input.onAuthorizationStateChange?.(false);
-				popup?.close();
+				closeAuthorizationBrowser(popup);
 			},
 			Math.max(0, waitingAuthorization.expiresAtMs - Date.now())
 		);
@@ -164,7 +173,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 
 	useEffect(
 		() => () => {
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 			input.onAuthorizationStateChange?.(false);
 		},
@@ -172,25 +181,29 @@ export function CenterAgentGitHubConnectionCard(input: {
 	);
 
 	const authorizationMutation = useMutation({
-		mutationFn: async (scope: AuthorizationScope) => {
-			if (scope === "shared") {
+		mutationFn: async (request: {
+			scope: AuthorizationScope;
+			existingInstallation?: boolean;
+		}) => {
+			if (request.scope === "shared") {
 				return {
 					authorization:
 						await startCurrentOrganizationSharedGitHubAuthorization({
+							existingInstallation: request.existingInstallation,
 							organizationId: input.organizationId,
 						}),
-					scope,
+					scope: request.scope,
 				} as const;
 			}
 			return {
 				authorization: await startCurrentMemberGitHubAuthorization({
 					organizationId: input.organizationId,
 				}),
-				scope,
+				scope: request.scope,
 			} as const;
 		},
 		onError: (error) => {
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 			setWaitingAuthorization(null);
 			setLocalError(resolveConnectorConnectionErrorMessage(error, "GitHub"));
@@ -199,16 +212,27 @@ export function CenterAgentGitHubConnectionCard(input: {
 		onMutate: () => {
 			setLocalError(null);
 		},
-		onSuccess: (result) => {
+		onSuccess: async (result) => {
 			const popup = authorizationPopupRef.current;
-			if (!popup || popup.closed) {
+			if (!popup) {
 				setLocalError(
 					"The GitHub window closed before setup started. Try again."
 				);
 				input.onAuthorizationStateChange?.(false);
 				return;
 			}
-			popup.location.href = result.authorization.authorizationUrl;
+			try {
+				await openAuthorizationBrowser(
+					popup,
+					result.authorization.authorizationUrl
+				);
+			} catch (error) {
+				closeAuthorizationBrowser(popup);
+				authorizationPopupRef.current = null;
+				setLocalError(resolveConnectorConnectionErrorMessage(error, "GitHub"));
+				input.onAuthorizationStateChange?.(false);
+				return;
+			}
 			setWaitingAuthorization({
 				expiresAtMs:
 					result.scope === "shared"
@@ -216,7 +240,6 @@ export function CenterAgentGitHubConnectionCard(input: {
 						: Date.now() + MEMBER_AUTHORIZATION_TIMEOUT_MS,
 				scope: result.scope,
 			});
-			popup.focus();
 		},
 	});
 	const authorizationBusy =
@@ -226,10 +249,12 @@ export function CenterAgentGitHubConnectionCard(input: {
 	const connectionActionsDisabled = !connectionSnapshotIsCurrent;
 	const authorizationDisabled = authorizationBusy || connectionActionsDisabled;
 
-	const handleConnect = (scope: AuthorizationScope) => {
+	const handleConnect = (
+		scope: AuthorizationScope,
+		existingInstallation = false
+	) => {
 		setLocalError(null);
-		const popup = window.open(
-			"about:blank",
+		const popup = prepareAuthorizationBrowser(
 			scope === "shared"
 				? "openmeld-github-app-installation"
 				: "openmeld-github-authorization",
@@ -241,13 +266,12 @@ export function CenterAgentGitHubConnectionCard(input: {
 			);
 			return;
 		}
-		popup.opener = null;
 		authorizationPopupRef.current = popup;
 		input.onAuthorizationStateChange?.(true);
-		authorizationMutation.mutate(scope);
+		authorizationMutation.mutate({ scope, existingInstallation });
 	};
 	const cancelAuthorization = () => {
-		authorizationPopupRef.current?.close();
+		closeAuthorizationBrowser(authorizationPopupRef.current);
 		authorizationPopupRef.current = null;
 		setWaitingAuthorization(null);
 		setLocalError(null);
@@ -378,7 +402,10 @@ function GitHubConnectionCardContent(input: {
 	loading: boolean;
 	mode: GitHubConnectionCardMode;
 	onCancelAuthorization: () => void;
-	onConnect: (scope: AuthorizationScope) => void;
+	onConnect: (
+		scope: AuthorizationScope,
+		existingInstallation?: boolean
+	) => void;
 	onDisconnect: (request: GitHubDisconnectRequest) => void;
 	onRetry: () => void;
 	otherMemberConnections: ConnectorConnection[];
@@ -457,6 +484,7 @@ function GitHubConnectionCardContent(input: {
 					loading={input.loading}
 					onCancelAuthorization={input.onCancelAuthorization}
 					onConnect={() => input.onConnect("shared")}
+					onConnectExisting={() => input.onConnect("shared", true)}
 					onDisconnect={() => input.onDisconnect({ scope: "shared" })}
 					organizationName={input.organizationName}
 					presentation={input.presentation}
@@ -673,6 +701,7 @@ function SharedGitHubSection(input: {
 	loading: boolean;
 	onCancelAuthorization: () => void;
 	onConnect: () => void;
+	onConnectExisting: () => void;
 	onDisconnect: () => void;
 	presentation: GitHubConnectionCardPresentation;
 	scopeName: "Organization" | "Workspace";
@@ -700,15 +729,28 @@ function SharedGitHubSection(input: {
 				!input.canManage ||
 				input.loading ||
 				!canShowAuthorizationAction ? null : (
-					<GitHubAuthorizationAction
-						checking={input.statusChecking}
-						connectLabel="Install GitHub Plugin"
-						disabled={input.authorizationDisabled}
-						onCancel={input.onCancelAuthorization}
-						onConnect={input.onConnect}
-						waiting={input.waiting}
-						waitingLabel="Waiting for GitHub..."
-					/>
+					<div className="flex items-center gap-2">
+						<GitHubAuthorizationAction
+							checking={input.statusChecking}
+							connectLabel="Install GitHub Plugin"
+							disabled={input.authorizationDisabled}
+							onCancel={input.onCancelAuthorization}
+							onConnect={input.onConnect}
+							waiting={input.waiting}
+							waitingLabel="Waiting for GitHub..."
+						/>
+						{input.waiting ? null : (
+							<Button
+								disabled={input.authorizationDisabled}
+								onClick={input.onConnectExisting}
+								size="sm"
+								type="button"
+								variant="ghost"
+							>
+								Connect installed GitHub Plugin
+							</Button>
+						)}
+					</div>
 				)
 			}
 			description={description}

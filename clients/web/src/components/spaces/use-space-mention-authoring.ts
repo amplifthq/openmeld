@@ -396,11 +396,15 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				text: composerText,
 			}),
 		}),
-		prepareFileOnlySubmission: (): PreparedSpaceComposerSubmission & {
+		prepareFileOnlySubmission: (
+			detached = false
+		): PreparedSpaceComposerSubmission & {
 			restoredFromSignalId?: string;
 		} => ({
-			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
-			...prepareSpaceFileOnlySubmission({ replyTo }),
+			restoredFromSignalId: detached
+				? undefined
+				: composerDraft.content.restoredFromSignalId,
+			...prepareSpaceFileOnlySubmission({ replyTo: detached ? null : replyTo }),
 		}),
 		preparePlainTextSubmission: (
 			text: string,
@@ -413,7 +417,13 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				snapshot: input.snapshot,
 				text,
 			}),
-		recordPendingSubmission: () => {
+		recordPendingSubmission: (submittedAtMs?: number) => {
+			if (
+				submittedAtMs !== undefined &&
+				composerDraft.record.updatedAtMs > submittedAtMs
+			) {
+				return;
+			}
 			currentComposerHasDraftRef.current = false;
 			resetComposerState();
 		},
@@ -701,6 +711,7 @@ function toAuthoredMentionInput(
 	mention: TrackedComposerAuthoredMention
 ): SpaceComposerAuthoredMentionInTextOrder {
 	return {
+		...(mention.audience ? { audience: mention.audience } : {}),
 		profileId: mention.profileId,
 		relation: mention.relation,
 		start: mention.start,
@@ -714,6 +725,12 @@ function trackAuthoredMentionsInText(input: {
 }): TrackedComposerAuthoredMention[] {
 	const trackedMentions: TrackedComposerAuthoredMention[] = [];
 	let searchStart = 0;
+	let sharedAudienceRange: {
+		audience: "people" | "agents" | "both";
+		originalStart: number | undefined;
+		start: number;
+		text: string;
+	} | null = null;
 
 	for (const mention of input.mentions) {
 		const mentionText = mention.text.trim();
@@ -721,7 +738,15 @@ function trackAuthoredMentionsInText(input: {
 			continue;
 		}
 
-		const start = input.text.indexOf(mentionText, searchStart);
+		const sharedStart: number | null =
+			mention.audience &&
+			sharedAudienceRange?.audience === mention.audience &&
+			sharedAudienceRange.originalStart === mention.start &&
+			sharedAudienceRange.text === mentionText
+				? sharedAudienceRange.start
+				: null;
+		const start: number =
+			sharedStart ?? input.text.indexOf(mentionText, searchStart);
 		if (start === -1) {
 			continue;
 		}
@@ -736,6 +761,14 @@ function trackAuthoredMentionsInText(input: {
 			trackedMentions.push(trackedMention);
 		}
 		searchStart = trackedMention.end;
+		sharedAudienceRange = mention.audience
+			? {
+					audience: mention.audience,
+					originalStart: mention.start,
+					start,
+					text: mentionText,
+				}
+			: null;
 	}
 
 	return trackedMentions;

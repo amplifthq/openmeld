@@ -15,6 +15,10 @@ export const RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER =
 // previously blew the platform's 2KiB attachment limit and silently broke
 // hibernation recovery.
 export type RuntimeTransportSocketAttachment = {
+  executionAdmissionConfirmation?: boolean;
+  admissionEvidence?: boolean;
+  computerCare?: boolean;
+  spaceWorkHandoff?: boolean;
   connectionDiagnosticId?: string;
   reasoningStream?: boolean;
   computerFileAccessCapability:
@@ -32,6 +36,10 @@ export const readRuntimeTransportSocketAttachment = (
   webSocket: WebSocket
 ): RuntimeTransportSocketAttachment => {
   let attachment: {
+    executionAdmissionConfirmation?: unknown;
+    admissionEvidence?: unknown;
+    computerCare?: unknown;
+    spaceWorkHandoff?: unknown;
     connectionDiagnosticId?: unknown;
     reasoningStream?: unknown;
     verifiedOwnerUserId?: unknown;
@@ -42,6 +50,10 @@ export const readRuntimeTransportSocketAttachment = (
   };
   try {
     attachment = (webSocket.deserializeAttachment() ?? {}) as {
+      executionAdmissionConfirmation?: unknown;
+      admissionEvidence?: unknown;
+      computerCare?: unknown;
+      spaceWorkHandoff?: unknown;
       connectionDiagnosticId?: unknown;
       reasoningStream?: unknown;
       verifiedOwnerUserId?: unknown;
@@ -64,12 +76,17 @@ export const readRuntimeTransportSocketAttachment = (
   }
 
   return {
+    executionAdmissionConfirmation:
+      attachment.executionAdmissionConfirmation === true,
+    admissionEvidence: attachment.admissionEvidence === true,
+    computerCare: attachment.computerCare === true,
     ...(serviceConnectionDiagnosticIdSchema.safeParse(
       attachment.connectionDiagnosticId
     ).success
       ? { connectionDiagnosticId: String(attachment.connectionDiagnosticId) }
       : {}),
     reasoningStream: attachment.reasoningStream === true,
+    spaceWorkHandoff: attachment.spaceWorkHandoff === true,
     computerFileAccessCapability:
       attachment.computerFileAccessCapability ===
       COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -89,8 +106,12 @@ export const readRuntimeTransportSocketAttachment = (
 export const writeRuntimeTransportSocketAttachment = (
   webSocket: WebSocket,
   input: {
+    executionAdmissionConfirmation?: boolean;
+    admissionEvidence?: boolean;
+    computerCare?: boolean;
     connectionDiagnosticId?: string;
     reasoningStream?: boolean;
+    spaceWorkHandoff?: boolean;
     verifiedOwnerUserId: string;
     computerFileAccessCapability?:
       | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -105,6 +126,13 @@ export const writeRuntimeTransportSocketAttachment = (
   try {
     const current = readRuntimeTransportSocketAttachment(webSocket);
     webSocket.serializeAttachment({
+      executionAdmissionConfirmation:
+        input.executionAdmissionConfirmation ??
+        current.executionAdmissionConfirmation ??
+        false,
+      admissionEvidence:
+        input.admissionEvidence ?? current.admissionEvidence ?? false,
+      computerCare: input.computerCare ?? current.computerCare ?? false,
       ...((input.connectionDiagnosticId ?? current.connectionDiagnosticId)
         ? {
             connectionDiagnosticId:
@@ -113,6 +141,8 @@ export const writeRuntimeTransportSocketAttachment = (
         : {}),
       reasoningStream:
         input.reasoningStream ?? current.reasoningStream ?? false,
+      spaceWorkHandoff:
+        input.spaceWorkHandoff ?? current.spaceWorkHandoff ?? false,
       verifiedOwnerUserId: input.verifiedOwnerUserId,
       computerFileAccessCapability:
         input.computerFileAccessCapability === undefined
@@ -151,11 +181,20 @@ export function applyRuntimeTransportNegotiatedCapabilities(input: {
   const hasLocalFolderPicker =
     input.attachment.localFolderPickerCapability ===
     LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY;
-  if (!(hasComputerFileAccess || hasLocalFolderPicker)) {
+  if (
+    !(
+      hasComputerFileAccess ||
+      hasLocalFolderPicker ||
+      input.attachment.spaceWorkHandoff
+    )
+  ) {
     return input.capabilities;
   }
   return {
     ...(input.capabilities ?? {}),
+    ...(input.attachment.spaceWorkHandoff
+      ? { spaceWorkHandoff: true as const }
+      : {}),
     ...(hasComputerFileAccess
       ? {
           computerFileAccess: {

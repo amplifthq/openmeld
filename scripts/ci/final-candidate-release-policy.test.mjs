@@ -10,13 +10,20 @@ import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas
 import { assertEvidenceMatchesExecution } from "./final-candidate-publisher.mjs";
 import { runFinalCandidateReleasePolicy } from "./final-candidate-release-policy.mjs";
 
-const PREMATURE_RELEASE_STAMP_PATTERN = /must match the PR base/u;
+const PREMATURE_RELEASE_STAMP_PATTERN =
+  /CLI package version changed without a stamped candidate diff/u;
 const PUBLISHER_FAILURE_PATTERN = /Candidate job concluded failure/u;
 
-test("a premature release stamp fails early with canonical exact evidence and a command log", async () => {
+test("a mismatched release stamp fails early with canonical exact evidence and a command log", async () => {
   const fixture = await createCandidateFixture();
   try {
-    await stampRelease(fixture, "0.3.154");
+    await stampRelease(fixture, "0.3.218");
+    await writeFile(
+      path.join(fixture.root, "release/local-components.json"),
+      `${JSON.stringify(buildManifest("0.3.217"), null, 2)}\n`
+    );
+    fixture.git("add", "release/local-components.json");
+    fixture.git("commit", "-m", "break release stamp");
     const evidencePath = path.join(fixture.root, "evidence/final.json");
 
     assert.throws(
@@ -116,11 +123,11 @@ async function createCandidateFixture() {
   await mkdir(path.join(root, "release"), { recursive: true });
   await writeFile(
     path.join(root, "clients/openmeld-cli/package.json"),
-    `${JSON.stringify({ name: "openmeld", version: "0.3.153" }, null, 2)}\n`
+    `${JSON.stringify({ name: "openmeld", version: "0.3.217" }, null, 2)}\n`
   );
   await writeFile(
     path.join(root, "release/local-components.json"),
-    `${JSON.stringify(buildManifest("0.3.153"), null, 2)}\n`
+    `${JSON.stringify(buildManifest("0.3.217"), null, 2)}\n`
   );
   git("init", "--quiet");
   git("add", ".");

@@ -10,6 +10,9 @@ export const REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS = 240;
 export const REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS = 300;
 const REMOTE_AGENT_ADMISSION_WATCHDOG_SUBMISSION_PREFIX = "admission_watchdog:";
 
+export const REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS = 3;
+export const REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_RETRY_BASE_DELAY_SECONDS = 15;
+
 export type RemoteAgentDeadlineProbeTarget = {
   dispatchId: string;
   idempotencyKey: string;
@@ -26,11 +29,40 @@ export async function enqueueRemoteAgentAdmissionWatchdog(input: {
 }): Promise<boolean> {
   return await enqueueRemoteAgentNativeDeliveryProbe({
     ...input,
+    ack: {
+      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+        input.target.idempotencyKey
+      ),
+    },
     delaySeconds: REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
     enqueueFailedLog:
       "[core.remote_agent.native_delivery.admission_watchdog_enqueue_failed]",
     queueMissingLog:
       "[core.remote_agent.native_delivery.admission_watchdog_queue_missing]",
+  });
+}
+
+export async function enqueueRemoteAgentTaskContinuationAdmissionRetry(input: {
+  attempt: number;
+  delaySeconds: number;
+  env: CoreBindings;
+  nowMs: number;
+  target: RemoteAgentDeadlineProbeTarget;
+}): Promise<boolean> {
+  return await enqueueRemoteAgentNativeDeliveryProbe({
+    ack: {
+      submissionId: buildRemoteAgentAdmissionWatchdogSubmissionId(
+        input.target.idempotencyKey
+      ),
+    },
+    delaySeconds: input.delaySeconds,
+    enqueueFailedLog:
+      "[core.remote_agent.task_continuation.admission_retry_enqueue_failed]",
+    env: input.env,
+    nowMs: input.nowMs,
+    queueMissingLog:
+      "[core.remote_agent.task_continuation.admission_retry_queue_missing]",
+    target: input.target,
   });
 }
 
@@ -108,9 +140,27 @@ export function buildRemoteAgentAdmissionWatchdogSubmissionId(
 export function isRemoteAgentAdmissionWatchdogProbe(
   probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage
 ): boolean {
-  return (
-    probe.submissionId ===
+  return resolveRemoteAgentAdmissionProbe(probe) !== null;
+}
+
+export function resolveRemoteAgentAdmissionProbe(
+  probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage
+): { kind: "admission" } | null {
+  return probe.submissionId ===
     buildRemoteAgentAdmissionWatchdogSubmissionId(probe.idempotencyKey)
+    ? { kind: "admission" }
+    : null;
+}
+
+export function resolveRemoteAgentTaskContinuationAdmissionRetryDelaySeconds(
+  attempt: number
+): number {
+  if (!(Number.isSafeInteger(attempt) && attempt >= 2)) {
+    throw new TypeError("Admission retry attempt must be at least 2");
+  }
+  return (
+    REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_RETRY_BASE_DELAY_SECONDS *
+    2 ** (attempt - 2)
   );
 }
 

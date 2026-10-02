@@ -10,6 +10,8 @@ const api = vi.hoisted(() => ({
 	listCatalog: vi.fn(),
 	listConnections: vi.fn(),
 	listRequests: vi.fn(),
+	listAccess: vi.fn(),
+	updateAccess: vi.fn(),
 }));
 const githubCardProps = vi.hoisted(() => vi.fn());
 
@@ -23,7 +25,10 @@ vi.mock(
 	})
 );
 
-vi.mock("#/lib/organizations/organization-context", () => ({
+vi.mock("#/lib/organizations/organization-context", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("#/lib/organizations/organization-context")
+	>()),
 	useAppOrganization: () => ({
 		currentOrganization: {
 			id: "org-acme",
@@ -35,12 +40,29 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 
-vi.mock("#/lib/organizations/connector-connections", () => ({
-	createCurrentOrganizationConnectorAppRequest: api.createRequest,
-}));
+vi.mock(
+	"#/lib/organizations/connector-connections",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("#/lib/organizations/connector-connections")
+		>()),
+		createCurrentOrganizationConnectorAppRequest: api.createRequest,
+		listCurrentOrganizationConnectorConnections: api.listConnections,
+		listPluginAccess: api.listAccess,
+		updatePluginAccess: api.updateAccess,
+	})
+);
 
-vi.mock("#/query/organizations/plugin-connections", () => ({
+vi.mock("#/query/organizations/plugin-connections", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("#/query/organizations/plugin-connections")
+	>()),
 	organizationPluginConnectionQueryKeys: {
+		service: (organizationId: string, service: string) => [
+			"connector-connections",
+			organizationId,
+			service,
+		],
 		catalog: (organizationId: string) => [
 			"connector-connections",
 			organizationId,
@@ -80,6 +102,22 @@ describe("PluginsOnboardingStep", () => {
 	});
 
 	it("shows an active Organization Plugin connection on the catalog card", async () => {
+		api.listAccess.mockResolvedValue({
+			organizationId: "org-acme",
+			connections: [
+				{
+					connectionName: "github-organization",
+					scope: "shared",
+					canManage: true,
+					revision: 0,
+					policy: {
+						center_agent: "none",
+						local_agent: "none",
+						remote_agent: "none",
+					},
+				},
+			],
+		});
 		api.listCatalog.mockResolvedValue({
 			organizationId: "org-acme",
 			providers: [
@@ -131,6 +169,8 @@ describe("PluginsOnboardingStep", () => {
 		expect(providerButton?.textContent).toContain("GitHub");
 		expect(providerButton?.closest('[data-slot="card"]')).toBeTruthy();
 		fireEvent.click(providerButton as HTMLButtonElement);
+		expect(await screen.findByText("No Agent has access yet.")).toBeTruthy();
+		expect(api.updateAccess).not.toHaveBeenCalled();
 		expect(
 			await screen.findByTestId("github-onboarding-connection-card")
 		).toBeTruthy();

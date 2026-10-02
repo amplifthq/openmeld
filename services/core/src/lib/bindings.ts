@@ -22,6 +22,7 @@ import type {
   EnsureOrganizationJoinLinkOnBehalfOfRpcResponse,
   EnsureSlackWorkspaceMemberOrganizationMembershipRpcInput,
   EnsureSlackWorkspaceMemberOrganizationMembershipRpcResponse,
+  GitHubAppWebhookQueueMessage,
   MessageChannelIngressEnvelope,
   OpenMeldDaemonDispatchQueueMessage,
   OpenMeldRequestContext,
@@ -32,6 +33,8 @@ import type {
   SummarizeAgentActivityDigestRpcInput,
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
+import type { AccountInvalidationHub } from "../account-invalidation/account-invalidation-hub";
+import type { OrganizationFileRoot } from "../files/organization-file-root";
 import type { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
 import type { LarkChannelConnector } from "../remote-agent/transport/lark/lark-channel-connector";
 import type { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
@@ -97,6 +100,7 @@ type CoreAuthDispatchBindingRpc = {
     organizationId?: string | null;
     profileId?: string | null;
     profileName?: string | null;
+    avatarStyle?: string | null;
   }): Promise<AuthAgentProfileRpcResult>;
   updateAgentProfileDefaultProjectInOrganization?(input: {
     defaultProjectId: string | null;
@@ -120,6 +124,7 @@ type CoreAuthDispatchBindingRpc = {
   >;
   resolveProfileById?(input: {
     openMeldProfileId?: string | null;
+    includeAvatarStyle?: boolean;
   }): Promise<AuthRpcResolveProfileByIdResult>;
   resolveProfilesByIds?(
     input: AuthRpcResolveProfilesByIdsInput
@@ -127,6 +132,11 @@ type CoreAuthDispatchBindingRpc = {
 };
 
 export type RemoteAgentWorkerBindingRpc = {
+  generateCenterAgentSessionTitle?(
+    input: import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleInput
+  ): Promise<
+    import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleResponse
+  >;
   pluginRuntime?(
     input: import("@openmeld/schemas/types").PluginRuntimeRequest
   ): Promise<import("@openmeld/schemas/types").PluginRuntimeResponse>;
@@ -155,6 +165,16 @@ export type RemoteAgentWorkerBindingRpc = {
   ): Promise<
     import("@openmeld/schemas/types").RemoteAgentWorkerExecutionQueryResponse
   >;
+  readAdmission?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionResponse
+  >;
+  readAdmissionStop?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionStopResponse
+  >;
   readRuntimeDiagnostics?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerRuntimeDiagnosticsRequest
   ): Promise<
@@ -176,8 +196,10 @@ export type RemoteAgentWorkerBindingRpc = {
 // CloudflareBindings. Gateway typegen imports core source for service RPC
 // typing; using a global env type here causes cross-worker type collisions.
 export type CoreBindings = {
+  OPENMELD_ACCOUNT_INVALIDATIONS?: DurableObjectNamespace<AccountInvalidationHub>;
   OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
+  OPENMELD_FILE_ROOTS?: DurableObjectNamespace<OrganizationFileRoot>;
   OPENMELD_RUNTIME_TRANSPORT?: DurableObjectNamespace<RuntimeTransportHub>;
   OPENMELD_PREPARE_SESSION_HUB?: DurableObjectNamespace<PrepareSessionHub>;
   OPENMELD_DB?: D1Database;
@@ -195,6 +217,7 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_WORKER?: RemoteAgentWorkerBindingRpc;
   OPENMELD_SPACE_ATTACHMENTS?: R2Bucket;
   OPENMELD_ORGANIZATION_SKILLS?: R2Bucket;
+  OPENMELD_SKILL_FILE_BACKED_WRITES?: string;
   OPENMELD_ROUTINE_RUN_WORKFLOW?: Workflow<{ runId: string }>;
   OPENMELD_ROUTINE_ENGINE_DEFAULT?: string;
   OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED?: string;
@@ -202,7 +225,6 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS?: string;
-  OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT?: string;
   OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED?: string;
   OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ENABLED?: string;
@@ -212,6 +234,7 @@ export type CoreBindings = {
   OPENMELD_GATEWAY_URL?: string;
   LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY?: string;
   GITHUB_OPENMELD_API_TOKEN?: string;
+  GITHUB_OPENMELD_WEBHOOK_SECRET?: string;
   SLACK_OPENMELD_BOT_TOKEN?: string;
   SLACK_OPENMELD_TOKEN_CRYPTO_KEY?: string;
   WEB_APP_URL?: string;
@@ -222,6 +245,7 @@ export type CoreBindings = {
     | AgentTaskObservationRedriveQueueMessage
     | RemoteAgentNativeDeliveryDeadlineProbeQueueMessage
     | RemoteAgentSlackEventQueueMessage
+    | GitHubAppWebhookQueueMessage
     | OpenMeldDaemonDispatchQueueMessage
   >;
   OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE?: Queue<MessageChannelIngressEnvelope>;

@@ -14,7 +14,6 @@ import { Card } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { Textarea } from "@openmeld/ui/components/textarea";
-import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	ArrowRightIcon,
@@ -24,12 +23,12 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useMemo, useState } from "react";
-import { CenterAgentGitHubConnectionCard } from "#/components/organizations/center-agent-github-connection-card";
+import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
 import {
 	findPluginDefinition,
 	PLUGINS,
 } from "#/components/organizations/plugin-catalog";
-import { PluginConnectionCard } from "#/components/organizations/plugin-connection-card";
+import { PluginConnectionSurface } from "#/components/organizations/plugin-connection-surface";
 import { createCurrentOrganizationConnectorAppRequest } from "#/lib/organizations/connector-connections";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
@@ -192,132 +191,135 @@ export function PluginsOnboardingStep(input: { onContinue: () => void }) {
 	};
 
 	return (
-		<div className="flex flex-1 flex-col">
-			<div className="relative">
-				<MagnifyingGlassIcon
-					aria-hidden="true"
-					className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-				/>
-				<Input
-					autoFocus
-					className="h-11 rounded-md pl-10"
-					onChange={(event) => {
-						setSearch(event.target.value);
-						setSelectedProvider(null);
-						setFreeformName(null);
-					}}
-					placeholder="Search GitHub, Notion, Salesforce…"
-					type="search"
-					value={search}
-				/>
-			</div>
+		<OnboardingStepLayout
+			body={
+				<>
+					<div className="relative">
+						<MagnifyingGlassIcon
+							aria-hidden="true"
+							className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+						/>
+						<Input
+							autoFocus
+							className="h-11 rounded-md pl-10"
+							onChange={(event) => {
+								setSearch(event.target.value);
+								setSelectedProvider(null);
+								setFreeformName(null);
+							}}
+							placeholder="Search GitHub, Notion, Salesforce…"
+							type="search"
+							value={search}
+						/>
+					</div>
 
-			<ScrollArea
-				className="-mx-1 mt-3 min-h-0 flex-1"
-				contentClassName="px-1 pb-1"
-				orientation="vertical"
-			>
-				<div className="flex items-center justify-between py-2">
+					<div className="-mx-1 mt-3 px-1 pb-1">
+						<div className="flex items-center justify-between py-2">
+							<p className="text-muted-foreground text-xs">
+								{deferredSearch
+									? `${matchingProviders.length.toLocaleString()} Plugins found`
+									: "Recommended for teams"}
+							</p>
+							{catalogQuery.isError ? (
+								<button
+									className="text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline"
+									onClick={() => catalogQuery.refetch()}
+									type="button"
+								>
+									Retry full catalog
+								</button>
+							) : null}
+						</div>
+
+						<ConnectionStatusError
+							error={connectionsQuery.isError}
+							onRetry={() => connectionsQuery.refetch()}
+						/>
+
+						<ProviderGrid
+							connectedServices={connectedServices}
+							connectionStatusIsKnown={connectionStatusIsKnown}
+							connectionStatusIsPending={connectionStatusIsPending}
+							onSelect={selectProvider}
+							providers={matchingProviders}
+							requestedProviders={requestedProviders}
+							selectedService={selectedProvider?.service ?? null}
+						/>
+
+						{deferredSearch && matchingProviders.length === 0 ? (
+							<FreeformRequestRow
+								name={search.trim()}
+								onClick={selectFreeform}
+								requested={searchedFreeformIsRequested}
+							/>
+						) : null}
+
+						{selectedProvider &&
+						selectedPlugin?.availability === "available" ? (
+							<AvailableAppConnectionPanel
+								app={selectedPlugin}
+								canManageSharedPlugins={canManageSharedPlugins}
+								connected={connectedServices.has(selectedProvider.service)}
+								isPersonalWorkspace={currentOrganization.isPersonal === true}
+								organizationId={currentOrganization.id}
+								provider={selectedProvider}
+							/>
+						) : null}
+
+						{selectedProvider &&
+						selectedPlugin?.availability !== "available" ? (
+							<PluginRequestPanel
+								error={requestMutation.error}
+								isPending={requestMutation.isPending}
+								isRequested={selectedIsRequested}
+								name={selectedProvider.displayName}
+								onRequest={() =>
+									submitRequest({
+										providerId: selectedProvider.service,
+										providerName: selectedProvider.displayName,
+										requestedCapabilities: [],
+										source: "openconnector_catalog",
+										useCase: useCase.trim() || null,
+									})
+								}
+								onUseCaseChange={setUseCase}
+								useCase={useCase}
+							/>
+						) : null}
+
+						{freeformName ? (
+							<PluginRequestPanel
+								error={requestMutation.error}
+								isPending={requestMutation.isPending}
+								isRequested={freeformIsRequested}
+								name={freeformName}
+								onRequest={() =>
+									submitRequest({
+										providerName: freeformName,
+										requestedCapabilities: [],
+										source: "freeform",
+										useCase: useCase.trim() || null,
+									})
+								}
+								onUseCaseChange={setUseCase}
+								useCase={useCase}
+							/>
+						) : null}
+					</div>
+				</>
+			}
+			footer={
+				<div className="flex items-center justify-between gap-4 max-sm:items-end">
 					<p className="text-muted-foreground text-xs">
-						{deferredSearch
-							? `${matchingProviders.length.toLocaleString()} Plugins found`
-							: "Recommended for teams"}
+						Everything here can be changed later.
 					</p>
-					{catalogQuery.isError ? (
-						<button
-							className="text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline"
-							onClick={() => catalogQuery.refetch()}
-							type="button"
-						>
-							Retry full catalog
-						</button>
-					) : null}
+					<Button onClick={input.onContinue} type="button">
+						Continue
+						<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
+					</Button>
 				</div>
-
-				<ConnectionStatusError
-					error={connectionsQuery.isError}
-					onRetry={() => connectionsQuery.refetch()}
-				/>
-
-				<ProviderGrid
-					connectedServices={connectedServices}
-					connectionStatusIsKnown={connectionStatusIsKnown}
-					connectionStatusIsPending={connectionStatusIsPending}
-					onSelect={selectProvider}
-					providers={matchingProviders}
-					requestedProviders={requestedProviders}
-					selectedService={selectedProvider?.service ?? null}
-				/>
-
-				{deferredSearch && matchingProviders.length === 0 ? (
-					<FreeformRequestRow
-						name={search.trim()}
-						onClick={selectFreeform}
-						requested={searchedFreeformIsRequested}
-					/>
-				) : null}
-
-				{selectedProvider && selectedPlugin?.availability === "available" ? (
-					<AvailableAppConnectionPanel
-						app={selectedPlugin}
-						canManageSharedPlugins={canManageSharedPlugins}
-						connected={connectedServices.has(selectedProvider.service)}
-						isPersonalWorkspace={currentOrganization.isPersonal === true}
-						organizationId={currentOrganization.id}
-						provider={selectedProvider}
-					/>
-				) : null}
-
-				{selectedProvider && selectedPlugin?.availability !== "available" ? (
-					<PluginRequestPanel
-						error={requestMutation.error}
-						isPending={requestMutation.isPending}
-						isRequested={selectedIsRequested}
-						name={selectedProvider.displayName}
-						onRequest={() =>
-							submitRequest({
-								providerId: selectedProvider.service,
-								providerName: selectedProvider.displayName,
-								requestedCapabilities: [],
-								source: "openconnector_catalog",
-								useCase: useCase.trim() || null,
-							})
-						}
-						onUseCaseChange={setUseCase}
-						useCase={useCase}
-					/>
-				) : null}
-
-				{freeformName ? (
-					<PluginRequestPanel
-						error={requestMutation.error}
-						isPending={requestMutation.isPending}
-						isRequested={freeformIsRequested}
-						name={freeformName}
-						onRequest={() =>
-							submitRequest({
-								providerName: freeformName,
-								requestedCapabilities: [],
-								source: "freeform",
-								useCase: useCase.trim() || null,
-							})
-						}
-						onUseCaseChange={setUseCase}
-						useCase={useCase}
-					/>
-				) : null}
-			</ScrollArea>
-
-			<div className="flex shrink-0 items-center justify-between gap-4 pt-4">
-				<p className="text-muted-foreground text-xs">
-					Everything here can be changed later.
-				</p>
-				<Button onClick={input.onContinue} type="button">
-					Continue
-					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
-				</Button>
-			</div>
-		</div>
+			}
+		/>
 	);
 }
 
@@ -347,23 +349,14 @@ function AvailableAppConnectionPanel(input: {
 						: "Connect your own account. Organization connections stay visible but read-only."}
 				</p>
 			</div>
-			{input.provider.service === "github" ? (
-				<CenterAgentGitHubConnectionCard
-					canManage={input.canManageSharedPlugins}
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					mode={mode}
-					organizationId={input.organizationId}
-					presentation="onboarding"
-				/>
-			) : (
-				<PluginConnectionCard
-					canManage={input.canManageSharedPlugins}
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					mode={mode}
-					organizationId={input.organizationId}
-					plugin={input.app}
-				/>
-			)}
+			<PluginConnectionSurface
+				canManage={input.canManageSharedPlugins}
+				isPersonalWorkspace={input.isPersonalWorkspace}
+				mode={mode}
+				organizationId={input.organizationId}
+				plugin={input.app}
+				presentation="onboarding"
+			/>
 		</Card>
 	);
 }

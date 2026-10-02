@@ -774,7 +774,7 @@ describe("space-members-service", () => {
     expect(JSON.stringify(directory)).not.toContain("agentControllerRef");
   });
 
-  it("builds Space status member counts from the members snapshot summary", async () => {
+  it("builds Space status member counts without runtime readiness reads", async () => {
     const sql = new MutableSqlStorage();
     const nowIso = "2026-03-06T12:05:00.000Z";
     upsertJoinedSpaceMember({
@@ -807,9 +807,14 @@ describe("space-members-service", () => {
     });
 
     sql.seedWebActivity("hum-status-live", nowIso);
+    const runtimeRead = vi.fn(() => {
+      throw new Error("Status must not read runtime readiness");
+    });
     const summary = await readSpaceStatusMembersSummaryUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: {
+        OPENMELD_RUNTIME_TRANSPORT: { idFromName: runtimeRead },
+      } as unknown as CoreBindings,
       spaceId: "space-status-summary",
       liveSessions: [
         {
@@ -832,17 +837,15 @@ describe("space-members-service", () => {
       humanCount: 1,
       agentCount: 2,
       liveNowCount: 2,
-      checkingAgentCount: 0,
-      wakeableAgentCount: 0,
-      offlineAgentCount: 0,
-      unavailableAgentCount: 2,
       liveHumanCount: 1,
       liveAgentCount: 1,
     });
+    expect(runtimeRead).not.toHaveBeenCalled();
   });
 
   it("returns member identity without consulting runtime readiness for a display bootstrap", async () => {
     const sql = new MutableSqlStorage();
+    const queries = vi.spyOn(sql, "exec");
     const profile = createAgentProfile({
       profileId: "agt_11111111-1111-4111-8111-111111111111",
       profileName: "Agent on a slow computer",
@@ -875,6 +878,11 @@ describe("space-members-service", () => {
       agentControllerRef: "builtin:codex",
     });
     expect(snapshot.agents[0]?.agentWakeAvailability).toBeUndefined();
+    expect(
+      queries.mock.calls.some(([query]) =>
+        query.includes("$.profile.agentControllerConversationId")
+      )
+    ).toBe(false);
     expect(snapshot.summary).toEqual({
       totalCount: 1,
       humanCount: 0,
@@ -2039,14 +2047,21 @@ describe("space-members-service", () => {
     );
   });
 
-  it("rejects removing the active creator", () => {
+  it("rejects removing an active Space owner", () => {
     const sql = new MutableSqlStorage();
-    const metaRecord = createMetaRecord({
-      spaceId: "space-members-remove-creator",
-      createdAt: "2026-03-06T12:40:00.000Z",
-      updatedAt: "2026-03-06T12:40:00.000Z",
-      creator: createHumanCreator("hum-members-remove-creator", "Space Host"),
-    });
+    const metaRecord = {
+      ...createMetaRecord({
+        spaceId: "space-members-remove-creator",
+        createdAt: "2026-03-06T12:40:00.000Z",
+        updatedAt: "2026-03-06T12:40:00.000Z",
+        creator: createHumanCreator(
+          "hum-members-remove-creator",
+          "Space Host",
+          { ownerUserId: "owner-remove-creator-1" }
+        ),
+      }),
+      ownerUserIds: ["owner-remove-creator-1"],
+    };
 
     upsertSpaceCreatorMember({
       sql: sql as unknown as SqlStorage,
@@ -2061,13 +2076,13 @@ describe("space-members-service", () => {
         spaceId: metaRecord.spaceId,
         memberProfileIds: ["hum-members-remove-creator"],
         actorProfileId: "hum-members-operator",
-        actorOwnerUserId: "owner-remove-creator-1",
+        actorOwnerUserId: "owner-operator",
         metaRecord,
         nowIso: "2026-03-06T12:41:00.000Z",
       })
     ).toThrowError(
       expect.objectContaining<Partial<SpaceMembersUseCaseError>>({
-        code: "space.members.creator_forbidden",
+        code: "space.members.owner_forbidden",
         status: 400,
       })
     );
@@ -2139,14 +2154,19 @@ describe("space-members-service", () => {
     ]);
   });
 
-  it("rejects creator leave and treats absent actors as already absent", () => {
+  it("rejects owner leave and treats absent actors as already absent", () => {
     const sql = new MutableSqlStorage();
-    const metaRecord = createMetaRecord({
-      spaceId: "space-members-leave-creator",
-      createdAt: "2026-03-06T13:00:00.000Z",
-      updatedAt: "2026-03-06T13:00:00.000Z",
-      creator: createHumanCreator("hum-members-leave-creator", "Space Host"),
-    });
+    const metaRecord = {
+      ...createMetaRecord({
+        spaceId: "space-members-leave-creator",
+        createdAt: "2026-03-06T13:00:00.000Z",
+        updatedAt: "2026-03-06T13:00:00.000Z",
+        creator: createHumanCreator("hum-members-leave-creator", "Space Host", {
+          ownerUserId: "owner-host",
+        }),
+      }),
+      ownerUserIds: ["owner-host"],
+    };
 
     upsertSpaceCreatorMember({
       sql: sql as unknown as SqlStorage,
@@ -2166,7 +2186,7 @@ describe("space-members-service", () => {
       })
     ).toThrowError(
       expect.objectContaining<Partial<SpaceMembersUseCaseError>>({
-        code: "space.leave_space.creator_forbidden",
+        code: "space.leave_space.owner_forbidden",
         status: 400,
       })
     );
@@ -3345,7 +3365,11 @@ describe("space-members-service", () => {
     expect(resolveProfileById).toHaveBeenCalledTimes(5);
   });
 
-  it("preloads route evidence for multiple agent members through one batch lookup", async () => {
+  it.each([
+    ["builtin:ops-bot", "owner-1"],
+    [HOSTED_CENTER_AGENT_CONTROLLER_REF, "owner-1"],
+    ["builtin:ops-bot", "stale-owner"],
+  ])("preloads current Local bindings despite stored controller %s / owner %s", async (storedController, storedOwner) => {
     const sql = new MutableSqlStorage();
     const runtimeTransportClient = await import(
       "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
@@ -3455,17 +3479,17 @@ describe("space-members-service", () => {
           profileId: "agt_batch_available",
           profileName: "Batch Available",
           profileKind: "agent",
-          ownerUserId: "owner-1",
+          ownerUserId: storedOwner,
           ownerName: "Owner One",
-          agentControllerRef: "builtin:ops-bot",
+          agentControllerRef: storedController,
         },
         {
           profileId: "agt_batch_pending",
           profileName: "Batch Pending",
           profileKind: "agent",
-          ownerUserId: "owner-1",
+          ownerUserId: storedOwner,
           ownerName: "Owner One",
-          agentControllerRef: "builtin:ops-bot",
+          agentControllerRef: storedController,
         },
       ],
       actorProfileId: "hum-members-host-batch-routes",
@@ -4433,14 +4457,10 @@ describe("space-members-service", () => {
           facts: {
             route: {
               online: false,
-              source: "daemon_route",
+              source: "not_checked",
             },
           },
-          reasonCodes: expect.arrayContaining([
-            "agent_profile_binding.read_unavailable",
-            "agent_execution.route_unavailable",
-            "not_requested",
-          ]),
+          reasonCodes: ["agent_profile_binding.read_unavailable"],
         },
       },
     });
@@ -4579,7 +4599,22 @@ describe("space-members-service", () => {
     );
   });
 
-  it("projects hosted Center Agent member availability from the remote runtime", async () => {
+  it.each([
+    HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    "builtin:claude",
+  ])("projects current Hosted availability independently of stored controller %s", async (storedController) => {
+    const runtimeTransportClient = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const localRoute = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportRoutesBatch")
+      .mockResolvedValue(null);
+    const localService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockResolvedValue({
+        online: false,
+        reasonCode: "daemon.session.not_found",
+      });
     const sql = new MutableSqlStorage();
     const spaceId = "space-members-hosted-center-agent-availability";
     const agentProfileId = "agt_members_hosted_center_agent";
@@ -4591,6 +4626,7 @@ describe("space-members-service", () => {
       profileOrganizationId: "org-1",
     });
     const env = {
+      OPENMELD_RUNTIME_TRANSPORT: {},
       OPENMELD_AUTH_WORKER: {
         resolveProfileById: vi.fn(async () => ({
           ok: true,
@@ -4623,7 +4659,7 @@ describe("space-members-service", () => {
           profileKind: "agent",
           ownerUserId: "owner-center-agent",
           ownerName: "OpenMeld",
-          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          agentControllerRef: storedController,
         },
       ],
       actorProfileId: "hum-members-hosted-center-agent-host",
@@ -4655,6 +4691,8 @@ describe("space-members-service", () => {
     expect(hostedCenterAgent?.agentControllerRef).toBe(
       HOSTED_CENTER_AGENT_CONTROLLER_REF
     );
+    expect(localRoute).not.toHaveBeenCalled();
+    expect(localService).not.toHaveBeenCalled();
     expect(hostedCenterAgent?.agentWakeAvailability).toMatchObject({
       badgeLabel: "Available",
       category: "available",

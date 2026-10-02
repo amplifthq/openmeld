@@ -4,6 +4,7 @@ import {
 	useContext,
 	useLayoutEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import {
@@ -29,11 +30,16 @@ export function spaceReadingHeaderStorageKey(input: {
 	return `openmeld.space.reading-header.v2:${JSON.stringify([input.organizationSlug, input.profileId, input.spaceId])}`;
 }
 
+// Distance from the latest messages, in CSS pixels. The wider gap prevents
+// trackpad jitter from repeatedly changing the header near either endpoint.
+const COMPACT_DISTANCE = 64;
+const EXPAND_DISTANCE = 16;
+
 export function resolveSpaceReadingHeaderPosition(
 	distance: number,
 	compact = false
 ) {
-	return compact ? distance > 1 : distance > 4;
+	return compact ? distance > EXPAND_DISTANCE : distance >= COMPACT_DISTANCE;
 }
 
 export function SpaceReadingHeaderProvider(input: {
@@ -63,25 +69,36 @@ export function SpaceReadingHeaderProvider(input: {
 		}),
 		[storageKey]
 	);
+	const activeScrollElement = input.view === "messages" ? scrollElement : null;
+	const activeScrollElementRef = useRef(activeScrollElement);
+	activeScrollElementRef.current = activeScrollElement;
+	const controllerRef = useRef<SpaceReadingHeaderController | null>(null);
 
+	// Layout measurement belongs to the header's lifetime. The Messages scroller
+	// can be replaced independently without remeasuring transient view geometry.
 	useLayoutEffect(() => {
 		if (!header || input.isDirectMessage) {
 			return;
 		}
-		return attachSpaceReadingHeader(
-			header,
-			input.view === "messages" ? scrollElement : null,
-			state,
-			storageKey
-		);
-	}, [
-		header,
-		input.isDirectMessage,
-		input.view,
-		scrollElement,
-		state,
-		storageKey,
-	]);
+		const frame = header.closest("header");
+		const controller = attachSpaceReadingHeader(header, state, storageKey);
+		controllerRef.current = controller ?? null;
+		controller?.setScrollElement(activeScrollElementRef.current);
+		return () => {
+			controller?.destroy();
+			if (controllerRef.current === controller) {
+				controllerRef.current = null;
+			}
+			delete header.dataset.compact;
+			if (frame) {
+				frame.style.height = "";
+			}
+		};
+	}, [header, input.isDirectMessage, state, storageKey]);
+
+	useLayoutEffect(() => {
+		controllerRef.current?.setScrollElement(activeScrollElement);
+	}, [activeScrollElement]);
 
 	return (
 		<SpaceReadingHeaderContext value={input.isDirectMessage ? null : value}>
@@ -90,14 +107,18 @@ export function SpaceReadingHeaderProvider(input: {
 	);
 }
 
+type SpaceReadingHeaderController = {
+	destroy: () => void;
+	setScrollElement: (element: HTMLElement | null) => void;
+};
+
 // Only endpoint changes write layout. Scroll events never measure title geometry,
 // update animation progress, or rerender the transcript.
 function attachSpaceReadingHeader(
 	header: HTMLElement,
-	scroller: HTMLElement | null,
 	state: { compact: boolean },
 	storageKey: string | undefined
-) {
+): SpaceReadingHeaderController | undefined {
 	const frame = header.closest("header");
 	const navigation = header.querySelector<HTMLElement>(
 		'[data-slot="space-window-header-navigation"]'
@@ -108,8 +129,12 @@ function attachSpaceReadingHeader(
 	if (!(frame && navigation && title)) {
 		return;
 	}
+	let scroller: HTMLElement | null = null;
 	let canCompact = false;
-	let appliedCompact = false;
+	let appliedCompact =
+		header.dataset.compact === undefined
+			? undefined
+			: header.dataset.compact === "true";
 	let userScrolled = false;
 	const apply = () => {
 		const next = canCompact && state.compact;
@@ -150,9 +175,11 @@ function attachSpaceReadingHeader(
 				(adornment?.offsetWidth ?? 0) -
 				60 >=
 			96;
+		const narrowViewport =
+			narrowViewportQuery?.matches ?? window.innerWidth < 1024;
 		if (
 			header.querySelector('[data-slot="space-header-setup-recall-action"]') &&
-			window.innerWidth < 1024
+			narrowViewport
 		) {
 			canCompact = false;
 		}
@@ -199,31 +226,57 @@ function attachSpaceReadingHeader(
 			startUserScroll();
 		}
 	};
-	const observer = new ResizeObserver(measure);
-	observer.observe(header);
-	observer.observe(navigation);
+	const removeScrollListeners = (element: HTMLElement) => {
+		element.removeEventListener("scroll", onScroll);
+		element.removeEventListener("wheel", startUserScroll);
+		element.removeEventListener("touchmove", startUserScroll);
+		element.removeEventListener("keydown", onKeyDown);
+		element.removeEventListener("pointerdown", onPointerDown);
+	};
+	const setScrollElement = (element: HTMLElement | null) => {
+		if (element === scroller) {
+			return;
+		}
+		if (scroller) {
+			removeScrollListeners(scroller);
+		}
+		scroller = element;
+		userScrolled = false;
+		scroller?.addEventListener("scroll", onScroll, { passive: true });
+		scroller?.addEventListener("wheel", startUserScroll, { passive: true });
+		scroller?.addEventListener("touchmove", startUserScroll, { passive: true });
+		scroller?.addEventListener("keydown", onKeyDown);
+		scroller?.addEventListener("pointerdown", onPointerDown);
+	};
+	const resizeObserver = new ResizeObserver(measure);
+	resizeObserver.observe(header);
+	resizeObserver.observe(navigation);
 	for (const element of header.querySelectorAll(
 		'[data-slot="space-window-header-leading"], [data-slot="space-window-header-actions"]'
 	)) {
-		observer.observe(element);
+		resizeObserver.observe(element);
 	}
 	if (title.lastElementChild) {
-		observer.observe(title.lastElementChild);
+		resizeObserver.observe(title.lastElementChild);
 	}
-	scroller?.addEventListener("scroll", onScroll, { passive: true });
-	scroller?.addEventListener("wheel", startUserScroll, { passive: true });
-	scroller?.addEventListener("touchmove", startUserScroll, { passive: true });
-	scroller?.addEventListener("keydown", onKeyDown);
-	scroller?.addEventListener("pointerdown", onPointerDown);
+	// The setup recall action is absolutely positioned below lg, so mounting or
+	// removing it does not resize the observed action row. Observe membership as
+	// the missing eligibility input instead of polling layout while scrolling.
+	const mutationObserver = new MutationObserver(measure);
+	mutationObserver.observe(header, { childList: true, subtree: true });
+	const narrowViewportQuery =
+		typeof window.matchMedia === "function"
+			? window.matchMedia("(max-width: 1023px)")
+			: null;
+	narrowViewportQuery?.addEventListener("change", measure);
 	measure();
-	return () => {
-		observer.disconnect();
-		scroller?.removeEventListener("scroll", onScroll);
-		scroller?.removeEventListener("wheel", startUserScroll);
-		scroller?.removeEventListener("touchmove", startUserScroll);
-		scroller?.removeEventListener("keydown", onKeyDown);
-		scroller?.removeEventListener("pointerdown", onPointerDown);
-		delete header.dataset.compact;
-		frame.style.height = "";
+	return {
+		destroy: () => {
+			resizeObserver.disconnect();
+			mutationObserver.disconnect();
+			narrowViewportQuery?.removeEventListener("change", measure);
+			setScrollElement(null);
+		},
+		setScrollElement,
 	};
 }

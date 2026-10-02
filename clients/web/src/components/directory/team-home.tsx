@@ -13,12 +13,19 @@ import {
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import {
+	DesktopTowerIcon,
+	DevicesIcon,
+	FolderIcon,
+	MinusCircleIcon,
+	QuestionIcon,
 	SlidersHorizontalIcon,
 	StarIcon,
 	UserIcon,
+	WifiSlashIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
@@ -31,6 +38,7 @@ import {
 	PEOPLE_COMPUTER_FILTER_LABELS,
 	peopleConnectionFilter,
 	resolvePeopleSections,
+	toggleSidebarPersonStar,
 } from "./people-sidebar-order";
 
 export function TeamHome(input: {
@@ -38,11 +46,11 @@ export function TeamHome(input: {
 	computerGroups: readonly OrganizationComputerGroup[];
 	activityNowMs: number;
 	onSelect: (id: string) => void;
+	onChat?: (id: string) => Promise<void>;
+	chatPending?: boolean;
 }) {
-	const { currentOrganization, currentUserId } = useAppOrganization();
-	const viewerId =
-		input.members.find((member) => member.isCurrentUser)?.id ?? currentUserId;
-	const sidebar = useSidebarPreferences(viewerId, currentOrganization.id);
+	const { currentOrganization } = useAppOrganization();
+	const sidebar = useSidebarPreferences(currentOrganization.id);
 	const [search, setSearch] = useState("");
 	const [groupIds, setGroupIds] = useState<string[]>([]);
 	const [computerFilters, setComputerFilters] = useState<string[]>([]);
@@ -185,101 +193,129 @@ export function TeamHome(input: {
 						No members match your search or filters.
 					</p>
 				) : null}
-				{sidebar.isPending ? (
-					<p className="text-muted-foreground text-sm">Loading team…</p>
-				) : (
-					sections.map((section) => (
-						<section
-							aria-label={section.label}
-							className="group/people-section space-y-2"
-							key={section.id}
-						>
-							<div className="flex min-h-7 items-center justify-between gap-2">
-								<h2 className="flex items-center gap-2 font-medium text-muted-foreground text-sm">
-									<TeamGroupIcon id={section.id} />
-									{section.id === "online" || section.id === "offline" ? (
-										<Tooltip>
-											<TooltipTrigger
-												render={
-													<button
-														aria-label={section.label}
-														className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-														type="button"
-													/>
-												}
-											>
-												{section.label}
-											</TooltipTrigger>
-											<TooltipContent>
-												{section.id === "online"
-													? "People using OpenMeld"
-													: "People not currently active in OpenMeld"}
-											</TooltipContent>
-										</Tooltip>
-									) : (
-										section.label
-									)}
-									<span className="font-normal text-xs">
-										{section.members.length}
-									</span>
-								</h2>
-								<TeamSectionFilter
-									label={section.label}
-									onChange={(values) =>
+				{sections.map((section) => (
+					<section
+						aria-label={section.label}
+						className="group/people-section space-y-2"
+						key={section.id}
+					>
+						<div className="flex min-h-7 items-center justify-between gap-2">
+							<h2 className="flex items-center gap-2 font-medium text-muted-foreground text-sm">
+								<TeamGroupIcon id={section.id} />
+								{section.id === "online" || section.id === "offline" ? (
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<button
+													aria-label={section.label}
+													className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+													type="button"
+												/>
+											}
+										>
+											{section.label}
+										</TooltipTrigger>
+										<TooltipContent>
+											{section.id === "online"
+												? "People using OpenMeld"
+												: "People not currently active in OpenMeld"}
+										</TooltipContent>
+									</Tooltip>
+								) : (
+									section.label
+								)}
+								<span className="font-normal text-xs">
+									{section.members.length}
+								</span>
+							</h2>
+							<TeamSectionFilter
+								label={section.label}
+								onChange={(values) =>
+									setSectionFilters((current) => ({
+										...current,
+										[section.id]: values,
+									}))
+								}
+								values={sectionFilters[section.id] ?? []}
+							/>
+						</div>
+						<div className="flex flex-wrap gap-2 empty:hidden">
+							{(sectionFilters[section.id] ?? []).map((value) => (
+								<SidebarFilterBadge
+									key={value}
+									label={
+										PEOPLE_COMPUTER_FILTER_LABELS[
+											value as keyof typeof PEOPLE_COMPUTER_FILTER_LABELS
+										]
+									}
+									onRemove={() =>
 										setSectionFilters((current) => ({
 											...current,
-											[section.id]: values,
+											[section.id]: current[section.id].filter(
+												(item) => item !== value
+											),
 										}))
 									}
-									values={sectionFilters[section.id] ?? []}
 								/>
-							</div>
-							<div className="flex flex-wrap gap-2 empty:hidden">
-								{(sectionFilters[section.id] ?? []).map((value) => (
-									<SidebarFilterBadge
-										key={value}
-										label={
-											PEOPLE_COMPUTER_FILTER_LABELS[
-												value as keyof typeof PEOPLE_COMPUTER_FILTER_LABELS
-											]
-										}
-										onRemove={() =>
-											setSectionFilters((current) => ({
-												...current,
-												[section.id]: current[section.id].filter(
-													(item) => item !== value
+							))}
+						</div>
+						<FluidCardGroup
+							aria-label={section.label}
+							className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+							role="list"
+						>
+							{section.members.map((member, index) => (
+								<HumanProfileItem
+									actionsDisabled={sidebar.disabled || input.chatPending}
+									activityNowMs={input.activityNowMs}
+									computerGroup={computers.get(member.userId) ?? null}
+									index={index}
+									isActive={false}
+									key={member.id}
+									member={member}
+									onChat={
+										input.onChat &&
+										!member.isCurrentUser &&
+										member.profileStatus === "active"
+											? () => {
+													input
+														.onChat?.(member.id)
+														.catch((error) =>
+															toast.error(
+																error instanceof Error
+																	? error.message
+																	: "Couldn't open this conversation. Try again."
+															)
+														);
+												}
+											: undefined
+									}
+									onSelect={input.onSelect}
+									onToggleStar={() => {
+										if (sidebar.preferences) {
+											sidebar.save({
+												...sidebar.preferences,
+												people: toggleSidebarPersonStar(
+													sidebar.preferences.people ?? EMPTY_PEOPLE_SIDEBAR,
+													member.id
 												),
-											}))
+											});
 										}
-									/>
-								))}
-							</div>
-							<FluidCardGroup
-								aria-label={section.label}
-								className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
-								role="list"
-							>
-								{section.members.map((member, index) => (
-									<HumanProfileItem
-										activityNowMs={input.activityNowMs}
-										computerGroup={computers.get(member.userId) ?? null}
-										index={index}
-										isActive={false}
-										key={member.id}
-										member={member}
-										onSelect={input.onSelect}
-										presentation="card"
-									/>
-								))}
-							</FluidCardGroup>
-							{section.members.length === 0 ? (
-								<p className="text-muted-foreground text-xs">
-									No members in this group.
-								</p>
-							) : null}
-						</section>
-					))
-				)}
+									}}
+									presentation="card"
+									starred={sidebar.preferences?.people?.starred.itemIds.includes(
+										member.id
+									)}
+								/>
+							))}
+						</FluidCardGroup>
+						{section.members.length === 0 ? (
+							<p className="text-muted-foreground text-xs">
+								No members in this group.
+							</p>
+						) : null}
+					</section>
+				))}
 			</div>
 		</div>
 	);
@@ -302,7 +338,7 @@ function TeamGroupIcon({ id }: { id: string }) {
 			/>
 		);
 	}
-	if (id === "offline") {
+	if (id === "offline" || id === "presence-unknown") {
 		return (
 			<UserIcon
 				aria-hidden="true"
@@ -310,7 +346,33 @@ function TeamGroupIcon({ id }: { id: string }) {
 			/>
 		);
 	}
-	return null;
+	return (
+		<FolderIcon
+			aria-hidden="true"
+			className="size-4 shrink-0 text-muted-foreground"
+		/>
+	);
+}
+
+const COMPUTER_FILTER_ICONS = {
+	connected: DesktopTowerIcon,
+	offline: WifiSlashIcon,
+	unconnected: MinusCircleIcon,
+	unknown: QuestionIcon,
+};
+
+function TeamComputerFilterIcon({
+	value,
+}: {
+	value: keyof typeof PEOPLE_COMPUTER_FILTER_LABELS;
+}) {
+	const Icon = COMPUTER_FILTER_ICONS[value];
+	return (
+		<Icon
+			aria-hidden="true"
+			className="size-4 shrink-0 text-muted-foreground"
+		/>
+	);
 }
 
 function TeamSectionFilter(input: {
@@ -361,6 +423,9 @@ function TeamComputerFilterItems(input: {
 						)
 					}
 				>
+					<TeamComputerFilterIcon
+						value={value as keyof typeof PEOPLE_COMPUTER_FILTER_LABELS}
+					/>
 					{label}
 				</DropdownMenuCheckboxItem>
 			))}
@@ -368,6 +433,10 @@ function TeamComputerFilterItems(input: {
 				checked={input.values.length === 0}
 				onCheckedChange={() => input.onChange([])}
 			>
+				<DevicesIcon
+					aria-hidden="true"
+					className="size-4 shrink-0 text-muted-foreground"
+				/>
 				All computer states
 			</DropdownMenuCheckboxItem>
 		</>

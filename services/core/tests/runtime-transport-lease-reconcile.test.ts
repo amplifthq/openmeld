@@ -11,7 +11,9 @@ import {
   buildRuntimeCoordinatorExecutionId,
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
+  OPENMELD_COMPUTER_CARE_HEADER,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
@@ -67,7 +69,12 @@ async function fetchWithOpenMeldAuth(input: {
 
 async function openDaemonStream(
   ownerUserId: string,
-  options?: { computerFileAccess?: boolean; localFolderPicker?: boolean }
+  options?: {
+    computerFileAccess?: boolean;
+    localFolderPicker?: boolean;
+    computerCare?: boolean;
+    executionAdmissionConfirmation?: boolean;
+  }
 ): Promise<WebSocket> {
   touchedOwnerUserIds.add(ownerUserId);
   const response = await fetchWithOpenMeldAuth({
@@ -76,6 +83,12 @@ async function openDaemonStream(
     init: {
       headers: {
         Upgrade: "websocket",
+        ...(options?.executionAdmissionConfirmation
+          ? { [OPENMELD_EXECUTION_ADMISSION_HEADER]: "1" }
+          : {}),
+        ...(options?.computerCare
+          ? { [OPENMELD_COMPUTER_CARE_HEADER]: "1" }
+          : {}),
         ...(options?.computerFileAccess
           ? {
               "x-openmeld-runtime-capabilities": "computer-file-access-v1",
@@ -122,6 +135,8 @@ async function registerSession(input: {
   serviceVersion?: string;
   socket: WebSocket;
 }): Promise<{
+  computerCare?: true;
+  executionAdmissionConfirmation?: true;
   acceptedLeases: Array<{ leaseEpoch: number; profileId: string }>;
   connectionGeneration: number | undefined;
   rejectedProfiles: Array<{ profileId: string; reasonCode: string }>;
@@ -172,12 +187,16 @@ async function registerSession(input: {
     throw new Error(`Daemon registration failed: ${JSON.stringify(frame)}`);
   }
   const payload = frame.payload as {
+    computerCare?: true;
+    executionAdmissionConfirmation?: true;
     acceptedLeases?: Array<{ leaseEpoch: number; profileId: string }>;
     connectionGeneration?: number;
     rejectedProfiles?: Array<{ profileId: string; reasonCode: string }>;
   };
 
   return {
+    computerCare: payload.computerCare,
+    executionAdmissionConfirmation: payload.executionAdmissionConfirmation,
     acceptedLeases: payload.acceptedLeases ?? [],
     connectionGeneration: payload.connectionGeneration,
     rejectedProfiles: payload.rejectedProfiles ?? [],
@@ -185,6 +204,7 @@ async function registerSession(input: {
 }
 
 async function sendHeartbeat(input: {
+  acceptingDispatches?: boolean;
   capabilities?: Record<string, unknown>;
   daemonSessionId: string;
   deviceId: string;
@@ -208,6 +228,7 @@ async function sendHeartbeat(input: {
         lane: input.lane ?? "dev-local",
         daemonSessionId: input.daemonSessionId,
         serviceVersion: input.serviceVersion ?? "0.7.91",
+        acceptingDispatches: input.acceptingDispatches,
         ...(input.capabilities ? { capabilities: input.capabilities } : {}),
         leases: input.leases,
         runtimeContract: {
@@ -795,16 +816,20 @@ describe("runtime transport lease reconciliation", () => {
     const socket = await openDaemonStream(ownerUserId, {
       computerFileAccess: true,
       localFolderPicker: true,
+      computerCare: true,
+      executionAdmissionConfirmation: true,
     });
 
     try {
-      await registerSession({
+      const registered = await registerSession({
         daemonSessionId,
         deviceId,
         ownerUserId,
         profileIds: [],
         socket,
       });
+      expect(registered.computerCare).toBe(true);
+      expect(registered.executionAdmissionConfirmation).toBe(true);
       expect(
         await sendHeartbeat({
           daemonSessionId,
@@ -850,13 +875,15 @@ describe("runtime transport lease reconciliation", () => {
     const socket = await openDaemonStream(ownerUserId);
 
     try {
-      await registerSession({
+      const registered = await registerSession({
         daemonSessionId,
         deviceId,
         ownerUserId,
         profileIds: [],
         socket,
       });
+      expect(registered.computerCare).toBeUndefined();
+      expect(registered.executionAdmissionConfirmation).toBeUndefined();
       expect(
         await sendHeartbeat({
           daemonSessionId,
@@ -1341,7 +1368,7 @@ describe("runtime transport lease reconciliation", () => {
     }
   });
 
-  it("re-registering the same catalog on the same socket publishes no readiness invalidation", async () => {
+  it("invalidates only changed readiness on same-socket registration and admission heartbeats", async () => {
     const ownerUserId = "owner-reregister-delta";
     const deviceId = "device-reregister-delta";
     const steadyProfileId = `agt_${crypto.randomUUID()}`;
@@ -1391,6 +1418,7 @@ describe("runtime transport lease reconciliation", () => {
         ownerUserId,
         daemonSessionId: "daemon-session-reregister-delta",
         deviceId,
+        serviceVersion: "0.7.91",
         profileIds: [steadyProfileId],
       });
       expect(first.acceptedLeases.map((lease) => lease.profileId)).toEqual([
@@ -1404,6 +1432,7 @@ describe("runtime transport lease reconciliation", () => {
         ownerUserId,
         daemonSessionId: "daemon-session-reregister-delta",
         deviceId,
+        serviceVersion: "0.7.91",
         profileIds: [steadyProfileId],
       });
       expect(
@@ -1417,6 +1446,7 @@ describe("runtime transport lease reconciliation", () => {
         ownerUserId,
         daemonSessionId: "daemon-session-reregister-delta",
         deviceId,
+        serviceVersion: "0.7.91",
         profileIds: [steadyProfileId, newcomerProfileId],
       });
       expect(
@@ -1424,6 +1454,30 @@ describe("runtime transport lease reconciliation", () => {
       ).toEqual([newcomerProfileId, steadyProfileId].sort());
       // Same socket, one new profile: only the newcomer is invalidated.
       expect(await drainInvalidationBuffer()).toEqual([newcomerProfileId]);
+
+      // A new session starts with admission closed. Opening, closing and
+      // reopening it changes every carried profile's new-Wake verdict, even
+      // with the same socket, version and fresh leases.
+      for (const acceptingDispatches of [true, false, true]) {
+        for (const expectedProfileIds of [
+          [steadyProfileId, newcomerProfileId],
+          [],
+        ]) {
+          expect(
+            await sendHeartbeat({
+              acceptingDispatches,
+              socket,
+              ownerUserId,
+              daemonSessionId: "daemon-session-reregister-delta",
+              deviceId,
+              leases: withNewcomer.acceptedLeases,
+            })
+          ).toEqual({ ok: true, staleLeases: [] });
+          expect((await drainInvalidationBuffer()).sort()).toEqual(
+            expectedProfileIds.sort()
+          );
+        }
+      }
     } finally {
       socket.close(1000, "test_done");
     }

@@ -17,6 +17,85 @@ import {
 } from "../src";
 
 describe("planAgentProfileReplyRecovery", () => {
+  it("retains Local selection when the known Local profile has no binding to check", () => {
+    const member = createSpaceMemberAgentSnapshot({
+      agentControllerRef: "builtin:codex",
+      wakeState: "offline",
+      wakeabilityStatus: "blocked",
+      wakeabilityReasonCodes: ["agent_profile_binding.missing"],
+      agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+        displayState: "unknown",
+        primaryAction: "check_status",
+        reasonCodes: ["agent_profile_binding.missing"],
+        facts: {
+          binding: {
+            source: "missing",
+            routable: false,
+            reasonCodes: ["agent_profile_binding.missing"],
+          },
+          localService: {
+            source: "not_checked",
+            reachable: false,
+            refreshable: false,
+            reasonCodes: [],
+          },
+        },
+      }),
+    });
+    // Core's public availability classifies a confirmed missing binding as
+    // unavailable/action_required, not an in-progress local connection check.
+    if (!member.ownerWakeDiagnostics) {
+      throw new Error("Expected owner diagnostics");
+    }
+    member.ownerWakeDiagnostics.state = "action_required";
+    expect(planAgentProfileReplyRecovery({ member })).toMatchObject({
+      kind: "choose_controller",
+      primaryActionId: "choose_local_agent",
+    });
+  });
+
+  it.each([
+    "hosted:remote-agent",
+    "hosted:center-agent",
+    null,
+  ])("never prescribes local setup for Hosted or unresolved controller %s", (agentControllerRef) => {
+    const member = createSpaceMemberAgentSnapshot({
+      agentControllerRef,
+      wakeState: "offline",
+      wakeabilityStatus: "blocked",
+      wakeabilityReasonCodes: ["runtime.projection_missing"],
+      agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+        displayState: "not_ready",
+        primaryAction: "run_prepare",
+        reasonCodes: ["runtime.projection_missing"],
+      }),
+    });
+    expect(
+      planAgentProfileReplyRecovery({
+        member,
+        currentLocalRuntimeReplyState: "not_ready",
+      })
+    ).toEqual({ kind: "none" });
+  });
+
+  it("retains a Hosted model-settings recovery without using local setup", () => {
+    const member = createSpaceMemberAgentSnapshot({
+      agentControllerRef: "hosted:remote-agent",
+      wakeState: "offline",
+      wakeabilityStatus: "blocked",
+      wakeabilityReasonCodes: ["model.unavailable"],
+      agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+        displayState: "not_ready",
+        primaryAction: "check_status",
+        reasonCodes: ["model.unavailable"],
+      }),
+    });
+    expect(planAgentProfileReplyRecovery({ member })).toMatchObject({
+      kind: "review_agent_profile",
+      primaryActionId: "change_model",
+    });
+  });
+
   it("does not invent a recovery action when readiness contains only a blank reason code", () => {
     const plan = planAgentProfileReplyRecovery({
       member: createBlockedAgent({
@@ -290,6 +369,32 @@ describe("planAgentProfileReplyRecovery", () => {
     });
   });
 
+  it.each([
+    "model.retired",
+    "model.unavailable",
+  ] as const)("routes %s to the exact agent's model settings, never Computer repair", (reasonCode) => {
+    const member = createBlockedAgent({
+      agentExecutionReadiness: createSpaceMemberAgentExecutionReadiness({
+        displayState: "not_ready",
+        primaryAction: "check_status",
+        reasonCodes: [reasonCode],
+        facts: {
+          binding: { routable: true, reasonCodes: [], source: "binding_truth" },
+        },
+      }),
+      profileName: "Research",
+      wakeabilityReasonCodes: [reasonCode],
+    });
+    const plan = planAgentProfileReplyRecovery({ member });
+    expect(plan).toMatchObject({
+      kind: "review_agent_profile",
+      profileId: member.profileId,
+      primaryActionId: "change_model",
+      primaryActionLabel: "Change model",
+      recoveryReasonCode: reasonCode,
+    });
+  });
+
   it("routes duplicate controller conversations to agent settings review", () => {
     const plan = planAgentProfileReplyRecovery({
       member: createBlockedAgent({
@@ -360,10 +465,6 @@ describe("planAgentProfileReplyRecovery", () => {
   });
 
   it("does not guess the local agent from the profile name", () => {
-    const copy = readSharedRecoveryCopy(
-      "agent_profile_binding.missing",
-      "Codex"
-    );
     const plan = planAgentProfileReplyRecovery({
       selectableLocalAgentTargets: createSelectableLocalAgentTargets([
         createSelectableLocalAgentTarget({
@@ -379,17 +480,10 @@ describe("planAgentProfileReplyRecovery", () => {
       }),
     });
 
-    expect(plan).toMatchObject({
-      body: copy.body,
-      kind: "choose_controller",
-      primaryActionLabel: "Choose local agent",
-      recoveryReasonCode: "agent_profile_binding.missing",
-      secondaryLabel: copy.presentation,
-      title: copy.presentation,
-    });
+    expect(plan).toEqual({ kind: "none" });
   });
 
-  it("asks the user to choose a local agent when no deterministic match exists", () => {
+  it("preserves Local agent selection when the known controller has no matching installation", () => {
     const copy = readSharedRecoveryCopy(
       "agent_profile_binding.missing",
       "Research Agent"
@@ -403,7 +497,7 @@ describe("planAgentProfileReplyRecovery", () => {
       ]),
       member: createBlockedAgent({
         agentExecutionReadiness: createMissingBindingAgentExecutionReadiness(),
-        agentControllerRef: null,
+        agentControllerRef: "builtin:claude-code",
         profileName: "Research Agent",
         wakeabilityReasonCodes: ["profile.unbound"],
       }),

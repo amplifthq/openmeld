@@ -28,9 +28,10 @@ const PROJECT_RPC_METHODS = [
   "centerAgentRemoveProject",
 ] as const;
 
-const WAKE_PROGRESS_RPC_METHODS = [
+const WAKE_CONTROL_RPC_METHODS = [
   "centerAgentListActiveSpaceWakes",
   "centerAgentReadSpaceWakeProgress",
+  "centerAgentStopSpaceWake",
 ] as const;
 
 describe("Private Center Agent RPC surface", () => {
@@ -133,7 +134,7 @@ describe("Private Center Agent RPC surface", () => {
     }
   });
 
-  it("exposes Wake progress reads only on the private Center Agent entrypoint", () => {
+  it("exposes Wake controls only on the private Center Agent entrypoint", () => {
     const centerAgentMethods = Object.getOwnPropertyNames(
       CenterAgentRpcEntrypoint.prototype
     );
@@ -141,10 +142,42 @@ describe("Private Center Agent RPC surface", () => {
       GatewayRpcEntrypoint.prototype
     );
 
-    for (const method of WAKE_PROGRESS_RPC_METHODS) {
+    for (const method of WAKE_CONTROL_RPC_METHODS) {
       expect(centerAgentMethods).toContain(method);
       expect(gatewayMethods).not.toContain(method);
     }
+  });
+
+  it("keeps member-attributed audit reads on the private Center Agent entrypoint", () => {
+    expect(
+      Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
+    ).toContain("centerAgentReadAuditJournal");
+    expect(
+      Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
+    ).not.toContain("centerAgentReadAuditJournal");
+  });
+
+  it("keeps historical Routine evidence on the private Center Agent surface", () => {
+    for (const name of [
+      "centerAgentListRoutineRuns",
+      "centerAgentReadRoutineRunDiagnostics",
+    ]) {
+      expect(
+        Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
+      ).toContain(name);
+      expect(
+        Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
+      ).not.toContain(name);
+    }
+  });
+
+  it("keeps explicit memory search off the Gateway surface", () => {
+    expect(
+      Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
+    ).toContain("centerAgentSearchMemory");
+    expect(
+      Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
+    ).not.toContain("centerAgentSearchMemory");
   });
 
   it("keeps the historical Routine entrypoint as a compatibility alias", () => {

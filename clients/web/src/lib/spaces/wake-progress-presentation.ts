@@ -1,5 +1,6 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import type { WakeProgressItem } from "@openmeld/schemas/types";
+import { doWakeProgressItemsMatch } from "@openmeld/space";
 import type { SpaceEphemeralActivityItem } from "./dispatch-activity";
 import type { SpaceTimelineItem } from "./timeline";
 import {
@@ -12,9 +13,9 @@ import {
 	type WakeProgressStatusPresentation,
 } from "./wake-progress-status";
 import {
+	buildSpaceWakeOutcomeIndex,
 	matchesSpaceMessageWakeProgressItem,
 	resolveSpaceMessageWakeTargetProfileIds,
-	resolveVisibleWakeOutcomeTargetProfileIds,
 	type SpaceWakeOutcomeIndex,
 	type SpaceWakeStopTargetResolution,
 } from "./wake-stop-target";
@@ -113,12 +114,31 @@ export function resolveSpaceMessageWakeProgressState(input: {
 			})
 		)
 		.sort(compareWakeProgressItems);
-	const progressEntries = matchingItems.flatMap((item) =>
-		resolveWakeProgressThinkingEntry({
-			item,
-			showElapsedTime: wakeTargetProfileIds.length === 1,
-		})
-	);
+	const wakeOutcomeIndex =
+		input.wakeOutcomeIndex ??
+		buildSpaceWakeOutcomeIndex(input.timelineItems ?? []);
+	const progressEntries = matchingItems
+		.filter(
+			(item) =>
+				!(
+					matchingItems.some(
+						(outcome) =>
+							outcome.phase === "replied" &&
+							doWakeProgressItemsMatch({ left: item, right: outcome })
+					) ||
+					wakeOutcomeIndex.hasVisibleOutcomeForSourceTarget({
+						sourceItem: input.item,
+						targetProfileId: item.targetProfileId,
+						dispatchId: item.dispatchId,
+					})
+				)
+		)
+		.flatMap((item) =>
+			resolveWakeProgressThinkingEntry({
+				item,
+				showElapsedTime: wakeTargetProfileIds.length === 1,
+			})
+		);
 	const issueEntries = matchingItems.flatMap((item) =>
 		resolveWakeIssueEntry({
 			agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
@@ -127,20 +147,10 @@ export function resolveSpaceMessageWakeProgressState(input: {
 				input.wakeFailureTargetContextsByProfileId,
 		})
 	);
-	const finalOutcomeTargetProfileIds = resolveWakeFinalOutcomeTargetProfileIds({
-		items: matchingItems,
-		sourceItem: input.item,
-		targetProfileIds,
-		timelineItems: input.timelineItems ?? [],
-		wakeOutcomeIndex: input.wakeOutcomeIndex,
-	});
-
 	return {
 		hasProblem: matchingItems.some(isProblemWakeProgressItem),
 		issueEntries,
-		thinkingEntries: progressEntries.filter(
-			(entry) => !finalOutcomeTargetProfileIds.has(entry.targetProfileId)
-		),
+		thinkingEntries: progressEntries,
 	};
 }
 
@@ -217,52 +227,28 @@ export function resolveWakeProgressThinkingEntry(input: {
 	if (!step) {
 		return [];
 	}
+	const awaitingConfirmation = step.kind === "confirmation_pending";
 
 	return [
 		{
 			elapsedStartedAtMs:
 				input.showElapsedTime &&
 				item.phase === "running" &&
+				!awaitingConfirmation &&
 				!item.pendingInteraction
 					? (item.startedAtMs ?? null)
 					: null,
 			lastEvidenceAtMs: item.updatedAtMs,
 			key: resolveWakeProgressKey(item),
-			kind: item.previewText ? "preview" : "progress",
+			kind: item.previewText && !awaitingConfirmation ? "preview" : "progress",
 			phase: item.phase,
 			step,
 			targetProfileId: item.targetProfileId,
-			text: item.previewText ?? step.label,
+			text: awaitingConfirmation
+				? step.label
+				: (item.previewText ?? step.label),
 		},
 	];
-}
-
-function resolveWakeFinalOutcomeTargetProfileIds(input: {
-	items: readonly WakeProgressItem[];
-	sourceItem: SpaceTimelineItem;
-	targetProfileIds: ReadonlySet<string>;
-	timelineItems: readonly SpaceTimelineItem[];
-	wakeOutcomeIndex?: SpaceWakeOutcomeIndex;
-}): ReadonlySet<string> {
-	const targetProfileIds = new Set<string>();
-
-	for (const item of input.items) {
-		if (item.phase !== "replied") {
-			continue;
-		}
-		targetProfileIds.add(item.targetProfileId);
-	}
-
-	for (const targetProfileId of resolveVisibleWakeOutcomeTargetProfileIds({
-		sourceItem: input.sourceItem,
-		targetProfileIds: input.targetProfileIds,
-		timelineItems: input.timelineItems,
-		wakeOutcomeIndex: input.wakeOutcomeIndex,
-	})) {
-		targetProfileIds.add(targetProfileId);
-	}
-
-	return targetProfileIds;
 }
 
 function isProblemWakeProgressItem(item: WakeProgressItem): boolean {

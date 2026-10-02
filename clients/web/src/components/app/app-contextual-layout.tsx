@@ -24,9 +24,11 @@ import { CenterTruncatedText } from "./center-truncated-text";
 
 export type AppContextualNavItem<ItemId extends string = string> = {
 	id: ItemId;
-	icon: Icon;
+	icon?: Icon;
 	label: string;
 	accessory?: ReactNode;
+	/** Include accessory meaning when the visible label alone is insufficient. */
+	ariaLabel?: string;
 	preserveSearch?: boolean;
 	statusTone?: ComputerAttentionTone;
 	to?: string;
@@ -191,7 +193,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 				resolveContextualNavStatusClassName(input.item.statusTone)
 			)}
 		>
-			<Icon className="size-4 shrink-0" />
+			{Icon ? <Icon className="size-4 shrink-0" /> : null}
 			<CenterTruncatedText className="flex-1" text={input.item.label} />
 			{input.item.accessory}
 		</span>
@@ -203,7 +205,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 				<Link
 					activeOptions={{ exact: true }}
 					aria-current={input.isActive ? "page" : undefined}
-					aria-label={input.item.label}
+					aria-label={input.item.ariaLabel ?? input.item.label}
 					className="block min-w-0 outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
 					onClick={(event) => {
 						if (isModifiedActivation(event)) {
@@ -228,7 +230,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 			) : (
 				<button
 					aria-current={input.isActive ? "page" : undefined}
-					aria-label={input.item.label}
+					aria-label={input.item.ariaLabel ?? input.item.label}
 					className="block w-full min-w-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
 					onClick={() => {
 						input.onActivate?.(input.item.id);

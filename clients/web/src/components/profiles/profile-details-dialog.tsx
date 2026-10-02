@@ -33,7 +33,8 @@ import {
 	PencilSimpleIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactElement, ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { AgentTaskActivitySummary } from "#/components/agents/agent-task-activity";
@@ -45,6 +46,7 @@ import type {
 } from "#/components/directory/directory-human-profile-model";
 import {
 	buildDirectoryAgentProfilesByOwner,
+	resolveCurrentOrganizationComputersProjection,
 	resolveHumanProfileComputer,
 } from "#/components/directory/directory-human-profile-model";
 import {
@@ -116,8 +118,13 @@ export function AgentProfileDetailsContent(input: {
 	isCenterAgent?: boolean;
 	moreDetailsHref?: string;
 	onOpenDirectMessage?: () => void;
+	onNavigate?: () => void;
 }) {
 	const canEdit = input.details.viewerScope === "owner_self";
+	const availabilitySummary =
+		input.entry.availabilitySummary !== resolveAgentPresenceSummary(input.entry)
+			? input.entry.availabilitySummary
+			: null;
 
 	return (
 		<div
@@ -130,16 +137,22 @@ export function AgentProfileDetailsContent(input: {
 				entry={input.entry}
 				isCenterAgent={input.isCenterAgent === true}
 				moreDetailsHref={input.moreDetailsHref}
-				showAvailabilitySummary
+				onNavigate={input.onNavigate}
 			/>
 			<AgentProfileDirectMessageAction
 				href={input.chatHref}
 				isPending={input.isDirectMessagePending === true}
+				onNavigate={input.onNavigate}
 				onOpen={input.onOpenDirectMessage}
 				profileName={input.entry.profileName}
 			/>
+			{availabilitySummary ? (
+				<p className="mt-3 border-border border-t pt-3 text-muted-foreground text-xs">
+					{availabilitySummary}
+				</p>
+			) : null}
 			{!input.isCenterAgent && (
-				<div className="mt-3 border-border border-t pt-3">
+				<div className="mt-3 border-border border-t pt-3 empty:hidden">
 					<AgentProfileUsage
 						profileId={input.entry.profileId}
 						variant="popover"
@@ -157,23 +170,20 @@ function AgentProfileDetailsHeader(input: {
 	entry: SpaceMemberDirectoryEntry;
 	isCenterAgent: boolean;
 	moreDetailsHref?: string;
-	showAvailabilitySummary: boolean;
+	onNavigate?: () => void;
 }) {
 	const modelSummary =
 		selectDetailsRows(input.details, ["model"])[0]?.value ??
 		input.entry.controllerDisplayName ??
 		"Agent";
 	const presenceSummary = resolveAgentPresenceSummary(input.entry);
-	const showAvailabilitySummary =
-		input.showAvailabilitySummary &&
-		input.entry.availabilitySummary &&
-		input.entry.availabilitySummary !== presenceSummary;
 	return (
 		<ProfileCardHeader
 			action={
 				<AgentProfileDetailsAction
 					canEdit={input.canEdit}
 					href={input.moreDetailsHref}
+					onNavigate={input.onNavigate}
 					profileName={input.entry.profileName}
 				/>
 			}
@@ -181,6 +191,8 @@ function AgentProfileDetailsHeader(input: {
 				input.isCenterAgent ? (
 					<SpaceProfileIcon
 						agentControllerRef={input.entry.agentControllerRef}
+						avatarModelId={input.entry.avatarModelId}
+						avatarStyle={input.entry.avatarStyle}
 						isCenterAgent
 						profileId={input.entry.profileId}
 						profileKind="agent"
@@ -190,6 +202,8 @@ function AgentProfileDetailsHeader(input: {
 				) : (
 					<AgentProfileControllerAvatar
 						agentControllerRef={input.entry.agentControllerRef}
+						avatarStyle={input.entry.avatarStyle}
+						modelId={input.entry.avatarModelId}
 						profileId={input.entry.profileId}
 						profileName={input.entry.profileName}
 						size={48}
@@ -216,15 +230,10 @@ function AgentProfileDetailsHeader(input: {
 			}
 			name={input.entry.profileName}
 		>
-			<p className="mt-1 break-words text-muted-foreground text-sm">
+			<p className="mt-1 truncate text-muted-foreground text-sm">
 				{modelSummary}
 			</p>
 			{!input.isCenterAgent && <AgentProfileOwner entry={input.entry} />}
-			{showAvailabilitySummary ? (
-				<p className="mt-1 text-muted-foreground text-xs">
-					{input.entry.availabilitySummary}
-				</p>
-			) : null}
 		</ProfileCardHeader>
 	);
 }
@@ -246,7 +255,7 @@ function AgentProfileOwner({ entry }: { entry: SpaceMemberDirectoryEntry }) {
 	}
 	return (
 		<p className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
-			<span>Owned by</span>
+			<span className="shrink-0">Owned by</span>
 			{owner?.humanProfile && (
 				<DitherProfileAvatar
 					avatarImageUrl={owner.user.image}
@@ -256,7 +265,7 @@ function AgentProfileOwner({ entry }: { entry: SpaceMemberDirectoryEntry }) {
 					size={16}
 				/>
 			)}
-			<span className="min-w-0 break-words text-foreground">{name}</span>
+			<span className="min-w-0 truncate text-foreground">{name}</span>
 		</p>
 	);
 }
@@ -265,12 +274,13 @@ function AgentProfileDetailsAction(input: {
 	canEdit: boolean;
 	href?: string;
 	profileName: string;
+	onNavigate?: () => void;
 }) {
 	if (!input.href) {
 		return null;
 	}
 	return (
-		<a
+		<Link
 			aria-label={
 				input.canEdit
 					? `Edit ${input.profileName}`
@@ -280,14 +290,15 @@ function AgentProfileDetailsAction(input: {
 				buttonVariants({ size: "icon-xs", variant: "ghost" }),
 				"shrink-0"
 			)}
-			href={input.href}
+			onClick={input.onNavigate}
+			to={input.href}
 		>
 			{input.canEdit ? (
 				<PencilSimpleIcon aria-hidden="true" />
 			) : (
 				<ArrowRightIcon aria-hidden="true" />
 			)}
-		</a>
+		</Link>
 	);
 }
 
@@ -296,6 +307,7 @@ function AgentProfileDirectMessageAction(input: {
 	isPending: boolean;
 	onOpen?: () => void;
 	profileName: string;
+	onNavigate?: () => void;
 }) {
 	if (!(input.href || input.onOpen)) {
 		return null;
@@ -308,15 +320,16 @@ function AgentProfileDirectMessageAction(input: {
 	);
 	if (input.href) {
 		return (
-			<a
+			<Link
 				className={cn(
 					buttonVariants({ size: "default", variant: "default" }),
 					"mt-3 w-full min-w-0 justify-center px-4"
 				)}
-				href={input.href}
+				onClick={input.onNavigate}
+				to={input.href}
 			>
 				{content}
-			</a>
+			</Link>
 		);
 	}
 	return (
@@ -342,8 +355,9 @@ export function AgentProfileDetailsPopover(input: {
 	onOpenDirectMessage?: () => void;
 	trigger: ReactElement;
 }) {
+	const [open, setOpen] = useState(false);
 	return (
-		<Popover.Root modal={false}>
+		<Popover.Root modal={false} onOpenChange={setOpen} open={open}>
 			<Popover.Trigger render={input.trigger} />
 			<Popover.Portal>
 				<Popover.Positioner
@@ -374,6 +388,7 @@ export function AgentProfileDetailsPopover(input: {
 							isCenterAgent={input.isCenterAgent}
 							isDirectMessagePending={input.isDirectMessagePending}
 							moreDetailsHref={input.moreDetailsHref}
+							onNavigate={() => setOpen(false)}
 							onOpenDirectMessage={input.onOpenDirectMessage}
 						/>
 					</Popover.Popup>
@@ -395,12 +410,13 @@ export function HumanProfileDetailsPopover(input: {
 	profileHref?: string;
 	trigger: ReactElement;
 }) {
+	const [open, setOpen] = useState(false);
 	const activityTime = useMemberActivityTime(input.entry);
 	const canLoadCollaborationDetails = Boolean(
 		input.organizationId && input.orgSlug && input.entry.ownerUserId
 	);
 	return (
-		<Popover.Root modal={false}>
+		<Popover.Root modal={false} onOpenChange={setOpen} open={open}>
 			<Popover.Trigger render={input.trigger} />
 			<Popover.Portal>
 				<Popover.Positioner
@@ -428,6 +444,7 @@ export function HumanProfileDetailsPopover(input: {
 								isDirectMessagePending={input.isDirectMessagePending === true}
 								isSelf={input.isSelf === true}
 								modelCatalog={input.modelCatalog}
+								onNavigate={() => setOpen(false)}
 								onOpenDirectMessage={input.onOpenDirectMessage}
 								organizationId={input.organizationId ?? ""}
 								orgSlug={input.orgSlug ?? ""}
@@ -439,6 +456,7 @@ export function HumanProfileDetailsPopover(input: {
 								entry={input.entry}
 								isDirectMessagePending={input.isDirectMessagePending === true}
 								isSelf={input.isSelf === true}
+								onNavigate={() => setOpen(false)}
 								onOpenDirectMessage={input.onOpenDirectMessage}
 								profileHref={input.profileHref}
 							/>
@@ -460,8 +478,9 @@ export function HistoricalProfilePopover(input: {
 	chatHref?: string;
 	trigger: ReactElement;
 }) {
+	const [open, setOpen] = useState(false);
 	return (
-		<Popover.Root modal={false}>
+		<Popover.Root modal={false} onOpenChange={setOpen} open={open}>
 			<Popover.Trigger render={input.trigger} />
 			<Popover.Portal>
 				<Popover.Positioner
@@ -509,6 +528,7 @@ export function HistoricalProfilePopover(input: {
 							<AgentProfileDirectMessageAction
 								href={input.chatHref}
 								isPending={false}
+								onNavigate={() => setOpen(false)}
 								profileName={input.entry.profileName}
 							/>
 						) : null}
@@ -527,6 +547,7 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 	isSelf: boolean;
 	modelCatalog: ModelCatalog | null;
 	onOpenDirectMessage?: () => void;
+	onNavigate?: () => void;
 	organizationId: string;
 	orgSlug: string;
 	profileHref?: string;
@@ -554,12 +575,10 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 		isError: profileDirectoryQuery.isError,
 		isPending: profileDirectoryQuery.isPending,
 	});
-	const computersStatus = resolveDirectoryProjectionStatus({
-		isError: computersQuery.isError,
-		isPending: computersQuery.isPending,
-	});
+	const { data: currentComputers, status: computersStatus } =
+		resolveCurrentOrganizationComputersProjection(computersQuery);
 	const computer = resolveHumanProfileComputer({
-		computers: computersQuery.data ?? null,
+		computers: currentComputers,
 		isCurrentUser: input.entry.ownerUserId === input.currentOwnerUserId,
 		orgSlug: input.orgSlug,
 		status: computersStatus,
@@ -575,6 +594,7 @@ function HumanProfileDetailsPopoverWithCollaboration(input: {
 			isDirectMessagePending={input.isDirectMessagePending}
 			isSelf={input.isSelf}
 			modelCatalog={input.modelCatalog}
+			onNavigate={input.onNavigate}
 			onOpenDirectMessage={input.onOpenDirectMessage}
 			profileHref={input.profileHref}
 		/>
@@ -601,6 +621,7 @@ function HumanProfileDetailsPopoverContent(input: {
 	isSelf: boolean;
 	modelCatalog?: ModelCatalog | null;
 	onOpenDirectMessage?: () => void;
+	onNavigate?: () => void;
 	profileHref?: string;
 }) {
 	const showAgentProfiles =
@@ -618,45 +639,45 @@ function HumanProfileDetailsPopoverContent(input: {
 					size="md"
 				/>
 				<div className="min-w-0 flex-1 pt-0.5">
-					<div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
-						<p className="break-words font-semibold text-base text-foreground">
+					<div className="flex min-w-0 items-baseline gap-x-1.5">
+						<p className="truncate font-semibold text-base text-foreground">
 							{input.entry.profileName}
 						</p>
 						{input.isSelf ? (
-							<span className="text-muted-foreground text-sm before:mr-1.5 before:content-['·']">
+							<span className="shrink-0 text-muted-foreground text-sm before:mr-1.5 before:content-['·']">
 								You
 							</span>
 						) : null}
-					</div>
-					<div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
 						{input.activityTime ? (
 							<TooltipHint content="Last activity in this Space">
-								<span>{input.activityTime}</span>
+								<span className="shrink-0 whitespace-nowrap text-muted-foreground text-xs before:mr-1.5 before:content-['·']">
+									{input.activityTime}
+								</span>
 							</TooltipHint>
 						) : null}
-						{input.computer ? (
-							<>
-								{input.activityTime ? <span aria-hidden="true">·</span> : null}
-								<DirectoryHumanProfileComputerSummary
-									computer={input.computer}
-									ownerName={input.entry.profileName}
-								/>
-							</>
-						) : null}
 					</div>
+					{input.computer ? (
+						<div className="mt-2 min-w-0 text-muted-foreground text-xs">
+							<DirectoryHumanProfileComputerSummary
+								computer={input.computer}
+								ownerName={input.entry.profileName}
+							/>
+						</div>
+					) : null}
 				</div>
 				{input.profileHref ? (
 					<TooltipHint content="View profile">
-						<a
+						<Link
 							aria-label={`View ${input.entry.profileName} profile`}
 							className={cn(
 								buttonVariants({ size: "icon-xs", variant: "ghost" }),
 								"shrink-0"
 							)}
-							href={input.profileHref}
+							onClick={input.onNavigate}
+							to={input.profileHref}
 						>
 							<ArrowRightIcon aria-hidden="true" />
-						</a>
+						</Link>
 					</TooltipHint>
 				) : null}
 			</div>

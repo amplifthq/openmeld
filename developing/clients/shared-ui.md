@@ -30,9 +30,33 @@
 - reusable motion mechanics such as pointer-proximity magnification, with
   stable interaction hit areas and reduced-motion behavior
 
+`lib/utils` re-exports `cn` from shadcn's zero-dependency `cn` package. Keep
+client imports through `@openmeld/ui/lib/utils`; the shared package owns this
+dependency. It combines conditional class joining and Tailwind v4 conflict
+resolution without a local `clsx` / `tailwind-merge` wrapper. See the official
+[cn migration](https://ui.shadcn.com/docs/cli#migrate-cn). Do not add a second
+client-local implementation or a class-table build plugin without a measured
+need.
+
 This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
+
+`components/evilcharts` owns the official registry-installed Apache ECharts
+area primitive and its theme, tooltip, legend, dot, and brush modules. Its
+README records source provenance and local adaptations. Consumers compose
+the compound API and lazy-load the rendering module; product scope, queries,
+and surrounding interactions remain outside the chart primitive. Use Fluid
+surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
+and reduced-motion loading behavior when refreshing registry source.
+
+`VideoPlayer` composes Media Chrome's controls with shared design tokens and solid
+surfaces. It owns no file fetching, credentials, cache, or Space identity. Global
+media hotkeys are disabled so the chat composer retains its keys.
+`MorphingDialogFrame` supplies a non-button shared-layout target for separate
+Play and Expand controls. Base UI retains focus and dismissal ownership, including
+caller-supplied close labels. An optional backdrop class disables video blur
+without changing existing image previews.
 
 `SettingsDialogContent` is the shared presentational shell for Space settings
 and App settings: Fluid dialog behavior, a navigation slot, and independently
@@ -45,6 +69,61 @@ including dropdowns, selects, and action menus. Do not reconstruct menus from
 generic Popover and Button components; reuse Fluid interaction behavior and the
 shared radius tokens. Sidebar section actions reveal on their own section's
 hover or keyboard focus, with open-menu and touch-device visibility preserved.
+Space Agent work and reasoning share `fluid/thinking-steps` as their disclosure;
+client code supplies the private reasoning, public progress, and admitted work
+content without a second shared disclosure component.
+
+### Fluid Hover reuse
+
+`hooks/use-fluid-hover` and `fluid/fluid-hover-highlight` are installed from the
+official Fluid Functionalism registry. The import retains the vendor's nearest
+enabled-item picking, coalesced measurement, pointer-session reset, optional
+gap activation, and reduced-motion fade without travel. Package imports,
+`interaction-hover`, and the existing shared spring tokens are the local
+adaptations. Installation source:
+
+```sh
+pnpm dlx shadcn@latest add https://www.fluidfunctionalism.com/r/use-fluid-hover.json --overwrite
+```
+
+Review registry imports in an isolated directory before transferring them into
+this package; do not overwrite existing shared tokens or adapted primitives.
+`FluidActionList` composes this hook and highlight for shared action menus.
+Gap activation is opt-in because generic menus can contain destructive actions;
+the Sidebar display menu enables it for its reversible alternatives.
+
+For context menus, use Base UI's ContextMenu root and trigger with
+`FluidDropdownMenuContent` and `FluidDropdownMenuItem` or
+`FluidDropdownMenuRadioItem`. The installed Base UI version shares its popup,
+positioner, and item primitives between Menu and ContextMenu. Reuse these slots
+instead of introducing a second Fluid context-menu visual or hover engine.
+Base UI retains roles, keyboard navigation, selection, positioning, dismissal,
+and focus restoration; Fluid Hover does not own those responsibilities.
+
+`fluid/context-menu` composes these same slots. `FluidContextMenuScope` renders
+the existing row/card through its trigger slot; an action owner supplies
+`FluidContextMenuContent` beside its ordinary dropdown and reuses the same
+items. `useFluidContextMenuOpen` exposes that root's controlled open state for
+eligibility reads. Nested scopes open only the nearest menu. Inputs, editable
+content, selected text, and disabled scopes retain native context menus.
+`FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
+`FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
+Menu separators leave one spacing unit (4px) on each side, matching the menu's
+content inset. Both shared menu families own this spacing. Sidebar hover pauses
+for open context-menu trigger slots as well as ordinary popup triggers; Base UI
+context-menu areas expose an open marker without `aria-haspopup`.
+
+Prefer this primitive for stable, closely spaced clickable alternatives in
+menus, navigation, tabs, and grids. Use one list per semantic group; split at
+dividers and register only real click targets. Skip proximity or gap activation
+when a wrong click would hurt, clickability is mixed, empty space is large, or
+rows move while scrolling. Disabled rows and intervening controls must retain
+their own semantics. Existing specialized sidebar and tab geometry remains
+owned by those components; clients must not recreate it. Verify travel across
+rows and gaps, gap activation, keyboard operation, reopening, disabled states,
+touch behavior, and reduced motion in the complete surface. Official reference:
+[Fluid Hover](https://www.fluidfunctionalism.com/docs/fluid-hover).
+
 
 ## Import Rule
 
@@ -143,7 +222,9 @@ stable `activeLayoutId` across route remounts, scoped to the sidebar presentatio
 so selection also travels between groups. Composite rows retain their existing
 links, actions, dimensions, and color overrides. Reduced motion removes travel.
 `fluid/sidebar-user-footer` adapts the official horizontal user dropdown block;
-clients provide identity, menu actions, and adjacent settings/theme buttons.
+clients provide identity and menu actions. `SidebarUserMenuItem` lets clients
+compose Search, Settings, theme, and account controls inside one `SidebarMenu`,
+so one reduced-motion-aware background travels across the complete footer.
 The existing `components/sidebar` family remains the inner resize-only surface;
 clients must not nest both engines for one Main Sidebar.
 Its unused menu primitives have been removed; menu consumers use the Fluid family.
@@ -249,6 +330,34 @@ two, matching the runtime Tabs selection. Cards and their shared hover
 indicators use `rounded-md`; editor popovers rise one further surface level.
 Do not reintroduce card-local border/shadow recipes or oversized radius overrides.
 
+The Agent dashboard includes a read-only Usage limits card in the same grid.
+It reuses the shared quota donut, status rules, provider labels, and observation
+times; it is not an editable setting or an independent source of Wakeability.
+Its readout must load independently of the owner's editable Binding settings.
+
+### Loading regions
+
+Keep the authorized shell, navigation, known identity, and unrelated usable
+content visible while a region loads. Shared `SkeletonRegion`, `SkeletonRows`,
+`SkeletonForm`, and `SkeletonTable` are presentation only: the caller owns query
+state, authorization, retry, and empty-state decisions. Choose shapes and
+geometry that match the actual card, list, form, table, or conversation; one
+whole-page gray rectangle is not an equivalent replacement. Shapes are
+decorative, with one accessible announcement per region and reduced-motion
+support. Never turn an unknown setting into an unchecked switch or default
+selection while waiting for its saved value.
+
+First-load placeholders must not clear same-subject content during background
+refresh. Do not preserve one account, Organization, Profile, Computer, or Binding's
+content under another identity; revocation and identity failures are not normal
+stale-data refreshes. Keep error/offline outcomes separate from pending and
+confirmed-empty results. Existing mutation progress, download progress, and
+pagination feedback remain inline rather than replacing loaded content.
+
+Lazy Space panels import their fallback shapes from a lightweight module, not
+from the lazy panel itself. Code loading and data loading reuse the same panel
+geometry without defeating the code-splitting boundary.
+
 Welcome Create/Join actions reuse Fluid Card shared-layout hover with disabled
 items excluded from highlighting. Radio selection uses the same offset-two
 surface recipe as Tabs. Web composers share `PromptInput` and a dedicated
@@ -301,10 +410,23 @@ frames. Static frames are cached by color with a 64-frame limit. Idle instances
 do not subscribe to animation frames. Context failure preserves a rendered
 frame or the supplied fallback without repeatedly allocating GPU contexts.
 
-Web's `RemoteAgentAvatar` supplies a normalized Profile name as the color seed,
-so creation previews and saved Profiles use the same restrained 36-color
-palette. Renaming changes the color; identical names share a color. Personal
-Remote Agents use rounded squares, Center Agents use circles, and Local Agents
+Web's `RemoteAgentAvatar` uses the stable Profile ID as the saved fluid avatar
+seed. Hosted Remote Agents default to the generic Agent mark and can keep an
+explicitly selected fluid avatar across model changes. Center Agents display
+their saved Bot or fluid style; authorized admins can select either. Missing
+style displays the automatic mark and must not hash the Profile ID to invent a
+saved Bot selection. The app shell provides one read of the existing Organization
+Profile Directory to every avatar entrance. Saved preferences are applied to
+loaded profile caches and invalidated after a successful save. Idle and read-only
+editors use the same saved Profile; only an unsaved user selection is a preview.
+Failed saves discard that preview and return to the current saved identity.
+Successful saves also send an account/Organization/Profile-scoped browser refresh
+hint. Other tabs re-read their own authorized directory; the hint carries no
+avatar data and does not add directories to browser persistence. Model vendors
+never select an Agent avatar. Bot avatars
+do not hop when idle, animate for real working state, and jump once on an
+explicit click. Reduced-motion preference suppresses their animation.
+Personal Remote Agents use rounded squares, Center Agents use circles, and Local Agents
 retain their harness logos. Web supplies authoritative working state; the
 primitive never infers work from presence or starts its own status queries.
 

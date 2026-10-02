@@ -27,6 +27,7 @@ import {
   resolveExplicitLocalComponentPolicyDecisionErrors,
   resolveLatestReleaseTag,
   resolveReleasePolicyVerificationErrors,
+  resolveSelectedServiceReleaseFacts,
   resolveServiceRequiredFloorVerificationErrors,
   runLocalComponentsReleaseTool,
 } from "./local-components.mjs";
@@ -44,6 +45,8 @@ const STAMP_SOURCE_CHANGED_RE =
   /Release source changed while rebuilding the packaged OpenMeld CLI/u;
 const STAMP_BUILD_EXPLODED_RE = /build exploded/u;
 const CURRENT_ONLY_STAMP_RE = /--current is only available for verification/u;
+const MISSING_WINDOWS_HELPER_RE =
+  /release stamp needs the source-matched Windows process helper/u;
 const INVALID_CLI_FLOOR_RE =
   /minRequiredCliVersion is not a valid version: banana/u;
 const FIXTURE_STAMP_DEPENDENCIES = {
@@ -156,6 +159,10 @@ test("ignores CLI-only artifacts when computing the service bundle hash", async 
     const baselineReleaseHash = await computeServiceBundleHash({
       rootDir: serviceDistRoot,
     });
+    const baselinePortableHash = await computeServiceBundleHash({
+      rootDir: serviceDistRoot,
+      excludeWindows: true,
+    });
     const baselineCliHash =
       await computeCliDaemonSourceDistFingerprint(serviceDistRoot);
 
@@ -184,6 +191,26 @@ test("ignores CLI-only artifacts when computing the service bundle hash", async 
     assert.equal(releaseHash, baselineReleaseHash);
     assert.equal(cliHash, baselineCliHash);
     assert.equal(releaseHash, cliHash);
+    await writeFixtureFile(
+      serviceDistRoot,
+      "windows/openmeld-windows-process.exe",
+      "shared Service process helper\n"
+    );
+    const withHelper = await computeServiceBundleHash({
+      rootDir: serviceDistRoot,
+    });
+    assert.notEqual(withHelper, baselineReleaseHash);
+    assert.equal(
+      await computeServiceBundleHash({
+        rootDir: serviceDistRoot,
+        excludeWindows: true,
+      }),
+      baselinePortableHash
+    );
+    assert.equal(
+      withHelper,
+      await computeCliDaemonSourceDistFingerprint(serviceDistRoot)
+    );
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
@@ -288,6 +315,53 @@ test("strict verification rejects a stale Service bundle hash", () => {
     errors.includes(
       `service.bundleHash is stale: manifest=${baseFacts.service.bundleHash} current=${currentFacts.service.bundleHash}`
     )
+  );
+});
+
+test("candidate verifies portable Service bytes while publication requires the full Windows bundle", () => {
+  const facts = createFacts({
+    service: { portableBundleHash: "p".repeat(64) },
+  });
+  const manifest = buildReleasePolicyManifest({
+    facts,
+    now: "2026-05-31T00:00:00.000Z",
+    policies: { cli: "available", service: "available", skills: "available" },
+  });
+  const candidateFacts = {
+    ...facts,
+    hasWindowsProcessHelper: false,
+    service: { ...facts.service, bundleHash: "p".repeat(64) },
+  };
+  const input = {
+    changedPaths: ["runtime/adapters/core/native/windows/ProcessJob.cs"],
+    manifest,
+  };
+
+  assert.deepEqual(
+    resolveReleasePolicyVerificationErrors({ ...input, facts: candidateFacts }),
+    []
+  );
+  assert.ok(
+    resolveReleasePolicyVerificationErrors({
+      ...input,
+      facts: {
+        ...candidateFacts,
+        service: {
+          ...candidateFacts.service,
+          portableBundleHash: "q".repeat(64),
+        },
+      },
+    }).some((error) => error.includes("service.portableBundleHash is stale"))
+  );
+  assert.ok(
+    resolveReleasePolicyVerificationErrors({
+      ...input,
+      facts: {
+        ...facts,
+        hasWindowsProcessHelper: true,
+        service: { ...facts.service, bundleHash: "c".repeat(64) },
+      },
+    }).some((error) => error.includes("service.bundleHash is stale"))
   );
 });
 
@@ -538,6 +612,11 @@ test("stamp rebuilds the packaged CLI before recording the Service bundle hash",
           await rm(serviceDistRoot, { force: true, recursive: true });
           await writeFixtureFile(
             serviceDistRoot,
+            "windows/openmeld-windows-process.exe",
+            "fixture Windows helper\n"
+          );
+          await writeFixtureFile(
+            serviceDistRoot,
             "openmeld.js",
             "console.log('fresh packaged CLI')\n"
           );
@@ -553,6 +632,51 @@ test("stamp rebuilds the packaged CLI before recording the Service bundle hash",
     );
     assert.notEqual(freshHash, staleHash);
     assert.equal(manifest.components.service.bundleHash, freshHash);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("stamp rejects a build without the source-matched Windows helper", async () => {
+  const repoRoot = await createFixtureRepo();
+  try {
+    await writeFixtureFile(
+      repoRoot,
+      ".gitignore",
+      "clients/openmeld-cli/dist/\n"
+    );
+    await initFixtureGitRepo(repoRoot);
+    const base = await readGitHead(repoRoot);
+    await rm(
+      join(
+        repoRoot,
+        "clients/openmeld-cli/dist/windows/openmeld-windows-process.exe"
+      )
+    );
+
+    await assert.rejects(
+      runLocalComponentsReleaseTool(
+        [
+          "stamp",
+          "--repo-root",
+          repoRoot,
+          "--base",
+          base,
+          "--cli",
+          "available",
+          "--service",
+          "available",
+          "--skills",
+          "available",
+          "--reason",
+          "Compatible local component release",
+          "--now",
+          "2026-07-16T00:00:00.000Z",
+        ],
+        FIXTURE_STAMP_DEPENDENCIES
+      ),
+      MISSING_WINDOWS_HELPER_RE
+    );
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
@@ -610,6 +734,188 @@ test("stamp --next writes the shared channel decision into the package and manif
     assert.equal(packageJson.openMeldReleaseDate, "2026-07-17");
     assert.equal(manifest.components.cli.packageVersion, "1.2.4");
     assert.equal(manifest.components.service.bundleVersion, "1.2.4");
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("stamp retains the published Service for a reviewed CLI-only presentation change", async () => {
+  const repoRoot = await createFixtureRepo();
+  const serviceDistRoot = join(repoRoot, "clients/openmeld-cli/dist");
+  try {
+    await writeFixtureFile(
+      repoRoot,
+      ".gitignore",
+      "clients/openmeld-cli/dist/\n"
+    );
+    const baseFacts = await collectLocalComponentFacts({
+      repoRoot,
+      requireServiceBundle: true,
+    });
+    const baseManifest = buildReleasePolicyManifest({
+      facts: baseFacts,
+      now: "2026-07-16T00:00:00.000Z",
+      policies: { cli: "available", service: "available", skills: "available" },
+      reason: "Existing installations remain compatible with this release.",
+    });
+    await writeFixtureFile(
+      repoRoot,
+      "release/local-components.json",
+      `${JSON.stringify(baseManifest, null, 2)}\n`
+    );
+    await initFixtureGitRepo(repoRoot);
+    const base = await readGitHead(repoRoot);
+    await writeFixtureFile(
+      repoRoot,
+      "clients/openmeld-cli/src/commands/agents-cards.ts",
+      "export const presentationOnlyChange = true;\n"
+    );
+    await execGit(repoRoot, ["add", "."]);
+    await execGit(repoRoot, ["commit", "-m", "Update CLI only"]);
+
+    await runLocalComponentsReleaseTool(
+      [
+        "stamp",
+        "--repo-root",
+        repoRoot,
+        "--base",
+        base,
+        "--next",
+        "--cli",
+        "available",
+        "--cli-reason",
+        "The new CLI remains compatible with the selected Service.",
+        "--now",
+        "2026-07-17T00:00:00.000Z",
+      ],
+      {
+        buildPackagedOpenMeldCli: async () => {
+          await rm(serviceDistRoot, { force: true, recursive: true });
+          await writeFixtureFile(
+            serviceDistRoot,
+            "windows/openmeld-windows-process.exe",
+            "fixture Windows helper\n"
+          );
+          await writeFixtureFile(
+            serviceDistRoot,
+            "openmeld.js",
+            "console.log('new CLI bytes')\n"
+          );
+        },
+        readCliReleaseChannels: async () => ({
+          npmVersion: "1.2.3",
+          r2Version: "1.2.3",
+        }),
+      }
+    );
+
+    const manifest = JSON.parse(
+      await readFile(join(repoRoot, "release/local-components.json"), "utf8")
+    );
+    assert.equal(manifest.components.cli.packageVersion, "1.2.4");
+    assert.deepEqual(
+      manifest.components.service,
+      baseManifest.components.service
+    );
+    assert.equal(
+      resolveSelectedServiceReleaseFacts({
+        baseManifest,
+        facts: {
+          ...baseFacts,
+          service: { ...baseFacts.service, bundleVersion: "1.2.4" },
+        },
+        serviceTouched: false,
+      }).bundleVersion,
+      "1.2.3"
+    );
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("stamp advances Service for a shared CLI runtime change", async () => {
+  const repoRoot = await createFixtureRepo();
+  const serviceDistRoot = join(repoRoot, "clients/openmeld-cli/dist");
+  try {
+    await writeFixtureFile(
+      repoRoot,
+      ".gitignore",
+      "clients/openmeld-cli/dist/\n"
+    );
+    const baseFacts = await collectLocalComponentFacts({
+      repoRoot,
+      requireServiceBundle: true,
+    });
+    const baseManifest = buildReleasePolicyManifest({
+      facts: baseFacts,
+      now: "2026-07-16T00:00:00.000Z",
+      policies: { cli: "available", service: "available", skills: "available" },
+      reason: "Existing installations remain compatible with this release.",
+    });
+    await writeFixtureFile(
+      repoRoot,
+      "release/local-components.json",
+      `${JSON.stringify(baseManifest, null, 2)}\n`
+    );
+    await initFixtureGitRepo(repoRoot);
+    const base = await readGitHead(repoRoot);
+    await writeFixtureFile(
+      repoRoot,
+      "clients/openmeld-cli/src/config/auth-session.ts",
+      "export const sharedServiceChange = true;\n"
+    );
+    await execGit(repoRoot, ["add", "."]);
+    await execGit(repoRoot, ["commit", "-m", "Update shared auth session"]);
+
+    await runLocalComponentsReleaseTool(
+      [
+        "stamp",
+        "--repo-root",
+        repoRoot,
+        "--base",
+        base,
+        "--next",
+        "--cli",
+        "available",
+        "--cli-reason",
+        "The CLI and selected Service remain compatible.",
+        "--service",
+        "available",
+        "--service-reason",
+        "The shared runtime update is backward compatible.",
+        "--now",
+        "2026-07-17T00:00:00.000Z",
+      ],
+      {
+        buildPackagedOpenMeldCli: async () => {
+          await rm(serviceDistRoot, { force: true, recursive: true });
+          await writeFixtureFile(
+            serviceDistRoot,
+            "windows/openmeld-windows-process.exe",
+            "fixture Windows helper\n"
+          );
+          await writeFixtureFile(
+            serviceDistRoot,
+            "openmeld.js",
+            "console.log('new shared runtime bytes')\n"
+          );
+        },
+        readCliReleaseChannels: async () => ({
+          npmVersion: "1.2.3",
+          r2Version: "1.2.3",
+        }),
+      }
+    );
+
+    const manifest = JSON.parse(
+      await readFile(join(repoRoot, "release/local-components.json"), "utf8")
+    );
+    assert.equal(manifest.components.cli.packageVersion, "1.2.4");
+    assert.equal(manifest.components.service.bundleVersion, "1.2.4");
+    assert.notEqual(
+      manifest.components.service.bundleHash,
+      baseManifest.components.service.bundleHash
+    );
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
@@ -961,6 +1267,14 @@ test("classifies release-sensitive paths narrowly", () => {
     true
   );
   assert.equal(isCliReleasePath("clients/openmeld-cli/package.json"), true);
+  for (const path of [
+    "packages/start/src/setup-download-command.ts",
+    "packages/start/package.json",
+    "packages/start/tsdown.config.ts",
+  ]) {
+    assert.equal(isCliReleasePath(path), true, path);
+    assert.equal(isServiceReleasePath(path), true, path);
+  }
   assert.equal(
     isCliReleasePath(
       "clients/openmeld-cli/native/macos-keychain/src/openmeld_keychain.mm"
@@ -971,7 +1285,7 @@ test("classifies release-sensitive paths narrowly", () => {
     isServiceReleasePath(
       "clients/openmeld-cli/native/macos-keychain/src/openmeld_keychain.mm"
     ),
-    false
+    true
   );
   assert.equal(
     isCliReleasePath(
@@ -983,9 +1297,34 @@ test("classifies release-sensitive paths narrowly", () => {
     isServiceReleasePath(
       "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs"
     ),
+    true
+  );
+  assert.equal(
+    isServiceReleasePath("clients/openmeld-cli/src/commands/agents-cards.ts"),
     false
+  );
+  assert.equal(
+    isServiceReleasePath("clients/openmeld-cli/src/config/paths.ts"),
+    true
+  );
+  assert.equal(
+    isServiceReleasePath("clients/openmeld-cli/src/config/auth-session.ts"),
+    true
+  );
+  assert.equal(
+    isServiceReleasePath("scripts/release/build-cli-binary.mjs"),
+    true
   );
   assert.equal(isCliReleasePath("release/vendor-models.json"), false);
+  for (const path of [
+    "runtime/adapters/core/native/windows/ProcessJob.cs",
+    "runtime/adapters/core/native/windows/OpenMeld.Windows.Process.csproj",
+    "scripts/release/build-windows-process-helper.mjs",
+    "clients/openmeld-cli/scripts/copy-windows-process-helper.mjs",
+  ]) {
+    assert.equal(isCliReleasePath(path), true, path);
+    assert.equal(isServiceReleasePath(path), true, path);
+  }
   assert.equal(isServiceReleasePath("release/vendor-models.json"), false);
   assert.equal(
     isCliReleasePath(
@@ -1029,6 +1368,16 @@ test("classifies release-sensitive paths narrowly", () => {
     true
   );
   assert.equal(
+    isServiceReleasePath("clients/openmeld-cli/tsdown.config.ts"),
+    true
+  );
+  assert.equal(isServiceReleasePath("pnpm-lock.yaml"), true);
+  assert.equal(isServiceReleasePath("packages/protocol/src/index.ts"), true);
+  assert.equal(
+    isServiceReleasePath("runtime/local-execution/src/index.ts"),
+    true
+  );
+  assert.equal(
     isServiceReleasePath(
       "packages/schemas/src/schemas/http/organization-documents.ts"
     ),
@@ -1054,7 +1403,7 @@ test("classifies release-sensitive paths narrowly", () => {
     isServiceReleasePath(
       "clients/openmeld-cli/src/daemon/dispatch/execute-dispatch-task.ts"
     ),
-    false
+    true
   );
   assert.equal(
     isServiceReleasePath("clients/web/src/components/agents/agents-page.tsx"),
@@ -1656,6 +2005,11 @@ async function createFixtureRepo() {
     "clients/openmeld-cli/dist/openmeld.js",
     "console.log('openmeld')\n"
   );
+  await writeFixtureFile(
+    repoRoot,
+    "clients/openmeld-cli/dist/windows/openmeld-windows-process.exe",
+    "fixture Windows helper\n"
+  );
   return repoRoot;
 }
 
@@ -1831,6 +2185,9 @@ function createFacts(overrides = {}) {
     },
     service: {
       bundleHash: overrides.service?.bundleHash ?? "a".repeat(64),
+      ...(overrides.service?.portableBundleHash
+        ? { portableBundleHash: overrides.service.portableBundleHash }
+        : {}),
       bundleVersion: overrides.service?.bundleVersion ?? "1.2.3",
       runtimeContractEpoch:
         overrides.service?.runtimeContractEpoch ?? "daemon-epoch-v1",

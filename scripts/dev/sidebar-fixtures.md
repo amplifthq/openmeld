@@ -50,6 +50,8 @@ still check access first; real progress takes precedence. No JSX or separate UI
 is added. Account-level discovery, closed Space rows, the conversation, and members
 consume the same scenario state. Detail snapshots are available before the account
 summary is published, so visiting a Space does not discover a new sorting priority.
+Account refreshes use the normal detail query, preserving its presentation
+lifetime and completed-outcome filtering instead of replacing its cache directly.
 Running scenarios refresh progress evidence on reads while retaining their start
 time. Approvals validate through the shared interaction schema;
 Stop uses the normal confirmation dialog and resolves the synthetic Wake in memory.
@@ -59,6 +61,9 @@ validate production UI, not real Agent execution or cross-tab synchronization.
 
 Synthetic conversations use stable IDs and backups; reruns
 replace only these known fixture messages, preserving manually added messages.
+After writing historical messages, the seed also refreshes their indexed sidebar
+preview. This prepares consistent disposable data for unopened Spaces and DMs;
+it is not evidence that normal message publication or runtime execution works.
 
 Fixtures must only provide data to production UI and its normal interaction
 entry points. Never add seed-only status rows, buttons, dialogs, or response
@@ -118,7 +123,11 @@ fixtures. The product's Space sidebar does not consume synthetic Working or
 needs-input summaries: its indicators come from the same API progress data
 as the conversation. Use the standalone preview below for isolated row states.
 Rerunning the seed restores unread records so clicking them does not exhaust the
-test matrix permanently.
+test matrix permanently. For Desktop tray checks, the newest record belongs to
+a muted Space, the next record is an ordinary eligible unread, and a later record
+is a reply in a Thread whose Space uses mentions-and-replies notifications. This
+lets the same reset verify muted-message fallback first, then exact Thread
+navigation after the ordinary unread is read.
 
 ## Repeatable visual state matrix
 

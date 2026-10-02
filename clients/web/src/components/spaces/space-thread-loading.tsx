@@ -1,23 +1,56 @@
 import { Button } from "@openmeld/ui/components/button";
-import { SpinnerGapIcon, XIcon } from "@phosphor-icons/react";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
+import {
+	ArrowSquareOutIcon,
+	SpinnerGapIcon,
+	XIcon,
+} from "@phosphor-icons/react";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { useSpacePanelWidth } from "./use-space-panel-width";
 
-export function ThreadPanelHeader(input: { onClose?: () => void }) {
+export function ThreadPanelHeader(input: {
+	onClose?: () => void;
+	onGoToMessage?: () => void;
+}) {
 	return (
 		<div className="flex min-h-14 items-center justify-between gap-3 border-border border-b px-4 py-3">
 			<p className="font-medium text-sm">Thread</p>
-			{input.onClose ? (
-				<Button
-					aria-label="Close thread"
-					onClick={input.onClose}
-					size="icon-sm"
-					type="button"
-					variant="ghost"
-				>
-					<XIcon aria-hidden="true" />
-				</Button>
-			) : null}
+			<div className="flex items-center gap-1">
+				{input.onGoToMessage ? (
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Button
+									aria-label="Go to message"
+									className="size-7"
+									onClick={input.onGoToMessage}
+									size="icon-sm"
+									type="button"
+									variant="ghost"
+								>
+									<ArrowSquareOutIcon aria-hidden="true" />
+								</Button>
+							}
+						/>
+						<TooltipContent side="bottom">Go to message</TooltipContent>
+					</Tooltip>
+				) : null}
+				{input.onClose ? (
+					<Button
+						aria-label="Close thread"
+						onClick={input.onClose}
+						size="icon-sm"
+						type="button"
+						variant="ghost"
+					>
+						<XIcon aria-hidden="true" />
+					</Button>
+				) : null}
+			</div>
 		</div>
 	);
 }
@@ -47,6 +80,7 @@ export function SpaceThreadLoadingPanel() {
 			ariaLabel="Thread"
 			id="space-thread-panel"
 			maxWidth={panelWidth.maxWidth}
+			minRemainingWidth={512}
 			minWidth={panelWidth.minWidth}
 			onWidthChange={panelWidth.onWidthChange}
 			open

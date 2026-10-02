@@ -15,25 +15,128 @@ import {
 	useMessageScrollerScrollable,
 } from "@shadcn/react/message-scroller";
 import { motion, useReducedMotion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { reportClientQueryError } from "#/lib/observability/application-error-client";
 import { MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME } from "./primitives/message-scroller";
-import type { SpaceHistoryActions } from "./space-history-rail";
+import type {
+	SpaceHistoryActions,
+	SpaceHistoryLatestReservation,
+} from "./space-history-rail";
+import type { PreparedSpaceInboxCatchUp } from "./use-space-inbox-read-position";
 
 export function SpaceHistoryJumpControl({
 	history,
+	onPrepareCatchUpUnread,
 }: {
 	history?: SpaceHistoryActions;
+	onPrepareCatchUpUnread?: () => Promise<PreparedSpaceInboxCatchUp | null>;
 }) {
 	const reduceMotion = useReducedMotion();
 	const { scrollToEnd } = useMessageScroller();
 	const { end: canScrollToEnd } = useMessageScrollerScrollable();
+	const canScrollToEndRef = useRef(canScrollToEnd);
+	canScrollToEndRef.current = canScrollToEnd;
+	const [catchUpPending, setCatchUpPending] = useState(false);
+	const [catchUpError, setCatchUpError] = useState(false);
+	const operationSequence = useRef(0);
+	useEffect(() => {
+		return () => {
+			operationSequence.current += 1;
+		};
+	}, []);
+	const hasCatchUp = !!onPrepareCatchUpUnread;
+	// The alert describes unread messages that are still unread. Once the main
+	// timeline has nothing left to mark (the catch-up callback goes away), the
+	// failure no longer applies, whichever path cleared it.
+	useEffect(() => {
+		if (!hasCatchUp) {
+			setCatchUpError(false);
+		}
+	}, [hasCatchUp]);
+	const showCatchUpError = catchUpError && hasCatchUp;
+	const pending = catchUpPending || !!history?.pending;
 	const active =
-		!!history?.isHistorical || canScrollToEnd || !!history?.pending;
+		!!history?.isHistorical ||
+		canScrollToEnd ||
+		pending ||
+		!!onPrepareCatchUpUnread;
+	const actionLabel = resolveLatestActionLabel({
+		catchUpError: showCatchUpError,
+		hasCatchUp,
+	});
+	const navigateToLatest = async (
+		historyReservation?: SpaceHistoryLatestReservation
+	) => {
+		if (historyReservation) {
+			try {
+				return await historyReservation.navigate();
+			} finally {
+				// The scroller owns jump space, even if loading the live tail fails.
+				scrollToEnd({ behavior: "auto" });
+			}
+		}
+		const behavior = onPrepareCatchUpUnread || reduceMotion ? "auto" : "smooth";
+		scrollToEnd({ behavior });
+		if (onPrepareCatchUpUnread) {
+			await waitForConversationPaint();
+		}
+		return !canScrollToEndRef.current;
+	};
+	const handleLatest = async () => {
+		if (pending) {
+			return;
+		}
+		const historyReservation = history?.reserveLatest();
+		// The button leaves the temporary centered view immediately, even when
+		// loading the live tail has to wait or fails.
+		scrollToEnd({ behavior: "auto" });
+		if (!onPrepareCatchUpUnread) {
+			await navigateToLatest(historyReservation);
+			return;
+		}
+		setCatchUpError(false);
+		setCatchUpPending(true);
+		const sequence = ++operationSequence.current;
+		const isOperationCurrent = () =>
+			sequence === operationSequence.current &&
+			(!historyReservation || historyReservation.isCurrent());
+		let catchUpStage: "prepare" | "navigate" | "persist" = "prepare";
+		try {
+			const preparedCatchUp = await onPrepareCatchUpUnread();
+			if (!preparedCatchUp) {
+				return;
+			}
+			if (!isOperationCurrent()) {
+				preparedCatchUp.abandon();
+				return;
+			}
+			catchUpStage = "navigate";
+			const reachedLatest = await navigateToLatest(historyReservation);
+			if (!(isOperationCurrent() && reachedLatest)) {
+				preparedCatchUp.abandon();
+				return;
+			}
+			catchUpStage = "persist";
+			await preparedCatchUp.commit();
+		} catch (error) {
+			if (!isOperationCurrent()) {
+				return;
+			}
+			console.error("Failed to catch up the Space read position.", error);
+			reportClientQueryError(error, "inbox", catchUpStage);
+			setCatchUpError(true);
+		} finally {
+			if (sequence === operationSequence.current) {
+				setCatchUpPending(false);
+			}
+		}
+	};
 	const transition = {
 		duration: reduceMotion ? 0 : 0.2,
 		ease: [0.23, 1, 0.32, 1] as const,
 	};
 	return (
-		<div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center">
+		<div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex flex-col items-center gap-2">
 			<div
 				className={cn(
 					MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME,
@@ -86,23 +189,33 @@ export function SpaceHistoryJumpControl({
 							<TooltipTrigger
 								render={
 									<Button
-										aria-label="Jump to latest message"
+										aria-label={actionLabel}
 										className="rounded-full max-lg:pointer-fine:min-h-8 max-lg:pointer-fine:min-w-8"
-										onClick={() => {
-											if (history) {
-												history.onLatest();
-											} else {
-												scrollToEnd({
-													behavior: reduceMotion ? "auto" : "smooth",
-												});
+										disabled={pending}
+										nativeButton={!history?.latestHref}
+										onClick={(event) => {
+											if (history?.latestHref) {
+												scrollToEnd({ behavior: "auto" });
+												return;
 											}
+											event.preventDefault();
+											return handleLatest();
 										}}
+										render={
+											history?.latestHref ? (
+												<a href={history.latestHref}>
+													<span className="sr-only">
+														Jump to latest message
+													</span>
+												</a>
+											) : undefined
+										}
 										size="icon"
 										variant="ghost"
 									/>
 								}
 							>
-								{history?.pending ? (
+								{pending ? (
 									<SpinnerGapIcon
 										aria-hidden="true"
 										className="animate-spin motion-reduce:animate-none"
@@ -112,12 +225,39 @@ export function SpaceHistoryJumpControl({
 								)}
 							</TooltipTrigger>
 							<TooltipContent className="motion-reduce:animate-none">
-								Jump to latest message
+								{actionLabel}
 							</TooltipContent>
 						</Tooltip>
 					</motion.div>
 				</motion.div>
 			</div>
+			{showCatchUpError ? (
+				<div
+					className="pointer-events-auto rounded-lg bg-background px-3 py-2 text-destructive text-xs shadow-sm"
+					role="alert"
+				>
+					You’re at the latest messages, but OpenMeld couldn’t mark them as
+					read. Try again.
+				</div>
+			) : null}
 		</div>
 	);
+}
+
+async function waitForConversationPaint(): Promise<void> {
+	await new Promise<void>((resolve) => {
+		requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+	});
+}
+
+function resolveLatestActionLabel(input: {
+	catchUpError: boolean;
+	hasCatchUp: boolean;
+}): string {
+	if (!input.hasCatchUp) {
+		return "Jump to latest message";
+	}
+	return input.catchUpError
+		? "Try again to mark the latest messages as read"
+		: "Jump to latest and mark messages as read";
 }

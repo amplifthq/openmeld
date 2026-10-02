@@ -2,7 +2,10 @@
 
 import { Popover } from "@base-ui/react/popover";
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
-import { resolveAgentWakeAvailabilityDisplayCategory } from "@openmeld/agent-runtime";
+import {
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+	resolveAgentWakeAvailabilityDisplayCategory,
+} from "@openmeld/agent-runtime";
 import type {
 	AgentWakeAvailability,
 	AuthProfileView,
@@ -13,8 +16,11 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { CardFooter } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
 import {
 	resolveStatusToneBadgeClassName,
 	resolveStatusToneIconClassName,
@@ -31,7 +37,11 @@ import {
 	ProhibitIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
 import type {
 	AgentProfileActivityDestination,
 	AgentProfileActivityNavigation,
@@ -39,8 +49,9 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
-import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import { updateAgentAvatar } from "#/lib/profiles/update-agent-avatar";
+import { useAgentAvatarInvalidationScope } from "#/query/profiles/agent-avatar-context";
 import {
 	AgentTaskActivityTime,
 	useAgentTaskActivity,
@@ -52,6 +63,8 @@ export function AgentProfileWorkspaceDetail(input: {
 	agentControllerRef: string | null;
 	canEdit: boolean;
 	controllerModelSummary: string;
+	modelId?: string | null;
+	modelIsLoading?: boolean;
 	configurationContent?: ReactNode;
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending: boolean;
@@ -59,6 +72,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	operationalContext: AgentProfileOperationalContextInput | null;
 	onOpenDirectMessage: () => void;
 	onRenameProfile: (profileName: string) => Promise<void>;
+	onAvatarUpdated?: (profile: AuthProfileView) => void;
 	onRecoveryAction?: (recoveryAction: ProfileDetailsRecoveryAction) => void;
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
@@ -72,6 +86,9 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
 }) {
+	const [savingAvatar, setSavingAvatar] = useState(false);
+	const queryClient = useQueryClient();
+	const avatarInvalidationScope = useAgentAvatarInvalidationScope();
 	const taskActivity = useAgentTaskActivity(input.profile.openMeldProfileId);
 	const displayedWakeAvailability = input.wakeAvailability;
 	const showOwnerOperationalContext =
@@ -96,7 +113,9 @@ export function AgentProfileWorkspaceDetail(input: {
 	) {
 		operationalRecoveryAction = (
 			<ProfileDetailsRecoveryActionButton
-				compact={projectedRecoveryAction.kind === "skip_interrupted_work"}
+				compact={isInterruptedWorkRecoveryActionKind(
+					projectedRecoveryAction.kind
+				)}
 				isPending={input.isRecoveryActionPending}
 				onRecoveryAction={input.onRecoveryAction}
 				recoveryAction={projectedRecoveryAction}
@@ -108,71 +127,138 @@ export function AgentProfileWorkspaceDetail(input: {
 			className="@container/agent-detail mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
 			data-testid="agent-profile-workspace-detail"
 		>
-			<div className="flex min-w-0 @[42rem]/agent-detail:flex-row flex-col @[42rem]/agent-detail:items-end gap-4">
-				<div className="flex min-w-0 flex-1 items-start gap-4">
-					<AgentProfileControllerAvatar
-						agentControllerRef={input.agentControllerRef}
-						className={cn(
-							"shrink-0",
-							hasReducedProminence ? "opacity-55 grayscale" : null
-						)}
-						profileId={input.profile.openMeldProfileId}
-						profileName={input.profile.profileName}
-						size={96}
-						working={input.operationalContext?.status === "working"}
-					/>
-					<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
-						<div className="flex min-w-0 items-center gap-2">
-							<AgentProfileNameEditor
-								adornment={
-									<RemoteAgentIndicator
-										agentControllerRef={input.agentControllerRef}
+			<FluidContextMenuScope
+				target={
+					<div className="flex min-w-0 @[42rem]/agent-detail:flex-row flex-col @[42rem]/agent-detail:items-end gap-4">
+						<div className="flex min-w-0 flex-1 items-start gap-4">
+							{input.agentControllerRef ===
+							HOSTED_REMOTE_AGENT_CONTROLLER_REF ? (
+								<AgentAvatarEditor
+									avatarStyle={input.profile.avatarStyle}
+									canEdit={input.canEdit}
+									centerAgent={false}
+									modelId={input.modelId}
+									onSave={async (avatarStyle) => {
+										if (
+											avatarStyle !== "automatic" &&
+											avatarStyle !== "fluid"
+										) {
+											return;
+										}
+										setSavingAvatar(true);
+										try {
+											const updated = await updateAgentAvatar(
+												{
+													profileId: input.profile.openMeldProfileId,
+													avatarStyle,
+												},
+												queryClient,
+												avatarInvalidationScope
+											);
+											input.onAvatarUpdated?.(updated);
+											toast.success("Avatar updated.");
+										} catch (error) {
+											toast.error("Unable to save avatar. Try again.");
+											throw error;
+										} finally {
+											setSavingAvatar(false);
+										}
+									}}
+									profileId={input.profile.openMeldProfileId}
+									profileName={input.profile.profileName}
+									saving={savingAvatar}
+									size={96}
+								/>
+							) : (
+								<AgentProfileControllerAvatar
+									agentControllerRef={input.agentControllerRef}
+									avatarStyle={input.profile.avatarStyle}
+									className={cn(
+										"shrink-0",
+										hasReducedProminence ? "opacity-55 grayscale" : null
+									)}
+									profileId={input.profile.openMeldProfileId}
+									profileName={input.profile.profileName}
+									size={96}
+									working={input.operationalContext?.status === "working"}
+								/>
+							)}
+							<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
+								<div className="flex min-w-0 items-center gap-2">
+									<AgentProfileNameEditor
+										adornment={
+											<RemoteAgentIndicator
+												agentControllerRef={input.agentControllerRef}
+											/>
+										}
+										canEdit={input.canEdit}
+										hasReducedProminence={hasReducedProminence}
+										onRenameProfile={input.onRenameProfile}
+										profileName={input.profile.profileName}
 									/>
-								}
-								canEdit={input.canEdit}
-								hasReducedProminence={hasReducedProminence}
-								onRenameProfile={input.onRenameProfile}
-								profileName={input.profile.profileName}
-							/>
+								</div>
+								{input.modelIsLoading ? (
+									<Skeleton
+										aria-label="Loading model"
+										className="mt-2 h-4 w-40 rounded-sm"
+									/>
+								) : (
+									<p className="mt-1 break-words text-muted-foreground text-sm">
+										{input.controllerModelSummary}
+									</p>
+								)}
+								<AgentProfilePresence
+									headerRecoveryActions={
+										showOwnerOperationalContext
+											? input.headerRecoveryActions
+											: null
+									}
+									wakeAvailability={displayedWakeAvailability}
+									wakeAvailabilityCheckedAt={input.wakeAvailabilityCheckedAt}
+									wakeAvailabilityErrorMessage={
+										input.wakeAvailabilityErrorMessage
+									}
+									wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
+									wakeAvailabilityIsRefreshing={
+										input.wakeAvailabilityIsRefreshing
+									}
+									wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
+								/>
+							</div>
 						</div>
-						<p className="mt-1 break-words text-muted-foreground text-sm">
-							{input.controllerModelSummary}
-						</p>
-						<AgentProfilePresence
-							headerRecoveryActions={
-								showOwnerOperationalContext ? input.headerRecoveryActions : null
-							}
-							wakeAvailability={displayedWakeAvailability}
-							wakeAvailabilityCheckedAt={input.wakeAvailabilityCheckedAt}
-							wakeAvailabilityErrorMessage={input.wakeAvailabilityErrorMessage}
-							wakeAvailabilityIsPending={input.wakeAvailabilityIsPending}
-							wakeAvailabilityIsRefreshing={input.wakeAvailabilityIsRefreshing}
-							wakeAvailabilityNowMs={input.wakeAvailabilityNowMs}
-						/>
+						<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
+							<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
+								<Button
+									disabled={input.isDirectMessagePending}
+									onClick={input.onOpenDirectMessage}
+									size="sm"
+									type="button"
+									variant="default"
+								>
+									<ChatCircleTextIcon
+										aria-hidden="true"
+										data-icon="inline-start"
+									/>
+									Chat with {input.profile.profileName}
+								</Button>
+								{input.overflowActions}
+							</div>
+						</div>
 					</div>
-				</div>
-				<div className="flex @[42rem]/agent-detail:h-24 max-w-full shrink-0 flex-col items-end gap-2 @[42rem]/agent-detail:self-start self-end">
-					<div className="@[42rem]/agent-detail:mt-auto flex max-w-full flex-wrap items-end justify-end gap-2">
-						<Button
-							disabled={input.isDirectMessagePending}
-							onClick={input.onOpenDirectMessage}
-							size="sm"
-							type="button"
-							variant="default"
-						>
-							<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-							Chat with {input.profile.profileName}
-						</Button>
-						{input.overflowActions}
-					</div>
-				</div>
-			</div>
-			<AgentProfileUsage
-				profileId={input.profile.openMeldProfileId}
-				variant="details"
+				}
 			/>
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
+				isLoading={
+					taskActivity.enabled &&
+					taskActivity.isPending &&
+					!input.operationalContext
+				}
+				isUnavailable={
+					taskActivity.enabled &&
+					taskActivity.isError &&
+					!input.operationalContext
+				}
 				lastTaskActivityAt={taskActivity.activity?.lastTaskActivityAt}
 				operationalContext={input.operationalContext}
 				recoveryAction={operationalRecoveryAction}
@@ -213,6 +299,13 @@ function AgentProfilePresence(input: {
 	wakeAvailabilityIsRefreshing: boolean;
 	wakeAvailabilityNowMs: number;
 }) {
+	if (input.wakeAvailabilityIsPending && !input.wakeAvailability) {
+		return (
+			<SkeletonRegion className="mt-3" label="Loading Agent availability">
+				<Skeleton className="h-5 w-36" />
+			</SkeletonRegion>
+		);
+	}
 	const presentation = resolveAgentProfilePresence(input);
 	const checkedAt = input.wakeAvailability
 		? formatAgentWakeAvailabilityCheckedAt(
@@ -387,12 +480,30 @@ function AgentProfilePresenceIcon(input: {
 }
 
 function AgentProfileCurrentActivity(input: {
+	isLoading?: boolean;
+	isUnavailable?: boolean;
 	activityNavigation: AgentProfileActivityNavigation | null;
 	lastTaskActivityAt?: string | null;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
 }) {
+	if (input.isLoading || input.isUnavailable) {
+		return (
+			<section className="space-y-3">
+				<h2 className="font-medium text-sm">Current activity</h2>
+				{input.isLoading ? (
+					<SkeletonRegion label="Loading Agent activity">
+						<Skeleton className="h-4 w-48" />
+					</SkeletonRegion>
+				) : (
+					<p className="text-muted-foreground text-sm">
+						Current activity unavailable.
+					</p>
+				)}
+			</section>
+		);
+	}
 	const currentDestination = input.activityNavigation?.current ?? null;
 	const queuedDestinations = input.activityNavigation?.queued ?? [];
 	const { footerRecoveryAction, interruptedRecoveryAction } =
@@ -455,6 +566,14 @@ function AgentProfileCurrentActivity(input: {
 	);
 }
 
+// Both of these decide the fate of the interrupted Wake itself, so they belong
+// beside it rather than in the card footer that starts queued work.
+function isInterruptedWorkRecoveryActionKind(
+	kind: ProfileDetailsRecoveryAction["kind"]
+): boolean {
+	return kind === "skip_interrupted_work" || kind === "fork_interrupted_work";
+}
+
 function resolveActivityRecoveryActions(input: {
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
@@ -462,7 +581,10 @@ function resolveActivityRecoveryActions(input: {
 	footerRecoveryAction: ReactNode;
 	interruptedRecoveryAction: ReactNode;
 } {
-	if (input.recoveryActionKind === "skip_interrupted_work") {
+	if (
+		input.recoveryActionKind &&
+		isInterruptedWorkRecoveryActionKind(input.recoveryActionKind)
+	) {
 		return {
 			footerRecoveryAction: null,
 			interruptedRecoveryAction: input.recoveryAction,
@@ -621,10 +743,10 @@ function ActivityDestinationLink(input: {
 	}
 	return (
 		<div className="flex min-w-0 items-center">
-			<a
+			<Link
 				aria-label={resolveActivityDestinationAriaLabel(input.destination)}
 				className="group flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-md bg-transparent px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-				href={input.destination.href}
+				to={input.destination.href}
 			>
 				<span className="shrink-0 text-muted-foreground">{icon}</span>
 				<span className="min-w-0 flex-1">
@@ -651,7 +773,7 @@ function ActivityDestinationLink(input: {
 					aria-hidden="true"
 					className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
 				/>
-			</a>
+			</Link>
 			{input.trailingAction ? (
 				<div className="shrink-0 pe-3">{input.trailingAction}</div>
 			) : null}

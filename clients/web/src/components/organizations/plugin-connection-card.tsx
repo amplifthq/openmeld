@@ -36,6 +36,13 @@ import {
 } from "react";
 import { toast } from "sonner";
 import {
+	type AuthorizationBrowser,
+	authorizationBrowserClosed,
+	closeAuthorizationBrowser,
+	openAuthorizationBrowser,
+	prepareAuthorizationBrowser,
+} from "#/desktop/authorization-browser";
+import {
 	connectCurrentMemberConnectorCredential,
 	connectCurrentOrganizationSharedConnectorCredential,
 	disconnectOrganizationConnectorConnection,
@@ -156,6 +163,7 @@ type PluginConnectionCardProps = {
 	isPersonalWorkspace?: boolean;
 	mode: "all" | "member" | "shared";
 	organizationId: string;
+	presentation?: "management" | "onboarding" | "conversation";
 };
 
 export function PluginConnectionCard(input: PluginConnectionCardProps) {
@@ -176,7 +184,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 		null
 	);
 	const [credentialResetKey, setCredentialResetKey] = useState(0);
-	const authorizationPopupRef = useRef<Window | null>(null);
+	const authorizationPopupRef = useRef<AuthorizationBrowser | null>(null);
 	const authorizationFailureSettledRef = useRef(false);
 	const authorizationTimeoutReconcilingRef = useRef(false);
 	const connectionsQuery = useQuery(
@@ -223,7 +231,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 					service: input.plugin.service,
 				}
 			);
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 			setWaitingScope(null);
 			setLocalError({
@@ -238,7 +246,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 
 	useEffect(
 		() => () => {
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 		},
 		[]
@@ -249,7 +257,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 			return;
 		}
 		const completion = window.setTimeout(() => {
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 			setWaitingScope(null);
 			setLocalError(null);
@@ -317,7 +325,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 			}
 			if (!hasObservedClosedPopup) {
 				const popup = authorizationPopupRef.current;
-				if (!popup?.closed) {
+				if (!authorizationBrowserClosed(popup)) {
 					return;
 				}
 				hasObservedClosedPopup = true;
@@ -395,7 +403,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 		};
 		const reconcileTimeout = async () => {
 			authorizationTimeoutReconcilingRef.current = true;
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 			try {
 				await queryClient.cancelQueries({
@@ -459,7 +467,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 						service: input.plugin.service,
 					}),
 		onError: (error) => {
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 			setWaitingScope(null);
 			setLocalError({
@@ -474,17 +482,28 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 			authorizationTimeoutReconcilingRef.current = false;
 			setLocalError(null);
 		},
-		onSuccess: (authorization, scope) => {
+		onSuccess: async (authorization, scope) => {
 			const popup = authorizationPopupRef.current;
-			if (!popup || popup.closed) {
+			if (!popup) {
 				setLocalError({
 					message: `The ${input.plugin.name} window closed before authorization started. Try again.`,
 				});
 				return;
 			}
-			popup.location.href = authorization.authorizationUrl;
+			try {
+				await openAuthorizationBrowser(popup, authorization.authorizationUrl);
+			} catch (error) {
+				closeAuthorizationBrowser(popup);
+				authorizationPopupRef.current = null;
+				setLocalError({
+					message: resolveConnectorConnectionErrorMessage(
+						error,
+						input.plugin.name
+					),
+				});
+				return;
+			}
 			setWaitingScope(scope);
-			popup.focus();
 		},
 	});
 	const credentialMutation = useMutation<
@@ -710,6 +729,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 			organizationName={input.organizationName}
 			otherMemberConnections={otherMemberConnections}
 			plugin={input.plugin}
+			presentation={input.presentation ?? "management"}
 			sharedConnection={sharedConnection}
 			showConnectionRetry={canRetryConnectionStatus({
 				connectionError: connectionsQuery.error,
@@ -748,6 +768,7 @@ function PluginConnectionCardContent(input: {
 	onRetry: () => void;
 	otherMemberConnections: ConnectorConnection[];
 	sharedConnection?: ConnectorConnection;
+	presentation: "management" | "onboarding" | "conversation";
 	showConnectionRetry: boolean;
 	statusAvailable: boolean;
 	statusChecking: boolean;
@@ -807,7 +828,10 @@ function PluginConnectionCardContent(input: {
 					title="Your account"
 				/>
 			)}
-			{input.mode === "all" && input.canManage && !input.isPersonalWorkspace ? (
+			{input.presentation === "management" &&
+			input.mode === "all" &&
+			input.canManage &&
+			!input.isPersonalWorkspace ? (
 				<MemberConnectionsSection
 					actionsDisabled={input.actionsDisabled}
 					appName={input.plugin.name}
@@ -1397,11 +1421,10 @@ function startAuthorization(input: {
 	appName: string;
 	mutation: (scope: AuthorizationScope) => void;
 	onBlocked: (message: string) => void;
-	popupRef: { current: Window | null };
+	popupRef: { current: AuthorizationBrowser | null };
 	scope: AuthorizationScope;
 }) {
-	const popup = window.open(
-		"about:blank",
+	const popup = prepareAuthorizationBrowser(
 		`openmeld-${input.scope}-plugin-authorization`,
 		"popup,width=720,height=760"
 	);
@@ -1411,7 +1434,6 @@ function startAuthorization(input: {
 		);
 		return;
 	}
-	popup.opener = null;
 	input.popupRef.current = popup;
 	input.mutation(input.scope);
 }

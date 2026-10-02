@@ -2,6 +2,19 @@ import type { z } from "zod/v4";
 
 type InboxSchemas = typeof import("../../schemas/http/inbox");
 
+export type InboxNotificationObservationCursor = z.infer<
+  InboxSchemas["inboxNotificationObservationCursorSchema"]
+>;
+export type InboxNotificationObservationsQuery = z.infer<
+  InboxSchemas["inboxNotificationObservationsQuerySchema"]
+>;
+export type InboxNotificationObservationsResponse = z.infer<
+  InboxSchemas["inboxNotificationObservationsResponseSchema"]
+>;
+export type ObserveInboxNotificationsRpcInput = z.infer<
+  InboxSchemas["observeInboxNotificationsRpcInputSchema"]
+>;
+
 export type InboxMessageNotificationMode = z.infer<
   InboxSchemas["inboxMessageNotificationModeSchema"]
 >;
@@ -22,8 +35,15 @@ export type UpdateInboxMessageNotificationPreferencesRpcInput = z.infer<
 >;
 
 export type InboxView = z.infer<InboxSchemas["inboxViewSchema"]>;
+export type InboxPresentation = z.infer<
+  InboxSchemas["inboxPresentationSchema"]
+>;
 export type InboxAttention = z.infer<InboxSchemas["inboxAttentionSchema"]>;
 export type InboxImportance = z.infer<InboxSchemas["inboxImportanceSchema"]>;
+export type InboxRecipientReason = z.infer<
+  InboxSchemas["inboxRecipientReasonSchema"]
+>;
+export type InboxSourceFacts = z.infer<InboxSchemas["inboxSourceFactsSchema"]>;
 export type InboxResolutionStatus = z.infer<
   InboxSchemas["inboxResolutionStatusSchema"]
 >;
@@ -50,6 +70,9 @@ export type ListInboxItemsResponse = z.infer<
 >;
 export type InboxSummaryResponse = z.infer<
   InboxSchemas["inboxSummaryResponseSchema"]
+>;
+export type InboxSummaryQuery = z.infer<
+  InboxSchemas["inboxSummaryQuerySchema"]
 >;
 export type CenterAgentInboxSummaryResponse = z.infer<
   InboxSchemas["centerAgentInboxSummaryResponseSchema"]

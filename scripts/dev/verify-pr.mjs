@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { isWorkerZodImportCheckPath } from "../cloudflare/worker-zod-import-contract.mjs";
+import { isCliSkillCheckPath } from "../release/cli-skill-check.mjs";
 
 const DOCUMENTATION_PATH =
   /^(?:AGENTS\.md$|CLAUDE\.md$|README\.md$|CHANGELOG\.md$|(?:developing|docs)\/.*\.md$|changelog\/|\.agents\/skills\/.*(?:\.md|\/UPSTREAM\.json|\/LICENSE)$|\.claude\/.*\.md$)/u;
@@ -13,6 +15,17 @@ const NODE_SOURCE_PATH = /^scripts\/.*\.mjs$/u;
 const VITEST_SCRIPT = /^vitest run(?: --(?:config|environment) [\w./-]+)*$/u;
 const WHITESPACE = /\s+/u;
 const NODE_EXTENSION = /\.mjs$/u;
+const VITEST_TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const VITEST_TEST_SUFFIXES = [
+  ".test.ts",
+  ".test.tsx",
+  ".test.js",
+  ".test.jsx",
+  ".spec.ts",
+  ".spec.tsx",
+  ".spec.js",
+  ".spec.jsx",
+];
 const SCRIPT_ALIAS = /^pnpm run ([\w:-]+)$/u;
 
 // Resolve plain unit-test aliases, never reinterpret shell pipelines or Worker
@@ -32,22 +45,12 @@ export function resolveUnitTestScript(
 }
 
 export function planPrChecks(paths, options = {}) {
-  const commands = [];
-  if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
-    commands.push(["run", "verify:docs", "--", "--strict"]);
-  }
-  if (
-    paths.some(
-      (file) => file.startsWith("changelog/") || file === "CHANGELOG.md"
-    )
-  ) {
-    commands.push(["run", "verify:changelog"]);
-  }
-  if (!options.feedback && paths.some((file) => CONTROL_PATH.test(file))) {
-    commands.push(["run", "verify:release-workflows"]);
-  }
+  const commands = planGlobalChecks(paths);
   if (options.feedback) {
     return [...commands, ...planFocusedChecks(paths, options)];
+  }
+  if (paths.some((file) => CONTROL_PATH.test(file))) {
+    commands.push(["run", "verify:release-workflows"]);
   }
   if (paths.some((file) => !DOCUMENTATION_PATH.test(file))) {
     // Preserve Turbo's package graph, lockfile handling, and downstream selection.
@@ -72,6 +75,27 @@ export function planPrChecks(paths, options = {}) {
         "--log-order=stream",
       ]
     );
+  }
+  return commands;
+}
+
+function planGlobalChecks(paths) {
+  const commands = [];
+  if (paths.some(isWorkerZodImportCheckPath)) {
+    commands.push(["run", "verify:worker-zod-imports"]);
+  }
+  if (paths.some(isCliSkillCheckPath)) {
+    commands.push(["run", "verify:cli-skill"]);
+  }
+  if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
+    commands.push(["run", "verify:docs", "--", "--strict"]);
+  }
+  if (
+    paths.some(
+      (file) => file.startsWith("changelog/") || file === "CHANGELOG.md"
+    )
+  ) {
+    commands.push(["run", "verify:changelog"]);
   }
   return commands;
 }
@@ -102,46 +126,33 @@ function planFocusedChecks(paths, options) {
         .filter((file) => existingFiles.has(file))
     ),
   ].toSorted();
-  if (nodeTests.length > 0) {
-    commands.push([
-      "exec",
-      "node",
-      "--test",
-      "--test-concurrency=1",
-      ...nodeTests,
-    ]);
-  }
+  const nodeTestCommand =
+    nodeTests.length > 0
+      ? ["exec", "node", "--test", "--test-concurrency=1", ...nodeTests]
+      : null;
   const workspaceCommands = [];
   const buildFilters = [];
-  for (const workspace of options.workspaces ?? []) {
-    const sources = paths
-      .filter(
+  const selectedWorkspaces = (options.workspaces ?? []).filter(
+    (workspace) =>
+      workspace.test &&
+      paths.some(
         (file) =>
           file.startsWith(`${workspace.directory}/`) && SOURCE_PATH.test(file)
       )
-      .map((file) => file.slice(workspace.directory.length + 1));
-    if (sources.length > 0 && workspace.test) {
-      if (workspace.name) {
-        buildFilters.push(`--filter=${workspace.name}^...`);
-      }
-      if (!VITEST_SCRIPT.test(workspace.test ?? "")) {
-        workspaceCommands.push(["--dir", workspace.directory, "run", "test"]);
-        continue;
-      }
-      workspaceCommands.push([
-        "--dir",
-        workspace.directory,
-        "exec",
-        "vitest",
-        "related",
-        "--run",
-        ...workspace.test.split(WHITESPACE).slice(2),
-        "--passWithNoTests",
-        "--maxWorkers=2",
-        "--no-file-parallelism",
-        ...sources,
-      ]);
+  );
+  for (const workspace of selectedWorkspaces) {
+    const focusedCommands = focusedWorkspaceCommands(
+      paths,
+      workspace,
+      existingFiles
+    );
+    if (focusedCommands.length === 0) {
+      continue;
     }
+    if (workspace.name) {
+      buildFilters.push(`--filter=${workspace.name}^...`);
+    }
+    workspaceCommands.push(...focusedCommands);
   }
   if (buildFilters.length > 0) {
     commands.push([
@@ -153,7 +164,79 @@ function planFocusedChecks(paths, options) {
       "--concurrency=1",
     ]);
   }
+  if (nodeTestCommand) {
+    commands.push(nodeTestCommand);
+  }
   return [...commands, ...workspaceCommands];
+}
+
+function focusedWorkspaceCommands(paths, workspace, existingFiles) {
+  const sources = paths
+    .filter(
+      (file) =>
+        file.startsWith(`${workspace.directory}/`) &&
+        SOURCE_PATH.test(file) &&
+        existingFiles.has(file)
+    )
+    .map((file) => file.slice(workspace.directory.length + 1));
+  if (!VITEST_SCRIPT.test(workspace.test)) {
+    return [];
+  }
+  const tests = new Set();
+  for (const source of sources) {
+    if (VITEST_TEST_FILE.test(source)) {
+      tests.add(source);
+      continue;
+    }
+    const stem = source.replace(SOURCE_PATH, "");
+    for (const suffix of VITEST_TEST_SUFFIXES) {
+      const adjacent = `${stem}${suffix}`;
+      if (existingFiles.has(`${workspace.directory}/${adjacent}`)) {
+        tests.add(adjacent);
+      }
+    }
+  }
+  if (tests.size === 0) {
+    return [];
+  }
+  const testGroups =
+    workspace.directory === "services/core"
+      ? [
+          [
+            "vitest.boundary.config.ts",
+            [...tests].filter((file) => file.startsWith("tests-node/")),
+          ],
+          [
+            "vitest.split-gate.config.ts",
+            [...tests].filter((file) => file.startsWith("tests-split-gate/")),
+          ],
+          [
+            "vitest.config.ts",
+            [...tests].filter(
+              (file) =>
+                !(
+                  file.startsWith("tests-node/") ||
+                  file.startsWith("tests-split-gate/")
+                )
+            ),
+          ],
+        ]
+      : [[null, [...tests]]];
+  return testGroups
+    .filter(([, files]) => files.length > 0)
+    .map(([config, files]) => [
+      "--dir",
+      workspace.directory,
+      "exec",
+      "vitest",
+      "run",
+      ...(config
+        ? ["--config", config]
+        : workspace.test.split(WHITESPACE).slice(2)),
+      "--maxWorkers=2",
+      "--no-file-parallelism",
+      ...files,
+    ]);
 }
 
 export function runPrChecks(commands, run = spawnSync) {
@@ -210,7 +293,11 @@ export function runVerification(options = {}) {
           };
         })
     : [];
-  const commands = planPrChecks(paths, { feedback, existingFiles, workspaces });
+  const commands = planPrChecks(paths, {
+    feedback,
+    existingFiles,
+    workspaces,
+  });
   if (options.plan) {
     console.log(
       JSON.stringify(

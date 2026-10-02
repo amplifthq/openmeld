@@ -21,10 +21,14 @@ import {
 	buildOrganizationDirectoryLegacyMembersPath,
 	buildOrganizationDirectoryPeoplePath,
 	buildOrganizationDirectoryRootPath,
+	buildOrganizationDocumentPath,
+	buildOrganizationDocumentsPath,
+	buildOrganizationFilesPath,
 	buildOrganizationInboxItemPath,
 	buildOrganizationInboxPath,
 	buildOrganizationLegacyCenterAgentSettingsPath,
 	buildOrganizationMemoryPath,
+	buildOrganizationNewDocumentPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationOrganizationsPath,
 	buildOrganizationOrgSettingsPath,
@@ -170,16 +174,42 @@ describe("primary organization routes", () => {
 		);
 	});
 
-	it("keeps Organization Skills inside the Center Agent route family", () => {
-		expect(buildOrganizationSkillsPath("acme")).toBe(
-			"/o/acme/center-agent/skills"
-		);
+	it("builds organization-level Skill routes with encoded identity segments", () => {
+		expect(buildOrganizationSkillsPath("acme")).toBe("/o/acme/skills");
 		expect(
 			buildOrganizationSkillPath({
 				orgSlug: "acme",
 				skillId: "skill/one",
 			})
-		).toBe("/o/acme/center-agent/skills/skill%2Fone");
+		).toBe("/o/acme/skills/skill%2Fone");
+		expect(
+			buildOrganizationSkillPath({ orgSlug: "team one", skillId: "skill %/#?" })
+		).toBe("/o/team%20one/skills/skill%20%25%2F%23%3F");
+	});
+
+	it("keeps Files in the Team when switching Organizations", () => {
+		expect(buildOrganizationFilesPath("acme")).toBe("/o/acme/files");
+		expect(
+			resolveOrganizationSwitchPath({
+				currentPathname: "/o/acme/files",
+				nextOrgSlug: "next-team",
+			})
+		).toBe("/o/next-team/files");
+	});
+
+	it("opens managed knowledge directly inside Files", () => {
+		expect(buildOrganizationDocumentsPath("acme")).toBe(
+			"/o/acme/files?view=knowledge"
+		);
+		expect(
+			buildOrganizationDocumentPath({
+				documentId: "brief/one",
+				orgSlug: "acme",
+			})
+		).toBe("/o/acme/files?view=knowledge&document=brief%2Fone");
+		expect(
+			buildOrganizationNewDocumentPath({ kind: "brief", orgSlug: "acme" })
+		).toBe("/o/acme/files?view=knowledge&create=1&kind=brief");
 	});
 
 	it("uses immutable Project ids for the Projects route family", () => {
@@ -213,15 +243,19 @@ describe("resolveOrganizationSwitchPath", () => {
 			"/o/acme/center-agent/routines",
 			"/o/beta/center-agent/routines",
 		],
-		[
-			"Center Agent Skills",
-			"/o/acme/center-agent/skills",
-			"/o/beta/center-agent/skills",
-		],
+		["Center Agent Skills", "/o/acme/center-agent/skills", "/o/beta/skills"],
 		[
 			"Center Agent Skill detail",
 			"/o/acme/center-agent/skills/skill-acme",
-			"/o/beta/center-agent/skills",
+			"/o/beta/skills",
+		],
+		["Skills", "/o/acme/skills", "/o/beta/skills"],
+		["Skill detail", "/o/acme/skills/skill-acme", "/o/beta/skills"],
+		["Trailing Skill slash", "/o/acme/skills/skill%2Fone/", "/o/beta/skills"],
+		[
+			"Legacy trailing Skill slash",
+			"/o/acme/center-agent/skills/skill%2Fone/",
+			"/o/beta/skills",
 		],
 		["Spaces", "/o/acme/spaces", "/o/beta/spaces"],
 		["Space detail", "/o/acme/spaces/space-acme", "/o/beta/spaces"],

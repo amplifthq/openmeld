@@ -1,5 +1,6 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import {
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
@@ -49,6 +50,21 @@ export function resolveRemoteAgentLogicalConversationId(
   request: RemoteAgentWorkerSubmitTurnRequest
 ): string {
   return request.conversationId ?? request.spaceId;
+}
+
+export function isRemoteAgentRoutineRunConversation(
+  request: RemoteAgentWorkerSubmitTurnRequest
+): boolean {
+  const trigger = request.turnEnvelope.trigger;
+  return (
+    trigger.source === "routine" &&
+    request.conversationId ===
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: request.agentProfileId,
+        organizationId: request.organizationId,
+        runId: trigger.runId,
+      })
+  );
 }
 
 export function resolveRemoteAgentRuntimeConversationId(
@@ -154,6 +170,7 @@ export async function buildRemoteAgentConversationContinuityContext(input: {
   env: CoreBindings;
   generation: number;
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  sourceDispatchId?: string;
 }): Promise<RemoteAgentConversationContinuityContext> {
   if (input.generation < 1) {
     throw new Error(
@@ -185,7 +202,15 @@ async function readContinuityEntryDrafts(input: {
   env: CoreBindings;
   generation: number;
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  sourceDispatchId?: string;
 }): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
+  if (isRemoteAgentRoutineRunConversation(input.request)) {
+    throw new RemoteAgentConversationContinuitySourceError({
+      code: "remote_agent.routine_run_continuity_unavailable",
+      message:
+        "A Routine Run cannot use its publication destination as execution continuity.",
+    });
+  }
   if (
     input.request.turnEnvelope.trigger.source === "slack" ||
     input.request.turnEnvelope.trigger.source === "message_channel" ||
@@ -197,6 +222,7 @@ async function readContinuityEntryDrafts(input: {
   return await readSpaceContinuityEntryDrafts({
     env: input.env,
     request: input.request,
+    sourceDispatchId: input.sourceDispatchId,
   });
 }
 
@@ -234,6 +260,7 @@ function readMessageChannelContinuityEntryDrafts(
 async function readSpaceContinuityEntryDrafts(input: {
   env: CoreBindings;
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
+  sourceDispatchId?: string;
 }): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
   const stub = resolveSpaceStub(
     input.env.OPENMELD_SPACES,
@@ -258,7 +285,7 @@ async function readSpaceContinuityEntryDrafts(input: {
     beforeCount: REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES + 1,
     signalTypes: ["signal.text"],
     spaceAccess: createDispatchContinuationSpaceAccessContext({
-      dispatchId: input.request.dispatchId,
+      dispatchId: input.sourceDispatchId ?? input.request.dispatchId,
       requestContext,
       sourceSignalId: input.request.triggerMessageId,
       spaceId: input.request.spaceId,

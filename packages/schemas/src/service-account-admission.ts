@@ -9,10 +9,29 @@ export const serviceControlCapabilitiesSchema = z.strictObject({
   stop: z.boolean(),
 });
 
-export const serviceControlCarrierCapabilitySchema = z.strictObject({
-  protocol: z.literal("account-checked-service-control-v1"),
-  executable: z.string().min(1),
-});
+export const serviceControlCarrierCapabilitySchema = z.discriminatedUnion(
+  "protocol",
+  [
+    // Preserve the exact existing macOS binary response for older Desktop readers.
+    z.strictObject({
+      protocol: z.literal("account-checked-service-control-v1"),
+      executable: z.string().min(1),
+    }),
+    // A Node executable alone is not proof of the Windows CLI being executed.
+    z.strictObject({
+      protocol: z.literal("account-checked-service-control-v2"),
+      platform: z.literal("win32"),
+      executable: z.string().min(1),
+      entryScript: z.string().min(1),
+    }),
+    // A compiled Windows carrier has no separate Node entry script.
+    z.strictObject({
+      protocol: z.literal("account-checked-service-control-v3"),
+      platform: z.literal("win32"),
+      executable: z.string().min(1),
+    }),
+  ]
+);
 
 export const serviceAccountControlRequestSchema = z.strictObject({
   operation: z.enum(["start", "stop"]),
