@@ -2932,6 +2932,10 @@ export {
   agentControllerUsageLimitsSchema,
 } from "./runtime/agent-controller-interface";
 export {
+  agentExecutionSteerRequestSchema,
+  agentExecutionSteerResponseSchema,
+} from "./runtime/agent-execution-steer";
+export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,
   agentDelegationBarrierSchema,
   agentDelegationChildSnapshotSchema,
