@@ -1,4 +1,3 @@
-import { useElementScrollRestoration } from "@tanstack/react-router";
 import {
 	type RefObject,
 	useCallback,
@@ -7,7 +6,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { getAppScrollRestorationKey } from "#/lib/app-scroll-restoration";
 import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import {
 	readSpaceConversationPosition,
@@ -16,6 +14,7 @@ import {
 } from "#/lib/space-conversation-position";
 
 const TOP_OVERLAY_HEIGHT_PROPERTY = "--space-conversation-top-overlay-height";
+const BOTTOM_THRESHOLD_PX = 12;
 
 export type SpaceConversationRestorationStatus = "restoring" | "ready";
 
@@ -70,6 +69,7 @@ export function resolveSpaceConversationPosition(
 
 export function useSpaceConversationPosition(input: {
 	historyIsPending: boolean;
+	isLiveHistory: boolean;
 	historyVersion: unknown;
 	hasExplicitFocus: boolean;
 	messageElementsRef: RefObject<Map<string, HTMLElement>>;
@@ -77,17 +77,7 @@ export function useSpaceConversationPosition(input: {
 	selfProfileId: string;
 	viewport: HTMLDivElement | null;
 }) {
-	const routerEntry = useElementScrollRestoration({
-		getKey: getAppScrollRestorationKey,
-		id: input.restorationId,
-	});
 	const positionKey = `${input.selfProfileId}:${input.restorationId}`;
-	// Restoration reads the entry at mount, not the cache updated by scrolling.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: A new viewport starts a new restoration session.
-	const initialRouterEntry = useMemo(
-		() => (routerEntry ? { scrollY: routerEntry.scrollY } : undefined),
-		[positionKey, input.viewport]
-	);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: A remounted viewport must read the position saved by its previous instance.
 	const rememberedPosition = useMemo(
 		() => readSpaceConversationPosition(positionKey),
@@ -95,7 +85,7 @@ export function useSpaceConversationPosition(input: {
 	);
 	const shouldRestore =
 		!input.hasExplicitFocus &&
-		Boolean(rememberedPosition || initialRouterEntry);
+		Boolean(rememberedPosition && !rememberedPosition.atBottom);
 	const [restoration, setRestoration] = useState<{
 		key: string;
 		status: SpaceConversationRestorationStatus;
@@ -153,7 +143,14 @@ export function useSpaceConversationPosition(input: {
 			}
 			const position = resolveSpaceConversationPosition(viewport);
 			if (position) {
-				writeSpaceConversationPosition(positionKey, position);
+				writeSpaceConversationPosition(positionKey, {
+					...position,
+					...(input.isLiveHistory &&
+					viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <=
+						BOTTOM_THRESHOLD_PX
+						? { atBottom: true as const }
+						: {}),
+				});
 			}
 		};
 		saveRef.current = save;
@@ -177,12 +174,7 @@ export function useSpaceConversationPosition(input: {
 				release();
 				return;
 			}
-			alignReadingPosition(
-				viewport,
-				anchor,
-				rememberedPosition,
-				ready ? undefined : initialRouterEntry?.scrollY
-			);
+			alignReadingPosition(viewport, anchor, rememberedPosition);
 			ready = true;
 			markReady();
 		};
@@ -244,13 +236,13 @@ export function useSpaceConversationPosition(input: {
 	}, [
 		input.viewport,
 		input.historyIsPending,
+		input.isLiveHistory,
 		input.historyVersion,
 		input.messageElementsRef,
 		positionKey,
 		restoration.key,
 		restoration.status,
 		rememberedPosition,
-		initialRouterEntry,
 		shouldRestore,
 	]);
 
@@ -263,7 +255,8 @@ export function useSpaceConversationPosition(input: {
 			saveRef.current();
 			if (
 				releasedKeyRef.current === positionKey &&
-				viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 12
+				viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <=
+					BOTTOM_THRESHOLD_PX
 			) {
 				recordReactUpdate("conversation_position_follow");
 				setFollowingViewport(viewport);
@@ -310,20 +303,12 @@ function initialRestorationStatus(
 function alignReadingPosition(
 	viewport: HTMLDivElement,
 	anchor: HTMLElement | undefined,
-	position: SpaceConversationPosition | null,
-	scrollY: number | undefined
+	position: SpaceConversationPosition | null
 ) {
 	if (anchor && position) {
 		viewport.scrollTop +=
 			anchor.getBoundingClientRect().top -
 			getSpaceConversationVisibleTop(viewport) -
 			position.offsetFromVisibleTop;
-		return;
-	}
-	if (scrollY !== undefined) {
-		viewport.scrollTop = Math.min(
-			scrollY,
-			Math.max(0, viewport.scrollHeight - viewport.clientHeight)
-		);
 	}
 }
