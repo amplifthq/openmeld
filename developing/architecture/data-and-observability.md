@@ -3054,6 +3054,22 @@ explicitly incomplete; no extra provider polling is introduced to invent or
 recover unknown charges.
 No supplier polling or extra inference request is added.
 
+Every new Remote provider call requires an accepted `recordRemoteAiUsage`
+begin response from Core. A missing receiver fails visibly with
+`core.rpc.unavailable`; missing configuration, transport errors, malformed
+responses, exhausted allowances, and failed admission writes never authorize
+inference. There is no legacy admission exception, including for new owners or
+after an earlier successful admission. Deploy and verify Core before Remote.
+
+Preserve any historical `openmeld:ai-usage:deferred:<eventId>` audit receipts
+unchanged. They record unchecked historical admissions, not current permission,
+public usage totals, or a second consumption ledger. The ordinary settlement
+outbox and callback retry owner continue delivering real provider receipts.
+Core accepts a settlement without an earlier begin and deduplicates its exact
+event identity, including a committed write whose ACK was lost. Settlement
+failures after an admitted, paid call must not trigger another inference.
+An audit without final usage stays explicitly incomplete; never invent charges.
+
 Codex uses changed current-turn token events and native request counters,
 ignoring resume history and rate-limit-only repeats. Claude uses unique native
 assistant message IDs; OpenCode uses completed assistant messages from the

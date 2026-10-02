@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 /** Core's query observation, never proof of execution or authority to restart. */
 export const remoteAgentExecutionReconciliationObservationSchema =

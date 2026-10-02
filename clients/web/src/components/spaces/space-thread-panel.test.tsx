@@ -636,10 +636,21 @@ describe("SpaceThreadPanel", () => {
 		expect(marker?.getAttribute("aria-busy")).toBeNull();
 	});
 
-	it("uses Bot avatars for Center Agent replies in an ordinary Space thread", () => {
+	it("uses the saved Bot avatar for Center Agent replies in an ordinary Space thread", () => {
 		const centerAgentProfileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		renderThreadPanel({
 			centerAgentProfileId,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					{
+						...createSpaceMemberAgentSnapshot({
+							profileId: centerAgentProfileId,
+							profileName: "Center Agent",
+						}),
+						avatarStyle: "star",
+					},
+				],
+			}),
 			signals: [
 				createTextSignal({
 					profileId: centerAgentProfileId,

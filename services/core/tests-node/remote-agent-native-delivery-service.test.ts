@@ -156,6 +156,113 @@ import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/re
 const UNSUPPORTED_INTERRUPTION_DETAIL = /502|overloaded|Please try again/u;
 
 describe("Remote Agent native delivery callback service", () => {
+  it("finishes an accepted legacy Remote turn across a Core upgrade without redispatch or duplicate publication", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn();
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    try {
+      // A pre-upgrade accepted delivery is already owned by the old Remote.
+      // The new Core must consume its original callback without another turn.
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "legacy-inflight",
+        submissionId: "legacy-submission",
+        dispatchId: "legacy-dispatch",
+        spaceId: SPACE_ID,
+        modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+        onBehalfOfProfileId: HUMAN_PROFILE_ID,
+        onBehalfOfUserId: "user_1",
+      });
+      const callback = {
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding_1",
+        dispatchId: "legacy-dispatch",
+        idempotencyKey: "legacy-inflight",
+        organizationId: "org_1",
+        spaceId: SPACE_ID,
+        submissionId: "legacy-submission",
+        triggerMessageId: "signal_1",
+        text: "The completed investigation.",
+      };
+      await expect(
+        completeRemoteAgentNativeDelivery(env, callback)
+      ).resolves.toMatchObject({ status: "accepted" });
+      await completeRemoteAgentNativeDelivery(env, callback);
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+  it.each([
+    false,
+    true,
+  ])("freezes task attribution for receiver support=%s across an upgrade", async (supported) => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const readSubmitTurnCapabilities = vi.fn(() => {
+      if (!supported) {
+        throw new Error(
+          'The RPC receiver does not implement the method "readSubmitTurnCapabilities".'
+        );
+      }
+      return Promise.resolve({ v: 1 as const, taskId: true as const });
+    });
+    const requests: RemoteAgentWorkerSubmitTurnRequest[] = [];
+    const workerSubmit = vi.fn(
+      (request: RemoteAgentWorkerSubmitTurnRequest) => {
+        requests.push(structuredClone(request));
+        if (!supported) {
+          // Published e4454cf1's strict request has no top-level taskId key.
+          expect(request).not.toHaveProperty("taskId");
+        }
+        if (requests.length === 1) {
+          throw new Error("ACK transport lost");
+        }
+        return Promise.resolve({
+          accepted: false,
+          createdAt: 1200,
+          status: "pending" as const,
+          submissionId: "submission-rolling",
+        });
+      }
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: {
+        submitConversationTurn: workerSubmit,
+        readSubmitTurnCapabilities,
+      },
+    });
+    const input = {
+      binding: createBinding(),
+      db: harness.db,
+      env,
+      executionAttemptId: "attempt-rolling",
+      memoryService: null,
+      message: createDispatchMessage({ taskId: "task-rolling" }),
+      nowMs: 1000,
+    };
+    try {
+      await submitRemoteAgentNativeDelivery(input);
+      expect(requests).toHaveLength(1);
+      if (!supported) {
+        expect(requests[0]).not.toHaveProperty("taskId");
+      }
+      if (supported) {
+        expect(requests[0]?.taskId).toBe("task-rolling");
+      }
+      readSubmitTurnCapabilities.mockResolvedValue({ v: 1, taskId: true });
+      await submitRemoteAgentNativeDelivery({ ...input, nowMs: 2000 });
+      expect(requests).toHaveLength(2);
+      expect(requests[1]).toEqual(requests[0]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it.each([
     "completed",
     "failed",
