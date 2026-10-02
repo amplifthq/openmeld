@@ -981,6 +981,12 @@ const remoteAgentStreamDeltaCallbackIdentitySchema = {
   dispatchId: nonEmptyStringSchema,
 };
 
+// Sent by the admitted native execution before it prepares model/tools/Computer.
+// This confirms the existing admission; it never starts or authorizes a new turn.
+export const remoteAgentCoreAdmissionCallbackSchema = z.strictObject({
+  ...remoteAgentStreamDeltaCallbackIdentitySchema,
+});
+
 const legacyRemoteAgentStreamDeltaCallbackBodySchema = z.strictObject({
   v: z.literal(1),
   streamId: nonEmptyStringSchema,

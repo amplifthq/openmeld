@@ -168,6 +168,7 @@ describe("SpaceConversationPanel", () => {
 			directoryError: false,
 			directoryPending: false,
 			error: null,
+			notice: null,
 			errorDirection: undefined,
 			hasHiddenLiveHistory: false,
 			latest: vi.fn(),
@@ -1742,6 +1743,82 @@ describe("SpaceConversationPanel", () => {
 		expect(onLoadEarlierHistory).not.toHaveBeenCalled();
 	});
 
+	it("moves an unavailable linked message to the latest viewport without a failure notice", async () => {
+		let finish!: (value: "latest") => void;
+		const open = vi.fn(
+			() =>
+				new Promise<"latest">((resolve) => {
+					finish = resolve;
+				})
+		);
+		const historyNavigation: NonNullable<
+			SpaceConversationPanelInput["historyNavigation"]
+		> = {
+			activeWindow: null,
+			directory: undefined,
+			directoryError: false,
+			directoryPending: false,
+			error: null,
+			notice: null,
+			errorDirection: undefined,
+			hasHiddenLiveHistory: false,
+			latest: vi.fn(),
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open,
+			hrefForSignalId: undefined,
+			earlierHref: undefined,
+			latestHref: undefined,
+			newerHref: undefined,
+			pending: false,
+			pendingDirection: undefined,
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [],
+		};
+		const view = renderSpaceConversationPanel({
+			historyNavigation,
+			initialFocusSignalId: "removed-message",
+			timelineItems: [createTimelineItem({ text: "Earlier message" })],
+		});
+		const viewport = screen.getByRole("log", { name: "Conversation history" });
+		setElementScrollMetrics(viewport, {
+			clientHeight: 300,
+			scrollHeight: 1000,
+			scrollTop: 100,
+		});
+		Object.defineProperty(viewport, "scrollTo", {
+			configurable: true,
+			value: (options: ScrollToOptions) => {
+				viewport.scrollTop = Number(options.top);
+			},
+		});
+		const notice =
+			"This message is no longer available in this conversation. Showing the latest messages.";
+		await act(() => {
+			view.rerender(
+				<SpaceConversationPanel
+					{...createSpaceConversationPanelProps({
+						historyNavigation: { ...historyNavigation, notice },
+						initialFocusSignalId: "removed-message",
+						timelineItems: [
+							createTimelineItem({ id: "latest", text: "Latest message" }),
+						],
+					})}
+				/>
+			);
+			finish("latest");
+		});
+		await waitFor(() => expect(viewport.scrollTop).toBe(700));
+		expect(screen.getAllByText(notice)).toHaveLength(1);
+		expect(
+			screen.queryByText(
+				"Couldn’t load these messages. Select a position to try again."
+			)
+		).toBeNull();
+		expect(open).toHaveBeenCalledTimes(1);
+	});
+
 	it("shows reply staleness as muted text only on the marked message", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
@@ -3214,6 +3291,7 @@ describe("SpaceConversationPanel", () => {
 			directoryPending: false,
 			earlierHref: "/spaces/space-123?signalId=sig-earlier",
 			error: null,
+			notice: null,
 			errorDirection: undefined,
 			hasHiddenLiveHistory: false,
 			hrefForSignalId: (signalId: string) =>

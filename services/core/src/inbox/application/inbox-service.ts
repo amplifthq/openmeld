@@ -178,6 +178,8 @@ export type InboxItemRow = {
   read_at_ms: number | null;
   recipient_user_id: string;
   resolution_status: InboxItem["resolutionStatus"];
+  source_kind: string;
+  source_key: string;
   source_target_json: string;
   source_facts_json: string | null;
   title: string;
@@ -661,6 +663,8 @@ export function createInboxService(input: {
               title,
               preview,
               context_label,
+              source_kind,
+              source_key,
               source_target_json,
               ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json,
               resolution_status,
@@ -1210,6 +1214,8 @@ async function readInboxItem(input: {
           title,
           preview,
           context_label,
+          source_kind,
+          source_key,
           source_target_json,
           ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json,
           resolution_status,
@@ -1256,6 +1262,21 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
     ? JSON.parse(row.source_facts_json)
     : undefined;
   let target = sourceTarget.data;
+  // The retired continuation producer put a child result id in its parent's
+  // Space. Old rows may never be replayed by that producer. Correct only their
+  // reader presentation, after source authorization; preserve stored evidence,
+  // recipient choices and action counts until explicit Dismiss/source repair.
+  const legacyContinuation =
+    row.source_kind === "remote_agent_native_delivery" &&
+    row.source_key.endsWith(":admission_retry_exhausted") &&
+    row.kind === "system_issue" &&
+    row.attention === "action_required" &&
+    row.importance === "urgent" &&
+    target.kind === "space";
+  if (legacyContinuation && target.kind === "space") {
+    const { signalId: _misplacedSignalId, ...conversationTarget } = target;
+    target = conversationTarget;
+  }
   if (
     sourceFacts &&
     target.kind === "space" &&
@@ -1273,7 +1294,9 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
     kind: row.kind,
     occurredAt: toIsoTimestamp(row.occurred_at_ms, "occurred_at_ms"),
     organizationId: row.organization_id,
-    preview: row.preview,
+    preview: legacyContinuation
+      ? "An earlier attempt to continue this task ended without a confirmed reply. Open the conversation to review the outcome, or remove this reminder from Inbox."
+      : row.preview,
     readAt:
       row.read_at_ms === null
         ? null
