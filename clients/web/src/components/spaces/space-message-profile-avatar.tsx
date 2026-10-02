@@ -41,6 +41,7 @@ export function SpaceMessageProfileAvatar(
 		return (
 			<RemoteAgentAvatar
 				agentControllerRef={input.agentControllerRef}
+				avatarImageUrl={input.avatarImageUrl}
 				avatarStyle={input.avatarStyle}
 				data-testid={`${input.isCenterAgent ? "space-center-agent-profile-avatar" : "space-agent-profile-avatar"}-${input.profileId}`}
 				fallbackTestId={
@@ -48,6 +49,7 @@ export function SpaceMessageProfileAvatar(
 						? undefined
 						: `space-agent-profile-fallback-avatar-${input.profileId}`
 				}
+				modelId={input.avatarModelId}
 				profileId={input.profileId}
 				profileName={input.displayName}
 				shape={input.isCenterAgent ? "circle" : "rounded-square"}

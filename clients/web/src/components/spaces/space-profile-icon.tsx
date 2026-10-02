@@ -44,6 +44,7 @@ export function SpaceProfileIcon(input: {
 		return (
 			<RemoteAgentAvatar
 				agentControllerRef={input.agentControllerRef}
+				avatarImageUrl={input.avatarImageUrl}
 				avatarStyle={input.avatarStyle}
 				className={cn(
 					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
@@ -51,6 +52,7 @@ export function SpaceProfileIcon(input: {
 				)}
 				data-testid={`space-profile-icon-${input.profileId}`}
 				fallbackTestId={`space-agent-profile-fallback-icon-${input.profileId}`}
+				modelId={input.avatarModelId}
 				profileId={input.profileId}
 				profileName={input.profileName}
 				shape={input.isCenterAgent ? "circle" : "rounded-square"}

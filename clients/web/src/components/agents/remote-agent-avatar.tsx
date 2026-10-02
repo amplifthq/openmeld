@@ -1,7 +1,15 @@
 "use client";
 
-import { CENTER_AGENT_BOT_AVATAR_TYPES } from "@openmeld/schemas";
+import {
+	CENTER_AGENT_BOT_AVATAR_TYPES,
+	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import type { AuthProfileView } from "@openmeld/schemas/types";
+import {
+	Avatar,
+	AvatarFallback,
+	AvatarImage,
+} from "@openmeld/ui/components/avatar";
 import {
 	FluidAvatar,
 	type FluidAvatarProps,
@@ -12,6 +20,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
 import { BotAvatar, type BotAvatarType } from "bot-avatars";
 import { useRef } from "react";
+import { ModelBrandIcon } from "#/components/models/model-brand-icon";
 import { useAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import { resolveAgentAvatarIdentity } from "./agent-avatar-identity";
 
@@ -25,7 +34,7 @@ type AgentAvatarProps = Omit<FluidAvatarProps, "seed" | "fallback" | "size"> & {
 	profileName: string;
 	profileId?: string;
 	avatarStyle?: AgentAvatarStyle | null;
-	// Retained for caller compatibility; model choice never determines identity.
+	avatarImageUrl?: string | null;
 	modelId?: string | null;
 	agentControllerRef?: string | null;
 	working?: boolean;
@@ -37,12 +46,24 @@ type AgentAvatarProps = Omit<FluidAvatarProps, "seed" | "fallback" | "size"> & {
 export function RemoteAgentAvatar(input: AgentAvatarProps) {
 	const savedProfile = useAgentAvatarProfile(input.profileId);
 	const profile = input.preview ? undefined : savedProfile;
+	const controllerRef = profile
+		? profile.agentControllerRef
+		: input.agentControllerRef;
+	const avatarImageUrl =
+		controllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+			? (profile?.avatarUrl ?? input.avatarImageUrl)
+			: undefined;
 	return (
 		<AgentAvatarPresentation
 			{...input}
+			avatarImageUrl={avatarImageUrl}
 			{...(profile
 				? {
 						avatarStyle: profile.avatarStyle,
+						modelId:
+							profile.avatarModelId === undefined
+								? input.modelId
+								: profile.avatarModelId,
 						agentControllerRef: profile.agentControllerRef,
 						shape: resolveAgentAvatarIdentity(profile).shape,
 					}
@@ -55,7 +76,8 @@ function AgentAvatarPresentation({
 	profileName,
 	profileId,
 	avatarStyle,
-	modelId: _modelId,
+	avatarImageUrl,
+	modelId,
 	agentControllerRef,
 	preview: _preview,
 	fallbackTestId,
@@ -73,6 +95,7 @@ function AgentAvatarPresentation({
 	const identity = resolveAgentAvatarIdentity({
 		agentControllerRef,
 		avatarStyle,
+		modelId,
 		isCenterAgent: shape === "circle",
 	});
 	const selectedStyle = identity.style;
@@ -82,6 +105,18 @@ function AgentAvatarPresentation({
 		"data-avatar-shape": shape,
 		"data-avatar-icon": identity.icon,
 	};
+	if (avatarImageUrl) {
+		return (
+			<AgentAvatarImage
+				{...props}
+				{...identityAttributes}
+				avatarImageUrl={avatarImageUrl}
+				className={className}
+				shape={shape}
+				size={size}
+			/>
+		);
+	}
 	if (selectedStyle === "fluid") {
 		return (
 			<FluidAvatar
@@ -162,15 +197,66 @@ function AgentAvatarPresentation({
 			)}
 			style={{ width: size, height: size }}
 		>
-			{identity.icon === "agent" ? (
-				<RobotIcon className="h-3/5 w-3/5" data-testid={fallbackTestId} />
-			) : (
-				<LocalAgentLogo
-					agentId={identity.icon}
-					className="h-full w-full"
-					size="md"
-				/>
-			)}
+			<AgentAvatarDefaultIcon
+				fallbackTestId={fallbackTestId}
+				identity={identity}
+			/>
 		</span>
+	);
+}
+
+function AgentAvatarDefaultIcon({
+	identity,
+	fallbackTestId,
+}: {
+	identity: ReturnType<typeof resolveAgentAvatarIdentity>;
+	fallbackTestId?: string;
+}) {
+	if (identity.providerBrand) {
+		return (
+			<ModelBrandIcon brand={identity.providerBrand} className="h-3/5 w-3/5" />
+		);
+	}
+	if (identity.icon === "agent") {
+		return <RobotIcon className="h-3/5 w-3/5" data-testid={fallbackTestId} />;
+	}
+	return (
+		<LocalAgentLogo
+			agentId={identity.icon}
+			className="h-full w-full"
+			size="md"
+		/>
+	);
+}
+
+function AgentAvatarImage({
+	avatarImageUrl,
+	className,
+	shape,
+	size,
+	...props
+}: Omit<FluidAvatarProps, "seed" | "fallback"> & { avatarImageUrl: string }) {
+	return (
+		<Avatar
+			{...props}
+			aria-hidden="true"
+			className={cn(
+				"overflow-hidden after:border-0",
+				shape === "circle" ? "rounded-full" : "rounded-[22%]",
+				className
+			)}
+			data-avatar-icon="image"
+			style={{ width: size, height: size }}
+		>
+			<AvatarImage
+				alt=""
+				className="rounded-[inherit]"
+				referrerPolicy="no-referrer"
+				src={avatarImageUrl}
+			/>
+			<AvatarFallback className="rounded-[inherit]">
+				<RobotIcon className="h-3/5 w-3/5" />
+			</AvatarFallback>
+		</Avatar>
 	);
 }
