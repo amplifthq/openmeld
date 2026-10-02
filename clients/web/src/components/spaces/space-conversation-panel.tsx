@@ -6,6 +6,7 @@ import { SPACE_TASK_TITLE_MAX_CHARS } from "@openmeld/schemas";
 import type {
 	ModelCatalog,
 	SpaceInboxUnreadTarget,
+	SpaceInboxUnreadTargetsResponse,
 	SpaceMembersSnapshot,
 	SpaceThread,
 	SpaceThreadPreview,
@@ -234,6 +235,7 @@ import { SpaceGraphSkeleton } from "./space-panel-skeletons";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpacePinnedItemsBar } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
+import { SpaceUnreadControl } from "./space-unread-control";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
@@ -249,7 +251,6 @@ import {
 } from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
 import type { SpaceHistoryNavigationController } from "./use-space-history-navigation";
-import type { PreparedSpaceInboxCatchUp } from "./use-space-inbox-read-position";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
@@ -323,7 +324,10 @@ type SpaceConversationPanelResolvedProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
-	onPrepareCatchUpUnread?: () => Promise<PreparedSpaceInboxCatchUp | null>;
+	onPrepareMarkAllRead?: () => Promise<{
+		unreadCount: number;
+		commit: () => Promise<void>;
+	}>;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onClearComposerReplyTo: () => void;
@@ -363,7 +367,9 @@ type SpaceConversationPanelResolvedProps = {
 	onSpaceViewChange: (view: SpaceView) => void;
 	orgSlug?: string;
 	// The shared observer acknowledges only visible Core unread targets.
-	onViewedThroughTs?: (timestamp: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 	prepareSetupHref?: string;
 	pendingActionSurface?: ReactNode;
 	readOnly?: boolean;
@@ -385,7 +391,7 @@ type SpaceConversationPanelResolvedProps = {
 	isCreatingThread: boolean;
 	timelineItems: readonly SpaceTimelineItem[];
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
-	unreadBatchOccurredAtMs?: number | null;
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
 	unreadCount: number;
 	unreadStateReady: boolean;
 };
@@ -414,13 +420,6 @@ type SpaceConversationPanelProps = Omit<
 	viewState: SpaceConversationPanelViewState;
 };
 
-type SpaceUnreadNavigationState = {
-	targets: readonly SpaceInboxUnreadTarget[];
-};
-
-const EMPTY_SPACE_UNREAD_NAVIGATION_STATE: SpaceUnreadNavigationState = {
-	targets: [],
-};
 const SPACE_CONVERSATION_END_THRESHOLD_PX = 48;
 
 type SpaceSetupGuidanceSlots = {
@@ -653,7 +652,6 @@ function SpaceConversationPanelContent(
 		composerSendBlocked,
 		composerTargetName,
 		conversationTopOverlayElement,
-		dismissedUnreadThroughMs,
 		entries,
 		isReadOnly,
 		loadedMainTimelineSignalIds,
@@ -667,7 +665,6 @@ function SpaceConversationPanelContent(
 		onViewMessageInGraph,
 		profilePresentationsById,
 		setConversationTopOverlayElement,
-		setDismissedUnreadThroughMs,
 		setMessageDetailsItem,
 		showComposer,
 		spaceGraph,
@@ -726,9 +723,7 @@ function SpaceConversationPanelContent(
 		onConversationScrollEnd,
 		onJumpToMessage,
 		registerConversationScrollElement,
-		requestUnreadMeasurement,
 		revealUnreadTarget,
-		unreadNavigation,
 	} = navigation;
 	const registerReadingScrollElement = useCallback(
 		(element: HTMLDivElement | null) => {
@@ -756,7 +751,7 @@ function SpaceConversationPanelContent(
 	});
 	const restorationPresentation = resolveConversationRestorationPresentation({
 		historyIsPending: input.historyIsPending,
-		onViewedThroughTs: input.onViewedThroughTs,
+		onViewedUpdates: input.onViewedUpdates,
 		status: conversationRestorationStatus,
 	});
 	const submitComposer = (options?: SpaceComposerSendOptions) => {
@@ -782,8 +777,8 @@ function SpaceConversationPanelContent(
 				</div>
 			) : null}
 			{renderInitialSpaceFocusStatus({
-				mainMessage:
-					mainFocusStatusMessage ?? input.historyNavigation?.notice ?? null,
+				mainMessage: mainFocusStatusMessage,
+				historyNotice: input.historyNavigation?.notice,
 			})}
 			{input.activeSpaceView === "messages" ? (
 				<SpacePinnedItemsBar
@@ -856,10 +851,7 @@ function SpaceConversationPanelContent(
 									onJumpToMessage={onJumpToMessage}
 									onNavigateStart={releaseReadingPosition}
 									renderNavigation={(history) => (
-										<SpaceHistoryJumpControl
-											history={history}
-											onPrepareCatchUpUnread={input.onPrepareCatchUpUnread}
-										/>
+										<SpaceHistoryJumpControl history={history} />
 									)}
 									scrollElement={conversationScrollElement}
 									visible={showHistoryRail}
@@ -886,7 +878,6 @@ function SpaceConversationPanelContent(
 								onScroll={(event) => {
 									const conversationScrollElement = event.currentTarget;
 									onConversationScroll(conversationScrollElement);
-									requestUnreadMeasurement();
 									const historyWindow = input.historyNavigation?.activeWindow;
 									if (
 										historyWindow?.confirmedAtLiveTail &&
@@ -919,31 +910,19 @@ function SpaceConversationPanelContent(
 							>
 								<SpaceMessageReadObserver
 									key={`${input.spaceId}:${input.selfProfileId}`}
-									onViewedThroughTs={restorationPresentation.onViewedThroughTs}
+									onViewedUpdates={restorationPresentation.onViewedUpdates}
 									unreadTargets={(input.unreadTargets ?? []).filter(
 										(target) => target.threadRootSignalId === null
 									)}
 								/>
 								<SpaceConversationStickyDate
 									afterDate={
-										<SpaceUnreadNavigationControl
+										<SpaceUnreadControl
 											count={input.unreadCount}
-											dismissedThroughMs={dismissedUnreadThroughMs}
-											navigation={unreadNavigation}
-											onDismiss={() => {
-												const cutoff =
-													input.unreadBatchOccurredAtMs ??
-													Math.max(
-														0,
-														...(input.unreadTargets ?? []).map(
-															(target) => target.occurredAtMs
-														)
-													);
-												setDismissedUnreadThroughMs((current) =>
-													Math.max(current, cutoff)
-												);
-											}}
+											key={`${input.spaceId}:${input.selfProfileId}`}
 											onNavigate={revealUnreadTarget}
+											onPrepareMarkAllRead={input.onPrepareMarkAllRead}
+											targets={input.unreadTargets ?? []}
 										/>
 									}
 									loadedSignalCount={loadedMainTimelineSignalIds.size}
@@ -962,11 +941,7 @@ function SpaceConversationPanelContent(
 									/>
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
-							{!input.historyNavigation && (
-								<SpaceHistoryJumpControl
-									onPrepareCatchUpUnread={input.onPrepareCatchUpUnread}
-								/>
-							)}
+							{!input.historyNavigation && <SpaceHistoryJumpControl />}
 						</MessageScroller>
 					</MessageScrollerProvider>
 				}
@@ -1135,6 +1110,7 @@ function renderPanelConversationBody(input: {
 		wakeOutcomeIndex: presentation.wakeOutcomeIndex,
 		threadsByRootSignalId: presentation.threadsByRootSignalId,
 		unreadTargets: panel.unreadTargets ?? [],
+		unreadScopes: panel.unreadScopes,
 		threadPreviewByThreadId: presentation.threadPreviewByThreadId,
 		threadWakeProgressByRootSignalId:
 			presentation.threadWakeProgressByRootSignalId,
@@ -1175,7 +1151,6 @@ function useSpaceConversationPresentationController(
 	const [spaceGraphFocusRequest, setSpaceGraphFocusRequest] =
 		useState<SpaceGraphFocusRequest | null>(null);
 	const spaceGraphLayout = useSpaceGraphLayout(input.spaceId);
-	const [dismissedUnreadThroughMs, setDismissedUnreadThroughMs] = useState(0);
 	const [starterComputerSetupOpen, setStarterComputerSetupOpen] =
 		useState(false);
 	const threadSignalIds = useMemo(
@@ -1468,7 +1443,6 @@ function useSpaceConversationPresentationController(
 		composerSendBlocked,
 		composerTargetName,
 		conversationTopOverlayElement,
-		dismissedUnreadThroughMs,
 		entries,
 		isReadOnly,
 		loadedMainTimelineSignalIds,
@@ -1489,7 +1463,6 @@ function useSpaceConversationPresentationController(
 		profileEntriesById,
 		profilePresentationsById,
 		setConversationTopOverlayElement,
-		setDismissedUnreadThroughMs,
 		setMessageDetailsItem,
 		setStarterComputerSetupOpen,
 		showComposer,
@@ -1531,13 +1504,13 @@ function useSpaceConversationNavigationController(input: {
 	threadsErrorMessage?: string | null;
 	threadsIsLoading: boolean;
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
 }) {
 	const scrollRestorationId = buildSpaceConversationScrollRestorationId(
 		input.spaceId ?? input.spaceViewIdPrefix
 	);
 	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
 	const messageScrollActionRef = useRef<SpaceMessageScrollAction | null>(null);
-	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
 	const [conversationScrollElement, setConversationScrollElement] =
 		useState<HTMLDivElement | null>(null);
 	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
@@ -1573,8 +1546,6 @@ function useSpaceConversationNavigationController(input: {
 	const [mainFocusStatusMessage, setMainFocusStatusMessage] = useState<
 		string | null
 	>(null);
-	const [unreadNavigation, setUnreadNavigation] =
-		useState<SpaceUnreadNavigationState>(EMPTY_SPACE_UNREAD_NAVIGATION_STATE);
 	const registerConversationScrollElement = useCallback(
 		(element: HTMLDivElement | null) => {
 			conversationScrollRef.current = element;
@@ -1586,11 +1557,9 @@ function useSpaceConversationNavigationController(input: {
 		(signalId: string, element: HTMLElement | null) => {
 			if (element) {
 				messageElementsBySignalIdRef.current.set(signalId, element);
-				unreadMeasurementRequestRef.current();
 				return;
 			}
 			messageElementsBySignalIdRef.current.delete(signalId);
-			unreadMeasurementRequestRef.current();
 		},
 		[]
 	);
@@ -1734,45 +1703,6 @@ function useSpaceConversationNavigationController(input: {
 		input.isLoadingEarlierHistory,
 		input.onLoadEarlierHistory,
 	]);
-	const measureUnreadNavigation = useCallback(() => {
-		setUnreadNavigation(
-			resolveSpaceUnreadNavigationState({
-				hasEarlierHistory: input.hasEarlierHistory,
-				messageElementsBySignalId: messageElementsBySignalIdRef.current,
-				scrollElement: conversationScrollRef.current,
-				targets: input.unreadTargets,
-			})
-		);
-	}, [input.hasEarlierHistory, input.unreadTargets]);
-	const requestUnreadMeasurement = useMemo(() => {
-		let frameId: number | null = null;
-		return () => {
-			if (frameId !== null) {
-				return;
-			}
-			frameId = window.requestAnimationFrame(() => {
-				frameId = null;
-				measureUnreadNavigation();
-			});
-		};
-	}, [measureUnreadNavigation]);
-	useLayoutEffect(() => {
-		unreadMeasurementRequestRef.current = requestUnreadMeasurement;
-		return () => {
-			unreadMeasurementRequestRef.current = () => undefined;
-		};
-	}, [requestUnreadMeasurement]);
-	useLayoutEffect(() => {
-		measureUnreadNavigation();
-	}, [measureUnreadNavigation]);
-	useEffect(() => {
-		if (!conversationScrollElement) {
-			return;
-		}
-		const observer = new ResizeObserver(requestUnreadMeasurement);
-		observer.observe(conversationScrollElement);
-		return () => observer.disconnect();
-	}, [conversationScrollElement, requestUnreadMeasurement]);
 	const revealUnreadTarget = useLatestCallback(
 		async (target: SpaceInboxUnreadTarget): Promise<boolean> => {
 			setMainFocusStatusMessage(null);
@@ -1951,15 +1881,13 @@ function useSpaceConversationNavigationController(input: {
 		registerMessageElement,
 		onJumpToPinnedMessage,
 		onOpenThread,
-		requestUnreadMeasurement,
 		revealUnreadTarget,
-		unreadNavigation,
 	};
 }
 
 function resolveConversationRestorationPresentation(input: {
 	historyIsPending: boolean;
-	onViewedThroughTs: SpaceConversationPanelResolvedProps["onViewedThroughTs"];
+	onViewedUpdates: SpaceConversationPanelResolvedProps["onViewedUpdates"];
 	status: SpaceConversationRestorationStatus;
 }) {
 	const ready = input.status === "ready";
@@ -1968,8 +1896,8 @@ function resolveConversationRestorationPresentation(input: {
 		busy: input.historyIsPending,
 		className: "h-full py-4",
 		inert: false,
-		onViewedThroughTs:
-			ready && !input.historyIsPending ? input.onViewedThroughTs : undefined,
+		onViewedUpdates:
+			ready && !input.historyIsPending ? input.onViewedUpdates : undefined,
 	};
 }
 
@@ -2059,8 +1987,11 @@ function resolveInitialMainFocusSignalId(
 	);
 }
 
-function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
-	const message = input.mainMessage;
+function renderInitialSpaceFocusStatus(input: {
+	mainMessage: string | null;
+	historyNotice?: string | null;
+}) {
+	const message = input.mainMessage ?? input.historyNotice;
 	if (!message) {
 		return null;
 	}
@@ -2072,107 +2003,6 @@ function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
 			{message}
 		</output>
 	);
-}
-
-function SpaceUnreadNavigationControl(input: {
-	count: number;
-	dismissedThroughMs: number;
-	navigation: SpaceUnreadNavigationState;
-	onDismiss: () => void;
-	onNavigate: (target: SpaceInboxUnreadTarget) => Promise<boolean>;
-}) {
-	const targets = input.navigation.targets.filter(
-		(target) => target.occurredAtMs > input.dismissedThroughMs
-	);
-	const firstTarget = targets[0];
-	if (!firstTarget) {
-		return null;
-	}
-	return (
-		<SpaceUnreadNavigationPill
-			count={input.count}
-			onDismiss={input.onDismiss}
-			onNavigate={() => {
-				input
-					.onNavigate(firstTarget)
-					.then((revealed) => {
-						if (revealed) {
-							input.onDismiss();
-						}
-					})
-					.catch((error: unknown) => {
-						console.error("Failed to reveal an unread Space message.", error);
-					});
-			}}
-		/>
-	);
-}
-
-function SpaceUnreadNavigationPill(input: {
-	count: number;
-	onDismiss: () => void;
-	onNavigate: () => void;
-}) {
-	const label = `${String(input.count)} unread ${input.count === 1 ? "update" : "updates"}`;
-	const navigateLabel = `${label}. Jump to first unread`;
-	const dismissLabel = `Hide ${label}`;
-	return (
-		<div
-			className="pointer-events-auto inline-flex self-center overflow-hidden rounded-full border border-blue-200 bg-blue-50 text-blue-800 shadow-xs dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
-			data-unread-navigation=""
-		>
-			<Button
-				aria-label={navigateLabel}
-				className="h-8 min-h-8 gap-1.5 rounded-none border-0 bg-transparent px-2.5 text-inherit text-xs hover:bg-blue-100 focus-visible:z-10 dark:hover:bg-blue-900 [@media(pointer:coarse)]:min-h-11"
-				onClick={input.onNavigate}
-				size="sm"
-				type="button"
-				variant="secondary"
-			>
-				<ChatCircleIcon aria-hidden="true" weight="bold" />
-				<span>{label}</span>
-			</Button>
-			<Button
-				aria-label={dismissLabel}
-				className="size-8 min-h-8 min-w-8 rounded-none border-0 border-blue-200 border-l bg-transparent px-0 text-inherit hover:bg-blue-100 focus-visible:z-10 dark:border-blue-800 dark:hover:bg-blue-900 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
-				onClick={input.onDismiss}
-				size="icon"
-				type="button"
-				variant="secondary"
-			>
-				<XIcon aria-hidden="true" />
-			</Button>
-		</div>
-	);
-}
-
-function resolveSpaceUnreadNavigationState(input: {
-	hasEarlierHistory: boolean;
-	messageElementsBySignalId: ReadonlyMap<string, HTMLElement>;
-	scrollElement: HTMLElement | null;
-	targets: readonly SpaceInboxUnreadTarget[];
-}): SpaceUnreadNavigationState {
-	if (!(input.scrollElement && input.targets.length > 0)) {
-		return EMPTY_SPACE_UNREAD_NAVIGATION_STATE;
-	}
-	const viewport = input.scrollElement.getBoundingClientRect();
-	const targets: SpaceInboxUnreadTarget[] = [];
-	for (const target of input.targets) {
-		const anchorSignalId = target.threadRootSignalId ?? target.signalId;
-		const element = input.messageElementsBySignalId.get(anchorSignalId);
-		if (!element) {
-			if (input.hasEarlierHistory) {
-				targets.push(target);
-			}
-			continue;
-		}
-		const rect = element.getBoundingClientRect();
-		if (rect.bottom < viewport.top || rect.top > viewport.bottom) {
-			targets.push(target);
-		}
-	}
-	targets.sort((left, right) => left.occurredAtMs - right.occurredAtMs);
-	return { targets };
 }
 
 function SpaceConversationTopOverlay(input: {
@@ -2434,6 +2264,7 @@ function renderConversationBody(input: {
 		readonly SpaceEphemeralActivityItem[]
 	>;
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
 	wakeFailureTargetContextsByProfileId: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
@@ -2667,6 +2498,7 @@ function renderConversationBody(input: {
 							input.threadWakeProgressByRootSignalId
 						}
 						timelineItems={input.timelineItems}
+						unreadScopes={input.unreadScopes}
 						unreadTargets={input.unreadTargets}
 						wakeFailureTargetContextsByProfileId={
 							input.wakeFailureTargetContextsByProfileId
@@ -2795,6 +2627,7 @@ type ConversationBubbleRunInput = {
 		readonly SpaceEphemeralActivityItem[]
 	>;
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
 	wakeFailureTargetContextsByProfileId: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
@@ -3284,9 +3117,13 @@ function ConversationBubbleContent(input: {
 						: undefined
 				}
 				unreadCount={
-					parent.unreadTargets.filter(
-						(target) => target.threadRootSignalId === input.item.id
-					).length
+					parent.unreadScopes
+						? (parent.unreadScopes.find(
+								(scope) => scope.threadRootSignalId === input.item.id
+							)?.unreadCount ?? 0)
+						: parent.unreadTargets.filter(
+								(target) => target.threadRootSignalId === input.item.id
+							).length
 				}
 			/>
 		</SpaceMessageSurface>

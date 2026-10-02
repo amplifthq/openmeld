@@ -484,6 +484,7 @@ import {
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
   rpcMutateInboxFeed,
+  rpcMutateSpaceInboxRead,
   rpcObserveInboxNotifications,
   rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
@@ -1571,6 +1572,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: MutateInboxFeedRpcInput
   ): Promise<MutateInboxFeedResponse> {
     return rpcMutateInboxFeed(this.env, input);
+  }
+
+  mutateSpaceInboxRead(
+    input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
+  ) {
+    return rpcMutateSpaceInboxRead(this.env, input);
   }
 
   listInboxItems(
@@ -4286,6 +4293,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetSpaceInboxUnreadTargetsRpcInput
   ): Promise<SpaceInboxUnreadTargetsResponse> {
     return super.getSpaceInboxUnreadTargets(input);
+  }
+
+  mutateSpaceInboxRead(
+    input: import("@openmeld/schemas/types").MutateSpaceInboxReadRpcInput
+  ) {
+    return super.mutateSpaceInboxRead(input);
   }
 
   markCenterAgentInboxReadThrough(

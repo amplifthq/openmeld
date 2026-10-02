@@ -1,5 +1,3 @@
-import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
-import { webApplicationErrorReportSchema } from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
 	createSpaceMemberHumanSnapshot,
@@ -63,7 +61,6 @@ const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
 const RUNNER_WORKING_NAME_PATTERN = /runner is working/u;
-const EARLIER_DECISION_PATTERN = /Earlier decision/;
 
 // The Message Details dialog fetches through `useQuery`. Every test in this
 // file except the ones that open that dialog only checks for the trigger
@@ -1040,7 +1037,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeLessThan(conversationItems.indexOf(firstNewMessage as Element));
 	});
 
-	it("keeps the canonical unread total while viewport targets change, then hides the navigation batch", async () => {
+	it("keeps the canonical unread total and navigation after revealing a target", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -1081,7 +1078,7 @@ describe("SpaceConversationPanel", () => {
 			screen.getAllByRole("button", { name: UNREAD_JUMP_PATTERN })
 		).toHaveLength(1);
 		fireEvent.click(jumpButton);
-		await waitFor(() => expect(document.body.contains(jumpButton)).toBe(false));
+		await waitFor(() => expect(document.body.contains(jumpButton)).toBe(true));
 		expect(document.activeElement).toBe(
 			screen.getByText("First new message").closest("[data-signal-id]")
 		);
@@ -1163,42 +1160,6 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
-	it("can hide unread navigation without reading its messages", async () => {
-		const rectSpy = vi
-			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
-			.mockImplementation(function (this: HTMLElement) {
-				if (this.getAttribute("role") === "log") {
-					return domRect({ bottom: 500, top: 0 });
-				}
-				if (this.hasAttribute("data-signal-id")) {
-					return domRect({ bottom: -40, top: -100 });
-				}
-				return domRect({ bottom: 0, top: 0 });
-			});
-		renderSpaceConversationPanel({
-			timelineItems: [createTimelineItem({ id: "signal-1" })],
-			unreadBatchOccurredAtMs: 100,
-			unreadTargets: [
-				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
-			],
-			unreadCount: 1,
-			unreadStateReady: true,
-		});
-
-		const jumpButton = await screen.findByRole("button", {
-			name: "1 unread update. Jump to first unread",
-		});
-		const unreadPill = jumpButton.closest<HTMLElement>(
-			"[data-unread-navigation]"
-		);
-		expect(unreadPill?.className).toContain("self-center");
-		fireEvent.click(
-			screen.getByRole("button", { name: "Hide 1 unread update" })
-		);
-		expect(document.body.contains(jumpButton)).toBe(false);
-		rectSpy.mockRestore();
-	});
-
 	it("opens the exact unread thread reply from the unread navigation", async () => {
 		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 			configurable: true,
@@ -1241,7 +1202,7 @@ describe("SpaceConversationPanel", () => {
 		await waitFor(() =>
 			expect(
 				screen.queryByRole("button", { name: UNREAD_JUMP_PATTERN })
-			).toBeNull()
+			).not.toBeNull()
 		);
 		await waitFor(() => {
 			expect(onOpenUnreadThread).toHaveBeenCalledWith({
@@ -1654,14 +1615,14 @@ describe("SpaceConversationPanel", () => {
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		const onViewedThroughTs = vi.fn();
+		const onViewedUpdates = vi.fn();
 		renderSpaceConversationPanelWithViewTabs({
 			activeSpaceView: "graph",
-			onViewedThroughTs,
+			onViewedUpdates,
 			timelineItems: [createTimelineItem()],
 		});
 
-		expect(onViewedThroughTs).not.toHaveBeenCalled();
+		expect(onViewedUpdates).not.toHaveBeenCalled();
 	});
 
 	it("loads earlier Space activity directly from the Graph", () => {
@@ -3294,221 +3255,6 @@ describe("SpaceConversationPanel", () => {
 				jumpButton.closest("[data-active]")?.getAttribute("data-active")
 			).toBe("false");
 		});
-	});
-
-	it("catches up unread main messages even when the short conversation is already at the latest position", async () => {
-		const commitCatchUpUnread = vi.fn(async () => undefined);
-		const onPrepareCatchUpUnread = vi.fn(async () => ({
-			abandon: vi.fn(),
-			commit: commitCatchUpUnread,
-		}));
-		renderSpaceConversationPanel({
-			onPrepareCatchUpUnread,
-			timelineItems: [createTimelineItem({ text: "Unread short message" })],
-			unreadCount: 1,
-			unreadStateReady: true,
-			unreadTargets: [
-				{
-					occurredAtMs: 10,
-					signalId: "signal-1",
-					threadRootSignalId: null,
-				},
-			],
-		});
-
-		const jumpButton = screen.getByRole("button", {
-			name: "Jump to latest and mark messages as read",
-		});
-		expect(
-			jumpButton.closest("[data-active]")?.getAttribute("data-active")
-		).toBe("true");
-
-		fireEvent.click(jumpButton);
-
-		await waitFor(() => expect(commitCatchUpUnread).toHaveBeenCalledOnce());
-		expect(onPrepareCatchUpUnread).toHaveBeenCalledOnce();
-	});
-
-	it("keeps catch-up retryable after reaching latest when the read write fails", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
-		);
-		const writeError = new OpenMeldApiClientHttpError({
-			code: "auth.unauthenticated",
-			message: "private response body",
-			rawBody: "private response body",
-			requestId: "req-catch-up-write",
-			status: 401,
-		});
-		const consoleError = vi
-			.spyOn(console, "error")
-			.mockImplementation(() => undefined);
-		renderSpaceConversationPanel({
-			onPrepareCatchUpUnread: vi.fn(async () => ({
-				abandon: vi.fn(),
-				commit: () => Promise.reject(writeError),
-			})),
-			timelineItems: [createTimelineItem({ text: "Unread short message" })],
-			unreadCount: 1,
-			unreadStateReady: true,
-			unreadTargets: [
-				{
-					occurredAtMs: 10,
-					signalId: "signal-1",
-					threadRootSignalId: null,
-				},
-			],
-		});
-
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Jump to latest and mark messages as read",
-			})
-		);
-
-		expect(
-			await screen.findByText(
-				"You’re at the latest messages, but OpenMeld couldn’t mark them as read. Try again."
-			)
-		).toBeTruthy();
-		expect(
-			screen.getByRole("button", {
-				name: "Try again to mark the latest messages as read",
-			})
-		).toBeTruthy();
-		const reports = vi
-			.mocked(fetch)
-			.mock.calls.filter(
-				([url]) => url === "/v1/observability/application-errors"
-			)
-			.map(([, options]) =>
-				webApplicationErrorReportSchema.parse(JSON.parse(String(options?.body)))
-			);
-		expect(reports).toHaveLength(1);
-		expect(reports[0]?.query).toEqual({
-			category: "inbox",
-			stage: "persist",
-			failure: {
-				code: "auth.unauthenticated",
-				requestId: "req-catch-up-write",
-				status: 401,
-			},
-		});
-		consoleError.mockRestore();
-	});
-
-	it("abandons catch-up when the reader navigates history during preparation", async () => {
-		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
-		vi.stubGlobal("CSS", {
-			...globalThis.CSS,
-			escape: (value: string) => value,
-		});
-		let resolvePreparation:
-			| ((prepared: {
-					abandon: () => void;
-					commit: () => Promise<void>;
-			  }) => void)
-			| undefined;
-		const abandon = vi.fn();
-		const commit = vi.fn(async () => undefined);
-		const latest = vi.fn();
-		const open = vi.fn(async () => true);
-		const onPrepareCatchUpUnread = vi.fn(
-			() =>
-				new Promise<{
-					abandon: () => void;
-					commit: () => Promise<void>;
-				}>((resolve) => {
-					resolvePreparation = resolve;
-				})
-		);
-		renderSpaceConversationPanel({
-			historyNavigation: {
-				activeWindow: null,
-				directory: {
-					entries: [
-						{
-							author: "Felix",
-							count: 1,
-							endAt: Date.UTC(2026, 4, 26),
-							endSignalId: "signal-history",
-							preview: "Earlier decision",
-							signalId: "signal-history",
-							startAt: Date.UTC(2026, 4, 26),
-						},
-					],
-					total: 61,
-				},
-				directoryError: false,
-				directoryPending: false,
-				error: null,
-				notice: null,
-				errorDirection: undefined,
-				latest,
-				loadAfter: vi.fn(async () => false),
-				loadBefore: vi.fn(async () => false),
-				open,
-				hrefForSignalId: undefined,
-				earlierHref: undefined,
-				latestHref: undefined,
-				newerHref: undefined,
-				pending: false,
-				pendingDirection: undefined,
-				retryDirectory: vi.fn(),
-				revealCachedBefore: vi.fn(),
-				visibleLiveEnvelopes: [],
-				hasHiddenLiveHistory: false,
-			},
-			onPrepareCatchUpUnread,
-			timelineItems: [createTimelineItem({ text: "Current position" })],
-			unreadCount: 1,
-			unreadStateReady: true,
-			unreadTargets: [
-				{
-					occurredAtMs: 10,
-					signalId: "signal-1",
-					threadRootSignalId: null,
-				},
-			],
-		});
-		const conversationLog = screen.getByRole("log", {
-			name: "Conversation history",
-		});
-		const currentMessage = conversationLog.querySelector<HTMLElement>(
-			"[data-history-signal-id='signal-1']"
-		);
-		if (!currentMessage) {
-			throw new Error("Expected the current message position anchor");
-		}
-		vi.spyOn(currentMessage, "getBoundingClientRect").mockImplementation(() =>
-			createTestDomRect({ bottom: 180, height: 80, top: 100 })
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: EARLIER_DECISION_PATTERN })
-		);
-		await waitFor(() => expect(open).toHaveBeenCalledWith("signal-history"));
-		const back = await screen.findByRole("button", {
-			name: "Back to previous position",
-		});
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Jump to latest and mark messages as read",
-			})
-		);
-		expect(onPrepareCatchUpUnread).toHaveBeenCalledOnce();
-
-		fireEvent.click(back);
-		await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
-		expect(open).toHaveBeenNthCalledWith(2, "signal-1");
-		act(() => {
-			resolvePreparation?.({ abandon, commit });
-		});
-
-		await waitFor(() => expect(abandon).toHaveBeenCalledOnce());
-		expect(latest).not.toHaveBeenCalled();
-		expect(commit).not.toHaveBeenCalled();
 	});
 
 	it("lets an anchored public history view navigate to the real latest URL", () => {
