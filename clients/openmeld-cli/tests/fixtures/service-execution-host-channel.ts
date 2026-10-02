@@ -1,8 +1,14 @@
+import type { RuntimeAdapter } from "@openmeld/adapter-core";
+import {
+  createInflightTaskControlRegistry,
+  createLocalAdapterContainer,
+} from "@openmeld/local-service";
 import { SERVICE_EXECUTION_HOST_PROTOCOL } from "@openmeld/schemas";
 import {
   type ExecutionHostHandlers,
   serveExecutionHost,
 } from "../../src/local-service/execution-host/channel";
+import { createServiceExecutionInputReceiver } from "../../src/local-service/execution-host/execution-input";
 import { parentExecutionHostChannel } from "../../src/local-service/execution-host/process-channel";
 
 const hostInstanceId = process.argv[2];
@@ -33,6 +39,36 @@ const signal = () =>
     type: "invalidate",
     scope: "execution",
   });
+const registry = createInflightTaskControlRegistry();
+registry.registerTask({
+  adapterId: "codex",
+  dispatchId: "dispatch-1",
+  runtimeCoordinatorExecutionId: "execution-1",
+  targetProfileId: "agent-1",
+  taskId: "task-1",
+});
+let nativeInputs = 0;
+const adapter: RuntimeAdapter = {
+  adapterId: "codex",
+  dispatch: unsupported,
+  interrupt: unsupported,
+  steer: ({ taskId }: { taskId: string }) => {
+    nativeInputs += 1;
+    return Promise.resolve({
+      status: "applied" as const,
+      taskId,
+      threadId: "thread-1",
+      turnId: `turn-${nativeInputs}`,
+    });
+  },
+};
+const executionInput = createServiceExecutionInputReceiver({
+  ownerUserId: "owner-1",
+  registry,
+  adapters: createLocalAdapterContainer([
+    { adapter, adapterId: "codex", transportModes: ["codex-app-server"] },
+  ]),
+});
 const handlers: ExecutionHostHandlers = {
   initialize: () => snapshot(),
   health: () => snapshot(),
@@ -52,6 +88,7 @@ const handlers: ExecutionHostHandlers = {
   handleFrame: unsupported,
   cancel: unsupported,
   interrupt: unsupported,
+  executionInput,
   conversationStatus: unsupported,
   setEnabled: unsupported,
   reportControllers: async () => {

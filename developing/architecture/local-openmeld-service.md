@@ -799,12 +799,27 @@ error code when present, without forwarding provider error text as product copy.
 The native contract is documented in the
 [Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
 
-This adapter capability is not yet a public Service command or a Space Queue
-implementation. A future caller must authorize the exact RuntimeCoordinator
-execution before resolving its local task and must retain delivery uncertainty:
-an unconfirmed input cannot be automatically sent again or consumed as queued
-work. Existing RuntimeCoordinator execution and Stop ownership are unchanged;
-the adapter does not own a second execution or pending-message state machine.
+The Execution Host's private inherited IPC `executionInput` method accepts an
+exact owner account, Profile, dispatch and RuntimeCoordinator execution. The
+current connector generation and Profile lease must match; draining admission
+rejects new application. Only the existing inflight registry resolves a local
+task. The frozen source retains Space, Signal, author, original requester and
+the `steer` effect; it is correlation, not a grant from the Agent's owner.
+The Host joins concurrent identical inputs and retains bounded receipts across
+socket replacement, including uncertain native outcomes. It never starts a
+turn or cancels the task. A receipt query cannot resend. A missing receipt after
+Host replacement or retired-execution receipt eviction is unknown, not proof
+of non-application; Space must keep that input held.
+
+This receiver is not yet exposed by a cloud transport capability, public Service
+command or Agent tool. Core must authorize each exact execution/source/effect
+through the existing caller policy before forwarding, then connect the same
+Space input outbox without retrying an unknown application. The cloud caller
+and Local queue product path remain unimplemented. RuntimeCoordinator execution
+and Stop ownership are unchanged; the adapter and receipt cache do not own a
+second execution or pending-message state machine. The private IPC extension
+ships only with its matching connector/Host bundle and does not authorize an
+old published bundle to serve this capability.
 
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
