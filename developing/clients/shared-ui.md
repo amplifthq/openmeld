@@ -411,10 +411,19 @@ do not subscribe to animation frames. Context failure preserves a rendered
 frame or the supplied fallback without repeatedly allocating GPU contexts.
 
 Web's `RemoteAgentAvatar` uses the stable Profile ID as the saved fluid avatar
-seed. Hosted Remote Agents default to the current model vendor's mark and can
-keep an explicitly selected fluid avatar across model changes. Center Agents
-default to one of the 18 Bot avatars, selected from the managed Profile ID;
-authorized admins can explicitly select another Bot or the fluid avatar. Bot avatars
+seed. Hosted Remote Agents default to the generic Agent mark and can keep an
+explicitly selected fluid avatar across model changes. Center Agents display
+their saved Bot or fluid style; authorized admins can select either. Missing
+style displays the automatic mark and must not hash the Profile ID to invent a
+saved Bot selection. The app shell provides one read of the existing Organization
+Profile Directory to every avatar entrance. Saved preferences are applied to
+loaded profile caches and invalidated after a successful save. Idle and read-only
+editors use the same saved Profile; only an unsaved user selection is a preview.
+Failed saves discard that preview and return to the current saved identity.
+Successful saves also send an account/Organization/Profile-scoped browser refresh
+hint. Other tabs re-read their own authorized directory; the hint carries no
+avatar data and does not add directories to browser persistence. Model vendors
+never select an Agent avatar. Bot avatars
 do not hop when idle, animate for real working state, and jump once on an
 explicit click. Reduced-motion preference suppresses their animation.
 Personal Remote Agents use rounded squares, Center Agents use circles, and Local Agents

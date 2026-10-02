@@ -5450,6 +5450,12 @@ indicator instead of its animated Working orb. Both surfaces return to ordinary
 Wake progress as soon as Core projects the conversation as available.
 
 Web uses the shared Wake presentation resolver for status text and Orb variants.
+When current Core projects `remote_agent.execution_confirmation_pending` on an
+active native Wake, the shared resolver shows **Result awaiting confirmation**
+with a neutral pending appearance. It suppresses stale tool-work previews and
+elapsed-working presentation, explains that later work may be waiting, and
+retains the existing viewer-authorized Stop control. It never infers a failed,
+completed, or not-executed outcome, and it does not offer automatic resend.
 Sidebar priority is input needed from the current user, then working/replying,
 then sending/connecting, then queued or waiting. Equal priorities retain Wake
 start order. Other active Spaces in the selected Organization reuse the same

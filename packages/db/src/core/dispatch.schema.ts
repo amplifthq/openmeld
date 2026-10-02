@@ -492,6 +492,7 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     completedAtMs: integer("completed_at_ms"),
     deadlineProbeEnqueuedAtMs: integer("deadline_probe_enqueued_at_ms"),
     acceptedProbeNextDueAtMs: integer("accepted_probe_next_due_at_ms"),
+    executionReconciliationJson: text("execution_reconciliation_json"),
     retiredDeadlineFailureCode: text("retired_deadline_failure_code"),
     retiredDeadlineFailurePublishedSignalId: text(
       "retired_deadline_failure_published_signal_id"

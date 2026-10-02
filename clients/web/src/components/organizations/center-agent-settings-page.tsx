@@ -1,7 +1,4 @@
-import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
-import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
-
-("use client");
+"use client";
 
 import type {
 	CenterAgentUpdateProfileBody,
@@ -34,6 +31,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
+import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
+import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import {
 	AgentConfigurationCard,
@@ -64,6 +63,8 @@ import {
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
 import { organizationDocumentsQueryOptions } from "#/query/organizations/organization-documents";
+import { applySavedAgentAvatarProfile } from "#/query/profiles/agent-avatar";
+import { useAgentAvatarInvalidationScope } from "#/query/profiles/agent-avatar-context";
 import { CenterAgentAuditJournalPanel } from "./center-agent-audit-journal-panel";
 import { CenterAgentModelSection } from "./center-agent-model-section";
 import {
@@ -186,6 +187,7 @@ export function CenterAgentSettingsContent(input: {
 	roleState: CenterAgentSettingsRoleState;
 }) {
 	const queryClient = useQueryClient();
+	const avatarInvalidationScope = useAgentAvatarInvalidationScope();
 	const navigate = useNavigate();
 	const [mutationError, setMutationError] = useState<string | null>(null);
 	const [auditOpen, setAuditOpen] = useState(false);
@@ -305,6 +307,13 @@ export function CenterAgentSettingsContent(input: {
 			setMutationError(null);
 		},
 		onSuccess: async (response, variables) => {
+			if (variables.avatarStyle) {
+				await applySavedAgentAvatarProfile(
+					queryClient,
+					response.profile,
+					avatarInvalidationScope
+				);
+			}
 			queryClient.setQueryData(
 				organizationQueryKeys.directory(input.organizationId),
 				(current: OrganizationDirectoryResponse | undefined) =>
@@ -318,7 +327,6 @@ export function CenterAgentSettingsContent(input: {
 												...profile,
 												profileHandle: response.profile.profileHandle,
 												profileName: response.profile.profileName,
-												avatarStyle: response.profile.avatarStyle,
 												updatedAt: response.profile.updatedAt,
 											}
 										: profile

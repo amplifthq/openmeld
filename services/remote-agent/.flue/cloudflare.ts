@@ -22,6 +22,8 @@ import {
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
+  readAdmissionFromCenterAgent,
+  readAdmissionStopFromCenterAgent,
   readExecutionInputFromCenterAgent,
   readExecutionStateFromCenterAgent,
   readRuntimeDiagnosticsFromCenterAgent,
@@ -105,6 +107,21 @@ export default {
     });
   },
 
+  async readAdmission(input: unknown) {
+    const request = remoteAgentWorkerSubmitTurnRequestSchema.parse(input);
+    return await observeRemoteAgentRpc({
+      env,
+      operation: "readAdmission",
+      requestId: request.dispatchId,
+      spaceId: request.spaceId,
+      execute: () =>
+        readAdmissionFromCenterAgent({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          request,
+        }),
+    });
+  },
+
   async reconcileExecution(input: unknown) {
     const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({
@@ -116,6 +133,21 @@ export default {
           request: input,
         }),
       operation: "reconcileExecution",
+    });
+  },
+
+  async readAdmissionStop(input: unknown) {
+    const request = remoteAgentWorkerSubmitTurnRequestSchema.parse(input);
+    return await observeRemoteAgentRpc({
+      env,
+      operation: "readAdmissionStop",
+      requestId: request.dispatchId,
+      spaceId: request.spaceId,
+      execute: () =>
+        readAdmissionStopFromCenterAgent({
+          namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+          request,
+        }),
     });
   },
 

@@ -4,6 +4,7 @@ import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import { agentProfileIdSchema } from "../protocol/profile";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
+import { workingLanguageTagSchema } from "./working-language";
 
 export const AGENT_TASK_COORDINATION_SCHEMA_VERSION = 1 as const;
 
@@ -113,12 +114,26 @@ const resumeAgentContinuationShape = {
   delegationId: nonEmptyIdSchema,
   instruction: z.string().trim().min(1).max(4000),
   kind: z.literal("resume_agent"),
+  replyLanguageTag: workingLanguageTagSchema.optional(),
+  summaryRecoveryIntent: z
+    .strictObject({
+      recoveryId: nonEmptyIdSchema,
+      operatorUserId: nonEmptyIdSchema,
+    })
+    .optional(),
+  summaryRecovery: z
+    .strictObject({
+      operatorUserId: nonEmptyIdSchema,
+      sourceSubscriptionId: nonEmptyIdSchema,
+    })
+    .optional(),
 };
 
 const resumeTaskWatchContinuationShape = {
   instruction: z.string().trim().min(1).max(4000),
   kind: z.literal("resume_task_watch"),
   watchId: nonEmptyIdSchema,
+  replyLanguageTag: workingLanguageTagSchema.optional(),
 };
 
 export const agentTaskContinuationSchema = z.union([

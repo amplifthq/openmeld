@@ -370,6 +370,15 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_list_agent_tasks"],
     namespace: "spaces_and_tasks",
   },
+  openmeld_continue_task_summary: {
+    aliases: [
+      "continue a failed summary",
+      "summarize existing results",
+      "继续汇总",
+      "基于已有结果汇总",
+    ],
+    namespace: "spaces_and_tasks",
+  },
   openmeld_list_organization_members: {
     aliases: [
       "count Organization members",

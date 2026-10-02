@@ -20,6 +20,7 @@ export const WAKE_STATUS_ORB_STATE = {
 	waiting_for_device: "breathing",
 	waiting_for_owner: "listening",
 	needs_input: "listening",
+	confirmation_pending: "breathing",
 	working: "solving",
 	replying: "composing",
 	posting: "weaving",

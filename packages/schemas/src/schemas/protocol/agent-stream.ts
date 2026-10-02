@@ -285,7 +285,11 @@ const agentWorkActivitySchema = z
     v: z.literal(1),
     key: agentWorkActivityKeySchema,
     subject: agentWorkSubjectSchema.optional(),
-    outcome: z.literal("confirmation_required").optional(),
+    // Unknown future outcome vocabulary is uncertain, never successful.
+    outcome: z
+      .enum(["confirmation_required", "outcome_unknown"])
+      .catch("outcome_unknown")
+      .optional(),
   })
   .superRefine((work, context) => {
     if (

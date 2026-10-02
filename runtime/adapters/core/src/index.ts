@@ -27,6 +27,7 @@ import type {
   AiUsageObservation,
   ComputerFileAccessPolicy,
   ConversationPolicy,
+  ExecutionContextGitMetadata,
   ExecutionContextTask,
   OpenCodePermissionConfig,
   OpenMeldDaemonProviderAccessEvidence,
@@ -191,6 +192,7 @@ export type AdapterComputerFileAccessBoundary = Extract<
   { mode: "block_selected_folders" | "only_selected_folders" }
 > & {
   executionContextAccess?: ExecutionContextTask["access"];
+  gitMetadata?: ExecutionContextGitMetadata;
 } & import("@openmeld/schemas").SpaceWorkingCopyAccess;
 export type AdapterComputerFileAccessVerificationRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;

@@ -375,10 +375,22 @@ function resolveWorkSummary(
 		).text;
 	}
 	const totalCount = totalStepCount(steps);
-	const failedCount = steps.reduce(
-		(count, step) => count + (step.state === "output-error" ? step.count : 0),
+	const unconfirmedCount = steps.reduce(
+		(count, step) =>
+			count + (step.work.outcome === "outcome_unknown" ? step.count : 0),
 		0
 	);
+	const failedCount = steps.reduce(
+		(count, step) =>
+			count +
+			(step.state === "output-error" && step.work.outcome !== "outcome_unknown"
+				? step.count
+				: 0),
+		0
+	);
+	if (unconfirmedCount > 0) {
+		return `${totalCount} work steps · ${unconfirmedCount} awaiting confirmation${failedCount ? ` · ${failedCount} failed — view details` : ""}`;
+	}
 	if (failedCount === 0) {
 		return `Completed ${totalCount} work steps`;
 	}

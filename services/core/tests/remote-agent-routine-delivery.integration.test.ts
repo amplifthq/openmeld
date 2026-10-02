@@ -19,10 +19,15 @@ import {
   buildRemoteAgentName,
   resolveRemoteAgentTurnEnvelopeForName,
 } from "../../remote-agent/agent-core/submission";
-import { registerAgentTaskCompletionSubscription } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+import {
+  claimReadyAgentTaskCompletionSubscription,
+  recordAgentTaskTerminalOutcome,
+  registerAgentTaskCompletionSubscription,
+} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import type { CenterAgentMemoryService } from "../src/center-agent-memory/memory-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import { createOrganizationSkillService } from "../src/organization-skills/organization-skill-service";
+import { setOrganizationWorkingLanguagePreference } from "../src/organizations/organization-working-language-repository";
 import {
   REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS,
   REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS,
@@ -748,14 +753,26 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("publishes only the resumed Center Agent result after delegated Routine work", async () => {
+  it.each([
+    "completed",
+    "failed",
+  ] as const)("publishes only the resumed Routine's %s result in its chosen language", async (continuationStatus) => {
     const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag: "en",
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
     await env.OPENMELD_DB.prepare(
       "UPDATE routine_runs SET execution_engine = 'workflow' WHERE id = ?"
     )
       .bind(fixture.runId)
       .run();
-    const continuationIdempotencyKey = `agent-task-continuation:${crypto.randomUUID()}`;
+    const subscriptionId = `subscription_${crypto.randomUUID()}`;
+    const continuationIdempotencyKey = `agent-task-continuation:${subscriptionId}`;
     const continuationSubmissionId = `submission_continuation_${crypto.randomUUID()}`;
     let deliveryIdDuringContinuationAdmission: string | null = null;
     const workerSubmit = vi.fn(
@@ -825,13 +842,13 @@ describe("Remote Agent Routine native delivery", () => {
       delegationId: `delegation_${crypto.randomUUID()}`,
       generation: 1,
     };
-    const subscriptionId = `subscription_${crypto.randomUUID()}`;
     await registerAgentTaskCompletionSubscription({
       completionCondition: "terminal",
       continuation: {
         delegationId: delegation.delegationId,
         instruction: "Synthesize the delegated findings into the final report.",
         kind: "resume_agent",
+        replyLanguageTag: "zh-Hans",
         sourceSignalId: fixture.runId,
         spaceId: fixture.spaceId,
         threadContext: null,
@@ -888,6 +905,19 @@ describe("Remote Agent Routine native delivery", () => {
     if (!terminalParentDelivery) {
       throw new Error("Routine parent delivery disappeared");
     }
+    await recordAgentTaskTerminalOutcome({
+      db: env.OPENMELD_DB,
+      nowMs: fixture.nowMs + 1400,
+      outcome,
+      task: watchedTask,
+    });
+    await claimReadyAgentTaskCompletionSubscription({
+      db: env.OPENMELD_DB,
+      claimId: `claim:${subscriptionId}`,
+      claimLeaseMs: 30_000,
+      nowMs: fixture.nowMs + 1401,
+      subscriptionId,
+    });
     const skillInstalledAfterRunAdmission =
       await createOrganizationSkillService({
         bucket: env.OPENMELD_ORGANIZATION_SKILLS,
@@ -911,6 +941,7 @@ describe("Remote Agent Routine native delivery", () => {
       env: testEnv,
       idempotencyKey: continuationIdempotencyKey,
       instruction: "Synthesize the delegated findings into the final report.",
+      replyLanguageTag: "zh-Hans",
       isAuthorized: async () => true,
       nowMs: fixture.nowMs + 1500,
       observerDelivery: terminalParentDelivery,
@@ -973,6 +1004,11 @@ describe("Remote Agent Routine native delivery", () => {
       workerSubmitRequest: null,
     });
     expect(continuationDelivery.workerSubmitRequest).not.toBeNull();
+    expect(
+      workerSubmit.mock.calls[1]?.[0]?.messages.some((message) =>
+        message.content.includes("reply-language decision: zh-Hans")
+      )
+    ).toBe(true);
 
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 2000);
     await expect(
@@ -986,7 +1022,15 @@ describe("Remote Agent Routine native delivery", () => {
           organizationId: fixture.organizationId,
           spaceId: fixture.spaceId,
           submissionId: continuationSubmissionId,
-          text: "Final report after delegated research.",
+          ...(continuationStatus === "failed"
+            ? {
+                status: "failed" as const,
+                failureCode: "remote_agent.turn.context_window_exceeded",
+                failureDetail: "synthetic-private-worker-detail",
+                failureMessage:
+                  "Center Agent couldn't generate a reply. Your message is saved.",
+              }
+            : { text: "Final report after delegated research." }),
           triggerMessageId: fixture.runId,
         },
         { bypassRoutineWorkflowRouting: true }
@@ -998,12 +1042,19 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).toHaveBeenCalledOnce();
+    if (continuationStatus === "failed") {
+      const text =
+        testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock
+          .calls[0]?.[0]?.text;
+      expect(text).toContain("对话内容超过了模型一次能处理的范围。");
+      expect(text).not.toContain("synthetic-private-worker-detail");
+    }
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({
       nativeDeliveryId: continuationDelivery.deliveryId,
       publishedSignalId: fixture.publishedSignalId,
-      status: "completed",
+      status: continuationStatus,
     });
   });
 
@@ -2808,13 +2859,56 @@ describe("Remote Agent Routine native delivery", () => {
   });
 
   it.each([
-    ["remote_agent.empty_assistant_response", "The Agent produced no reply."],
+    [
+      "remote_agent.empty_assistant_response",
+      "The Agent produced no reply.",
+      "en",
+    ],
     [
       "remote_agent.turn.output_limit_exceeded",
       "The Agent reached the model's response limit before it could reply.",
+      "en",
     ],
-  ])("projects a %s callback once and keeps late callbacks from reopening the Run", async (failureCode, expectedFailureText) => {
+    [
+      "remote_agent.turn_not_completed",
+      "OpenMeld could not confirm this task's outcome. Earlier actions may have taken effect.",
+      "en",
+    ],
+    [
+      "remote_agent.provider.connection_missing",
+      "Routine Center Agent couldn't connect to its model provider.",
+      "en",
+    ],
+    [
+      "remote_agent.turn.context_window_exceeded",
+      "The conversation has grown too long for this model.",
+      "en",
+    ],
+    [
+      "remote_agent.execution_identity_mismatch",
+      "OpenMeld could not confirm the reply's Agent identity.",
+      "en",
+    ],
+    [
+      "remote_agent.work_loop_continuation_limit_exceeded",
+      "The Agent reached the safe execution limit before finishing.",
+      "en",
+    ],
+    [
+      "remote_agent.turn.context_window_exceeded",
+      "对话内容超过了模型一次能处理的范围。",
+      "zh-Hans",
+    ],
+  ])("projects a %s callback once and keeps late callbacks from reopening the Run in %s", async (failureCode, expectedFailureText, languageTag) => {
     const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
     const futureSpaceId = await seedAdditionalRoutineTargetSpace({ fixture });
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
@@ -2847,6 +2941,7 @@ describe("Remote Agent Routine native delivery", () => {
       bindingId: fixture.bindingId,
       dispatchId: fixture.runId,
       failureCode,
+      failureDetail: "synthetic-private-worker-detail",
       failureMessage:
         "Center Agent couldn't generate a reply. Your message is saved.",
       idempotencyKey: fixture.runId,
@@ -2873,9 +2968,15 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
         ?.text
-    ).toContain(
-      `Routine “${fixture.routine.name}” did not publish a result. ${expectedFailureText}`
-    );
+    ).toContain(`Routine “${fixture.routine.name}”: ${expectedFailureText}`);
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).not.toContain("could not run");
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text
+    ).not.toContain("synthetic-private-worker-detail");
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
         ?.text
@@ -2883,7 +2984,11 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
         ?.text
-    ).toContain("[View Run details](https://openmeld.ai/o/");
+    ).toContain(
+      languageTag === "zh-Hans"
+        ? "[查看 Run 详情](https://openmeld.ai/o/"
+        : "[View Run details](https://openmeld.ai/o/"
+    );
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
         ?.text
@@ -3862,8 +3967,19 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("fails an unconfirmed Routine submission visibly after recovery expires without letting a later callback reopen it", async () => {
+  it.each([
+    "en",
+    "zh-Hans",
+  ])("fails an unconfirmed Routine submission in %s after recovery expires without claiming no execution or reopening it", async (languageTag) => {
     const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
     const workerSubmitRequest = await buildRoutineWorkerSubmitRequest(fixture);
     await claimRemoteAgentRoutineNativeDelivery({
       bindingId: fixture.bindingId,
@@ -3930,6 +4046,42 @@ describe("Remote Agent Routine native delivery", () => {
       status: "failed",
     });
 
+    const failedText =
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text;
+    expect(failedText).toContain(
+      languageTag === "en"
+        ? "Automatic startup recovery has stopped"
+        : "自动启动恢复已停止"
+    );
+    expect(failedText).toContain(
+      languageTag === "en"
+        ? "Earlier actions may have taken effect"
+        : "之前的操作可能已经生效"
+    );
+    expect(failedText).not.toContain("could not run");
+    expect(failedText).not.toContain("did not start");
+    expect(failedText).not.toContain("没有开始");
+
+    await expect(
+      retryRemoteAgentRoutineSubmissions({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        limit: 1,
+        nowMs: fixture.nowMs + 9 * 60_000,
+      })
+    ).resolves.toEqual({ errors: 0, recovered: 0, scanned: 0 });
+    await expect(
+      retryRemoteAgentRoutineFailurePublications({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: fixture.nowMs + 9 * 60_000,
+      })
+    ).resolves.toEqual({ errors: 0, published: 0, scanned: 0 });
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).toHaveBeenCalledTimes(1);
+
     vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 8 * 60_000 + 1);
     await expect(
       completeRemoteAgentNativeDelivery(
@@ -3947,6 +4099,68 @@ describe("Remote Agent Routine native delivery", () => {
       publishedSignalId: fixture.publishedSignalId,
       status: "failed",
     });
+  });
+
+  it.each([
+    "en",
+    "zh-Hans",
+  ])("keeps an unconfirmed Routine in %s uncertain after its admission record is unavailable", async (languageTag) => {
+    const fixture = await seedRoutineDeliveryFixture();
+    await setOrganizationWorkingLanguagePreference({
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationId,
+      mode: "selected",
+      languageTag,
+      nowMs: fixture.nowMs,
+      updatedByUserId: fixture.routine.createdByUserId,
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE routine_runs SET status = 'failed', failure_code = 'remote_agent.worker_ack_recovery_expired', failure_detail = 'The startup acknowledgement was not recovered.', finished_at_ms = ? WHERE id = ?"
+    )
+      .bind(fixture.nowMs + 8 * 60_000, fixture.runId)
+      .run();
+    await expect(
+      readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: env.OPENMELD_DB,
+        idempotencyKey: fixture.runId,
+      })
+    ).resolves.toBeNull();
+    const workerSubmit = vi.fn();
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    await expect(
+      retryRemoteAgentRoutineFailurePublications({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: fixture.nowMs + 9 * 60_000,
+      })
+    ).resolves.toEqual({ errors: 0, published: 1, scanned: 1 });
+    const text =
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+        ?.text;
+    expect(text).toContain(
+      languageTag === "en"
+        ? "Automatic startup recovery has stopped"
+        : "自动启动恢复已停止"
+    );
+    expect(text).toContain(
+      languageTag === "en"
+        ? "Earlier actions may have taken effect"
+        : "之前的操作可能已经生效"
+    );
+    expect(text).toContain(`Run ID: ${fixture.runId}`);
+    expect(text).not.toContain("could not run");
+    expect(text).not.toContain("Run the Routine again");
+    expect(workerSubmit).not.toHaveBeenCalled();
+    await expect(
+      retryRemoteAgentRoutineFailurePublications({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: fixture.nowMs + 10 * 60_000,
+      })
+    ).resolves.toEqual({ errors: 0, published: 0, scanned: 0 });
+    expect(
+      testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+    ).toHaveBeenCalledTimes(1);
   });
 
   it("repairs a failed Run with a submitted ledger without replaying the worker", async () => {

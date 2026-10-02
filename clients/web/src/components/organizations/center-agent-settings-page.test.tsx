@@ -821,6 +821,7 @@ function buildDirectoryResponse(): OrganizationDirectoryResponse {
 		agentProfiles: [
 			{
 				avatarUrl: undefined,
+				avatarStyle: "clover",
 				createdAt: "2026-07-13T00:00:00.000Z",
 				createdByUserId: "user-1",
 				creatorProfileId: null,

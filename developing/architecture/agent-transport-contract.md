@@ -625,6 +625,34 @@ Important execution rules:
   Core then rereads its native-delivery ledger. A still-active submission, a
   missing mixed-version RPC receiver, or a transport error requeues the same
   probe and cannot become an elapsed-time failure.
+- A task-continuation admission watchdog may first call native `readAdmission`
+  with the exact persisted submit request. The native owner compares its original
+  request digest and idempotency receipt without claiming or submitting work.
+  Only a finalized, validated ACK supplies a real submission ID. A missing or
+  merely claimed receipt remains unconfirmed; the watchdog's synthetic ID is
+  never used for execution reconciliation. Core saves a recovered ACK in its
+  existing ledger before generation/Stop/pause postprocessing and reuses the
+  accepted-delivery probe. This does not authorize a new execution, a new
+  idempotency identity, or controlled restart.
+- Native cancellation persists immutable Stop intent for the original
+  Organization/Space/idempotency identity, including before an execution row
+  exists. Initialization and model/tool guards consult that same native-owner
+  intent; a racing initializer cancels its newly created row rather than
+  admitting work. The intent has no expiry that can reopen a stopped identity.
+  It is not an admission ACK or terminal execution fact. The existing
+  `not_found` wire response still proves neither cleanup nor fence capability
+  in a mixed-version receiver. Native `readAdmissionStop` reads that same intent
+  in the original conversation owner without writing or admitting work. Core
+  validates the Organization/Space/idempotency identity; an absent method or
+  receipt supplies no fence proof. This proves only future admission is fenced,
+  not that earlier execution or external writes have settled. Controlled restart
+  remains unavailable until Core also confirms execution safety and current
+  authorization.
+  Waiting 240 seconds is an experience threshold only, never permission to
+  replay work. Do not roll back the native guard while an old stopped admission
+  can still arrive; an old receiver does not understand the new Stop intent.
+  The new optional read RPC leaves existing Stop/ACK response shapes unchanged;
+  deploy its receiver before any caller that requires a positive fence receipt.
 - Remote Agent initialization remains recoverable from Flue's durable
   submission only while the exact attempt still owns the row,
   `inputAppliedAt` is absent, and the submission has attempt budget remaining.

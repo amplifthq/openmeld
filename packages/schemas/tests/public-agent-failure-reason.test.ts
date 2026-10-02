@@ -73,14 +73,14 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
-  it("explains a hosted admission timeout as a start failure", () => {
+  it("does not claim an unacknowledged hosted admission never started", () => {
     expect(
       resolveCenterAgentCallbackFailureMessage({
         failureCode: "remote_agent.admission_timeout",
         failureMessage: "internal watchdog detail",
       })
     ).toBe(
-      "Center Agent couldn't start this request because OpenMeld did not confirm it in time. Try again. If it keeps happening, open Diagnostics in OpenMeld."
+      "OpenMeld could not confirm whether Center Agent started this request. Open Diagnostics to check its status before starting more work."
     );
   });
 
@@ -143,7 +143,7 @@ describe("public agent failure reason mapping", () => {
         "execution_context.custom_config_file_access_unverified"
       )
     ).toBe(
-      "This task did not start because Custom (config.toml) cannot be combined with OpenMeld's task file boundary. Choose another permission mode in this Agent's settings, then wake the Agent again."
+      "OpenMeld could not verify this task's file-access boundary with Custom (config.toml), so the task did not start. Choose a supported permission mode in this Agent's settings, then try again."
     );
   });
   it("links a missing Claude project container to Agent setup", () => {

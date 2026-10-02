@@ -634,6 +634,7 @@ export type RemoteAgentCoreWorkerBinding = {
   personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
+  centerAgentContinueTaskSummary?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;
   executeExecutionRecovery?(input: unknown): Promise<unknown>;
   recordSpaceAttachment?(input: {

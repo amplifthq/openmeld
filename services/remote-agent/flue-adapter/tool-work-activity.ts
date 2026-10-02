@@ -1,4 +1,7 @@
-import { resolveCommandAgentWorkActivity } from "@openmeld/schemas";
+import {
+  connectorActionOutcomeUnknownSchema,
+  resolveCommandAgentWorkActivity,
+} from "@openmeld/schemas";
 import type { AgentWorkActivity } from "@openmeld/schemas/types";
 import { resolveConnectedAppDisplayName } from "../agent-core/connector-service-presentation";
 import { isRemoteAgentDestructiveConfirmationResult } from "../agent-core/destructive-authorization";
@@ -288,15 +291,24 @@ export function resolveRemoteAgentToolWorkActivity(
       key,
       v: 1,
       ...(subject ? { subject } : {}),
-      ...(isRemoteAgentDestructiveConfirmationResult(toolResult)
-        ? { outcome: "confirmation_required" as const }
-        : {}),
+      ...resolveRemoteAgentToolWorkOutcome(toolResult),
     };
   }
   if (toolName !== "bash") {
     return null;
   }
   return resolveCommandAgentWorkActivity(readCommand(toolInput));
+}
+
+export function resolveRemoteAgentToolWorkOutcome(
+  toolResult: unknown
+): Pick<AgentWorkActivity, "outcome"> {
+  if (isRemoteAgentDestructiveConfirmationResult(toolResult)) {
+    return { outcome: "confirmation_required" };
+  }
+  return connectorActionOutcomeUnknownSchema.safeParse(toolResult).success
+    ? { outcome: "outcome_unknown" }
+    : {};
 }
 
 function resolveSafeToolSubject(

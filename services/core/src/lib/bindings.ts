@@ -165,6 +165,16 @@ export type RemoteAgentWorkerBindingRpc = {
   ): Promise<
     import("@openmeld/schemas/types").RemoteAgentWorkerExecutionQueryResponse
   >;
+  readAdmission?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionResponse
+  >;
+  readAdmissionStop?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionStopResponse
+  >;
   readRuntimeDiagnostics?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerRuntimeDiagnosticsRequest
   ): Promise<

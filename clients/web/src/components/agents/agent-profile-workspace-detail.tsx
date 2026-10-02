@@ -37,6 +37,7 @@ import {
 	ProhibitIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -50,6 +51,7 @@ import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { updateAgentAvatar } from "#/lib/profiles/update-agent-avatar";
+import { useAgentAvatarInvalidationScope } from "#/query/profiles/agent-avatar-context";
 import {
 	AgentTaskActivityTime,
 	useAgentTaskActivity,
@@ -85,6 +87,8 @@ export function AgentProfileWorkspaceDetail(input: {
 	headerRecoveryActions?: ReactNode;
 }) {
 	const [savingAvatar, setSavingAvatar] = useState(false);
+	const queryClient = useQueryClient();
+	const avatarInvalidationScope = useAgentAvatarInvalidationScope();
 	const taskActivity = useAgentTaskActivity(input.profile.openMeldProfileId);
 	const displayedWakeAvailability = input.wakeAvailability;
 	const showOwnerOperationalContext =
@@ -143,10 +147,14 @@ export function AgentProfileWorkspaceDetail(input: {
 										}
 										setSavingAvatar(true);
 										try {
-											const updated = await updateAgentAvatar({
-												profileId: input.profile.openMeldProfileId,
-												avatarStyle,
-											});
+											const updated = await updateAgentAvatar(
+												{
+													profileId: input.profile.openMeldProfileId,
+													avatarStyle,
+												},
+												queryClient,
+												avatarInvalidationScope
+											);
 											input.onAvatarUpdated?.(updated);
 											toast.success("Avatar updated.");
 										} catch (error) {
@@ -164,6 +172,7 @@ export function AgentProfileWorkspaceDetail(input: {
 							) : (
 								<AgentProfileControllerAvatar
 									agentControllerRef={input.agentControllerRef}
+									avatarStyle={input.profile.avatarStyle}
 									className={cn(
 										"shrink-0",
 										hasReducedProminence ? "opacity-55 grayscale" : null

@@ -1,13 +1,19 @@
-import type { AgentTaskTerminalOutcome } from "@openmeld/schemas/types";
+import { formatPublicAgentFailureFacts } from "@openmeld/schemas";
+import type {
+  AgentTaskTerminalOutcome,
+  InboxSourceCandidate,
+} from "@openmeld/schemas/types";
 import {
   ensureInboxItem,
   resolveInboxItemsBySource,
 } from "../../inbox/application/inbox-item-service";
 import {
   readInboxItemBySource,
+  repairLegacyTaskContinuationInboxItem,
   replaceInboxSourceTargetsIfCurrent,
 } from "../../inbox/infrastructure/d1/inbox-item-repo";
 import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { buildTaskContinuationAdmissionFailureFacts } from "./native-delivery-failure-facts";
 import type { SlackInboxSourceTarget } from "./slack-inbox-source-target";
 
 type SlackTerminalStatus = AgentTaskTerminalOutcome["status"];
@@ -17,6 +23,7 @@ export async function projectTaskContinuationAdmissionExhaustedInboxItem(input: 
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   occurredAtMs: number;
+  languageTag?: string;
 }): Promise<void> {
   const recipientUserId = input.delivery.onBehalfOfUserId?.trim() ?? "";
   const trigger = input.delivery.workerSubmitRequest?.turnEnvelope.trigger;
@@ -29,39 +36,64 @@ export async function projectTaskContinuationAdmissionExhaustedInboxItem(input: 
   ) {
     return;
   }
-  const resultSignalId =
+  // The trigger's result belongs to the watched task, possibly in another
+  // Space. Only this delivery's own publication or thread is a local target.
+  const signalId =
+    input.delivery.publishedSignalId?.trim() ||
+    input.delivery.threadContext?.rootSignalId;
+  const presentation = formatPublicAgentFailureFacts(
+    buildTaskContinuationAdmissionFailureFacts({
+      delivery: input.delivery,
+      maxAttempts: input.attempts,
+      languageTag: input.languageTag,
+    })
+  );
+  const candidate: InboxSourceCandidate = {
+    attention: "update",
+    contextLabel: "Center Agent",
+    importance: "normal",
+    kind: "system_issue",
+    occurredAtMs: input.occurredAtMs,
+    organizationId: input.delivery.organizationId,
+    preview: presentation.body,
+    recipientUserId,
+    sourceFacts: {
+      recipientReasons: ["requester"],
+      version: 1,
+    },
+    sourceKey: `${input.delivery.deliveryId}:admission_retry_exhausted`,
+    sourceKind: "remote_agent_native_delivery",
+    sourceTarget: {
+      kind: "space",
+      ...(signalId ? { signalId } : {}),
+      spaceId: input.delivery.spaceId,
+      ...(input.delivery.threadContext?.rootSignalId
+        ? {
+            threadRootSignalId: input.delivery.threadContext.rootSignalId,
+          }
+        : {}),
+    },
+    title: presentation.title,
+  };
+  const legacySignalId =
     "publishedSignalId" in trigger.outcome
       ? trigger.outcome.publishedSignalId?.trim()
       : null;
-  await ensureInboxItem({
-    candidate: {
-      attention: "action_required",
-      contextLabel: "Center Agent",
-      importance: "urgent",
-      kind: "system_issue",
-      occurredAtMs: input.occurredAtMs,
-      organizationId: input.delivery.organizationId,
-      preview: `OpenMeld made ${input.attempts} startup attempts. Open the linked original result in its Space thread and retry from there.`,
-      recipientUserId,
-      sourceFacts: {
-        recipientReasons: ["requester"],
-        requestCategory: "action",
-        version: 1,
-      },
-      sourceKey: `${input.delivery.deliveryId}:admission_retry_exhausted`,
-      sourceKind: "remote_agent_native_delivery",
-      sourceTarget: {
-        kind: "space",
-        signalId: resultSignalId || input.delivery.triggerMessageId,
-        spaceId: input.delivery.spaceId,
-        ...(input.delivery.threadContext?.rootSignalId
-          ? {
-              threadRootSignalId: input.delivery.threadContext.rootSignalId,
-            }
-          : {}),
-      },
-      title: "Center Agent could not continue a task",
+  await repairLegacyTaskContinuationInboxItem({
+    candidate,
+    db: input.db,
+    legacySourceTarget: {
+      kind: "space",
+      signalId: legacySignalId || input.delivery.triggerMessageId,
+      spaceId: input.delivery.spaceId,
+      ...(input.delivery.threadContext?.rootSignalId
+        ? { threadRootSignalId: input.delivery.threadContext.rootSignalId }
+        : {}),
     },
+    nowMs: input.occurredAtMs,
+  });
+  await ensureInboxItem({
+    candidate,
     db: input.db,
     nowMs: input.occurredAtMs,
   });

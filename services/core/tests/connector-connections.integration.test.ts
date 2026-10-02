@@ -1480,6 +1480,115 @@ describe("Core connector connection ownership", () => {
     });
   });
 
+  it.each([
+    "github",
+    "posthog",
+  ] as const)("reauthorizes every %s replay against its original live connection", async (service) => {
+    const fixture = await seedConnectorFixture();
+    const center = await seedDesignatedCenterAgent(fixture);
+    const connectionName = await seedSharedConnectorConnection(
+      fixture,
+      service
+    );
+    const member = await env.OPENMELD_DB.prepare(
+      "SELECT id FROM members WHERE organization_id = ? AND user_id = ?"
+    )
+      .bind(fixture.organizationA, fixture.ownerA)
+      .first<{ id: string }>();
+    if (!member) {
+      throw new Error("Missing requester member");
+    }
+    const body = {
+      actionId:
+        service === "github"
+          ? "github.create_issue_comment"
+          : "posthog.create_project",
+      connectionName,
+      context: center.context,
+      effect: "write" as const,
+      operationId: `live-replay-${crypto.randomUUID()}`,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requestSignature: "a".repeat(64),
+      service,
+      speakerMember: { memberId: member.id, userId: fixture.ownerA },
+    };
+    const core = connectorCoreEnv();
+    const first = await rpcCenterAgentRecordConnectorActionOperation(
+      core,
+      body
+    );
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).resolves.toMatchObject({
+      replayed: true,
+      executionConnection: first.executionConnection,
+    });
+    for (const permission of ["read", "none"] as const) {
+      await env.OPENMELD_DB.prepare(
+        "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+      )
+        .bind(
+          JSON.stringify({
+            center_agent: permission,
+            local_agent: "none",
+            remote_agent: "none",
+          }),
+          connectionName
+        )
+        .run();
+      await expect(
+        rpcCenterAgentRecordConnectorActionOperation(core, body)
+      ).rejects.toThrow("plugin.action_forbidden");
+    }
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = NULL, status = 'disconnected', disconnected_at_ms = updated_at_ms WHERE connection_name = ?"
+    )
+      .bind(connectionName)
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).rejects.toThrow("center_agent.connector_action_connection_invalid");
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET status = 'active', disconnected_at_ms = NULL, user_id = ? WHERE connection_name = ?"
+    )
+      .bind(fixture.otherMemberA, connectionName)
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).rejects.toThrow("center_agent.connector_action_connection_invalid");
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET user_id = ? WHERE connection_name = ?"
+    )
+      .bind(fixture.ownerA, connectionName)
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, {
+        ...body,
+        connectionName: "another-account",
+      })
+    ).rejects.toThrow("center_agent.connector_action_connection_invalid");
+    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
+      .bind(member.id)
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, body)
+    ).rejects.toThrow("center_agent.member_actor_required");
+    const retained = await env.OPENMELD_DB.prepare(
+      "SELECT status, connection_name, connection_owner_user_id, connection_scope FROM center_agent_connector_action_operations WHERE operation_id = ?"
+    )
+      .bind(body.operationId)
+      .first();
+    expect(retained).toMatchObject({
+      status: "pending",
+      connection_name: connectionName,
+    });
+    expect(retained).toMatchObject({
+      connection_owner_user_id: fixture.ownerA,
+      connection_scope: "shared",
+    });
+  });
+
   it("uses the represented user as the only requester for a linked native-delivery action", async () => {
     const fixture = await seedConnectorFixture();
     const centerAgent = await seedDesignatedCenterAgent(fixture);

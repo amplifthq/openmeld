@@ -659,6 +659,7 @@ describe("SpaceMemberRow", () => {
 			centerAgentProfileId: "agt-1",
 			entry: buildAgentEntry({
 				agentControllerRef: "builtin:codex",
+				avatarStyle: "clover",
 			}),
 		});
 

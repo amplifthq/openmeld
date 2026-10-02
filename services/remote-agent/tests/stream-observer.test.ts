@@ -250,6 +250,17 @@ describe("Center Agent stream observation", () => {
     { result: {}, outcome: undefined },
     {
       result: {
+        status: "outcome_unknown",
+        actionId: "posthog.update_project",
+        operationId: "update-project-1",
+        executionConfirmation: "unknown",
+        providerExecutionId: null,
+        message: "The action may have succeeded. Reconcile update-project-1.",
+      },
+      outcome: "outcome_unknown",
+    },
+    {
+      result: {
         status: "destructive_confirmation_required",
         sideEffects: 0,
         confirmationToken: "private-token",

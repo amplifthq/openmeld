@@ -5,7 +5,9 @@ import type {
   AgentTaskHandle,
   AgentTaskTerminalOutcome,
 } from "@openmeld/schemas/types";
+import { isTaskSummaryRecoveryAuthorized } from "../../center-agent/application/task-summary-recovery-service";
 import type { CoreBindings } from "../../lib/bindings";
+import { reportTaskContinuationEvidence } from "../../remote-agent/application/native-delivery-admission-evidence";
 import {
   activateCenterAgentFallbackSpaceWake,
   RemoteAgentTaskContinuationTerminalError,
@@ -43,6 +45,17 @@ export async function processAgentTaskContinuationQueueMessage(input: {
     db: input.db,
     subscriptionId: input.message.subscriptionId,
   });
+  if (current?.continuationIdempotencyKey) {
+    reportTaskContinuationEvidence({
+      idempotencyKey: current.continuationIdempotencyKey,
+      subscriptionId: current.subscriptionId,
+      subscriptionCreatedAtMs: current.createdAtMs,
+      enqueuedAtMs: input.message.enqueuedAtMs,
+      observedAtMs: input.nowMs,
+      stage: "queue_received",
+      event: "started",
+    });
+  }
   if (
     !current ||
     current.state === "settled" ||
@@ -83,6 +96,15 @@ export async function processAgentTaskContinuationQueueMessage(input: {
   });
   if (!claimed) {
     return { retryAfterSeconds: 5, status: "retry_later" };
+  }
+  if (claimed.continuationIdempotencyKey) {
+    reportTaskContinuationEvidence({
+      idempotencyKey: claimed.continuationIdempotencyKey,
+      subscriptionId: claimed.subscriptionId,
+      observedAtMs: Date.now(),
+      stage: "claimed",
+      event: "finished",
+    });
   }
   try {
     const continuationTask = await executeClaimedAgentTaskContinuation({
@@ -206,14 +228,27 @@ async function executeClaimedAgentTaskContinuation(input: {
   if (!delegation || delegation.organizationId !== claimed.organizationId) {
     throw new Error("agent_task_continuation.delegation_missing");
   }
-  const isAuthorized = () =>
-    isClaimedAgentTaskContinuationAuthorized({
+  const isAuthorized = async () => {
+    if (
+      claimed.continuation?.kind === "resume_agent" &&
+      claimed.continuation.summaryRecovery &&
+      !(await isTaskSummaryRecoveryAuthorized({
+        db: input.db,
+        env: input.env,
+        observer: observerDelivery,
+        operatorUserId: claimed.continuation.summaryRecovery.operatorUserId,
+      }))
+    ) {
+      return false;
+    }
+    return await isClaimedAgentTaskContinuationAuthorized({
       claimId: input.claimId,
       db: input.db,
       delegationId: delegation.delegationId,
       expectedGeneration: delegation.generation,
       subscriptionId: claimed.subscriptionId,
     });
+  };
   if (!(await isAuthorized())) {
     await cancelAgentTaskCompletionSubscription({
       db: input.db,
@@ -373,6 +408,8 @@ async function executeParentResume(input: {
     env: input.env,
     idempotencyKey: input.idempotencyKey,
     instruction: input.continuation.instruction,
+    replyLanguageTag: input.continuation.replyLanguageTag,
+    ...(input.continuation.summaryRecovery ? { summaryOnly: true } : {}),
     isAuthorized: input.isAuthorized,
     nowMs: input.nowMs,
     observerDelivery: input.observerDelivery,
@@ -402,6 +439,7 @@ async function executeTaskWatchResume(input: {
     env: input.env,
     idempotencyKey: input.idempotencyKey,
     instruction: input.continuation.instruction,
+    replyLanguageTag: input.continuation.replyLanguageTag,
     isAuthorized: input.isAuthorized,
     nowMs: input.nowMs,
     observerDelivery: input.observerDelivery,

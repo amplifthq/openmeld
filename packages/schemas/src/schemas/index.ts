@@ -77,6 +77,7 @@ export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
+export { agentFailureFactsSchema } from "./runtime/agent-failure";
 export {
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
   CENTER_AGENT_SESSION_TITLE_MAX_LENGTH,
@@ -1106,6 +1107,8 @@ export {
   centerAgentConnectorActionAuditOutcomeSchema,
   centerAgentConnectorActionExecutionConnectionSchema,
   centerAgentConnectorActionOperationStatusSchema,
+  centerAgentContinueTaskSummaryBodySchema,
+  centerAgentContinueTaskSummaryResponseSchema,
   centerAgentCreateAgentProfileBodySchema,
   centerAgentCreateAgentProfileResponseSchema,
   centerAgentCreateConfiguredAgentProfileBodySchema,
@@ -1204,6 +1207,8 @@ export {
   slackIdentityLinkPreviewBodySchema,
   slackIdentityLinkPreviewResponseSchema,
   slackIdentityLinkTokenSchema,
+  taskSummaryRecoveryAccessRequestSchema,
+  taskSummaryRecoveryAccessResponseSchema,
   updateCenterAgentModelBodySchema,
   updateCenterAgentModelResponseSchema,
   updateCenterAgentOperatingStateBodySchema,
@@ -1998,6 +2003,7 @@ export {
   pluginActionRpcInputSchema,
 } from "./http/plugin-actions";
 export {
+  connectorActionOutcomeUnknownSchema,
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,
   pluginRuntimeResponseSchema,
@@ -2792,6 +2798,7 @@ export {
 export {
   executionContextAssignmentSchema,
   executionContextCompletionSchema,
+  executionContextGitMetadataSchema,
   executionContextLegacyAssociationSchema,
   executionContextRequestSchema,
   executionContextScopeSchema,
@@ -3026,6 +3033,7 @@ export {
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
   readGitHubAppWebhookIssueObservation,
+  remoteAgentAdmissionAttemptEvidenceSchema,
   remoteAgentAdmissionStageOperationSchema,
   remoteAgentConversationContinuityContextSchema,
   remoteAgentConversationContinuityEntrySchema,
@@ -3050,6 +3058,7 @@ export {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
   remoteAgentStreamPartCallbackBodySchema,
+  remoteAgentTaskContinuationEvidenceSchema,
   remoteAgentTurnEnvelopeMemoryItemSchema,
   remoteAgentTurnEnvelopeMemorySchema,
   remoteAgentTurnEnvelopeMemorySourceSchema,
@@ -3062,6 +3071,7 @@ export {
   remoteAgentTurnRuntimeEvidenceSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
+  remoteAgentWorkerAdmissionStopIntentSchema,
   remoteAgentWorkerAuthorContextSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerCancellationResponseSchema,
@@ -3073,6 +3083,8 @@ export {
   remoteAgentWorkerExecutionStatusSchema,
   remoteAgentWorkerInputAttachmentSchema,
   remoteAgentWorkerInputAttachmentsSchema,
+  remoteAgentWorkerReadAdmissionResponseSchema,
+  remoteAgentWorkerReadAdmissionStopResponseSchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,

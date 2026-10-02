@@ -43,6 +43,7 @@ import {
   centerAgentAuthorizeAnonymousMemberToolRpcInputSchema,
   centerAgentCheckAgentProfileReadinessResponseSchema,
   centerAgentConnectAgentProfileToLocalAgentResponseSchema,
+  centerAgentContinueTaskSummaryResponseSchema,
   centerAgentCreateAgentProfileResponseSchema,
   centerAgentCreateOrganizationInviteLinkResponseSchema,
   centerAgentCreateProjectToolResponseSchema,
@@ -631,6 +632,17 @@ const manageSpaceFilesToolInputSchema = strictObject({
   revision: optional(pipe(number(), integer(), minValue(1))),
   spaceId: nonEmptyStringSchema,
 });
+const taskReplyLanguageInputSchema = optional(
+  pipe(
+    string(),
+    trim(),
+    minLength(2),
+    maxLength(64),
+    description(
+      "Your semantic reply-language decision for this request as a BCP 47 tag (for example en or zh-Hans). Preserve the requester's explicit language choice and the established conversation language. This is a task fact, not an Organization preference."
+    )
+  )
+);
 const wakeAgentProfilesInSpaceToolInputSchema = object({
   agentProfileIds: pipe(
     array(nonEmptyStringSchema),
@@ -640,6 +652,7 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
   mentionProfileIds: mentionProfileIdsInputSchema,
   referenceProfileIds: referenceProfileIdsInputSchema,
   completionMode: picklist(CENTER_AGENT_DELEGATION_COMPLETION_MODES),
+  replyLanguageTag: taskReplyLanguageInputSchema,
   computerFilePaths: optional(
     pipe(
       array(pipe(string(), trim(), minLength(1), maxLength(2048))),
@@ -1493,6 +1506,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
+  "openmeld_continue_task_summary",
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
@@ -1604,6 +1618,7 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_list_agent_tasks",
   "openmeld_manage_space_tasks",
   "openmeld_watch_agent_task",
+  "openmeld_continue_task_summary",
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
@@ -5099,6 +5114,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           "needs_attention",
         ]),
         instruction: pipe(string(), trim(), minLength(1), maxLength(4000)),
+        replyLanguageTag: taskReplyLanguageInputSchema,
         task: agentTaskHandleInputSchema,
       }),
       endsTurnAfter: (result) => {
@@ -5121,7 +5137,47 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             completionCondition: payload.completionCondition,
             ...toolContext,
             instruction: payload.instruction,
+            ...(payload.replyLanguageTag
+              ? { replyLanguageTag: payload.replyLanguageTag }
+              : {}),
             task: agentTaskHandleSchema.parse(payload.task),
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_continue_task_summary",
+      description:
+        "When the original requester asks to continue a failed summary, inspect the exact subscriptionId previously returned by OpenMeld. Set inspectOnly=true first. If available and requested, set false to queue one fresh summary of existing verified child results. Decide replyLanguageTag from the user's current language request, which overrides the retained reply language. This does not repeat child work or the original writes. Only the original requester is supported; unknown or still-running original execution is unavailable. After queued or already_requested, end this turn and wait for the owned continuation. An unavailable recovery is not pending work: report its reason. For completed recovery, read the exact publishedResult when present and point to it; never queue another summary. Do not poll.",
+      input: strictObject({
+        sourceSubscriptionId: nonEmptyStringSchema,
+        inspectOnly: optional(boolean()),
+        replyLanguageTag: taskReplyLanguageInputSchema,
+      }),
+      endsTurnAfter: (result) => {
+        const parsed =
+          centerAgentContinueTaskSummaryResponseSchema.safeParse(result);
+        return (
+          parsed.success &&
+          (parsed.data.status === "queued" ||
+            parsed.data.status === "already_requested")
+        );
+      },
+      execute: async (payload) => {
+        const toolContext = await buildVerifiedMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_continue_task_summary",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentContinueTaskSummary,
+          "centerAgentContinueTaskSummary"
+        );
+        return centerAgentContinueTaskSummaryResponseSchema.parse(
+          await rpc({
+            ...toolContext,
+            ...payload,
+            includePublishedResult: true,
           })
         );
       },

@@ -66,6 +66,15 @@ Neither a model argument nor a personal-first automatic selector can replace it;
 existing operation replays retain the original operation identity. Generic App
 tools also accept an explicit requester/shared preference for normal requests.
 
+An operation's historical attribution is not current permission. Every provider
+attempt, including an exact replay, reauthorizes the original connection and
+its current Agent access without selecting another account. Generic App and
+dynamic GitHub replays rediscover the action effect from the trusted runtime
+catalog. A declared read keeps normal pending/retry behavior even without a
+verified write deduplication window; writes and unknown effects retain that
+window requirement. Catalog failure prevents execution rather than accepting a
+model-supplied effect. The exact connection and input signature remain frozen.
+
 Plugin binding, Computer/result access and personal Hosted tools accept both
 `accepted` and `retry_observed` native-delivery phases. A replay ACK can confirm
 work already running after an earlier ACK was lost; it is not an identity change.
@@ -164,6 +173,22 @@ Previously admitted v1 or unversioned contexts cannot acquire the new Computer
 tools. Their old name remains available only for existing cleanup; neither
 legacy shared nor unproven v1 files are copied into a new audience. Real container,
 process termination and cross-audience export acceptance remain required.
+
+Acceptance uses disposable audiences in the documented Staging environment,
+never production data or legacy file migration. Keep the following evidence
+separate from unit and Worker-runtime regression results:
+
+- Start real container commands for audiences A and B, including different
+  Spaces and a Direct Message. Each audience may read its own non-sensitive
+  marker; the other audience must not read its files or acquire its command.
+- Stop A through the normal product path and confirm that its command exited.
+  A Stop acknowledgement alone is insufficient; B's command must remain usable.
+- Export files, screenshots and tool results through direct tools and Code Mode.
+  Verify admitted source provenance and withhold output after source access is
+  revoked, including access revoked during an operation.
+- Verify that new admissions cannot open audience-v1 or unversioned Computers.
+  Preserve existing files for cleanup; do not copy or delete them as acceptance
+  preparation.
 
 ### Retained large tool results
 
@@ -400,6 +425,22 @@ is pending. Deployment draining must additionally account for outstanding
 external operations and delegation receipts; a model-loop terminal fact alone
 does not prove those resources are idle.
 
+Stop also persists a native-owner intent when the execution has not yet been
+created. It fences the original idempotency identity across late submission,
+initialization, and model/tool execution without fabricating an accepted or
+aborted execution. Existing cancellation RPC responses remain unchanged:
+`not_found` is not evidence that a mixed-version receiver implements this fence.
+The read-only `readAdmissionStop` RPC returns the existing native Stop intent
+for the exact original request. Missing support or a missing receipt keeps
+controlled restart unavailable. A positive receipt does not certify that a
+previous external write or running execution has finished.
+Restart must not be offered solely because time has passed or a row is absent.
+Stopping a parent also forwards native cancellation for a pending continuation
+whose ACK is missing. It settles that continuation only after an identity-bound
+terminal cancellation, or a missing execution plus a positive native admission
+Stop receipt. Pending cancellation and mixed-version missing receipts remain
+unconfirmed; neither fabricates an ACK or declares running work finished.
+
 ## Two Runtime Families (settled 2026-07-06)
 
 | Family               | Members                                                                        | Contract                                                                                                                                                                          |
@@ -485,13 +526,43 @@ normal tool calls and activation recording still require an accepted delivery.
 Personal Apps use permitted Organization-shared connections and may use the
 owner's personal connection when that owner enabled personal Remote Agent
 access and is the verified requester or Routine delegate. Another member's
-Wake and an Agent-to-Agent handoff never inherit the owner's private account.
+Wake and an unrecorded Agent-to-Agent handoff never inherit the owner's private account.
 Existing connector discovery, durable operation records,
 attribution, and destructive-action confirmation remain authoritative. Actions
 requiring a represented human still require the verified current human sender;
 an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
 General Computer, research, and current-Space collaboration tools remain usable
-on Agent handoffs. Delegated human authority is a separate follow-up.
+on Agent handoffs. Recorded Center delegations have the narrow read path below.
+
+The first M2 increment provides an opt-in Core read projection through
+`authorizeRemoteAgentExecutionAccess(includeDelegatedRequester=true)`. It follows
+the exact recorded Space child task to its native Center parent, verifies the
+current Center designation, active human member and matching personal-Agent owner,
+and returns identity references only. It preserves the actual Agent execution
+audience and checks the exact selected connection through the existing permission
+owner for source reads. It cannot authorize provider writes. No permanent grant
+or new persisted delegation state is created; clients without the opt-in retain
+their existing behavior.
+
+Personal Remote GitHub named read tools and `github_checkout_repository` consume
+this projection for recorded Center-to-personal-Agent Space delegations. The
+original human must currently belong to the Organization and own the target
+Agent. Each provider read and host Git transfer rechecks that chain and the exact
+explicitly selected personal or shared connection through the existing Remote
+Agent access policy. A revoked read is withheld after the provider call as well.
+The actual Agent sender and Computer audience remain unchanged; identity
+references are not cached authority. Delegated GitHub writes, including the
+dynamic action execution entry, remain unavailable in this increment.
+
+The Core receiver must deploy before the Remote caller. The opted-in response
+includes `delegatedRequesterSupported`; a missing marker or an older strict Core
+rejecting the field reports a capability gap without falling back to another
+account. Old callers keep their prior response shape. Checkout retains its
+existing exact source-tree snapshot and synthetic comparison-history contract;
+its local HEAD is not the upstream source commit. Provider credentials remain
+in the host/provider boundary, outside Computer files, command input and Git
+configuration. Local owner/Remote/native-Git tests do not certify the deployed
+Felix-to-Center-to-Opus path; staging acceptance is still required.
 
 Personal Computers are durable per Agent Profile and Space (including DMs),
 keyed by the encoded pair, because a shell can traverse its entire filesystem.
@@ -1268,6 +1339,52 @@ Computer sandbox for this request, and does not stream it as a new Space Wake.
 Core publishes its final answer through Space's idempotent recovery-notice owner.
 If it fails, the original failure stays visible and the exact recovery attempt
 becomes unavailable. An unknown publication outcome does not authorize replay.
+
+Manual task-summary recovery reads the existing subscription and its exact native
+delivery before returning a repeat-request receipt. Cancelled or failed recovery
+is unavailable; queued, claimed, or admitted work may return `already_requested`.
+Completed recovery never queues a second summary. Readers that opt in with
+`includePublishedResult` receive its Space locator only after the final-reply
+claim and the requester's current message access are verified. Without that
+opt-in, the response retains the existing receipt shape and reports completion
+through the reason code. Terminal receipts do not end the Agent turn to wait for
+work that no longer exists.
+
+Manual task-summary recovery carries the Core-owned `summaryOnly` marker from
+the recorded recovery subscription. The runtime registers only Space context,
+Space file, retained-result reads and public progress, for both direct tools and
+Code Mode. It creates no Computer and materializes no executable Skills. This
+restricts business tool actions; normal answer publication and owner bookkeeping
+still run. A fresh summary does not resume the remaining task or replay earlier
+writes. Before offering it, Core verifies the exact failed/aborted execution,
+current requester access, readable published child results and a supporting
+receiver. Unknown execution, Stop, revoked access or an old receiver is not a
+summary-recovery candidate. Existing Flue model retries remain the only bounded
+inference retry; no outer turn replay is added.
+
+Ordinary Space and Direct Message `turn_not_completed` callbacks use deterministic
+failure facts. They explain that processing was interrupted, earlier actions may
+have taken effect, and the remaining work/final summary is unconfirmed. Child
+links require the persisted subscription/delegation, matching child author,
+successful final-reply claim and current message access. Public links stay in
+the failure's Space; cross-Space private locators are omitted. Diagnostics is a
+supplement, not the whole explanation. Raw provider detail cannot supply a guessed
+cause such as overload. The durable publication claim retains the same failure
+text for the Space reply and final stream projection; callback repeats do not
+restart inference or publish a second result.
+
+Summary recovery records its intent before fencing the failed old execution.
+A transient fence-read failure can resume the same recovery intent, without
+creating a second summary. Only exact native provenance can distinguish this
+fence from user Stop; reason text is not proof. User Stop strengthens the fence
+and still takes priority over recovery, including repeated and concurrent calls.
+
+Frozen summary requests must retain the task owner's restricted execution
+marker. An old unmarked envelope is blocked before admission or watchdog replay,
+with a diagnostic policy-mismatch error. Recovery never silently downgrades it
+to ordinary execution, rewrites it, or retries under a new identity. Retire an
+affected request through the existing Stop path; keep the guard when rolling
+back producers.
 
 Action authorization is semantic, not lexical. Conversation context may
 complete arguments only inside an action the user already authorized; it cannot
@@ -2184,7 +2301,7 @@ surface adopts official features where they are free**:
     on the existing Cloudflare AI Gateway route;
   - stateless Browser Run Quick Actions for rendered Markdown, links,
     structured extraction, selector scraping, and screenshots; and
-  - the Center Agent's computer: a durable org-level workspace filesystem
+  - the Center Agent's computer: a durable admitted-audience workspace filesystem
     (`@cloudflare/computer`, SQLite in the AgentComputer Durable Object) with
     shell execution on the worker-shell backend, exposed through Flue's
     SandboxApi contract.
@@ -2216,19 +2333,20 @@ surface adopts official features where they are free**:
     does not retain browser sessions, expose Live View, or implement human
     browser takeover. Browser screenshots use the existing private Space
     attachment contract and are attached to the final Space reply.
-    The Center computer is owned by the agent identity: one durable workspace per
-    Agent Profile, keyed `agent-computer:<agentProfileId>`. Org-level
-    uniqueness follows from the Center Agent being unique per Organization; a
-    personal Agents use the conversation-scoped identity described above. The computer does not
-    mount an OpenMeld host or user workstation. Files persist across
-    conversations, Durable Object restarts, and deploys under the fixed layout
-    `/computer/{org,projects,spaces,routines,home}`. Ordinary Space turns
+    The Computer is keyed by the admitted audience described above:
+    `agent-computer:audience-v2:<execution-scope-key>`. Organization, Agent,
+    Binding, conversation, Space and admitted principal all participate in that
+    identity. The old `agent-computer:<agentProfileId>` and audience-v1 names
+    remain cleanup addresses only; new tools cannot open them. The Computer does not
+    mount an OpenMeld host or user workstation. Files persist across turns
+    admitted to the same audience, Durable Object restarts, and deploys under the
+    fixed layout `/computer/{org,projects,spaces,routines,home}`. Ordinary Space turns
     work under `/computer/spaces/<spaceId>`, and each Routine keeps one working set under
-    `/computer/routines/<routineId>` across runs. The isolation boundary is the
-    Organization, not the Space: cross-Space continuity on one computer is the
-    point, and disclosure control lives on the output side (which Space the
-    Center Agent speaks in), exactly as it already does for Organization
-    memory and Documents. Before each hosted turn starts, Remote Agent pulls a
+    `/computer/routines/<routineId>` across runs admitted to the same audience.
+    These paths are layout conventions inside an isolated Computer, not the
+    authorization boundary. Different audiences do not share a filesystem or
+    process namespace. Cross-Space reuse requires an explicit authorized handoff;
+    neither a common Organization nor the same Agent grants access. Before each hosted turn starts, Remote Agent pulls a
     versioned approved Organization Documents snapshot from Core when the
     current turn's `contextScopePlan` allows it. The trusted snapshot stays in
     turn-local memory; approved documents are no longer automatically copied
@@ -2240,13 +2358,13 @@ surface adopts official features where they are free**:
     A disallowed plan neither fetches the snapshot nor exposes Document checkout
     or submit tools. Authorized reads use the existing Core tools; explicit
     checkout writes one document into the current working directory. Working
-    copies are ordinary shared Computer files, not a per-member privacy
-    boundary. Working-copy submission remains bound to the current trusted
+    copies are files in the current audience's Computer; they do not grant another
+    audience access. Working-copy submission remains bound to the current trusted
     snapshot outside the Agent-writable filesystem. Center Agent edits happen in a
     working directory and return through the Core-owned draft or explicitly
     authorized direct-save contracts; Computer files never become a second
     approved-content writer.
-    The AgentComputer Durable Object identity stays fixed for the Agent Profile,
+    The AgentComputer Durable Object identity stays fixed for the admitted audience,
     but a `WorkspaceClient` is an RPC lease, not durable turn state. Remote Agent
     acquires and disposes one client for each materialization attempt and later
     Computer operation; an exec handle is disposed before its parent client on
@@ -2587,6 +2705,35 @@ not add polling infrastructure, callbacks, or a release scheduler.
 
 #### OpenConnector access boundary
 
+An external write's caller `operationId` and the derived provider idempotency
+key are distinct identities. Model-visible uncertain and pending receipts retain
+the caller identity; provider transport keys must never become instructions for
+a new write. `pending` leaves the existing Core operation pending and projects
+as awaiting confirmation, not failure or completion.
+
+The pinned OpenConnector action deduplication implementation retains claims and
+completed responses for 24 hours, and deletes expired records before claiming a
+key (`action-idempotency.ts` and `d1-runtime-store.ts` at
+`31be0d205cfd3f2b0a8f9ab5e3a54558976ed500`). The reservation precedes provider
+execution. Within that original window, the Agent may retry the exact request
+once using the same caller operation ID, account and input. If that does not
+confirm the result, it should use an authorized read tool at the target. Only
+when both steps cannot establish the result should the final reply identify
+the uncertain action and its target. A new operation ID must never be used to
+repeat the uncertain write.
+
+Core computes the remaining window from its immutable original operation
+record. Remote anchors that duration at the start of its receipt request using
+its monotonic clock;
+cross-service wall-clock timestamps are not subtracted. Missing legacy window
+evidence and expired windows skip the write replay. Repeating a key after
+expiration can perform a new write, so this is not an indefinite result query.
+Known read actions retain ordinary pending/retry handling; write, destructive
+and unknown effects use the cautious receipt. Dynamic GitHub, named GitHub and
+App tools reuse the same recovery guidance, including in Code Mode. The
+awaiting-confirmation activity does not automatically resolve in this batch;
+P1 reconciliation remains outstanding.
+
 The OpenMeld OpenConnector deployment keeps administration and runtime action
 execution on separate bearer-token surfaces:
 
@@ -2696,20 +2843,25 @@ turns use the same discoverable App actions.
 
 The generic action path relies on the provider grant, Core authorization,
 represented-member attribution, and one durable Core-owned operation. The
-model chooses a stable operation ID and must reuse it when retrying the exact
-same action. Core binds that ID to the selected connection, service, action,
+model chooses a stable operation ID. An explicitly permitted exact retry keeps
+that ID; a pending or unknown write stops for confirmation at its target rather
+than being retried as a result query. Core binds that ID to the selected connection, service, action,
 represented member, and request signature before execution. That signature
 covers the selected connection, service, action, and input. Remote Agent sends
 the same ID to OpenConnector in the standard `Idempotency-Key` HTTP header; it
 does not invent a JSON-body field outside the official runtime API. OpenMeld's
 Core-owned operation record, rather than provider response metadata, is the
 source of truth for whether the request is a replay. If provider
-execution succeeds but Core finalization is interrupted, the next exact retry
-reads the Core operation metadata first, rebuilds and verifies the same
-signature with its frozen connection, replays OpenConnector's stored result,
-and finishes the same operation instead of creating a second provider mutation.
-The execution response contains data and metadata, but no output schema. New
-operations return the schema from the verified action catalog; an exact replay
+execution succeeds but Core finalization is interrupted, a permitted exact retry
+reads the Core operation metadata first and verifies the same signature with its
+frozen connection. OpenConnector can replay a stored result only while it retains
+that result. Its pinned HTTP runtime expires idempotency records after 24 hours;
+the same POST after expiry can perform another mutation. Neither a stable ID nor
+Core's retained pending record certifies a side-effect-free query. This batch
+does not automatically confirm uncertain writes; users must verify the target.
+The execution response may carry its execution-owned output schema. Remote
+validates that schema when present and uses the verified action catalog only
+for a legacy response without it; an exact replay
 may omit it when the current catalog is unavailable, rather than misreporting
 the recovered provider result as a failed write. Current membership, connection
 availability, and provider catalog state gate only a new claim; they cannot
@@ -3209,6 +3361,20 @@ but not trigger.
    retry cancellation without resubmitting stopped work. A confirmed terminal
    Stop publishes a `wake_stopped` notice in the existing final-outcome slot;
    notice publication failure is repaired on redelivery without replaying work.
+   Task-continuation watchdogs and backoff retries also read the original task
+   owner's stopped outcome, including after a retry is claimed and after its
+   ACK. Once ACK clears the pending submit request, the existing immutable
+   recovery snapshot retains that association. Both admission and accepted
+   probes retry a failed Stop transfer before treating an ACK as settled.
+   They forward Stop through the existing durable probe queue instead of
+   resubmitting or publishing an admission failure. A positive native admission
+   fence can confirm withdrawal before an ACK exists; its stopped notice keeps
+   the submission identity absent. Native admission Stop intents have no time
+   expiry, so waiting longer cannot make the same late identity admissible.
+   Stop also retains that identity fence when execution has already completed
+   or failed, without changing its terminal record or retained result. Such a
+   response remains `not_stoppable`; only the separate fence receipt confirms
+   that identity cannot admit later work.
    Space's durable alarm owns every pending Hosted Stop, including legacy-NULL
    records with no native delivery yet. It retries bounded, fairly rotated
    batches and follows late native evidence without resubmitting work; a

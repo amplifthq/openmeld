@@ -548,7 +548,7 @@ describe("Remote Agent Message Channel publication", () => {
         failureCode: "remote_agent.admission_timeout",
         locator: createLocator(),
         providerPublicationIdempotencyKey: PROVIDER_PUBLICATION_KEY,
-        text: "Center Agent did not accept this request in time. Please try again.",
+        text: "OpenMeld could not confirm whether Center Agent started this request. Open Diagnostics to check its status before starting more work.",
       });
       expect(feishuAdapter.publishFailure).not.toHaveBeenCalled();
       expect(spacesGet).not.toHaveBeenCalled();
@@ -1457,7 +1457,7 @@ describe("Remote Agent Message Channel publication", () => {
         sequence: 1,
         outcome: "failed",
         replyDeliveryId: expect.any(String),
-        text: "Center Agent did not accept this request in time. Please try again.",
+        text: "OpenMeld could not confirm whether Center Agent started this request. Open Diagnostics to check its status before starting more work.",
       });
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({

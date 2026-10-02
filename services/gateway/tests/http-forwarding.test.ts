@@ -8,6 +8,7 @@ import {
   createDaemonRouteObservationSummary,
   DB_FACT_SCHEMA_VERSION,
   type DbDiagnosticsPayload,
+  organizationProfileDirectoryResponseSchema,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas";
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
@@ -1740,7 +1741,9 @@ describe("gateway http forwarding", () => {
     );
     expect(response.status).toBe(200);
     const { avatarStyle, avatarModelId, ...legacyProfile } = profile;
-    const body = await response.json();
+    const body = organizationProfileDirectoryResponseSchema.parse(
+      await response.json()
+    );
     expect(body).toMatchObject({
       agentProfiles: [
         includeAgentAvatars

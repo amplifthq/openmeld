@@ -41,6 +41,16 @@ describe("Computer audience and current access", () => {
     expect(
       resolveRemoteAgentComputerName({
         ...original,
+        organizationId: "other-organization",
+        turnEnvelope: {
+          ...envelope,
+          organization: { ...envelope.organization, id: "other-organization" },
+        },
+      })
+    ).not.toBe(name);
+    expect(
+      resolveRemoteAgentComputerName({
+        ...original,
         bindingId: "replaced-binding",
       })
     ).not.toBe(name);
@@ -76,8 +86,11 @@ describe("Computer audience and current access", () => {
     ).not.toBe(name);
   });
 
-  it("keeps legacy cleanup addressing separate and refuses to open that shared workspace for new tools", async () => {
-    const legacy = { ...context(), computerIsolationVersion: undefined };
+  it.each([
+    undefined,
+    1 as const,
+  ])("keeps legacy %s cleanup addressing separate and refuses to open that shared workspace for new tools", async (computerIsolationVersion) => {
+    const legacy = { ...context(), computerIsolationVersion };
     expect(resolveRemoteAgentComputerName(legacy)).not.toBe(
       resolveRemoteAgentComputerName(context())
     );

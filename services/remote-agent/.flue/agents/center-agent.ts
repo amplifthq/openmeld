@@ -43,7 +43,10 @@ import {
   buildRemoteAgentName,
   cleanupExpiredRemoteAgentSubmissionReceipts,
   cleanupFinalizedRemoteAgentSubmissionAttachments,
+  parseRemoteAgentSubmitTurnRequest,
   readExistingRemoteAgentSubmission,
+  readRemoteAgentAdmission,
+  readRemoteAgentAdmissionStop,
   resolveRemoteAgentTurnEnvelopeForExecution,
   submitRemoteAgentConversationTurn,
 } from "../../agent-core/submission";
@@ -140,6 +143,9 @@ async function prepareCenterAgentRender() {
       };
   const personalAgent =
     executionContext?.conversationIdentity?.kind === "personal_agent";
+  const summaryOnly =
+    turnEnvelope?.trigger.source === "task_continuation" &&
+    turnEnvelope.trigger.summaryOnly;
   if (personalAgent) {
     runtimeContextPlan.includeOrganizationDocuments = false;
   }
@@ -154,6 +160,7 @@ async function prepareCenterAgentRender() {
     createSandbox: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
+      !summaryOnly &&
       executionContext.computerIsolationVersion === 2 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
@@ -220,6 +227,7 @@ async function prepareCenterAgentRender() {
     materializeSkills: async () =>
       executionContext &&
       !executionContext.replyRecovery &&
+      !summaryOnly &&
       runtimeContextPlan.materializeOrganizationSkills &&
       organizationSkillSelections.length > 0
         ? materializeOrganizationSkillFlueSkillsFromCatalog({
@@ -395,6 +403,19 @@ CenterAgentV2.steeringSource = (_submissionId: string) => {
 export const cloudflare = extend<Agent<CloudflareBindings>>({
   base: (Base) =>
     class extends Base {
+      async readAdmission(input: unknown) {
+        return await readRemoteAgentAdmission({
+          request: parseRemoteAgentSubmitTurnRequest(input),
+          storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+        });
+      }
+
+      async readAdmissionStop(input: unknown) {
+        return await readRemoteAgentAdmissionStop({
+          request: parseRemoteAgentSubmitTurnRequest(input),
+          storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+        });
+      }
       async generateCenterAgentSessionTitle(request: unknown) {
         return await generateCenterAgentSessionTitle({
           env: this.env as CloudflareBindings,
@@ -739,6 +760,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
           identity: request,
           nowMs: Date.now(),
           reason: request.reason,
+          summaryRecoveryId: request.summaryRecoveryId,
           storage,
         });
         if (cancellation.abortedFlueSubmission !== null) {

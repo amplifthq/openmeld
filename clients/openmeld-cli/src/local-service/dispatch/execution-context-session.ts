@@ -87,6 +87,9 @@ export function executionContextFileAccessBoundary(input: {
     revision: policy.revision,
     updatedAtMs: policy.updatedAtMs,
     executionContextAccess: input.context.access,
+    ...(input.taskWorkspace?.gitMetadata
+      ? { gitMetadata: input.taskWorkspace.gitMetadata }
+      : {}),
     ...(input.context.access === "space_context" && input.workingCopyId
       ? { workingCopyId: input.workingCopyId }
       : {}),

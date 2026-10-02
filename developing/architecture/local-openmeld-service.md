@@ -1203,6 +1203,30 @@ not register a linked worktree in the user's source repository. Git hooks,
 ambient Git configuration, filters, lazy fetching, and non-file protocols are
 disabled during preparation. No dirty or ignored source files are copied.
 The resulting task boundary includes only that context's worktree and Git data.
+The workspace owner publishes the actual private Git config, hooks, worktree
+config, `.git` pointer, `commondir`, and `gitdir` paths as shared
+`ExecutionContextGitMetadata` facts. The native Codex boundary makes hooks and
+routing pointers read-only, including replacement and creation, even under
+`repository.git`, which native `.git` protection does not cover. Common and
+worktree config remain writable so normal branch, remote, user and submodule
+operations work. Service-owned Git inspection/preparation disables hooks,
+fsmonitor, credential commands and non-file transports independently of task
+Git; user task Git retains its normal credentials. Before native use, the
+workspace owner saves executable config settings in its protected lane. After
+native-process quiescence it restores new/changed executable settings, retaining
+ordinary settings. Hook-path changes are preserved and reported through public
+task progress: committed repository installers are identified where possible;
+unverified installers require user review. No command values are published.
+The audit is at dispatch completion, not between provider turns in a still-active
+process, and it is not proof that task-authored code or an unverified hook is safe.
+Objects, refs, logs, index and ordinary worktree data remain writable.
+An out-of-boundary metadata path fails closed
+instead of granting extra read access. Retained private repositories reject
+symlinks and multiply linked metadata files before use; direct native protection
+must not be generalized to arbitrary pre-existing aliases in current-folder
+tasks. Other controller boundaries are not certified by Codex sandbox evidence.
+`objects/info/alternates` remains a known native-boundary limitation: preparation
+and reuse reject it, but this protection does not certify task-time object routing.
 Its protected preparation record is outside the task's writable root and binds
 the context identity, source path, starting commit, owned paths, and completion.
 Retry verifies and reuses completed preparation. Incomplete or mismatched records

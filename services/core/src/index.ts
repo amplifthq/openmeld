@@ -836,6 +836,7 @@ import {
   rpcCenterAgentAddMembersToSpace,
   rpcCenterAgentCheckAgentProfileReadiness,
   rpcCenterAgentConnectAgentProfileToLocalAgent,
+  rpcCenterAgentContinueTaskSummary,
   rpcCenterAgentCreateAgentProfile,
   rpcCenterAgentCreateSpace,
   rpcCenterAgentEnableAgentProfile,
@@ -3802,6 +3803,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentWatchAgentTask(this.env, input);
   }
 
+  centerAgentContinueTaskSummary(
+    input: Parameters<typeof rpcCenterAgentContinueTaskSummary>[1]
+  ) {
+    return rpcCenterAgentContinueTaskSummary(this.env, input);
+  }
+
   centerAgentUpdateSpaceSettings(
     input: CenterAgentUpdateSpaceSettingsInput
   ): Promise<CenterAgentUpdateSpaceSettingsResponse> {
@@ -5868,6 +5875,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentWatchAgentTaskInput
   ): Promise<CenterAgentWatchAgentTaskResponse> {
     return super.centerAgentWatchAgentTask(input);
+  }
+
+  centerAgentContinueTaskSummary(
+    input: Parameters<typeof rpcCenterAgentContinueTaskSummary>[1]
+  ) {
+    return super.centerAgentContinueTaskSummary(input);
   }
 
   centerAgentUpdateSpaceSettings(

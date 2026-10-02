@@ -1925,6 +1925,13 @@ An Agent Profile id by itself is never a Task Handle. Availability, process
 presence, Agent Activity, and a generic Agent status cannot settle a
 subscription.
 
+For a continuation that enters an automatic work-loop round, its original
+subscription identity stays immutable while the native delivery identity
+advances. Parent Stop checks resolve that relationship through the exact
+persisted delivery/attempt chain, including the original structured trigger,
+Organization, Space, Profile and Binding. String prefixes are not identity
+evidence. Stop targets the current round, not the subscription's original key.
+
 `agent_task_completion_subscriptions` records the exact watched task, exact
 observer task, explicit completion condition, frozen continuation, idempotency
 key, and continuation claim. `agent_task_terminal_outcomes` is a coordination
@@ -1953,6 +1960,27 @@ not copy `spaceId`, source signal, thread context, or provider locator into the
 continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
+
+The Center Agent's manual summary tool can create one fresh continuation for
+the original requester after a delegated summary has confirmed native failure
+or cancellation. It checks current requester membership and Space write access,
+exact native execution identity and a positive Stop fence. Each retained Space
+child result must be readable by that requester and match the native Space
+dispatch's successful final-reply claim. One verified child result is required;
+unavailable children are named without guessing their contents or locations.
+
+The task owner atomically inserts a new subscription, retaining the old
+subscription and its immutable identity. Its `summaryRecovery` metadata records
+the operator and source subscription. Current authorization is checked again
+at continuation execution; saved metadata is not a grant. This first path is
+original-requester-only and starts a tool-enabled summary of existing results,
+not a replay of child work or the tools-disabled reply-recovery mechanism.
+The upstream Agent supplies a whitelisted reply language for the current
+request; it overrides the retained language. Without a new decision, the
+original continuation's language is retained.
+Unknown, running and completed native executions do not enter this path. Web
+action controls, Inbox re-promotion and restarting the original work are not
+implemented by this tool.
 
 An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
 `center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
@@ -1988,10 +2016,12 @@ redrive also wraps each whole publication execution in the remaining
 slow reconciliation cannot consume the scheduler's full minute or starve later
 scheduled work.
 
-The same subscription table serves two creation paths. Delegation creates
-subscriptions together with explicit parent-child topology. General Task Watch
-creates a subscription for an independent exact task without a delegation row.
-Both paths use the same claim, idempotency, redrive, and continuation ledger
+The same subscription table serves delegation, general Task Watch and manual
+summary recovery. Delegation creates subscriptions with explicit parent-child
+topology. General Task Watch creates a subscription for an independent exact
+task without a delegation row. Manual recovery references an existing settled
+subscription without resetting it. These paths share claim, idempotency,
+redrive, and continuation ledger
 semantics. Stopping a general-watch observer cancels its continuation
 subscription but does not transfer cancellation authority over the watched
 task.
@@ -2142,6 +2172,32 @@ An ACK clears the due time and makes every pending retry wake stale. Exhaustion
 uses the existing terminal publication and Agent Task Coordination projections,
 plus an idempotent Inbox item keyed by delivery id, so replay cannot execute the
 continuation or alert the requester twice.
+
+Continuation admission emits bounded, schema-validated diagnostic events for
+preparation, send, admission response, timeout, retry scheduling and retry claim.
+Each carries the unchanged delivery/dispatch/idempotency identity, the current
+attempt number, delivery creation time and current attempt submission time.
+Creation time is not labelled first submission; overwritten submission time is
+not treated as an earlier attempt's evidence. ACK elapsed time measures the
+Worker round trip. A validated ACK and its real submission ID are recorded before
+generation writes, Stop forwarding or pause cancellation. Postprocessing has
+separate start/end evidence, elapsed time and outcome; its failure cannot erase
+the received ACK. Overall admission completion is not Worker response time.
+Timeout and retry due times come from the existing owner.
+Correlated continuation stage events include the existing subscription creation
+and Queue enqueue timestamps at receipt, successful claim, and start/end timings
+for authorization/replay preflight, turn context, memory, Skills, watchdog enqueue
+and source-dispatch lookup. The observer selects correlation fields explicitly
+even when a caller passes a complete task input object; task data cannot spill
+into the strict diagnostic envelope or suppress its timing events.
+The Remote receiver records its receipt timestamp and validated ACK return with
+the same dispatch and idempotency identities; it does not invent an attempt
+number that was absent from the request. Log correlation is not yet a persisted
+run-diagnostics timeline and cannot reconstruct events before deployment.
+These logs contain no task text, result payload, credential or raw error, and
+never decide admission, retry, Stop, or execution truth. They are prospective
+diagnostics, not a backfill of missing historical evidence or a new durable
+attempt ledger.
 
 For legacy Slack result surfaces, the ledger also records an optional shared
 Working-status turn identity used only to derive provider presentation. One
@@ -2454,8 +2510,8 @@ delivery and submission, then rereads the native-delivery ledger. Remote Agent
 alone maps Flue's durable submission projection into OpenMeld worker
 execution state and durable callback context; Core alone accepts that callback,
 updates the ledger, and publishes the visible result. Missing receiver or
-transport evidence is a retryable capability gap, not success and not terminal
-failure. An exact execution-identity mismatch cannot self-heal. Core moves its
+transport evidence is a capability gap, not success and not terminal failure.
+An exact execution-identity mismatch reported by the native owner cannot self-heal. Core moves its
 failure through the existing durable final-publication claim and retained
 payload. A known transient publication failure releases the claim back to the
 original accepted state without losing that payload, and the renewable probe
@@ -2474,9 +2530,40 @@ concurrently. A send failure releases only that exact lease when Core knows the
 preceding operation stopped. If a reconciliation RPC timed out, send failure
 keeps the processing lease until expiry because the underlying RPC may still be
 running. A process failure is likewise recovered after lease expiry.
-Cloudflare Queue's finite retry budget therefore cannot permanently strand an
-accepted delivery. This due time and lease remain reconciliation projections;
-neither owns execution or authorizes a terminal outcome.
+Cloudflare Queue's finite retry budget therefore cannot permanently lose a
+retryable accepted-delivery query. This due time and lease remain reconciliation
+projections; neither owns execution or authorizes a terminal outcome.
+
+Core stores its unavailable-query observation in the shared-schema
+`execution_reconciliation_json` column, under the exact accepted-probe lease.
+Transport failures and native `not_found` back off from the existing probe
+interval, doubling up to 900 seconds. Missing RPC capability, malformed replies,
+and replies with mismatched identity pause automatic queries. The observation
+preserves the original submission; neither `not_found` nor elapsed time proves
+non-execution. A valid exact response clears the observation. Newer Core-accepted
+native execution progress takes precedence over an unavailable-query display
+while it is fresh within the same 240-second presentation window. One historical
+progress event cannot suppress awaiting confirmation forever; this window never
+changes native execution or terminal truth.
+
+After 240 seconds of unavailable query evidence, or immediately when queries
+pause, the active Space projection carries
+`remote_agent.execution_confirmation_pending` on the existing `running` phase.
+This is a presentation reason, not a native failure code or terminal outcome.
+The matching Web reader shows **Result awaiting confirmation**, explains that
+later same-conversation work may be waiting, and keeps viewer-authorized Stop.
+The durable Space Stop outbox and its retry alarm operate independently of the
+paused query. Only the native owner's confirmed settlement releases the Flue
+conversation head. No query timeout admits another turn or automatically reruns
+the original request. This initial exit covers accepted exact submissions;
+no-ACK admission recovery and automatic external-write confirmation remain
+separate work.
+
+Apply the additive D1 migration before the new Core reader. Old Core ignores the
+new column; old Web accepts the existing phase and optional string reason but
+may show generic active progress. Deploy the specialized Web reader before the
+Core projection. This additive observation does not remove the continuation
+JSON rollback restrictions documented for reply language and summary recovery.
 
 Core also owns `openMeldRemoteAgent_daily_admissions`, with one row per
 `organizationId + dayUtc`, and the native-delivery ledger's

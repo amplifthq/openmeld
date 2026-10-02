@@ -23,6 +23,7 @@ export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type { AgentFailureFacts } from "../schemas/runtime/agent-failure";
 export type {
   GenerateCenterAgentSessionTitleInput,
   GenerateCenterAgentSessionTitleResponse,
@@ -69,6 +70,7 @@ export type {
 export type OpenMeldSchemaVersion =
   typeof import("../schemas/index")["OPENMELD_SCHEMA_VERSION"];
 
+export type { RemoteAgentExecutionReconciliationObservation } from "../remote-agent-execution-reconciliation";
 export type {
   SpaceFileUpdateSettings,
   SpaceFileUpdateSettingsCommand,
