@@ -2,6 +2,134 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "center-agent-continuation-progress",
+      "title": "Clearer progress while agents keep working",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.237",
+      "evidence": [
+        "pr:1451",
+        "commit:a34b1544f955570b2b320fa79801e96ffa3e9443",
+        "workflow:37044018284",
+        "commit:804c71e113016556a8d1bfbb95e3d2faa2f2eb89",
+        "commit:60509153ca78fd785360206369f803b6f5b58f7d"
+      ],
+      "body": "Center Agent tasks that continue after delegated work now show tool progress\nand reply text in Spaces and direct messages. Active requests no longer switch\nto \"Still waiting for the final status\" just because no visible update arrived\nfor 45 seconds. Progress follows the actual task state, with Stop and message\ndetails still available."
+    },
+    {
+      "id": "local-agent-prerelease-compatibility",
+      "title": "Continue Codex conversations with compatible preview builds",
+      "kind": "fixed",
+      "areas": [
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.237",
+      "evidence": [
+        "pr:1452",
+        "commit:a34b1544f955570b2b320fa79801e96ffa3e9443",
+        "workflow:37044018284"
+      ],
+      "body": "Compatible Codex preview builds can continue existing conversations without\nbeing incorrectly blocked by a tool-policy error. Local Agent capability checks,\nmodel compatibility, and update advice now share semantic version handling,\nincluding preview and build suffixes. Existing permission checks remain in place."
+    },
+    {
+      "id": "space-reading-position-ownership",
+      "title": "Keep your place when returning to a conversation",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.237",
+      "evidence": [
+        "pr:1454",
+        "commit:a34b1544f955570b2b320fa79801e96ffa3e9443",
+        "commit:60509153ca78fd785360206369f803b6f5b58f7d"
+      ],
+      "body": "Returning to a conversation keeps you at the latest messages if you left it at\nthe bottom, or at your saved message if you were reading earlier history.\nPage navigation no longer overwrites the conversation's restored position or\nan explicit message jump with old scroll coordinates."
+    },
+    {
+      "id": "inbox-query-and-evidence-retention",
+      "title": "Less database work for Inbox and safer history cleanup",
+      "kind": "improved",
+      "areas": [
+        "inbox",
+        "agent-activity",
+        "diagnostics"
+      ],
+      "audiences": [
+        "members",
+        "operators"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.237",
+      "evidence": [
+        "pr:1457",
+        "commit:a34b1544f955570b2b320fa79801e96ffa3e9443",
+        "workflow:37043210339",
+        "workflow:37044018284",
+        "commit:60509153ca78fd785360206369f803b6f5b58f7d"
+      ],
+      "body": "Inbox counts and grouped views use less database work while continuing to check\ncurrent access. Bulk read and removal still apply only to the view you selected.\nCollapsed update groups now share the same subtle hover highlight as Inbox items.\n\nActivity cleanup can process larger backlogs without double-counting sessions.\nOld Wake diagnostics can expire without deleting in-progress work, recovery\nrecords, or the records needed to honor a stop request."
+    },
+    {
+      "id": "center-agent-context-cost-control",
+      "title": "Lower context overhead in long Center Agent conversations",
+      "kind": "improved",
+      "areas": [
+        "center-agent",
+        "usage"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.237",
+      "evidence": [
+        "pr:1453",
+        "commit:a34b1544f955570b2b320fa79801e96ffa3e9443",
+        "workflow:37044018284",
+        "commit:804c71e113016556a8d1bfbb95e3d2faa2f2eb89"
+      ],
+      "body": "Center Agent compacts long conversations earlier for reviewed models with higher\nlong-prompt prices, without changing the model you selected. Large tool results\nuse shorter previews with permission-checked access to retained details. The\nusage ledger separately identifies compaction costs while Usage totals remain\ncompatible with existing clients."
+    },
+    {
+      "id": "inbox-action-source-reliability",
+      "title": "More reliable Inbox actions and failure reminders",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-03",
+      "release": "v0.3.237",
+      "evidence": [
+        "pr:1456",
+        "commit:a34b1544f955570b2b320fa79801e96ffa3e9443",
+        "workflow:37044018284",
+        "commit:60509153ca78fd785360206369f803b6f5b58f7d"
+      ],
+      "body": "Old automatic-continuation failures are repaired when Inbox refreshes, removing\nincorrect requests for action and opening the failure in its original conversation.\nRead and removed states are preserved.\n\nAgent permissions, questions, and plan reviews retain a response receipt after\ndelivery. Retrying the same answer is safe; a conflicting answer is rejected,\nand a handled request cannot reappear as a new approval."
+    },
+    {
       "id": "center-agent-avatar-click-feedback",
       "title": "A little feedback from Center Agent avatars",
       "kind": "improved",
