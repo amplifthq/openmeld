@@ -375,6 +375,18 @@ for (const [mode, expectedStatus] of [
       if (mode === "target-ended" || mode === "target-changed") {
         assert.equal(result.reasonCode, "execution_input.rejected");
       }
+      if (mode === "internal-error") {
+        assert.equal(result.nativeErrorCode, -32_603);
+      }
+      if (mode === "withhold") {
+        assert.equal(result.diagnosticCode, "runtime.turn_steer_timeout");
+      }
+      if (mode === "wrong-receipt") {
+        assert.equal(
+          result.diagnosticCode,
+          "runtime.turn_steer_receipt_mismatch"
+        );
+      }
       // A missing receipt must neither stop the original task nor retry input.
       const beforeStop = await readFakeAppServerMessages(logPath);
       assert.equal(

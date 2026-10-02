@@ -29,6 +29,9 @@ export const agentExecutionSteerResponseSchema = z.discriminatedUnion(
       status: z.literal("unconfirmed"),
       taskId: z.string().min(1),
       reasonCode: z.literal("execution_input.application_unconfirmed"),
+      // Internal diagnostics must not become product copy or provider text.
+      diagnosticCode: z.string().min(1).max(160),
+      nativeErrorCode: z.number().int().optional(),
     }),
   ]
 );
