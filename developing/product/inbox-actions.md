@@ -1,5 +1,15 @@
 # Inbox actions
 
+## Agent Context
+
+- Purpose: Define action ownership and the reusable handling boundary for Inbox sources.
+- Read this when: Adding a request type or changing an action's handling and resolution.
+- Update this when: A source's action contract or shared presentation boundary changes.
+- Do not use this for: Execution authority, transport protocols, or notification delivery policy.
+- Source of truth: Each listed source owns its request; Inbox owns the recipient projection.
+
+## Boundary
+
 Inbox is a recipient projection, not an approval store. A source may publish an
 action only when it owns a concrete open request, an authorized handling path,
 and a terminal transition that closes its Inbox projection. Failures without a
