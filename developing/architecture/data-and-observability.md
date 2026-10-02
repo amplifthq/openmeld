@@ -3550,6 +3550,17 @@ caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query D1 or supply a runtime generation identity.
 
+Native continuations can have a native-delivery ledger record without a
+workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique
+native record for the exact dispatch and Space and exposes `nativeDeliveryTrace`
+with `trace: null`. It never synthesizes a workstation dispatch or parses
+identity from a dispatch string. Non-Space conversations and ambiguous matches
+fail closed. Final visible messages still come from Space publication facts;
+native execution completion alone does not prove delivery. Detailed runtime
+evidence uses the frozen request identity, and an unavailable runtime read must
+preserve the durable delivery and publication facts. Default compact reads omit
+runtime evidence fields when that source has not been queried.
+
 When a controller exposes official context telemetry, task-result and local
 runtime observation may retain only bounded numeric token counters, the reported
 model context window, and a compaction-observed flag. They must not retain prompt

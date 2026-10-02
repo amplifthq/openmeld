@@ -2252,6 +2252,7 @@ export {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectSpaceDispatchTraceRootCause,
+  projectSpaceNativeDeliveryTraceFinalVisibleOutcome,
   resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
