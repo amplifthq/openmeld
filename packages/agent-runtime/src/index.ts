@@ -64,6 +64,10 @@ export {
   isAgentControllerUsageRefreshUnavailable,
 } from "./agent-controller-usage-refresh";
 export {
+  compareAgentControllerVersions,
+  supportsAgentControllerVersion,
+} from "./agent-controller-version";
+export {
   DUPLICATE_REPLY_CONVERSATION_CONTEXT,
   DUPLICATE_REPLY_CONVERSATION_REASON,
   DUPLICATE_REPLY_CONVERSATION_TOOLTIP,

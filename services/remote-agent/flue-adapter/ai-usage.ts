@@ -1,7 +1,10 @@
 import { getCloudflareContext } from "@flue/runtime/cloudflare";
 import { createMeteredRemoteFetch } from "../agent-core/ai-usage";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
-import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
+import {
+  getRemoteAgentExecutionSubmissionId,
+  getRemoteAgentModelPurpose,
+} from "./execution-context";
 import { createRemoteAgentSqlStorage } from "./storage";
 
 // Resolve attribution inside each invocation, never from a cached model registration.
@@ -29,7 +32,7 @@ export function createFlueMeteredFetch(input: {
       storage,
       scope: {
         organizationId: context.organizationId,
-        purpose: "agent",
+        purpose: getRemoteAgentModelPurpose(),
         agentProfileId: context.agentProfileId,
         spaceId: context.spaceId,
         taskId: context.taskId ?? null,

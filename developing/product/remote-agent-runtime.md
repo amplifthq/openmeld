@@ -749,20 +749,26 @@ No parallel execution truth or new publication path is introduced.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
 boundary before Flue stores them in the conversation session. A returned tool
-result that exceeds that boundary becomes an explicit partial-evidence envelope,
-not an execution exception. Direct calls and Code Mode share this boundary.
+result above the 32 KiB model-presentation budget becomes an explicit
+partial-evidence envelope, not an execution exception. Direct calls and Code
+Mode's outer result share this budget. Inner Code Mode computation retains its
+128 KiB transport budget so code can select relevant fields before model display.
+Continuation pages retain their existing character budget and are not recursively
+retained merely because Unicode encoding crosses the presentation budget.
 The envelope reserves its bounded metadata budget for standard top-level
 receipt and outcome fields before other fields, irrespective of provider field
 order. It copies only complete values and exposes small Unicode-safe
 beginning/end JSON excerpts.
 `toolExecution: returned` is not a derived business-success state. The original
 outcome and any provider-side completeness fields remain authoritative.
-Omitted content is not retained in another store or shared Computer; the envelope
-therefore has no continuation. Use existing bounded reads when available, never
-repeat a write merely to recover its display. This intentionally does not promise
-full retrieval of every large result. Small results and existing segmented reads
-remain unchanged. OpenMeld must not pass the oversized provider object through
-and hope Flue compaction repairs it later.
+The existing execution-scoped retained-result store holds omitted content when
+its size, snapshot quota, and current access permit. Its continuation supports
+bounded reads and literal search for one hour, with permission revalidation.
+Failed retention is explicit and never turns a completed write into a retry.
+References are not durable memory across executions. Never repeat a write merely
+to recover its display. Small results and existing segmented reads remain
+unchanged. OpenMeld must not pass oversized provider objects through and hope
+Flue compaction repairs them later.
 File-content tools expose one bounded segment plus an explicit continuation
 offset. The Center Agent searches first, reads only the relevant segments, and
 follows the returned continuation offset when more content is actually needed.
@@ -2089,6 +2095,24 @@ OpenMeld configures compaction with two explicit budgets:
   limit or a known higher prompt-price band; and
 - `keepRecentTokens = 8,000` preserves the latest verbatim conversation tail
   after older messages are summarized.
+
+Frozen model routes use the worker's reviewed exact-model prompt-price bands
+as well as the capacity reserve. The route's model, reasoning, modalities and
+physical window stay frozen; no live metadata lookup or model substitution is
+introduced during a task. Legacy metadata-resolved routes use the same threshold
+calculation with their provider-reported bands. The reviewed policy is in
+`flue-adapter/model-context-policy.ts`; unknown model IDs retain the capacity
+reserve and never inherit a price band from their vendor or family name.
+These are economic triggers, not provider admission limits. The final payload
+guard uses the physical window with its ordinary safety reserve, so a summary
+request can read history that crossed the cheaper band. Compaction and the
+subsequent cache rebuild both count toward actual task cost.
+The trigger is not a promise to stay below a billing tier: Flue needs a safe
+message cut point while preserving the recent tail, and a single very large
+message may defer compaction. Provider usage may aggregate internal work (for
+example Pro inference); it is not proof of physical prompt length. Evaluate
+actual total charges, summary overhead, cache writes/reads, and retained task
+constraints together before changing these reviewed policy values.
 
 These values are runtime policy, not another context store. The current turn
 envelope and authoritative system prompt continue to be rebuilt from their
@@ -3506,6 +3530,14 @@ Core-owned hosted readiness has exactly two product states in MVP:
 "It runs in the cloud, therefore it is always green" is a contract violation.
 
 ### Free MVP with operator containment and usage visibility
+
+Remote inference usage records distinguish Flue's `agent`, `compaction`, and
+`compaction_prefix` purposes by joining the public turn-request observation to
+its exact model interceptor within the submission. No prompt content is stored
+by that join. Compaction remains part of the public `agent` purpose aggregate,
+so existing Usage clients can read totals unchanged; the ledger retains the
+detail for operator cost analysis. Core must accept the added record purposes
+before Remote Agent emits them. No local Service or CLI contract changes.
 
 - The Remote Agent is **free** in MVP. No billing build.
 - The retired **$50/org/day circuit breaker**, `resting` state, and

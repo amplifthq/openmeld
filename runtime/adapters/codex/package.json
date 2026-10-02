@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@openmeld/adapter-core": "workspace:*",
+    "@openmeld/agent-runtime": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {
