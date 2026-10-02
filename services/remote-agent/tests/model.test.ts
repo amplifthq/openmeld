@@ -282,6 +282,42 @@ describe("remote agent model routing", () => {
     }
   });
 
+  it("allows a summarizer above the economic threshold through the physical preflight", async () => {
+    resetProviderRuntime();
+    const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: "provider reached" } }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId: "openai/gpt-6.1-sol-pro",
+          contextWindow: 1_050_000,
+        },
+      });
+      const result = await streamRegisteredModel(
+        resolveModel(runtime.modelSpecifier),
+        {
+          messages: [
+            { role: "user", timestamp: 1, content: "x".repeat(900_000) },
+          ],
+        },
+        { apiKey: "unused" }
+      ).result();
+      expect(providerFetch).toHaveBeenCalled();
+      expect(result.errorMessage).toContain("provider reached");
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
   it.each([
     ["anthropic/claude-opus-5.5", undefined, true],
     ["anthropic/claude-sonnet-4.6", undefined, true],

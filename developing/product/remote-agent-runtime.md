@@ -749,20 +749,26 @@ No parallel execution truth or new publication path is introduced.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
 boundary before Flue stores them in the conversation session. A returned tool
-result that exceeds that boundary becomes an explicit partial-evidence envelope,
-not an execution exception. Direct calls and Code Mode share this boundary.
+result above the 32 KiB model-presentation budget becomes an explicit
+partial-evidence envelope, not an execution exception. Direct calls and Code
+Mode's outer result share this budget. Inner Code Mode computation retains its
+128 KiB transport budget so code can select relevant fields before model display.
+Continuation pages retain their existing character budget and are not recursively
+retained merely because Unicode encoding crosses the presentation budget.
 The envelope reserves its bounded metadata budget for standard top-level
 receipt and outcome fields before other fields, irrespective of provider field
 order. It copies only complete values and exposes small Unicode-safe
 beginning/end JSON excerpts.
 `toolExecution: returned` is not a derived business-success state. The original
 outcome and any provider-side completeness fields remain authoritative.
-Omitted content is not retained in another store or shared Computer; the envelope
-therefore has no continuation. Use existing bounded reads when available, never
-repeat a write merely to recover its display. This intentionally does not promise
-full retrieval of every large result. Small results and existing segmented reads
-remain unchanged. OpenMeld must not pass the oversized provider object through
-and hope Flue compaction repairs it later.
+The existing execution-scoped retained-result store holds omitted content when
+its size, snapshot quota, and current access permit. Its continuation supports
+bounded reads and literal search for one hour, with permission revalidation.
+Failed retention is explicit and never turns a completed write into a retry.
+References are not durable memory across executions. Never repeat a write merely
+to recover its display. Small results and existing segmented reads remain
+unchanged. OpenMeld must not pass oversized provider objects through and hope
+Flue compaction repairs them later.
 File-content tools expose one bounded segment plus an explicit continuation
 offset. The Center Agent searches first, reads only the relevant segments, and
 follows the returned continuation offset when more content is actually needed.

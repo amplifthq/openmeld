@@ -85,9 +85,16 @@ describe("retained tool results", () => {
     ).toBe(0);
   });
 
-  it("finds the middle error and reconstructs the exact Unicode JSON without repeating the original action", async () => {
+  it.each([
+    largeValue,
+    () => ({
+      status: "completed",
+      operationId: "write-once",
+      log: `${"first ".repeat(3000)}UNIQUE_MIDDLE_FAILURE${"last ".repeat(3500)}`,
+    }),
+  ])("finds omitted evidence and reconstructs exact JSON without repeating the action", async (makeValue) => {
     const f = await fixture();
-    const execute = vi.fn(async () => largeValue());
+    const execute = vi.fn(async () => makeValue());
     const raw = await execute();
     const displayed = await prepareRemoteAgentToolResult({
       ...f,
@@ -126,6 +133,18 @@ describe("retained tool results", () => {
     }
     expect(full).toBe(JSON.stringify(raw));
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-retain a bounded Unicode continuation page", async () => {
+    const f = await fixture();
+    const page = { text: "猫".repeat(12_000), nextOffset: null };
+    expect(
+      await prepareRemoteAgentToolResult({
+        ...f,
+        toolName: "openmeld_read_tool_result",
+        value: page,
+      })
+    ).toEqual(page);
   });
 
   it("does not disclose a guessed reference from a different execution even in the same audience", async () => {
