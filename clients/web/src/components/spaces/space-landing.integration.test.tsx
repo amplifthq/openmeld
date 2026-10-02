@@ -3857,7 +3857,10 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("queues text during a confirmed Center response without publishing or steering it", async () => {
+	it.each([
+		"Center",
+		"Local",
+	] as const)("queues text during a confirmed %s response without publishing or steering it", async (controller) => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -3902,7 +3905,8 @@ describe("SpaceLanding", () => {
 			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
 		});
 		mockSpaceQueries({
-			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			centerAgentProfileId:
+				controller === "Center" ? DEFAULT_AGENT_PROFILE_ID : null,
 			activeWakeProgressSummary: createQueryResult({
 				isSuccess: true,
 				isFetchedAfterMount: true,
@@ -3917,7 +3921,10 @@ describe("SpaceLanding", () => {
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
 				isSuccess: true,
-				data: createMembersSnapshot(),
+				data: createMembersSnapshot({
+					defaultAgentControllerRef:
+						controller === "Center" ? "hosted:center-agent" : "builtin:codex",
+				}),
 			}),
 			history: createQueryResult({
 				isSuccess: true,
@@ -3933,11 +3940,11 @@ describe("SpaceLanding", () => {
 				},
 			}),
 		});
-		renderSpaceLanding({ queryClient, isCenterAgentDirectMessage: true });
-		await setComposerValue(
-			screen.getByRole("textbox", { name: "Message Center Agent" }),
-			"Only North America."
-		);
+		renderSpaceLanding({
+			queryClient,
+			isCenterAgentDirectMessage: controller === "Center",
+		});
+		await setComposerValue(screen.getByRole("textbox"), "Only North America.");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() =>
 			expect(readOrUpdateSpaceInputQueue).toHaveBeenCalledWith(
@@ -3957,10 +3964,9 @@ describe("SpaceLanding", () => {
 		);
 		expect(postNormalMessage).not.toHaveBeenCalled();
 		await waitFor(() =>
-			expect(
-				screen.getByRole("textbox", { name: "Message Center Agent" })
-					.textContent
-			).not.toContain("Only North America.")
+			expect(screen.getByRole("textbox").textContent).not.toContain(
+				"Only North America."
+			)
 		);
 	});
 

@@ -3740,6 +3740,12 @@ export type CenterAgentStopSpaceWakeInput =
     spaceId: string;
   };
 
+export type CenterAgentSpaceInputQueueInput =
+  CenterAgentReadOrganizationSpaceDirectoryInput & {
+    spaceId: string;
+    mutation?: SpaceInputQueueMutation;
+  };
+
 export type OpenCenterAgentDirectMessageSpaceInput = {
   context?: CoreRpcContextInput;
   sessionCreationId?: string;
@@ -14647,6 +14653,65 @@ export async function rpcCenterAgentStopSpaceWake(
     body: input.body,
     context: prepared.representedContext,
     spaceId: input.spaceId,
+  });
+}
+
+export async function rpcCenterAgentSpaceInputQueue(
+  env: CoreBindings,
+  input: CenterAgentSpaceInputQueueInput
+): Promise<SpaceInputQueueResponse> {
+  // Resolve the verified originating member on EVERY invocation. The Agent's
+  // Organization role or owner account is never substituted for this member.
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization: prepared.authorization,
+    env,
+    spaceId: input.spaceId,
+  });
+  if (!(prepared.representedContext && prepared.sourceNativeDeliveryId)) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "center_agent.input_requester_required",
+      reason: "Queued messages require a verified current requester.",
+    });
+  }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: wakeEvidenceDb(env) ?? requireCenterAgentDb(env),
+    submissionId:
+      requireRpcContext(input.context).agentControllerConversationId ?? "",
+  });
+  const sender = delivery?.executionRecoverySubmitRequest?.turnEnvelope.sender;
+  if (
+    sender?.kind !== "member" ||
+    !sender.verified ||
+    sender.profileId !==
+      prepared.representedContext.actorContext.openMeldProfileId ||
+    sender.ownerUserId !== prepared.representedContext.actorContext.ownerUserId
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "center_agent.input_requester_required",
+      reason: "Queued messages require a verified interactive requester.",
+    });
+  }
+  await writeCenterAgentAuditEntry({
+    action: "manage_space_input_queue",
+    authorization: prepared.authorization,
+    onBehalfOfProfileId:
+      prepared.representedContext.actorContext.openMeldProfileId,
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+    sourceSpaceId: input.spaceId,
+    resource: {
+      type: "space_input_queue",
+      id: `${input.spaceId}:${input.mutation?.action ?? "read"}:${input.mutation && "inputId" in input.mutation ? input.mutation.inputId : ""}`,
+    },
+  });
+  // Space applies its ordinary writable membership and original-message-author
+  // checks. This identity resolution is not a Stop or Organization-wide grant.
+  return rpcSpaceInputQueue(env, {
+    spaceId: input.spaceId,
+    mutation: input.mutation,
+    context: prepared.representedContext,
   });
 }
 

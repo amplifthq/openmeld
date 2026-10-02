@@ -2045,7 +2045,7 @@ function SpaceComposerSection(input: {
 				className="flex w-full flex-col gap-3 py-4"
 				data-space-conversation-content-width=""
 			>
-				{!panel.readOnly && panel.centerAgentProfileId && panel.spaceId ? (
+				{!panel.readOnly && panel.spaceId ? (
 					<SpaceInputQueue
 						profileId={panel.selfProfileId}
 						spaceId={panel.spaceId}

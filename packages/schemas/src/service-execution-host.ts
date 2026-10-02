@@ -1,5 +1,9 @@
 import * as z from "zod/v4";
 import {
+  localExecutionInputRequestSchema as executionInputRequest,
+  localExecutionInputResponseSchema as executionInputResponse,
+} from "./local-execution-input";
+import {
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
   openMeldDaemonConversationExecutionStatusPayloadSchema,
@@ -18,7 +22,6 @@ import {
   runtimeTransportLeaseSchema,
 } from "./schemas/daemon/runtime-transport";
 import { daemonServiceLaneSchema } from "./schemas/daemon/service-contract";
-import { agentExecutionSteerResponseSchema } from "./schemas/runtime/agent-execution-steer";
 
 export const SERVICE_EXECUTION_HOST_PROTOCOL = "service-execution-host-v1";
 export const SERVICE_EXECUTION_HOST_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -27,43 +30,6 @@ export const SERVICE_EXECUTION_HOST_MAX_PENDING_REQUESTS = 64;
 const identityString = z.string().min(1).max(1024);
 const count = z.number().int().nonnegative();
 const empty = z.strictObject({});
-
-// Core authorizes this frozen source/effect before the connector may forward
-// it. These selectors are correlation, not a grant from the Agent's owner.
-const executionInputRequest = z.strictObject({
-  inputId: identityString,
-  ownerUserId: identityString,
-  dispatchId: identityString,
-  runtimeCoordinatorExecutionId: identityString,
-  attemptId: identityString,
-  runtimeCoordinatorRunId: identityString,
-  targetProfileId: identityString,
-  source: z.strictObject({
-    spaceId: identityString,
-    signalId: identityString,
-    authorProfileId: identityString,
-    requesterUserId: identityString,
-    effect: z.literal("steer"),
-  }),
-  text: z.string().trim().min(1).max(100_000),
-});
-
-const executionInputResponse = z.discriminatedUnion("status", [
-  agentExecutionSteerResponseSchema.options[0].extend({
-    inputId: identityString,
-  }),
-  agentExecutionSteerResponseSchema.options[1].extend({
-    inputId: identityString,
-    taskId: identityString.nullable(),
-  }),
-  agentExecutionSteerResponseSchema.options[2].extend({
-    inputId: identityString,
-  }),
-  z.strictObject({
-    inputId: identityString,
-    status: z.enum(["not_found", "conflict", "capacity"]),
-  }),
-]);
 
 // Private inherited IPC only. These observations are not cloud grants, public
 // status, or permission to select another account or installation.

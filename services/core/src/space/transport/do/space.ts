@@ -59,8 +59,12 @@ import {
   getSpaceWakeTraceWaterfallInputSchema,
   isHostedAgentControllerRef,
   isHostedAgentRuntimeKind,
+  isLocalSpaceExecutionInput,
+  type LocalSpaceExecutionInput,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
+  localExecutionInputBindingSchema,
+  localExecutionInputResponseSchema,
   MENTION_DISPATCH_ERROR_CODES,
   nativeReplyPlacementSchema,
   normalizeMessageEnvelope,
@@ -111,6 +115,7 @@ import {
   SPACE_MESSAGE_CHANGED_PURPOSE,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
+  type SpaceExecutionInputRequest,
   type SpaceInvitationAccessInput,
   type SpaceInvitationGrantInput,
   type SpaceInvitationRevokeInput,
@@ -323,6 +328,7 @@ import {
   requestRuntimeTransportRuntimeCoordinatorWakeStop,
   respondToRuntimeTransportRuntimeCoordinatorInteraction,
 } from "../../../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
+import { callRuntimeTransportApi } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-api-client";
 import { cancelRuntimeTransportDeletedAgentProfileWakes } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import {
@@ -465,6 +471,7 @@ import {
 import {
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
   type RuntimeCoordinatorExecutionWakeProgressSelector,
+  readRuntimeCoordinatorExecutionProjectionByDispatch,
   readRuntimeCoordinatorExecutionProjectionById,
   readRuntimeCoordinatorExecutionRunningAtMs,
 } from "../../../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
@@ -7396,6 +7403,23 @@ export class Space extends DurableObject<CoreBindings> {
     input: SpaceInputQueueInput
   ): Promise<SpaceInputQueueResponse> {
     this.applySpaceRef(input.spaceId);
+    if (input.mutation) {
+      if (!input.context) {
+        return readSpaceRpcJsonOrThrow(
+          this.unauthenticatedResponse(crypto.randomUUID())
+        );
+      }
+      const access = await this.authorizeWritableSpaceAccess(
+        createAuthenticatedSpaceAccessContext({
+          spaceId: this.spaceId,
+          requestContext: input.context,
+          ...(input.password ? { spacePassword: input.password } : {}),
+        })
+      );
+      if (!access.ok) {
+        return readSpaceRpcJsonOrThrow(access.response);
+      }
+    }
     const response = await this.dispatchPasswordProtectedMethod(
       this.buildDirectRpcRequest({
         path: "/input-queue",
@@ -7411,12 +7435,318 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  private async assertLocalQueuedInputAuthority(
+    request: LocalSpaceExecutionInput
+  ): Promise<void> {
+    const deny = () =>
+      new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 403,
+        message: "You no longer have access to send this queued message.",
+      });
+    const auth = this.bindings.OPENMELD_AUTH_WORKER;
+    if (!auth?.resolveProfileById || request.target.spaceId !== this.spaceId) {
+      throw deny();
+    }
+    const [author, target] = await Promise.all([
+      auth.resolveProfileById({ openMeldProfileId: request.authorProfileId }),
+      auth.resolveProfileById({
+        openMeldProfileId: request.target.targetProfileId,
+      }),
+    ]);
+    if (
+      !author.ok ||
+      author.profile.status !== "active" ||
+      author.profile.profileKind !== "human" ||
+      author.profile.ownerUserId !== request.requesterUserId ||
+      !target.ok ||
+      target.profile.status !== "active" ||
+      target.profile.profileKind !== "agent" ||
+      target.profile.ownerUserId !== request.target.ownerUserId
+    ) {
+      throw deny();
+    }
+    const meta = await this.readSpaceMetaRecord();
+    const access = await this.authorizeWritableSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: this.spaceId,
+        requestContext: {
+          activeOrganizationId: meta?.organizationId,
+          actorContext: {
+            requestId: request.inputId,
+            profileKind: "human",
+            openMeldProfileId: request.authorProfileId,
+            ownerUserId: request.requesterUserId,
+            callerPrincipalId: request.requesterUserId,
+          },
+        },
+      })
+    );
+    if (!access.ok) {
+      throw deny();
+    }
+    // The access check may await Auth. Fence local membership again immediately
+    // before returning to the synchronous claim or handoff.
+    const authorMember = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      request.authorProfileId
+    );
+    const targetMember = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      request.target.targetProfileId
+    );
+    if (
+      authorMember?.status !== "active" ||
+      authorMember.profileKindSnapshot !== "human" ||
+      authorMember.ownerUserIdSnapshot !== request.requesterUserId ||
+      targetMember?.status !== "active" ||
+      targetMember.profileKindSnapshot !== "agent" ||
+      targetMember.ownerUserIdSnapshot !== request.target.ownerUserId ||
+      targetMember.controllerRefSnapshot !== "builtin:codex"
+    ) {
+      throw deny();
+    }
+  }
+
+  private async assertLocalQueueReorderAuthority(
+    inputIds: string[],
+    authorProfileId: string
+  ): Promise<void> {
+    for (const inputId of inputIds) {
+      const item = readSpaceExecutionInput(this.ctx.storage.sql, inputId);
+      if (item?.signal.profile.profileId !== authorProfileId) {
+        throw new SpaceSignalAuthoringError({
+          code: "space.execution_input.invalid",
+          status: 403,
+          message: "You can only reorder your own queued messages.",
+        });
+      }
+      if (isLocalSpaceExecutionInput(item.request)) {
+        await this.assertLocalQueuedInputAuthority(item.request);
+      }
+    }
+  }
+
+  private async enqueueLocalExecutionInput(
+    signal: SignalEnvelope,
+    context: CoreRpcContextInput
+  ): Promise<void> {
+    if (signal.type !== "signal.text") {
+      throw new Error("Queued input requires a text signal.");
+    }
+    const target = signal.data.meta?.centerAgentExecutionInput;
+    const inputId = signal.data.meta?.clientMessageId;
+    const invalid = () =>
+      new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 409,
+        message:
+          "This response can't accept queued messages right now. Your draft is still here.",
+      });
+    const requesterUserId = context.actorContext.ownerUserId;
+    if (!(target && inputId && requesterUserId)) {
+      throw invalid();
+    }
+    const existing = readSpaceExecutionInput(this.ctx.storage.sql, inputId);
+    if (existing) {
+      if (
+        !(isLocalSpaceExecutionInput(existing.request) && existing.queued) ||
+        existing.request.requesterUserId !== context.actorContext.ownerUserId ||
+        existing.request.authorProfileId !== signal.profile.profileId ||
+        existing.request.text !== signal.data.text.trim() ||
+        existing.request.target.dispatchId !== target.dispatchId ||
+        existing.request.target.targetProfileId !== target.targetProfileId
+      ) {
+        throw invalid();
+      }
+      await this.assertLocalQueuedInputAuthority(existing.request);
+      return;
+    }
+    const outbox = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      target.dispatchId
+    );
+    const source = outbox ? this.readSignalById(outbox.sourceEventId) : null;
+    if (
+      !outbox ||
+      outbox.targetProfileId !== target.targetProfileId ||
+      !source ||
+      source.profile.profileId !== signal.profile.profileId ||
+      source.profile.kind !== "human"
+    ) {
+      throw invalid();
+    }
+    const db = wakeEvidenceDb(this.bindings);
+    const execution = db
+      ? await readRuntimeCoordinatorExecutionProjectionByDispatch({
+          db,
+          dispatchId: target.dispatchId,
+          spaceId: this.spaceId,
+          targetProfileId: target.targetProfileId,
+        })
+      : null;
+    if (!execution || execution.agentControllerRef !== "builtin:codex") {
+      throw invalid();
+    }
+    const ownerUserId = await this.readRuntimeOwnerUserId(
+      execution.openMeldServiceRuntimeId.value
+    );
+    if (!ownerUserId) {
+      throw invalid();
+    }
+    const binding = localExecutionInputBindingSchema.safeParse(
+      await callRuntimeTransportApi({
+        env: this.bindings,
+        ownerUserId,
+        path: "/runtime-coordinator/execution-input/resolve",
+        body: {
+          ownerUserId,
+          runtimeCoordinatorExecutionId:
+            execution.runtimeCoordinatorExecutionId,
+          dispatchId: target.dispatchId,
+          targetProfileId: target.targetProfileId,
+          spaceId: this.spaceId,
+          authorProfileId: signal.profile.profileId,
+        },
+      })
+    );
+    if (!binding.success) {
+      throw invalid();
+    }
+    const request: LocalSpaceExecutionInput = {
+      kind: "local",
+      target: { ...binding.data, spaceId: this.spaceId },
+      inputId,
+      authorProfileId: signal.profile.profileId,
+      requesterUserId,
+      sourceSignalId: signal.id,
+      text: signal.data.text.trim(),
+    };
+    await armSpaceInboxProjectionRecoveryAlarm({
+      spaceId: this.spaceId,
+      storage: this.ctx.storage,
+    });
+    await this.assertLocalQueuedInputAuthority(request);
+    this.ctx.storage.transactionSync(() => {
+      this.assertQueuedInputMembers(signal);
+      if (
+        readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+          dispatchId: target.dispatchId,
+          profileId: target.targetProfileId,
+        }) ||
+        listQueuedSpaceExecutionInputs(this.ctx.storage.sql).length >= 50
+      ) {
+        throw invalid();
+      }
+      const raced = readSpaceExecutionInput(this.ctx.storage.sql, inputId);
+      if (raced) {
+        if (
+          !isLocalSpaceExecutionInput(raced.request) ||
+          raced.request.requesterUserId !== request.requesterUserId ||
+          raced.request.authorProfileId !== request.authorProfileId ||
+          raced.request.text !== request.text ||
+          JSON.stringify(raced.request.target) !==
+            JSON.stringify(request.target)
+        ) {
+          throw invalid();
+        }
+        return;
+      }
+      insertSpaceExecutionInput(this.ctx.storage.sql, {
+        request,
+        signal,
+        nowMs: Date.now(),
+        queued: true,
+      });
+    });
+  }
+
+  private async deliverLocalQueuedInput(
+    item: {
+      inputId: string;
+      request: SpaceExecutionInputRequest;
+      signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+    },
+    operation: "apply" | "read"
+  ): Promise<void> {
+    if (!isLocalSpaceExecutionInput(item.request)) {
+      throw new Error("Local input expected.");
+    }
+    const stored = item.request;
+    const { spaceId, ...target } = stored.target;
+    const result = localExecutionInputResponseSchema.safeParse(
+      await callRuntimeTransportApi({
+        env: this.bindings,
+        ownerUserId: target.ownerUserId,
+        path: "/runtime-coordinator/execution-input",
+        body: {
+          operation,
+          request: {
+            ...target,
+            inputId: stored.inputId,
+            text: stored.text,
+            source: {
+              spaceId,
+              signalId: stored.sourceSignalId,
+              authorProfileId: stored.authorProfileId,
+              requesterUserId: stored.requesterUserId,
+              effect: "steer",
+            },
+          },
+        },
+      })
+    );
+    const receipt =
+      result.success && result.data.inputId === item.inputId
+        ? result.data
+        : null;
+    let outcome: "applied" | "rejected" | "unconfirmed" = "unconfirmed";
+    if (receipt?.status === "applied") {
+      outcome = "applied";
+    } else if (operation === "apply" && receipt?.status === "not_applied") {
+      outcome = "rejected";
+    }
+    const published = this.ctx.storage.transactionSync(() => {
+      const settled = settleQueuedSpaceExecutionInput(
+        this.ctx.storage.sql,
+        item.inputId,
+        "steer",
+        outcome
+      );
+      updateSpaceExecutionInput(this.ctx.storage.sql, {
+        inputId: item.inputId,
+        nextAttemptAtMs:
+          operation === "apply" && outcome === "unconfirmed"
+            ? Date.now() + 1000
+            : null,
+      });
+      return (
+        settled &&
+        outcome === "applied" &&
+        this.persistSignalWithOptionalOutbox(item.signal, false, {
+          authoringPolicy: "user_authored",
+        }).persistedSignal
+      );
+    });
+    if (published) {
+      this.broadcastSignal(
+        item.signal,
+        { authoringPolicy: "user_authored" },
+        { persisted: true }
+      );
+      this.ctx.waitUntil(this.flushPendingSpaceInboxProjectionOutbox());
+    }
+    await this.broadcastSpaceMetaChanged({
+      reason: "space.input_queue.updated",
+    });
+  }
+
   private async handleInputQueue(
     body: unknown,
     context: CoreRpcContextInput
   ): Promise<Response> {
-    // This first receiver deliberately keeps the existing native Center DM
-    // authority. Agent callers need an explicit frozen-authority contract.
+    // Current public callers act as themselves. Native Center delivery retains
+    // its stricter original-Human DM policy.
     const member = readSpaceMemberRecord(
       this.ctx.storage.sql,
       context.actorContext.openMeldProfileId
@@ -7436,7 +7766,13 @@ export class Space extends DurableObject<CoreBindings> {
     const read = () =>
       spaceInputQueueResponseSchema.parse({
         items: listQueuedSpaceExecutionInputs(this.ctx.storage.sql)
-          .filter((item) => item.request.authorProfileId === member.profileId)
+          .filter(
+            (item) =>
+              item.request.authorProfileId === member.profileId &&
+              (!isLocalSpaceExecutionInput(item.request) ||
+                item.request.requesterUserId ===
+                  context.actorContext.ownerUserId)
+          )
           .map((item) => ({
             inputId: item.inputId,
             target: item.signal.data.meta?.centerAgentExecutionInput,
@@ -7473,12 +7809,27 @@ export class Space extends DurableObject<CoreBindings> {
             },
           }
         );
-        await this.publishExecutionInput(
-          signal,
-          { authoringPolicy: "user_authored" },
-          true
+        const targetMember = readSpaceMemberRecord(
+          this.ctx.storage.sql,
+          mutation.target.targetProfileId
         );
+        if (
+          targetMember?.controllerRefSnapshot ===
+          HOSTED_CENTER_AGENT_CONTROLLER_REF
+        ) {
+          await this.publishExecutionInput(
+            signal,
+            { authoringPolicy: "user_authored" },
+            true
+          );
+        } else {
+          await this.enqueueLocalExecutionInput(signal, context);
+        }
       } else if (mutation.action === "reorder") {
+        await this.assertLocalQueueReorderAuthority(
+          mutation.orderedIds,
+          member.profileId
+        );
         const ownIds = new Set(
           read()
             .items.filter((item) => item.state === "queued")
@@ -7490,7 +7841,8 @@ export class Space extends DurableObject<CoreBindings> {
             reorderQueuedSpaceExecutionInputs(
               this.ctx.storage.sql,
               mutation.expectedIds,
-              mutation.orderedIds
+              mutation.orderedIds,
+              member.profileId
             )
           )
         ) {
@@ -7540,6 +7892,9 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 404 }
       );
     }
+    if (isLocalSpaceExecutionInput(item.request)) {
+      await this.assertLocalQueuedInputAuthority(item.request);
+    }
     if (mutation.action === "delete") {
       if (
         !deleteQueuedSpaceExecutionInput(
@@ -7579,6 +7934,9 @@ export class Space extends DurableObject<CoreBindings> {
     );
     if (item) {
       this.assertQueuedInputMembers(item.signal);
+      if (isLocalSpaceExecutionInput(item.request)) {
+        await this.assertLocalQueuedInputAuthority(item.request);
+      }
     }
     if (
       !(
@@ -7586,6 +7944,11 @@ export class Space extends DurableObject<CoreBindings> {
         claimQueuedSpaceExecutionInput(this.ctx.storage.sql, inputId, "steer")
       )
     ) {
+      return;
+    }
+    if (isLocalSpaceExecutionInput(item.request)) {
+      await this.deliverLocalQueuedInput(item, "apply");
+      await this.syncSpaceBackgroundAlarm();
       return;
     }
     const worker = this.bindings.OPENMELD_REMOTE_AGENT_WORKER;
@@ -7636,11 +7999,14 @@ export class Space extends DurableObject<CoreBindings> {
   private applyQueuedExecutionInputReceipt(
     item: {
       inputId: string;
-      request: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputRequest;
+      request: SpaceExecutionInputRequest;
       signal: SignalEnvelope;
     },
     response: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputResponse
   ): void {
+    if (isLocalSpaceExecutionInput(item.request)) {
+      throw new Error("Native receipt cannot settle a Local input.");
+    }
     if (
       "receipt" in response &&
       (response.receipt.inputId !== item.inputId ||
@@ -7718,7 +8084,10 @@ export class Space extends DurableObject<CoreBindings> {
     // Space creates an unresolved handoff seed; Core selects the current
     // controller during admission. Check the scoped member here, never treat
     // that seed's empty controller snapshot as an unavailable execution.
-    if (target.controllerRefSnapshot !== HOSTED_CENTER_AGENT_CONTROLLER_REF) {
+    if (
+      target.controllerRefSnapshot !== HOSTED_CENTER_AGENT_CONTROLLER_REF &&
+      target.controllerRefSnapshot !== "builtin:codex"
+    ) {
       throw new SpaceSignalAuthoringError({
         code: "space.execution_input.invalid",
         status: 409,
@@ -22838,6 +23207,7 @@ export class Space extends DurableObject<CoreBindings> {
           raced.queued !== queued ||
           raced.request.authorProfileId !== signal.profile.profileId ||
           raced.request.text !== signal.data.text.trim() ||
+          isLocalSpaceExecutionInput(raced.request) ||
           raced.request.target.submissionId !== target.submissionId
         ) {
           throw invalid(
@@ -22945,6 +23315,9 @@ export class Space extends DurableObject<CoreBindings> {
       };
       try {
         this.assertQueuedInputMembers(item.signal);
+        if (isLocalSpaceExecutionInput(item.request)) {
+          await this.assertLocalQueuedInputAuthority(item.request);
+        }
         await this.publishTextSignal(signal, {
           authoringPolicy: "user_authored",
           queuedInputHandoff: {
@@ -22996,6 +23369,11 @@ export class Space extends DurableObject<CoreBindings> {
   private async reconcileQueuedExecutionInput(
     item: ReturnType<typeof listDueSpaceExecutionInputs>[number]
   ): Promise<void> {
+    if (isLocalSpaceExecutionInput(item.request)) {
+      await this.assertLocalQueuedInputAuthority(item.request);
+      await this.deliverLocalQueuedInput(item, "read");
+      return;
+    }
     const worker = this.bindings.OPENMELD_REMOTE_AGENT_WORKER;
     if (!worker?.readExecutionInput) {
       throw new Error("Execution input receipt reader is unavailable.");
@@ -23038,7 +23416,10 @@ export class Space extends DurableObject<CoreBindings> {
           await this.reconcileQueuedExecutionInput(item);
           continue;
         }
-        if (!worker?.receiveExecutionInput) {
+        if (
+          isLocalSpaceExecutionInput(item.request) ||
+          !worker?.receiveExecutionInput
+        ) {
           throw new Error("Execution input receiver is unavailable.");
         }
         const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
@@ -23077,27 +23458,39 @@ export class Space extends DurableObject<CoreBindings> {
           nextAttemptAtMs: pending ? Date.now() + 1000 : null,
         });
       } catch (error) {
-        if (item.queueClaim === "steer") {
-          settleQueuedSpaceExecutionInput(
-            this.ctx.storage.sql,
-            item.inputId,
-            "steer",
-            "unconfirmed"
-          );
-        }
-        updateSpaceExecutionInput(this.ctx.storage.sql, {
-          inputId: item.inputId,
-          nextAttemptAtMs:
-            Date.now() +
-            Math.min(30_000, 1000 * 2 ** Math.min(item.attemptCount, 5)),
-        });
-        console.warn("[core.openmeld.space.execution_input_retry]", {
-          spaceId: this.spaceId,
-          inputId: item.inputId,
-          error: formatUnknownErrorMessage(error),
-        });
+        this.recordExecutionInputDeliveryFailure(item, error);
       }
     }
+  }
+
+  private recordExecutionInputDeliveryFailure(
+    item: ReturnType<typeof listDueSpaceExecutionInputs>[number],
+    error: unknown
+  ): void {
+    if (item.queueClaim === "steer") {
+      settleQueuedSpaceExecutionInput(
+        this.ctx.storage.sql,
+        item.inputId,
+        "steer",
+        "unconfirmed"
+      );
+    }
+    const local = isLocalSpaceExecutionInput(item.request);
+    updateSpaceExecutionInput(this.ctx.storage.sql, {
+      inputId: item.inputId,
+      // A lost Local receipt or revoked authority must never initiate another
+      // apply. Leave the durable claim held without a polling loop.
+      nextAttemptAtMs: local
+        ? null
+        : Date.now() +
+          Math.min(30_000, 1000 * 2 ** Math.min(item.attemptCount, 5)),
+    });
+    console.warn("[core.openmeld.space.execution_input_delivery_failed]", {
+      spaceId: this.spaceId,
+      inputId: item.inputId,
+      held: local,
+      error: formatUnknownErrorMessage(error),
+    });
   }
 
   private async publishTextSignal(

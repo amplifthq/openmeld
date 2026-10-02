@@ -1,9 +1,9 @@
 import {
-  remoteAgentWorkerExecutionInputRequestSchema,
+  type SpaceExecutionInputRequest,
   signalTextEnvelopeSchema,
+  spaceExecutionInputRequestSchema,
 } from "@openmeld/schemas";
 import type {
-  RemoteAgentWorkerExecutionInputRequest,
   RemoteAgentWorkerExecutionInputResponse,
   SignalEnvelope,
 } from "@openmeld/schemas/types";
@@ -61,7 +61,7 @@ export function readSpaceExecutionInput(sql: SqlStorage, inputId: string) {
   }
   return {
     queued: row.queue_state !== null,
-    request: remoteAgentWorkerExecutionInputRequestSchema.parse(
+    request: spaceExecutionInputRequestSchema.parse(
       JSON.parse(row.request_json)
     ),
     signal: signalTextEnvelopeSchema.parse(JSON.parse(row.signal_json)),
@@ -71,7 +71,7 @@ export function readSpaceExecutionInput(sql: SqlStorage, inputId: string) {
 export function insertSpaceExecutionInput(
   sql: SqlStorage,
   input: {
-    request: RemoteAgentWorkerExecutionInputRequest;
+    request: SpaceExecutionInputRequest;
     signal: SignalEnvelope;
     nowMs: number;
     queued?: boolean;
@@ -121,7 +121,7 @@ export function listQueuedSpaceExecutionInputs(sql: SqlStorage) {
     .toArray()
     .map((row) => ({
       inputId: row.input_id,
-      request: remoteAgentWorkerExecutionInputRequestSchema.parse(
+      request: spaceExecutionInputRequestSchema.parse(
         JSON.parse(row.request_json)
       ),
       signal: signalTextEnvelopeSchema.parse(JSON.parse(row.signal_json)),
@@ -208,11 +208,14 @@ export function deleteQueuedSpaceExecutionInput(
 export function reorderQueuedSpaceExecutionInputs(
   sql: SqlStorage,
   expectedIds: readonly string[],
-  orderedIds: readonly string[]
+  orderedIds: readonly string[],
+  authorProfileId?: string
 ): boolean {
   const rows = sql
     .exec<{ input_id: string; queue_position: number }>(
-      "SELECT input_id, queue_position FROM space_execution_input_outbox WHERE queue_state = 'queued' ORDER BY queue_position"
+      "SELECT input_id, queue_position FROM space_execution_input_outbox WHERE queue_state = 'queued' AND (? IS NULL OR json_extract(signal_json, '$.profile.profileId') = ?) ORDER BY queue_position",
+      authorProfileId ?? null,
+      authorProfileId ?? null
     )
     .toArray();
   if (
@@ -311,7 +314,7 @@ export function listDueSpaceExecutionInputs(sql: SqlStorage, nowMs: number) {
     .toArray()
     .map((row) => ({
       inputId: row.input_id,
-      request: remoteAgentWorkerExecutionInputRequestSchema.parse(
+      request: spaceExecutionInputRequestSchema.parse(
         JSON.parse(row.request_json)
       ),
       signal: signalTextEnvelopeSchema.parse(JSON.parse(row.signal_json)),

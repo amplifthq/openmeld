@@ -71,6 +71,35 @@ function enqueue(sql: SqlStorage, inputId: string, queued = true) {
 }
 
 describe("Space pending input ownership", () => {
+  it("reorders only the caller's slots without moving another author's message", () => {
+    fixture((sql) => {
+      for (const id of ["a", "other", "b"]) {
+        enqueue(sql, id);
+      }
+      sql.exec(
+        "UPDATE space_execution_input_outbox SET signal_json = json_set(signal_json, '$.profile.profileId', 'other-author') WHERE input_id = 'other'"
+      );
+      expect(
+        reorderQueuedSpaceExecutionInputs(
+          sql,
+          ["a", "b"],
+          ["b", "a"],
+          "human-1"
+        )
+      ).toBe(true);
+      expect(
+        listQueuedSpaceExecutionInputs(sql).map((item) => item.inputId)
+      ).toEqual(["b", "other", "a"]);
+      expect(
+        reorderQueuedSpaceExecutionInputs(
+          sql,
+          ["b", "other", "a"],
+          ["other", "b", "a"],
+          "human-1"
+        )
+      ).toBe(false);
+    });
+  });
   it("upgrades the previous Space schema without turning accepted inputs into pending Queue work", () => {
     fixture((sql) => {
       ensureSpaceSqlSchema(sql);

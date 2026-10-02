@@ -421,8 +421,9 @@ function buildComposerFileSubmission(input: {
 	};
 }
 
-function resolveCenterAgentExecutionInput(input: {
+function resolveQueuedExecutionInput(input: {
 	centerAgentProfileId?: string | null;
+	members: SpaceMembersSnapshot | null;
 	activationTargets: readonly string[];
 	hasFiles: boolean;
 	items: readonly Pick<
@@ -430,13 +431,26 @@ function resolveCenterAgentExecutionInput(input: {
 		"terminal" | "dispatchId" | "targetProfileId"
 	>[];
 }) {
-	if (!input.centerAgentProfileId || input.hasFiles) {
+	const localProfileIds =
+		input.members?.agents
+			.filter((agent) => agent.agentControllerRef === "builtin:codex")
+			.map((agent) => agent.profileId) ?? [];
+	if (input.hasFiles) {
 		return undefined;
 	}
+	let targetProfileId: string | null | undefined;
+	if (input.activationTargets.length === 1) {
+		targetProfileId = input.activationTargets[0];
+	} else if (input.activationTargets.length === 0) {
+		targetProfileId = input.centerAgentProfileId;
+		if (!targetProfileId && localProfileIds.length === 1) {
+			targetProfileId = localProfileIds[0];
+		}
+	}
 	if (
-		input.activationTargets.some(
-			(profileId) => profileId !== input.centerAgentProfileId
-		)
+		!targetProfileId ||
+		(targetProfileId !== input.centerAgentProfileId &&
+			!localProfileIds.includes(targetProfileId))
 	) {
 		return undefined;
 	}
@@ -444,7 +458,7 @@ function resolveCenterAgentExecutionInput(input: {
 		(item) =>
 			!item.terminal &&
 			item.dispatchId &&
-			item.targetProfileId === input.centerAgentProfileId
+			item.targetProfileId === targetProfileId
 	);
 	const response = responses.length === 1 ? responses[0] : undefined;
 	return response?.dispatchId
@@ -1621,7 +1635,7 @@ export function useSpaceLandingController(input: {
 	const inputQueue = useSpaceInputQueue({
 		spaceId: input.spaceId,
 		profileId: input.profileId,
-		enabled: Boolean(input.centerAgentProfileId),
+		enabled: input.spaceId.length > 0,
 	});
 	const wakeProgressPresentationQuery = useQuery(
 		spaceWakeProgressPresentationQueryOptions({
@@ -2968,8 +2982,9 @@ export function useSpaceLandingController(input: {
 					),
 				};
 			pendingSubmission = preparedSubmission;
-			const queueTarget = resolveCenterAgentExecutionInput({
+			const queueTarget = resolveQueuedExecutionInput({
 				centerAgentProfileId: input.centerAgentProfileId,
+				members: membersSnapshot,
 				activationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
 				hasFiles:

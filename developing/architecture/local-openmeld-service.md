@@ -813,15 +813,20 @@ turn or cancels the task. A receipt query cannot resend. A missing receipt after
 Host replacement or retired-execution receipt eviction is unknown, not proof
 of non-application; Space must keep that input held.
 
-This receiver is not yet exposed by a cloud transport capability, public Service
-command or Agent tool. Core must authorize each exact execution/source/effect
-through the existing caller policy before forwarding, then connect the same
-Space input outbox without retrying an unknown application. The cloud caller
-and Local queue product path remain unimplemented. RuntimeCoordinator execution
-and Stop ownership are unchanged; the adapter and receipt cache do not own a
-second execution or pending-message state machine. The private IPC extension
-ships only with its matching connector/Host bundle and does not authorize an
-old published bundle to serve this capability.
+The Service advertises this receiver through the optional
+`x-openmeld-local-execution-input: 1` handshake header, never a new field in old
+strict registration payloads. Core authorizes the original requester and effect
+in the Space queue owner, resolves the exact active attempt/run in the existing
+Coordinator, and sends apply/read over that execution's current socket and
+Profile lease. The connector forwards to this private receiver; it does not
+select an execution or grant authority. A read after Host replacement can only
+return missing evidence, never permission to apply again. RuntimeCoordinator
+execution and Stop ownership are unchanged; the adapter and receipt cache do
+not own a second execution or pending-message state machine. The private IPC
+extension ships with its matching connector/Host bundle. Installed-candidate
+and real Local model acceptance are separate from protocol fixtures; no old
+published bundle is certified by deferred feature checks. There is no new public
+Service command or general Local Agent tool in this slice.
 
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after

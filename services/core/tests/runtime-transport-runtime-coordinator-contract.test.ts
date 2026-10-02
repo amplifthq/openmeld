@@ -2498,6 +2498,118 @@ const classifyPublicationClosureDiagnostics = (
     }
   ).classifyRuntimeCoordinatorPublicationClosureDiagnostics(input);
 
+it("fences Local input to the admitted source, account, attempt and run without sending on denial", async () => {
+  const f = createHarness();
+  const token = await issueDeliveryToken(f);
+  const command = findRuntimeCoordinatorRunCommandState(f.storageRecords);
+  if (!command) {
+    throw new Error("Expected admitted execution.");
+  }
+  f.storageRecords.set(
+    buildRuntimeCoordinatorRunCommandStateStorageKey(
+      RUNTIME_COORDINATOR_EXECUTION_ID
+    ),
+    {
+      ...command,
+      localProgress: { ...command.localProgress, phase: "running" },
+    }
+  );
+  const session = f.state.sessionsById.get("daemon-session-1");
+  if (!session) {
+    throw new Error("Expected registered session.");
+  }
+  session.capabilities.localExecutionInput = true;
+  const selector = {
+    ownerUserId: "owner-1",
+    runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+    dispatchId: "dispatch-1",
+    targetProfileId: TARGET_AGENT_PROFILE_ID,
+    spaceId: HEX_SPACE_ID,
+    authorProfileId: "human-1",
+  };
+  const resolved = await fetchRuntimeTransportJson(
+    f.hub,
+    "/runtime-coordinator/execution-input/resolve",
+    selector
+  );
+  const binding = (await resolved.json()) as Record<string, unknown>;
+  expect(binding).toMatchObject({
+    attemptId: "attempt-1",
+    runtimeCoordinatorRunId: token.runId,
+  });
+  f.sentFrames.length = 0;
+  const request = {
+    ...binding,
+    inputId: "input-1",
+    text: "Revise the result.",
+    source: {
+      spaceId: HEX_SPACE_ID,
+      authorProfileId: "human-1",
+      requesterUserId: "requester-1",
+      signalId: "queued-signal",
+      effect: "steer",
+    },
+  };
+  for (const changed of [
+    { ...request, ownerUserId: "other-owner" },
+    { ...request, targetProfileId: "other-agent" },
+    { ...request, attemptId: "replaced-attempt" },
+    { ...request, runtimeCoordinatorRunId: "replaced-run" },
+    {
+      ...request,
+      source: { ...request.source, authorProfileId: "other-author" },
+    },
+    { ...request, source: { ...request.source, spaceId: "other-space" } },
+  ]) {
+    const response = await fetchRuntimeTransportJson(
+      f.hub,
+      "/runtime-coordinator/execution-input",
+      { operation: "apply", request: changed }
+    );
+    expect(await response.json()).toBeNull();
+  }
+  expect(f.sentFrames).toEqual([]);
+  for (const operation of ["read", "apply"] as const) {
+    const pending = fetchRuntimeTransportJson(
+      f.hub,
+      "/runtime-coordinator/execution-input",
+      { operation, request }
+    );
+    await vi.waitFor(() => expect(f.sentFrames).toHaveLength(1));
+    const frame = f.sentFrames[0] as {
+      code: string;
+      payload: { requestId: string; operation: string; request: unknown };
+    };
+    expect(frame.code).toBe("daemon.execution_input.request");
+    expect(frame.payload.operation).toBe(operation);
+    expect(frame.payload.request).toEqual(request);
+    (f.hub as unknown as RuntimeTransportHub).webSocketMessage(
+      f.socket,
+      JSON.stringify({
+        v: 1,
+        code: "daemon.execution_input.result",
+        payload: {
+          requestId: frame.payload.requestId,
+          result: { inputId: "input-1", status: "not_found" },
+        },
+      })
+    );
+    expect(await (await pending).json()).toEqual({
+      inputId: "input-1",
+      status: "not_found",
+    });
+    f.sentFrames.length = 0;
+  }
+  session.capabilities.localExecutionInput = undefined;
+  const oldService = await fetchRuntimeTransportJson(
+    f.hub,
+    "/runtime-coordinator/execution-input/resolve",
+    selector
+  );
+  expect(await oldService.json()).toBeNull();
+  expect(f.sentFrames).toEqual([]);
+});
+
 const issueDeliveryToken = async (input: {
   hub: RuntimeTransportHub;
   headRequest?: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest;

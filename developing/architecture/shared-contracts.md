@@ -8324,15 +8324,15 @@ channel/platform/retained-Service matrices, safety floors and automatic dispatch
 additive Core-to-Space `spaceInputQueue` / `rpcInputQueue` contract. The receiver
 uses the existing Center input target and client message ID schemas. The caller
 never supplies an author or a native submission identity: authenticated context
-and the Space's active native-delivery lookup supply them. This initial receiver
-requires an active Human membership owned by the authenticated caller, and the
-original verified Human sender of a private Center DM for enqueue. Read and
+and the Space's admitted delivery supply them. The receiver requires an active
+Human membership owned by the authenticated caller, and the original verified
+Human sender of a private Center DM or a supported Local Codex Wake. Read and
 mutation results expose only that author's inputs. Steer also compares the
 requested dispatch and Profile with the stored target. It never retargets an
 existing row to a newer execution.
 
 `GET/PATCH /v1/spaces/:spaceId/input-queue` and the shared API client expose this
-receiver to the Human/Center private-DM composer. Gateway derives the actor from
+receiver to the Human composer for Center and Local Codex targets. Gateway derives the actor from
 authenticated context and rejects injected author fields. Existing Space access
 and active Human ownership checks still apply. The Web default for supported
 plain text during a confirmed response is Queue; only the explicit Steer action
@@ -8340,15 +8340,55 @@ calls native execution input. Queue mutations use the existing
 `space.meta.changed` invalidation envelope, without message text or author data.
 The client rereads its authorized queue, including after reconnect.
 
-Contract Impact Audit: deploy Core before Gateway before the new Web caller;
-rollback callers before receivers. This is an additive public HTTP boundary,
-not a new Service transport or execution epoch. Old clients retain their existing
-behavior and cannot manage pending inputs; new clients fail on an old receiver
-without falling back to implicit Steer. Setup, ordinary Wake, Space actions,
-diagnostics, Skills, and Service wire formats are unchanged in both directions.
-Remote's existing exact-input receive/read contracts are unchanged. Shared
-schema and adapter sources still affect packaged local artifacts, so a future
-release must stamp and verify those artifacts; deferred feature verification is
-not permission to publish a stale bundle. Pending Queue rows remain invisible
-to old forwarding queries on rollback. Agent tools and Local Service queue
-callers are not implemented by this narrow path and need their own audit.
+Local rows use the same outbox and freeze the original requester account,
+author, Profile, dispatch, Coordinator execution, attempt and run. D1 locates
+the Coordinator; it cannot authorize or select an active run. The Coordinator
+resolves the admitted source and current attempt/run, then checks the exact
+Service session, generation, Profile lease and supported controller. Space
+rechecks current Auth ownership, writable membership and target membership
+before enqueue, Steer, mutation, receipt reads and ordinary queue handoff.
+Reordering changes only the caller's pending slots, preserving other authors'
+positions. Ordinary consumption retains the existing atomic message/outbox
+handoff and never replays an uncertain Steer as a new Wake.
+
+`local-execution-input.ts` owns the shared private apply/read wire. The optional
+`x-openmeld-local-execution-input: 1` WebSocket handshake header follows the
+existing negotiated capability path through Gateway and Core. It is not added
+to the Service's strict registration JSON. Core sends
+`daemon.execution_input.request` only to a negotiated session and accepts its
+matching `daemon.execution_input.result` on that same socket. The connector
+calls the existing private Host receiver; reads cannot resend. Applied receipts
+publish and retire in one Space transaction. Only an explicit non-application
+reply to the original apply may leave a blocked pending row; missing, mismatched,
+lost or replaced-Host receipts remain held. One subsequent read can reconcile an
+unknown application; another unknown stops scheduling without releasing it.
+
+The Remote Center tool `openmeld_space_input_queue` calls
+`centerAgentSpaceInputQueue` for the same owner. Core resolves the current
+verified interactive requester from its native delivery on every call, checks
+Organization scope, and audits the actual Center actor and represented Human.
+Space then checks the represented Human's ordinary write and original-author
+permissions. Source metadata, an Agent owner, Organization role, Routine or
+unverified speaker cannot grant this effect. General Local Agent tools,
+attachments/context and non-Codex Local executors remain separate incomplete
+scope; this tool is not a general delegation grant.
+
+Contract Impact Audit: the public HTTP contract, optional Service handshake and
+private Runtime Transport/IPC schemas, Space stored request union, Center RPC
+and audit action change. Deploy Core receivers/migration and audit readers
+before Gateway/Web and the Remote tool caller; Core precedes Remote. Publish a
+new CLI/Service bundle only after receivers are available. Roll back callers
+before receivers and Remote before Core. An old Gateway/Core ignores or drops
+the new header, retaining ordinary registration, setup, Wake, Space actions and
+diagnostics. A new Core never sends input to an old Service without the header;
+unsupported Local intake leaves the draft intact, and an existing uncertain
+row remains held. Neither direction silently substitutes a new Wake for Steer.
+The optional negotiated feature does not require an execution/Service/CLI/Skills
+epoch bump: old components can safely continue their existing work. No CLI
+command, Prepare payload or managed Skill changed. Shared schema, adapter and
+carrier sources change packaged artifacts; deferred feature checks do not
+authorize publishing an old bundle. A future release must rebuild, stamp
+available local components and verify the actual release base. Retain additive
+SQL migration 49 on rollback; reverting Core while Local rows remain requires
+draining/retaining the candidate Space reader, because old request parsers cannot
+read Local rows. Do not erase held rows to make rollback appear safe.
