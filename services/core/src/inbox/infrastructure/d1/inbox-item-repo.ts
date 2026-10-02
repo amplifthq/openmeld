@@ -384,7 +384,27 @@ export async function readInboxItemBySource(input: {
   return row ? mapInboxItemRow(row) : null;
 }
 
-/** Correct only the retired continuation producer's exact projection on replay. */
+/** Read a bounded batch of reminders from the retired continuation producer. */
+export async function listLegacyTaskContinuationInboxItems(input: {
+  db: D1Database;
+  organizationId: string;
+  recipientUserId: string;
+}): Promise<{ sourceKey: string; occurredAtMs: number }[]> {
+  const rows = await input.db
+    .prepare(`SELECT source_key AS sourceKey,
+    occurred_at_ms AS occurredAtMs FROM inbox_items
+    WHERE organization_id = ? AND recipient_user_id = ?
+      AND source_kind = 'remote_agent_native_delivery'
+      AND source_key LIKE '%:admission_retry_exhausted'
+      AND kind = 'system_issue' AND attention = 'action_required'
+      AND importance = 'urgent' AND resolution_status = 'open'
+      AND resolved_at_ms IS NULL
+    ORDER BY id LIMIT 80`)
+    .bind(input.organizationId, input.recipientUserId)
+    .all<{ sourceKey: string; occurredAtMs: number }>();
+  return rows.results;
+}
+
 export async function repairLegacyTaskContinuationInboxItem(input: {
   candidate: InboxSourceCandidate;
   db: D1Database;
