@@ -53,6 +53,7 @@ jobs:
 
       - name: Install merge-group dependencies without repository scripts
         env:
+          CANDIDATE_KIND: merge-group
           OPENMELD_AFFECTED_BASE: ${{ env.CANDIDATE_BASE_SHA }}
           OPENMELD_CANDIDATE_HOME: ${{ runner.temp }}/merge-group-final-candidate-home
           OPENMELD_CANDIDATE_ROOT: ${{ github.workspace }}/untrusted-candidate

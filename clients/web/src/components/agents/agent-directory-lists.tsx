@@ -148,13 +148,12 @@ export function AgentDirectoryLists({
 					Task activity unavailable.
 				</output>
 			)}
-			<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+			<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
 				<AgentListFilterChips onChange={setView} value={view} />
 				<DirectorySearch
 					label={input.person ? "Search Agents" : "Search people or Agents"}
 					onChange={setSearch}
 					value={search}
-					variant="secondary"
 				/>
 				<AgentListControls
 					items={centerItem ? [centerItem, ...items] : items}

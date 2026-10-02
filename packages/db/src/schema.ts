@@ -38,6 +38,8 @@ export const {
 } = authSchema;
 
 export const {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
   inboxCenterAgentReadWatermarks,
   spaceInvitations,
   organizationJoinRequests,
@@ -102,6 +104,8 @@ export const {
   organizationSkillMaintainers,
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
+  organizationSkillImportOperations,
+  organizationSkillImportBatches,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
   organizationMemberPresenceSessions,

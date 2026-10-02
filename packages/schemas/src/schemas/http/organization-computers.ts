@@ -139,6 +139,7 @@ export const organizationComputerLocalAgentSchema = z.strictObject({
 
 export const organizationComputerSchema = z.strictObject({
   computerId: BOUNDED_ID_SCHEMA,
+  connectedComputerId: BOUNDED_ID_SCHEMA.optional(),
   deviceDisplayName: z.string().trim().min(1).max(256),
   deviceType: localRuntimeDeviceTypeSchema,
   lastSeenAtMs: z.number().int().nonnegative().nullable(),

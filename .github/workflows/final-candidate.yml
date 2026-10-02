@@ -46,6 +46,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     outputs:
       candidate_tree: ${{ steps.publish_pending.outputs.candidate_tree }}
+      hosted_disposition: ${{ steps.classify_hosted_candidate.outputs.disposition }}
+      run_candidate: ${{ steps.classify_hosted_candidate.outputs.run_candidate }}
     steps:
       - name: Verify live identity and publish pending
         id: publish_pending
@@ -89,9 +91,39 @@ jobs:
             -f target_url="$target_url"
           echo "candidate_tree=$candidate_tree" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout trusted classifier from the exact current base
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          path: trusted-control
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_BASE_SHA }}
+
+      - name: Checkout exact candidate source for control classification
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          path: untrusted-candidate
+          persist-credentials: false
+          ref: ${{ env.CANDIDATE_HEAD_SHA }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Classify hosted validation eligibility
+        id: classify_hosted_candidate
+        shell: bash
+        run: |
+          node trusted-control/scripts/ci/final-candidate-hosted-disposition.mjs \
+            --trusted-root "$GITHUB_WORKSPACE/trusted-control" \
+            --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate"
+
   candidate:
     name: Final Candidate Runner
     needs: publish_pending
+    if: needs.publish_pending.outputs.run_candidate == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -230,11 +262,13 @@ jobs:
       contents: read
       pull-requests: read
       statuses: write
+      checks: write
     env:
       CANDIDATE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       CANDIDATE_BRANCH: ${{ github.event.pull_request.head.ref }}
       CANDIDATE_CONFIDENCE: ${{ github.event.label.name == 'final-candidate-full' && 'full' || 'standard' }}
       CANDIDATE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      CANDIDATE_HOSTED_DISPOSITION: ${{ needs.publish_pending.outputs.hosted_disposition }}
       CANDIDATE_JOB_RESULT: ${{ needs.candidate.result }}
       CANDIDATE_PR_NUMBER: ${{ github.event.pull_request.number }}
       CANDIDATE_REPOSITORY: ${{ github.repository }}
@@ -296,6 +330,7 @@ jobs:
             --base "$CANDIDATE_BASE_SHA" \
             --tree "$CANDIDATE_TREE_SHA" \
             --confidence "$CANDIDATE_CONFIDENCE" \
+            --hosted-disposition "$CANDIDATE_HOSTED_DISPOSITION" \
             --job-result "$CANDIDATE_JOB_RESULT" \
             --evidence "$RUNNER_TEMP/final-candidate/final-candidate-evidence.json" \
             --target-url "$target_url"

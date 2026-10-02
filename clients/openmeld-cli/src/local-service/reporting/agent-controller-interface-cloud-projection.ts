@@ -34,6 +34,9 @@ export function projectAgentControllerInterfaceForCloud(
       commandPath: null,
       installChoiceCount: snapshot.launch.installChoiceCount,
       status: snapshot.launch.status,
+      ...(snapshot.launch.failureReason
+        ? { failureReason: snapshot.launch.failureReason }
+        : {}),
     },
     message: null,
     models: snapshot.models.map((model) => ({ ...model })),
@@ -44,8 +47,21 @@ export function projectAgentControllerInterfaceForCloud(
     ...(snapshot.usageLimits
       ? {
           usageLimits: snapshot.usageLimits.map((limit) => ({
-            ...limit,
-            ...(limit.provider ? { provider: { ...limit.provider } } : {}),
+            key: limit.key,
+            label: limit.label,
+            observedAt: limit.observedAt,
+            ...(limit.reason ? { reason: limit.reason } : {}),
+            ...(limit.provider
+              ? {
+                  provider: {
+                    displayName: limit.provider.displayName,
+                    id: limit.provider.id,
+                  },
+                }
+              : {}),
+            resetsAt: limit.resetsAt,
+            status: limit.status,
+            usedPercent: limit.usedPercent,
           })),
         }
       : {}),

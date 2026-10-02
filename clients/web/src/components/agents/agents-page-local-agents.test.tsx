@@ -392,7 +392,9 @@ describe("LocalAgentsCard", () => {
 		expect(screen.queryByText("Disable Codex?")).toBeNull();
 	});
 
-	it("lets the computer owner change which verified installation OpenMeld uses", async () => {
+	it.each([
+		1, 2,
+	])("lets the owner switch installations when inventory reports %i choices", async (installChoiceCount) => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
 		readCurrentLocalAgentInstallationsMock.mockResolvedValue({
 			agentId: "codex",
@@ -443,7 +445,7 @@ describe("LocalAgentsCard", () => {
 
 		renderLocalAgentsCard({
 			includeAgentControllerInterface: true,
-			installChoiceCount: 2,
+			installChoiceCount,
 			manageInstallationsSupported: true,
 			refreshAll,
 			setEnabledSupported: true,
@@ -535,6 +537,42 @@ describe("LocalAgentsCard", () => {
 		expect(toastMock.success).toHaveBeenCalledWith(
 			"Codex now uses ChatGPT app."
 		);
+	});
+
+	it("offers the sole verified replacement when the saved installation is gone", async () => {
+		readCurrentLocalAgentInstallationsMock.mockResolvedValue({
+			agentId: "codex",
+			installations: [
+				{
+					installationId: "install-nvm",
+					name: "nvm install",
+					details: "v0.150.1 · Signed in",
+					selected: false,
+				},
+			],
+			selectionStatus: "available",
+			selectedInstallationId: null,
+		});
+		renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			installChoiceCount: 1,
+			manageInstallationsSupported: true,
+			setEnabledSupported: true,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Codex details" }));
+		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			await within(dialog).findByRole("combobox", {
+				name: "Codex installation",
+			})
+		);
+		fireEvent.click(await screen.findByRole("option"));
+		expect(
+			within(dialog).getByText("Switch Codex to nvm install?")
+		).toBeTruthy();
+		expect(
+			within(dialog).getByRole("button", { name: "Switch installation" })
+		).toBeTruthy();
 	});
 
 	it("prevents installation changes while the agent has work in progress", async () => {
@@ -812,7 +850,7 @@ describe("LocalAgentsCard", () => {
 		);
 		expect(
 			within(screen.getByRole("dialog")).getByText(
-				"OpenMeld found OpenClaw, but can’t start it. Open Details to review the installation."
+				"The selected OpenClaw installation can’t start. Check the installation or choose another one."
 			)
 		).toBeTruthy();
 	});
@@ -843,7 +881,7 @@ describe("LocalAgentsCard", () => {
 		);
 		expect(
 			within(screen.getByRole("dialog")).getByText(
-				"OpenMeld found OpenClaw, but can’t start it. Open Details to review the installation."
+				"The selected OpenClaw installation can’t start. Check the installation or choose another one."
 			)
 		).toBeTruthy();
 	});

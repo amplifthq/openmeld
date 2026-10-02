@@ -7,6 +7,8 @@ const appOuterRailSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("#/components/directory/team-sidebar-header", () => ({
 	TeamSidebarHeader: () => <h2>Team</h2>,
+	TeamSidebarHeaderActionsProvider: ({ children }: { children: ReactNode }) =>
+		children,
 }));
 
 vi.mock("#/components/app/app-outer-rail", () => ({

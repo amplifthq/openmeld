@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import {
 	accountSpaceActiveWakeSummaryQueryOptions,
-	useUsableAccountSpaceActiveWakeSummaryItems,
+	useAccountSpaceActiveWakeSummaryDisplay,
 } from "#/query/spaces/account-spaces";
 import type { SpaceUnreadById } from "./account-space-sections";
 
@@ -24,11 +24,11 @@ export function useAccountSpaceIndicators(input: {
 			profileId: input.profileId,
 		})
 	);
-	const usableActiveWakeSummaryItems =
-		useUsableAccountSpaceActiveWakeSummaryItems({
-			data: activeWakeSummaryQuery.data,
-			isError: activeWakeSummaryQuery.isError,
-		});
+	const activeWakeDisplay = useAccountSpaceActiveWakeSummaryDisplay({
+		data: activeWakeSummaryQuery.data,
+		isError: activeWakeSummaryQuery.isError,
+	});
+	const usableActiveWakeSummaryItems = activeWakeDisplay.items;
 	const activeWakeSpaceIds = useMemo(
 		() => new Set(usableActiveWakeSummaryItems.map((item) => item.spaceId)),
 		[usableActiveWakeSummaryItems]
@@ -41,6 +41,9 @@ export function useAccountSpaceIndicators(input: {
 
 	return {
 		isPending: input.enabled && activeWakeSummaryQuery.isPending,
+		isError: activeWakeSummaryQuery.isError,
+		isPaused: activeWakeSummaryQuery.fetchStatus === "paused",
+		activityAvailable: activeWakeDisplay.available,
 		activeWakeSpaceIds,
 		activeWakeSummaryBySpaceId,
 		unreadBySpaceId,

@@ -28,6 +28,7 @@ import { beforeDesktopLoad } from "#/desktop/auth-boundary";
 import { DesktopFrame } from "#/desktop/desktop-frame";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
+import { SIDEBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/sidebar-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
 import { FAVICON_32_URL, FAVICON_VERSION } from "#/lib/favicon";
 import {
@@ -37,6 +38,7 @@ import {
 import { submitApplicationErrorReport } from "#/lib/observability/application-error-client";
 import { buildPublicPageHead, siteConfig } from "#/lib/site";
 import { SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/conversation-layout-preference";
+import { HISTORY_SLIDER_BOOTSTRAP_SCRIPT } from "#/lib/spaces/history-slider-preference";
 import { SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/self-message-alignment-preference";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import appCss from "../styles.css?url";
@@ -198,6 +200,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 					suppressHydrationWarning
 				/>
 				<script
+					dangerouslySetInnerHTML={{ __html: HISTORY_SLIDER_BOOTSTRAP_SCRIPT }}
+					suppressHydrationWarning
+				/>
+				<script
 					dangerouslySetInnerHTML={{
 						__html: SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT,
 					}}
@@ -206,6 +212,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				<script
 					dangerouslySetInnerHTML={{
 						__html: TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT,
+					}}
+					suppressHydrationWarning
+				/>
+				<script
+					dangerouslySetInnerHTML={{
+						__html: SIDEBAR_PREFERENCE_BOOTSTRAP_SCRIPT,
 					}}
 					suppressHydrationWarning
 				/>

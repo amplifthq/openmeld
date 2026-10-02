@@ -234,7 +234,12 @@ describe("Profile Details snapshot", () => {
     expect(findRowValue(pausedWithoutQueue, "activity", "Work")).toBe("Paused");
   });
 
-  it("adds an owner-only recovery action without changing the compact workload copy", () => {
+  it.each([
+    "continue_interrupted_work",
+    "approve_queued_work",
+    "skip_interrupted_work",
+    "fork_interrupted_work",
+  ] as const)("binds owner-only %s to the interrupted work", (kind) => {
     const input = {
       agentControllerPermissionModeDetail: null,
       modelDetail: null,
@@ -242,8 +247,9 @@ describe("Profile Details snapshot", () => {
         currentWorkLocation: "Launch planning",
         queuedWorkLocations: ["Customer follow-up"],
         recoveryAction: {
-          kind: "continue_interrupted_work" as const,
+          kind,
         },
+        recoveryTargetWakeLifecycleId: "twl_interrupted",
         status: "paused" as const,
         waitingCount: 1,
       },
@@ -284,7 +290,8 @@ describe("Profile Details snapshot", () => {
       owner.sections.find((section) => section.id === "activity")
     ).toMatchObject({
       recoveryAction: {
-        kind: "continue_interrupted_work",
+        kind,
+        expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
         visibility: "owner_self",
       },
     });

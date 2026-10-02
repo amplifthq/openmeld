@@ -1,6 +1,7 @@
 import type { SpaceApi } from "@openmeld/api-client";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSpaceFileMedia } from "./space-file-media-resource";
 import { spaceFileContentQueryOptions } from "./space-files";
 
 const clients: QueryClient[] = [];
@@ -50,5 +51,42 @@ describe("spaceFileContentQueryOptions", () => {
 				spaceId: "space-1",
 			})
 		);
+	});
+
+	it.each([
+		["PDF", "application/pdf"],
+		[
+			"Word",
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		],
+		[
+			"PowerPoint",
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		],
+		[
+			"Excel",
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		],
+	])("revokes a %s preview URL when access to its file is removed", async (_, mimeType) => {
+		const client = new QueryClient();
+		clients.push(client);
+		const options = spaceFileContentQueryOptions({
+			api: {
+				downloadFileContent: vi.fn().mockResolvedValue({
+					bytes: new ArrayBuffer(4),
+					mimeType,
+					revision: 2,
+				}),
+			} as Pick<SpaceApi, "downloadFileContent">,
+			fileId: "file-pdf",
+			revision: 2,
+			spaceId: "space-1",
+		});
+		const content = await client.fetchQuery(options);
+		expect(content.mediaPreview?.getSnapshot()).toBe("blob:downloaded-image");
+
+		clearSpaceFileMedia(client, "space-1", "file-pdf");
+		expect(content.mediaPreview?.getSnapshot()).toBeNull();
+		expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:downloaded-image");
 	});
 });

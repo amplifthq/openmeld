@@ -1,4 +1,7 @@
-import { WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE } from "@openmeld/schemas";
+import {
+	REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE,
+	WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+} from "@openmeld/schemas";
 import type { WakeProgressItem } from "@openmeld/schemas/types";
 
 const LEADING_MENTION_MARKER_PATTERN = /^@/u;
@@ -13,6 +16,7 @@ export type WakeProgressStatusKind =
 	| "posting"
 	| "retrying"
 	| "needs_input"
+	| "confirmation_pending"
 	| "waiting_for_owner"
 	| "waiting_for_controller"
 	| "waiting_for_device";
@@ -27,6 +31,7 @@ export type WakeProgressStatusPresentation = {
 /** Lower values need attention first. Equal priorities retain Wake order. */
 export const WAKE_PROGRESS_STATUS_PRIORITY = {
 	needs_input: 0,
+	confirmation_pending: 0,
 	working: 1,
 	replying: 1,
 	posting: 1,
@@ -47,6 +52,7 @@ type PresentableWakeProgress = Pick<
 	| "targetLabel"
 	| "waitReasonCode"
 	| "deviceWait"
+	| "failureReasonCode"
 >;
 
 /**
@@ -67,6 +73,19 @@ export function resolveWakeProgressStatus(
 		return null;
 	}
 	const targetName = formatWakeTargetName(item.targetLabel);
+	if (
+		item.phase === "running" &&
+		item.failureReasonCode ===
+			REMOTE_AGENT_EXECUTION_CONFIRMATION_PENDING_REASON_CODE
+	) {
+		return {
+			kind: "confirmation_pending",
+			label: `${targetName} · Result awaiting confirmation`,
+			status: "pending",
+			description:
+				"Later work in this conversation may be waiting. Stop this request to release it once the Agent confirms execution has ended. Do not resend the original request.",
+		};
+	}
 	if (
 		item.deviceWait &&
 		(item.phase === "request_sent" || item.phase === "queued")

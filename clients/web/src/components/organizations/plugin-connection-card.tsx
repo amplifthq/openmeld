@@ -163,6 +163,7 @@ type PluginConnectionCardProps = {
 	isPersonalWorkspace?: boolean;
 	mode: "all" | "member" | "shared";
 	organizationId: string;
+	presentation?: "management" | "onboarding" | "conversation";
 };
 
 export function PluginConnectionCard(input: PluginConnectionCardProps) {
@@ -728,6 +729,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 			organizationName={input.organizationName}
 			otherMemberConnections={otherMemberConnections}
 			plugin={input.plugin}
+			presentation={input.presentation ?? "management"}
 			sharedConnection={sharedConnection}
 			showConnectionRetry={canRetryConnectionStatus({
 				connectionError: connectionsQuery.error,
@@ -766,6 +768,7 @@ function PluginConnectionCardContent(input: {
 	onRetry: () => void;
 	otherMemberConnections: ConnectorConnection[];
 	sharedConnection?: ConnectorConnection;
+	presentation: "management" | "onboarding" | "conversation";
 	showConnectionRetry: boolean;
 	statusAvailable: boolean;
 	statusChecking: boolean;
@@ -825,7 +828,10 @@ function PluginConnectionCardContent(input: {
 					title="Your account"
 				/>
 			)}
-			{input.mode === "all" && input.canManage && !input.isPersonalWorkspace ? (
+			{input.presentation === "management" &&
+			input.mode === "all" &&
+			input.canManage &&
+			!input.isPersonalWorkspace ? (
 				<MemberConnectionsSection
 					actionsDisabled={input.actionsDisabled}
 					appName={input.plugin.name}

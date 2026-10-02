@@ -6,6 +6,7 @@ During a Wake, use the assigned Profile; the CLI forwards its request context.
 
 ```sh
 openmeld plugins list --profile <agent-profile-id> --view agent
+openmeld plugins connect github --account choose --profile <agent-profile-id> --view agent
 openmeld plugins actions github --account shared --profile <agent-profile-id> --view agent
 openmeld plugins call <service> <action-id> --account personal --profile <agent-profile-id> --operation <unique-operation-id> --input '<json-object>' --view agent
 ```
@@ -13,6 +14,17 @@ openmeld plugins call <service> <action-id> --account personal --profile <agent-
 Choose `personal` or `shared` explicitly. Read the returned action input schema
 before invoking it. A personal account is available only for its owner's
 request; another person's Wake must use an authorized shared account.
+
+When a needed connection is missing, use `plugins connect <service>`. Preserve
+an explicit `--account personal` or `--account shared`; use `choose` only when
+the user has not required an identity. The server returns `replyText`, a trusted
+ordinary link. In a Wake, include that text unchanged at the end of your final
+reply. OpenMeld enhances it into the shared connection card, and only the
+original requester can explicitly continue the same task after setup. Neither
+opening the page nor OAuth completion runs anything. Never put credentials in
+chat or construct a provider authorization URL. Keep prior operation receipts;
+continuation is remaining work, not a restart. Outside a Wake there is no bound
+conversation to resume; the command truthfully returns setup guidance only.
 
 If the result requires confirmation, show the requester the exact action,
 account, and input. Only after their authorization, repeat the same command

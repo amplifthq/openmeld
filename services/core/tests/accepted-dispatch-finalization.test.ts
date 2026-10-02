@@ -886,6 +886,7 @@ describe("accepted dispatch finalization", () => {
     const message = buildAcceptedDispatchFinalizationQueueMessage({
       fact: baseFact,
       inboxRecord: baseInboxRecord,
+      organizationId: "org-1",
       sourceSignal,
       spaceContract: buildDefaultSpaceContract(),
       threadContext: {
@@ -896,6 +897,7 @@ describe("accepted dispatch finalization", () => {
 
     expect(message).toMatchObject({
       dispatchId: "dispatch-1",
+      organizationId: "org-1",
       dispatchOwner: {
         id: "owner-1",
         kind: "owner_account",
@@ -1949,9 +1951,13 @@ describe("accepted dispatch finalization", () => {
   });
 
   it.each([
-    true,
-    false,
-  ])("requires a readable stored threaded final reply (readable: %s)", async (readableFinal) => {
+    { readableFinal: true, sourceInThread: true },
+    { readableFinal: true, sourceInThread: false },
+    { readableFinal: false, sourceInThread: true },
+  ])("publishes a threaded final reply for a main or thread Wake and requires a readable result ($sourceInThread/$readableFinal)", async ({
+    readableFinal,
+    sourceInThread,
+  }) => {
     const spaceId =
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const targetProfileId = "agt_33333333-3333-4333-8333-333333333333";
@@ -2020,7 +2026,7 @@ describe("accepted dispatch finalization", () => {
       inboxRecord,
       sourceSignal: source,
       spaceContract: buildDefaultSpaceContract(),
-      threadContext,
+      threadContext: sourceInThread ? threadContext : null,
     });
     expect(dispatchMessage).toBeTruthy();
     if (!dispatchMessage) {
@@ -2102,6 +2108,9 @@ describe("accepted dispatch finalization", () => {
         plannerContext: null;
       };
       readSignalById: (signalId: string) => SignalEnvelope | null;
+      rpcResolveNativeReplyPlacement: () => Promise<{
+        threadContext: typeof threadContext;
+      }>;
       readSpaceMetaRecord: () => {
         createdAt: string;
         name: string;
@@ -2151,6 +2160,9 @@ describe("accepted dispatch finalization", () => {
           const row = signalRows.get(signalId);
           return row ? (JSON.parse(row.payloadJson) as SignalEnvelope) : null;
         }),
+      },
+      rpcResolveNativeReplyPlacement: {
+        value: vi.fn().mockResolvedValue({ threadContext }),
       },
       readSpaceMetaRecord: {
         value: vi.fn(() => ({
@@ -2449,8 +2461,10 @@ describe("accepted dispatch finalization", () => {
           agentReplyObservation: {
             observedThroughSignalId: string;
             sourceSignalId: string;
+            sourceThreadId?: string | null;
             targetProfileId: string;
           };
+          threadContext?: { rootSignalId: string; threadId: string };
         }
       ) => {
         persistedSignal: boolean;
@@ -2484,7 +2498,12 @@ describe("accepted dispatch finalization", () => {
       agentReplyObservation: {
         observedThroughSignalId: source.id,
         sourceSignalId: source.id,
+        sourceThreadId: null,
         targetProfileId,
+      },
+      threadContext: {
+        rootSignalId: source.id,
+        threadId: "thr_33333333-3333-4333-8333-333333333333",
       },
     });
 
@@ -2892,6 +2911,9 @@ describe("accepted dispatch finalization", () => {
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
       },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
+      },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
     });
@@ -2968,6 +2990,9 @@ describe("accepted dispatch finalization", () => {
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
       },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
+      },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },
     });
@@ -3025,6 +3050,9 @@ describe("accepted dispatch finalization", () => {
       },
       readSpaceContractRecord: {
         value: vi.fn(() => buildDefaultSpaceContract()),
+      },
+      readSpaceMetaRecord: {
+        value: vi.fn(() => ({ organizationId: "org-1", spaceId: "space-1" })),
       },
       resolveThreadContextForSignal: { value: vi.fn(() => null) },
       spaceId: { value: "space-1", writable: true },

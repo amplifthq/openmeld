@@ -141,14 +141,18 @@ function planFocusedChecks(paths, options) {
       )
   );
   for (const workspace of selectedWorkspaces) {
-    const command = focusedWorkspaceCommand(paths, workspace, existingFiles);
-    if (!command) {
+    const focusedCommands = focusedWorkspaceCommands(
+      paths,
+      workspace,
+      existingFiles
+    );
+    if (focusedCommands.length === 0) {
       continue;
     }
     if (workspace.name) {
       buildFilters.push(`--filter=${workspace.name}^...`);
     }
-    workspaceCommands.push(command);
+    workspaceCommands.push(...focusedCommands);
   }
   if (buildFilters.length > 0) {
     commands.push([
@@ -166,7 +170,7 @@ function planFocusedChecks(paths, options) {
   return [...commands, ...workspaceCommands];
 }
 
-function focusedWorkspaceCommand(paths, workspace, existingFiles) {
+function focusedWorkspaceCommands(paths, workspace, existingFiles) {
   const sources = paths
     .filter(
       (file) =>
@@ -176,7 +180,7 @@ function focusedWorkspaceCommand(paths, workspace, existingFiles) {
     )
     .map((file) => file.slice(workspace.directory.length + 1));
   if (!VITEST_SCRIPT.test(workspace.test)) {
-    return null;
+    return [];
   }
   const tests = new Set();
   for (const source of sources) {
@@ -193,19 +197,46 @@ function focusedWorkspaceCommand(paths, workspace, existingFiles) {
     }
   }
   if (tests.size === 0) {
-    return null;
+    return [];
   }
-  return [
-    "--dir",
-    workspace.directory,
-    "exec",
-    "vitest",
-    "run",
-    ...workspace.test.split(WHITESPACE).slice(2),
-    "--maxWorkers=2",
-    "--no-file-parallelism",
-    ...tests,
-  ];
+  const testGroups =
+    workspace.directory === "services/core"
+      ? [
+          [
+            "vitest.boundary.config.ts",
+            [...tests].filter((file) => file.startsWith("tests-node/")),
+          ],
+          [
+            "vitest.split-gate.config.ts",
+            [...tests].filter((file) => file.startsWith("tests-split-gate/")),
+          ],
+          [
+            "vitest.config.ts",
+            [...tests].filter(
+              (file) =>
+                !(
+                  file.startsWith("tests-node/") ||
+                  file.startsWith("tests-split-gate/")
+                )
+            ),
+          ],
+        ]
+      : [[null, [...tests]]];
+  return testGroups
+    .filter(([, files]) => files.length > 0)
+    .map(([config, files]) => [
+      "--dir",
+      workspace.directory,
+      "exec",
+      "vitest",
+      "run",
+      ...(config
+        ? ["--config", config]
+        : workspace.test.split(WHITESPACE).slice(2)),
+      "--maxWorkers=2",
+      "--no-file-parallelism",
+      ...files,
+    ]);
 }
 
 export function runPrChecks(commands, run = spawnSync) {

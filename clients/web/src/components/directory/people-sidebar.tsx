@@ -10,14 +10,13 @@ import {
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
-import { CheckIcon, FunnelSimpleIcon } from "@phosphor-icons/react";
+import { CheckIcon, SlidersHorizontalIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { useAppNavigationPresentation } from "../app/app-navigation-presentation";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
-import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
 import {
 	SidebarDrag,
 	SidebarDropSection,
@@ -42,7 +41,9 @@ import {
 	peopleConnectionFilter,
 	removeSidebarPeopleGroup,
 	resolvePeopleSections,
+	toggleSidebarPersonStar,
 } from "./people-sidebar-order";
+import { TeamSidebarHeaderAction } from "./team-sidebar-header";
 
 const FILTERS = [
 	["all", "All people"],
@@ -75,7 +76,6 @@ export function PeopleSidebar(input: {
 	const preferences = sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR;
 	const loading = input.loading;
 	const [search, setSearch] = useState("");
-	const [searchOpen, setSearchOpen] = useState(false);
 	const [filter, setFilter] = useState<PeopleFilter>("all");
 	const [recentlyActive, setRecentlyActive] = useState(false);
 	const groupFilter = useSidebarGroupFilter([
@@ -129,22 +129,8 @@ export function PeopleSidebar(input: {
 		input.selectedProfileId ?? ""
 	);
 	const visible = new Map<string, readonly string[]>();
-	const toggleStar = (id: string) => {
-		if (starred.has(id)) {
-			save(
-				moveSidebarPerson(preferences, "people", id, preferences.people.itemIds)
-			);
-		} else {
-			save(
-				moveSidebarPerson(
-					preferences,
-					"starred",
-					id,
-					preferences.starred.itemIds
-				)
-			);
-		}
-	};
+	const toggleStar = (id: string) =>
+		save(toggleSidebarPersonStar(preferences, id));
 	const groups = sections
 		.filter(
 			(section) =>
@@ -338,74 +324,65 @@ export function PeopleSidebar(input: {
 					groups={contentReady ? groups : []}
 					leadingContent={
 						<>
-							<div className="flex items-center gap-1 px-1">
+							<div className="mb-2 px-1">
 								<SidebarSearchInput
-									destination="people"
+									inputClassName="lg:h-7"
 									label="Search people"
-									onOpenChange={setSearchOpen}
 									onValueChange={setSearch}
-									open={searchOpen}
+									placeholder="Search people..."
 									value={search}
 								/>
-								<SidebarDestinationAction destination="people">
-									<DropdownMenu>
-										<DropdownMenuTrigger
-											render={
-												<Button
-													aria-label="Filter people"
-													className={
-														filter !== "all" ||
-														recentlyActive ||
-														groupFilter.selected.length > 0
-															? "size-6 text-primary [&_svg]:size-3.5"
-															: "size-6 text-muted-foreground [&_svg]:size-3.5"
-													}
-													size="icon-sm"
-													variant="ghost"
-												/>
-											}
-										>
-											<FunnelSimpleIcon />
-										</DropdownMenuTrigger>
-										<FluidDropdownMenuContent
-											align="end"
-											aria-label="Filter people"
-											className="w-60 max-w-[calc(100vw-2rem)]"
-										>
-											<FluidDropdownMenuItem
-												index={-1}
-												onClick={() =>
-													requestAnimationFrame(() => setSearchOpen(true))
-												}
-											>
-												Search manually
-											</FluidDropdownMenuItem>
-											{FILTERS.map(([value, label], index) => (
-												<FluidDropdownMenuItem
-													index={index}
-													key={value}
-													onClick={() => setFilter(value)}
-												>
-													<CheckIcon
-														className={filter === value ? "" : "invisible"}
-													/>
-													{label}
-													{filter === value && (
-														<span className="sr-only">, selected</span>
-													)}
-												</FluidDropdownMenuItem>
-											))}
-											<DropdownMenuCheckboxItem
-												checked={recentlyActive}
-												onCheckedChange={setRecentlyActive}
-											>
-												Active in last 5 minutes
-											</DropdownMenuCheckboxItem>
-											{groupFilter.menu}
-										</FluidDropdownMenuContent>
-									</DropdownMenu>
-								</SidebarDestinationAction>
 							</div>
+							<TeamSidebarHeaderAction>
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												aria-label="Filter people"
+												className={
+													filter !== "all" ||
+													recentlyActive ||
+													groupFilter.selected.length > 0
+														? "text-primary"
+														: "text-muted-foreground"
+												}
+												size="icon-sm"
+												variant="ghost"
+											/>
+										}
+									>
+										<SlidersHorizontalIcon />
+									</DropdownMenuTrigger>
+									<FluidDropdownMenuContent
+										align="end"
+										aria-label="Filter people"
+										className="w-60 max-w-[calc(100vw-2rem)]"
+									>
+										{FILTERS.map(([value, label], index) => (
+											<FluidDropdownMenuItem
+												index={index}
+												key={value}
+												onClick={() => setFilter(value)}
+											>
+												<CheckIcon
+													className={filter === value ? "" : "invisible"}
+												/>
+												{label}
+												{filter === value && (
+													<span className="sr-only">, selected</span>
+												)}
+											</FluidDropdownMenuItem>
+										))}
+										<DropdownMenuCheckboxItem
+											checked={recentlyActive}
+											onCheckedChange={setRecentlyActive}
+										>
+											Active in last 5 minutes
+										</DropdownMenuCheckboxItem>
+										{groupFilter.menu}
+									</FluidDropdownMenuContent>
+								</DropdownMenu>
+							</TeamSidebarHeaderAction>
 							{filter !== "all" && (
 								<div className="flex flex-wrap gap-1 px-1 pt-1">
 									<SidebarFilterBadge

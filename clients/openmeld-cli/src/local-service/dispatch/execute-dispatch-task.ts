@@ -95,11 +95,16 @@ import {
   type DispatchSpaceActionRecord,
   type DispatchSpaceActionRecordReadResult,
   OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV,
+  readDispatchSpaceActionContextForReceiptFromEnv,
   readDispatchSpaceActionRecord,
   supersedeDispatchSpaceActionRecordForReconsideration,
 } from "../../runtime/dispatch-space-action-context";
+import { startDispatchSpaceProgressRelay } from "../../runtime/dispatch-space-progress-relay";
 import type { Presenter } from "../../runtime/presenter/types";
-import { createDispatchSpaceTools } from "../../space/action-mcp-server";
+import {
+  createDispatchSpaceTools,
+  type DispatchPublicProgressResult,
+} from "../../space/action-mcp-server";
 import { fetchSpaceMeta } from "../../space/meta-api";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
@@ -141,6 +146,7 @@ import {
   readDispatchAgentReplyObservation,
 } from "./dispatch-agent-reply-observation";
 import { settleAgentReplyProposals } from "./dispatch-agent-reply-settlement";
+import { createDispatchAiUsageCollector } from "./dispatch-ai-usage";
 import {
   type DispatchImageAttachmentPreparation,
   downloadDispatchImageAttachment,
@@ -231,6 +237,7 @@ import {
   resolveDispatchMentionSourceContext,
 } from "./parse-dispatch-task";
 import { buildDispatchPromptTrace } from "./prompt-trace";
+import { createDispatchPublicProgressReporter } from "./public-progress-stream";
 import {
   createReasoningStream,
   routeReasoningEvents,
@@ -242,6 +249,7 @@ import {
   sendDispatchLifecycleFrame,
   sendDispatchPreviewEndFrame,
   sendDispatchPreviewFrame,
+  sendDispatchProgressFrame,
   sendDispatchReasoningFrame,
   sendDispatchRuntimeEvidenceFrame,
   sendDispatchToolActivityFrame,
@@ -1024,6 +1032,39 @@ export async function handleDispatchDeliverFrame(input: {
   });
   const runtimeStartedAtMs = Date.now();
   let agentToolActivitySequence = 0;
+  const reportPublicProgress = createDispatchPublicProgressReporter({
+    publish: (progressSnapshot) => {
+      const socket = currentSocketRef.socket;
+      if (!socket || (socket.bufferedAmount ?? 0) > 64 * 1024) {
+        return false;
+      }
+      sendDispatchProgressFrame({
+        socket,
+        progressSnapshot,
+        observedAtMs: Date.now(),
+        sequence: ++agentToolActivitySequence,
+        attemptId: parsedTask.attemptId,
+        dispatchId: parsedTask.dispatchId,
+        daemonSessionId: input.daemonSessionId,
+        connectionGeneration: resolveCurrentConnectionGeneration({
+          currentSocketRef,
+          fallbackConnectionGeneration:
+            input.deliverRequest.connectionGeneration,
+        }),
+        executionIdentityEcho: toRuntimeTransportRuntimeEvidenceIdentityEcho(
+          input.deliverRequest
+        ),
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        sourceSignalId: parsedTask.sourceEventId,
+        spaceId: parsedTask.spaceId,
+        targetProfileId: parsedTask.targetProfileId,
+        taskId: parsedTask.taskId,
+      });
+      return true;
+    },
+  });
   let firstReasoningMs: number | undefined;
   const sendReasoning = (
     thinkingSnapshot: string,
@@ -1130,6 +1171,7 @@ export async function handleDispatchDeliverFrame(input: {
   let completedTurnId: string | null = null;
   let completedTurnConversationId: string | null = null;
   let completedNativeResult: RuntimeTaskResult | null = null;
+  const aiUsage = createDispatchAiUsageCollector();
   let executionContextCompletion: ExecutionContextCompletion | undefined;
   const invalidStateStrategy = executionContextLedgerPolicy(
     parsedTask.executionContext
@@ -1690,6 +1732,7 @@ export async function handleDispatchDeliverFrame(input: {
     };
     const onNativeTurnCompleted = (result: RuntimeTaskResult) => {
       completedNativeResult = result;
+      aiUsage.observe(result.resultPayload.telemetry);
     };
     const onRuntimeEvent = routeReasoningEvents(observeReasoning, (event) => {
       observeWorkspaceProcess(event);
@@ -1839,6 +1882,7 @@ export async function handleDispatchDeliverFrame(input: {
         onInteractionRequest,
         onNativeTurnStarted,
         onNativeTurnCompleted,
+        onPublicProgress: reportPublicProgress,
         onRuntimeEvent,
         onPreview: (preview) => {
           emitDispatchPreviewFrame({
@@ -2035,9 +2079,9 @@ export async function handleDispatchDeliverFrame(input: {
       agentControllerConversationOverride ?? null;
     const buildCurrentResultPayload =
       async (): Promise<OpenMeldDaemonTaskResultPayload> => {
-        if (parsedTask.executionContext) {
-          await controllerTurnCompletion;
-        }
+        // A recorded CLI reply is a proposal, not the native turn's completion.
+        // Its final usage belongs in the same durable result submission.
+        await controllerTurnCompletion;
         const currentContextDelta =
           resolveDispatchContextDeltaFromRuntimeResult(
             runtimeResult.dispatchResult
@@ -2084,7 +2128,7 @@ export async function handleDispatchDeliverFrame(input: {
           observedAgentControllerConversation,
           plannedAgentControllerConversation,
         });
-        return {
+        return aiUsage.apply({
           ...resolveDispatchResultPayload({
             attemptId: parsedTask.attemptId,
             contextDelta: currentContextDelta,
@@ -2110,7 +2154,7 @@ export async function handleDispatchDeliverFrame(input: {
           }),
           executionContextId: parsedTask.executionContext?.id,
           executionContextCompletion,
-        };
+        });
       };
     resultPayload = await buildCurrentResultPayload();
     const replySettlement = await settleAgentReplyProposals({
@@ -2266,6 +2310,7 @@ export async function handleDispatchDeliverFrame(input: {
       ledgerRootPath: input.ledgerPaths.rootDirPath,
       workspaceProcesses,
       presenter: input.presenter,
+      reportPublicProgress,
     });
     reasoningStream.dispose();
     currentSocketRef.reasoningPreferenceListeners?.delete(clearReasoning);
@@ -2276,11 +2321,11 @@ export async function handleDispatchDeliverFrame(input: {
     pendingAgentInteractionRegistry.removeTask(parsedTask.taskId);
   }
 
-  resultPayload = {
+  resultPayload = aiUsage.apply({
     ...resultPayload,
     executionContextId: parsedTask.executionContext?.id,
     executionContextCompletion,
-  };
+  });
 
   emitDispatchRuntimeEvidenceTransition({
     currentSocketRef,
@@ -2985,6 +3030,7 @@ async function releaseDispatchTaskWorkspace(input: {
   ledgerRootPath: string;
   workspaceProcesses: Map<number | null, boolean>;
   presenter: Presenter;
+  reportPublicProgress: (update: string) => unknown;
 }): Promise<void> {
   const context = input.parsedTask.executionContext;
   if (!(input.workspaceUse && context)) {
@@ -3001,6 +3047,32 @@ async function releaseDispatchTaskWorkspace(input: {
         Boolean
       ),
     });
+    const audit = released.gitConfigAudit;
+    if (
+      audit &&
+      (audit.restoredSettings ||
+        audit.declaredHookInstallers ||
+        audit.unverifiedHookSettings)
+    ) {
+      const notes = [
+        ...(audit.restoredSettings
+          ? [
+              "OpenMeld restored Git settings changed by this task that could run commands or redirect the repository. Branch, remote, user, and submodule settings were kept.",
+            ]
+          : []),
+        ...(audit.declaredHookInstallers
+          ? [
+              "The repository's declared Git hook installer changed its hooks path. OpenMeld kept this setting.",
+            ]
+          : []),
+        ...(audit.unverifiedHookSettings
+          ? [
+              "This task changed the Git hooks path. OpenMeld kept it, but could not verify a repository-declared installer. Review it before running Git outside this task.",
+            ]
+          : []),
+      ];
+      input.reportPublicProgress(notes.join("\n\n"));
+    }
     emitRunLine({
       presenter: input.presenter,
       code: `daemon.run.workspace_${released.status}`,
@@ -3011,6 +3083,9 @@ async function releaseDispatchTaskWorkspace(input: {
       payload: { contextId: context.id, ...released },
     });
   } catch (error) {
+    input.reportPublicProgress(
+      "OpenMeld could not finish checking or cleaning up this task's workspace. The workspace was kept for review."
+    );
     emitRunLine({
       presenter: input.presenter,
       code: "daemon.run.workspace_retained",
@@ -3091,7 +3166,14 @@ async function resolveDispatchComputerFileAccess(input: {
       transportMode: input.parsedTask.transportMode,
     });
     if (!verification.supported) {
-      throw new Error("execution_context.file_access_unverified");
+      throw new Error(
+        verification.reasonCode ===
+          "computer.file_access.controller_unsupported" &&
+          input.routeConfig?.agentControllerPermissionMode ===
+            "codex:customConfig"
+          ? "execution_context.custom_config_file_access_unverified"
+          : "execution_context.file_access_unverified"
+      );
     }
     return boundary;
   }
@@ -4888,6 +4970,9 @@ async function runDispatchRuntimeExecution(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
+  onPublicProgress?: (
+    update: string
+  ) => DispatchPublicProgressResult | Promise<DispatchPublicProgressResult>;
   onPreview?: Parameters<typeof runRuntimeTask>[0]["onPreview"];
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   parsedTask: ParsedDispatchTask;
@@ -4909,9 +4994,27 @@ async function runDispatchRuntimeExecution(input: {
     streamingMode:
       input.streamingModeOverride ?? input.parsedTask.streamingMode,
   });
+  const dispatchRuntimeEnv = { ...process.env, ...route.env };
   const spaceActionTools = route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
-    ? createDispatchSpaceTools({ env: { ...process.env, ...route.env } })
+    ? createDispatchSpaceTools({
+        env: dispatchRuntimeEnv,
+        ...(input.onPublicProgress
+          ? { reportProgress: input.onPublicProgress }
+          : {}),
+      })
     : undefined;
+  const progressRelay =
+    input.onPublicProgress &&
+    route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+      ? startDispatchSpaceProgressRelay({
+          context:
+            readDispatchSpaceActionContextForReceiptFromEnv(dispatchRuntimeEnv),
+          contextPath: route.env[
+            OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV
+          ] as string,
+          reportProgress: input.onPublicProgress,
+        })
+      : null;
   try {
     await input.onNativeTurnStarted();
     const result = await runRuntimeTask({
@@ -4943,6 +5046,7 @@ async function runDispatchRuntimeExecution(input: {
     input.onNativeTurnCompleted(result);
     return result;
   } finally {
+    await progressRelay?.close();
     spaceActionTools?.close();
   }
 }

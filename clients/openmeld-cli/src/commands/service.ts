@@ -179,6 +179,7 @@ import {
 } from "../runtime/cli-entry-command";
 import { emitCliJsonEnvelope } from "../runtime/cli-json-output";
 import { type RuntimeContext, resolveRuntimeContext } from "../runtime/context";
+import { assertDispatchOwnedRuntimeServiceMutationAllowed } from "../runtime/dispatch-owned-runtime";
 import { isBinaryDistribution } from "../runtime/distribution";
 import { canUseInteractivePrompts } from "../runtime/interaction";
 import { createPresenter } from "../runtime/presenter/index";
@@ -537,6 +538,9 @@ export async function runDaemonInstall(
   input: DaemonBaseInput,
   options: DaemonInstallInternalOptions = {}
 ): Promise<void> {
+  assertDispatchOwnedRuntimeServiceMutationAllowed({
+    commandLabel: "openmeld service install",
+  });
   const runtime = await resolveRuntimeContext({
     view: input.view,
   });
@@ -715,6 +719,9 @@ export async function runDaemonUninstall(
   input: DaemonBaseInput,
   options: DaemonUninstallInternalOptions = {}
 ): Promise<DaemonInteractiveCommandResult> {
+  assertDispatchOwnedRuntimeServiceMutationAllowed({
+    commandLabel: "openmeld service uninstall",
+  });
   const runtime = await resolveRuntimeContext({
     view: input.view,
   });
@@ -843,6 +850,9 @@ export async function runDaemonReinstall(
   const displayAction = normalizeDaemonServiceMaintenanceAction(
     input.displayAction
   );
+  assertDispatchOwnedRuntimeServiceMutationAllowed({
+    commandLabel: formatDaemonServiceMaintenanceCommand(displayAction),
+  });
   const runtime = await resolveRuntimeContext({
     profile: input.profile,
     view: input.view,
@@ -2406,6 +2416,9 @@ export async function runDaemonStop(
   input: DaemonStopInput,
   internal: { completedControlledShutdownOwnerPid?: number } = {}
 ): Promise<SharedDaemonStopResult> {
+  assertDispatchOwnedRuntimeServiceMutationAllowed({
+    commandLabel: "openmeld service stop",
+  });
   const runtime = await resolveRuntimeContext({
     view: input.view,
   });
@@ -2479,6 +2492,9 @@ export async function runDaemonAutostart(
   enabled: boolean;
   serviceManagerStatus: Awaited<ReturnType<DaemonServiceManager["status"]>>;
 }> {
+  assertDispatchOwnedRuntimeServiceMutationAllowed({
+    commandLabel: `openmeld service autostart ${input.action}`,
+  });
   const runtime = await resolveRuntimeContext({
     view: input.view,
   });
@@ -4433,7 +4449,7 @@ async function runSystemServiceManager(input: {
       code: "daemon.service.start",
       progress: input.serviceProgress,
       spinner: startSpinner,
-      text: "Starting OpenMeld Service with macOS...",
+      text: "Starting OpenMeld Service...",
     });
     const startResult = await runDaemonServiceManagerAction({
       action: "start",
@@ -4457,7 +4473,7 @@ async function runSystemServiceManager(input: {
               code: "daemon.service.start",
               progress: input.serviceProgress,
               spinner: startSpinner,
-              text: "Starting OpenMeld Service with macOS...",
+              text: "Starting OpenMeld Service...",
             });
           },
         }),

@@ -11,7 +11,7 @@ describe("Desktop browser destinations", () => {
     expect(isDesktopAppHref("/o/team/agents?profileId=agent-1#activity")).toBe(
       true
     );
-    expect(isDesktopAppHref("/spaces/space-1?signalId=signal-1")).toBe(true);
+    expect(isDesktopAppHref("/spaces/space-1?signalId=signal-1")).toBe(false);
     expect(isDesktopAppHref("/file-preview?spaceId=space-1")).toBe(true);
     expect(isDesktopAppHref("/api/oauth/start")).toBe(false);
     expect(isDesktopAppHref("//evil.example/o/team")).toBe(false);

@@ -2,6 +2,208 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "model-new-badge-refresh",
+      "title": "Clearer model labels and another Center Agent option",
+      "kind": "improved",
+      "areas": [
+        "agents",
+        "models",
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-01",
+      "release": "v0.3.233",
+      "evidence": [
+        "pr:1411",
+        "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575",
+        "workflow:36831389174"
+      ],
+      "body": "Model selectors show New for the latest reviewed releases, including GPT-6.1\nSol and Claude Sonnet 5.5. Older models such as GLM 5.3 Flash no longer carry\nthe label. The CLI's offline catalog also drops its old GLM label.\n\nCenter Agents and personal Remote Agents gain GPT-6 Astra (Pro mode) as an\nadditional option. GPT-6.1 Sol (Pro mode) and GPT-6 Astra (Pro mode) are labeled\nas modes of their underlying models. Existing selections and defaults stay the\nsame."
+    },
+    {
+      "id": "desktop-october-release",
+      "title": "Desktop 0.1.15 for Mac and Windows preview",
+      "kind": "improved",
+      "areas": [
+        "desktop",
+        "windows"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-01",
+      "release": "v0.3.233",
+      "evidence": [
+        "pr:1414",
+        "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575",
+        "workflow:36828214503",
+        "artifact:sha256:5e6df8f68fc4222f6f77237942c1258d3a7d124801e99761c35f85359ffb73cb",
+        "artifact:sha256:924c9bd6d5168f08d9ad7f5f8078a10a144644165b2de6cd80243aad51c75d8b"
+      ],
+      "body": "Desktop 0.1.15 is available for Apple silicon Macs and as an internal Windows\nx64 preview. Both include the latest Space, Inbox, and Team interface updates.\nOpenMeld CLI and Service 0.3.233 are also available.\n\nThe Mac download is signed and notarized. An installed 0.1.14 app was upgraded\nto 0.1.15 through its updater and restarted successfully.\n\nThe Windows installer is unsigned and has no automatic updates. Native package\nand runtime checks passed; installed Windows GUI acceptance remains unverified.\nAn existing PowerShell task-host compatibility fixture still times out.\n\nDownload [Mac Desktop](https://openmeld.ai/desktop?platform=macos-arm64) or the\n[Windows x64 internal preview](https://openmeld.ai/desktop?platform=windows-x64)."
+    },
+    {
+      "id": "hosted-agent-prompt-caching",
+      "title": "Enable prompt caching for supported hosted models",
+      "kind": "fixed",
+      "areas": [
+        "remote-agent",
+        "center-agent"
+      ],
+      "audiences": [
+        "admins",
+        "operators"
+      ],
+      "publishedAt": "2026-10-01",
+      "release": "v0.3.233",
+      "evidence": [
+        "pr:1413",
+        "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575",
+        "workflow:36830656160"
+      ],
+      "body": "Hosted Agents using Claude or supported Alibaba models can reuse identical\ninstructions, tool definitions, and conversation context through prompt caching,\nreducing repeated input costs while keeping the selected model and full context.\nModels with automatic caching keep their existing behavior. Savings depend on\nprovider cache hits."
+    },
+    {
+      "id": "local-agent-usage-coverage",
+      "title": "More complete local agent usage",
+      "kind": "improved",
+      "areas": [
+        "computers",
+        "local-agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-01",
+      "release": "v0.3.233",
+      "evidence": [
+        "pr:1412",
+        "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575",
+        "workflow:36831389174"
+      ],
+      "body": "Computers can show usage from supported Claude Code accounts, Cursor CLI logins,\nand OpenRouter accounts connected through OpenCode. Grok Build correctly shows\nunused capacity when its billing response omits a zero value. Missing usage now\ndistinguishes sign-in requirements, unsupported account capabilities, unreported\nlimits, and failed refreshes.\n\nUsage availability still depends on the account and provider. Observational\nsources show capacity without preventing otherwise ready agents from starting."
+    },
+    {
+      "id": "october-agent-models",
+      "title": "More models for local and hosted agents",
+      "kind": "new",
+      "areas": [
+        "agents",
+        "models",
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-01",
+      "release": "v0.3.233",
+      "evidence": [
+        "pr:1410",
+        "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575",
+        "workflow:36829935507"
+      ],
+      "body": "You can choose Claude Sonnet 5.5 for Claude Code and Cursor Agent Profiles,\nand Claude Opus 5.5 for Cursor. OpenCode adds more GPT-6 choices and Fast\nvariants, along with LongCat 2.5 Preview Free and Space Bunny Free.\n\nCenter Agents and personal Remote Agents gain Claude Sonnet 5.5, GPT-6.1 Sol,\nand GPT-6.1 Sol Pro. Availability depends on the selected channel, installation,\nand account access. Existing model choices and defaults stay the same."
+    },
+    {
+      "id": "product-context-menus",
+      "title": "Right-click shortcuts across Inbox, Spaces, and Team",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "desktop",
+        "spaces",
+        "inbox",
+        "team"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-01",
+      "release": "v0.3.233",
+      "evidence": [
+        "pr:1408",
+        "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575",
+        "workflow:36827414468"
+      ],
+      "body": "Right-click conversations, messages, Inbox items, and Team resources to open\ntheir common actions. Pin conversations, copy links, mark Inbox items as read,\nstar people, and reach existing Agent, Skill, and file actions from the item\nyou are working with. Menus use the same actions and permissions as their\nexisting controls, with consistent pointer and keyboard behavior."
+    },
+    {
+      "id": "fluid-sidebar-context-menu",
+      "title": "Smoother sidebar display menu",
+      "kind": "improved",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-01",
+      "release": "v0.3.233",
+      "evidence": [
+        "pr:1406",
+        "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575",
+        "workflow:36827414468"
+      ],
+      "body": "The sidebar display menu uses Fluid Hover to keep one highlight under the\nnearest choice as you move the pointer. Its padding follows the highlighted\nchoice when clicked. Keyboard navigation and reduced motion remain supported."
+    },
+    {
+      "id": "codex-default-gpt-6-1-sol-medium",
+      "title": "Start Codex Agents with GPT-6.1 Sol",
+      "kind": "improved",
+      "areas": [
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-01",
+      "release": "v0.3.233",
+      "evidence": [
+        "pr:1403",
+        "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575",
+        "workflow:36829935507"
+      ],
+      "body": "New Codex Agents start with GPT-6.1 Sol and Medium reasoning unless you have\nsaved a different creation preference. Existing Agent model selections stay\nunchanged."
+    },
+    {
+      "id": "sidebar-display-preference",
+      "title": "Choose how your sidebar appears",
+      "kind": "new",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-30",
+      "evidence": [
+        "pr:1401",
+        "commit:948963780e806e683d396267097042864c7fbe1d",
+        "workflow:36723295210"
+      ],
+      "body": "In OpenMeld Web, right-click the main sidebar to choose Icons and text or\nIcons only. The same choices appear as preview cards in\nSettings → Appearance → Sidebar. Your\nchoice is saved in this browser and stays in sync across tabs. Icons only makes\nthe sidebar narrower to give your work more room."
+    },
+    {
+      "id": "space-message-addressing-without-duplicates",
+      "title": "Clearer Agent mentions in Spaces",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-30",
+      "evidence": [
+        "pr:1401",
+        "commit:948963780e806e683d396267097042864c7fbe1d",
+        "workflow:36723295210"
+      ],
+      "body": "In OpenMeld Web, Space messages and threads show Agent Wake and Reference\nrelations in their message tokens without repeating the same names and\nrelations in a separate row of badges."
+    },
+    {
       "id": "center-agent-new-chat-and-titles",
       "title": "Start fresh Center Agent chats with clearer conversations",
       "kind": "improved",

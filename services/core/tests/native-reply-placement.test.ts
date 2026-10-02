@@ -59,6 +59,12 @@ describe("Space-owned native reply placement", () => {
       expect(result.threadContext).toBeNull();
     } else {
       expect(result.threadContext?.rootSignalId).toBe("source");
+      const sibling = await stub.rpcResolveNativeReplyPlacement({
+        ...request,
+        dispatchId: "dispatch-sibling",
+        profileId: "agt_44444444-4444-4444-8444-444444444444",
+      });
+      expect(sibling.threadContext).toEqual(result.threadContext);
     }
     expect(await stub.rpcResolveNativeReplyPlacement(request)).toEqual(result);
     await runInDurableObject(stub, async (instance) => {

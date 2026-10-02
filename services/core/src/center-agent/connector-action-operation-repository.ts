@@ -7,6 +7,15 @@ import type {
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-agent-repository";
 
+/** The pinned OpenConnector reserves an action before execution for 24 hours. */
+export function resolveConnectorActionReplayWindowRemainingMs(
+  createdAtMs: number,
+  nowMs: number
+): number {
+  const elapsedMs = nowMs - createdAtMs;
+  return elapsedMs < 0 ? 0 : Math.max(0, 24 * 60 * 60 * 1000 - elapsedMs);
+}
+
 export type CenterAgentConnectorActionOperationScope = {
   actorProfileId: string;
   operationId: string;
@@ -81,8 +90,16 @@ type CenterAgentConnectorActionOperationAttributionRow = {
 
 type CenterAgentConnectorActionOperationProvenance = {
   attribution: CenterAgentAttribution;
+  sourceNativeDeliveryId: string | null;
   sourceSpaceId: string | null;
 };
+
+function auditSourceNativeDeliveryId(
+  deliveryId: string | null | undefined,
+  requesterDeliveryId: string | null
+): string | null {
+  return deliveryId ?? requesterDeliveryId;
+}
 
 export function buildCenterAgentConnectorActionOperationScope(input: {
   actorProfileId: string;
@@ -96,6 +113,50 @@ export function buildCenterAgentConnectorActionOperationScope(input: {
     organizationId: input.organizationId,
     ...resolveRequesterAttribution(input.requester),
   };
+}
+
+/** Bounded evidence for continuation, never a new operation or execution owner. */
+export async function listConnectorOperationReceiptsForContinuation(input: {
+  db: D1Database;
+  organizationId: string;
+  actorProfileId: string;
+  representedUserId: string;
+  sourceSpaceId: string;
+  fromMs: number;
+  throughMs: number;
+}): Promise<
+  {
+    operationId: string;
+    actionId: string;
+    status: CenterAgentConnectorActionOperationStatus;
+  }[]
+> {
+  const rows = await input.db
+    .prepare(`
+    SELECT operation.operation_id AS operationId,
+      operation.action_id AS actionId, operation.status AS status
+    FROM center_agent_connector_action_operations operation
+    JOIN center_agent_audit_journal audit ON audit.id = operation.id || ':attempted'
+    WHERE operation.organization_id = ? AND operation.actor_profile_id = ?
+      AND operation.represented_user_id = ? AND audit.source_space_id = ?
+      AND operation.created_at_ms >= ? AND operation.created_at_ms <= ?
+    ORDER BY operation.created_at_ms, operation.id
+    LIMIT 101
+  `)
+    .bind(
+      input.organizationId,
+      input.actorProfileId,
+      input.representedUserId,
+      input.sourceSpaceId,
+      input.fromMs,
+      input.throughMs
+    )
+    .all<{
+      operationId: string;
+      actionId: string;
+      status: CenterAgentConnectorActionOperationStatus;
+    }>();
+  return rows.results;
 }
 
 export async function readCenterAgentConnectorActionOperationForRecovery(input: {
@@ -165,6 +226,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   requester: CenterAgentConnectorActionRequester;
   requestSignature: string;
   service: string;
+  sourceNativeDeliveryId?: string | null;
   sourceSpaceId?: string | null;
 }): Promise<{
   attribution: CenterAgentAttribution;
@@ -224,7 +286,10 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         nowMs: input.nowMs,
         organizationId: input.organizationId,
         resource: operationAuditResource(input),
-        sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
+        sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+          input.sourceNativeDeliveryId,
+          scope.sourceNativeDeliveryId
+        ),
         sourceSpaceId: input.sourceSpaceId ?? null,
       }),
     ]);
@@ -278,7 +343,10 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       operationRecordId: existing.id,
       organizationId: input.organizationId,
       resource: operationAuditResource(input),
-      sourceNativeDeliveryId: existing.sourceNativeDeliveryId,
+      sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+        existingProvenance?.sourceNativeDeliveryId,
+        existing.sourceNativeDeliveryId
+      ),
       sourceSpaceId: existingProvenance?.sourceSpaceId ?? null,
     }),
     prepareFinalizeOperationStatement({
@@ -598,11 +666,11 @@ async function requireOperationProvenance(input: {
         actorProfileId: row.actor_profile_id,
         onBehalfOf: null,
       },
+      sourceNativeDeliveryId: row.source_native_delivery_id,
       sourceSpaceId: row.source_space_id,
     };
   }
   if (
-    row.source_native_delivery_id !== null ||
     !row.on_behalf_of_profile_id ||
     row.on_behalf_of_user_id !== input.operation.representedUserId ||
     !row.on_behalf_of_display_name
@@ -620,6 +688,7 @@ async function requireOperationProvenance(input: {
         userId: row.on_behalf_of_user_id,
       },
     },
+    sourceNativeDeliveryId: row.source_native_delivery_id,
     sourceSpaceId: row.source_space_id,
   };
 }

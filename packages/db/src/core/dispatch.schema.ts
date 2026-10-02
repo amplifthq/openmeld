@@ -38,6 +38,10 @@ import {
   centerAgentWakePublications,
 } from "./agent-task-coordination.schema.ts";
 import {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
+} from "./ai-usage.schema.ts";
+import {
   centerAgentAttentionRequests,
   centerAgentAuditJournal,
   centerAgentConnectorActionOperations,
@@ -116,6 +120,8 @@ import {
 import {
   centerAgentOrganizationSkillOperations,
   organizationSkillActivations,
+  organizationSkillImportBatches,
+  organizationSkillImportOperations,
   organizationSkillMaintainers,
   organizationSkillReleases,
   organizationSkills,
@@ -381,6 +387,9 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     triggerMessageId: text("trigger_message_id").notNull(),
     sourceClientMessageId: text("source_client_message_id"),
     triggerText: text("trigger_text"),
+    // Private source proof / selected account for Plugin continuation. The
+    // native delivery retains sole ownership of execution and retention.
+    pluginConnectionMetadataJson: text("plugin_connection_metadata_json"),
     routineRunId: text("routine_run_id"),
     routineNameSnapshot: text("routine_name_snapshot"),
     workerSubmitRequestJson: text("worker_submit_request_json"),
@@ -418,6 +427,9 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
       "provider_progress_claim_expires_at_ms"
     ),
     providerProgressCardId: text("provider_progress_card_id"),
+    providerProgressCardHistoryJson: text(
+      "provider_progress_card_history_json"
+    ),
     providerProgressMessageId: text("provider_progress_message_id"),
     providerProgressPublicationIdempotencyKey: text(
       "provider_progress_publication_idempotency_key"
@@ -471,11 +483,16 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
     submittedAtMs: integer("submitted_at_ms"),
+    admissionAttemptCount: integer("admission_attempt_count")
+      .notNull()
+      .default(1),
+    admissionRetryDueAtMs: integer("admission_retry_due_at_ms"),
     acceptedAtMs: integer("accepted_at_ms"),
     callbackReceivedAtMs: integer("callback_received_at_ms"),
     completedAtMs: integer("completed_at_ms"),
     deadlineProbeEnqueuedAtMs: integer("deadline_probe_enqueued_at_ms"),
     acceptedProbeNextDueAtMs: integer("accepted_probe_next_due_at_ms"),
+    executionReconciliationJson: text("execution_reconciliation_json"),
     retiredDeadlineFailureCode: text("retired_deadline_failure_code"),
     retiredDeadlineFailurePublishedSignalId: text(
       "retired_deadline_failure_published_signal_id"
@@ -1661,6 +1678,8 @@ export const agentActivityExecutionLinks = sqliteTable(
 );
 
 export const coreSchema = {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
   spaceInvitations,
   organizationJoinRequests,
   inboxCenterAgentReadWatermarks,
@@ -1716,6 +1735,8 @@ export const coreSchema = {
   organizationSkillMaintainers,
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
+  organizationSkillImportOperations,
+  organizationSkillImportBatches,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
   organizationMemberPresenceSessions,

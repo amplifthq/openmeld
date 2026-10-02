@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "grok-build",
-  "observedAt": "2026-09-22T13:24:28.827Z",
-  "fingerprint": "40725440df38e2e5473747055a8e90739f4f3f19bb678e65eb5c1269cfe57091",
+  "observedAt": "2026-09-30T01:12:59.118Z",
+  "fingerprint": "f08993bb867663c40b4b5eb4d0df2220c92d30a49f8b07995e044559f3226100",
   "sources": [
     {
       "url": "https://docs.x.ai/build/overview.md",
@@ -66,7 +66,8 @@
                 "output": 12,
                 "cache_read": 0.6
               }
-            }
+            },
+            "canonical_model_id": "xai/grok-4.5"
           },
           "grok-4.6": {
             "id": "grok-4.6",
@@ -116,7 +117,8 @@
                 "output": 12,
                 "cache_read": 1
               }
-            }
+            },
+            "canonical_model_id": "xai/grok-4.6"
           },
           "grok-4.7": {
             "id": "grok-4.7",
@@ -166,7 +168,8 @@
                 "output": 12,
                 "cache_read": 1
               }
-            }
+            },
+            "canonical_model_id": "xai/grok-4.7"
           }
         }
       }

@@ -1,3 +1,4 @@
+import type { MessageChannelCardHistory } from "./message-channel-card-history";
 import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
@@ -282,6 +283,7 @@ export async function markRemoteAgentMessageChannelProviderCardUnavailable(input
 
 export async function claimRemoteAgentMessageChannelProviderCardUpdate(
   input: ProviderProgressClaimInput & {
+    cardHistory?: MessageChannelCardHistory;
     providerPublicationIdempotencyKey: string;
     sequence: number;
   }
@@ -292,6 +294,9 @@ export async function claimRemoteAgentMessageChannelProviderCardUpdate(
         UPDATE openMeldRemoteAgent_native_delivery_ledger
         SET
           provider_progress_state = 'update_claimed',
+          provider_progress_card_history_json = CASE
+            WHEN provider_progress_state = 'sent' THEN COALESCE(?, provider_progress_card_history_json)
+            ELSE provider_progress_card_history_json END,
           provider_progress_claim_id = ?,
           provider_progress_claimed_at_ms = ?,
           provider_progress_claim_expires_at_ms = ?,
@@ -323,6 +328,7 @@ export async function claimRemoteAgentMessageChannelProviderCardUpdate(
       `
     )
     .bind(
+      input.cardHistory ? JSON.stringify(input.cardHistory) : null,
       input.claimId,
       input.nowMs,
       input.claimExpiresAtMs,
@@ -340,6 +346,8 @@ export async function claimRemoteAgentMessageChannelProviderCardUpdate(
 }
 
 export async function markRemoteAgentMessageChannelProviderCardUpdatePublished(input: {
+  cardHistory?: MessageChannelCardHistory;
+  sourceOffset?: number;
   claimId: string;
   db: D1Database;
   idempotencyKey: string;
@@ -357,6 +365,8 @@ export async function markRemoteAgentMessageChannelProviderCardUpdatePublished(i
           provider_progress_claimed_at_ms = NULL,
           provider_progress_claim_expires_at_ms = NULL,
           provider_progress_sequence = ?,
+          provider_progress_card_history_json = COALESCE(?, provider_progress_card_history_json),
+          provider_progress_source_offset = COALESCE(?, provider_progress_source_offset),
           provider_progress_pending_sequence = NULL,
           provider_progress_failure_code = NULL,
           updated_at_ms = ?
@@ -377,6 +387,8 @@ export async function markRemoteAgentMessageChannelProviderCardUpdatePublished(i
     )
     .bind(
       input.sequence,
+      input.cardHistory ? JSON.stringify(input.cardHistory) : null,
+      input.sourceOffset ?? null,
       input.nowMs,
       input.idempotencyKey,
       input.claimId,
@@ -479,6 +491,8 @@ export async function markRemoteAgentMessageChannelProviderCardUpdateOutcomeUnkn
 
 export async function claimRemoteAgentMessageChannelProviderCardRolloverFinalize(
   input: ProviderProgressClaimInput & {
+    cardHistory?: MessageChannelCardHistory;
+    expectedSourceOffset?: number;
     finalPublicationClaimId?: string | null;
     pendingSourceOffset: number;
     pendingTextHash: string;
@@ -494,6 +508,9 @@ export async function claimRemoteAgentMessageChannelProviderCardRolloverFinalize
         UPDATE openMeldRemoteAgent_native_delivery_ledger
         SET
           provider_progress_state = 'rollover_finalize_claimed',
+          provider_progress_card_history_json = CASE
+            WHEN provider_progress_state = 'sent' THEN COALESCE(?, provider_progress_card_history_json)
+            ELSE provider_progress_card_history_json END,
           provider_progress_claim_id = ?,
           provider_progress_claimed_at_ms = CASE
             WHEN provider_progress_state = 'sent' THEN ?
@@ -517,7 +534,8 @@ export async function claimRemoteAgentMessageChannelProviderCardRolloverFinalize
             (
               provider_progress_state = 'sent'
               AND provider_progress_sequence <= ?
-              AND provider_progress_source_offset < ?
+              AND (provider_progress_source_offset < ? OR
+                (? IS NOT NULL AND provider_progress_source_offset = ?))
               AND provider_progress_pending_sequence IS NULL
               AND provider_progress_pending_source_offset IS NULL
               AND provider_progress_pending_text_hash IS NULL
@@ -548,6 +566,7 @@ export async function claimRemoteAgentMessageChannelProviderCardRolloverFinalize
       `
     )
     .bind(
+      input.cardHistory ? JSON.stringify(input.cardHistory) : null,
       input.claimId,
       input.nowMs,
       input.claimExpiresAtMs,
@@ -559,6 +578,8 @@ export async function claimRemoteAgentMessageChannelProviderCardRolloverFinalize
       input.idempotencyKey,
       input.sequence,
       input.pendingSourceOffset,
+      input.expectedSourceOffset ?? null,
+      input.expectedSourceOffset ?? null,
       input.claimId,
       input.providerPublicationIdempotencyKey,
       input.sequence,
@@ -989,6 +1010,7 @@ export async function markRemoteAgentMessageChannelProviderCardRolloverSendExpir
 }
 
 export async function markRemoteAgentMessageChannelProviderCardRolloverSent(input: {
+  cardHistory?: MessageChannelCardHistory;
   claimId: string;
   db: D1Database;
   idempotencyKey: string;
@@ -1009,6 +1031,7 @@ export async function markRemoteAgentMessageChannelProviderCardRolloverSent(inpu
           provider_progress_claimed_at_ms = NULL,
           provider_progress_claim_expires_at_ms = NULL,
           provider_progress_card_id = provider_progress_pending_card_id,
+          provider_progress_card_history_json = COALESCE(?, provider_progress_card_history_json),
           provider_progress_publication_idempotency_key = NULL,
           provider_progress_sequence = provider_progress_pending_sequence,
           provider_progress_pending_sequence = NULL,
@@ -1041,6 +1064,7 @@ export async function markRemoteAgentMessageChannelProviderCardRolloverSent(inpu
       `
     )
     .bind(
+      input.cardHistory ? JSON.stringify(input.cardHistory) : null,
       input.nowMs,
       input.idempotencyKey,
       input.claimId,

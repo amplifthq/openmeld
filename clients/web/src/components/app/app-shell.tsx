@@ -17,6 +17,7 @@ import {
 	resetAccountScopedQueriesAfterAuthChange,
 	subscribeToAccountAuthChanges,
 } from "#/query/auth-boundary";
+import { AgentAvatarProfilesProvider } from "#/query/profiles/agent-avatar-context";
 import {
 	type AppShellAccount,
 	AppShellAccountContext,
@@ -52,55 +53,60 @@ export function AppShell(input: {
 		<AppShellAccountContext.Provider value={input.account}>
 			<AccountAuthChangeListener />
 			<AppOrganizationProvider scope={input.organizationScope}>
-				<InboxBrowserTab
-					key={`${input.storageScope}:${input.organizationScope.currentOrganization.id}`}
+				<AgentAvatarProfilesProvider
 					organizationId={input.organizationScope.currentOrganization.id}
-				/>
-				<HumanPresenceProvider>
-					<WebMemberActivityReporter
-						currentUserId={input.organizationScope.currentUserId}
+					ownerAccountId={input.organizationScope.currentUserId}
+				>
+					<InboxBrowserTab
+						key={`${input.storageScope}:${input.organizationScope.currentOrganization.id}`}
 						organizationId={input.organizationScope.currentOrganization.id}
-						spaceId={activeSpaceId}
 					/>
-					<StartFlowStateProvider storageScope={input.storageScope}>
-						<CurrentComputerProvider>
-							<InboxVisibleConversationProvider>
-								<AppReadinessInvalidationListener
-									organizationId={
-										input.organizationScope.currentOrganization.id
-									}
-									storageScope={input.storageScope}
-								/>
-								<InboxNotificationListener
-									organizationId={
-										input.organizationScope.currentOrganization.id
-									}
-									organizationSlug={
-										input.organizationScope.currentOrganization.slug
-									}
-									userId={input.organizationScope.currentUserId}
-								/>
-								<OnboardingEntryGate
-									currentOrganization={
-										input.organizationScope.currentOrganization
-									}
-									currentSection={currentSection}
-									hasExplicitSpaceDestination={Boolean(activeSpaceId)}
-									organizations={input.organizationScope.organizations}
-									storageScope={input.storageScope}
-								>
-									{currentSection === "space" && activeSpaceId ? (
-										<InboxBrowserNotificationPrompt
-											userId={input.organizationScope.currentUserId}
-										/>
-									) : null}
-									<AppShellScaffold currentSection={currentSection} />
-									<AppSettingsDialog />
-								</OnboardingEntryGate>
-							</InboxVisibleConversationProvider>
-						</CurrentComputerProvider>
-					</StartFlowStateProvider>
-				</HumanPresenceProvider>
+					<HumanPresenceProvider>
+						<WebMemberActivityReporter
+							currentUserId={input.organizationScope.currentUserId}
+							organizationId={input.organizationScope.currentOrganization.id}
+							spaceId={activeSpaceId}
+						/>
+						<StartFlowStateProvider storageScope={input.storageScope}>
+							<CurrentComputerProvider>
+								<InboxVisibleConversationProvider>
+									<AppReadinessInvalidationListener
+										organizationId={
+											input.organizationScope.currentOrganization.id
+										}
+										storageScope={input.storageScope}
+									/>
+									<InboxNotificationListener
+										organizationId={
+											input.organizationScope.currentOrganization.id
+										}
+										organizationSlug={
+											input.organizationScope.currentOrganization.slug
+										}
+										userId={input.organizationScope.currentUserId}
+									/>
+									<OnboardingEntryGate
+										currentOrganization={
+											input.organizationScope.currentOrganization
+										}
+										currentSection={currentSection}
+										hasExplicitSpaceDestination={Boolean(activeSpaceId)}
+										organizations={input.organizationScope.organizations}
+										storageScope={input.storageScope}
+									>
+										{currentSection === "space" && activeSpaceId ? (
+											<InboxBrowserNotificationPrompt
+												userId={input.organizationScope.currentUserId}
+											/>
+										) : null}
+										<AppShellScaffold currentSection={currentSection} />
+										<AppSettingsDialog />
+									</OnboardingEntryGate>
+								</InboxVisibleConversationProvider>
+							</CurrentComputerProvider>
+						</StartFlowStateProvider>
+					</HumanPresenceProvider>
+				</AgentAvatarProfilesProvider>
 			</AppOrganizationProvider>
 		</AppShellAccountContext.Provider>
 	);

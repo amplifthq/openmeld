@@ -199,6 +199,7 @@ function workflowWithExistingInstance(input: {
     restart: input.restart,
     resume: vi.fn(),
     sendEvent: vi.fn(),
+    subscribe: vi.fn(),
     status: vi.fn().mockResolvedValue(input.status),
     terminate: vi.fn(),
     delete: vi.fn(),

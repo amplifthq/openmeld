@@ -5,6 +5,7 @@ import { access, open, realpath } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, extname, isAbsolute, join } from "node:path";
 import type {
+  AgentControllerInterfaceSnapshot,
   RuntimeAgentControllerLaunchCandidate,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
@@ -28,6 +29,7 @@ export type LaunchContractVerificationResult =
   | {
       errorMessage: string;
       failureKind: LaunchContractVerificationFailureKind;
+      failureReason?: AgentControllerInterfaceSnapshot["launch"]["failureReason"];
       ok: false;
     };
 
@@ -165,9 +167,17 @@ export async function verifyLaunchContractFiles(input: {
       ok: true,
     };
   } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : null;
+    let failureReason: AgentControllerInterfaceSnapshot["launch"]["failureReason"];
+    if (code === "ENOENT") {
+      failureReason = "installation_missing";
+    } else if (code === "EACCES" || code === "EPERM") {
+      failureReason = "installation_access_denied";
+    }
     return {
       errorMessage: toErrorMessage(error),
       failureKind: "completed_negative",
+      ...(failureReason ? { failureReason } : {}),
       ok: false,
     };
   }

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
-import {
-  describeFinalCandidateFailure,
-  shouldFailPublisherJob,
-} from "./final-candidate-output.mjs";
+import { FINAL_CANDIDATE_RUNNER_CHECK_NAME } from "./final-candidate-hosted-disposition.mjs";
+import { describeFinalCandidateFailure } from "./final-candidate-output.mjs";
 import { createFinalCandidatePlan } from "./final-candidate-policy.mjs";
 import { assertEvidenceMatchesExecution } from "./final-candidate-publisher.mjs";
+import { selectSkippedCheckRun } from "./final-candidate-state.mjs";
 
 const BASE_SHA = "1".repeat(40);
 const HEAD_SHA = "2".repeat(40);
@@ -18,13 +18,19 @@ const TRUSTED_PLAN_MISMATCH_PATTERN =
   /does not match the plan recomputed by trusted current main/u;
 const CONTROL_REFUSE_STATUS_PATTERN =
   /Control drifted @ 222222222222 on 111111111111; use local explicit bootstrap/u;
+const FAILED_CHECK_PATTERN = /cannot contain a failed check/u;
+const MISSING_SKIPPED_RUNNER_PATTERN =
+  /Expected one skipped Final Candidate Runner check/u;
 const PRODUCT_FAILURE_STATUS_PATTERN =
   /Failed @ 222222222222 on 111111111111; inspect evidence/u;
 const trustedPlan = createFinalCandidatePlan({
   baseSha: BASE_SHA,
   branchName: "codex/malicious-candidate",
   candidateKind: "pull-request",
-  changedPaths: ["scripts/release/production-scope-lease.mjs"],
+  changedPaths: [
+    "scripts/release/production-scope-lease.mjs",
+    "pnpm-lock.yaml",
+  ],
   confidence: "standard",
   headSha: HEAD_SHA,
   mode: "remote",
@@ -75,7 +81,7 @@ test("omitted or rewritten selected checks cannot publish green", () => {
   );
 });
 
-test("control refuse publishes one honest status instead of a second product-test failure", () => {
+test("legacy control-refuse evidence still names the protected bootstrap path", () => {
   const evidence = createEvidence();
   const controlCheck = evidence.results.find(
     (result) => result.id === "trusted-control-entrypoints"
@@ -86,7 +92,6 @@ test("control refuse publishes one honest status instead of a second product-tes
   controlCheck.stderrTail =
     "Hosted Final Candidate cannot let the candidate rewrite its own test-control entrypoints.";
 
-  assert.equal(shouldFailPublisherJob(false, evidence), false);
   assert.match(
     describeFinalCandidateFailure(HEAD_SHA, BASE_SHA, evidence),
     CONTROL_REFUSE_STATUS_PATTERN
@@ -102,10 +107,42 @@ test("a product-test failure still fails the publisher job", () => {
   contracts.status = "failed";
   contracts.exitCode = 1;
 
-  assert.equal(shouldFailPublisherJob(false, evidence), true);
   assert.match(
     describeFinalCandidateFailure(HEAD_SHA, BASE_SHA, evidence),
     PRODUCT_FAILURE_STATUS_PATTERN
+  );
+  assert.throws(
+    () => assertEvidenceMatchesExecution(createInput(evidence)),
+    FAILED_CHECK_PATTERN
+  );
+});
+
+test("updates only the skipped Runner check from the current workflow run", () => {
+  const fixture = JSON.parse(
+    readFileSync(
+      new URL(
+        "./fixtures/github-final-candidate-check-runs.json",
+        import.meta.url
+      ),
+      "utf8"
+    )
+  );
+
+  const checkRun = selectSkippedCheckRun(fixture.response, {
+    checkName: FINAL_CANDIDATE_RUNNER_CHECK_NAME,
+    targetUrl: "https://github.com/amplifthq/openmeld/actions/runs/36658263159",
+  });
+
+  assert.equal(checkRun.id, 109_707_146_679);
+  assert.equal(checkRun.conclusion, "skipped");
+  assert.throws(
+    () =>
+      selectSkippedCheckRun(fixture.response, {
+        checkName: FINAL_CANDIDATE_RUNNER_CHECK_NAME,
+        targetUrl:
+          "https://github.com/amplifthq/openmeld/actions/runs/36658275713",
+      }),
+    MISSING_SKIPPED_RUNNER_PATTERN
   );
 });
 

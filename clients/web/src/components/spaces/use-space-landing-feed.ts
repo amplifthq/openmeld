@@ -16,9 +16,14 @@ import type {
 	SpaceThreadContext,
 	SpaceThreadSignalPlacement,
 } from "@openmeld/schemas/types";
-import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import {
+	type QueryClient,
+	replaceEqualDeep,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publishAgentReadinessInvalidationFrame } from "#/lib/agents/agent-readiness-invalidation-bus";
+import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import {
 	parseSpaceLiveMessage,
 	type SpaceLiveMessage,
@@ -686,15 +691,6 @@ export function useSpaceLandingFeed(input: {
 
 		const incoming = input.history.data?.envelopes ?? [];
 		confirmedCatchUpCursorRef.current ??= getLatestSignalEnvelopeId(incoming);
-		writeSpaceHistoryEnvelopesToCache({
-			envelopes: mergeSpaceTimelineEnvelopes({
-				current: incoming,
-				incoming: timelineEnvelopesRef.current,
-			}),
-			queryClient,
-			spaceId: input.spaceId,
-			openMeldProfileId: input.openMeldProfileId,
-		});
 		const newSignals =
 			timelineEnvelopesRef.current.length > 0
 				? listNewSignals({
@@ -702,10 +698,18 @@ export function useSpaceLandingFeed(input: {
 						incoming,
 					})
 				: [];
-		mergeIncomingSignals({
+		const mergedEnvelopes = mergeIncomingSignals({
 			currentRef: timelineEnvelopesRef,
 			incoming,
 			setState: setTimelineEnvelopes,
+		});
+		// Publish the same reconciliation to the feed and its history cache. Reversing
+		// merge precedence here swaps equal-revision snapshots on every cache update.
+		writeSpaceHistoryEnvelopesToCache({
+			envelopes: mergedEnvelopes,
+			queryClient,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.openMeldProfileId,
 		});
 		if (input.statusReady) {
 			scheduleRefetchesForSignals({
@@ -1861,10 +1865,31 @@ function mergeIncomingSignals(input: {
 	incoming: readonly SignalEnvelope[];
 	setState: (next: readonly SignalEnvelope[]) => void;
 }) {
-	const merged = mergeSpaceTimelineEnvelopes({
-		current: input.currentRef.current,
+	const current = input.currentRef.current;
+	const next = mergeSpaceTimelineEnvelopes({
+		current,
 		incoming: input.incoming,
 	});
+	// History may be rewrapped after cache writes; equivalent signals are not a state change.
+	const merged =
+		next.length === current.length ? replaceEqualDeep(current, next) : next;
+	if (merged === current) {
+		return current;
+	}
+	recordReactUpdate("space_timeline_write");
+	const currentControllerById = new Map(
+		current.map((signal) => [signal.id, signal.profile.agentControllerRef])
+	);
+	if (
+		merged.some(
+			(signal) =>
+				currentControllerById.has(signal.id) &&
+				currentControllerById.get(signal.id) !==
+					signal.profile.agentControllerRef
+		)
+	) {
+		recordReactUpdate("space_timeline_agent_controller_changed");
+	}
 	input.currentRef.current = merged;
 	input.setState(merged);
 	return merged;

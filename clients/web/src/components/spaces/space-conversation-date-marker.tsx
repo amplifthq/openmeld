@@ -54,7 +54,7 @@ export function SpaceConversationDateMarker(input: {
 	return (
 		<Marker
 			aria-label={`Messages from ${label}`}
-			className="h-12 py-2 max-lg:py-0.5"
+			className="h-12 gap-0 py-2 before:mr-0 after:ml-0 max-lg:py-0.5"
 			role="separator"
 			variant="separator"
 		>

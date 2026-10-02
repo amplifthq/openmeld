@@ -1,4 +1,5 @@
 import { userInfo } from "node:os";
+import { delimiter } from "node:path";
 import process from "node:process";
 import {
   normalizeCommandEnvironment,
@@ -19,6 +20,7 @@ import {
 import {
   OPENMELD_HOME_ENV_KEY,
   openMeldManagedVersionBinaryPath,
+  resolveOpenMeldRootDir,
 } from "../../config/paths";
 import { resolveCliSelfVersion } from "../../local-components/managed-install";
 import {
@@ -42,6 +44,8 @@ import type {
 
 const DEFAULT_LAUNCHD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const MACOS_SYSTEM_SHELL = "/bin/sh";
+const DISPATCH_SPACE_ACTION_PATH_PATTERN =
+  /[\\/]runtime[\\/]daemon[\\/]dispatch-space-actions[\\/][^\\/]+[\\/]bin$/u;
 const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
   "HOME",
   "PATH",
@@ -204,15 +208,30 @@ function buildSystemServiceEnvironment(): Record<string, string> {
     ) {
       continue;
     }
-    env[key] = sanitizeDaemonServiceEnvironmentValue(value);
+    env[key] =
+      key === "PATH"
+        ? stripDispatchSpaceActionCliShims(value)
+        : sanitizeDaemonServiceEnvironmentValue(value);
   }
   if (process.platform === "darwin") {
     env.PATH ??= DEFAULT_LAUNCHD_PATH;
+  }
+  if (process.platform === "win32") {
+    // Task ownership checks need the same lane root used to register the task.
+    // The published setup command intentionally leaves OPENMELD_HOME unset.
+    env[OPENMELD_HOME_ENV_KEY] ??= resolveOpenMeldRootDir();
   }
   env.HOME ??= userInfo().homedir;
   env.USER ??= env.LOGNAME ?? runtimeUser;
   env.LOGNAME ??= env.USER;
   return env;
+}
+
+function stripDispatchSpaceActionCliShims(value: string): string {
+  return value
+    .split(delimiter)
+    .filter((entry) => !DISPATCH_SPACE_ACTION_PATH_PATTERN.test(entry))
+    .join(delimiter);
 }
 
 function isDaemonServiceEnvironmentKey(key: string): boolean {

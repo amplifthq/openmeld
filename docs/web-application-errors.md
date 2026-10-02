@@ -16,7 +16,15 @@ not a product Audit Log or an execution authority.
    detect browser failures.
 3. Inspect `report.source`, `report.error.code`, `report.routeId`, and
    `report.error.frames`. Route IDs are code templates, not actual account or
-   Space URLs. Group by client build ID, code, route template, and first frame.
+   Space URLs. `report.navigation.fromRouteId` identifies the previous route
+   template for a recent in-app navigation; `elapsedMs` is the time from that
+   navigation to capture. `report.reactBoundary`, when present, identifies a
+   local UI error boundary. Neither field identifies the failing component or
+   proves that navigation caused the error. Group by client build ID, code,
+   route template, and first frame.
+   For `react_update_depth`, inspect `report.reactUpdateTrace` when present.
+   Repeated labels narrow the state writer to inspect; an absent label does not
+   exonerate code paths that are not instrumented.
 4. Compare `report.buildId` / `report.sourceSha` with `serverBuildId` /
    `serverSourceSha`. A mismatch establishes different builds, not the cause of
    the failure. `serverBuildDirty` marks uncommitted server builds. Each build
@@ -81,15 +89,32 @@ to produce the structured event.
 
 Ordinary application-error reports contain only allowlisted error names and
 categories, build asset locations, code route templates, build identifiers,
-and random event IDs. The Wake presentation event additionally contains
-bounded Space, Profile, dispatch, message, stream, and Thread pointers, the
-progress update time, and fixed source/freshness flags.
+random event IDs, and, when available, a recent previous route template and
+one of the known local error-boundary labels. Navigation context expires after
+10 minutes and is held only in page memory. The Wake presentation event
+additionally contains bounded Space, Profile, dispatch, message, stream, and
+Thread pointers, the progress update time, and fixed source/freshness flags.
 Arbitrary exception messages, full stacks, component stacks, local filesystem
 paths, request bodies, query strings, cookies, account names, email addresses,
 and message text
 are not collected by this reporter. Unknown exceptions keep their category and
 available code locations; there is intentionally no arbitrary free-text field.
 Native framework logs predate this reporter and are not intercepted or rewritten.
+
+For React update-depth errors only, the reporter can include up to 40 fixed
+code-path labels from the preceding five seconds, with bounded age in
+milliseconds. The labels cover composer draft writes and restoration, editor
+changes and external replacements, reading-position state writes, and Center
+Agent pending-scope writes. Space labels identify timeline writes, Agent
+controller presentation changes on existing signals, history cache writes, and
+visible Wake publication attempts. Repeated labels identify the owners to
+inspect; the Agent controller label names the field category without its value
+or message ID. A later manual report for the same Error retains the fixed-label
+snapshot captured at failure time, with its original ages. A different Error
+cannot inherit it. This trace is held only in page memory and contains
+no draft content, message text, component props, identities, URLs, or arbitrary
+call stacks. It is a lead to reproduce and inspect the writer, not proof that
+the last recorded update initiated the loop. Older clients omit the field.
 
 Browser reports omit credentials. The receiver accepts same-origin JSON from Web
 and the fixed `openmeld-desktop://app` Origin only with the installed Desktop
@@ -116,6 +141,13 @@ matching the failed asset filename, not a later rebuild of the same SHA. In
 browser DevTools, load the matching source map for the bundled file and locate
 the reported line/column. Only repository-authorized operators should access
 these artifacts: they include source code.
+
+Check that the matching map has nonempty `sources` and `mappings` before relying
+on it. Desktop renderer builds currently emit an empty map for their large
+`index-*.js` entry even when client source maps are enabled; other chunks have
+valid maps. An empty map cannot resolve a production frame. The route and
+boundary fields above can still narrow the incident, but they do not replace
+symbolication.
 
 For the guarded **local** release lane, retain
 `clients/web/dist/client/assets/**/*.map` in private operator storage with the

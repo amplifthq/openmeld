@@ -97,7 +97,7 @@ import { openMeldDaemonTaskResultEnvelopeSchema } from "./task-result";
 
 export const RUNTIME_TRANSPORT_SCHEMA_VERSION = 1 as const;
 export const CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH =
-  "runtime-transport-epoch-2026-09-antigravity-permissions" as const;
+  "runtime-transport-epoch-2026-09-space-files-1gib" as const;
 
 export const daemonRuntimeContractSchema = z.strictObject({
   epoch: z.string().min(1),
@@ -328,7 +328,9 @@ export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
   });
 
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
-  runtimeTransportAgentProfileWorkRecoveryTargetSchema;
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
 
 export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
   z.strictObject({
@@ -2136,6 +2138,17 @@ export const runtimeTransportDispatchReasoningRequestSchema =
       reasoningState: localAgentReasoningStateSchema,
     });
 
+export const runtimeTransportDispatchProgressRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      progressSnapshot: z
+        .string()
+        .trim()
+        .min(1)
+        .max(32 * 1024),
+    });
+
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
@@ -2336,6 +2349,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.reasoning",
+  "daemon.dispatch.progress",
   "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",

@@ -20,6 +20,8 @@ const FINALIZATION_RULE_REASON = "durable accepted result finalization";
 export const buildAcceptedDispatchFinalizationQueueMessage = (input: {
   fact: AcceptedDispatchFinalizationFact;
   inboxRecord: DispatchResultInboxRecord;
+  // Space owns Organization attribution; the local result cannot supply it.
+  organizationId?: string;
   sourceSignal: SignalEnvelope;
   // Resolved fallback for the source signal author's display name (for
   // example from a Space membership snapshot lookup). Used only when
@@ -61,6 +63,7 @@ export const buildAcceptedDispatchFinalizationQueueMessage = (input: {
     v: OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION,
     dispatchId: input.fact.dispatchId,
     spaceId: input.fact.spaceId,
+    ...(input.organizationId ? { organizationId: input.organizationId } : {}),
     sourceEventId: input.fact.sourceEventId,
     ...(input.fact.sourceClientMessageId
       ? { sourceClientMessageId: input.fact.sourceClientMessageId }

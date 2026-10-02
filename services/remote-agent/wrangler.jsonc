@@ -36,6 +36,7 @@
     "binding": "OPENMELD_IMAGES",
     "remote": true
   },
+  "ai": { "binding": "AI" },
   "browser": {
     "binding": "BROWSER",
     "remote": true
@@ -138,6 +139,7 @@
         "binding": "OPENMELD_IMAGES",
         "remote": true
       },
+      "ai": { "binding": "AI" },
       "browser": {
         "binding": "BROWSER",
         "remote": true
@@ -224,6 +226,7 @@
       "images": {
         "binding": "OPENMELD_IMAGES"
       },
+      "ai": { "binding": "AI" },
       "browser": {
         "binding": "BROWSER",
         "remote": true
@@ -307,6 +310,7 @@
       "images": {
         "binding": "OPENMELD_IMAGES"
       },
+      "ai": { "binding": "AI" },
       "browser": {
         "binding": "BROWSER",
         "remote": true

@@ -10,6 +10,69 @@ import {
 } from "../src/agent-controller-interface-display";
 
 describe("agent controller interface display", () => {
+  it("explains unavailable automatic account checks after cloud privacy redaction", () => {
+    const snapshot = agentControllerInterfaceSnapshot({
+      controllerId: "antigravity",
+      displayName: "Antigravity",
+      auth: { status: "unknown" },
+      check: {
+        status: "succeeded",
+        lastSucceededAt: "2026-10-01T00:00:00.000Z",
+      },
+      launch: {
+        argsPrefix: [],
+        commandPath: null,
+        installChoiceCount: 1,
+        status: "ready",
+      },
+      message: null,
+      status: "warning",
+      usageLimits: [
+        {
+          key: "provider",
+          label: "Usage limits",
+          observedAt: "2026-10-01T00:00:00.000Z",
+          resetsAt: null,
+          usedPercent: null,
+          status: "unsupported",
+        },
+      ],
+    });
+    expect(
+      resolveAgentControllerInterfaceDescription({
+        displayDescription: "Installed",
+        snapshot,
+      })
+    ).toBe(
+      "OpenMeld cannot automatically check sign-in status or usage limits for Antigravity. Check them directly in the agent's app or CLI."
+    );
+    expect(shouldExpandAgentControllerInterface(snapshot)).toBe(true);
+    expect(createAgentControllerInterfaceDisplayRows(snapshot)).toContainEqual({
+      label: "Account",
+      value: "Unknown",
+    });
+  });
+  it("explains a missing selected installation without a private path", () => {
+    const snapshot = agentControllerInterfaceSnapshot({
+      message: null,
+      launch: {
+        argsPrefix: [],
+        commandPath: null,
+        installChoiceCount: 1,
+        status: "needs_repair",
+        failureReason: "installation_missing",
+      },
+    });
+    const description = resolveAgentControllerInterfaceDescription({
+      displayDescription: "Unavailable",
+      snapshot,
+    });
+    expect(description).toContain("no longer at its saved location");
+    expect(createAgentControllerInterfaceDisplayRows(snapshot)).toContainEqual({
+      label: "Message",
+      value: description,
+    });
+  });
   it("reuses operational detail rows without private owner fields", () => {
     const snapshot = agentControllerInterfaceSnapshot({
       message: "Private diagnostic message",
@@ -47,7 +110,7 @@ describe("agent controller interface display", () => {
 
     expect(rows).toContainEqual({
       label: "Launch check",
-      value: "Can launch · 1 local install found",
+      value: "Can launch",
     });
     expect(rows.map((row) => row.label)).toEqual([
       "Controller",
@@ -88,7 +151,7 @@ describe("agent controller interface display", () => {
     });
     expect(createAgentControllerInterfaceDisplayRows(snapshot)).toContainEqual({
       label: "Launch check",
-      value: "Can launch · /opt/homebrew/bin/codex · 1 local install found",
+      value: "Can launch · /opt/homebrew/bin/codex",
     });
     expect(createAgentControllerInterfaceDisplayRows(snapshot)).toContainEqual({
       label: "Version status",
@@ -114,7 +177,7 @@ describe("agent controller interface display", () => {
 
     expect(createAgentControllerInterfaceDisplayRows(snapshot)).toContainEqual({
       label: "Launch check",
-      value: "Can launch · 1 local install found",
+      value: "Can launch",
     });
   });
 
@@ -245,7 +308,7 @@ describe("agent controller interface display", () => {
       )
     ).toContainEqual({
       label: "Launch check",
-      value: "Choose an installation · 2 local installs found",
+      value: "Choose an installation",
     });
     expect(
       createAgentControllerInterfaceDisplayRows(
@@ -260,7 +323,7 @@ describe("agent controller interface display", () => {
       )
     ).toContainEqual({
       label: "Launch check",
-      value: "Can’t start · 1 local install found",
+      value: "Can’t start",
     });
   });
 

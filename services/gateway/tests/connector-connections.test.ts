@@ -43,6 +43,68 @@ afterEach(() => {
 });
 
 describe("Gateway connector connection routes", () => {
+  it("scopes a private channel request to the authenticated organization and keeps preview separate from explicit continuation", async () => {
+    const previewPluginChannelConnection = vi.fn(async () => ({
+      requestId: "request",
+      service: "github",
+      scope: "choose",
+      provider: "slack",
+      targetProfileName: "Agent",
+      expiresAtMs: 1000,
+      selection: null,
+    }));
+    const continuePluginChannelConnection = vi.fn(async () => ({
+      status: "requested",
+      requestId: "request",
+      targetProfileId: "agent",
+      provider: "slack",
+    }));
+    const env = makeEnv({
+      previewPluginChannelConnection,
+      continuePluginChannelConnection,
+    });
+    const invoke = (kind: string, body: unknown) =>
+      app.fetch(
+        new Request(
+          `http://local/v1/organizations/current/plugins/connection-requests/${kind}?expectedOrganizationId=org-1`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+    expect((await invoke("preview", { requestId: "request" })).status).toBe(
+      200
+    );
+    expect(continuePluginChannelConnection).not.toHaveBeenCalled();
+    expect(
+      (await invoke("continue", { requestId: "request", scope: "shared" }))
+        .status
+    ).toBe(200);
+    expect(continuePluginChannelConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        requestId: "request",
+        scope: "shared",
+        context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+      })
+    );
+    expect(
+      (
+        await invoke("continue", {
+          requestId: "request",
+          scope: "member",
+          targetProfileId: "attacker",
+          text: "different task",
+        })
+      ).status
+    ).toBe(400);
+    expect(continuePluginChannelConnection).toHaveBeenCalledOnce();
+  });
+
   it("lists the live OpenConnector provider catalog after verifying membership", async () => {
     const listCurrentOrganizationConnectorAppRequests = vi.fn(async () => ({
       currentUserId: "user-1",
@@ -444,6 +506,46 @@ describe("Gateway connector connection routes", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("starts user authorization for an App that is already installed", async () => {
+    const beginCurrentOrganizationGitHubAppInstallation = vi.fn(async () => ({
+      connection: SHARED_CONNECTION,
+      expiresAtMs: Date.now() + 600_000,
+      state: `githubapp_${"a".repeat(64)}`,
+      verificationConnectionName: "github_verify_aaaaaaaaaaaaaaaaaaaaaaaa",
+    }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        authorizationUrl:
+          "https://github.com/login/oauth/authorize?client_id=public-id",
+        state: "connector_oauth_state",
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/connectors/github/shared-authorization?expectedOrganizationId=org-1",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ existingInstallation: true }),
+        }
+      ),
+      makeEnv({ beginCurrentOrganizationGitHubAppInstallation }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      authorizationUrl:
+        "https://github.com/login/oauth/authorize?client_id=public-id",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/oauth/authorizations"),
+      expect.objectContaining({
+        body: expect.stringContaining("github_verify_aaaaaaaaaaaaaaaaaaaaaaaa"),
+      })
+    );
+  });
+
   it("turns the installer verification token into the pending organization installation", async () => {
     const readPendingGitHubAppInstallation = vi.fn(async () => ({
       installationId: "987654",
@@ -528,6 +630,94 @@ describe("Gateway connector connection routes", () => {
       expect.objectContaining({
         availableConnectionNames: [SHARED_CONNECTION_NAME],
         service: "github",
+      })
+    );
+  });
+
+  it("finishes an existing installation after GitHub user authorization", async () => {
+    const verifier = "github_verify_aaaaaaaaaaaaaaaaaaaaaaaa";
+    const readPendingGitHubAppInstallation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        installationId: null,
+        organizationId: "org-1",
+        status: "installing",
+        targetConnectionName: SHARED_CONNECTION_NAME,
+        userId: "user-1",
+        verificationConnectionName: verifier,
+      })
+      .mockResolvedValueOnce({
+        installationId: "987654",
+        organizationId: "org-1",
+        status: "verifying",
+        targetConnectionName: SHARED_CONNECTION_NAME,
+        userId: "user-1",
+        verificationConnectionName: verifier,
+      });
+    const beginExistingGitHubAppInstallationVerification = vi.fn(
+      async () => true
+    );
+    const completeGitHubAppInstallation = vi.fn(async () => true);
+    const reconcileCurrentOrganizationConnectorConnections = vi.fn(
+      async () => ({
+        connections: [{ ...SHARED_CONNECTION, status: "active" as const }],
+        currentUserId: "user-1",
+        organizationId: "org-1",
+      })
+    );
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json([
+          { configured: true, connectionName: verifier, service: "github" },
+        ])
+      )
+      .mockResolvedValueOnce(
+        Response.json({ accountLogin: "amplifthq", installationId: "987654" })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          configured: true,
+          connectionName: SHARED_CONNECTION_NAME,
+          service: "github",
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            configured: true,
+            connectionName: SHARED_CONNECTION_NAME,
+            service: "github",
+          },
+        ])
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/connectors/github/connections?expectedOrganizationId=org-1"
+      ),
+      makeEnv({
+        beginExistingGitHubAppInstallationVerification,
+        completeGitHubAppInstallation,
+        readPendingGitHubAppInstallation,
+        reconcileCurrentOrganizationConnectorConnections,
+      }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(beginExistingGitHubAppInstallationVerification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedOrganizationId: "org-1",
+        installationId: "987654",
+        verificationConnectionName: verifier,
+      })
+    );
+    expect(completeGitHubAppInstallation).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/providers/github/installations"),
+      expect.objectContaining({
+        body: expect.stringContaining('"expectedAccountLogin":"amplifthq"'),
+        method: "POST",
       })
     );
   });

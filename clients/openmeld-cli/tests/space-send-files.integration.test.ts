@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   gatewayErrorEnvelopeSchema,
@@ -691,10 +691,8 @@ describe("space send files", () => {
       ).rejects.toMatchObject({ code: "space.file.file_not_found" });
 
       const oversizedPath = join(home, "oversized.bin");
-      await writeFile(
-        oversizedPath,
-        Buffer.alloc(SPACE_FILE_MAX_SIZE_BYTES + 1)
-      );
+      await writeFile(oversizedPath, new Uint8Array(0));
+      await truncate(oversizedPath, SPACE_FILE_MAX_SIZE_BYTES + 1);
       await expect(
         runSend({
           openMeldProfile: PROFILE,

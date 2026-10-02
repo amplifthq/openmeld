@@ -208,6 +208,29 @@ describe("Direct Message dispatch rules", () => {
     profileName: "Center Agent",
   });
 
+  it.each([
+    "builtin:codex",
+    "hosted:remote-agent",
+    "hosted:center-agent",
+  ])("honors Reference instead of the implicit Direct Message Wake for %s", (controllerRefSnapshot) => {
+    const signal = createDmSignal({
+      profileId: "human-felix",
+      profileKind: "human",
+    });
+    signal.data.messageEnvelope.referenceTargets = [agentMember.profileId];
+    expect(
+      buildDirectMessageDispatchReadyDecisions({
+        activeMemberRecords: [
+          humanMember,
+          { ...agentMember, controllerRefSnapshot },
+        ],
+        senderProfileId: "human-felix",
+        signal,
+        spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+      })
+    ).toEqual([]);
+  });
+
   it("auto-dispatches a human-authored 1:1 human-agent Direct Message with prompt context", () => {
     const decisions = buildDirectMessageDispatchReadyDecisions({
       activeMemberRecords: [humanMember, agentMember],

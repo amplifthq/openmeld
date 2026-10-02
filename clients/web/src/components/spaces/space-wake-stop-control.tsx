@@ -35,6 +35,8 @@ type StopSelection = {
 const StopDialogContext = createContext<
 	((selection: StopSelection) => void) | null
 >(null);
+const WAKE_STOP_RETRY_COPY =
+	"OpenMeld couldn't confirm the Stop request. Try again in a moment.";
 
 /** The confirmation belongs to the conversation, not to a row that can move. */
 export function SpaceWakeStopScope(input: {
@@ -764,7 +766,7 @@ function resolveWakeStopStatusCopy(
 		case "unavailable":
 			return null;
 		case "retry_later":
-			return "OpenMeld could not reach the local service. Try again in a moment.";
+			return WAKE_STOP_RETRY_COPY;
 		default:
 			return null;
 	}
@@ -782,7 +784,7 @@ function resolveWakeStopResponseMessage(
 		case "unsupported":
 			return "Stop is not supported for this local agent.";
 		case "retry_later":
-			return "OpenMeld could not reach the local service. Try again in a moment.";
+			return WAKE_STOP_RETRY_COPY;
 		case "not_found":
 		case "not_stoppable":
 			return "This Wake is no longer stoppable.";

@@ -13,6 +13,9 @@ const DATE_MARKER_SELECTOR = "[data-conversation-date-marker]";
 const STICKY_TOP_PROPERTY = "--space-conversation-sticky-top";
 const TOP_OVERLAY_HEIGHT_PROPERTY = "--space-conversation-top-overlay-height";
 const DEFAULT_DATE_PILL_HEIGHT_PX = 32;
+// The pill sits just inside the scroller; activation uses the same offset so
+// its center meets the in-flow date line without a vertical jump.
+const STICKY_DATE_TOP_OFFSET_PX = -10;
 
 type StickyDateState = {
 	activeDateMs: number | null;
@@ -53,13 +56,17 @@ export function SpaceConversationStickyDate(input: {
 	}
 	return createPortal(
 		<div
-			className="pointer-events-none absolute inset-x-0 top-[calc(var(--space-conversation-sticky-top,0px)+0.5rem)] z-10 flex h-8 w-full justify-center max-lg:h-11"
+			className="pointer-events-none absolute inset-x-0 z-10 flex h-8 w-full justify-center max-lg:h-11"
 			data-slot="conversation-date-pill"
+			style={{
+				top: `calc(var(${STICKY_TOP_PROPERTY}, 0px) + ${String(STICKY_DATE_TOP_OFFSET_PX)}px)`,
+			}}
 		>
 			{stickyDate.activeDateMs !== null && (
 				<div
-					className="-mt-0.5 h-[calc(100%+0.25rem)] w-full overflow-hidden py-0.5"
+					className="-mt-0.5 h-[calc(100%+0.25rem)] w-full py-0.5"
 					data-slot="conversation-date-pill-viewport"
+					data-space-conversation-content-width=""
 				>
 					<div
 						className="flex w-full flex-col items-center"
@@ -86,7 +93,12 @@ export function SpaceConversationStickyDate(input: {
 				className="pointer-events-none absolute inset-x-0 top-full mt-2 flex justify-center"
 				data-slot="conversation-after-date"
 			>
-				{input.afterDate}
+				<div
+					className="flex w-full justify-center"
+					data-space-conversation-content-width=""
+				>
+					{input.afterDate}
+				</div>
 			</div>
 		</div>,
 		overlayHost
@@ -187,8 +199,14 @@ function useStickyConversationDate(
 		const scrollPaddingTop = Number.isFinite(scrollPaddingTopValue)
 			? scrollPaddingTopValue
 			: 0;
+		const datePillHeightPx = resolveDatePillHeightPx(datePillElement);
+		const markerHeightPx = markers[0]?.getBoundingClientRect().height ?? 48;
 		const markerActivationTop =
-			scrollElement.getBoundingClientRect().top + scrollPaddingTop + stickyTop;
+			scrollElement.getBoundingClientRect().top +
+			scrollPaddingTop +
+			stickyTop +
+			STICKY_DATE_TOP_OFFSET_PX +
+			(datePillHeightPx - markerHeightPx) / 2;
 		const activeMarkerIndex = resolveActiveMarkerIndex(
 			markers,
 			markerActivationTop
@@ -206,7 +224,6 @@ function useStickyConversationDate(
 		setStuckMarker(markers[activeMarkerIndex] ?? null);
 		const nextMarker = markers[activeMarkerIndex + 1] ?? null;
 		const nextMarkerTop = nextMarker?.getBoundingClientRect().top ?? null;
-		const datePillHeightPx = resolveDatePillHeightPx(datePillElement);
 		const pushOffsetPx =
 			nextMarkerTop === null
 				? 0

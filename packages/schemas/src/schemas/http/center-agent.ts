@@ -35,6 +35,7 @@ import {
   slackThreadPublicationPermalinkSchema,
 } from "../runtime/message-channel";
 import { remoteAgentSlackSearchAuthorizationSchema } from "../runtime/remote-agent-turn-envelope";
+import { workingLanguageTagSchema } from "../runtime/working-language";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
 import {
@@ -70,7 +71,10 @@ import {
   peopleComputerTargetSchema,
 } from "./people-computers";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
-import { authProfileViewSchema } from "./profiles";
+import {
+  authProfileViewSchema,
+  CENTER_AGENT_BOT_AVATAR_TYPES,
+} from "./profiles";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
 import {
   CENTER_AGENT_SLACK_FILE_MAX_BASE64_CHARACTERS,
@@ -259,6 +263,7 @@ export const centerAgentConnectorActionExecutionConnectionSchema =
 
 export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
   {
+    includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     operationId: trimmedNonEmptyStringSchema.max(256),
     service: connectorServiceSchema,
@@ -268,6 +273,7 @@ export const centerAgentReadConnectorActionOperationBodySchema = z.strictObject(
 
 const centerAgentConnectorActionOperationSchema = z
   .strictObject({
+    replayWindowRemainingMs: z.int().nonnegative().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     connectionName: connectorConnectionNameSchema,
     executionConnection: centerAgentConnectorActionExecutionConnectionSchema
@@ -299,6 +305,7 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
 
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
+    includeRecoveryWindow: z.boolean().optional(),
     actionId: trimmedNonEmptyStringSchema.max(160),
     effect: z.enum(["read", "write", "destructive", "unspecified"]).optional(),
     connectionName: connectorConnectionNameSchema,
@@ -322,6 +329,7 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
 
 export const centerAgentRecordConnectorActionOperationResponseSchema =
   z.strictObject({
+    replayWindowRemainingMs: z.int().nonnegative().optional(),
     attribution: centerAgentAttributionSchema,
     executionConnection: centerAgentConnectorActionExecutionConnectionSchema
       .nullable()
@@ -543,9 +551,18 @@ export const updateCenterAgentOperatingStateResponseSchema =
     changed: z.boolean(),
   });
 
-export const centerAgentUpdateProfileBodySchema = z.strictObject({
-  profileName: trimmedNonEmptyStringSchema,
-});
+export const centerAgentUpdateProfileBodySchema = z
+  .strictObject({
+    profileName: trimmedNonEmptyStringSchema.optional(),
+    avatarStyle: z.enum(["fluid", ...CENTER_AGENT_BOT_AVATAR_TYPES]).optional(),
+  })
+  .refine(
+    (value) =>
+      value.profileName !== undefined || value.avatarStyle !== undefined,
+    {
+      message: "Choose a profile name or avatar.",
+    }
+  );
 
 export const centerAgentUpdateProfileResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
@@ -880,6 +897,7 @@ export const centerAgentWakeAgentProfilesInSpaceBodySchema = z
   .strictObject({
     agentProfileIds: z.array(agentProfileIdSchema).min(1).max(25),
     completionMode: centerAgentDelegationCompletionModeSchema.optional(),
+    replyLanguageTag: workingLanguageTagSchema.optional(),
     fallbackAgentProfileId: agentProfileIdSchema.optional(),
     mentionProfileIds: z
       .array(openMeldRuntimeProfileIdSchema)
@@ -968,6 +986,7 @@ export const centerAgentWakePublicationCommandSchema = z
     attribution: centerAgentAttributionSchema,
     clientMessageId: trimmedNonEmptyStringSchema,
     completionMode: centerAgentDelegationCompletionModeSchema,
+    replyLanguageTag: workingLanguageTagSchema.optional(),
     context: openMeldRequestContextSchema,
     delegationId: trimmedNonEmptyStringSchema,
     fallbackAgentProfileId: agentProfileIdSchema.nullable(),
@@ -1007,7 +1026,39 @@ export const centerAgentWatchAgentTaskBodySchema = z.strictObject({
   speakerMember: centerAgentToolSpeakerSchema.optional(),
   completionCondition: agentTaskCompletionConditionSchema,
   instruction: z.string().trim().min(1).max(4000),
+  replyLanguageTag: workingLanguageTagSchema.optional(),
   task: agentTaskHandleSchema,
+});
+
+export const centerAgentContinueTaskSummaryBodySchema = z.strictObject({
+  sourceSubscriptionId: trimmedNonEmptyStringSchema.max(512),
+  inspectOnly: z.boolean().optional(),
+  includePublishedResult: z.boolean().optional(),
+  replyLanguageTag: workingLanguageTagSchema.optional(),
+  speakerMember: centerAgentToolSpeakerSchema,
+});
+
+export const centerAgentContinueTaskSummaryResponseSchema = z.strictObject({
+  status: z.enum(["available", "queued", "already_requested", "unavailable"]),
+  sourceSubscriptionId: trimmedNonEmptyStringSchema,
+  subscriptionId: trimmedNonEmptyStringSchema.nullable(),
+  reasonCode: trimmedNonEmptyStringSchema.nullable(),
+  publishedResult: z
+    .strictObject({
+      spaceId: trimmedNonEmptyStringSchema,
+      signalId: trimmedNonEmptyStringSchema,
+    })
+    .optional(),
+});
+
+export const taskSummaryRecoveryAccessRequestSchema = z.strictObject({
+  spaceId: trimmedNonEmptyStringSchema,
+  profileId: trimmedNonEmptyStringSchema,
+  ownerUserId: trimmedNonEmptyStringSchema,
+});
+
+export const taskSummaryRecoveryAccessResponseSchema = z.strictObject({
+  allowed: z.boolean(),
 });
 
 export const centerAgentListAgentTasksBodySchema = z.strictObject({

@@ -4,6 +4,7 @@ import {
   projectComputerConnectionInbox,
   readInboxComputerIdentity,
 } from "../../computers/computer-connection-inbox";
+import { selectCurrentSessionsByDeviceLane } from "./current-owner-service-sessions";
 import {
   compareRuntimeTransportSessionsByFreshness,
   isRuntimeTransportSessionOnline,
@@ -137,13 +138,10 @@ export function createComputerConnectionIncidents(input: {
     observe(sessions: Iterable<RuntimeTransportSessionState>): Promise<void> {
       const observedAtMs = now();
       const observations = new Map<string, Observation>();
-      for (const session of [...sessions].sort(
-        compareRuntimeTransportSessionsByFreshness
+      for (const session of selectCurrentSessionsByDeviceLane(
+        [...sessions].sort(compareRuntimeTransportSessionsByFreshness)
       )) {
         const key = `${RECORD_PREFIX}${JSON.stringify([session.deviceId, session.lane])}`;
-        if (observations.has(key)) {
-          continue;
-        }
         const online = isRuntimeTransportSessionOnline(session, observedAtMs);
         observations.set(key, {
           registrationKey: `${session.daemonSessionId}:${session.connectionGeneration}`,

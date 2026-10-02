@@ -51,6 +51,8 @@ export async function executePluginRuntime(
     return pluginRuntimeResponseSchema.parse({
       status: "completed",
       ...result,
+      // Older execution envelopes omit this optional provider field.
+      outputSchema: result.outputSchema ?? action.outputSchema,
     });
   } catch (error) {
     if (error instanceof OpenConnectorOperationPendingError) {

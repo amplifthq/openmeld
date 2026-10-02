@@ -14,10 +14,13 @@ import {
   claimReadyAgentTaskCompletionSubscription,
   listAgentTaskCompletionSubscriptionsNeedingEnqueue,
   readAgentTaskCompletionSubscription,
+  readAgentTaskContinuationReplyLanguage,
   recordAgentTaskNeedsAttentionObservation,
   recordAgentTaskTerminalOutcome,
   recordAgentTaskTerminalOutcomeIfMatching,
+  recordTaskSummaryRecoveryIntent,
   registerAgentTaskCompletionSubscription,
+  registerManualTaskSummaryRecovery,
   settleAgentTaskCompletionSubscription,
 } from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import {
@@ -51,6 +54,159 @@ const continuation: Extract<AgentTaskContinuation, { kind: "resume_agent" }> = {
 };
 
 describe("Agent task coordination repo", () => {
+  it("claims a fresh manual summary once and preserves the old subscription", async () => {
+    const harness = createCoordinationHarness();
+    try {
+      await registerAgentTaskCompletionSubscription({
+        completionCondition: "terminal",
+        continuation: { ...continuation, replyLanguageTag: "zh-Hans" },
+        db: harness.db,
+        idempotencyKey: "source-key",
+        nowMs: 100,
+        observerTask: parentTask,
+        organizationId: "org-1",
+        subscriptionId: "source-summary",
+        watchedTask: childTask,
+      });
+      await recordAgentTaskTerminalOutcome({
+        db: harness.db,
+        nowMs: 110,
+        task: childTask,
+        outcome: {
+          status: "succeeded",
+          errorCode: null,
+          eventId: "child-done",
+          occurredAtMs: 110,
+          publishedSignalId: "child-result",
+        },
+      });
+      await claimReadyAgentTaskCompletionSubscription({
+        db: harness.db,
+        subscriptionId: "source-summary",
+        claimId: "original",
+        claimLeaseMs: 30_000,
+        nowMs: 120,
+      });
+      const source = await settleAgentTaskCompletionSubscription({
+        db: harness.db,
+        subscriptionId: "source-summary",
+        claimId: "original",
+        nowMs: 130,
+        continuationTask: {
+          kind: "native_delivery",
+          deliveryId: "old-summary",
+          v: 1,
+        },
+      });
+      if (!source) {
+        throw new Error("Missing source subscription");
+      }
+      const prepared = await recordTaskSummaryRecoveryIntent({
+        db: harness.db,
+        source,
+        recoveryId: "fresh-summary",
+        operatorUserId: "requester",
+        nowMs: 135,
+      });
+      if (!prepared) {
+        throw new Error("Missing recovery intent");
+      }
+      expect(prepared).toMatchObject({
+        state: source.state,
+        continuationTask: source.continuationTask,
+        outcome: source.outcome,
+        continuation: {
+          summaryRecoveryIntent: {
+            recoveryId: "fresh-summary",
+            operatorUserId: "requester",
+          },
+        },
+      });
+      const requests = await Promise.all([
+        registerManualTaskSummaryRecovery({
+          db: harness.db,
+          source: prepared,
+          subscriptionId: "fresh-summary",
+          operatorUserId: "requester",
+          replyLanguageTag: "en",
+          nowMs: 140,
+        }),
+        registerManualTaskSummaryRecovery({
+          db: harness.db,
+          source: prepared,
+          subscriptionId: "fresh-summary",
+          operatorUserId: "requester",
+          replyLanguageTag: "en",
+          nowMs: 140,
+        }),
+      ]);
+      expect(requests[0]).toEqual(requests[1]);
+      expect(requests[0]).toMatchObject({
+        state: "ready",
+        continuationIdempotencyKey: "agent-task-continuation:fresh-summary",
+        continuation: {
+          replyLanguageTag: "en",
+          summaryRecovery: {
+            operatorUserId: "requester",
+            sourceSubscriptionId: "source-summary",
+          },
+        },
+      });
+      expect(requests[0]?.continuationIdempotencyKey).not.toBe(
+        source.continuationIdempotencyKey
+      );
+      expect(requests[0]?.continuation).not.toHaveProperty("spaceId");
+      expect(requests[0]?.continuation).not.toHaveProperty("sourceSignalId");
+      expect(requests[0]?.continuation).not.toHaveProperty("threadContext");
+      const claims = await Promise.all(
+        ["one", "two"].map((claimId) =>
+          claimReadyAgentTaskCompletionSubscription({
+            db: harness.db,
+            subscriptionId: "fresh-summary",
+            claimId,
+            claimLeaseMs: 30_000,
+            nowMs: 150,
+          })
+        )
+      );
+      expect(claims.filter(Boolean)).toHaveLength(1);
+      await expect(
+        readAgentTaskCompletionSubscription({
+          db: harness.db,
+          subscriptionId: source.subscriptionId,
+        })
+      ).resolves.toEqual(prepared);
+      await recordAgentTaskTerminalOutcome({
+        db: harness.db,
+        nowMs: 160,
+        task: parentTask,
+        outcome: {
+          status: "stopped",
+          errorCode: null,
+          eventId: "parent-stop",
+          occurredAtMs: 160,
+          publishedSignalId: null,
+        },
+      });
+      await expect(
+        registerManualTaskSummaryRecovery({
+          db: harness.db,
+          source,
+          subscriptionId: "after-stop",
+          operatorUserId: "requester",
+          nowMs: 170,
+        })
+      ).rejects.toThrow();
+      await expect(
+        readAgentTaskCompletionSubscription({
+          db: harness.db,
+          subscriptionId: "after-stop",
+        })
+      ).resolves.toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
   it("does not release a continuation when a guarded terminal write finds a conflicting outcome", async () => {
     const harness = createCoordinationHarness();
     try {
@@ -435,7 +591,7 @@ describe("Agent task coordination repo", () => {
     try {
       await registerAgentTaskCompletionSubscription({
         completionCondition: "terminal",
-        continuation,
+        continuation: { ...continuation, replyLanguageTag: "zh-Hans" },
         db: harness.db,
         idempotencyKey: "subscription-key-3",
         nowMs: 1000,
@@ -470,6 +626,36 @@ describe("Agent task coordination repo", () => {
         continuationIdempotencyKey: "agent-task-continuation:subscription-3",
         state: "continuation_claimed",
       });
+      const beforeLanguageRead = await readAgentTaskCompletionSubscription({
+        db: harness.db,
+        subscriptionId: "subscription-3",
+      });
+      const languageRead = {
+        db: harness.db,
+        subscriptionId: "subscription-3",
+        organizationId: "org-1",
+        continuationIdempotencyKey: "agent-task-continuation:subscription-3",
+      };
+      await expect(
+        readAgentTaskContinuationReplyLanguage(languageRead)
+      ).resolves.toBe("zh-Hans");
+      for (const mismatch of [
+        { organizationId: "other-org" },
+        { continuationIdempotencyKey: "other-continuation" },
+      ]) {
+        await expect(
+          readAgentTaskContinuationReplyLanguage({
+            ...languageRead,
+            ...mismatch,
+          })
+        ).rejects.toThrow("language_identity_mismatch");
+      }
+      await expect(
+        readAgentTaskCompletionSubscription({
+          db: harness.db,
+          subscriptionId: "subscription-3",
+        })
+      ).resolves.toEqual(beforeLanguageRead);
       await expect(
         claimReadyAgentTaskCompletionSubscription({
           claimId: "claim-2",

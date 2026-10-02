@@ -157,6 +157,16 @@ export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
 	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
 	isError: boolean;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
+	return useAccountSpaceActiveWakeSummaryDisplay(input).items;
+}
+
+export function useAccountSpaceActiveWakeSummaryDisplay(input: {
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
+	isError: boolean;
+}): {
+	available: boolean;
+	items: AccountSpaceActiveWakeSummaryResponse["items"];
+} {
 	const [observation, setObservation] = useState(() =>
 		createAccountSpaceActiveWakeSummaryObservation(input)
 	);
@@ -201,12 +211,16 @@ export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
 		return () => window.clearTimeout(timeout);
 	}, [observation]);
 
-	return selectObservedAccountSpaceActiveWakeSummaryItems({
+	const selection = {
 		data: observation.data,
 		isError: input.isError,
 		isExpired: observation.isExpired,
 		nowMonotonicMs: readBrowserMonotonicNowMs(),
-	});
+	};
+	return {
+		available: isAccountSpaceActiveWakeSummaryUsable(selection),
+		items: selectObservedAccountSpaceActiveWakeSummaryItems(selection),
+	};
 }
 
 function createAccountSpaceActiveWakeSummaryObservation(input: {
@@ -224,9 +238,20 @@ function selectObservedAccountSpaceActiveWakeSummaryItems(input: {
 	isExpired: boolean;
 	nowMonotonicMs: number | null;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
+	return isAccountSpaceActiveWakeSummaryUsable(input)
+		? (input.data?.summary.items ?? [])
+		: [];
+}
+
+function isAccountSpaceActiveWakeSummaryUsable(input: {
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
+	isError: boolean;
+	isExpired: boolean;
+	nowMonotonicMs: number | null;
+}): boolean {
 	const requestStartedAtMs =
 		input.data?.browserRequestStartedAtMonotonicMs ?? null;
-	if (
+	return !(
 		input.isError ||
 		!input.data ||
 		input.isExpired ||
@@ -237,10 +262,7 @@ function selectObservedAccountSpaceActiveWakeSummaryItems(input: {
 		requestStartedAtMs > input.nowMonotonicMs ||
 		requestStartedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS <
 			input.nowMonotonicMs
-	) {
-		return [];
-	}
-	return input.data.summary.items;
+	);
 }
 
 function readBrowserMonotonicNowMs(): number | null {

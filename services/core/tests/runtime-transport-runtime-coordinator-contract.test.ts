@@ -33,6 +33,7 @@ import type {
   RuntimeTransportDispatchInteractionDeliveredRequest,
   RuntimeTransportDispatchInteractionRequest,
   RuntimeTransportDispatchLifecycleRequest,
+  RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
   RuntimeTransportRuntimeCoordinatorDecisionRequest,
@@ -1221,6 +1222,12 @@ const createHarness = (input?: {
         lastSequence: input.sequence,
       })
     ),
+    rpcApplyAgentStreamDelta: vi.fn((input: { sequence: number }) =>
+      Promise.resolve({
+        status: "accepted" as const,
+        lastSequence: input.sequence,
+      })
+    ),
     rpcCloseAgentStream: vi.fn(() => Promise.resolve(null)),
     rpcApplyRuntimeCoordinatorFailurePublicationCommand: vi.fn(
       (
@@ -1954,6 +1961,18 @@ const buildToolActivityRequest = (
   taskId: "task-1",
   ...overrides,
 });
+
+const buildProgressRequest = (
+  overrides: Partial<RuntimeTransportDispatchProgressRequest> = {}
+): RuntimeTransportDispatchProgressRequest => {
+  const toolActivity = buildToolActivityRequest(overrides);
+  const { part: _part, ...identity } = toolActivity;
+  return {
+    ...identity,
+    progressSnapshot: "Confirmed the root cause; starting verification.",
+    ...overrides,
+  };
+};
 
 const buildInteractionRequest = (
   executionToken: RuntimeCoordinatorExecutionTokenEnvelope,
@@ -3960,6 +3979,83 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(spaceOnlyResponse.executionContext?.access).toBe("space_context");
   });
 
+  it("keeps an ordinary Codex Wake in the Profile's current working folder after context activation", async () => {
+    const { hub, storageRecords } = createContextHarness({
+      bindingControllerRef: "builtin:codex",
+    });
+    const firstRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({
+          agentControllerRef: "builtin:codex",
+          fingerprint: "a",
+        }),
+        contextRequest: {
+          required: false,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "auto" },
+        },
+      },
+    });
+    const firstResponse = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        firstRequest
+      )
+    ).json()) as {
+      status: string;
+      executionContext?: unknown;
+    };
+    expect(firstResponse.status).toBe("accepted");
+    expect(firstResponse.executionContext).toBeUndefined();
+
+    const firstHead = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        firstRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const firstSnapshot = firstHead.acceptedDispatchSnapshot;
+    if (!firstSnapshot) {
+      throw new Error("Expected an accepted ordinary Codex Wake");
+    }
+    const dispatchId = "dispatch-codex-ordinary-current-folder";
+    const identity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-codex-ordinary-current-folder",
+      dispatchId,
+      sourceSignalId: "signal-codex-ordinary-current-folder",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    const plan = await storage.transaction((transaction) =>
+      prepareExecutionContextAssignment({
+        contextModeActive: true,
+        storage: transaction,
+        record: {
+          ...firstHead,
+          primaryDispatchId: dispatchId,
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+          targetWakeLifecycleIdentity: identity,
+          acceptedDispatchSnapshot: {
+            ...firstSnapshot,
+            payloadFingerprint: `sha256:${"b".repeat(64)}`,
+          },
+        },
+      })
+    );
+    expect(
+      plan.record.acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({ access: "workspace", workspace: "current" });
+  });
+
   it.each([
     "builtin:cursor",
     "builtin:grok-build",
@@ -4539,6 +4635,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           harness.storageRecords
         )?.terminalOutcome
       ).toBeNull();
+      expect(
+        findRuntimeCoordinatorRunCommandState(harness.storageRecords)
+          ?.communicationRecoveryBaselineAtMs
+      ).toBe(startedAtMs + 300);
       await lifecycle(session.lastHeartbeatMs);
       expect(
         findRuntimeCoordinatorExecutionTokenAuthorityRecord(
@@ -7836,11 +7936,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       (
         hub as unknown as {
           rpcApproveAgentProfileWorkQueue: (input: {
+            expectedInterruptedTargetWakeLifecycleId: string;
             ownerUserId: string;
             targetProfileId: string;
           }) => Promise<unknown>;
         }
       ).rpcApproveAgentProfileWorkQueue({
+        expectedInterruptedTargetWakeLifecycleId: (
+          storageRecords.get(admissionKey) as {
+            recoveryGate: AgentProfileWorkRecoveryGate;
+          }
+        ).recoveryGate.interruptedWork.targetWakeLifecycleId,
         ownerUserId: "owner-1",
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       })
@@ -9432,11 +9538,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (
           hub as unknown as {
             rpcApproveAgentProfileWorkQueue: (input: {
+              expectedInterruptedTargetWakeLifecycleId: string;
               ownerUserId: string;
               targetProfileId: string;
             }) => Promise<unknown>;
           }
         ).rpcApproveAgentProfileWorkQueue({
+          expectedInterruptedTargetWakeLifecycleId: (
+            storageRecords.get(admissionKey) as {
+              recoveryGate: AgentProfileWorkRecoveryGate;
+            }
+          ).recoveryGate.interruptedWork.targetWakeLifecycleId,
           ownerUserId: "owner-1",
           targetProfileId: TARGET_AGENT_PROFILE_ID,
         })
@@ -9536,11 +9648,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       (
         hub as unknown as {
           rpcApproveAgentProfileWorkQueue: (input: {
+            expectedInterruptedTargetWakeLifecycleId: string;
             ownerUserId: string;
             targetProfileId: string;
           }) => Promise<unknown>;
         }
       ).rpcApproveAgentProfileWorkQueue({
+        expectedInterruptedTargetWakeLifecycleId: (
+          storageRecords.get(admissionKey) as {
+            recoveryGate: AgentProfileWorkRecoveryGate;
+          }
+        ).recoveryGate.interruptedWork.targetWakeLifecycleId,
         ownerUserId: "owner-1",
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       })
@@ -9614,7 +9732,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(storageRecords.has(interruptedHeadKey)).toBe(false);
   });
 
-  it("atomically approves and redrives queued work after the interrupted continuation succeeds", async () => {
+  it("approves only the observed recovery and redrives queued work once", async () => {
     const { hub, spaceFetchRequests, storageRecords } = createHarness();
     const queuedIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-recovery-approved",
@@ -9679,19 +9797,91 @@ describe("runtime transport runtime coordinator transport contract", () => {
       workItems: [queuedWork],
     });
 
-    await expect(
-      (
-        hub as unknown as {
-          rpcApproveAgentProfileWorkQueue: (input: {
-            ownerUserId: string;
-            targetProfileId: string;
-          }) => Promise<unknown>;
+    const recovery = hub as unknown as {
+      rpcApproveAgentProfileWorkQueue: (input: {
+        expectedInterruptedTargetWakeLifecycleId?: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    const beforeStaleApproval = structuredClone(storageRecords);
+    const beforeRedrives = structuredClone(spaceFetchRequests);
+    for (const expectedInterruptedTargetWakeLifecycleId of [
+      undefined,
+      "twl_previous_recovery",
+    ]) {
+      await expect(
+        recovery.rpcApproveAgentProfileWorkQueue({
+          ...(expectedInterruptedTargetWakeLifecycleId
+            ? { expectedInterruptedTargetWakeLifecycleId }
+            : {}),
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({
+        status: expectedInterruptedTargetWakeLifecycleId
+          ? "not_pending"
+          : "unavailable",
+      });
+      expect(storageRecords).toEqual(beforeStaleApproval);
+      expect(spaceFetchRequests).toEqual(beforeRedrives);
+    }
+    const approvalRequest = {
+      expectedInterruptedTargetWakeLifecycleId:
+        interruptedWork.targetWakeLifecycleId,
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    // Exercise concurrent writes through the platform's real transaction
+    // isolation, not the in-memory harness's unsynchronized transaction mock.
+    const transport = (env as unknown as CoreBindings)
+      .OPENMELD_RUNTIME_TRANSPORT;
+    if (!transport) {
+      throw new Error("Expected runtime transport binding");
+    }
+    await runInDurableObject(
+      transport.get(transport.newUniqueId()),
+      async (_instance, durableState) => {
+        await durableState.storage.put(Object.fromEntries(storageRecords));
+        try {
+          const results = await Promise.all(
+            [0, 1].map(() =>
+              executionAdmission.approveRuntimeCoordinatorAgentProfileWorkQueue(
+                {
+                  ...approvalRequest,
+                  nowMs: Date.now() + 60_000,
+                  storage: durableState.storage,
+                }
+              )
+            )
+          );
+          expect(results.map((result) => result.status).sort()).toEqual([
+            "approved",
+            "not_pending",
+          ]);
+          expect(await durableState.storage.get(admissionKey)).toMatchObject({
+            recoveryGate: null,
+            workItems: [
+              expect.objectContaining({
+                dispatchId: "dispatch-recovery-approved",
+              }),
+            ],
+          });
+        } finally {
+          await durableState.storage.deleteAlarm();
         }
-      ).rpcApproveAgentProfileWorkQueue({
-        ownerUserId: "owner-1",
-        targetProfileId: TARGET_AGENT_PROFILE_ID,
-      })
+      }
+    );
+    await expect(
+      recovery.rpcApproveAgentProfileWorkQueue(approvalRequest)
     ).resolves.toEqual({ status: "approved" });
+    const afterApproval = structuredClone(storageRecords);
+    const afterRedrives = structuredClone(spaceFetchRequests);
+    await expect(
+      recovery.rpcApproveAgentProfileWorkQueue(approvalRequest)
+    ).resolves.toEqual({ status: "not_pending" });
+    expect(storageRecords).toEqual(afterApproval);
+    expect(spaceFetchRequests).toEqual(afterRedrives);
     expect(
       storageRecords.get(
         buildRuntimeCoordinatorHeadLifecycleStorageKey(
@@ -15871,6 +16061,47 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toEqual([]);
   });
 
+  it("applies authority-bound Local Agent public progress without finalizing the Wake", async () => {
+    const { hub, sentFrames, socket, spaceStub, state } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchToolActivityFrame: (
+          webSocket: WebSocket,
+          payload: unknown,
+          kind: "progress"
+        ) => Promise<void>;
+      }
+    ).handleDispatchToolActivityFrame(
+      socket,
+      buildProgressRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+      }),
+      "progress"
+    );
+
+    expect(spaceStub.rpcApplyAgentStreamDelta).toHaveBeenCalledWith({
+      v: 1,
+      dispatchId: "dispatch-1",
+      kind: "progress",
+      profileId: TARGET_AGENT_PROFILE_ID,
+      progressSnapshot: "Confirmed the root cause; starting verification.",
+      sequence: 1,
+      spaceId: HEX_SPACE_ID,
+      streamId: "local-agent:10.dispatch-1:9.attempt-1",
+      triggerMessageId: "signal-1",
+    });
+    expect(spaceStub.rpcCloseAgentStream).not.toHaveBeenCalled();
+    expect(sentFrames).toEqual([]);
+  });
+
   it("projects and resolves one normal-priority Inbox review for the interaction owner", async () => {
     const { hub, recordingD1, sentFrames, socket, state } = createHarness();
     const executionToken = await issueDeliveryToken({
@@ -19909,7 +20140,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("fails an occupied native conversation with its real cause and opens an owner decision", async () => {
+  it.each([
+    "pending",
+    "hibernated",
+  ] as const)("fails an occupied native conversation despite repeated keepalives (%s)", async (transportState) => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const {
@@ -19928,41 +20162,55 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
-      state.pendingDispatches.clear();
+      if (transportState === "hibernated") {
+        state.pendingDispatches.clear();
+      }
 
-      await (
-        hub as unknown as {
-          handleDispatchLifecycleFrame: (
-            webSocket: WebSocket,
-            payload: unknown
-          ) => Promise<void>;
-        }
-      ).handleDispatchLifecycleFrame(
+      const lifecycleHub = hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      };
+      nowSpy.mockReturnValue(1_700_000_000_100);
+      await lifecycleHub.handleDispatchLifecycleFrame(
         socket,
         buildLifecycleRequest({
           executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          lifecycleAtMs: 1_700_000_000_100,
+          phase: "accepted_local",
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+      nowSpy.mockReturnValue(1_700_000_000_300);
+      await lifecycleHub.handleDispatchLifecycleFrame(
+        socket,
+        buildLifecycleRequest({
+          agentControllerConversationOccupancy: {
+            agentControllerConversationId: "conversation-1",
+            contractVersion: 1,
+            state: "occupied",
+          },
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
           lifecycleAtMs: 1_700_000_000_300,
-          phase: "running",
+          phase: "accepted_local",
           runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
         })
       );
 
-      // The Adapter reports the occupancy exactly once and then goes quiet, so
-      // the watchdog sees the same stale progress a lost computer produces.
-      // This fixture writes that one report directly.
       const admissionKey =
         runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
           TARGET_AGENT_PROFILE_ID
         );
       const admission = storageRecordsAdmission(storageRecords, admissionKey);
-      storageRecords.set(admissionKey, {
-        ...admission,
-        workItems: admission.workItems.map((item) =>
-          item.dispatchId === "dispatch-1"
-            ? { ...item, waitReason: "controller_conversation_occupied" }
-            : item
-        ),
-      });
+      expect(admission.workItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            dispatchId: "dispatch-1",
+            waitReason: "controller_conversation_occupied",
+          }),
+        ])
+      );
       const occupiedTargetWakeLifecycleId =
         admission.workItems.find((item) => item.dispatchId === "dispatch-1")
           ?.targetWakeLifecycleId ?? null;
@@ -19987,6 +20235,65 @@ describe("runtime transport runtime coordinator transport contract", () => {
           }
         ).alarm();
       }
+      // Real Service keepalives alternate between reasserting occupancy and
+      // omitting the optional field. Neither proves the writer was released.
+      liveSession.connectionGeneration += 1;
+      for (const [index, atMs] of [
+        1_700_000_120_300, 1_700_000_240_300, 1_700_000_299_300,
+      ].entries()) {
+        nowSpy.mockReturnValue(atMs);
+        liveSession.lastHeartbeatMs = atMs;
+        // Published Services refresh the route catalog on this same socket
+        // with a new timestamp. That is not a transport reconnection.
+        (
+          hub as unknown as {
+            handleRegisterSessionFrame: (
+              socket: WebSocket,
+              payload: unknown
+            ) => void;
+          }
+        ).handleRegisterSessionFrame(socket, {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          capabilities: liveSession.capabilities,
+          connectedAtMs: atMs,
+          connectionGeneration: liveSession.connectionGeneration,
+          daemonSessionId: liveSession.daemonSessionId,
+          deviceId: liveSession.deviceId,
+          lane: liveSession.lane,
+          ownerUserId: "owner-1",
+          profileIds: [TARGET_AGENT_PROFILE_ID],
+          runtimeContract: { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+        });
+        await Promise.allSettled([...waitUntilTasks]);
+        await lifecycleHub.handleDispatchLifecycleFrame(
+          socket,
+          buildLifecycleRequest({
+            acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+            connectionGeneration: liveSession.connectionGeneration,
+            ...(index % 2 === 0
+              ? {
+                  agentControllerConversationOccupancy: {
+                    agentControllerConversationId: "conversation-1",
+                    contractVersion: 1,
+                    state: "occupied" as const,
+                  },
+                }
+              : {}),
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: atMs,
+            phase: "accepted_local",
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+        expect(sentFrames.at(-1)).toMatchObject({
+          code: "daemon.dispatch.lifecycle_acknowledged",
+          payload: { accepted: true },
+        });
+      }
+      expect(
+        findRuntimeCoordinatorRunCommandState(storageRecords)?.localProgress
+          .lastLifecycleAtMs
+      ).toBe(1_700_000_000_300);
       liveSession.lastHeartbeatMs = 1_700_000_300_300;
 
       recordingD1.calls.length = 0;
@@ -20271,6 +20578,111 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
+  it.each([
+    ["pending", "release"],
+    ["hibernated", "release"],
+    ["pending", "provider turn"],
+    ["hibernated", "provider turn"],
+  ] as const)("keeps genuine progress alive after occupancy (%s, %s)", async (transportState, releaseEvidence) => {
+    const startMs = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startMs);
+    try {
+      const {
+        hub,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+        spaceFetchRequests,
+      } = createHarness();
+      const executionToken = await issueDeliveryToken({
+        hub,
+        sentFrames,
+        socket,
+        state,
+      });
+      if (transportState === "hibernated") {
+        state.pendingDispatches.clear();
+      }
+      const lifecycleHub = hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+        alarm: () => Promise<void>;
+      };
+      const session = state.sessionsById.get("daemon-session-1");
+      if (!session) {
+        throw new Error("Expected the registered daemon session.");
+      }
+      const report = async (
+        offsetMs: number,
+        phase: "accepted_local" | "running",
+        occupancy?: "available" | "occupied"
+      ) => {
+        nowSpy.mockReturnValue(startMs + offsetMs);
+        session.lastHeartbeatMs = startMs + offsetMs;
+        await lifecycleHub.handleDispatchLifecycleFrame(
+          socket,
+          buildLifecycleRequest({
+            ...(occupancy
+              ? {
+                  agentControllerConversationOccupancy: {
+                    agentControllerConversationId: "conversation-1",
+                    contractVersion: 1,
+                    state: occupancy,
+                  },
+                }
+              : {}),
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: startMs + offsetMs,
+            phase,
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+        await lifecycleHub.alarm();
+      };
+      await report(300, "accepted_local", "occupied");
+      await report(31_000, "accepted_local");
+      await report(61_000, "accepted_local", "occupied");
+      // A provider turn can begin on the retry before an availability callback
+      // arrives. Advancing to running is itself evidence that the wait ended.
+      await report(
+        299_300,
+        releaseEvidence === "release" ? "accepted_local" : "running",
+        releaseEvidence === "release" ? "available" : undefined
+      );
+      const admission = storageRecordsAdmission(
+        storageRecords,
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        )
+      );
+      expect(
+        admission.workItems.find((item) => item.dispatchId === "dispatch-1")
+      ).not.toHaveProperty("waitReason");
+      expect(
+        findRuntimeCoordinatorRunCommandState(storageRecords)?.localProgress
+          .lastLifecycleAtMs
+      ).toBe(startMs + 299_300);
+      // Repeated ordinary running keepalives remain progress, even beyond the
+      // original occupied deadline. There is no total execution time limit.
+      for (const offsetMs of [300_300, 540_300, 780_300]) {
+        await report(offsetMs, "running");
+        expect(
+          findRuntimeCoordinatorRunCommandState(storageRecords)?.localProgress
+            .lastLifecycleAtMs
+        ).toBe(startMs + offsetMs);
+      }
+      expect(spaceFetchRequests).toEqual([]);
+      expect(sentFrames).not.toContainEqual(
+        expect.objectContaining({ code: "daemon.local_agent_control.cancel" })
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("keeps a released conversation on the honest stall cause with no owner decision", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
@@ -20520,27 +20932,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
           failureStage: "execution",
           generatedBy: "openmeld",
           noticeType: "terminal_failure",
-          reason: "runtime.progress_stale",
-          reasonCode: "runtime.progress_stale",
+          reason: "runtime.local_runtime_lost",
+          reasonCode: "runtime.local_runtime_lost",
           stopCause: "controlled_service_update",
-          text: "Codex Agent stopped making progress on this Wake. Reconnect the computer before trying again.",
+          text: "OpenMeld Service stopped or disconnected while Codex Agent was working on this Wake. Start OpenMeld again before retrying.",
         },
       });
-      const progressStaleTerminalEvent = getRuntimeCoordinatorEventCalls(
+      const localRuntimeLostEvent = getRuntimeCoordinatorEventCalls(
         recordingD1.calls
-      ).find(
-        (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
-      );
+      ).find((call) => call.params[2] === "runtime_connection_lost");
       expect(
-        JSON.parse(String(progressStaleTerminalEvent?.params[7]))
+        JSON.parse(String(localRuntimeLostEvent?.params[7]))
       ).toMatchObject({
-        action: "timeout_terminal",
-        progressStale: {
-          expiryCause: "local_progress_stale",
+        action: "reclaim_blocked",
+        localRuntimeLost: {
+          expiryCause: "local_runtime_lost",
           publicationStatus: "published",
           publishedSignalId: "signal-delivery-expired-1",
         },
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         trigger: "alarm",
       });
       const terminalAuthority = [...storageRecords.values()].find(
@@ -20548,7 +20958,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           value !== null && typeof value === "object" && "runsById" in value
       );
       expect(terminalAuthority?.terminalOutcome).toMatchObject({
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         replySignalId: "signal-delivery-expired-1",
         status: "failed_terminal",
       });
@@ -20557,7 +20967,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
       expect(agentTaskOutcomeWrite?.params[2]).toBe("failed");
       expect(JSON.parse(String(agentTaskOutcomeWrite?.params[4]))).toEqual({
-        errorCode: "runtime.progress_stale",
+        errorCode: "runtime.local_runtime_lost",
         eventId: `runtime-coordinator-terminal:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
         occurredAtMs: 1_700_000_300_300,
         publishedSignalId: "signal-delivery-expired-1",
@@ -20673,7 +21083,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         recordingD1.inboxRows.get("dispatch-1::attempt-1")?.published_signal_id
       ).toBe("execution-recovery:space-1:dispatch-1::attempt-1");
       expect(terminalAuthority?.terminalOutcome).toMatchObject({
-        reasonCode: "runtime.progress_stale",
+        reasonCode: "runtime.local_runtime_lost",
         replySignalId: "signal-delivery-expired-1",
         status: "failed_terminal",
       });
@@ -21066,7 +21476,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             noticeType: "terminal_failure",
             reasonCode: "runtime.local_runtime_lost",
             stopCause: "controlled_service_update",
-            text: "Codex Agent was interrupted when its computer reconnected.",
+            text: "OpenMeld Service stopped or disconnected while Codex Agent was working on this Wake. Start OpenMeld again before retrying.",
           }),
         },
       });

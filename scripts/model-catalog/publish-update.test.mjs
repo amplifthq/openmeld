@@ -4,10 +4,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { digest, prepareUpdate } from "./catalog-update.mjs";
+import { parseCodexModels, prepareUpdate } from "./catalog-update.mjs";
+import { combineUpdates } from "./collect-update.mjs";
 import { publishUpdate } from "./publish-update.mjs";
 
-test("a pushed proposal survives a failed PR request without rewriting the branch", async () => {
+test("publication skips evidence-only scans and recovers meaningful proposals without rewriting branches", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "openmeld-catalog-publish-"));
   const previousCwd = process.cwd();
   const previousPath = process.env.PATH;
@@ -64,7 +65,7 @@ test("a pushed proposal survives a failed PR request without rewriting the branc
     git("commit", "-m", "test: establish catalog baseline");
     git("remote", "add", "origin", remote);
     git("push", "-u", "origin", "main");
-    const result = prepareUpdate({
+    const quiet = prepareUpdate({
       catalog,
       controller: "codex",
       sources: [
@@ -77,24 +78,25 @@ test("a pushed proposal survives a failed PR request without rewriting the branc
       observedAt: "2026-09-05T00:00:00.000Z",
     });
     const output = join(repo, "dev-tmp");
-    await writeFile(
-      join(output, "catalog.json"),
-      JSON.stringify(result.catalog)
-    );
-    await writeFile(
-      join(output, "evidence.json"),
-      JSON.stringify([result.evidence])
-    );
-    await writeFile(
-      join(output, "result.json"),
-      JSON.stringify({
-        controller: "codex",
-        fingerprint: digest([
-          { controller: "codex", fingerprint: result.evidence.fingerprint },
-        ]),
-        changed: true,
-      })
-    );
+    const writeResult = async (result) => {
+      const combined = combineUpdates(catalog, [result]);
+      await writeFile(
+        join(output, "catalog.json"),
+        JSON.stringify(combined.catalog)
+      );
+      await writeFile(
+        join(output, "evidence.json"),
+        JSON.stringify(combined.evidence)
+      );
+      await writeFile(
+        join(output, "result.json"),
+        JSON.stringify({
+          fingerprint: combined.fingerprint,
+          changed: combined.changed,
+        })
+      );
+    };
+    await writeResult(quiet);
     // Stub only the GitHub transport. Git commit, push, fetch, and branch recovery
     // run against a real disposable bare remote. The fake PR/comment transport
     // mirrors the fields consumed by the publisher so the open-review refresh
@@ -140,9 +142,54 @@ if (args[0] === 'pr' && args[1] === 'list') {
       { mode: 0o755 }
     );
     process.env.PATH = `${join(repo, "dev-tmp/bin")}:${previousPath}`;
+    await publishUpdate(output);
+    assert.equal(git("branch", "--show-current"), "main");
+    assert.equal(git("status", "--porcelain"), "");
+    assert.equal(git("ls-remote", "--heads", "origin").split("\n").length, 1);
+    await assert.rejects(readFile("dev-tmp/pr.json", "utf8"), {
+      code: "ENOENT",
+    });
+    const raw = JSON.parse(
+      await readFile(
+        new URL("./fixtures/codex-rust-v0.153.4.json", import.meta.url),
+        "utf8"
+      )
+    );
+    const source = {
+      kind: "official-harness-catalog",
+      url: "https://github.com/openai/codex/releases/tag/rust-v0.153.4",
+      data: raw,
+    };
+    const result = prepareUpdate({
+      catalog,
+      controller: "codex",
+      sources: [source],
+      codexModels: parseCodexModels(raw),
+      observedAt: quiet.evidence.observedAt,
+    });
+    await writeResult(result);
     await assert.rejects(() => publishUpdate(output));
     const pushed = git("rev-parse", "HEAD");
     git("checkout", "main");
+    const refreshed = prepareUpdate({
+      catalog,
+      controller: "codex",
+      sources: [
+        source,
+        {
+          kind: "official-document",
+          url: "https://example.com/docs",
+          data: "Updated installation instructions.",
+        },
+      ],
+      codexModels: parseCodexModels(raw),
+      observedAt: result.evidence.observedAt,
+    });
+    assert.notEqual(
+      refreshed.evidence.fingerprint,
+      result.evidence.fingerprint
+    );
+    await writeResult(refreshed);
     await publishUpdate(output);
     const pulls = JSON.parse(await readFile("dev-tmp/pr.json", "utf8"));
     assert.equal(

@@ -100,6 +100,7 @@ async function fingerprintAcceptedDispatchPayload(
     controllerSnapshot: _controllerSnapshot,
     deliveryRecoveryReason: _deliveryRecoveryReason,
     enqueuedAtMs: _enqueuedAtMs,
+    outboxCreatedAtMs: _outboxCreatedAtMs,
     sourceProfileNameSnapshot: _sourceProfileNameSnapshot,
     spaceNameSnapshot: _spaceNameSnapshot,
     targetProfileNameSnapshot: _targetProfileNameSnapshot,

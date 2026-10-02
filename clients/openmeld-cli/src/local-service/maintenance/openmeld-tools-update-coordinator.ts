@@ -101,7 +101,6 @@ export function createOpenMeldToolsUpdateCoordinator(
 
   const startAttempt = (attempt: OpenMeldToolsUpdateAttempt): void => {
     if (options.executeUpdates === false) {
-      deps.wakeWorker().catch(deps.reportBackgroundError);
       return;
     }
     if (inFlight) {
@@ -206,12 +205,35 @@ export function createOpenMeldToolsUpdateCoordinator(
   };
 
   return {
-    requestUpdate: async (input) =>
-      await runSerialized(
+    requestUpdate: async (input) => {
+      const result = await runSerialized(
         async () => await deps.withCoordinationLock(() => requestUpdate(input))
-      ),
-    resumePendingUpdate: async () =>
-      await runSerialized(() => deps.withCoordinationLock(resumePendingUpdate)),
+      );
+      if (
+        options.executeUpdates === false &&
+        (result.status === "started" || result.status === "already_running") &&
+        (await deps.readPendingAttempt())?.operation.operationId ===
+          result.operation.operationId
+      ) {
+        // Release the lifecycle lock before waking the worker. It must be able
+        // to acquire that same lock when Task Scheduler starts it.
+        await deps.wakeWorker();
+      }
+      return result;
+    },
+    resumePendingUpdate: async () => {
+      const resumed = await runSerialized(() =>
+        deps.withCoordinationLock(resumePendingUpdate)
+      );
+      if (
+        resumed &&
+        options.executeUpdates === false &&
+        (await deps.readPendingAttempt()) !== null
+      ) {
+        await deps.wakeWorker();
+      }
+      return resumed;
+    },
     waitForIdle: async () => {
       await coordination;
       while (inFlight) {

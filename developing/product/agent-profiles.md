@@ -30,6 +30,21 @@ is stored on that Agent's Binding, independently of Center Agent settings.
 Each Space, including a Direct Message, has a separate persistent conversation
 for that Remote Agent. This does not add a multi-chat management surface.
 
+Execution family and current availability are separate facts. Hosted Remote and
+Center Agents do not depend on the viewer's Computer, local Service, local Agent
+catalog, or connection/upgrade state. Their member reads must not wait for local
+route preloads. Preload selection uses current Auth identity and validated
+Binding evidence shared with that request's readiness read, never the member's
+historical controller snapshot. Both Local-to-Hosted and Hosted-to-Local changes
+must preserve that boundary without dropping needed Local reads. Real cloud
+authorization, model, binding, and service failures
+still block work; hosted does not mean unconditionally ready. A missing or failed
+binding read is unknown execution evidence, not permission to assume a Local
+Agent. Only confirmed Local identities receive Connect/Reconnect/Prepare local
+recovery. Local missing-binding recovery remains available. Hosted and unknown
+identities keep applicable model/settings guidance or a factual status hint,
+never a local setup action.
+
 Users should understand it as the named AI collaborator they can invite into a
 Space, address in conversation, Wake for work, and recognize across replies.
 
@@ -75,6 +90,14 @@ Local Agent message headers show the owner's name after a middle dot, without
 an owner avatar or prefix. Profile popovers place availability beside the Agent
 name and show `Owned by` with the owner's small Human Profile avatar and name.
 Hosted Agents retain the `Hosted by OpenMeld` message attribution.
+Hosted Remote Agent avatars use the generic Agent mark by default. They do not
+borrow model vendor branding: a model choice is not the teammate's identity.
+The owner may instead confirm the abstract fluid avatar, which stays in place
+across model changes. Avatar choice belongs to the Agent Profile, not to its
+Binding or a cached model selection. Every Web entrance resolves style, shape,
+and icon from the Organization Profile Directory. Missing `avatarStyle` means
+the automatic Agent/controller mark, never an invented saved Bot selection.
+Center Agents use circles; other Agents use rounded squares.
 
 OpenMeld also has Human Profiles. A default Human Profile is created for the
 signed-in user and is the right identity when a human or their current AI
@@ -349,6 +372,12 @@ Core checkpoints the committed ID on the fenced `approved` request immediately
 after Auth returns and before starting Space, Binding, working-folder, or
 Default Project setup. A stale-attempt recovery therefore cannot relabel a
 known committed identity as a creation failure.
+After Binding, Core completes the working-folder mutation and releases its
+execution-target mutation lease before setting Default Project. The two
+operations must not compete for the same lease. The request checkpoints each
+completed post-Binding step so a retry of the same committed Profile skips that
+step. If the working-folder outcome is unknown, Core does not advance to Default
+Project; the lease and request failure remain visible for safe recovery.
 
 Before Auth creates the Agent Profile identity, Core revalidates the selected
 local-agent candidate against the target member's current Computer projection.
@@ -1067,7 +1096,10 @@ context when no retained context has been selected. It does not require a Git
 repository or container engine. A Wake continuing a retained context keeps that
 context's access; select a new project task to work in a repository. Space-only
 tasks have no local code tools. Forks inherit the source context's access unless an
-explicit supported choice changes it. Codex App Server also supports independent
+explicit supported choice changes it. An ordinary Codex Wake with no retained
+context uses the Profile's effective working folder. Explicit task choices may
+instead select Space-only access, an independent project worktree, or read-only
+current-folder access. Codex App Server also supports independent
 project worktrees or read-only/current-folder access. The CLI options
 are `--task-access space_context|read_only|workspace` and
 `--task-workspace isolated|current`. Current-folder writers wait for conflicting
@@ -1130,7 +1162,7 @@ guess based on recent output.
 Usage participates in Wakeability only when the Local Agent exposes structured,
 reliable Usage Limits. A Local Agent that explicitly reports Usage as
 unsupported, or that has no reliable Usage capability because reporting is
-passive or not evaluated, does not use Usage as an admission condition. Once a
+observational or not evaluated, does not use Usage as an admission condition. Once a
 Local Agent's versioned capability matrix declares native Usage support,
 missing, stale, expired, or currently unavailable Usage remains an observation,
 not an execution prerequisite. Otherwise ready Agents may attempt a new Wake;
@@ -1148,7 +1180,7 @@ provider evidence and a real smoke test.
 
 A structured Wake failure may update future Usage admission only when the
 accepted execution's exact Agent Controller has native Usage support in that
-same matrix. A passive, unsupported, or not-evaluated controller may still
+same matrix. An observational, unsupported, or not-evaluated controller may still
 report `usage_exhausted` for the current Wake and preserve its raw provider
 detail in Message Details, but that result must not create blocking evidence
 for a later Wake.

@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { projectLocalConnectionFailureReasonCodeSchema } from "../../public-agent-failure-reason";
+import { aiUsageObservationSchema } from "../ai-usage";
 import { executionContextCompletionSchema } from "../protocol/execution-context";
 import { profileWorkingDirectorySchema } from "../protocol/profile";
 import { openMeldSpaceEgressActionSchema } from "../space-mesh/openmeld-space-action";
@@ -187,6 +188,7 @@ export const openMeldDaemonTaskResultTokenUsageSchema = z.strictObject({
 });
 
 export const openMeldDaemonTaskResultTelemetrySchema = z.strictObject({
+  aiUsage: z.array(aiUsageObservationSchema).max(4096).optional(),
   completedAtMs: z.number().int().nonnegative(),
   contextCompactionObserved: z.boolean().optional(),
   contextHealed: z.boolean().optional(),

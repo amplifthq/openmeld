@@ -92,6 +92,7 @@ import {
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchProgressRequestSchema,
   runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
@@ -234,6 +235,7 @@ import type {
   RuntimeTransportDispatchLifecycleRequest,
   RuntimeTransportDispatchPreviewEndRequest,
   RuntimeTransportDispatchPreviewRequest,
+  RuntimeTransportDispatchProgressRequest,
   RuntimeTransportDispatchReasoningRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
@@ -539,6 +541,7 @@ import {
   resolveNextRuntimeCoordinatorHeadFailurePublicationRetryAlarmAtMsFromRecords,
   resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMsFromRecords,
   resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMsFromRecords,
+  resolveNextRuntimeCoordinatorRunProgressPhase,
   resolveRuntimeCoordinatorDecisionRun,
   resolveRuntimeCoordinatorDecisionScopeMismatchReason,
   resolveRuntimeCoordinatorExecutionAdmissionValidityMs,
@@ -776,6 +779,29 @@ export function resolveLocalAgentControlResponseTimeoutMs(
     return 35_000;
   }
   return LOCAL_AGENT_CONTROL_SET_ENABLED_RESPONSE_TIMEOUT_MS;
+}
+
+function parseRuntimeTransportDispatchLiveActivity(
+  payload: unknown,
+  kind: "progress" | "reasoning" | "tool"
+):
+  | RuntimeTransportDispatchProgressRequest
+  | RuntimeTransportDispatchReasoningRequest
+  | RuntimeTransportDispatchToolActivityRequest
+  | null {
+  if (kind === "reasoning") {
+    const parsed =
+      runtimeTransportDispatchReasoningRequestSchema.safeParse(payload);
+    return parsed.success ? parsed.data : null;
+  }
+  if (kind === "progress") {
+    const parsed =
+      runtimeTransportDispatchProgressRequestSchema.safeParse(payload);
+    return parsed.success ? parsed.data : null;
+  }
+  const parsed =
+    runtimeTransportDispatchToolActivityRequestSchema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
 }
 
 type RuntimeTransportHubHousekeepingAlarmPhase =
@@ -2155,6 +2181,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return { status: "unavailable" };
     }
     const response = await approveRuntimeCoordinatorAgentProfileWorkQueue({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsed.data.expectedInterruptedTargetWakeLifecycleId,
       nowMs: Date.now(),
       ownerUserId: parsed.data.ownerUserId,
       storage: this.ctx.storage,
@@ -3411,7 +3439,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               this.handleDispatchToolActivityFrame(
                 webSocket,
                 { ...parsed.data, thinkingSnapshot: "" },
-                true
+                "reasoning"
               ),
           });
           return;
@@ -3433,12 +3461,34 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               await this.handleDispatchToolActivityFrame(
                 webSocket,
                 frame.payload,
-                true
+                "reasoning"
               );
             } finally {
               this.pendingReasoningDispatches.delete(dispatchId);
             }
           },
+        });
+        return;
+      }
+      case "daemon.dispatch.progress": {
+        this.enqueueOrderedDispatchFrame({
+          onError: (error) => {
+            console.warn("[core.runtime_transport.progress_frame_failed]", {
+              errorMessage:
+                error instanceof Error ? error.message : String(error),
+            });
+            this.sendErrorFrame(webSocket, {
+              code: "execution_token_authority_missing",
+              message: "dispatch progress rejected",
+            });
+          },
+          payload: frame.payload,
+          run: () =>
+            this.handleDispatchToolActivityFrame(
+              webSocket,
+              frame.payload,
+              "progress"
+            ),
         });
         return;
       }
@@ -8720,18 +8770,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    await this.syncAgentProfileWorkControllerConversationOccupancy({
-      request: parsed.data,
-      tokenValidationContext,
-    });
+    // Same-run keepalives still pass connection validation and acknowledgement,
+    // but cannot move the occupied wait's progress or watchdog baseline.
+    const { isOccupiedKeepalive } =
+      await this.syncAgentProfileWorkControllerConversationOccupancy({
+        currentPhase: pending?.phase ?? commandState?.localProgress.phase,
+        request: parsed.data,
+        tokenValidationContext,
+      });
     if (!pending && commandState) {
-      await this.writeRuntimeCoordinatorRunCommandState(
-        buildRuntimeCoordinatorRunCommandStateFromLifecycle({
-          commandState,
-          lifecycle: parsed.data,
-          nowMs: Date.now(),
-        })
-      );
+      if (!isOccupiedKeepalive) {
+        await this.writeRuntimeCoordinatorRunCommandState(
+          buildRuntimeCoordinatorRunCommandStateFromLifecycle({
+            commandState,
+            lifecycle: parsed.data,
+            nowMs: Date.now(),
+          })
+        );
+      }
       this.recordRuntimeCoordinatorLifecycleProjectionFromCommandState({
         commandState,
         request: parsed.data,
@@ -8745,7 +8801,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       await acknowledge(true, null);
       return;
     }
-    const response = handleDispatchLifecycle(this.state, parsed.data);
+    const response = handleDispatchLifecycle(this.state, parsed.data, {
+      recordProgress: !isOccupiedKeepalive,
+    });
     if (!response.ok) {
       await acknowledge(
         false,
@@ -8767,7 +8825,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const updatedPending = this.state.pendingDispatches.get(
       buildDispatchAttemptKey(parsed.data.dispatchId, parsed.data.attemptId)
     );
-    if (updatedPending) {
+    if (updatedPending && !isOccupiedKeepalive) {
       await this.updateRuntimeCoordinatorRunCommandStateFromPending({
         pending: updatedPending,
       });
@@ -8833,20 +8891,42 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async syncAgentProfileWorkControllerConversationOccupancy(input: {
+    currentPhase: RuntimeCoordinatorRunLocalProgressState["phase"] | undefined;
     request: RuntimeTransportDispatchLifecycleRequest;
     tokenValidationContext: RuntimeCoordinatorTokenValidationContext;
-  }): Promise<void> {
+  }): Promise<{ isOccupiedKeepalive: boolean }> {
+    const advancesPhase =
+      input.currentPhase !== undefined &&
+      resolveNextRuntimeCoordinatorRunProgressPhase({
+        currentPhase: input.currentPhase,
+        requestedPhase: input.request.phase,
+      }) !== input.currentPhase;
+    const wasOccupied =
+      await readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied(
+        {
+          dispatchId: input.request.dispatchId,
+          storage: this.ctx.storage,
+          targetProfileId:
+            input.tokenValidationContext.executionScope.targetProfileId,
+        }
+      );
     const occupancy =
       input.request.agentControllerConversationOccupancy ?? null;
-    if (!occupancy) {
-      return;
+    const isOccupiedKeepalive =
+      wasOccupied && !advancesPhase && occupancy?.state !== "available";
+    const providerTurnStarted =
+      wasOccupied && advancesPhase && input.request.phase === "running";
+    const state =
+      occupancy?.state ?? (providerTurnStarted ? "available" : null);
+    if (!state) {
+      return { isOccupiedKeepalive };
     }
     try {
       await markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy(
         {
           dispatchId: input.request.dispatchId,
           nowMs: Date.now(),
-          state: occupancy.state,
+          state,
           storage: this.ctx.storage,
           targetProfileId:
             input.tokenValidationContext.executionScope.targetProfileId,
@@ -8860,12 +8940,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           errorMessage: error instanceof Error ? error.message : String(error),
           runtimeCoordinatorExecutionId:
             input.tokenValidationContext.runtimeCoordinatorExecutionId,
-          state: occupancy.state,
+          state,
           targetProfileId:
             input.tokenValidationContext.executionScope.targetProfileId,
         }
       );
     }
+    return { isOccupiedKeepalive };
   }
 
   private async readRuntimeCoordinatorRunCommandStateForProgress(input: {
@@ -9089,21 +9170,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async handleDispatchToolActivityFrame(
     webSocket: WebSocket,
     payload: unknown,
-    reasoning = false
+    kind: "progress" | "reasoning" | "tool" = "tool"
   ): Promise<void> {
-    const parsed = (
-      reasoning
-        ? runtimeTransportDispatchReasoningRequestSchema
-        : runtimeTransportDispatchToolActivityRequestSchema
-    ).safeParse(payload);
-    if (!parsed.success) {
+    const activity = parseRuntimeTransportDispatchLiveActivity(payload, kind);
+    if (!activity) {
       this.sendErrorFrame(webSocket, {
         code: "schema.invalid",
         message: "invalid dispatch tool activity payload",
       });
       return;
     }
-    const activity = parsed.data;
     const pending = await this.readDispatchProgressProjection(activity);
     const coordinatorContract = this.validateRuntimeCoordinatorExecutionIdEcho({
       attemptId: activity.attemptId,
@@ -9190,6 +9266,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     pending: PendingDispatchState,
     activity:
       | RuntimeTransportDispatchToolActivityRequest
+      | RuntimeTransportDispatchProgressRequest
       | RuntimeTransportDispatchReasoningRequest
   ): Promise<void> {
     const spaceStub = resolveSpaceStub(
@@ -9233,18 +9310,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       activity.thinkingSnapshot = "";
     }
-    const result =
-      "thinkingSnapshot" in activity
-        ? await spaceStub.rpcApplyAgentStreamDelta({
-            ...streamIdentity,
-            kind: "thinking",
-            thinkingSnapshot: activity.thinkingSnapshot,
-            reasoningState: activity.reasoningState,
-          })
-        : await spaceStub.rpcApplyAgentStreamPart({
-            ...streamIdentity,
-            part: activity.part,
-          });
+    let result: Awaited<ReturnType<typeof spaceStub.rpcApplyAgentStreamDelta>>;
+    if ("thinkingSnapshot" in activity) {
+      result = await spaceStub.rpcApplyAgentStreamDelta({
+        ...streamIdentity,
+        kind: "thinking",
+        thinkingSnapshot: activity.thinkingSnapshot,
+        reasoningState: activity.reasoningState,
+      });
+    } else if ("progressSnapshot" in activity) {
+      result = await spaceStub.rpcApplyAgentStreamDelta({
+        ...streamIdentity,
+        kind: "progress",
+        progressSnapshot: activity.progressSnapshot,
+      });
+    } else {
+      result = await spaceStub.rpcApplyAgentStreamPart({
+        ...streamIdentity,
+        part: activity.part,
+      });
+    }
     if (result.status === "rejected") {
       console.warn("[core.runtime_transport.tool_activity_rejected]", {
         attemptId: activity.attemptId,
@@ -9259,7 +9344,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    if ("thinkingSnapshot" in activity) {
+    if ("thinkingSnapshot" in activity || "progressSnapshot" in activity) {
       return;
     }
     console.info("[core.runtime_transport.tool_activity_applied]", {
@@ -16547,22 +16632,41 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   /**
    * Names the cause behind a stale-progress terminal.
    *
-   * Same watchdog, different cause: an occupied native conversation produces
-   * exactly one lifecycle event and then nothing, so it reaches the stale
-   * threshold looking like a lost computer. Core still holds the occupancy flag
+   * Same watchdog, different cause: repeated occupied lifecycle keepalives
+   * prove liveness without advancing work, so the wait reaches the stale
+   * threshold. Core still holds the occupancy flag
    * the Adapter reported, and naming it here is what lets the Wake fail with
    * its real reason and settle into an owner decision instead of a "reconnect
    * the computer" dead end.
    */
   private async resolveRuntimeCoordinatorStaleProgressCause(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
     dispatchId: string;
     targetProfileId: string;
   }): Promise<{
     expiryCause: RuntimeCoordinatorRunExpiryCause;
     reasonCode:
       | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+      | typeof RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE
       | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
   }> {
+    const deliveredSession = this.state.sessionsById.get(
+      input.commandState.lastDeliveryProvenance.daemonSessionId
+    );
+    const sessionConnectionExpired =
+      !deliveredSession?.socket &&
+      (!deliveredSession ||
+        Date.now() - deliveredSession.lastHeartbeatMs > LEASE_TTL_MS);
+    if (
+      sessionConnectionExpired ||
+      (deliveredSession?.acceptingDispatches === false &&
+        deliveredSession.stopCause !== null)
+    ) {
+      return {
+        expiryCause: "local_runtime_lost",
+        reasonCode: RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE,
+      };
+    }
     const occupied =
       await readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied(
         {
@@ -16602,6 +16706,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reasonCode:
           | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
           | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
+          | typeof RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE
           | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
       }
     | {
@@ -16681,6 +16786,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           terminal: true,
           commandState,
           ...(await this.resolveRuntimeCoordinatorStaleProgressCause({
+            commandState,
             dispatchId: commandState.dispatchId,
             targetProfileId: commandState.targetProfileId,
           })),

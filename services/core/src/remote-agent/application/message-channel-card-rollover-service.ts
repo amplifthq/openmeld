@@ -27,6 +27,11 @@ import { buildMessageChannelProviderPublicationUuid } from "./provider-publicati
 
 const MESSAGE_CHANNEL_CARD_ROLLOVER_CLAIM_LEASE_MS = 30_000;
 
+import {
+  projectMessageChannelCardRevision,
+  revisePreviousMessageChannelCards,
+} from "./message-channel-card-revision";
+
 export type MessageChannelCardRolloverResult =
   | {
       delivery: RemoteAgentNativeDeliveryRecord;
@@ -40,6 +45,8 @@ export type MessageChannelCardRolloverResult =
     };
 
 type RolloverEvidence = {
+  revision: ReturnType<typeof projectMessageChannelCardRevision>;
+  snapshot: string;
   head: string;
   pendingSourceOffset: number;
   pendingTextHash: string;
@@ -102,6 +109,11 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
   if (delivery.providerProgressState === "sent") {
     const claim =
       await claimRemoteAgentMessageChannelProviderCardRolloverFinalize({
+        cardHistory: {
+          ...evidence.revision.history,
+          pendingSnapshot: evidence.snapshot,
+        },
+        expectedSourceOffset: delivery.providerProgressSourceOffset,
         claimExpiresAtMs:
           input.nowMs + MESSAGE_CHANNEL_CARD_ROLLOVER_CLAIM_LEASE_MS,
         claimId: finalizePublicationKey,
@@ -143,7 +155,7 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
       nowMs: input.nowMs,
       rolloverIndex,
       target: input.target,
-      textSnapshot: input.textSnapshot,
+      textSnapshot: evidence.revision.text,
     });
     if (created.status !== "created") {
       return created;
@@ -156,6 +168,7 @@ export async function advanceRemoteAgentMessageChannelCardRollover(input: {
     delivery.providerProgressState === "rollover_send_claimed"
   ) {
     const sent = await sendContinuedCard({
+      evidence,
       db: input.db,
       delivery,
       nowMs: input.nowMs,
@@ -193,15 +206,35 @@ async function finalizeCurrentCard(input: {
     input.delivery.providerProgressClaimId,
     "Message Channel rollover has no finalize claim"
   );
-  const publication = await input.target.adapter.finalizeWorkingCard({
-    cardId,
-    connection: input.target.connection,
-    locator: input.target.locator,
-    providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
+  const previous = await revisePreviousMessageChannelCards({
+    delivery: input.delivery,
+    revision: input.evidence.revision,
+    target: input.target,
     sequence: input.evidence.sequence,
-    outcome: "continued",
-    text: input.evidence.head,
+    providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
   });
+  let publication = previous.result;
+  if (publication.status === "published") {
+    publication = await input.target.adapter.finalizeWorkingCard({
+      cardId,
+      connection: input.target.connection,
+      locator: input.target.locator,
+      providerPublicationIdempotencyKey:
+        input.providerPublicationIdempotencyKey,
+      sequence: input.evidence.sequence,
+      outcome: "continued",
+      text: input.evidence.head,
+    });
+  }
+  // Keep provider backoff even when cross-retry recovery must retain the claim.
+  const retryAfterMs =
+    publication.status === "failed" ? publication.retryAfterMs : undefined;
+  if (previous.revised && publication.status === "failed") {
+    publication = {
+      status: "outcome_unknown",
+      reasonCode: publication.reasonCode,
+    };
+  }
   const transitionInput = {
     claimId,
     db: input.db,
@@ -231,7 +264,7 @@ async function finalizeCurrentCard(input: {
       }),
       "Message Channel ambiguous rollover finalize lost its durable claim"
     );
-    return retryable(delivery, publication.reasonCode);
+    return retryable(delivery, publication.reasonCode, retryAfterMs);
   }
   const delivery = await requireTransition(
     markRemoteAgentMessageChannelProviderCardRolloverFinalizeFailed({
@@ -320,6 +353,7 @@ async function createContinuedCard(input: {
 }
 
 async function sendContinuedCard(input: {
+  evidence: RolloverEvidence;
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   nowMs: number;
@@ -364,6 +398,25 @@ async function sendContinuedCard(input: {
     return {
       delivery: await requireTransition(
         markRemoteAgentMessageChannelProviderCardRolloverSent({
+          cardHistory: {
+            ...input.evidence.revision.history,
+            pendingSnapshot: undefined,
+            cards: [
+              ...(await Promise.all(
+                input.evidence.revision.previous.map(async (card) => ({
+                  cardId: card.cardId,
+                  textHash: await hashMessageChannelCardText(card.text),
+                }))
+              )),
+              {
+                cardId: requireText(
+                  claim.delivery.providerProgressCardId,
+                  "Missing outgoing card identity"
+                ),
+                textHash: input.evidence.pendingTextHash,
+              },
+            ],
+          },
           claimId: providerPublicationIdempotencyKey,
           db: input.db,
           idempotencyKey: input.delivery.idempotencyKey,
@@ -409,16 +462,20 @@ async function buildRolloverEvidence(input: {
   sequence: number;
   textSnapshot: string;
 }): Promise<RolloverEvidence> {
-  const segment = splitMessageChannelCardSegment({
-    sourceOffset: input.delivery.providerProgressSourceOffset,
-    text: input.textSnapshot,
-  });
+  const snapshot = input.delivery.providerProgressState?.startsWith("rollover_")
+    ? (input.delivery.providerProgressCardHistory?.pendingSnapshot ??
+      input.textSnapshot)
+    : input.textSnapshot;
+  const revision = projectMessageChannelCardRevision(input.delivery, snapshot);
+  const segment = revision.active;
   if (!segment.tail) {
     throw new Error("Message Channel rollover requires another card segment");
   }
   const sequence =
     input.delivery.providerProgressPendingSequence ?? input.sequence;
   return {
+    revision,
+    snapshot,
     head: segment.head,
     pendingSourceOffset: segment.sourceEnd,
     pendingTextHash: await hashMessageChannelCardText(segment.head),

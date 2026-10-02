@@ -1,4 +1,6 @@
 import type {
+  AiUsageQuery,
+  AiUsageQueryResponse,
   OpenMeldRequestContext,
   OrganizationUsageOverviewResponse,
 } from "@openmeld/schemas/types";
@@ -11,6 +13,9 @@ export type OrganizationUsageRequestInput = {
 };
 
 export type OrganizationUsageApi = {
+  query: (
+    input: OrganizationUsageRequestInput & { query: AiUsageQuery }
+  ) => Promise<AiUsageQueryResponse>;
   readOverview: (
     input?: OrganizationUsageRequestInput
   ) => Promise<OrganizationUsageOverviewResponse>;

@@ -128,7 +128,7 @@ export async function inspectDaemonServiceInventory(input: {
 
   const [
     installStatus,
-    runtimeLease,
+    initialRuntimeLease,
     serviceContract,
     legacySharedService,
     activeBundle,
@@ -147,24 +147,13 @@ export async function inspectDaemonServiceInventory(input: {
   ]);
   const activeBundleSourceAvailable =
     await resolveActiveBundleSourceAvailability(activeBundle);
-  const runtimeStatus = resolveObservedDaemonRuntimeStatus({
-    runtimeLease,
+  const initialRuntimeStatus = resolveObservedDaemonRuntimeStatus({
+    runtimeLease: initialRuntimeLease,
     ownedProcesses,
   });
-  const runtimeContractCompatibility =
-    await resolveDaemonRuntimeContractCompatibility({
-      runtimeStatus,
-    });
   const activeBundleEntryPath = await resolveDaemonBundleEntryPathFromState(
     activeBundle
   ).catch(() => null);
-  const runtimeCommandEntryPath = resolveObservedRuntimeCommandEntryPath({
-    ownedProcesses,
-    runtimeStatus,
-  });
-  const runtimeCommandPathExists = runtimeCommandEntryPath
-    ? await pathExists(runtimeCommandEntryPath).catch(() => null)
-    : null;
   const installedBundleFingerprint = activeBundleEntryPath
     ? await resolveInstalledDaemonBundleFingerprint(activeBundle)
     : null;
@@ -184,13 +173,13 @@ export async function inspectDaemonServiceInventory(input: {
 
   const shouldReadServiceManager =
     installStatus.installed ||
-    runtimeStatus.managedBySystemService ||
-    runtimeStatus.serviceController !== "unknown" ||
+    initialRuntimeStatus.managedBySystemService ||
+    initialRuntimeStatus.serviceController !== "unknown" ||
     isKnownServiceController(serviceContract?.serviceController);
   const observedServiceManager = shouldReadServiceManager
     ? await resolveServiceManager(
         resolvePreferredServiceManagerController({
-          runtimeStatus,
+          runtimeStatus: initialRuntimeStatus,
           serviceContract,
         }) ?? undefined
       )
@@ -198,20 +187,38 @@ export async function inspectDaemonServiceInventory(input: {
   const observedServiceManagerStatus = observedServiceManager
     ? await observedServiceManager.status().catch(() => null)
     : null;
+  const serviceManagerDefinitionMatchesCurrentRoot =
+    observedServiceManager &&
+    observedServiceManagerStatus?.installed &&
+    observedServiceManagerStatus.definitionPath
+      ? await matchesExpectedDaemonServiceManagerDefinition({
+          controller: observedServiceManager.controller,
+          definitionPath: observedServiceManagerStatus.definitionPath,
+          commandSpec: observedServiceManagerStatus.commandSpec,
+        }).catch(() => false)
+      : null;
+  // Process enumeration, bundle hashing and OS task queries can outlast a
+  // Service startup on Windows. The initial lease selects the controller;
+  // only a lease read after those queries may classify the observed runtime.
+  const runtimeLease = await readDaemonRuntimeLease().catch(() => null);
+  const runtimeStatus = resolveObservedDaemonRuntimeStatus({
+    runtimeLease,
+    ownedProcesses,
+  });
+  const runtimeContractCompatibility =
+    await resolveDaemonRuntimeContractCompatibility({ runtimeStatus });
+  const runtimeCommandEntryPath = resolveObservedRuntimeCommandEntryPath({
+    ownedProcesses,
+    runtimeStatus,
+  });
+  const runtimeCommandPathExists = runtimeCommandEntryPath
+    ? await pathExists(runtimeCommandEntryPath).catch(() => null)
+    : null;
   const scopedServiceManager = scopeServiceManagerToCurrentRoot({
     runtimeStatus,
     serviceManager: observedServiceManager,
     serviceManagerStatus: observedServiceManagerStatus,
-    serviceManagerDefinitionMatchesCurrentRoot:
-      observedServiceManager &&
-      observedServiceManagerStatus?.installed &&
-      observedServiceManagerStatus.definitionPath
-        ? await matchesExpectedDaemonServiceManagerDefinition({
-            controller: observedServiceManager.controller,
-            definitionPath: observedServiceManagerStatus.definitionPath,
-            commandSpec: observedServiceManagerStatus.commandSpec,
-          }).catch(() => false)
-        : null,
+    serviceManagerDefinitionMatchesCurrentRoot,
   });
 
   const anomalies = buildDaemonServiceAnomalies({

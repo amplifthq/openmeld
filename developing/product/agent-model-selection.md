@@ -143,7 +143,7 @@ becomes a first-class, user-selectable property of an Agent Profile.
     The authored catalog's optional controller `creationDefaults` contains
     `{modelId, reasoningLevel}`; `null` reasoning means use the model default.
     The model must be available and any reasoning level supported. It currently
-    preserves Codex's GPT-5.6 Sol / `high` recommendation. Once the user creates an Agent, the
+    recommends Codex's GPT-6.1 Sol / `medium`. Once the user creates an Agent, the
     existing per-user, per-controller creation defaults remember explicit model
     and reasoning choices, including `Use model default`. The public model
     catalog's public projection omits `creationDefaults`: Core supplies the
@@ -304,6 +304,17 @@ failures never mean model retirement. The brief lists uncataloged discovery
 candidates, exact automatic additions, source discrepancies and bounded official
 excerpts; full snapshots remain available for review. The repository formatter
 keeps unrelated catalog formatting out of the diff.
+
+A new draft requires a model addition, a newly observed discovery candidate or
+reasoning option, a new existing-model parameter/visibility discrepancy, or a
+changed retirement passage about a cataloged model. Compare these review facts
+with the last committed evidence snapshot. Repeated candidates and discrepancies,
+collection timestamps, harness releases, unrelated documentation and marketplace
+metadata changes do not create proposals. Every scan still preserves its raw
+evidence and review brief in the Actions artifact, including scans with no
+substantive changes. A changed or removed retirement passage requires review;
+the collector never treats it as an automatic retirement or withdrawal decision.
+
 Actions uses its existing token only for `api.github.com` requests to avoid
 shared anonymous rate limits. Local collectors may supply `GH_TOKEN`; the token
 is never sent to model discovery or vendor documentation hosts.
@@ -320,10 +331,15 @@ invocation without an Actions run context leaves the open PR untouched rather
 than authoring that bot marker under a human account. This refresh happens even when
 the scan has no deterministic additions, so the PR always exposes fresh evidence
 without rewriting reviewer-owned commits. A closed PR suppresses the same combined
-source fingerprint; materially changed facts may produce a new proposal. Merging
-the evidence snapshot acknowledges that revision, including when the reviewer
+review-facts fingerprint; unrelated source edits cannot reopen that proposal.
+New model facts may produce a new proposal. Individual evidence fingerprints
+still identify the raw source snapshots. Merging the evidence snapshot
+acknowledges that revision, including when the reviewer
 elects to make no product change. Collection timestamps alone do not trigger a
-new proposal after the prior PR is closed. There is no bot force-push or auto-merge.
+new proposal after the prior PR is closed. A pushed proposal whose PR request
+failed can be recovered after unrelated source edits when its review facts still
+match, without rewriting the original evidence. There is no bot force-push or
+auto-merge.
 
 The reviewing coding agent reads the captured evidence first, decides
 `creationDefaults`, presentation and adapter changes, and fills only actual
@@ -459,8 +475,9 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   `personalRemoteAgentDefault=1`; the legacy response omits the new field so
   published strict-schema CLI clients continue to read the catalog.
 - The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Sol,
+  GPT-6 Astra (Pro mode), GPT-6.1 Sol, GPT-6.1 Sol (Pro mode), GPT-6 Luna,
   GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
-  Claude Opus 5.5, Claude Opus 5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
+  Claude Opus 5.5, Claude Opus 5, Claude Sonnet 5.5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
   Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
   V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
   OpenRouter IDs remain in `release/vendor-models.json`; a preview model remains
@@ -566,13 +583,14 @@ Sources: the official OpenRouter models API response for `z-ai/glm-5.3-flash`
 captured on 2026-08-27 (`https://openrouter.ai/api/v1/models`; captured shape
 mirrored in `services/remote-agent/tests/fixtures/openrouter-model-z-ai-glm-5.3-flash.json`).
 
-`x-ai/grok-4.6` remains the dedicated `imageUnderstandingModelId`: the
-auxiliary image path stays on the production-proven model while the primary
-default changes independently. GLM 5.3 Flash is declared `["text", "image"]`
-to reflect the verified provider capability and selector contract, but the
-current version still sends every raw image through the frozen Grok 4.6
-auxiliary before GLM receives the bounded text description. Explicitly
-selected Grok 4.6 turns remain Grok 4.6 as the primary model as well.
+At this refresh, `x-ai/grok-4.6` remained the dedicated
+`imageUnderstandingModelId` while the primary default changed independently.
+The later auxiliary-model change selects `openai/gpt-6-luna` at medium
+reasoning. GLM 5.3 Flash is declared `["text", "image"]` to reflect the verified
+provider capability and selector contract, but current-version images still
+pass through the frozen auxiliary route before GLM receives the bounded text
+description. Explicitly selected Grok 4.6 turns remain Grok 4.6 as the primary
+model; the auxiliary route remains GPT-6 Luna.
 
 ### 5.7 OpenCode controller catalog refresh
 
@@ -651,6 +669,17 @@ These are online catalog changes served by Core. The CLI offline snapshot,
 shared schemas, adapter protocols, and local-component version floors are
 unchanged. Provider acceptance and an OpenMeld Wake remain separate evidence.
 
+The 2026-09-29 manual review of OpenCode 1.18.33's local `opencode models
+opencode --verbose` inventory found `opencode/longcat-2.5-preview-free` and
+`opencode/space-bunny-free` with exact variant keys `low, medium, high` and
+`low, medium, high, xhigh, max`, respectively. Both completed a direct
+`opencode run --pure` prompt on the review machine. The catalog adds only these
+verified free-provider routes. Other discovery candidates and routes in the
+local inventory are not assumed usable by every member's account; a real
+OpenMeld Wake remains deployment acceptance evidence.
+For a client without a reported ACI model inventory, the new routes require
+at least the observed OpenCode 1.18.33 version.
+
 ---
 
 ### 5.9 Claude Opus 5.5
@@ -682,6 +711,106 @@ input, tool calling, and `high` reasoning. OpenMeld retains its 16,384 output
 budget. Direct OpenAI Chat Completions has a separate tool/effort limitation;
 OpenRouter is the actual hosted boundary and must pass live tool continuation
 before support is claimed. The API model names alone are not adapter evidence.
+
+The hosted auxiliary image route uses GPT-6 Luna at `medium` reasoning to
+preserve accurate transcription and explicit uncertainty; the independent
+session-title request uses `low` reasoning for its short, structured output.
+Both efforts are in the captured OpenRouter model metadata at
+`services/remote-agent/tests/fixtures/openrouter-gpt-6-sol-luna-2026-09-23.json`.
+The title request omits temperature because that model's captured supported
+parameters do not include it. Live image and title latency remain release
+smoke evidence, not catalog assumptions.
+
+### 5.11 October 1 channel additions
+
+The reviewed online catalog adds Sonnet 5.5 for Claude Code, Sonnet 5.5 and
+Opus 5.5 for Cursor, ten recent OpenCode provider/model choices, and Sonnet 5.5,
+GPT-6.1 Sol, and GPT-6.1 Sol Pro for the shared hosted catalog.
+
+Claude Code's [official model configuration](https://code.claude.com/docs/en/model-config)
+requires version 2.1.284 or later for Sonnet 5.5 and supports the same five
+efforts as Opus 5.5. Cursor 2026.09.28's authenticated ACP model config and
+legacy session inventory agree on the exact compound IDs for both additions.
+Their effort remains embedded in those IDs. OpenCode 1.18.33's provider
+inventory supplies exact active IDs and variant keys for the Go and OpenAI
+additions; its free `opencode` provider reports no additional model. The reduced
+vendor-shaped captures live in
+`packages/schemas/tests/fixtures/local-model-catalog-2026.10.01.json`.
+
+Captured OpenRouter metadata establishes tool calling, text/image input, context
+limits, and five supported efforts for the three hosted additions. They retain
+the existing 16,384 output budget and start at `medium`. OpenRouter's Sol Pro
+model route selects Pro mode upstream; OpenMeld uses the existing exact-model
+route and effort contract. The hosted provider tests serialize a tool
+continuation through that same adapter before network dispatch.
+
+Marketplace candidates that are absent from the selected controller inventory
+are not added. This includes the GPT-6 candidates for Cursor and the paid
+models advertised under OpenCode's free provider. Historical uncurated models
+and asynchronous batch routes remain outside this refresh.
+
+All controller defaults, creation preferences, saved selections, fixed CLI
+offline data, and adapter contracts remain unchanged. These checks establish
+catalog and parameter compatibility, not successful inference or account
+entitlement. Live inference and OpenMeld Wake smoke were explicitly waived by
+the delivery owner for this refresh; Claude Code subscription access was
+unavailable. Delivery selects Core only.
+
+### 5.12 October 1 freshness review and hosted candidate audit
+
+New is manually reviewed catalog metadata. Review the complete catalog when
+adding models, including previous labels in other controllers and the CLI
+offline snapshot. A new channel entry for an older model does not make the
+underlying model new. Provider aliases and speed variants follow the underlying
+model's release; an unknown release date does not justify a New label. Clients
+still do not calculate or expire labels.
+
+This review retains New for the September 25–29 release batch: GPT-6.1 Sol
+(including its Fast and Pro routes), Claude Sonnet 5.5, and LongCat 2.5 Preview
+Free. Remove the earlier labels across Codex, Claude Code, Grok Build, Cursor,
+OpenCode, and the shared hosted catalog. The fixed CLI fallback retains its
+model IDs and capabilities and removes only its stale GLM 5.3 Flash label.
+
+The latest hosted GPT-6.1 Sol, Sol Pro, and Sonnet 5.5 routes were already added
+by PR #1410. The October 1 production catalog inspection still returned
+`updatedAt: 2026-09-30T01:12:59.582Z`, omitted those routes, and labeled GLM 5.3
+Flash New; the authenticated Center Agent settings selector showed the same
+choices. This is a Core catalog delivery gap, not a Web filter or a Claude Code
+subscription requirement. Source support does not establish production delivery.
+
+The hosted candidate audit also adds the existing OpenRouter route
+`openai/gpt-6-astra-pro`. Its captured metadata in
+`services/remote-agent/tests/fixtures/openrouter-models-2026-10-01.json` declares
+tool calling, text/image input, a 1,050,000-token context, and five reasoning
+efforts. It follows the existing Sol Pro registration and tool-continuation
+path, keeps the 16,384 output budget, and defaults to medium. Its September 4
+release does not receive New. The existing Opus 5.5, GPT-6 Astra, Fable 5.1,
+Gemini 3.1 Pro Preview, Grok 4.7, and DeepSeek V4.1 Flash choices remain available;
+the current provider inventory has no newer Google Pro route to substitute.
+
+Contract impact: removing optional presentation metadata from the CLI fallback
+does not change commands, setup, Wake, Space actions, diagnostics, provider
+parameters, or transport payloads. Old and new CLI/Service/Skills work with old
+and new Core/Gateway/Web; no ordering dependency or contract bump is needed.
+The packaged CLI artifact changes; its eventual release policy can be available.
+This unstamped feature PR uses the normal deferred release-readiness gate against its
+exact main base. The final release must stamp and verify the packaged artifact.
+Catalog delivery
+still belongs to Core; shipping the offline cleanup also requires CLI delivery.
+No runtime state, readiness, identity, admission, or execution authority changes;
+the scoped architecture contracts remain intact. Live inference and Wake smoke
+remain outside this PR's evidence, under the delivery owner's prior waiver.
+
+Display hosted Pro routes as `GPT-6.1 Sol (Pro mode)` and
+`GPT-6 Astra (Pro mode)`. OpenRouter's
+[Sol route](https://openrouter.ai/openai/gpt-6.1-sol-pro) and
+[Astra route](https://openrouter.ai/openai/gpt-6-astra-pro) use the same underlying
+models with Pro reasoning mode. This is a compute mode, not a distinct base model
+or a subscription tier. OpenAI's
+[reasoning contract](https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode)
+keeps mode separate from effort: High, Max, and other effort settings do not
+mean Pro mode. Retain the exact provider route IDs and existing effort controls;
+the display label does not add a Codex option or change provider parameters.
 
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 

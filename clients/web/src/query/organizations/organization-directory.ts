@@ -46,6 +46,11 @@ export const organizationQueryKeys = {
 			...organizationQueryKeys.organization(organizationId),
 			"profile-directory",
 		] as const,
+	profileIdentityDirectory: (organizationId: string) =>
+		[
+			...organizationQueryKeys.profileDirectory(organizationId),
+			"identity",
+		] as const,
 	agentRuntimeOverview: (organizationId: string) =>
 		[
 			...organizationQueryKeys.organization(organizationId),
@@ -86,7 +91,8 @@ export function organizationDirectoryQueryFilters(input?: {
 }) {
 	return {
 		predicate: (query: { queryKey: QueryKey }) =>
-			query.queryKey.length === 3 &&
+			(query.queryKey.length === 3 ||
+				(query.queryKey.length === 4 && query.queryKey[3] === "identity")) &&
 			query.queryKey[0] === organizationQueryKeys.all[0] &&
 			(input?.organizationId === undefined ||
 				query.queryKey[1] === input.organizationId) &&
@@ -105,7 +111,9 @@ export function organizationComputersQueryOptions(input: {
 		OrganizationComputersFailure
 	>({
 		enabled: input.enabled,
-		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		// Keep the last successful display in this tab across long absences.
+		// Freshness still comes from the 30-second poll and focus refresh below.
+		gcTime: 24 * 60 * 60_000,
 		queryFn: async ({ signal }) =>
 			await readCurrentOrganizationComputers({
 				organizationId: input.organizationId,
@@ -219,6 +227,33 @@ export function organizationProfileDirectoryQueryOptions(input: {
 				signal,
 			}),
 		queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
+		refetchOnWindowFocus: true,
+		refetchInterval: 5 * 60_000,
+		refetchIntervalInBackground: false,
+		retry: baseQueryOptions.retry,
+		staleTime: 10_000,
+	});
+}
+
+export function organizationProfileIdentityDirectoryQueryOptions(input: {
+	enabled: boolean;
+	organizationId: string;
+}) {
+	return queryOptions<
+		OrganizationProfileDirectoryResponse,
+		OrganizationDirectoryFailure
+	>({
+		enabled: input.enabled,
+		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		queryFn: async ({ signal }) =>
+			await readCurrentOrganizationProfileDirectory({
+				organizationId: input.organizationId,
+				signal,
+				identityOnly: true,
+			}),
+		queryKey: organizationQueryKeys.profileIdentityDirectory(
+			input.organizationId
+		),
 		refetchOnWindowFocus: true,
 		refetchInterval: 5 * 60_000,
 		refetchIntervalInBackground: false,

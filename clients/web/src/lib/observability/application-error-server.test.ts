@@ -79,6 +79,62 @@ describe("application error intake", () => {
 		);
 	});
 
+	it("accepts only fixed update labels for React depth reports", async () => {
+		const { receiveApplicationError } = await import(
+			"./application-error-server"
+		);
+		const depthReport = {
+			...report,
+			error: { ...report.error, code: "react_update_depth" },
+			reactUpdateTrace: [
+				{ event: "space_timeline_agent_controller_changed", ageMs: 20 },
+				{ event: "space_history_cache_write", ageMs: 18 },
+			],
+		};
+		expect((await receiveApplicationError(request(depthReport))).status).toBe(
+			204
+		);
+		expect(console.error).toHaveBeenCalledWith(
+			expect.objectContaining({ report: depthReport })
+		);
+		expect(
+			(
+				await receiveApplicationError(
+					request({
+						...depthReport,
+						reactUpdateTrace: [{ event: "private message", ageMs: 20 }],
+					})
+				)
+			).status
+		).toBe(400);
+		expect(
+			(
+				await receiveApplicationError(
+					request({
+						...depthReport,
+						reactUpdateTrace: [
+							{
+								event: "composer_draft_set",
+								ageMs: 20,
+								text: "private message",
+							},
+						],
+					})
+				)
+			).status
+		).toBe(400);
+		expect(
+			(
+				await receiveApplicationError(
+					request({ ...report, reactUpdateTrace: depthReport.reactUpdateTrace })
+				)
+			).status
+		).toBe(400);
+		expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(
+			"private message"
+		);
+	});
+
 	it("logs a searchable unconfirmed Wake presentation with bounded pointers", async () => {
 		const { receiveApplicationError } = await import(
 			"./application-error-server"

@@ -332,7 +332,12 @@ describe("agent profile binding routes", () => {
     expect(invalid.status).toBe(400);
     expect(coreRpc.agentProfileExecutionMode).toHaveBeenCalledTimes(2);
   });
-  it("forwards work recovery body and canonical Organization context to Core", async () => {
+  it.each([
+    "continue_interrupted_work",
+    "approve_queued_work",
+    "skip_interrupted_work",
+    "fork_interrupted_work",
+  ] as const)("forwards %s with its exact target and Organization context", async (action) => {
     const { coreRpc, env } = makeEnv({
       authOverrides: {
         resolveRequestAuth: vi.fn(async () => ({
@@ -352,7 +357,10 @@ describe("agent profile binding routes", () => {
       new Request(
         `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/work-recovery`,
         {
-          body: JSON.stringify({ action: "continue_interrupted_work" }),
+          body: JSON.stringify({
+            action,
+            expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
+          }),
           headers: { "content-type": "application/json" },
           method: "POST",
         }
@@ -363,13 +371,16 @@ describe("agent profile binding routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      action: "continue_interrupted_work",
+      action,
       status: "accepted",
     });
     expect(coreRpc.executeAgentProfileWorkRecovery).toHaveBeenCalledOnce();
     expect(coreRpc.executeAgentProfileWorkRecovery).toHaveBeenCalledWith({
       agentProfileId: AGENT_PROFILE_ID,
-      body: { action: "continue_interrupted_work" },
+      body: {
+        action,
+        expectedInterruptedTargetWakeLifecycleId: "twl_interrupted",
+      },
       context: expect.objectContaining({
         activeOrganizationId: "org-1",
         actorContext: expect.objectContaining({
