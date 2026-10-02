@@ -612,3 +612,120 @@ Additional semantic holdouts and runtime cross-products were intentionally not
 added. Independent review remains bound to its exact source SHA; a later
 evidence-only commit does not constitute an additional code change or a Ready
 decision. PR #1429 stays draft, with no merge, deployment or binary publication.
+
+## Remaining Admission Entry: Bounded Diagnosis
+
+On 2026-10-02 at 02:17 UTC, local HEAD and GitHub PR head both remained
+`12eb8971af6e96689f182c8870b249e99ccefb2f`, clean and draft. No dev stack,
+browser or Service was started for this investigation. The successful evidence
+above was not rerun. This section identifies the missing execution authority;
+it does not grant it or claim a newly admitted Wake.
+
+### Where The Existing Denial Occurs
+
+- `clients/openmeld-cli/src/space/send.ts:38` invokes
+  `assertDispatchOwnedRuntimePublicWriteAllowed` before profile resolution
+  (`:60`), base URL resolution (`:65`), or any network request.
+- `clients/openmeld-cli/src/runtime/dispatch-owned-runtime.ts:235` reads the
+  current dispatch mode and rejects ordinary public writes whenever it is
+  active. The guard has no destination, lane, test-runner or delegated-grant
+  input. Consequently the earlier denial did **not** test whether dev Auth or
+  dev Core would authorize the synthetic user and Space.
+- This differs from the adjacent Service mutation guard (`:252`): that owner
+  explicitly permits confirmed non-production lanes. It does not establish a
+  similar exception for Space writes. Copying that exception into public writes
+  would widen the current dispatch's denied authority, not supply an independent
+  authorized test entry.
+- The carrier creates a Space Action context only for the admitted parsed task
+  in `local-service/dispatch/execute-dispatch-task.ts:3237`, binding its dispatch,
+  attempt, source, Space, target and recipient snapshot. Context creation is
+  `runtime/dispatch-space-action-context.ts:142`; active dispatch/target matching
+  is enforced at `:453`. This is a child of an existing admission, not a public
+  bootstrap API that can request another environment's admission. Calling this
+  internal constructor or replacing its context is not a legitimate solution.
+
+The existing focused regression was run unchanged:
+
+```sh
+pnpm --filter openmeld exec vitest run --config vitest.integration.config.ts tests/space-send-agent-guard.integration.test.ts -t 'blocks public write when running inside a dispatch-owned runtime'
+```
+
+One selected test passed, six unselected cases were skipped. The test at
+`:265` independently asserts that `fetch` is never called after rejection. Log:
+`dev-tmp/knowledge-admission-guard.log`. This is a local guard test, not dev
+account authentication or a model Wake.
+
+### Existing Owners And The Smallest Valid Data Flow
+
+An **independently authorized dev test invocation** must precede the normal
+product path. Its execution owner must explicitly bind the retained worktree,
+lane `wt-e7ed328ad1a0`, isolated home, synthetic organization/account, and Space
+`ce723534e003094c2040c7b19e27d9ac8609485808f66d855ae420178d19dc84`. A shell or
+browser's ability to reach localhost alone is not this authorization.
+
+Once that invocation exists, reuse the current product chain unchanged:
+
+1. The ordinary CLI resolves the lane account/profile and calls
+   `postSpaceNormalMessage` (`packages/api-client/src/space/post-normal-message.ts:16`),
+   through `POST /v1/spaces/:spaceId/signals`; no raw RPC or inserted dispatch row.
+2. Gateway authenticates and resolves the requested owned Profile
+   (`services/gateway/src/middlewares/auth.ts:101`), builds the verified actor
+   context, and calls Core (`routes/rpc-http.signals.ts:437`). Core's
+   `rpcPostSignal` requires writable Space access (`services/core/src/rpc/methods.ts:18888`)
+   and routes to the target Space's ordinary signal handler
+   (`space/transport/do/space.ts:4995`). Space membership, addressing and existing
+   execution-context/Wake admission remain authoritative.
+3. The dev Local target `agt_1fe138e9-4557-4f28-8863-92b364c86515` runs via the
+   existing RuntimeCoordinator/current-account dev Service path, with the real
+   Project connection and controller readiness rechecked at that time. Its
+   normal action context is created by its own admitted task, not copied from
+   this production task.
+4. That legitimately admitted dev Agent can use its ordinary **Reply + Wake**
+   to delegate the second specimen to personal Remote
+   `agt_119359a4-3a94-4a08-b1ce-0d5274fa1583`, after normal member setup if needed.
+   This gives Core a genuine Agent-source message and receiving Remote delivery.
+   Do not manufacture an `agent_profile` sender. Both results must be published
+   in the dev Space with trace selectors and actual document/resource output.
+
+This reduces the remaining work to one externally admitted Local test and its
+ordinary in-Space Agent-to-Agent handoff, rather than a new runner framework or
+new credential store. It is a prepared plan, not a running background job.
+
+### Why No Available Entry Was Executed
+
+`scripts/dev/dev-account.py:2` explicitly prepares credentials for normal local
+UI login. It provides no job submission or delegated capability. `dev:run`
+(`scripts/dev/run-local-heavy.mjs:32`) passes `...process.env` to the existing
+owned-command process launcher (`scripts/dev/owned-command.mjs:14`); it owns
+resource reservations and process cleanup, not identity or task permission.
+Running a denied send under it cannot create independent authority. The already
+examined journey/readiness/Staging scripts were not re-investigated or retried.
+
+The current dispatch tools bind their Space and source to this production Wake;
+none exposes a dev target or independent invocation grant. Read-only discovery
+also found a WebCodex Runner status interface, but its observation returned
+`tunnel_client_not_seen` / HTTP 404 (client not seen for 300 seconds), without a
+caller-visible runner or target authorization. No execution, reconnect, alternate
+transport or authentication change was attempted there. Even an online generic
+Runner would need explicit admission authority for this dev target; availability
+alone is not permission.
+
+The concrete missing capability is therefore **execution-owner creation of an
+independent test invocation authorized for this exact dev lane/account/Space**,
+not another dev account, production login, new memory writer or Core permission
+check. Center should request that invocation from the environment/controller
+owner and pass the bounded identifiers and two-step test above. The invocation
+must originate independently; spawning a child here and removing inherited
+dispatch markers would still evade the existing denial.
+
+No safe repository-only change was identified that creates this outside
+authority without either broadening the current guard or inventing a new
+delegation authorization contract. This PR therefore does not change the guard,
+CLI flags, Service, Core, or schemas. If the environment cannot provide such an
+invocation, these two live paths remain blocked; this record does not ask Felix
+to configure production or claim that Center already owns the missing tool.
+
+Only evidence documentation changed. Strict documentation validation and
+`git diff --check -- developing` passed. Existing architecture owners remain
+unchanged; no permission, identity, lifecycle or publication rule is bypassed.
+No dev ports 30240–30243 were listening when checked. The PR remains draft.
