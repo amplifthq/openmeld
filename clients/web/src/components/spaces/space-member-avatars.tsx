@@ -8,7 +8,7 @@ import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar
 
 // All layers stay inside the leading icon slot: no row growth or text overlap.
 const TRIANGLE_POSITIONS = [
-	"top-0 left-1",
+	"top-0 left-1/2 -translate-x-1/2",
 	"bottom-0 left-0",
 	"right-0 bottom-0",
 ];
@@ -52,10 +52,14 @@ export function SpaceMemberAvatars(input: {
 	members: NonNullable<AccountSpaceIndexItem["memberPreviews"]>;
 	appearances?: ReadonlyMap<string, SpaceMemberAppearance>;
 	layout?: "compact" | "horizontal";
+	compactSize?: 20 | 24;
 }) {
 	const horizontal = input.layout === "horizontal";
 	const members = input.members.slice(0, horizontal ? 5 : 3);
-	const size = horizontal || members.length === 1 ? 20 : 12;
+	const compactSize = input.compactSize ?? 20;
+	const compactMemberSize =
+		members.length === 1 ? compactSize : Math.round(compactSize * 0.6);
+	const size = horizontal ? 20 : compactMemberSize;
 	let positions = ["inset-0"];
 	if (members.length === 3) {
 		positions = TRIANGLE_POSITIONS;
@@ -69,9 +73,12 @@ export function SpaceMemberAvatars(input: {
 			className={
 				horizontal
 					? "isolate inline-flex h-5 max-w-full shrink-0 items-center"
-					: "relative size-5 shrink-0"
+					: "relative shrink-0"
 			}
 			data-slot="space-member-avatars"
+			style={
+				horizontal ? undefined : { width: compactSize, height: compactSize }
+			}
 		>
 			{members.map((member, index) => (
 				<span

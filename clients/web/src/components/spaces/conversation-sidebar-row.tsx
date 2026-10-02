@@ -509,6 +509,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
+				size="sidebar"
 				summary={input.summary}
 				title={input.title}
 			/>
@@ -519,11 +520,12 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
+				compactSize={24}
 				members={members}
 			/>
 		);
 	}
-	return <ChatCircleTextIcon aria-label="Space" className="size-5 shrink-0" />;
+	return <ChatCircleTextIcon aria-label="Space" className="size-6 shrink-0" />;
 }
 
 export function resolvePreviewText(
@@ -541,6 +543,7 @@ export function resolvePreviewText(
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
+	size?: "sm" | "sidebar";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
@@ -549,6 +552,7 @@ export function ChatIcon(input: {
 				avatarStyle={input.chat.centerAgentAvatarStyle}
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
+				size={input.size === "sidebar" ? 28 : 24}
 				working={
 					input.summary?.statuses?.some(
 						(status) => status.kind === "working"
@@ -566,7 +570,7 @@ export function ChatIcon(input: {
 			profileId={input.chat.peer?.profileId ?? input.chat.spaceId}
 			profileKind={input.chat.peer?.profileKind ?? "human"}
 			profileName={input.title}
-			size="sm"
+			size={input.size ?? "sm"}
 		/>
 	);
 }
