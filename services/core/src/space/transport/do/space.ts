@@ -7436,7 +7436,8 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private async assertLocalQueuedInputAuthority(
-    request: LocalSpaceExecutionInput
+    request: LocalSpaceExecutionInput,
+    requireActiveTarget = true
   ): Promise<void> {
     const deny = () =>
       new SpaceSignalAuthoringError({
@@ -7450,19 +7451,22 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const [author, target] = await Promise.all([
       auth.resolveProfileById({ openMeldProfileId: request.authorProfileId }),
-      auth.resolveProfileById({
-        openMeldProfileId: request.target.targetProfileId,
-      }),
+      requireActiveTarget
+        ? auth.resolveProfileById({
+            openMeldProfileId: request.target.targetProfileId,
+          })
+        : Promise.resolve(null),
     ]);
     if (
       !author.ok ||
       author.profile.status !== "active" ||
       author.profile.profileKind !== "human" ||
       author.profile.ownerUserId !== request.requesterUserId ||
-      !target.ok ||
-      target.profile.status !== "active" ||
-      target.profile.profileKind !== "agent" ||
-      target.profile.ownerUserId !== request.target.ownerUserId
+      (requireActiveTarget &&
+        (!target?.ok ||
+          target.profile.status !== "active" ||
+          target.profile.profileKind !== "agent" ||
+          target.profile.ownerUserId !== request.target.ownerUserId))
     ) {
       throw deny();
     }
@@ -7499,10 +7503,11 @@ export class Space extends DurableObject<CoreBindings> {
       authorMember?.status !== "active" ||
       authorMember.profileKindSnapshot !== "human" ||
       authorMember.ownerUserIdSnapshot !== request.requesterUserId ||
-      targetMember?.status !== "active" ||
-      targetMember.profileKindSnapshot !== "agent" ||
-      targetMember.ownerUserIdSnapshot !== request.target.ownerUserId ||
-      targetMember.controllerRefSnapshot !== "builtin:codex"
+      (requireActiveTarget &&
+        (targetMember?.status !== "active" ||
+          targetMember.profileKindSnapshot !== "agent" ||
+          targetMember.ownerUserIdSnapshot !== request.target.ownerUserId ||
+          targetMember.controllerRefSnapshot !== "builtin:codex"))
     ) {
       throw deny();
     }
@@ -7522,7 +7527,7 @@ export class Space extends DurableObject<CoreBindings> {
         });
       }
       if (isLocalSpaceExecutionInput(item.request)) {
-        await this.assertLocalQueuedInputAuthority(item.request);
+        await this.assertLocalQueuedInputAuthority(item.request, false);
       }
     }
   }
@@ -7893,7 +7898,10 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
     if (isLocalSpaceExecutionInput(item.request)) {
-      await this.assertLocalQueuedInputAuthority(item.request);
+      await this.assertLocalQueuedInputAuthority(
+        item.request,
+        mutation.action === "steer"
+      );
     }
     if (mutation.action === "delete") {
       if (

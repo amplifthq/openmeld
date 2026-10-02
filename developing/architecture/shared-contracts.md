@@ -8346,7 +8346,9 @@ the Coordinator; it cannot authorize or select an active run. The Coordinator
 resolves the admitted source and current attempt/run, then checks the exact
 Service session, generation, Profile lease and supported controller. Space
 rechecks current Auth ownership, writable membership and target membership
-before enqueue, Steer, mutation, receipt reads and ordinary queue handoff.
+before enqueue, Steer, receipt reads and ordinary queue handoff. Queue-only
+deletion/reorder still checks the original requester's authority, but does not
+require a live target: an author can discard pending work after its Agent leaves.
 Reordering changes only the caller's pending slots, preserving other authors'
 positions. Ordinary consumption retains the existing atomic message/outbox
 handoff and never replays an uncertain Steer as a new Wake.

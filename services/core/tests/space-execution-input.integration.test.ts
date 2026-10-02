@@ -333,8 +333,9 @@ describe("Center Agent execution input in the Space owner", () => {
     "revoked",
     "consume",
     "enqueue",
+    "delete-retired-target",
   ] as const)("settles Local %s through the same durable queue without replaying apply", async (result) => {
-    await fixture(async ({ instance, state, signal, request }) => {
+    await fixture(async ({ instance, state, signal, request, context }) => {
       await instance.publishExecutionInput(
         signal,
         { authoringPolicy: "user_authored" },
@@ -425,6 +426,23 @@ describe("Center Agent execution input in the Space owner", () => {
               }
             : { inputId, status: "not_found" }
         );
+      if (result === "delete-retired-target") {
+        state.storage.sql.exec(
+          "UPDATE space_members SET status = 'removed' WHERE profile_id = ?",
+          request.agentProfileId
+        );
+        expect(
+          (
+            await instance.handleInputQueue(
+              { action: "delete", inputId },
+              context
+            )
+          ).status
+        ).toBe(200);
+        expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+        expect(transport).not.toHaveBeenCalled();
+        return;
+      }
       if (result === "consume" || result === "enqueue") {
         vi.spyOn(instance, "flushPendingDispatchOutbox").mockResolvedValue();
         vi.spyOn(instance, "readSpaceCallerContext").mockResolvedValue({
