@@ -113,4 +113,16 @@ describe("useSpaceUnread", () => {
 
 		expect(result.current.firstSignalId).toBe("b");
 	});
+	it("removes an empty boundary and anchors the next unread batch", () => {
+		const old = { signalId: "old", occurredAtMs: 1, threadRootSignalId: null };
+		const { result, rerender } = renderHook(
+			({ targets }: { targets: SpaceInboxUnreadTarget[] }) =>
+				useSpaceUnread({ identity: "same", isReady: true, targets }),
+			{ initialProps: { targets: [old] } }
+		);
+		rerender({ targets: [] });
+		expect(result.current.firstSignalId).toBeNull();
+		rerender({ targets: [{ ...old, signalId: "new", occurredAtMs: 2 }] });
+		expect(result.current.firstSignalId).toBe("new");
+	});
 });

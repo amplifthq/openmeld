@@ -7,21 +7,21 @@ import type {
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import { inboxQueryKeys } from "./inbox";
-import { optimisticallyMarkSpaceInboxReadThrough } from "./inbox-read-through-cache";
+import { optimisticallyMarkSpaceInboxItemsRead } from "./inbox-read-through-cache";
 
 const ORGANIZATION_ID = "org-acme";
 const SPACE_ID = "space-project";
 
-describe("optimisticallyMarkSpaceInboxReadThrough", () => {
+describe("optimisticallyMarkSpaceInboxItemsRead", () => {
 	it("removes only the viewed main targets from every matching unread indicator", () => {
 		const queryClient = createInboxQueryClient();
 
-		optimisticallyMarkSpaceInboxReadThrough({
+		optimisticallyMarkSpaceInboxItemsRead({
 			destination: "ordinary-space",
 			organizationId: ORGANIZATION_ID,
 			queryClient,
 			spaceId: SPACE_ID,
-			throughOccurredAtMs: 20,
+			items: [{ itemId: "main-item", occurredAtMs: 20 }],
 		});
 
 		expect(readTargets(queryClient)).toMatchObject({
@@ -52,12 +52,12 @@ describe("optimisticallyMarkSpaceInboxReadThrough", () => {
 	it("clears the Home indicator for the current Center Agent conversation", () => {
 		const queryClient = createInboxQueryClient();
 
-		optimisticallyMarkSpaceInboxReadThrough({
+		optimisticallyMarkSpaceInboxItemsRead({
 			destination: "center-agent",
 			organizationId: ORGANIZATION_ID,
 			queryClient,
 			spaceId: SPACE_ID,
-			throughOccurredAtMs: 20,
+			items: [{ itemId: "main-item", occurredAtMs: 20 }],
 		});
 
 		expect(readCenterAgentSummary(queryClient).unreadCount).toBe(1);
@@ -67,12 +67,12 @@ describe("optimisticallyMarkSpaceInboxReadThrough", () => {
 	it("leaves outer destinations unchanged for a person Direct Message", () => {
 		const queryClient = createInboxQueryClient();
 
-		optimisticallyMarkSpaceInboxReadThrough({
+		optimisticallyMarkSpaceInboxItemsRead({
 			destination: "direct-message",
 			organizationId: ORGANIZATION_ID,
 			queryClient,
 			spaceId: SPACE_ID,
-			throughOccurredAtMs: 20,
+			items: [{ itemId: "main-item", occurredAtMs: 20 }],
 		});
 
 		expect(readCenterAgentSummary(queryClient).unreadCount).toBe(2);
@@ -82,12 +82,12 @@ describe("optimisticallyMarkSpaceInboxReadThrough", () => {
 
 	it("rolls back only while the optimistic value is still current", () => {
 		const queryClient = createInboxQueryClient();
-		const update = optimisticallyMarkSpaceInboxReadThrough({
+		const update = optimisticallyMarkSpaceInboxItemsRead({
 			destination: "ordinary-space",
 			organizationId: ORGANIZATION_ID,
 			queryClient,
 			spaceId: SPACE_ID,
-			throughOccurredAtMs: 20,
+			items: [{ itemId: "main-item", occurredAtMs: 20 }],
 		});
 		const newerTargets = {
 			...readTargets(queryClient),
@@ -121,6 +121,7 @@ function createInboxQueryClient(): QueryClient {
 		targets: [
 			{
 				occurredAtMs: 20,
+				itemId: "main-item",
 				signalId: "main-message",
 				threadRootSignalId: null,
 			},
