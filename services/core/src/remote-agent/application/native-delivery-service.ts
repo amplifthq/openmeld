@@ -13836,48 +13836,60 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
     tasks,
   });
   const outcome = buildNativeDeliveryTerminalOutcome(input.delivery);
-  await tryProjectLinkedSlackNativeDeliveryInboxItem({
-    delivery: input.delivery,
-    env: input.env,
-    outcome,
-  });
-  if (
-    input.delivery.failureCode ===
-      REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
-    input.delivery.admissionAttemptCount >=
-      REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
-    isRetryableTaskContinuationAdmission(input.delivery)
-  ) {
-    const ownerInboxDb = inboxDb(input.env);
-    if (!ownerInboxDb) {
-      throw new Error(
-        "remote_agent.task_continuation.admission_alert_store_unavailable"
-      );
-    }
-    await projectTaskContinuationAdmissionExhaustedInboxItem({
-      attempts: input.delivery.admissionAttemptCount,
-      db: ownerInboxDb,
-      delivery: input.delivery,
-      occurredAtMs: outcome.occurredAtMs,
-      languageTag: await resolveNativeFailureLanguage({
-        coordinationDb: agentTaskCoordinationDb(input.env),
-        db: identityDb(input.env),
+  // Notification projection and task-watch delivery are independent terminal
+  // effects. Attempt both; preserve failures for the existing terminal retry.
+  const effects = await Promise.allSettled([
+    (async () => {
+      await tryProjectLinkedSlackNativeDeliveryInboxItem({
         delivery: input.delivery,
-      }),
-    });
-  }
-
-  for (const task of watchedTasks) {
-    await recordAndEnqueueAgentTaskTerminalOutcome({
-      db: coordinationDb,
-      env: input.env,
-      nowMs: input.nowMs,
-      outcome: {
-        ...outcome,
-        eventId: `${outcome.eventId}:${task.kind}`,
-      },
-      task,
-    });
+        env: input.env,
+        outcome,
+      });
+      if (
+        input.delivery.failureCode ===
+          REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
+        input.delivery.admissionAttemptCount >=
+          REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
+        isRetryableTaskContinuationAdmission(input.delivery)
+      ) {
+        const ownerInboxDb = inboxDb(input.env);
+        if (!ownerInboxDb) {
+          throw new Error(
+            "remote_agent.task_continuation.admission_alert_store_unavailable"
+          );
+        }
+        await projectTaskContinuationAdmissionExhaustedInboxItem({
+          attempts: input.delivery.admissionAttemptCount,
+          db: ownerInboxDb,
+          delivery: input.delivery,
+          occurredAtMs: outcome.occurredAtMs,
+          languageTag: await resolveNativeFailureLanguage({
+            coordinationDb: agentTaskCoordinationDb(input.env),
+            db: identityDb(input.env),
+            delivery: input.delivery,
+          }),
+        });
+      }
+    })(),
+    ...watchedTasks.map((task) =>
+      recordAndEnqueueAgentTaskTerminalOutcome({
+        db: coordinationDb,
+        env: input.env,
+        nowMs: input.nowMs,
+        outcome: {
+          ...outcome,
+          eventId: `${outcome.eventId}:${task.kind}`,
+        },
+        task,
+      })
+    ),
+  ]);
+  const failures = effects.filter((effect) => effect.status === "rejected");
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((effect) => effect.reason),
+      "remote_agent.terminal_effects_incomplete"
+    );
   }
 }
 

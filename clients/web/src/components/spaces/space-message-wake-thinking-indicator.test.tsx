@@ -169,8 +169,8 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 				entries={resolveWakeProgressThinkingEntry({
 					item: createWakeProgressItem({
 						clientMessageId: "request-1",
-						dispatchId: "dispatch-1",
-						sourceSignalId: "signal-1",
+						dispatchId: null,
+						sourceSignalId: null,
 						targetProfileId: "agt_runner",
 						targetLabel: "Agent",
 						phase: "running",

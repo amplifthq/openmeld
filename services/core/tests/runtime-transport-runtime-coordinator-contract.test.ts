@@ -170,6 +170,11 @@ const createAutomaticUpdateCapabilities = (
       status: "ok",
     },
     entrypoint: "setup",
+    installationSource: {
+      distribution: "npm",
+      channel: "stable",
+      platform: "darwin-arm64",
+    },
     generatedAt: "2026-09-01T12:54:00.000Z",
     maintenance: {
       automaticUpdatesEnabled: true,
@@ -16283,6 +16288,23 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ok: true,
       status: "accepted",
     });
+    for (const [optionId, expected] of [
+      ["allow-once", { ok: true, status: "already_resolved" }],
+      ["deny", { ok: false, status: "response_invalid" }],
+    ] as const) {
+      const retry = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/interaction/respond",
+        {
+          actorOwnerUserId: "owner-1",
+          interactionId: "interaction-1",
+          response: { kind: "permission", optionId },
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        }
+      );
+      await expect(retry.json()).resolves.toMatchObject(expected);
+    }
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
@@ -16755,6 +16777,48 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     ).readRuntimeCoordinatorRunCommandState(RUNTIME_COORDINATOR_EXECUTION_ID);
     expect(commandState?.pendingInteraction).toBeNull();
+    // A lost HTTP receipt remains retryable after the Agent acknowledged delivery.
+    for (const [optionId, expected] of [
+      ["allow-once", { ok: true, status: "already_resolved" }],
+      ["deny", { ok: false, status: "response_invalid" }],
+    ] as const) {
+      const retry = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/interaction/respond",
+        {
+          actorOwnerUserId: "owner-1",
+          interactionId: "interaction-1",
+          response: { kind: "permission", optionId },
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        }
+      );
+      await expect(retry.json()).resolves.toMatchObject(expected);
+    }
+    sentFrames.length = 0;
+    await (
+      hub as unknown as {
+        handleDispatchInteractionRequestFrame: (
+          socket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    const replayRead = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/interaction/read",
+      {
+        actorOwnerUserId: "owner-1",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      }
+    );
+    await expect(replayRead.json()).resolves.toMatchObject({
+      pendingInteraction: null,
+    });
   });
 
   it("restores a pending Local Agent interaction after restart and replays its response after reconnect", async () => {
