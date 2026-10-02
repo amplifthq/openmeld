@@ -170,6 +170,11 @@ const createAutomaticUpdateCapabilities = (
       status: "ok",
     },
     entrypoint: "setup",
+    installationSource: {
+      distribution: "npm",
+      channel: "stable",
+      platform: "darwin-arm64",
+    },
     generatedAt: "2026-09-01T12:54:00.000Z",
     maintenance: {
       automaticUpdatesEnabled: true,
