@@ -1571,6 +1571,7 @@ export function useSpaceLandingController(input: {
 	unreadTotalCount: number;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
+	unreadBoundaryVersion?: number;
 	organizationId?: string | null;
 	orgSlug?: string;
 	ownerAccountId: string;
@@ -1844,6 +1845,7 @@ export function useSpaceLandingController(input: {
 	});
 	const unreadState = useSpaceUnread({
 		identity: [
+			input.unreadBoundaryVersion,
 			input.ownerAccountId,
 			input.organizationId,
 			input.spaceId,

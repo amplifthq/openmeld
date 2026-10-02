@@ -131,6 +131,11 @@ def seed_unread_navigation(context, sid, speaker):
     import sqlite3
     path = context.state / "do/openmeld-core-Space" / f"{sid}.sqlite"
     profile = context.db.execute("SELECT profile_name,profile_kind FROM openmeld_profiles WHERE profile_id=?", (speaker,)).fetchone()
+    threads = {}
+    for index in (100, 200, 400):
+        root_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:{index}"))
+        result = context.request("gateway", f"/v1/spaces/{sid}/threads", {"rootSignalId": root_id, "clientMutationId": context.ident(f"unread-navigation-thread:{sid}:{index}")})
+        threads[index] = result.get("data", result)["thread"]["threadId"]
     with sqlite3.connect(path, timeout=30) as conversation:
         for index in (100, 200, 400):
             root_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:{index}"))
@@ -144,6 +149,7 @@ def seed_unread_navigation(context, sid, speaker):
                     data = {"text": text, "messageEnvelope": {"activationTargets": [], "referenceTargets": [], "replyToSignalId": root_id, "text": text}}
                     envelope = {"v": 1, "id": signal_id, "spaceId": sid, "ts": ts, "profile": {"kind": profile[1], "profileId": speaker, "profileName": profile[0]}, "type": "signal.text", "data": data}
                     conversation.execute("INSERT OR REPLACE INTO space_signals (id,ts,type,profile_id,profile_kind,client_message_id,payload_json) VALUES (?,?,?,?,?,?,?)", (signal_id, ts, "signal.text", speaker, profile[1], signal_id, json.dumps(envelope)))
+                    conversation.execute("INSERT OR REPLACE INTO space_thread_signal_placements (signal_id,thread_id,placement,created_at_ms) VALUES (?,?,?,?)", (signal_id, threads[index], "thread", ts))
                     source["threadRootSignalId"] = root_id
                 values = dict(organization_id=context.org["id"], recipient_user_id=context.viewer["id"], kind="space_message", attention="update", importance="normal", title="Unread navigation review", preview="Read the next update or mark this Space as read.", context_label="Product planning", source_kind="space_signal", source_key=f"fixture-unread-navigation:{signal_id}", source_target_json=json.dumps(source), resolution_status="not_applicable", occurred_at_ms=ts, created_at_ms=context.now, updated_at_ms=context.now, read_at_ms=None, cleared_at_ms=None)
                 item_id = context.ident(f"unread-navigation-item:{signal_id}")

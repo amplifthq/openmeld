@@ -19,9 +19,7 @@ import type {
 	InboxView,
 	ListInboxItemsResponse,
 	MarkAllInboxItemsReadResponse,
-	MarkCenterAgentInboxReadThroughResponse,
 	MarkInboxItemReadResponse,
-	MarkSpaceInboxReadThroughResponse,
 	MutateInboxFeedBody,
 	MutateInboxFeedResponse,
 	MutateSpaceInboxReadBody,
@@ -190,36 +188,6 @@ export async function getCurrentSpaceInboxUnreadTargets(input: {
 		}
 		return response;
 	});
-}
-
-export async function markCurrentCenterAgentInboxReadThrough(input: {
-	organizationId: string;
-	spaceId: string;
-	throughOccurredAtMs: number;
-}): Promise<MarkCenterAgentInboxReadThroughResponse> {
-	return await runInboxOperation(async () =>
-		createWebInboxApi(input.organizationId).markCenterAgentReadThrough({
-			spaceId: input.spaceId,
-			throughOccurredAtMs: input.throughOccurredAtMs,
-		})
-	);
-}
-
-export async function markCurrentSpaceInboxReadThrough(input: {
-	organizationId: string;
-	spaceId: string;
-	threadRootSignalId?: string;
-	throughOccurredAtMs: number;
-}): Promise<MarkSpaceInboxReadThroughResponse> {
-	return await runInboxOperation(async () =>
-		createWebInboxApi(input.organizationId).markSpaceReadThrough({
-			spaceId: input.spaceId,
-			...(input.threadRootSignalId
-				? { threadRootSignalId: input.threadRootSignalId }
-				: {}),
-			throughOccurredAtMs: input.throughOccurredAtMs,
-		})
-	);
 }
 
 export async function markCurrentInboxItemRead(input: {

@@ -51,6 +51,7 @@ export function SpaceMessageReadObserver(input: {
 				await current.current.onViewedUpdates?.(batch);
 				for (const target of batch) {
 					acknowledged.add(key(target));
+					pending.delete(key(target));
 				}
 				retryAttempt = 0;
 			} catch (error) {

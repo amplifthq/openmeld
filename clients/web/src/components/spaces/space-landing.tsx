@@ -570,6 +570,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		unreadTotalCount: spaceInboxReadPosition.totalUnreadCount,
 		unreadTargets: spaceInboxReadPosition.targets,
 		unreadScopes: spaceInboxReadPosition.scopes,
+		unreadBoundaryVersion: spaceInboxReadPosition.readBoundaryVersion,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
 		onWakeFinalOutcomeFactsRefresh: refreshWakeFinalOutcomeFacts,
 		ownerAccountId: recovery.storageScope,
@@ -2979,6 +2980,7 @@ function SpaceLandingSecondaryPanels({
 				spaceReferencesById={spaceReferencesById}
 				spaceTimelineItems={controller.timelineItems}
 				textareaRef={controller.threadTextareaRef}
+				unreadBoundaryVersion={spaceInboxReadPosition.readBoundaryVersion}
 				unreadScopes={spaceInboxReadPosition.scopes}
 				unreadStateReady={spaceInboxReadPosition.isReady}
 				unreadTargets={spaceInboxReadPosition.targets}

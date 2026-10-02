@@ -105,7 +105,9 @@ describe("Space unread writes", () => {
 		expect(mutate).toHaveBeenCalledTimes(1);
 		mutate.mockRejectedValueOnce(new Error("offline"));
 		await expect(selection.commit()).rejects.toThrow("offline");
-		await selection.commit();
+		expect(result.current.readBoundaryVersion).toBe(0);
+		await act(() => selection.commit());
+		expect(result.current.readBoundaryVersion).toBe(1);
 		expect(mutate.mock.calls.slice(1)).toEqual(
 			new Array(2).fill([
 				{

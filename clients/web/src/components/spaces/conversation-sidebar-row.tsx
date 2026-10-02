@@ -157,6 +157,29 @@ function ConversationSidebarRowTime({ timestamp }: { timestamp: number }) {
 	);
 }
 
+// Preserve the existing status-dot slot and geometry. Only the dot is a target.
+function ConversationRowIndicator(input: ConversationSidebarRowProps) {
+	if (input.attentionTone) {
+		return (
+			<span
+				aria-hidden="true"
+				className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+				data-conversation-unread-indicator="true"
+			/>
+		);
+	}
+	if (input.unreadCount <= 0) {
+		return null;
+	}
+	return (
+		<SpaceUnreadButton
+			count={input.unreadCount}
+			spaceId={input.conversation.spaceId}
+			url={input.url}
+		/>
+	);
+}
+
 function ConversationSidebarRowContent(
 	input: ConversationSidebarRowProps & ConversationRowPreview
 ) {
@@ -244,13 +267,7 @@ function ConversationSidebarRowContent(
 								{timestamp !== null && !presentation && (
 									<ConversationSidebarRowTime timestamp={timestamp} />
 								)}
-								{presentation && input.attentionTone && (
-									<span
-										aria-hidden="true"
-										className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-										data-conversation-unread-indicator="true"
-									/>
-								)}
+								{presentation && <ConversationRowIndicator {...input} />}
 							</span>
 							{input.previewSignalId && !needsInput ? (
 								<ConversationPreviewLink
@@ -281,33 +298,12 @@ function ConversationSidebarRowContent(
 				</SidebarMenuBadge>
 			) : (
 				(hasUnread || input.attentionTone) && (
-					<SidebarMenuBadge className="pointer-events-auto p-0">
-						{hasUnread && !input.attentionTone ? (
-							<SpaceUnreadButton
-								count={input.unreadCount}
-								spaceId={input.conversation.spaceId}
-								url={input.url}
-							/>
-						) : (
-							<span
-								aria-hidden="true"
-								className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-								data-conversation-unread-indicator="true"
-							/>
-						)}
+					<SidebarMenuBadge>
+						<ConversationRowIndicator {...input} />
 					</SidebarMenuBadge>
 				)
 			)}
 
-			{presentation && hasUnread && (
-				<div className="absolute top-1 right-8">
-					<SpaceUnreadButton
-						count={input.unreadCount}
-						spaceId={input.conversation.spaceId}
-						url={input.url}
-					/>
-				</div>
-			)}
 			<ConversationRowActions {...input} />
 		</FluidNavMenuItem>
 	);

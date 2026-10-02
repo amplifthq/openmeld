@@ -339,6 +339,7 @@ type SpaceThreadPanelProps = {
 	>;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
+	unreadBoundaryVersion?: number;
 	unreadStateReady?: boolean;
 };
 
@@ -483,6 +484,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 	);
 	const unreadState = useSpaceUnread({
 		identity: [
+			input.unreadBoundaryVersion,
 			input.activeThread?.spaceId ?? "pending",
 			input.selfProfileId,
 			activeThreadRootSignalId ?? "no-thread",

@@ -11,7 +11,6 @@ export function SpaceUnreadButton(input: {
 	spaceId: string;
 	url: string;
 	count: number;
-	showCount?: boolean;
 }) {
 	const organization = useOptionalAppOrganization();
 	const queryClient = useQueryClient();
@@ -21,7 +20,8 @@ export function SpaceUnreadButton(input: {
 		<TooltipHint content="Jump to first unread">
 			<button
 				aria-label={`${input.count} unread ${input.count === 1 ? "update" : "updates"}. Jump to first unread`}
-				className="pointer-events-auto relative z-10 inline-flex min-h-7 min-w-7 items-center justify-center gap-2 rounded-sm text-muted-foreground text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+				className="status-dot pointer-events-auto relative z-10 cursor-pointer bg-unread outline-none focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+				data-conversation-unread-indicator="true"
 				disabled={pending}
 				onClick={async (event) => {
 					event.stopPropagation();
@@ -69,10 +69,7 @@ export function SpaceUnreadButton(input: {
 					}
 				}}
 				type="button"
-			>
-				<span aria-hidden="true" className="status-dot bg-unread" />
-				{input.showCount && <span>{input.count} unread</span>}
-			</button>
+			/>
 		</TooltipHint>
 	);
 }

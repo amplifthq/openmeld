@@ -683,12 +683,14 @@ function RowStatus(input: {
 				</TooltipHint>
 			)}
 			{input.unread > 0 && (
-				<SpaceUnreadButton
-					count={input.unread}
-					showCount
-					spaceId={input.spaceId}
-					url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
-				/>
+				<span className="flex items-center gap-2 text-muted-foreground">
+					<SpaceUnreadButton
+						count={input.unread}
+						spaceId={input.spaceId}
+						url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
+					/>
+					{input.unread} unread
+				</span>
 			)}
 		</div>
 	);

@@ -1,6 +1,6 @@
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { mutateCurrentSpaceInboxRead } from "#/lib/organizations/inbox";
 import {
 	inboxQueryKeys,
@@ -27,6 +27,7 @@ export function useSpaceInboxReadPosition(input: {
 		})
 	);
 	const writes = useRef(Promise.resolve());
+	const [readBoundaryVersion, setReadBoundaryVersion] = useState(0);
 	const refresh = useCallback(
 		() =>
 			input.organizationId
@@ -120,11 +121,13 @@ export function useSpaceInboxReadPosition(input: {
 					},
 				});
 				await refresh();
+				setReadBoundaryVersion((version) => version + 1);
 			},
 		};
 	}, [input.organizationId, input.spaceId, refresh]);
 	return {
 		isReady: query.isSuccess,
+		readBoundaryVersion,
 		targets: query.data?.targets ?? [],
 		scopes: query.data?.scopes,
 		totalUnreadCount: query.data?.totalUnreadCount ?? 0,
