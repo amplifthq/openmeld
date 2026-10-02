@@ -162,19 +162,35 @@ function AgentAvatarPresentation({
 			)}
 			style={{ width: size, height: size }}
 		>
-			{identity.icon === "agent" ? (
-				<RobotIcon
-					className={variant === "plain" ? "h-full w-full" : "h-3/5 w-3/5"}
-					data-testid={fallbackTestId}
-				/>
-			) : (
-				<LocalAgentLogo
-					agentId={identity.icon}
-					className="h-full w-full"
-					size="md"
-					variant={variant}
-				/>
-			)}
+			<AutomaticAgentIcon
+				fallbackTestId={fallbackTestId}
+				icon={identity.icon}
+				variant={variant}
+			/>
 		</span>
+	);
+}
+
+function AutomaticAgentIcon({
+	icon,
+	variant,
+	fallbackTestId,
+}: {
+	icon: string;
+	variant: "default" | "plain";
+	fallbackTestId?: string;
+}) {
+	return icon === "agent" ? (
+		<RobotIcon
+			className={variant === "plain" ? "h-full w-full" : "h-3/5 w-3/5"}
+			data-testid={fallbackTestId}
+		/>
+	) : (
+		<LocalAgentLogo
+			agentId={icon}
+			className="h-full w-full"
+			size="md"
+			variant={variant}
+		/>
 	);
 }
