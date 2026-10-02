@@ -1518,6 +1518,12 @@ speaker's avatar beside the name and bubble, with the name aligned to the avatar
 top and the bubble below it. Names use regular-weight, muted, extra-small text;
 the name line compensates for the font's ascent inset to align its visible ink
 slightly above the avatar top.
+Speaker avatars use the transcript viewport's available width: 24px below 640px,
+28px from 640px, and 32px from 1024px. Their column keeps an 8px gap before the
+message content, including grouped messages and either self-message placement.
+Narrow Threads keep the compact size even on a wide desktop. Human, Agent,
+system, and pending first-message avatars share this presentation; inline
+mentions, reaction lists, profile popovers, and sidebar sizes are independent.
 Direct Messages, including Center
 Agent chats, use content-sized bubbles up to the available conversation width
 with a dedicated avatar column. The first
