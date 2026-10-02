@@ -60,12 +60,13 @@ describe("Organization AI consumption", () => {
           ...record,
           eventId: `purpose-${purpose}`,
           purpose,
+          status: "pending",
         });
       }
       const result = await queryAiUsage({
         db: harness.db,
         organizationId: "org-1",
-        query: { ...query, groupBy: "agent" },
+        query: { ...query, groupBy: "agent", includeIssues: true },
       });
       expect(result.breakdown?.groups[0]).toMatchObject({
         purposes: ["agent"],
@@ -81,6 +82,11 @@ describe("Organization AI consumption", () => {
         { purpose: "agent" },
         { purpose: "compaction" },
         { purpose: "compaction_prefix" },
+      ]);
+      expect(result.issues?.records.map((issue) => issue.purpose)).toEqual([
+        "agent",
+        "agent",
+        "agent",
       ]);
     } finally {
       harness.close();

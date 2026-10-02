@@ -2107,6 +2107,12 @@ These are economic triggers, not provider admission limits. The final payload
 guard uses the physical window with its ordinary safety reserve, so a summary
 request can read history that crossed the cheaper band. Compaction and the
 subsequent cache rebuild both count toward actual task cost.
+The trigger is not a promise to stay below a billing tier: Flue needs a safe
+message cut point while preserving the recent tail, and a single very large
+message may defer compaction. Provider usage may aggregate internal work (for
+example Pro inference); it is not proof of physical prompt length. Evaluate
+actual total charges, summary overhead, cache writes/reads, and retained task
+constraints together before changing these reviewed policy values.
 
 These values are runtime policy, not another context store. The current turn
 envelope and authoritative system prompt continue to be rebuilt from their

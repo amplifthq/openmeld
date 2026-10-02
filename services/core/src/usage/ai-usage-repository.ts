@@ -188,9 +188,19 @@ export async function queryAiUsage(input: {
     ...(issues
       ? {
           issues: {
-            records: issues.results
-              .slice(0, limit)
-              .map((row) => JSON.parse(String(row.record_json))),
+            records: issues.results.slice(0, limit).map((row) => {
+              const record = aiUsageRecordSchema.parse(
+                JSON.parse(String(row.record_json))
+              );
+              return {
+                ...record,
+                purpose:
+                  record.purpose === "compaction" ||
+                  record.purpose === "compaction_prefix"
+                    ? "agent"
+                    : record.purpose,
+              };
+            }),
             hasMore: issues.results.length > limit,
           },
         }
