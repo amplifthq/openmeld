@@ -798,7 +798,15 @@ urgent/action projection, including its mismatched child Signal target. It keeps
 the same source identity, occurrence, read and removal state, and suppresses
 pending urgent email. Its Inbox resolution becomes `not_applicable`, not a
 claim that the underlying task succeeded. General source conflicts still fail
-closed; this is not an unbounded read-time migration.
+closed. Authorized Inbox RPC preparation also asks the native-delivery owner
+to reconcile up to 80 legacy items for that recipient before reading the feed
+or its counts. This reaches already-settled records without a new task event or
+a user Read/Dismiss action. Each successful repair leaves the legacy selection;
+subsequent refreshes drain additional batches. Missing or mismatched source
+evidence is preserved rather than guessed. This is a bounded historical repair,
+not a second execution writer.
+
+The source inventory and extension contract are in [Inbox actions](inbox-actions.md).
 
 ## Delivery channels and preferences
 
