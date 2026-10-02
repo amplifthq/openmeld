@@ -1373,6 +1373,13 @@ Never cancel a running production job.
 
 ## Production Database Release
 
+This section owns the currently deployed D1 product database. PostgreSQL
+foundation preparation is owned by [postgresql.md](postgresql.md). Empty
+production-destination resources do not authorize cutover. Future PostgreSQL
+promotion must extend this guarded control plane and prove cutover/recovery
+conditions before changing product bindings; foundation commands cannot apply
+production migrations.
+
 Production database work has one implementation entrypoint:
 
 ```sh

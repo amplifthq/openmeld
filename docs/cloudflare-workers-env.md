@@ -26,6 +26,15 @@ Official references:
 
 ## Rules
 
+The isolated PostgreSQL foundation probe is a development tool under
+`tooling/postgresql`, not a product Worker package. Its single staging-only
+`wrangler.jsonc` owns the `OPENMELD_POSTGRESQL` Hyperdrive binding and finite
+acceptance expiry. `probe.mjs deploy` explicitly syncs only its Doppler staging
+probe token before deployment; it has no production deploy or sync target.
+`cf-typegen` generates its types and `verify.mjs` checks resource isolation.
+It uses the repository-pinned Wrangler version; creating this tool does not
+require unrelated product Worker upgrades or production secret synchronization.
+
 1. Non-sensitive configuration belongs in `wrangler.jsonc` `vars` and `env.prod.vars`.
 2. Sensitive values belong in the approved Doppler process-injection path or local `.dev.vars` / `.dev.vars.prod` for local work, and in Cloudflare Worker secret storage for staging and production.
 3. This repo uses `.dev.vars.prod`, not `.dev.vars.production`, because the Wrangler environment name is `prod`.

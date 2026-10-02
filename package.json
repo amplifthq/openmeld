@@ -4,6 +4,9 @@
   "description": "OpenMeld - Root",
   "private": true,
   "scripts": {
+    "pg": "pnpm --filter @openmeld/postgresql pg",
+    "pg:local": "node tooling/postgresql/local.mjs",
+    "pg:check": "pnpm --filter @openmeld/postgresql test",
     "pretest": "node scripts/dev/require-node-major.mjs 24",
     "build": "node scripts/dev/run-local-heavy.mjs pnpm exec turbo run build --concurrency=2",
     "deploy": "node scripts/release/production-release.mjs deploy",

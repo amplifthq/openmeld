@@ -1868,6 +1868,11 @@ diagnostics payloads) are dot-separated, and every segment uses `snake_case`:
 
 ## `packages/schemas`
 
+The PostgreSQL foundation adds no product HTTP/RPC/WebSocket or Service wire
+contract. Storage adaptation must preserve existing shared contracts; driver
+row types and SQL schemas do not replace `packages/schemas`. The isolated
+infrastructure probe returns HTTP status only and accepts no caller SQL/data.
+
 `packages/schemas/src/schemas` is the single source of truth for shared payload
 schemas.
 

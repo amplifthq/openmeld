@@ -11,12 +11,14 @@ import { parseJsoncObject as parseJsoncSource } from "../../packages/db/src/tool
 import { ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMIT } from "../../services/auth/src/lib/organization-join-link-accept-rate-limit.ts";
 import { FEEDBACK_SUBMIT_RATE_LIMITS } from "../../services/gateway/src/feedback/feedback-submit-rate-limiter.ts";
 import { SPACE_PASSWORD_RATE_LIMIT } from "../../services/gateway/src/lib/space-password-rate-limiter.ts";
+import { verifyPostgresqlEnvironment } from "../../tooling/postgresql/verify.mjs";
 
 const repoRoot = path.resolve(
   process.env.OPENMELD_VERIFICATION_ROOT ??
     path.resolve(import.meta.dirname, "../..")
 );
 const verificationProfile = parseVerificationProfile(process.argv.slice(2));
+verifyPostgresqlEnvironment(repoRoot);
 const verifiesStaging = verificationProfile === "all";
 const DEV_VAR_KEY_PATTERN = /^([A-Z0-9_]+)=/u;
 const CONFIG_ENV_LABEL_PREFIX_PATTERN = /^env\./u;
@@ -94,9 +96,8 @@ const GATEWAY_RATE_LIMIT_BINDINGS = [
   },
 ];
 
-// Per-domain bindings remain split-ready aliases to the one greenfield
-// production database. A future observability-only split would change only
-// OPENMELD_WAKE_EVIDENCE_DB after a separate capacity decision.
+// Current product aliases remain on shared D1 until the separately authorized
+// PostgreSQL cutover. Isolated foundation provisioning must not change them.
 const AUTH_IDENTITY_DB_BINDING = {
   binding: "OPENMELD_IDENTITY_DB",
   database_name: SHARED_DB_DATABASE_NAME,

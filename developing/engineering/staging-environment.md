@@ -17,6 +17,11 @@
 
 ## What Staging Provides
 
+PostgreSQL foundation acceptance runs separately from this shared D1 staging
+environment. Its Amplift database, Hyperdrive configuration and expiring probe
+are owned by [postgresql.md](postgresql.md). Preparing those resources must not
+change this environment's D1 bindings or existing consumers.
+
 For a CLI-only update smoke, `pnpm staging:cli:publish -- --retain-service`
 keeps the currently published staging Service selection (or the current staging
 CLI artifact for a coupled baseline). The selected artifact is embedded in the

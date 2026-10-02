@@ -1,0 +1,35 @@
+name: PostgreSQL foundation
+
+on:
+  pull_request:
+    paths:
+      - "tooling/postgresql/**"
+      - "packages/db/postgresql/**"
+      - ".github/workflows/postgresql-foundation.yml"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-postgresql:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Install PostgreSQL 18 from the official repository
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-18 postgresql-client-18
+      - name: Verify isolated migrations, permissions, and recovery
+        env:
+          OPENMELD_PG_BIN: /usr/lib/postgresql/18/bin
+        run: |
+          node tooling/postgresql/verify.mjs
+          pnpm --filter @openmeld/postgresql check
+          pnpm pg:check

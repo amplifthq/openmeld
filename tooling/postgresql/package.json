@@ -1,0 +1,21 @@
+{
+  "name": "@openmeld/postgresql",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pg": "node cli.mjs",
+    "test": "node local.mjs check",
+    "cf-typegen": "wrangler types worker-configuration.d.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.15.6",
+    "typescript": "^5.9.3",
+    "wrangler": "catalog:"
+  }
+}

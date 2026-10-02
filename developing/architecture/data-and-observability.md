@@ -289,6 +289,12 @@ message text the only way to understand what happened.
 
 ## Data Ownership Rule
 
+The shared relational target is Hyperdrive + PlanetScale PostgreSQL in the
+Amplift organization, as decided in [physical-db-split.md](physical-db-split.md).
+Current product storage remains D1 until controlled cutover. Physical migration
+does not transfer logical ownership, move Space Durable Object/R2 state, or
+make a relational projection a second execution authority.
+
 Every persistent state needs one authority owner.
 
 Before adding or changing a table, database, projection, Durable Object state, or

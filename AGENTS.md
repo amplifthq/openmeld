@@ -92,7 +92,8 @@ Use these owner documents:
 | Wake execution, Wakeability, RuntimeCoordinator, Runtime Transport boundaries, local Agent human interaction, final outcome, dispatch trace baseline | `developing/architecture/agent-transport-contract.md` |
 | OpenMeld Service / daemon lifecycle, RuntimeTransportHub fast paths and current-device Project operations, account/device/lane alignment, Prepare, service health, Agent Controller Interface instruction delivery, reporting, task callbacks, and update states | `developing/architecture/local-openmeld-service.md` |
 | Data ownership, D1 projections, Opportunities, Agent Task Coordination, Dispatch Ledger, evaluation reports, native delivery and Message Channel ledgers, App connection ownership, trace selectors, Diagnostic Reports, Cloudflare evidence | `developing/architecture/data-and-observability.md` |
-| Current D1 binding topology and future observability-only split direction | `developing/architecture/physical-db-split.md` |
+| Current D1 topology and decided Hyperdrive + PlanetScale PostgreSQL target | `developing/architecture/physical-db-split.md` |
+| PostgreSQL planning, Amplift organization, migrations, cloud acceptance, backup and cutover | `.agents/skills/postgresql-planning/SKILL.md`, `developing/engineering/postgresql.md` |
 | Shared schemas, Opportunity RPC contracts, live invalidation frames, Agent Controller Interface snapshots, Agent Task Coordination, Message Channel and App connection contracts, Prepare `setupBootstrap.facts`, shared packages, cross-client reuse, Space password contract | `developing/architecture/shared-contracts.md` |
 | Shared UI primitives, design tokens, Fluid components, and cross-client UI package ownership | `developing/clients/shared-ui.md` |
 | Cross-client app shell, unified Settings IA, shell/sidebar terminology, Settings capability gating | `developing/clients/shell-and-settings.md` |
