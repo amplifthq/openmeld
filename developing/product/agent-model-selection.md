@@ -680,6 +680,19 @@ OpenMeld Wake remains deployment acceptance evidence.
 For a client without a reported ACI model inventory, the new routes require
 at least the observed OpenCode 1.18.33 version.
 
+#### October 2 provider follow-up
+
+OpenCode 1.18.34's exact provider inventory adds
+`opencode/fledge-alpha-free` with `low`, `high`, and `max` variants. The observed
+version is a conservative compatibility floor, not a claim that earlier releases
+cannot expose the model through their live inventory. The same capture corrects
+`opencode-go/qwen3.8-max` to expose `low`, `medium`, and `xhigh`. Go subscription
+access remains a separate runtime requirement. The provider-shaped capture is
+retained in `packages/schemas/tests/fixtures/opencode-model-catalog-1.18.34.json`.
+These changes use the existing online catalog, model ID, and variant contracts;
+the offline snapshot, adapters, defaults, and local-component release remain
+unchanged.
+
 ---
 
 ### 5.9 Claude Opus 5.5
