@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T09:02:07.431Z",
+  "updatedAt": "2026-10-02T14:37:50.547Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.235",
+      "packageVersion": "0.3.236",
       "updatePolicy": "available",
       "reason": "Existing setup, commands, dispatch-owned Space actions and diagnostics remain compatible; cloud receivers deploy first and both CLI floors are preserved."
     },
     "service": {
-      "bundleHash": "1e68f0fd81340c9e456f1b7e3f86ac3dd46d273d834a62b612790946fb0614eb",
-      "portableBundleHash": "d8515f1c674d8155a8c037b6c9666672ae8a49e3639d3ad19865c43de1adcbed",
-      "bundleVersion": "0.3.235",
+      "bundleHash": "ef126d83cae1526aef99e05783d30dcb5d1e1a2870c80021a7c49adc6e43187d",
+      "portableBundleHash": "dd8b5dc2a2221ecced84d462d325f16929e6a70f0389f1884cb5ae1c9bd1b529",
+      "bundleVersion": "0.3.236",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Only the shared reconciliation schema Zod import form changed. Its fields, validation behavior, transport contracts, Wake lifecycle and update floors remain unchanged; old cloud with new Service and new cloud with old Service remain compatible."
+      "reason": "Only additive Inbox HTTP schemas and a cloud-native admission callback changed in shared bundle inputs; workstation Wake and local Service contracts remain compatible with both cloud versions."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
