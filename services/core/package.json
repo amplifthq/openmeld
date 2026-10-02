@@ -63,6 +63,7 @@
     "@slack/web-api": "8.0.0",
     "dotenv-cli": "^11.0.0",
     "esbuild": "0.27.7",
+    "tsx": "4.21.0",
     "typescript": "^5.9.3",
     "vitest": "~3.2.0",
     "wrangler": "catalog:"

@@ -1590,6 +1590,9 @@ importers:
       esbuild:
         specifier: 0.27.7
         version: 0.27.7
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -27308,7 +27311,6 @@ snapshots:
       get-tsconfig: 4.13.7
     optionalDependencies:
       fsevents: 2.3.3
-    optional: true
 
   tsyringe@4.10.0:
     dependencies:

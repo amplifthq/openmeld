@@ -257,10 +257,6 @@ export type CoreBindings = {
   OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE?: string;
   OPENMELD_WORKER_ENVIRONMENT?: string;
   CORS_ORIGINS?: string;
-  // Reserved for a future observability-only split (physical-db-split.md): when
-  // set "true" it gates the wake-evidence retention sweep. Currently UNSET — the
-  // 4-way split was reverted (single DB), so no split-active deploy exists.
-  OPENMELD_SPLIT_ACTIVE?: string;
 };
 
 // Per-domain D1 accessors. Each returns its domain binding, falling back to the
