@@ -3,6 +3,7 @@ import type {
 	ModelCatalog,
 	SignalEnvelope,
 	SpaceInboxUnreadTarget,
+	SpaceInboxUnreadTargetsResponse,
 	SpaceMemberAgentSnapshot,
 	SpaceMembersSnapshot,
 	SpaceThread,
@@ -316,7 +317,9 @@ type SpaceThreadPanelProps = {
 	onSendText?: (text: string) => Promise<void>;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
-	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	orgSlug?: string;
 	prepareSetupHref?: string;
@@ -335,6 +338,8 @@ type SpaceThreadPanelProps = {
 		SpaceWakeStopRequestStatus
 	>;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
+	unreadBoundaryVersion?: number;
 	unreadStateReady?: boolean;
 };
 
@@ -479,12 +484,14 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 	);
 	const unreadState = useSpaceUnread({
 		identity: [
+			input.unreadBoundaryVersion,
 			input.activeThread?.spaceId ?? "pending",
 			input.selfProfileId,
 			activeThreadRootSignalId ?? "no-thread",
 		].join(":"),
 		isReady: input.unreadStateReady === true,
 		targets: input.unreadTargets ?? [],
+		scopes: input.unreadScopes,
 		threadRootSignalId: activeThreadRootSignalId,
 	});
 	const firstUnreadSignalId = unreadState.firstSignalId;
@@ -624,7 +631,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					onRecoverExecution={
 						messageDetailsItem ? undefined : onRecoverExecution
 					}
-					onViewedThroughTs={input.onViewedThroughTs}
+					onViewedUpdates={input.onViewedUpdates}
 					onWakeStopRequest={
 						input.onWakeStopRequest ? onWakeStopRequest : undefined
 					}
@@ -1142,12 +1149,15 @@ function ThreadTimeline(input: {
 	items: readonly SpaceTimelineItem[];
 	isLoading: boolean;
 	unreadTargets: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
 	readScopeKey: string;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenProfile?: (profileId: string) => void;
 	renderProfileTrigger: SpaceProfileTriggerRenderer;
-	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -1209,7 +1219,7 @@ function ThreadTimeline(input: {
 				<MessageScrollerViewport className="px-4 py-4" ref={setScrollElement}>
 					<SpaceMessageReadObserver
 						key={input.readScopeKey}
-						onViewedThroughTs={input.onViewedThroughTs}
+						onViewedUpdates={input.onViewedUpdates}
 						unreadTargets={input.unreadTargets}
 					/>
 					<MessageScrollerContent className="gap-0">
@@ -1547,29 +1557,28 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								directMessage={input.isDirectMessage}
 							>
 								<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
-									<span data-slot="message-speaker-avatar">
-										<SpaceMessageProfileAvatar
-											agentControllerPending={
-												input.item.actorAgentControllerPending
-											}
-											agentControllerRef={input.item.actorAgentControllerRef}
-											avatarImageUrl={resolveThreadMessageAvatarImageUrl({
-												item: input.item,
-												selfAvatarImageUrl: input.selfAvatarImageUrl,
-												selfProfileId: input.selfProfileId,
-											})}
-											avatarModelId={input.avatarModelId}
-											avatarStyle={input.avatarStyle}
-											displayName={input.item.actorName}
-											isCenterAgent={
-												input.item.actorProfileKind === "agent" &&
-												input.item.actorProfileId === input.centerAgentProfileId
-											}
-											profileId={input.item.actorProfileId}
-											profileKind={input.item.actorProfileKind}
-											working={isSpaceMessageAgentWorking(input.item)}
-										/>
-									</span>
+									<SpaceMessageProfileAvatar
+										agentControllerPending={
+											input.item.actorAgentControllerPending
+										}
+										agentControllerRef={input.item.actorAgentControllerRef}
+										avatarImageUrl={resolveThreadMessageAvatarImageUrl({
+											item: input.item,
+											selfAvatarImageUrl: input.selfAvatarImageUrl,
+											selfProfileId: input.selfProfileId,
+										})}
+										avatarModelId={input.avatarModelId}
+										avatarStyle={input.avatarStyle}
+										displayName={input.item.actorName}
+										isCenterAgent={
+											input.item.actorProfileKind === "agent" &&
+											input.item.actorProfileId === input.centerAgentProfileId
+										}
+										profileId={input.item.actorProfileId}
+										profileKind={input.item.actorProfileKind}
+										responsive
+										working={isSpaceMessageAgentWorking(input.item)}
+									/>
 									{!input.isDirectMessage && (
 										<>
 											<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">

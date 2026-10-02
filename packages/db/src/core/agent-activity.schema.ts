@@ -62,6 +62,9 @@ export const agentActivityEvents = sqliteTable(
       desc(table.observedAtMs)
     ),
     index("agent_activity_events_retention_idx").on(table.observedAtMs),
+    index("agent_activity_events_pending_session_idx")
+      .on(table.dailySessionKey)
+      .where(sql`daily_aggregated_at_ms IS NULL`),
     index("agent_activity_events_daily_aggregation_idx").on(
       table.dailyAggregatedAtMs,
       table.observedAtMs

@@ -188,9 +188,19 @@ export async function queryAiUsage(input: {
     ...(issues
       ? {
           issues: {
-            records: issues.results
-              .slice(0, limit)
-              .map((row) => JSON.parse(String(row.record_json))),
+            records: issues.results.slice(0, limit).map((row) => {
+              const record = aiUsageRecordSchema.parse(
+                JSON.parse(String(row.record_json))
+              );
+              return {
+                ...record,
+                purpose:
+                  record.purpose === "compaction" ||
+                  record.purpose === "compaction_prefix"
+                    ? "agent"
+                    : record.purpose,
+              };
+            }),
             hasMore: issues.results.length > limit,
           },
         }
@@ -344,7 +354,9 @@ function buildUsageGroupSql(input: {
         MIN(occurred_at_ms) AS firstObservedAtMs,
         MAX(occurred_at_ms) AS lastObservedAtMs,
         json_group_array(DISTINCT model) AS modelsJson,
-        json_group_array(DISTINCT purpose) AS purposesJson,
+        json_group_array(DISTINCT CASE
+          WHEN purpose IN ('compaction', 'compaction_prefix') THEN 'agent'
+          ELSE purpose END) AS purposesJson,
         ${task ? `json_group_array(DISTINCT ${dispatch})` : "'[]'"} AS dispatchIdsJson
       FROM ai_usage_records WHERE ${where}
         AND ${task ? `(task_id IS NOT NULL OR ${dispatch} IS NOT NULL)` : "agent_profile_id IS NOT NULL"}

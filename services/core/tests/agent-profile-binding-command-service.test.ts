@@ -193,6 +193,16 @@ describe("Agent Profile Binding command service", () => {
       modelId: "claude-fable-5",
       reasoningLevel: "max",
     },
+    {
+      agentControllerRef: "builtin:opencode",
+      modelId: "opencode/fledge-alpha-free",
+      reasoningLevel: "high",
+    },
+    {
+      agentControllerRef: "builtin:opencode",
+      modelId: "opencode-go/qwen3.8-max",
+      reasoningLevel: "xhigh",
+    },
   ])("stores supported $modelId and $reasoningLevel selections", async ({
     agentControllerRef,
     modelId,

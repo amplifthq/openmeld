@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { reportClientApplicationError } from "#/lib/observability/application-error-client";
+import { reportCaughtComponentError } from "#/lib/observability/application-error-client";
 import { SpaceComposer } from "./space-composer";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 
@@ -18,7 +18,7 @@ vi.mock("./space-composer-editor", async () => {
 	};
 });
 vi.mock("#/lib/observability/application-error-client", () => ({
-	reportClientApplicationError: vi.fn(),
+	reportCaughtComponentError: vi.fn(),
 }));
 
 afterEach(() => {
@@ -62,11 +62,11 @@ it("keeps the conversation and a plain-text draft usable when the rich editor fa
 	);
 
 	expect(screen.getByText("Conversation remains open")).toBeTruthy();
-	expect(reportClientApplicationError).toHaveBeenCalledWith(
+	expect(reportCaughtComponentError).toHaveBeenCalledWith(
 		expect.objectContaining({
 			message: expect.stringContaining("Maximum update depth exceeded"),
 		}),
-		"react_caught"
+		"space_composer_editor"
 	);
 	expect(screen.getByText(EDITOR_FAILURE)).toBeTruthy();
 	expect(screen.queryByRole("button", { name: "Mention a member" })).toBeNull();

@@ -1961,6 +1961,12 @@ continuation JSON. Readers retain bounded compatibility for historical rows
 that contain the former Space destination fields, but those fields do not
 override the observer ledger.
 
+Space Wake progress preserves that native delivery's parent source signal in
+both summary and Stop-enabled reads. A child's published result is causal
+evidence, not a replacement source: it may belong to another Space or thread.
+Source context is resolved within the parent Space, while the existing reply
+stream owns the selected reply placement.
+
 The Center Agent's manual summary tool can create one fresh continuation for
 the original requester after a delegated summary has confirmed native failure
 or cancellation. It checks current requester membership and Space write access,
@@ -2184,6 +2190,16 @@ generation writes, Stop forwarding or pause cancellation. Postprocessing has
 separate start/end evidence, elapsed time and outcome; its failure cannot erase
 the received ACK. Overall admission completion is not Worker response time.
 Timeout and retry due times come from the existing owner.
+Native resource preparation can begin before that submit response returns.
+Its exact-identity admission callback therefore uses the same conditional ACK
+writer and accepted-execution probe before Computer or other execution-scoped
+resources query Core. Both response orders converge on the existing ledger row;
+terminal transitions win, and neither callback creates another execution state
+or relaxes the accepted-execution authorization predicate.
+The durable ACK is the preparation barrier. A later probe scheduling failure
+retains diagnostic evidence and the existing missing/expired-probe recovery;
+it does not reject an already accepted execution. ACK persistence/read failures
+still fail preparation, and a terminal transition during failed scheduling wins.
 Correlated continuation stage events include the existing subscription creation
 and Queue enqueue timestamps at receipt, successful claim, and start/end timings
 for authorization/replay preflight, turn context, memory, Skills, watchdog enqueue
@@ -2999,6 +3015,12 @@ contain numeric usage and correlation identifiers, never prompts, completions,
 reasoning content, credentials, or local paths. Missing provider evidence is
 null and appears in missing-evidence counts; it is never fabricated as zero.
 
+The ledger distinguishes model `agent`, `compaction`, and `compaction_prefix`
+requests. Existing public Usage groups and issue receipts classify all three
+as `agent`; this preserves supported strict older clients while operator ledger
+queries retain exact purpose. Core accepts new record purposes before Remote
+Agent emits them. No local-component contract floor changes.
+
 Input includes cached input and output includes reasoning, so detail counters
 must not be added to the total again. Costs use integer nano-USD and distinguish
 provider-reported charges from provider estimates. Local consumption is
@@ -3053,6 +3075,22 @@ observed native usage. Requests interrupted before reporting usage remain
 explicitly incomplete; no extra provider polling is introduced to invent or
 recover unknown charges.
 No supplier polling or extra inference request is added.
+
+Every new Remote provider call requires an accepted `recordRemoteAiUsage`
+begin response from Core. A missing receiver fails visibly with
+`core.rpc.unavailable`; missing configuration, transport errors, malformed
+responses, exhausted allowances, and failed admission writes never authorize
+inference. There is no legacy admission exception, including for new owners or
+after an earlier successful admission. Deploy and verify Core before Remote.
+
+Preserve any historical `openmeld:ai-usage:deferred:<eventId>` audit receipts
+unchanged. They record unchecked historical admissions, not current permission,
+public usage totals, or a second consumption ledger. The ordinary settlement
+outbox and callback retry owner continue delivering real provider receipts.
+Core accepts a settlement without an earlier begin and deduplicates its exact
+event identity, including a committed write whose ACK was lost. Settlement
+failures after an admitted, paid call must not trigger another inference.
+An audit without final usage stays explicitly incomplete; never invent charges.
 
 Codex uses changed current-turn token events and native request counters,
 ignoring resume history and rate-limit-only repeats. Claude uses unique native

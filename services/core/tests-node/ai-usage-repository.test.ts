@@ -1,7 +1,17 @@
-import type { AiUsageRecord } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import type {
+  AiUsageRecord,
+  RemoteAiUsageWrite,
+} from "@openmeld/schemas/types";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createMeteredRemoteFetch,
+  flushRemoteAiUsage,
+} from "../../remote-agent/agent-core/ai-usage";
+import { InMemoryDurableObjectStorage } from "../../remote-agent/tests/storage";
+import type { CoreBindings } from "../src/lib/bindings";
 import { readAiUsageAllowance } from "../src/usage/ai-usage-policy";
 import { queryAiUsage, recordAiUsage } from "../src/usage/ai-usage-repository";
+import { rpcRecordRemoteAiUsage } from "../src/usage/ai-usage-rpc";
 import {
   applyDrizzleMigrationForTable,
   createSqliteD1Harness,
@@ -38,6 +48,160 @@ const record: AiUsageRecord = {
 const query = { fromMs: nowMs - 1, toMs: nowMs + 1 };
 
 describe("Organization AI consumption", () => {
+  it("retains compaction attribution without changing the public agent-purpose aggregate", async () => {
+    const harness = createHarness();
+    try {
+      for (const purpose of [
+        "agent",
+        "compaction",
+        "compaction_prefix",
+      ] as const) {
+        await recordAiUsage(harness.db, {
+          ...record,
+          eventId: `purpose-${purpose}`,
+          purpose,
+          status: "pending",
+        });
+      }
+      const result = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: { ...query, groupBy: "agent", includeIssues: true },
+      });
+      expect(result.breakdown?.groups[0]).toMatchObject({
+        purposes: ["agent"],
+        requests: 3,
+        reportedCostNanoUsd: 1_500_000_000,
+      });
+      const rows = await harness.db
+        .prepare(
+          "SELECT DISTINCT purpose FROM ai_usage_records ORDER BY purpose"
+        )
+        .all();
+      expect(rows.results).toEqual([
+        { purpose: "agent" },
+        { purpose: "compaction" },
+        { purpose: "compaction_prefix" },
+      ]);
+      expect(result.issues?.records.map((issue) => issue.purpose)).toEqual([
+        "agent",
+        "agent",
+        "agent",
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+  it.each([
+    "missing_database",
+    "database_failed",
+  ])("blocks inference when the real admission receiver has %s", async (failure) => {
+    const harness = createHarness();
+    const fetch = vi.fn();
+    const prepare = vi.spyOn(harness.db, "prepare").mockImplementation(() => {
+      throw new Error("D1 unavailable");
+    });
+    try {
+      const request = createMeteredRemoteFetch({
+        coreWorker: {
+          recordRemoteAiUsage: (input: RemoteAiUsageWrite) =>
+            rpcRecordRemoteAiUsage(
+              (failure === "missing_database"
+                ? {}
+                : { OPENMELD_DB: harness.db }) as CoreBindings,
+              input
+            ),
+        },
+        storage: new InMemoryDurableObjectStorage(),
+        model: "requested",
+        fetch,
+        scope: {
+          organizationId: "org-1",
+          purpose: "agent",
+          agentProfileId: null,
+          spaceId: null,
+          taskId: null,
+          attemptId: null,
+        },
+      });
+      await expect(
+        request("https://provider.example/chat/completions")
+      ).rejects.toThrow();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+      harness.close();
+    }
+  });
+  it("backfills a legacy-Core inference through the real receiver exactly once after a lost settlement ACK", async () => {
+    const harness = createHarness();
+    const storage = new InMemoryDurableObjectStorage();
+    let legacy = true;
+    let loseAck = true;
+    const coreWorker = {
+      recordRemoteAiUsage: async (input: RemoteAiUsageWrite) => {
+        if (legacy) {
+          throw new Error(
+            'The RPC receiver does not implement the method "recordRemoteAiUsage".'
+          );
+        }
+        const result = await rpcRecordRemoteAiUsage(
+          { OPENMELD_DB: harness.db } as CoreBindings,
+          input
+        );
+        if (loseAck) {
+          loseAck = false;
+          throw new Error("settlement ACK lost");
+        }
+        return result;
+      },
+    };
+    try {
+      // Persisted historical records, not authorization for a new inference.
+      const receipt = {
+        ...record,
+        occurredAtMs: Date.now(),
+        cost: { nanoUsd: 10_000_000, kind: "provider_reported" as const },
+      };
+      const audit = {
+        v: 1,
+        reason: "core_receiver_missing",
+        record: { ...receipt, status: "pending", tokens: null, cost: null },
+      };
+      await storage.put(
+        `openmeld:ai-usage:pending:${receipt.eventId}`,
+        receipt
+      );
+      await storage.put(`openmeld:ai-usage:deferred:${receipt.eventId}`, audit);
+      await expect(flushRemoteAiUsage({ storage, coreWorker })).rejects.toThrow(
+        "recordRemoteAiUsage is unavailable"
+      );
+      legacy = false;
+      await expect(flushRemoteAiUsage({ storage, coreWorker })).rejects.toThrow(
+        "settlement ACK lost"
+      );
+      await flushRemoteAiUsage({ storage, coreWorker });
+      const usage = await queryAiUsage({
+        db: harness.db,
+        organizationId: "org-1",
+        query: { fromMs: Date.now() - 60_000, toMs: Date.now() + 60_000 },
+      });
+      expect(usage.models).toMatchObject([
+        { requests: 1, totalTokens: 120, reportedCostNanoUsd: 10_000_000 },
+      ]);
+      expect(
+        (await storage.list({ prefix: "openmeld:ai-usage:pending:" })).size
+      ).toBe(0);
+      expect(
+        (await storage.list({ prefix: "openmeld:ai-usage:deferred:" })).size
+      ).toBe(1);
+      expect(
+        await storage.get(`openmeld:ai-usage:deferred:${receipt.eventId}`)
+      ).toEqual(audit);
+    } finally {
+      harness.close();
+    }
+  });
   it("keeps selected Agent costs and model buckets inside the organization, including an empty selection", async () => {
     const harness = createHarness();
     try {

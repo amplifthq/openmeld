@@ -732,7 +732,11 @@ describe("agent controller interface inventory", () => {
     }
   });
 
-  it("reports OpenCode as current when the CLI matches the npm release", async () => {
+  it.each([
+    ["1.17.18", "current", null],
+    ["1.17.18-rc.1", "behind_latest", "Update available."],
+    ["1.17.18+build.1", "current", null],
+  ])("reports OpenCode %s against its npm release", async (version, status, message) => {
     const home = await mkdtemp(
       join(tmpdir(), "openmeld-aci-opencode-current-")
     );
@@ -742,7 +746,7 @@ describe("agent controller interface inventory", () => {
         binPath,
         [
           "#!/bin/sh",
-          'if [ "$1" = "--version" ]; then echo "1.17.18"; exit 0; fi',
+          `if [ "$1" = "--version" ]; then echo "${version}"; exit 0; fi`,
           'if [ "$1" = "serve" ]; then echo "opencode server listening on http://127.0.0.1:34567"; sleep 60; exit 0; fi',
           "exit 1",
           "",
@@ -771,10 +775,10 @@ describe("agent controller interface inventory", () => {
       });
 
       expect(snapshot.versionAdvisory).toMatchObject({
-        currentVersion: "1.17.18",
+        currentVersion: version,
         latestVersion: "1.17.18",
-        message: null,
-        status: "current",
+        message,
+        status,
         updateCommand: "npm install -g opencode-ai@latest",
       });
     } finally {

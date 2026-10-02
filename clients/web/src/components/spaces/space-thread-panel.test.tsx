@@ -226,11 +226,11 @@ describe("SpaceThreadPanel", () => {
 					? new DOMRect(0, 150, 500, 1600)
 					: new DOMRect(0, 100, 500, 400);
 			});
-		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const onViewedUpdates = vi.fn().mockResolvedValue(undefined);
 		const latestTs = Date.UTC(2026, 4, 27, 10, 0, 9);
 		try {
 			renderThreadPanel({
-				onViewedThroughTs,
+				onViewedUpdates,
 				signals: [createTextSignal({ ts: latestTs })],
 				unreadTargets: [
 					{
@@ -245,10 +245,16 @@ describe("SpaceThreadPanel", () => {
 					},
 				],
 			});
-			await act(async () => vi.advanceTimersByTimeAsync(149));
-			expect(onViewedThroughTs).not.toHaveBeenCalled();
-			await act(async () => vi.advanceTimersByTimeAsync(1));
-			expect(onViewedThroughTs).toHaveBeenCalledExactlyOnceWith(latestTs);
+			await act(async () => vi.advanceTimersByTimeAsync(49));
+			expect(onViewedUpdates).not.toHaveBeenCalled();
+			await act(async () => vi.advanceTimersByTimeAsync(51));
+			expect(onViewedUpdates).toHaveBeenCalledExactlyOnceWith([
+				{
+					signalId: "sig-thread-1",
+					occurredAtMs: latestTs,
+					threadRootSignalId: "sig-root",
+				},
+			]);
 		} finally {
 			focus.mockRestore();
 			geometry.mockRestore();
@@ -636,10 +642,21 @@ describe("SpaceThreadPanel", () => {
 		expect(marker?.getAttribute("aria-busy")).toBeNull();
 	});
 
-	it("uses Bot avatars for Center Agent replies in an ordinary Space thread", () => {
+	it("uses the saved Bot avatar for Center Agent replies in an ordinary Space thread", () => {
 		const centerAgentProfileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		renderThreadPanel({
 			centerAgentProfileId,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					{
+						...createSpaceMemberAgentSnapshot({
+							profileId: centerAgentProfileId,
+							profileName: "Center Agent",
+						}),
+						avatarStyle: "star",
+					},
+				],
+			}),
 			signals: [
 				createTextSignal({
 					profileId: centerAgentProfileId,

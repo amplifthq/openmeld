@@ -25,9 +25,6 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
-import { isSpaceWakeProgressWaitingForFinalStatus } from "#/lib/spaces/message-state";
-import { useNowMs } from "#/lib/spaces/use-now-ms";
-import { resolveWakeProgressThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
 import {
 	resolveWakeProgressStatus,
 	WAKE_PROGRESS_STATUS_PRIORITY,
@@ -238,7 +235,6 @@ export function SpaceComposerActiveWakes(input: {
 }
 
 function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
-	const nowMs = useNowMs(context.activeItems.length ? 1000 : null);
 	const [open, setOpen] = useState(false);
 	const [openedItems, setOpenedItems] = useState<readonly WakeProgressItem[]>(
 		[]
@@ -265,7 +261,7 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 				(b ? WAKE_PROGRESS_STATUS_PRIORITY[b.kind] : 99)
 			);
 		})[0];
-	const status = selected ? resolveBookmarkStatus(selected, nowMs) : null;
+	const status = selected ? resolveWakeProgressStatus(selected) : null;
 	const visible = open || Boolean(selected && status);
 	const multiple = items.length > 1 || context.hasMore || open;
 	const button = renderBookmarkTrigger({
@@ -307,7 +303,6 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 										)}
 										item={item}
 										key={wakeBookmarkKey(item)}
-										nowMs={nowMs}
 										onClick={() => {
 											context.jump(item);
 											setOpen(false);
@@ -464,13 +459,10 @@ function WakeBookmarkTextFrame({ children }: { children: ReactNode }) {
 
 function WakeBookmarkRow(input: {
 	item: WakeProgressItem;
-	nowMs: number;
 	current: WakeProgressItem | undefined;
 	onClick: () => void;
 }) {
-	const step = input.current
-		? resolveBookmarkStatus(input.current, input.nowMs)
-		: null;
+	const step = input.current ? resolveWakeProgressStatus(input.current) : null;
 	return (
 		<button
 			className="flex items-start gap-2 rounded-md p-2 text-left hover:bg-accent focus-visible:bg-accent disabled:text-muted-foreground"
@@ -492,24 +484,4 @@ function WakeBookmarkRow(input: {
 			</span>
 		</button>
 	);
-}
-
-function resolveBookmarkStatus(item: WakeProgressItem, nowMs: number) {
-	const step = resolveWakeProgressStatus(item);
-	const [entry] = resolveWakeProgressThinkingEntry({
-		item,
-		showElapsedTime: true,
-	});
-	if (
-		step &&
-		entry?.kind === "progress" &&
-		entry?.elapsedStartedAtMs != null &&
-		isSpaceWakeProgressWaitingForFinalStatus({
-			lastEvidenceAtMs: entry.lastEvidenceAtMs,
-			nowMs,
-		})
-	) {
-		return { ...step, label: `${item.targetLabel} · Waiting for final status` };
-	}
-	return step;
 }

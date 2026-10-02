@@ -67,6 +67,8 @@ export function SpaceWindowHeader(input: {
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			data-has-leading-control={Boolean(input.leadingControl)}
+			data-slot="space-window-header"
 			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl || hasModuleSidebar ? (
@@ -80,10 +82,11 @@ export function SpaceWindowHeader(input: {
 			) : null}
 			<div
 				className={cn(
-					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
+					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden data-[has-title-control=true]:overflow-visible group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
 					!(input.leadingControl || hasModuleSidebar) &&
 						"col-span-2 col-start-1"
 				)}
+				data-has-title-control={Boolean(input.titleControl)}
 				data-slot="space-window-header-title"
 			>
 				{input.titleControl ?? (

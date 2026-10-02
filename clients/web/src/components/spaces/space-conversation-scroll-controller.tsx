@@ -75,11 +75,24 @@ export function scrollMessageIntoConversationViewport(input: {
 // coordinates; otherwise its resize observer can keep following the bottom.
 export function SpaceMessageScrollController(input: {
 	actionRef: RefObject<SpaceMessageScrollAction | null>;
+	latestNavigationRequest?: number;
 	latestMessageId?: string | null;
 	scrollElement?: HTMLElement | null;
 }) {
 	const { scrollToEnd, scrollToMessage, scrollToStart } = useMessageScroller();
 	const previousLatestMessageIdRef = useRef(input.latestMessageId);
+	const previousLatestNavigationRequest = useRef(input.latestNavigationRequest);
+	useLayoutEffect(() => {
+		if (
+			previousLatestNavigationRequest.current === input.latestNavigationRequest
+		) {
+			return;
+		}
+		previousLatestNavigationRequest.current = input.latestNavigationRequest;
+		// Run after the requested history window commits, through the scroller's
+		// owner so an earlier explicit jump/spacer cannot retain the old viewport.
+		scrollToEnd({ behavior: "auto" });
+	}, [input.latestNavigationRequest, scrollToEnd]);
 	useLayoutEffect(() => {
 		input.actionRef.current = scrollToMessage;
 		return () => {

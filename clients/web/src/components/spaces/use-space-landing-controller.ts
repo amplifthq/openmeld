@@ -11,6 +11,7 @@ import type {
 	SignalEnvelope,
 	SpaceAccessMode,
 	SpaceInboxUnreadTarget,
+	SpaceInboxUnreadTargetsResponse,
 	SpaceLinkJoinPolicy,
 	SpaceMembersSnapshot,
 	SpaceMessageFileReference,
@@ -1096,11 +1097,15 @@ function useClearRejectedSpaceConversationCache(input: {
 	]);
 }
 
-function resolveConfirmedViewedThroughHandler(input: {
+function resolveConfirmedViewedUpdatesHandler(input: {
 	isCurrentAccessConfirmed: boolean;
-	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
-}): ((throughTs: number) => Promise<void> | void) | undefined {
-	return input.isCurrentAccessConfirmed ? input.onViewedThroughTs : undefined;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
+}):
+	| ((targets: readonly SpaceInboxUnreadTarget[]) => Promise<void> | void)
+	| undefined {
+	return input.isCurrentAccessConfirmed ? input.onViewedUpdates : undefined;
 }
 
 function shouldShowSpaceLandingLoading(input: {
@@ -1201,8 +1206,8 @@ export type SpaceLandingController =
 			onRetryComposerFile: (localId: string) => Promise<void>;
 			onRetryComposerFileCleanup: (localId: string) => Promise<void>;
 			onRetryComposerFileRestoration: () => void;
-			onConversationViewedThroughTs?: (
-				timestamp: number
+			onConversationViewedUpdates?: (
+				targets: readonly SpaceInboxUnreadTarget[]
 			) => Promise<void> | void;
 			onJumpToDate: (date: Date) => Promise<string | null>;
 			onLoadEarlierHistory: () => Promise<void>;
@@ -1559,10 +1564,14 @@ export function useSpaceLandingController(input: {
 		signalIds: readonly string[];
 	}) => Promise<void> | void;
 	onInitialPendingMessageConsumed?: () => void;
-	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
+	onViewedUpdates?: (
+		targets: readonly SpaceInboxUnreadTarget[]
+	) => Promise<void> | void;
 	unreadStateReady?: boolean;
 	unreadTotalCount: number;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
+	unreadScopes?: SpaceInboxUnreadTargetsResponse["scopes"];
+	unreadBoundaryVersion?: number;
 	organizationId?: string | null;
 	orgSlug?: string;
 	ownerAccountId: string;
@@ -1836,6 +1845,7 @@ export function useSpaceLandingController(input: {
 	});
 	const unreadState = useSpaceUnread({
 		identity: [
+			input.unreadBoundaryVersion,
 			input.ownerAccountId,
 			input.organizationId,
 			input.spaceId,
@@ -1843,6 +1853,7 @@ export function useSpaceLandingController(input: {
 		].join(":"),
 		isReady: input.unreadStateReady === true,
 		targets: input.unreadTargets ?? [],
+		scopes: input.unreadScopes,
 	});
 	const composerSession = useSpaceComposerSession({
 		authoring: {
@@ -2731,9 +2742,9 @@ export function useSpaceLandingController(input: {
 		onRetryComposerFile: composerFilesController.retryFile,
 		onRetryComposerFileCleanup: composerFilesController.retryCleanup,
 		onRetryComposerFileRestoration: composerFilesController.retryRestoration,
-		onConversationViewedThroughTs: resolveConfirmedViewedThroughHandler({
+		onConversationViewedUpdates: resolveConfirmedViewedUpdatesHandler({
 			isCurrentAccessConfirmed: statusReady && unreadState.isReady,
-			onViewedThroughTs: input.onViewedThroughTs,
+			onViewedUpdates: input.onViewedUpdates,
 		}),
 		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,

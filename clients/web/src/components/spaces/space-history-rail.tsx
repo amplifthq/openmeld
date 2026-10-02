@@ -229,6 +229,11 @@ export function SpaceHistoryRail(input: {
 			return;
 		}
 		setPrevious(restore ? null : prior);
+		if (loaded === "latest") {
+			setTarget(null);
+			input.onFollowLatest();
+			return;
+		}
 		setTarget(restore ?? { signalId, offset: 24 });
 	};
 	const keepOpen = () => {

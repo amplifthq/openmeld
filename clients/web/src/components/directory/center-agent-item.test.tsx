@@ -22,12 +22,22 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.restoreAllMocks();
+});
 
 it.each([
-	"sidebar",
-	"card",
-] as const)("renders the %s entry from cached identity without starting a runtime directory read", (presentation) => {
+	{ presentation: "sidebar", avatarStyle: "star", interactive: false },
+	{ presentation: "card", avatarStyle: "star", interactive: true },
+	{ presentation: "card", avatarStyle: "fluid", interactive: false },
+	{ presentation: "card", avatarStyle: "automatic", interactive: false },
+] as const)("renders $presentation/$avatarStyle from cached identity with an independent avatar action only for a Bot card", ({
+	presentation,
+	avatarStyle,
+	interactive,
+}) => {
+	vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 	const queryClient = createTestQueryClient();
 	const directory: OrganizationProfileDirectoryResponse = {
 		organizationId: "org-acme",
@@ -36,6 +46,7 @@ it.each([
 		agentProfiles: [
 			{
 				agentControllerRef: null,
+				avatarStyle,
 				createdAt: "2026-09-10T00:00:00.000Z",
 				createdByUserId: "user-owner",
 				creatorProfileId: null,
@@ -77,7 +88,18 @@ it.each([
 		</TestQueryClientProvider>
 	);
 
-	expect(screen.getByLabelText("Open Workspace assistant")).toBeTruthy();
+	const navigation = screen.getByLabelText("Open Workspace assistant");
+	const animation = screen.queryByLabelText(
+		"Animate Workspace assistant's avatar"
+	);
+	expect(navigation).toBeTruthy();
+	if (interactive) {
+		expect(animation?.tagName).toBe("BUTTON");
+		expect(navigation.contains(animation)).toBe(false);
+	} else {
+		expect(animation).toBeNull();
+		expect(navigation.querySelector("[data-avatar-style]")).toBeTruthy();
+	}
 	expect(
 		queryClient.getQueryState(organizationQueryKeys.directory("org-acme"))
 	).toBeUndefined();

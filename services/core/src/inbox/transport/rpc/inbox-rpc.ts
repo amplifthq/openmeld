@@ -28,6 +28,8 @@ import {
   markSpaceInboxReadThroughRpcInputSchema,
   mutateInboxFeedResponseSchema,
   mutateInboxFeedRpcInputSchema,
+  mutateSpaceInboxReadResponseSchema,
+  mutateSpaceInboxReadRpcInputSchema,
   observeInboxNotificationsRpcInputSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
@@ -64,15 +66,24 @@ import type {
   MarkSpaceInboxReadThroughRpcInput,
   MutateInboxFeedResponse,
   MutateInboxFeedRpcInput,
+  MutateSpaceInboxReadResponse,
+  MutateSpaceInboxReadRpcInput,
   ObserveInboxNotificationsRpcInput,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, inboxDb } from "../../../lib/bindings";
+import {
+  agentTaskCoordinationDb,
+  type CoreBindings,
+  identityDb,
+  inboxDb,
+  wakeEvidenceDb,
+} from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
+import { reconcileTaskContinuationInbox } from "../../../remote-agent/application/native-delivery-inbox-reconciliation";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
 import { createInboxFeedService } from "../../application/inbox-feed-service";
 import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
@@ -81,6 +92,26 @@ import {
   createInboxService,
   InboxServiceError,
 } from "../../application/inbox-service";
+import { mutateSpaceInboxRead } from "../../application/space-inbox-read";
+
+export async function rpcMutateSpaceInboxRead(
+  env: CoreBindings,
+  input: MutateSpaceInboxReadRpcInput
+): Promise<MutateSpaceInboxReadResponse> {
+  const request = parseRequest(mutateSpaceInboxReadRpcInputSchema, input);
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    mutateSpaceInboxReadResponseSchema,
+    await runService(() =>
+      mutateSpaceInboxRead({
+        db: prepared.db,
+        organizationId: prepared.organizationId,
+        recipientUserId: prepared.userId,
+        body: request.body,
+      })
+    )
+  );
+}
 
 export async function rpcListInboxFeed(
   env: CoreBindings,
@@ -319,6 +350,7 @@ export async function rpcGetSpaceInboxUnreadTargets(
     spaceInboxUnreadTargetsResponseSchema,
     await runService(() =>
       prepared.service.spaceUnreadTargets({
+        includeItemIds: request.includeItemIds,
         organizationId: prepared.organizationId,
         recipientUserId: prepared.userId,
         spaceId: request.spaceId,
@@ -543,6 +575,19 @@ async function prepareRequest(
       code: "inbox.store_unavailable",
       reason: "Inbox is temporarily unavailable.",
       status: 503,
+    });
+  }
+  const sourceDb = wakeEvidenceDb(env);
+  const identityOwnerDb = identityDb(env);
+  const coordinationDb = agentTaskCoordinationDb(env);
+  if (sourceDb && identityOwnerDb && coordinationDb) {
+    await reconcileTaskContinuationInbox({
+      inboxDb: db,
+      sourceDb,
+      identityDb: identityOwnerDb,
+      coordinationDb,
+      organizationId: membership.organizationId,
+      recipientUserId: membership.userId,
     });
   }
   return {
