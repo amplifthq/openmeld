@@ -35,6 +35,7 @@ const statusLabels: Record<WakeProgressStatusKind, string> = {
 	posting: "Posting reply",
 	retrying: "Retrying",
 	needs_input: "Agent needs your input",
+	confirmation_pending: "Result awaiting confirmation",
 	waiting_for_owner: "Waiting for owner",
 	waiting_for_controller: "Waiting for current task",
 	waiting_for_device: "Waiting for computer",

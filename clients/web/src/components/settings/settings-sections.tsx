@@ -8,6 +8,11 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildSettingsRoutes } from "#/lib/settings-routes";
 import { SettingsPlaceholderSection } from "./settings-placeholder-section";
 
+const OrganizationUsagePage = lazy(() =>
+	import("#/components/organizations/organization-usage-page").then(
+		(module) => ({ default: module.OrganizationUsagePage })
+	)
+);
 const AccountSection = lazy(() =>
 	import("./account-section").then((module) => ({
 		default: module.AccountSection,
@@ -151,6 +156,17 @@ export function buildSettingsSections(
 			render: () => (
 				<SettingsLeafLayout>
 					<CenterAgentSettingsPage />
+				</SettingsLeafLayout>
+			),
+		},
+		{
+			id: "usage",
+			title: "Usage",
+			to: settingsRoutes.usage,
+			requires: ["CLOUD_ACCOUNT"],
+			render: () => (
+				<SettingsLeafLayout>
+					<OrganizationUsagePage />
 				</SettingsLeafLayout>
 			),
 		},

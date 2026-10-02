@@ -52,7 +52,6 @@ export async function rpcReadOrganizationUsageOverview(
   }
   const response = organizationUsageOverviewResponseSchema.safeParse(
     await readOrganizationUsageOverview({
-      configuredDailyLimit: env.OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT,
       nowMs: Date.now(),
       organizationId: membership.organizationId,
       routineDb: routines,

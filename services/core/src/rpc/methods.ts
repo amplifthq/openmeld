@@ -54,6 +54,8 @@ import {
   centerAgentCheckAgentProfileReadinessResponseSchema,
   centerAgentConnectAgentProfileToLocalAgentBodySchema,
   centerAgentConnectAgentProfileToLocalAgentResponseSchema,
+  centerAgentContinueTaskSummaryBodySchema,
+  centerAgentContinueTaskSummaryResponseSchema,
   centerAgentCreateAgentProfileBodySchema,
   centerAgentCreateAgentProfileResponseSchema,
   centerAgentCreateSpaceBodySchema,
@@ -866,6 +868,7 @@ import {
   type VerifiedCenterAgentRepresentedMember,
 } from "../center-agent/application/represented-member-request";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
+import { continueTaskSummary } from "../center-agent/application/task-summary-recovery-service";
 import {
   resolveCenterAgentAuditAttribution,
   writeCenterAgentAuditEntry,
@@ -905,6 +908,7 @@ import {
   readCenterAgentConnectorActionOperationForRecovery,
   readCenterAgentConnectorActionOperationForRequest,
   recordCenterAgentConnectorActionOperation,
+  resolveConnectorActionReplayWindowRemainingMs,
 } from "../center-agent/connector-action-operation-repository";
 import {
   type CurrentDesignatedCenterAgentAuthorization,
@@ -1064,6 +1068,7 @@ import {
 } from "../projects/project-rpc";
 import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
 import { reconcileChannelAuthorizationUpdates } from "../remote-agent/application/channel-authorization-update-service";
+import { resolveRemoteAgentConnectorRequester } from "../remote-agent/application/delegated-requester";
 import { listLarkPlatformProvidersEnabledForOrganization } from "../remote-agent/application/lark-platform-provider-policy";
 import {
   beginRemoteAgentLarkPlatformRegistration,
@@ -5632,7 +5637,9 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     (recovery.action === parsedBody.data.action ||
       (recovery.action === "fork_interrupted_work" &&
         (parsedBody.data.action === "skip_interrupted_work" ||
-          parsedBody.data.action === "continue_interrupted_work")) ||
+          (parsedBody.data.action === "continue_interrupted_work" &&
+            Boolean(recovery.forkInterruptedConversation) &&
+            recovery.authorizedContinuationClientMessageId !== null))) ||
       (recovery.action === "continue_interrupted_work" &&
         Boolean(recovery.forkInterruptedConversation) &&
         parsedBody.data.action === "fork_interrupted_work"));
@@ -5645,8 +5652,31 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     });
   }
 
+  // Read the caller's observed work identity, never fill it from this fresh
+  // read: an old tab may arrive while a later recovery offers the same action.
+  if (!recovery.interruptedTargetWakeLifecycleId) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.temporarily_unavailable",
+      reason: "OpenMeld is checking this Agent’s paused work. Try again.",
+      status: 503,
+    });
+  }
+  if (
+    parsedBody.data.expectedInterruptedTargetWakeLifecycleId !==
+    recovery.interruptedTargetWakeLifecycleId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_pending",
+      reason:
+        "This Agent’s paused work has changed. Review its current work before trying again.",
+      status: 409,
+    });
+  }
+
   if (parsedBody.data.action === "approve_queued_work") {
     await executeAgentProfileWorkQueueApproval({
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
       ownerShard,
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
@@ -5762,11 +5792,14 @@ async function executeAgentProfileInterruptedWorkSkip(input: {
 }
 
 async function executeAgentProfileWorkQueueApproval(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   targetProfileId: string;
 }): Promise<void> {
   const approved = await input.ownerShard.rpcApproveAgentProfileWorkQueue({
+    expectedInterruptedTargetWakeLifecycleId:
+      input.expectedInterruptedTargetWakeLifecycleId,
     ownerUserId: input.ownerUserId,
     targetProfileId: input.targetProfileId,
   });
@@ -8292,13 +8325,13 @@ export async function rpcCenterAgentResolveConnectorConnection(
   const personalRequest = personal
     ? authorization.personalExecution.request
     : null;
-  const sender = personalRequest?.turnEnvelope.sender;
-  let representedUserId: string | null = null;
-  if (sender?.kind === "routine") {
-    representedUserId = sender.delegatedBy.ownerUserId;
-  } else if (sender?.kind === "member" && sender.verified) {
-    representedUserId = sender.ownerUserId ?? null;
-  }
+  const representedUserId = await resolveRemoteAgentConnectorRequester({
+    env,
+    authorization,
+    service,
+    includeDelegatedRequester: input.includeDelegatedRequester,
+    requesterUserId: input.requesterUserId,
+  });
   const personalOwnerRequest =
     personalRequest &&
     representedUserId === personalRequest.agentProfileOwnerUserId;
@@ -15870,6 +15903,7 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   input: CenterAgentReadConnectorActionOperationInput
 ): Promise<CenterAgentReadConnectorActionOperationResponse> {
   const parsed = centerAgentReadConnectorActionOperationBodySchema.safeParse({
+    includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
     operationId: input.operationId,
     service: input.service,
@@ -15905,6 +15939,15 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   return centerAgentReadConnectorActionOperationResponseSchema.parse({
     operation: existing
       ? {
+          ...(parsed.data.includeRecoveryWindow
+            ? {
+                replayWindowRemainingMs:
+                  resolveConnectorActionReplayWindowRemainingMs(
+                    existing.createdAtMs,
+                    Date.now()
+                  ),
+              }
+            : {}),
           actionId: existing.actionId,
           connectionName: existing.connectionName,
           executionConnection: existing.executionConnection,
@@ -15921,6 +15964,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   input: CenterAgentRecordConnectorActionOperationInput
 ): Promise<CenterAgentRecordConnectorActionOperationResponse> {
   const parsed = centerAgentRecordConnectorActionOperationBodySchema.safeParse({
+    includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
     effect: input.effect,
     connectionName: input.connectionName,
@@ -15965,20 +16009,26 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   let connectionName = existing?.operation.connectionName;
   let executionConnection =
     existing?.operation.executionConnection ?? undefined;
-  if (!existing && parsed.data.outcome === "attempted") {
-    const connection = await requireRemotePluginConnection({
-      connectionName: parsed.data.connectionName,
-      db: authorization.db,
-      organizationId: authorization.activeOrganization.organizationId,
-      service: parsed.data.service,
-      requesterUserId: member.userId,
-      remoteOwnerUserId:
-        "personalExecution" in authorization
-          ? (authorization.personalExecution.request.agentProfileOwnerUserId ??
-            null)
-          : undefined,
-      effect: parsed.data.effect ?? "unspecified",
-    });
+  if (parsed.data.outcome === "attempted") {
+    // The operation freezes identity and attribution, never current permission.
+    const exactConnectionName = connectionName ?? parsed.data.connectionName;
+    const connection = await requireConnectorOperationConnection(
+      {
+        connectionName: exactConnectionName,
+        db: authorization.db,
+        organizationId: authorization.activeOrganization.organizationId,
+        service: parsed.data.service,
+        requesterUserId: member.userId,
+        remoteOwnerUserId:
+          "personalExecution" in authorization
+            ? (authorization.personalExecution.request
+                .agentProfileOwnerUserId ?? null)
+            : undefined,
+        effect: parsed.data.effect ?? "unspecified",
+      },
+      existing,
+      parsed.data.connectionName
+    );
     assertBoundPluginConnection(
       await readPluginConnectionExecutionBinding(
         env,
@@ -15988,33 +16038,35 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
       parsed.data.service,
       connection
     );
-    attribution = {
-      actorProfileId: authorization.actorProfileId,
-      onBehalfOf:
-        member.profileId && member.userId
-          ? {
-              displayName: member.displayName,
-              profileId: member.profileId,
-              userId: member.userId,
-            }
-          : null,
-    };
-    connectionName = parsed.data.connectionName;
-    const ownerDisplayName =
-      connection.scope === "member"
-        ? member.displayName
-        : await resolveConnectorConnectionOwnerDisplayName({
-            connectionName: connection.connectionName,
-            env,
-            ownerUserId: connection.userId,
-          });
-    executionConnection = {
-      connectionName: connection.connectionName,
-      ownerDisplayName,
-      ownerUserId: connection.userId,
-      scope: connection.scope,
-      service: connection.service,
-    };
+    if (!existing) {
+      attribution = {
+        actorProfileId: authorization.actorProfileId,
+        onBehalfOf:
+          member.profileId && member.userId
+            ? {
+                displayName: member.displayName,
+                profileId: member.profileId,
+                userId: member.userId,
+              }
+            : null,
+      };
+      connectionName = parsed.data.connectionName;
+      const ownerDisplayName =
+        connection.scope === "member"
+          ? member.displayName
+          : await resolveConnectorConnectionOwnerDisplayName({
+              connectionName: connection.connectionName,
+              env,
+              ownerUserId: connection.userId,
+            });
+      executionConnection = {
+        connectionName: connection.connectionName,
+        ownerDisplayName,
+        ownerUserId: connection.userId,
+        scope: connection.scope,
+        service: connection.service,
+      };
+    }
   }
   const result = await recordCenterAgentConnectorActionOperation({
     actionId: parsed.data.actionId,
@@ -16035,6 +16087,15 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     sourceSpaceId: member.sourceSpaceId,
   });
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
+    ...(parsed.data.includeRecoveryWindow
+      ? {
+          replayWindowRemainingMs:
+            resolveConnectorActionReplayWindowRemainingMs(
+              result.operation.createdAtMs,
+              Date.now()
+            ),
+        }
+      : {}),
     attribution: result.attribution,
     executionConnection: result.operation.executionConnection,
     operationId: result.operation.operationId,
@@ -16043,6 +16104,35 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     replayed: result.replayed,
     status: result.operation.status,
   });
+}
+
+async function requireConnectorOperationConnection(
+  access: Parameters<typeof requireRemotePluginConnection>[0],
+  existing: Awaited<
+    ReturnType<typeof readCenterAgentConnectorActionOperationForRequest>
+  >,
+  requestedConnectionName: string
+) {
+  const original = existing?.operation.executionConnection;
+  const invalid = () =>
+    createCoreRpcHttpError({
+      code: "center_agent.connector_action_connection_invalid",
+      reason: "The operation must use its original available account.",
+      status: 409,
+    });
+  if (requestedConnectionName !== access.connectionName) {
+    throw invalid();
+  }
+  const connection = await requireRemotePluginConnection(access);
+  if (
+    original &&
+    (connection.scope !== original.scope ||
+      connection.userId !== original.ownerUserId ||
+      connection.service !== original.service)
+  ) {
+    throw invalid();
+  }
+  return connection;
 }
 
 function resolveCenterAgentConnectorActionRequester(
@@ -16179,6 +16269,9 @@ function parseCenterAgentWakeAgentProfilesInSpaceInput(
     ...(input.completionMode === undefined
       ? {}
       : { completionMode: input.completionMode }),
+    ...(input.replyLanguageTag === undefined
+      ? {}
+      : { replyLanguageTag: input.replyLanguageTag }),
     ...(input.fallbackAgentProfileId === undefined
       ? {}
       : { fallbackAgentProfileId: input.fallbackAgentProfileId }),
@@ -16285,6 +16378,7 @@ export async function rpcCenterAgentWakeAgentProfilesInSpace(
       authorization,
       clientMessageId,
       completionMode: parsed.completionMode,
+      replyLanguageTag: parsed.replyLanguageTag,
       db: taskCoordinationDb,
       env,
       fallbackAgentProfileId: parsed.fallbackAgentProfileId ?? null,
@@ -16465,6 +16559,9 @@ export async function rpcCenterAgentWatchAgentTask(
   const parsed = centerAgentWatchAgentTaskBodySchema.safeParse({
     completionCondition: input.completionCondition,
     instruction: input.instruction,
+    ...(input.replyLanguageTag === undefined
+      ? {}
+      : { replyLanguageTag: input.replyLanguageTag }),
     task: input.task,
   });
   if (!parsed.success) {
@@ -16595,6 +16692,7 @@ export async function rpcCenterAgentWatchAgentTask(
       env,
       instruction: parsed.data.instruction,
       nowMs: Date.now(),
+      replyLanguageTag: parsed.data.replyLanguageTag,
       organizationId: authorization.activeOrganization.organizationId,
       parentSubmissionId,
       task: parsed.data.task,
@@ -16631,6 +16729,48 @@ export async function rpcCenterAgentWatchAgentTask(
     organizationId: authorization.activeOrganization.organizationId,
     resource,
   });
+}
+
+export async function rpcCenterAgentContinueTaskSummary(
+  env: CoreBindings,
+  input: ReturnType<typeof centerAgentContinueTaskSummaryBodySchema.parse> & {
+    context?: CoreRpcContextInput;
+  }
+) {
+  const parsed = centerAgentContinueTaskSummaryBodySchema.safeParse({
+    sourceSubscriptionId: input.sourceSubscriptionId,
+    inspectOnly: input.inspectOnly,
+    includePublishedResult: input.includePublishedResult,
+    replyLanguageTag: input.replyLanguageTag,
+    speakerMember: input.speakerMember,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Invalid task summary recovery request.",
+      status: 400,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(input.context),
+      parsed.data.speakerMember
+    );
+  return centerAgentContinueTaskSummaryResponseSchema.parse(
+    await continueTaskSummary({
+      actorProfileId: authorization.actorProfileId,
+      db: requireAgentTaskCoordinationDb(env),
+      env,
+      inspectOnly: parsed.data.inspectOnly === true,
+      includePublishedResult: parsed.data.includePublishedResult,
+      nowMs: Date.now(),
+      operatorUserId: representedHuman.userId,
+      organizationId: authorization.activeOrganization.organizationId,
+      sourceSubscriptionId: parsed.data.sourceSubscriptionId,
+      replyLanguageTag: parsed.data.replyLanguageTag,
+    })
+  );
 }
 
 async function isCenterAgentSpaceWakeWatchTargetRegistered(input: {
@@ -16825,6 +16965,7 @@ async function executeCenterAgentDelegatedWake(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
   clientMessageId: string;
   completionMode: CenterAgentWakePublicationCommand["completionMode"];
+  replyLanguageTag?: string;
   db: D1Database;
   env: CoreBindings;
   fallbackAgentProfileId: string | null;
@@ -16880,6 +17021,9 @@ async function executeCenterAgentDelegatedWake(input: {
       attribution,
       clientMessageId: input.clientMessageId,
       completionMode: input.completionMode,
+      ...(input.replyLanguageTag
+        ? { replyLanguageTag: input.replyLanguageTag }
+        : {}),
       context: input.authorization.context,
       delegationId: delegation.delegationId,
       fallbackAgentProfileId: input.fallbackAgentProfileId,

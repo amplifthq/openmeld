@@ -287,6 +287,7 @@ export const centerAgentConnectorConnectionSelectionSchema = z.strictObject({
 export const centerAgentResolveConnectorConnectionBodySchema = z.strictObject({
   connectionPreference: connectorConnectionPreferenceSchema.optional(),
   includeAccessPolicy: z.literal(true).optional(),
+  includeDelegatedRequester: z.literal(true).optional(),
   requesterUserId: z.string().nullable(),
   service: connectorServiceSchema,
 });

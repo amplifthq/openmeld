@@ -43,6 +43,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "0.4.0",
     "date-fns": "^4.4.0",
+    "echarts": "^6.1.0",
     "framer-motion": "^12.35.2",
     "media-chrome": "4.19.2",
     "react-day-picker": "^10.0.1"

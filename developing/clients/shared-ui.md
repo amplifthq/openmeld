@@ -42,6 +42,14 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`components/evilcharts` owns the official registry-installed Apache ECharts
+area primitive and its theme, tooltip, legend, dot, and brush modules. Its
+README records source provenance and local adaptations. Consumers compose
+the compound API and lazy-load the rendering module; product scope, queries,
+and surrounding interactions remain outside the chart primitive. Use Fluid
+surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
+and reduced-motion loading behavior when refreshing registry source.
+
 `VideoPlayer` composes Media Chrome's controls with shared design tokens and solid
 surfaces. It owns no file fetching, credentials, cache, or Space identity. Global
 media hotkeys are disabled so the chat composer retains its keys.
@@ -100,6 +108,10 @@ eligibility reads. Nested scopes open only the nearest menu. Inputs, editable
 content, selected text, and disabled scopes retain native context menus.
 `FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
 `FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
+Menu separators leave one spacing unit (4px) on each side, matching the menu's
+content inset. Both shared menu families own this spacing. Sidebar hover pauses
+for open context-menu trigger slots as well as ordinary popup triggers; Base UI
+context-menu areas expose an open marker without `aria-haspopup`.
 
 Prefer this primitive for stable, closely spaced clickable alternatives in
 menus, navigation, tabs, and grids. Use one list per semantic group; split at
@@ -399,10 +411,19 @@ do not subscribe to animation frames. Context failure preserves a rendered
 frame or the supplied fallback without repeatedly allocating GPU contexts.
 
 Web's `RemoteAgentAvatar` uses the stable Profile ID as the saved fluid avatar
-seed. Hosted Remote Agents default to the current model vendor's mark and can
-keep an explicitly selected fluid avatar across model changes. Center Agents
-default to one of the 18 Bot avatars, selected from the managed Profile ID;
-authorized admins can explicitly select another Bot or the fluid avatar. Bot avatars
+seed. Hosted Remote Agents default to the generic Agent mark and can keep an
+explicitly selected fluid avatar across model changes. Center Agents display
+their saved Bot or fluid style; authorized admins can select either. Missing
+style displays the automatic mark and must not hash the Profile ID to invent a
+saved Bot selection. The app shell provides one read of the existing Organization
+Profile Directory to every avatar entrance. Saved preferences are applied to
+loaded profile caches and invalidated after a successful save. Idle and read-only
+editors use the same saved Profile; only an unsaved user selection is a preview.
+Failed saves discard that preview and return to the current saved identity.
+Successful saves also send an account/Organization/Profile-scoped browser refresh
+hint. Other tabs re-read their own authorized directory; the hint carries no
+avatar data and does not add directories to browser persistence. Model vendors
+never select an Agent avatar. Bot avatars
 do not hop when idle, animate for real working state, and jump once on an
 explicit click. Reduced-motion preference suppresses their animation.
 Personal Remote Agents use rounded squares, Center Agents use circles, and Local Agents

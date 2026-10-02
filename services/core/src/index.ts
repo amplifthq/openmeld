@@ -31,6 +31,7 @@ import type {
   BeginOrganizationSkillImportBatchRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
   CenterAgentAddMembersToSpaceResponse,
+  CenterAgentAiUsageRpcInput,
   CenterAgentAttribution,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
@@ -279,6 +280,7 @@ import type {
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
   OrganizationAgentRuntimeOverviewResponse,
+  OrganizationAiUsageRpcInput,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationDocumentPromptContextResponse,
@@ -330,6 +332,7 @@ import type {
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
+  RemoteAiUsageWrite,
   RemoveSpaceMembersResponse,
   RequestCurrentOpenMeldToolsUpdateResponse,
   ResolveSpaceFileContentResponse,
@@ -833,6 +836,7 @@ import {
   rpcCenterAgentAddMembersToSpace,
   rpcCenterAgentCheckAgentProfileReadiness,
   rpcCenterAgentConnectAgentProfileToLocalAgent,
+  rpcCenterAgentContinueTaskSummary,
   rpcCenterAgentCreateAgentProfile,
   rpcCenterAgentCreateSpace,
   rpcCenterAgentEnableAgentProfile,
@@ -1171,6 +1175,11 @@ import {
   rpcProjectSpaceIndexMembershipOverlay,
 } from "./space-index/space-index-overlay-rpc";
 import { listMembershipSpaceIdsForProfilesFromSpaceIndex } from "./space-index/space-index-repository";
+import {
+  rpcCenterAgentReadAiUsage,
+  rpcReadOrganizationAiUsage,
+  rpcRecordRemoteAiUsage,
+} from "./usage/ai-usage-rpc";
 
 // Narrow first-party entrypoint for the auth worker's profile lifecycle
 // fan-out. Kept separate from GatewayRpcEntrypoint so auth only gets the
@@ -1505,6 +1514,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   readOrganizationUsageOverview(input: ReadOrganizationUsageOverviewInput) {
     return rpcReadOrganizationUsageOverview(this.env, input);
+  }
+
+  readOrganizationAiUsage(input: OrganizationAiUsageRpcInput) {
+    return rpcReadOrganizationAiUsage(this.env, input);
   }
 
   listRoutines(input: ListRoutinesInput) {
@@ -3790,6 +3803,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentWatchAgentTask(this.env, input);
   }
 
+  centerAgentContinueTaskSummary(
+    input: Parameters<typeof rpcCenterAgentContinueTaskSummary>[1]
+  ) {
+    return rpcCenterAgentContinueTaskSummary(this.env, input);
+  }
+
   centerAgentUpdateSpaceSettings(
     input: CenterAgentUpdateSpaceSettingsInput
   ): Promise<CenterAgentUpdateSpaceSettingsResponse> {
@@ -4157,6 +4176,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   readOrganizationUsageOverview(input: ReadOrganizationUsageOverviewInput) {
     return super.readOrganizationUsageOverview(input);
+  }
+
+  readOrganizationAiUsage(input: OrganizationAiUsageRpcInput) {
+    return super.readOrganizationAiUsage(input);
   }
 
   listRoutines(input: ListRoutinesInput) {
@@ -5854,6 +5877,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.centerAgentWatchAgentTask(input);
   }
 
+  centerAgentContinueTaskSummary(
+    input: Parameters<typeof rpcCenterAgentContinueTaskSummary>[1]
+  ) {
+    return super.centerAgentContinueTaskSummary(input);
+  }
+
   centerAgentUpdateSpaceSettings(
     input: CenterAgentUpdateSpaceSettingsInput
   ): Promise<CenterAgentUpdateSpaceSettingsResponse> {
@@ -6070,6 +6099,14 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentReadAgentActivityInput
   ) {
     return rpcCenterAgentReadAgentActivityOverview(this.env, input);
+  }
+
+  centerAgentReadAiUsage(input: CenterAgentAiUsageRpcInput) {
+    return rpcCenterAgentReadAiUsage(this.env, input);
+  }
+
+  recordRemoteAiUsage(input: RemoteAiUsageWrite) {
+    return rpcRecordRemoteAiUsage(this.env, input);
   }
 
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {

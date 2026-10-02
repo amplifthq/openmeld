@@ -4,6 +4,9 @@ title: Right-click shortcuts across Inbox, Spaces, and Team
 kind: improved
 areas: ["web", "desktop", "spaces", "inbox", "team"]
 audiences: ["users"]
+publishedAt: 2026-10-01
+release: v0.3.233
+evidence: ["pr:1408", "commit:e4454cf165b96c7f918e420f28205c2b2ed3c575", "workflow:36827414468"]
 ---
 
 Right-click conversations, messages, Inbox items, and Team resources to open

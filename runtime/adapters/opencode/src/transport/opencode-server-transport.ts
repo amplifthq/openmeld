@@ -28,6 +28,7 @@ import {
   buildCliLaunchInvocation,
   createProviderOriginalError,
   isDispatchSpaceActionDeliveryOnly,
+  readAdapterAiUsageObservation,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { isLikelyOpenCodeContextLostError } from "../context/opencode-context-heal.js";
@@ -96,6 +97,7 @@ type OpenCodeServerLifecycleInput = Pick<
 >;
 
 export class OpenCodeServerTransportError extends Error {
+  telemetry?: AdapterDispatchTelemetry;
   readonly code: string;
   readonly errorType: AdapterErrorType;
   readonly originalError?: string;
@@ -180,7 +182,14 @@ export async function invokeOpenCodeServerTransport(
       streamingMode: input.streamingMode ?? "final",
     });
   } catch (error) {
-    throw toOpenCodeServerTransportError(error, server.readStderr());
+    const failure = toOpenCodeServerTransportError(error, server.readStderr());
+    failure.telemetry = server.buildTelemetry({
+      invokedAtMs,
+      previewEmitted: false,
+      resumedContext: normalizeOptionalText(input.sessionId) !== null,
+      streamingMode: input.streamingMode ?? "final",
+    });
+    throw failure;
   } finally {
     await server.close();
   }
@@ -558,6 +567,7 @@ async function runOpenCodeServerTurn(input: {
   const eventFailure = createDeferred<never>();
   const turnCompletion = createDeferred<void>();
   const turnState: OpenCodeTurnState = {
+    observeUsage: (message) => input.server.observeUsage(message),
     acceptedSessionIds: new Set([sessionId]),
     assistantMessageIds: new Set(),
     promptAccepted: false,
@@ -802,6 +812,7 @@ async function readOpenCodeSessionForWorkingDirectory(input: {
 }
 
 type OpenCodeTurnState = {
+  observeUsage: (message: Record<string, unknown>) => void;
   acceptedSessionIds: Set<string>;
   assistantMessageIds: Set<string>;
   promptAccepted: boolean;
@@ -1042,6 +1053,15 @@ function observeOpenCodeTurnLifecycle(
     ) {
       turnState.assistantMessageIds.add(messageId);
     }
+    if (
+      message?.role === "assistant" &&
+      (normalizeOptionalText(message.parentID) === turnState.promptMessageId ||
+        (messageSessionId !== turnState.rootSessionId &&
+          messageSessionId !== null &&
+          turnState.acceptedSessionIds.has(messageSessionId)))
+    ) {
+      turnState.observeUsage(message);
+    }
     return;
   }
   const sessionId = normalizeOptionalText(properties.sessionID);
@@ -1277,6 +1297,10 @@ function throwInteractionFailure(failure: OpenCodeInteractionFailure): never {
 }
 
 class OpenCodeServerProcess {
+  readonly #aiUsage = new Map<
+    string,
+    NonNullable<AdapterDispatchTelemetry["aiUsage"]>[number]
+  >();
   readonly #env?: Record<string, string | undefined>;
   readonly #failure = createDeferred<never>();
   readonly #launchContract: RuntimeAgentControllerLaunchContract;
@@ -1590,6 +1614,54 @@ class OpenCodeServerProcess {
     });
   }
 
+  observeUsage(message: Record<string, unknown>): void {
+    const completedAt = toRecord(message.time)?.completed;
+    if (typeof completedAt !== "number") {
+      return;
+    }
+    const tokens = toRecord(message.tokens);
+    const cache = toRecord(tokens?.cache);
+    if (
+      !(
+        tokens &&
+        typeof tokens.input === "number" &&
+        typeof tokens.output === "number" &&
+        typeof tokens.reasoning === "number" &&
+        typeof cache?.read === "number" &&
+        typeof cache.write === "number"
+      )
+    ) {
+      return;
+    }
+    const inputTokens = tokens.input + cache.read + cache.write;
+    const outputTokens = tokens.output + tokens.reasoning;
+    const observation = readAdapterAiUsageObservation({
+      eventId: `opencode:${message.sessionID}:${message.id}`,
+      provider: message.providerID,
+      model: message.modelID,
+      source: "opencode_message",
+      occurredAtMs: completedAt,
+      tokens: {
+        input: inputTokens,
+        output: outputTokens,
+        cacheRead: cache.read,
+        cacheWrite: cache.write,
+        reasoning: tokens.reasoning,
+        total: tokens.total ?? inputTokens + outputTokens,
+      },
+      cost:
+        typeof message.cost === "number"
+          ? {
+              nanoUsd: Math.round(message.cost * 1_000_000_000),
+              kind: "provider_estimate",
+            }
+          : null,
+    });
+    if (observation) {
+      this.#aiUsage.set(observation.eventId, observation);
+    }
+  }
+
   buildTelemetry(input: {
     invokedAtMs: number;
     previewEmitted: boolean;
@@ -1597,6 +1669,7 @@ class OpenCodeServerProcess {
     streamingMode: AdapterStreamingMode;
   }): AdapterDispatchTelemetry {
     return {
+      aiUsage: [...this.#aiUsage.values()],
       completedAtMs: Date.now(),
       ...(this.#lifecycle.exitCode === null
         ? {}

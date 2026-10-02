@@ -143,6 +143,8 @@ import {
   spaceViewerMembershipResponseSchema,
   spaceWakeStopIntentQuerySchema,
   spaceWakeStopIntentResponseSchema,
+  taskSummaryRecoveryAccessRequestSchema,
+  type taskSummaryRecoveryAccessResponseSchema,
   toLegacySpaceAddressingWireValue,
   toLegacySpaceImageGeometryWireValue,
   toSpaceSignalReadWireValue,
@@ -4038,6 +4040,7 @@ export class Space extends DurableObject<CoreBindings> {
     const dispatchMessage = buildAcceptedDispatchFinalizationQueueMessage({
       fact: command.dispatchFact,
       inboxRecord,
+      organizationId: this.readSpaceMetaRecord()?.organizationId,
       sourceSignal,
       sourceProfileNameSnapshot,
       spaceContract,
@@ -7157,7 +7160,10 @@ export class Space extends DurableObject<CoreBindings> {
         continue;
       }
       const encoded = JSON.stringify(
-        this.redactSignalForViewer(signal, session)
+        spaceAddressingWireValueForSession(
+          this.redactSignalForViewer(signal, session),
+          session
+        )
       );
       webSocket.send(encoded);
     }
@@ -7202,7 +7208,14 @@ export class Space extends DurableObject<CoreBindings> {
         (await this.authorizeLiveSession(session)) &&
         this.transientStreamReplay.isCurrent(frame)
       ) {
-        webSocket.send(JSON.stringify(projected));
+        webSocket.send(
+          JSON.stringify(
+            toSpaceSignalReadWireValue(
+              projected,
+              session.supportsAgentWorkOutcomes === true
+            )
+          )
+        );
       }
     }
   }
@@ -9309,6 +9322,42 @@ export class Space extends DurableObject<CoreBindings> {
     );
     if (!access.ok && access.response.status >= 500) {
       throw new Error("Device waiting Wake access is unavailable.");
+    }
+    return { allowed: access.ok };
+  }
+
+  async rpcCheckTaskSummaryRecoveryAccess(
+    raw: ReturnType<typeof taskSummaryRecoveryAccessRequestSchema.parse>
+  ): Promise<ReturnType<typeof taskSummaryRecoveryAccessResponseSchema.parse>> {
+    const parsed = taskSummaryRecoveryAccessRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { allowed: false };
+    }
+    const input = parsed.data;
+    this.applySpaceRef(input.spaceId);
+    const member = readSpaceMemberRecord(this.ctx.storage.sql, input.profileId);
+    if (
+      member?.status !== "active" ||
+      member.profileKindSnapshot !== "human" ||
+      member.ownerUserIdSnapshot !== input.ownerUserId
+    ) {
+      return { allowed: false };
+    }
+    const access = await this.authorizeWritableSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: input.spaceId,
+        requestContext: {
+          actorContext: {
+            requestId: `summary-recovery-access:${input.profileId}`,
+            openMeldProfileId: input.profileId,
+            ownerUserId: input.ownerUserId,
+            profileKind: "human",
+          },
+        },
+      })
+    );
+    if (!access.ok && access.response.status >= 500) {
+      throw new Error("Task summary recovery access is unavailable.");
     }
     return { allowed: access.ok };
   }
@@ -18169,7 +18218,14 @@ export class Space extends DurableObject<CoreBindings> {
         message,
         session.supportsAgentReplyPlacement === true
       );
-      return projected ? JSON.stringify(projected) : null;
+      return projected
+        ? JSON.stringify(
+            toSpaceSignalReadWireValue(
+              projected,
+              session.supportsAgentWorkOutcomes === true
+            )
+          )
+        : null;
     }
     return JSON.stringify(
       spaceAddressingWireValueForSession(
@@ -22877,7 +22933,8 @@ function spaceAddressingWireValueForSession(
   const readValue = toSpaceSignalReadWireValue(
     session.supportsSpaceImageGeometry
       ? value
-      : toLegacySpaceImageGeometryWireValue(value)
+      : toLegacySpaceImageGeometryWireValue(value),
+    session.supportsAgentWorkOutcomes === true
   );
   return session.supportsSpaceMessageAddressing
     ? readValue
@@ -23674,12 +23731,8 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
     headLifecycleProgress?.deviceWait
       ? { deviceWait: headLifecycleProgress.deviceWait }
       : {}),
-    failureReasonCode:
-      phase === "failed" ||
-      phase === "publication_unknown" ||
-      phase === "publishing"
-        ? errorCode
-        : null,
+    // The shared projection owns phase-specific reason filtering.
+    failureReasonCode: errorCode,
     phase,
     pendingInteraction: input.pendingInteraction,
     runtimeKind: resolveWakeProgressRuntimeKind(input.nativeDeliveryEvidence),

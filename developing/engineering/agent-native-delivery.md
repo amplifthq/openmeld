@@ -56,15 +56,22 @@ branches used.
    from historical backlog. [Assess Desktop](production-release.md#desktop-release-coverage)
    for the same range, and [assess OpenConnector](production-release.md#openconnector-release)
    when that external source or its production configuration is in the batch.
-   A zero pending-scope result does not close these separate rows. Once the
+   A zero pending-scope result does not close these separate rows. Resolve the
+   Desktop platforms, signed release versus internal preview, and available
+   native build environment before starting those builds, using the Desktop
+   owner rules. This is lane selection, not an extra approval. Once the
    exact source is pinned, start independent native artifact builds while cloud
    stages run; promotion still waits for its own provenance and dependencies.
 4. [Release](#release) each affected component through its owner workflow,
    respecting the planner's dependency order. If Core is selected and shared
    schema or Service inputs changed, run the read-only
-   `pnpm release:local-components plan --next` before starting Core; it can run
-   alongside an earlier independent deploy stage. Decide the supported Core/CLI
-   path from that result. Use one low-frequency workflow wait; read logs when
+   `pnpm release:local-components plan --next` before launching a multi-scope
+   workflow that includes Core. Choose the supported Core/CLI path from that
+   result, including receiver-first deployment with the current CLI projection
+   when needed. This avoids discovering an unstamped Service only after earlier
+   cloud stages have completed. Independent builds and deploys can still run
+   alongside release preparation once their source and lane are known.
+   Use one low-frequency workflow wait; read logs when
    state changes or fails instead of polling unchanged output. Record each
    component and supported Desktop platform as
    released, pending, excluded with a concrete
@@ -81,6 +88,10 @@ branches used.
 The same workflow applies to engineers, Codex, Claude Code, and other coding
 agents. Run `pnpm install --frozen-lockfile` in each checkout to install dependencies
 and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
+
+Reserve `codex/release-*` branches for artifact release preparation: their pushes
+run strict release verification. Use an ordinary `codex/*` name for CI or release
+workflow improvements; those changes do not themselves publish artifacts.
 
 | Stage | Required work | Why |
 | --- | --- | --- |
@@ -238,9 +249,11 @@ component deployment, CLI/Desktop publication, or Product Smoke.
 Trusted control installs only the shared evidence parser's production
 dependencies. The result publisher does not restore the full development store;
 restoring that cache costs more than installing its small runtime. Candidate
-dependencies stay isolated and complete for the selected checks. This setup is
-the same for all PR scopes, confidence levels, merge groups, and local fallback;
-it does not change validation coverage or grant candidate code write credentials.
+dependencies stay isolated and complete for the selected checks. Hosted
+documentation-only plans install root tooling without native rebuilds; signed
+CLI Skills, release readiness, and executable changes keep the workspace install.
+The trusted plan makes this decision for both PRs and merge groups. This changes
+neither validation coverage nor candidate credential isolation.
 
 Hosted `trusted-control-entrypoints` compares the current-main control
 projection, not every workspace or lockfile byte. The isolated installer

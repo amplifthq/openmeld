@@ -185,6 +185,24 @@ function resolveFileAccess(input: {
     if (input.boundary.mode !== "only_selected_folders") {
       throw new Error("execution_context.file_access_unverified");
     }
+    if (
+      input.boundary.gitMetadata &&
+      !Object.values(input.boundary.gitMetadata).every(
+        (path) =>
+          isAbsolute(path) &&
+          input.boundary.folders.some((root) => {
+            const child = relative(root, path);
+            return (
+              child === "" ||
+              (!isAbsolute(child) &&
+                child !== ".." &&
+                !child.startsWith(`..${sep}`))
+            );
+          })
+      )
+    ) {
+      throw new Error("execution_context.file_access_unverified");
+    }
     return {
       extendsProfile: null,
       filesystemEntries: [
@@ -199,6 +217,19 @@ function resolveFileAccess(input: {
             ? "write"
             : "read"
         ),
+        // Protect executable hook files and routing, while ordinary Git
+        // configuration remains writable for push -u, identity and installers.
+        ...(input.boundary.gitMetadata
+          ? buildFolderEntries(
+              [
+                input.boundary.gitMetadata.hooksPath,
+                input.boundary.gitMetadata.worktreeGitPointerPath,
+                input.boundary.gitMetadata.commonDirectoryPointerPath,
+                input.boundary.gitMetadata.gitDirectoryPointerPath,
+              ],
+              "read"
+            )
+          : []),
       ],
       fullNetwork: !isRepair && input.permissionMode === "codex:fullAccess",
     };
@@ -291,3 +322,5 @@ function resolveCodexPermissionMode(value: unknown): CodexPermissionMode {
 function tomlString(value: string): string {
   return JSON.stringify(value);
 }
+
+import { isAbsolute, relative, sep } from "node:path";

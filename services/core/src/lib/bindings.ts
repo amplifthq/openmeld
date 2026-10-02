@@ -165,6 +165,21 @@ export type RemoteAgentWorkerBindingRpc = {
   ): Promise<
     import("@openmeld/schemas/types").RemoteAgentWorkerExecutionQueryResponse
   >;
+  readAdmission?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionResponse
+  >;
+  readSubmitTurnCapabilities?(
+    input: import("@openmeld/schemas/types").RemoteAgentWorkerSubmitCapabilitiesRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerSubmitCapabilities
+  >;
+  readAdmissionStop?(
+    input: RemoteAgentWorkerSubmitTurnRequest
+  ): Promise<
+    import("@openmeld/schemas/types").RemoteAgentWorkerReadAdmissionStopResponse
+  >;
   readRuntimeDiagnostics?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerRuntimeDiagnosticsRequest
   ): Promise<
@@ -215,7 +230,6 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS?: string;
-  OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT?: string;
   OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED?: string;
   OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ENABLED?: string;

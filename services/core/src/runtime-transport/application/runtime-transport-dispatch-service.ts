@@ -1186,7 +1186,8 @@ const toExecutionIncompatibleDeliveryReason = (
 
 export const handleDispatchLifecycle = (
   state: RuntimeTransportMutableState,
-  request: RuntimeTransportDispatchLifecycleRequest
+  request: RuntimeTransportDispatchLifecycleRequest,
+  options: { recordProgress: boolean } = { recordProgress: true }
 ): {
   ok: boolean;
   reasonCode?:
@@ -1226,6 +1227,10 @@ export const handleDispatchLifecycle = (
       ok: false,
       reasonCode: "daemon.session.connection_replaced",
     };
+  }
+
+  if (!options.recordProgress) {
+    return { ok: true };
   }
 
   const lifecycleAtMs = resolvePendingLifecycleAtMs({

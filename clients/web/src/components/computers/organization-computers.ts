@@ -12,6 +12,7 @@ export type OrganizationComputerAgent = {
 };
 
 export type OrganizationComputer = {
+	connectedComputerId?: string;
 	agents: OrganizationComputerAgent[];
 	deviceDisplayName: string;
 	deviceType: OrganizationComputerRecord["deviceType"];
@@ -181,6 +182,7 @@ function resolveOwnedComputerGroup(input: {
 	}
 	return {
 		computers: input.ownedComputers.map((computer) => ({
+			connectedComputerId: computer.connectedComputerId,
 			agents: sortComputerAgents(agentsByDeviceId.get(computer.deviceId) ?? []),
 			deviceDisplayName: computer.deviceDisplayName,
 			deviceType: computer.deviceType,
@@ -330,6 +332,7 @@ function resolveReportedMemberComputers(input: {
 		});
 	}
 	return input.computers.map((computer) => ({
+		connectedComputerId: computer.connectedComputerId,
 		agents: sortComputerAgents(agentsByDeviceId.get(computer.computerId) ?? []),
 		deviceDisplayName: computer.deviceDisplayName,
 		deviceId: computer.computerId,

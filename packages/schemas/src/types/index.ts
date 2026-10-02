@@ -23,11 +23,23 @@ export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type { AgentFailureFacts } from "../schemas/runtime/agent-failure";
 export type {
   GenerateCenterAgentSessionTitleInput,
   GenerateCenterAgentSessionTitleResponse,
 } from "../schemas/runtime/center-agent-session-title";
 export type { MessageChannelCardHistory } from "../schemas/runtime/message-channel-card-history";
+export type {
+  AiUsageObservation,
+  AiUsageQuery,
+  AiUsageQueryResponse,
+  AiUsageRecord,
+  AiUsageSummary,
+  CenterAgentAiUsageRpcInput,
+  OrganizationAiUsageRpcInput,
+  RemoteAiUsageWrite,
+  RemoteAiUsageWriteResponse,
+} from "./ai-usage";
 export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
 export type {
   CenterAgentReadAuditJournalResponse,
@@ -58,6 +70,7 @@ export type {
 export type OpenMeldSchemaVersion =
   typeof import("../schemas/index")["OPENMELD_SCHEMA_VERSION"];
 
+export type { RemoteAgentExecutionReconciliationObservation } from "../remote-agent-execution-reconciliation";
 export type {
   SpaceFileUpdateSettings,
   SpaceFileUpdateSettingsCommand,

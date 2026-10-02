@@ -22,3 +22,6 @@ export type ExecutionContextTask = z.infer<
 export type ExecutionContextLegacyAssociation = z.infer<
   Schemas["executionContextLegacyAssociationSchema"]
 >;
+export type ExecutionContextGitMetadata = z.infer<
+  Schemas["executionContextGitMetadataSchema"]
+>;

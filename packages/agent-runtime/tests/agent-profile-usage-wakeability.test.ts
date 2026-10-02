@@ -225,6 +225,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
 
   it("does not use unreliable or unsupported Usage as a Wake condition", () => {
     for (const agentControllerRef of [
+      "builtin:antigravity",
       "builtin:claude-code",
       "builtin:cursor",
       "builtin:openclaw",
@@ -247,6 +248,19 @@ describe("resolveAgentProfileUsageWakeability", () => {
         reasonCode: null,
         status: "available",
       });
+      expect(
+        resolveAgentProfileUsageRecoveryAvailability({
+          agentControllerRef,
+          nowMs: NOW_MS,
+          report: {
+            expiresAtMs: NOW_MS + 60_000,
+            status: "ready",
+            usageLimits: [createUsageLimit("available")],
+            usageLimitsSupportMatrixVersion:
+              AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+          },
+        })
+      ).toEqual({ available: false });
     }
   });
 
@@ -372,7 +386,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
 
   it("keeps one versioned Usage support matrix for Core and the Local Service", () => {
     expect(resolveAgentControllerUsageLimitSupport("builtin:antigravity")).toBe(
-      "native"
+      "unsupported"
     );
     expect(resolveAgentControllerUsageLimitSupport("builtin:codex")).toBe(
       "native"

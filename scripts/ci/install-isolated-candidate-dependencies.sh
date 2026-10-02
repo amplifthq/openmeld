@@ -29,8 +29,26 @@ fi
 install -d -m 0700 "$OPENMELD_CANDIDATE_HOME"
 readonly pnpm_executable="$runner_pnpm_command"
 
+dependency_scope=workspace
+install_scope_flags=()
+if [ -n "${CANDIDATE_HEAD_SHA:-}" ]; then
+  plan_flags=()
+  if [ "${CANDIDATE_CONFIDENCE:-standard}" = full ]; then
+    plan_flags+=(--full)
+  fi
+  dependency_scope="$(node "$OPENMELD_TRUSTED_CONTROL_ROOT/scripts/ci/final-candidate.mjs" dependency-scope \
+    --candidate-root "$OPENMELD_CANDIDATE_ROOT" \
+    --base "$OPENMELD_AFFECTED_BASE" --head "$CANDIDATE_HEAD_SHA" \
+    --candidate-kind "${CANDIDATE_KIND:-pull-request}" --mode remote "${plan_flags[@]}")"
+fi
+if [ "$dependency_scope" = root ]; then
+  install_scope_flags+=(--filter @openmeld/root --fail-if-no-match)
+fi
+printf 'Installing candidate dependencies: %s\n' "$dependency_scope"
+
 "$command_wrapper" \
   "$pnpm_executable" \
+  "${install_scope_flags[@]}" \
   --config.cache-dir="$OPENMELD_CANDIDATE_HOME/pnpm-cache" \
   --config.global-dir="$OPENMELD_CANDIDATE_HOME/pnpm-global" \
   --config.ignore-pnpmfile=true \
@@ -41,6 +59,10 @@ readonly pnpm_executable="$runner_pnpm_command"
   --dir "$OPENMELD_CANDIDATE_ROOT" install \
   --frozen-lockfile \
   --ignore-scripts
+
+if [ "$dependency_scope" = root ]; then
+  exit 0
+fi
 
 mapfile -t approved_native_builds < <(
   node "$approved_builds_script" "$OPENMELD_TRUSTED_CONTROL_ROOT/pnpm-workspace.yaml"

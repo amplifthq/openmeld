@@ -73,14 +73,14 @@ export function SpaceAgentToolActivity(input: {
 		? `${SPACE_AGENT_WORKING_STATUS_TEXT}. ${latestStep ? `Work summary: ${summary}` : summary}`
 		: `Work summary: ${summary}`;
 	const activity = (
-		<div className="flex w-fit max-w-xl items-start text-left">
+		<div className="flex w-fit min-w-0 max-w-[min(100%,36rem)] items-start text-left">
 			<ThinkingSteps
 				aria-busy={isLive}
 				className="min-w-0 flex-[0_1_auto]"
 				onOpenChange={setOpen}
 				open={open}
 			>
-				<div className="flex w-fit max-w-full items-center gap-2">
+				<div className="flex w-full min-w-0 items-center gap-2">
 					<ThinkingStepsHeader
 						active={isLive}
 						aria-busy={isLive}
@@ -98,7 +98,7 @@ export function SpaceAgentToolActivity(input: {
 											: DEFAULT_SPACE_AGENT_ORB_STATE
 									}
 								/>
-								<span className="whitespace-nowrap">
+								<span className="min-w-0">
 									{SPACE_AGENT_WORKING_STATUS_TEXT}
 								</span>
 							</span>
@@ -375,10 +375,22 @@ function resolveWorkSummary(
 		).text;
 	}
 	const totalCount = totalStepCount(steps);
-	const failedCount = steps.reduce(
-		(count, step) => count + (step.state === "output-error" ? step.count : 0),
+	const unconfirmedCount = steps.reduce(
+		(count, step) =>
+			count + (step.work.outcome === "outcome_unknown" ? step.count : 0),
 		0
 	);
+	const failedCount = steps.reduce(
+		(count, step) =>
+			count +
+			(step.state === "output-error" && step.work.outcome !== "outcome_unknown"
+				? step.count
+				: 0),
+		0
+	);
+	if (unconfirmedCount > 0) {
+		return `${totalCount} work steps · ${unconfirmedCount} awaiting confirmation${failedCount ? ` · ${failedCount} failed — view details` : ""}`;
+	}
 	if (failedCount === 0) {
 		return `Completed ${totalCount} work steps`;
 	}

@@ -391,6 +391,28 @@ describe("bounded Git publication and receipts", () => {
     ).toBe(true);
   });
 
+  it.each([
+    "d".repeat(40),
+    "D".repeat(40),
+  ])("rejects a different provider commit when checkout requests exact SHA %s", async (ref) => {
+    const f = await fixture();
+    vi.mocked(GitWorkingCopyComputer.prototype.writeManifest).mockClear();
+    vi.mocked(GitWorkingCopyComputer.prototype.prepare).mockClear();
+
+    await expect(
+      checkoutRepository(f.deps, {
+        ...intent,
+        key: "exact-commit-mismatch",
+        ref,
+      })
+    ).rejects.toThrow("github.checkout.source_commit_mismatch");
+
+    expect(
+      GitWorkingCopyComputer.prototype.writeManifest
+    ).not.toHaveBeenCalled();
+    expect(GitWorkingCopyComputer.prototype.prepare).not.toHaveBeenCalled();
+  });
+
   it("returns preparing with imported progress before the Code Mode deadline", async () => {
     const f = await fixture();
     const contents = [

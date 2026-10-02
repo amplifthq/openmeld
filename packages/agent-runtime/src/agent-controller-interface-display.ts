@@ -145,6 +145,17 @@ export function resolveAgentControllerInterfaceDescription(input: {
   if (input.snapshot.message) {
     return input.snapshot.message;
   }
+  if (
+    input.snapshot.check?.status === "succeeded" &&
+    input.snapshot.auth.status === "unknown" &&
+    input.snapshot.status === "warning" &&
+    input.snapshot.usageLimits?.length &&
+    input.snapshot.usageLimits.every((limit) => limit.status === "unsupported")
+  ) {
+    // Cloud snapshots intentionally omit private diagnostic messages. Explain
+    // unavailable automatic checks from the public evidence, not sign-in guesses.
+    return `OpenMeld cannot automatically check sign-in status or usage limits for ${input.snapshot.displayName}. Check them directly in the agent's app or CLI.`;
+  }
   if (input.snapshot.status === "ready") {
     return "OpenMeld can launch this controller on this computer.";
   }

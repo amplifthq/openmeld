@@ -22,6 +22,7 @@
     "hooks": "#hooks"
   },
   "registries": {
-    "@loading-ui": "https://loading-ui.com/r/{name}.json"
+    "@loading-ui": "https://loading-ui.com/r/{name}.json",
+    "@evilcharts": "https://evilcharts.com/r/{name}.json"
   }
 }

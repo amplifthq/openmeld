@@ -52,6 +52,37 @@ describe("Center Agent Space authoring contract", () => {
 });
 
 describe("Center Agent delegation request", () => {
+  it("accepts an optional semantic reply language and rejects invalid tags", () => {
+    const request = {
+      agentProfileIds: [PRIMARY],
+      completionMode: "resume_parent_when_all_terminal",
+      spaceId: "space-1",
+      text: "Summarize the checks in Chinese.",
+    };
+    expect(
+      centerAgentWakeAgentProfilesInSpaceBodySchema.parse({
+        ...request,
+        replyLanguageTag: "zh-hans",
+      }).replyLanguageTag
+    ).toBe("zh-Hans");
+    expect(
+      centerAgentWakeAgentProfilesInSpaceBodySchema.parse(request)
+    ).not.toHaveProperty("replyLanguageTag");
+    expect(
+      centerAgentWakeAgentProfilesInSpaceBodySchema.safeParse({
+        ...request,
+        replyLanguageTag: "not_a_language",
+      }).success
+    ).toBe(false);
+    expect(
+      centerAgentWatchAgentTaskBodySchema.parse({
+        completionCondition: "terminal",
+        instruction: "Continue in Chinese.",
+        replyLanguageTag: "zh-Hans",
+        task: { kind: "native_delivery", deliveryId: "delivery-1", v: 1 },
+      }).replyLanguageTag
+    ).toBe("zh-Hans");
+  });
   it("owns one shared completion-mode vocabulary", () => {
     expect(centerAgentDelegationCompletionModeSchema.options).toEqual([
       ...CENTER_AGENT_DELEGATION_COMPLETION_MODES,

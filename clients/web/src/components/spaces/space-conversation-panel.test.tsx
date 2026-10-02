@@ -2823,14 +2823,23 @@ describe("SpaceConversationPanel", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
 			agentDirectConversationKind: "direct_message",
+			centerAgentProfileId: TARGET_PROFILE_ID,
 			hasEarlierHistory: false,
 			isCenterAgentDirectMessage: true,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					{
+						...createSpaceMemberAgentSnapshot({ profileId: TARGET_PROFILE_ID }),
+						avatarStyle: "clover",
+					},
+				],
+			}),
 			readOnly: false,
 			timelineItems: [
 				createTimelineItem({
 					actorControllerDisplay: "Remote Agent",
 					actorName: "Center Agent",
-					actorProfileId: "agent-profile-center",
+					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
 					actorProfileName: "Center Agent",
 					id: "signal-center-agent",
@@ -2846,7 +2855,7 @@ describe("SpaceConversationPanel", () => {
 			"Hi Felix. I can help coordinate OpenMeld."
 		);
 		const centerAgentAvatar = screen.getByTestId(
-			"space-center-agent-profile-avatar-agent-profile-center"
+			`space-center-agent-profile-avatar-${TARGET_PROFILE_ID}`
 		);
 		expect(
 			centerAgentAvatar.querySelector("canvas[data-bot-avatar]")
@@ -2894,15 +2903,23 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
-	it("uses Bot avatars for Center Agent messages in an ordinary Space", () => {
+	it("uses the saved Bot avatar for Center Agent messages in an ordinary Space", () => {
 		renderSpaceConversationPanel({
-			centerAgentProfileId: "agent-profile-center",
+			centerAgentProfileId: TARGET_PROFILE_ID,
 			isCenterAgentDirectMessage: false,
+			membersSnapshot: createSpaceMembersSnapshot({
+				agents: [
+					{
+						...createSpaceMemberAgentSnapshot({ profileId: TARGET_PROFILE_ID }),
+						avatarStyle: "clover",
+					},
+				],
+			}),
 			timelineItems: [
 				createTimelineItem({
 					actorAgentControllerRef: "builtin:codex",
 					actorName: "Center Agent",
-					actorProfileId: "agent-profile-center",
+					actorProfileId: TARGET_PROFILE_ID,
 					actorProfileKind: "agent",
 					actorProfileName: "Center Agent",
 					id: "signal-center-agent-in-space",
@@ -2912,7 +2929,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const avatar = screen.getByTestId(
-			"space-center-agent-profile-avatar-agent-profile-center"
+			`space-center-agent-profile-avatar-${TARGET_PROFILE_ID}`
 		);
 		expect(avatar.querySelector("canvas[data-bot-avatar]")).toBeTruthy();
 		expect(screen.queryByTestId("local-agent-logo-codex")).toBeNull();

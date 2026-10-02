@@ -3552,6 +3552,19 @@ conditions, frozen continuations, subscriptions, and delegation topology.
 completion-mode request, the paired delegation/child-task response, and the
 exact-task watch request and response. It also owns the bounded controller-task
 discovery request and response used to obtain an exact handle before a watch.
+Delegated Wake and watch requests can carry an optional canonical BCP 47
+`replyLanguageTag`: the upstream Agent's semantic decision for this task,
+including an explicit requester override. Core freezes it in the existing
+continuation JSON and Wake publication command. It does not update Organization
+preferences or alter the Wake's idempotency identity. Native continuation
+instructions and their failure publishers read that same fact; failure readers
+verify the subscription's Organization and exact continuation identity before
+using it. Routine continuations use their existing subscription reference.
+Initial Routine failures and workstation child-failure publishers do not yet
+receive this fact. Deploy Core request/storage readers before Remote tool
+producers. Old producers can omit the field. Before rolling Core back, remove
+new producers and drain or retain current readers for persisted commands and
+continuations containing the field; older strict readers can reject them.
 `packages/schemas/src/schemas/http/runtime-reporting.ts` owns the strict,
 bounded Agent Controller task lifecycle batch and per-event result. It carries
 only exact task identity, controller identity, Organization identity, lifecycle
@@ -5516,8 +5529,10 @@ are provider documentation, not executable Center Agent capability. The same
 module validates OpenConnector action-operation metadata so Remote Agent does
 not hand-interpret provider execution IDs, idempotency keys, or replay flags.
 It also validates the successful action envelope's JSON data and execution
-metadata. The execution endpoint does not return `outputSchema`; Remote Agent
-uses the verified action catalog schema for a new operation. A replay can
+metadata and the optional execution-owned `outputSchema` returned by the pinned
+OpenConnector serializer. Remote Agent retains that schema; only legacy
+envelopes without it use the verified action catalog schema. Unknown fields and
+invalid action or execution identities still fail closed. A replay can
 recover the provider result without consulting a catalog that may have changed
 or become unavailable, so its result may omit `outputSchema`.
 Remote Agent recognizes destructive legacy action IDs or names as well as
@@ -6964,6 +6979,195 @@ current user can manage the failed local service target, but they must not
 change the shared meaning of the reason code or turn internal reason codes into
 primary user copy.
 
+`agentFailureFactsSchema` is the shared owner-supplied failure read projection:
+stage, execution confirmation (`not_executed`, `executed`, `unknown`), result
+availability, retry state, recovery state and available actions, plus
+bounded diagnostic references. A verified retained or published result requires
+a result reference; a recovered result must match that same reference. Missing
+admission confirmation means an unknown outcome, never proof of no execution.
+The projection does not schedule work, authorize recovery or supersede the
+execution owner. The public formatter uses these facts for neutral retry/recovery,
+warnings requiring review, and final failures. Native continuation exhaustion
+feeds Space and Inbox from the same projection; Routine execution callbacks use
+the same formatter and preserve their Run link.
+Known stop causes and outcome certainty are independent. The callback reason
+mapping keeps cause-only English/Chinese copy alongside legacy recovery copy;
+an unknown outcome must retain an allowlisted stop cause without restoring an
+unconditional retry instruction or publishing raw failure details.
+
+An optional `languageTag` is the owner's resolved display language. Native
+continuation notices and Routine continuation failures first read the trusted
+per-task semantic decision from the Task Coordination owner. When that decision
+is absent, they explicitly use the current Organization preference as a fallback,
+then English. Initial Routine failures still use that fallback.
+This fallback does not establish the conversation's actual language and never
+uses a text-classifier guess. English and Chinese rendering are supported.
+Propagation into initial Routine execution and workstation child-failure
+publishers remains incomplete. The shared failure projection is not added to
+other strict HTTP/RPC/stream envelopes; adding it requires a receiver-first audit.
+
+Exhausted continuation copy distinguishes confirmed execution, confirmed no
+execution and uncertainty. It directs users to summarize existing results rather
+than resend the original request, and warns about repetition only when execution
+is possible. The notice does not invent retained child-result locations; exact
+authorized retained-result references remain an incomplete recovery integration.
+
+`connectorActionOutcomeUnknownSchema` is a model-visible receipt for an attempted
+connector operation. A validated provider completion followed by failed Core
+finalization carries `executed`; an unverified response carries `unknown`.
+Neither authorizes another write. Direct tools and Code Mode retain the caller's
+exact `operationId` and explain that a write may have succeeded, a new operation
+ID must not be used, and recovery must use the same action and input. The durable
+Core operation and provider idempotency key remain the existing owners.
+
+Native `readAdmission` is an additive Core-to-Remote RPC. It reuses the exact
+persisted submit-request schema so the receipt owner can verify the original
+digest. Its shared response is `found` with the original replay ACK, `unconfirmed`
+for a claimed receipt, or `not_found`; the last two contain no submission ID and
+prove no execution outcome. The replay ACK has `accepted: false` and a required
+matching idempotency key. Core adopts only a validated ACK and reuses the existing
+accepted-execution reconciliation path. An old receiver or failed read preserves
+the existing exact-idempotency admission policy; it does not manufacture a fresh
+execution. Deploy the Remote RPC receiver before relying on receipt recovery.
+After a validated receipt is found, persistence or probe-scheduling failure
+belongs to existing delivery retry/accepted-probe repair, not admission timeout.
+No new persisted state or recovery state machine is introduced.
+
+The native admission Stop intent is an identity fence owned by existing
+native cancellation, validated by `remoteAgentWorkerAdmissionStopIntentSchema`.
+Its Organization/Space/idempotency identity and first Stop time remain immutable.
+It carries a reason and optional structured recovery provenance, with no
+execution phase, submission ACK, or new recovery state machine. Ordinary Stop
+can only remove that provenance, never remove the fence. Execution initialization
+and guards enforce it. Cancellation keeps its existing envelope with the optional
+recovery extension below; `not_found` cannot certify receiver capability to Core.
+The native producer and guard ship together; rolling back that guard while
+stopped admissions can arrive is unsafe. The intent is retained like existing
+execution tombstones and cannot expire to reopen the original request.
+
+The optional native `readAdmissionStop` RPC reads that same fact using the exact
+persisted submit request and original conversation route. Its shared response
+is `found` with an identity-bound Stop intent or `not_found`. Core validates the
+Organization/Space/idempotency identity before using a positive fence receipt.
+An old receiver, missing receipt or lookup failure never proves non-execution
+or supplies restart authority. This read adds no state, lease or admission.
+Pending Space Stop reconciliation forwards native cancellation before consuming
+an already-visible stopped Space outcome. A current receiver returning
+`not_found` for cancellation must supply a positive original-identity fence
+receipt before Core retires that pending delivery; an absent fence or a lookup
+failure keeps reconciliation pending. This does not create a submission ACK.
+Older receivers retain the pre-existing Space terminal projection policy, but
+their unsupported lookup remains distinct from a current owner's missing fence
+and cannot enable restart. When cancellation returns an existing execution,
+the normal execution/cleanup reconciliation remains authoritative.
+Deploy the native receiver before enabling a recovery caller that requires this
+proof; a positive receipt does not replace execution reconciliation, current
+permission checks or the existing atomic task-continuation owner. Existing
+ACK payloads and workstation CLI/Service/Skills contracts are unchanged. Recovery
+extensions to cancellation and fence receipts require the compatible readers below.
+
+Manual summary recovery adds optional `summaryOnly: true` to the native
+`task_continuation` trigger. Only the task owner derives it from the persisted
+`summaryRecovery` subscription; no model tool input sets it. A read-only
+`readAdmissionStop` probe opts in with this marker using the original identity.
+A supporting receiver includes optional `summaryOnlySupported: true` in its
+found/not-found receipt. The marker certifies the restricted runtime tool
+catalog, not execution, admission or a Stop fence. Ordinary receipt reads keep
+their original strict response shape, including calls from an old Core.
+
+Deploy the Core reader/probe first, then Remote's receiver and restricted
+runtime together. Core must not submit a summary-only producer request until
+the opt-in probe succeeds. Missing support, old strict receivers and transport
+errors make summary recovery unavailable; they never authorize unrestricted
+execution. Rollback removes summary producers before the receiver/guard and
+retains a compatible Core reader for persisted submit envelopes containing the
+marker. This does not change CLI, Service, Skills, setup or workstation Wake
+wire contracts and requires no local contract floor bump. Old local clients
+still receive ordinary text Signals and Diagnostics.
+
+The task owner persists `summaryRecoveryIntent` on the original subscription
+before cancelling the old identity. Cancellation and the native Stop receipt
+carry its exact `summaryRecoveryId`; free-text reasons are never identity proof.
+The opt-in probe also requires `summaryRecoveryFenceSupported`. A recovery can
+resume after a failed receipt read only when the persisted intent matches that
+fence. Any ordinary Stop atomically removes recovery provenance and it cannot
+be restored; the identity fence itself never expires or reopens. Parent Stop
+continues to block the task owner's atomic summary registration.
+
+These fields require Core readers before Remote and explicit receiver support
+before recovery writes. Older receivers remain unavailable. Once an intent is
+persisted, retain a compatible reader and forward-fix; do not remove the intent
+or provenance to force a retry. Baseline strict Core subscription readers reject
+the affected row and therefore its queried list batch, even if the new summary
+subscription was not created yet.
+
+Core negotiates optional top-level `taskId` through the Remote service binding's
+strict `readSubmitTurnCapabilities` request (`{ v: 1 }`) and response
+(`{ v: 1, taskId: true }`) before
+freezing a new Space admission. A positively missing method means the published
+legacy request shape: omit the field. Transport failures and malformed responses
+are not legacy capability evidence. Existing frozen requests retain their
+persisted payload unchanged, even if the receiver upgrades between attempts;
+do not enrich them with a newly available task ID. A missing usage attribution
+stays missing rather than being inferred from another task. This probe does not
+grant summary recovery support; its existing Stop-fence probes still own that
+capability. Once a frozen request contains `taskId`, retain a supporting Remote
+receiver until that request can no longer be replayed.
+
+The ordinary-object Remote Worker entrypoint requires exactly one RPC argument.
+The capability request is versioned and strict even though it carries no task
+data. `pnpm --filter @openmeld/remote-agent test:rpc` runs the actual Core
+resolver against the built Remote Worker over a workerd service binding;
+ordinary JavaScript mocks cannot establish this calling convention.
+
+This negotiated request permits the supported Core-first rolling window:
+new Core continues to accept the old Remote's in-flight completion callbacks,
+and omits unsupported attribution on new requests. Deploy and verify Core's
+`recordRemoteAiUsage` receiver before deploying Remote. New Remote never starts
+a provider call when that receiver is absent; `core.rpc.unavailable` remains a
+visible failure with the missing method name. This also applies to new owners
+and a receiver disappearing after allowance enforcement. Existing settlement
+outbox retries and historical admission audits are retained; neither authorizes
+new inference. The data owner defines their retention and deduplication.
+
+Before a continuation is submitted or replayed, Core compares its frozen
+pending and recovery envelopes with the task owner's `summaryRecovery` intent.
+An unmarked legacy summary fails with
+`remote_agent.task_continuation.summary_policy_mismatch` before Worker admission
+or receipt recovery. The same validation applies to watchdog recovery and every
+native resubmission through the shared admission boundary. A summary marker
+without a matching owner also fails closed. Ordinary continuations remain
+ordinary. Never overwrite the frozen request, strip owner intent, or allocate a
+new operation identity to bypass this rejection.
+
+Before rollout, inventory existing summary subscriptions with retained unmarked
+`task_continuation` envelopes, including those with no child result locator.
+Keep them blocked and visible for operator diagnosis; use the existing task Stop
+path to cancel an affected request if it must be retired. Do not rewrite its
+envelope or replay it under the old unrestricted producer. For rollback, first
+disable producers and retain this compatible reader/admission guard together
+with Remote's restricted runtime. An older Core lacking the guard is not a safe
+rollback target for these records; forward-fix instead.
+
+`agentFailureFactsSchema.completedResults` optionally contains up to ten
+owner-verified child result references and navigation URLs, distinct from the
+failed turn's own `result`. This is a formatter read projection, not a new
+callback/Inbox wire envelope or persisted execution state. Native failure copy
+can retain same-Space child links while independently omitting an unavailable
+recovery action. A failed evidence read never fabricates a result or drops the
+visible failure; bounded diagnostic correlation records the missing evidence.
+
+Agent Work's optional `outcome_unknown` presentation is neutral and must not be
+shown as failed or business-completed. The current reader maps unfamiliar future
+outcome vocabulary to uncertainty. This is an actual stream-enum change: Web and
+Core readers must precede the Remote Agent producer. Web opts into rich outcomes
+with the existing hello-capability mechanism (`agentWorkOutcomes`). Legacy live
+readers receive an ordinary progress delta with the same sequence; HTTP/history
+readers receive the existing `agentPublicProgress` field rather than unfamiliar
+work metadata. The projection never changes stored receipts or activity.
+HTTP history currently uses this generic presentation even for new readers.
+No CLI or Service execution, cancellation, admission, or retry authority changes.
+
 `signal.system_notice.data.reasonCode` (schema in
 `packages/schemas/src/schemas/space-mesh/signal-system-notice.ts`) carries a
 code from this same shared public failure mapping family when a publisher has
@@ -7344,7 +7548,31 @@ provider query. Intermediate keepalives omit the additive field for older-Core
 compatibility.
 
 The Agent Profile work-recovery contract exposes only idempotent owner actions
-that change current coordinator state. `skip_interrupted_work` resolves an exact
+that change current coordinator state. Every public recovery action carries the
+`expectedInterruptedTargetWakeLifecycleId` from the owner's displayed recovery
+projection. Approval compares this identity and the approval phase in the same
+owner-shard transaction that advances the queue; continuation and Skip retain
+their exact-source transactional fences. Queue growth, cancellation, and other
+admission revisions do not invalidate a choice about the same interrupted work.
+Missing identities are rejected, never filled from a fresh server read. A
+confirmation for one task closes when its action or task identity changes.
+Repeated queue approval cannot advance another recovery; no historical approval
+receipt is implied by a no-longer-pending response. Continue can retry a saved
+Fork choice for the same task, but cannot make the first Fork choice implicitly.
+
+The public request and internal queue-approval RPC remain strict. During rollout,
+new Web requests may be rejected by old Gateway/Core or old owner shards, and
+old requests without an identity are rejected by new receivers. Recovery writes
+must wait for compatible receivers; ordinary Wake traffic and automatic Usage
+continuation keep their existing contracts. Update Web, Gateway, and Core in the
+normal coordinated cloud order and verify the exact-source request through the
+owner shard before declaring recovery available. Do not fall back to the old
+unfenced body on a mixed-version error. This cloud-only request change does not
+require a CLI or Service contract epoch increase or restart. Existing optional
+projection identity fields stay optional for old readers; new Web refuses an
+action when an older projection cannot supply its identity.
+
+`skip_interrupted_work` resolves an exact
 `continuation_needs_attention` gate and promotes the oldest queued Wake; it does
 not replay the interrupted request. Its strict request carries the current
 interrupted target-Wake lifecycle id, and the owner shard compares that identity

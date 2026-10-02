@@ -1,0 +1,80 @@
+{
+  "success": true,
+  "message": "OK",
+  "data": {
+    "name": "README.md",
+    "path": "README.md",
+    "sha": "2503345fd812ab3852354953d04586f25c2fa187",
+    "size": 79,
+    "url": "https://api.github.com/repos/lumpinif/openmeld-staging-flue2-smoke/contents/README.md?ref=a37bba44f14df6e03859309b82528226a334390e",
+    "html_url": "https://github.com/lumpinif/openmeld-staging-flue2-smoke/blob/a37bba44f14df6e03859309b82528226a334390e/README.md",
+    "git_url": "https://api.github.com/repos/lumpinif/openmeld-staging-flue2-smoke/git/blobs/2503345fd812ab3852354953d04586f25c2fa187",
+    "download_url": "https://raw.githubusercontent.com/lumpinif/openmeld-staging-flue2-smoke/a37bba44f14df6e03859309b82528226a334390e/README.md?token=SYNTHETIC_PRIVATE_DOWNLOAD_TOKEN",
+    "type": "file",
+    "content": "IyBvcGVubWVsZC1zdGFnaW5nLWZsdWUyLXNtb2tlCkRpc3Bvc2FibGUgT3Bl\nbk1lbGQgc3RhZ2luZyBhY2NlcHRhbmNlIGZpeHR1cmVzCg==\n",
+    "encoding": "base64",
+    "_links": {
+      "self": "https://api.github.com/repos/lumpinif/openmeld-staging-flue2-smoke/contents/README.md?ref=a37bba44f14df6e03859309b82528226a334390e",
+      "git": "https://api.github.com/repos/lumpinif/openmeld-staging-flue2-smoke/git/blobs/2503345fd812ab3852354953d04586f25c2fa187",
+      "html": "https://github.com/lumpinif/openmeld-staging-flue2-smoke/blob/a37bba44f14df6e03859309b82528226a334390e/README.md"
+    },
+    "content_base64": "IyBvcGVubWVsZC1zdGFnaW5nLWZsdWUyLXNtb2tlCkRpc3Bvc2FibGUgT3Blbk1lbGQgc3RhZ2luZyBhY2NlcHRhbmNlIGZpeHR1cmVzCg==",
+    "decoded_content": "# openmeld-staging-flue2-smoke\nDisposable OpenMeld staging acceptance fixtures\n"
+  },
+  "meta": {
+    "executionId": "e491cdc9-c7b8-457f-a6b9-f8dd31ab2f0b",
+    "actionId": "github.get_file_contents",
+    "auditPersisted": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "const": "file",
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "sha": {
+        "type": "string"
+      },
+      "size": {
+        "type": "integer"
+      },
+      "html_url": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "download_url": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "content_base64": {
+        "type": "string"
+      },
+      "decoded_content": {
+        "type": "string"
+      },
+      "encoding": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": true
+  }
+}

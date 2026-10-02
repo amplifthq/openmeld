@@ -21,8 +21,11 @@ import {
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
+  readAdmissionFromCenterAgent,
+  readAdmissionStopFromCenterAgent,
   readRuntimeDiagnosticsFromCenterAgent,
   readUsageDiagnosticsFromCenterAgent,
+  runDurableAuxiliaryInference,
   submitConversationTurnToCenterAgent,
 } from "../flue-adapter/cloudflare-entrypoint";
 import {
@@ -35,6 +38,77 @@ import { InMemoryDurableObjectStorage } from "./storage";
 const RECEIPT_PREFIX = "openmeld:remote-agent:submission-receipt:";
 
 describe("Flue Cloudflare entrypoints", () => {
+  it("reads Stop proof from the original Task owner without cancelling or admitting work", async () => {
+    const request = createSubmitTurnRequest({
+      conversationId: "center-agent-task:stopped-task",
+    });
+    const readAdmissionStop = vi.fn(async () => ({
+      v: 1,
+      status: "not_found",
+    }));
+    const submitConversationTurn = vi.fn();
+    const cancelExecution = vi.fn();
+    const namespace = {
+      get: vi.fn(() => ({
+        readAdmissionStop,
+        submitConversationTurn,
+        cancelExecution,
+      })),
+      idFromName: vi.fn((name: string) => name as unknown as DurableObjectId),
+    } as unknown as CenterAgentNamespace;
+    await expect(
+      readAdmissionStopFromCenterAgent({ namespace, request })
+    ).resolves.toEqual({ v: 1, status: "not_found" });
+    expect(namespace.idFromName).toHaveBeenCalledWith(request.conversationId);
+    expect(readAdmissionStop).toHaveBeenCalledWith(request);
+    expect(submitConversationTurn).not.toHaveBeenCalled();
+    expect(cancelExecution).not.toHaveBeenCalled();
+  });
+  it("reads admission in the original Task conversation without submitting another turn", async () => {
+    const request = createSubmitTurnRequest({
+      conversationId: "center-agent-task:task_123",
+    });
+    const readAdmission = vi.fn(async () => ({ v: 1, status: "unconfirmed" }));
+    const submitConversationTurn = vi.fn();
+    const namespace = {
+      get: vi.fn(() => ({ readAdmission, submitConversationTurn })),
+      idFromName: vi.fn((name: string) => name as unknown as DurableObjectId),
+    } as unknown as CenterAgentNamespace;
+    await expect(
+      readAdmissionFromCenterAgent({ namespace, request })
+    ).resolves.toEqual({
+      v: 1,
+      status: "unconfirmed",
+    });
+    expect(namespace.idFromName).toHaveBeenCalledWith(request.conversationId);
+    expect(readAdmission).toHaveBeenCalledWith(request);
+    expect(submitConversationTurn).not.toHaveBeenCalled();
+  });
+  it("routes auxiliary title inference through durable execution instead of a transient Worker", async () => {
+    const generateCenterAgentSessionTitle = vi.fn(async () => ({
+      title: "Usage review",
+    }));
+    const namespace = {
+      get: vi.fn(() => ({ generateCenterAgentSessionTitle })),
+      idFromName: vi.fn((name: string) => name),
+    } as unknown as CenterAgentNamespace;
+    const request = {
+      organizationId: "org-1",
+      spaceId: "space-1",
+      sourceSignalId: "signal-1",
+      text: "Review usage",
+      attachmentNames: [],
+    };
+    await expect(
+      runDurableAuxiliaryInference({
+        namespace,
+        operation: "generateCenterAgentSessionTitle",
+        request,
+      })
+    ).resolves.toEqual({ title: "Usage review" });
+    expect(namespace.idFromName).toHaveBeenCalledWith("space-1");
+    expect(generateCenterAgentSessionTitle).toHaveBeenCalledWith(request);
+  });
   it("passes the parsed submit request and idempotency key to the Center Agent Durable Object", async () => {
     const request = createSubmitTurnRequest();
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

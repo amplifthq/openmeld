@@ -38,6 +38,8 @@ export const {
 } = authSchema;
 
 export const {
+  aiUsageRecords,
+  organizationAiUsagePolicies,
   inboxCenterAgentReadWatermarks,
   spaceInvitations,
   organizationJoinRequests,

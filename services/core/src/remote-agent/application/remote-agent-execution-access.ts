@@ -9,6 +9,7 @@ import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
 import { resolveOrganizationMembershipById } from "../../organizations/organization-context";
 import { rpcGetSpaceMemberDirectory } from "../../rpc/methods";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentDelegatedRequester } from "./delegated-requester";
 import { isNativeDeliveryExecutingStatus } from "./native-delivery-execution-status";
 import { isActiveRemoteAgentRequesterProfile } from "./personal-remote-agent-space-tools";
 import { requireRemoteAgentToolCaller } from "./remote-agent-tool-caller";
@@ -20,12 +21,31 @@ export async function authorizeRemoteAgentExecutionAccess(
 ) {
   const parsed = remoteAgentExecutionAccessRequestSchema.parse(value);
   const { context, submissionId, sources } = parsed;
-  const { caller, delivery, request } = await requireActiveExecution(
+  const { caller, delivery, request, db } = await requireActiveExecution(
     env,
     parsed
   );
   const scope = resolveRemoteAgentExecutionScope(request);
+  const delegatedRequester =
+    parsed.includeDelegatedRequester &&
+    "personalExecution" in caller &&
+    request.turnEnvelope.sender.kind === "agent_profile"
+      ? await readRemoteAgentDelegatedRequester({
+          identityDb: caller.db,
+          evidenceDb: db,
+          delivery,
+          request,
+        })
+      : null;
   const principal = scope.principal;
+  if (
+    parsed.includeDelegatedRequester &&
+    principal.kind === "agent" &&
+    sources?.length &&
+    !delegatedRequester
+  ) {
+    throw new Error("remote_agent.delegated_requester_unavailable");
+  }
   if (principal.kind !== "agent") {
     const membership = await resolveOrganizationMembershipById({
       env,
@@ -72,11 +92,18 @@ export async function authorizeRemoteAgentExecutionAccess(
     request,
     scope,
     sources,
-    parsed.effect ?? "read"
+    parsed.effect ?? "read",
+    delegatedRequester
   );
   return remoteAgentExecutionAccessResponseSchema.parse({
     scope,
     submissionId,
+    ...(parsed.includeDelegatedRequester
+      ? { delegatedRequesterSupported: true }
+      : {}),
+    ...(parsed.includeDelegatedRequester && delegatedRequester
+      ? { delegatedRequester }
+      : {}),
   });
 }
 
@@ -87,8 +114,14 @@ async function requireResultSources(
   sources: ReturnType<
     typeof remoteAgentExecutionAccessRequestSchema.parse
   >["sources"],
-  effect: "read" | "write"
+  effect: "read" | "write",
+  delegatedRequester: Awaited<
+    ReturnType<typeof readRemoteAgentDelegatedRequester>
+  >
 ) {
+  if (delegatedRequester && sources?.length && effect !== "read") {
+    throw new Error("remote_agent.delegated_read_only");
+  }
   const principal = scope.principal;
   for (const source of sources ?? []) {
     const connection = await requireRemotePluginConnection({
@@ -96,7 +129,9 @@ async function requireResultSources(
       organizationId: scope.organizationId,
       connectionName: source.connectionName,
       service: source.service,
-      requesterUserId: principal.kind === "agent" ? null : principal.userId,
+      requesterUserId:
+        delegatedRequester?.userId ??
+        (principal.kind === "agent" ? null : principal.userId),
       ...("personalExecution" in caller
         ? { remoteOwnerUserId: request.agentProfileOwnerUserId ?? null }
         : {}),
@@ -158,5 +193,5 @@ async function requireActiveExecution(
       throw new Error("remote_agent.execution_binding_changed");
     }
   }
-  return { caller, delivery, request };
+  return { caller, delivery, request, db };
 }

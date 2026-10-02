@@ -90,12 +90,14 @@ Local Agent message headers show the owner's name after a middle dot, without
 an owner avatar or prefix. Profile popovers place availability beside the Agent
 name and show `Owned by` with the owner's small Human Profile avatar and name.
 Hosted Agents retain the `Hosted by OpenMeld` message attribution.
-Hosted Remote Agent avatars follow the selected model vendor by default, including
-when that model changes. When the model vendor is not known, the avatar uses a
-generic agent mark. The owner may instead confirm the abstract fluid avatar;
-that choice stays in place across model changes. Selecting automatic again
-restores the model-vendor behavior. Avatar choice belongs to the Agent Profile,
-not to its Binding or a cached model selection.
+Hosted Remote Agent avatars use the generic Agent mark by default. They do not
+borrow model vendor branding: a model choice is not the teammate's identity.
+The owner may instead confirm the abstract fluid avatar, which stays in place
+across model changes. Avatar choice belongs to the Agent Profile, not to its
+Binding or a cached model selection. Every Web entrance resolves style, shape,
+and icon from the Organization Profile Directory. Missing `avatarStyle` means
+the automatic Agent/controller mark, never an invented saved Bot selection.
+Center Agents use circles; other Agents use rounded squares.
 
 OpenMeld also has Human Profiles. A default Human Profile is created for the
 signed-in user and is the right identity when a human or their current AI

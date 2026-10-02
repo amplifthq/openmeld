@@ -3532,6 +3532,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       agentProfileIds: [AGENT_PROFILE_ID],
       completionMode: "child_reports_directly",
       computerFilePaths: ["launch/checklist.md"],
+      replyLanguageTag: "zh-Hans",
       mentionProfileIds: [],
       referenceProfileIds: [],
       spaceId: SPACE_ID,
@@ -3541,6 +3542,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(readTextFiles).toHaveBeenCalledWith(["launch/checklist.md"]);
     expect(centerAgentWakeAgentProfilesInSpace).toHaveBeenCalledWith(
       expect.objectContaining({
+        replyLanguageTag: "zh-Hans",
         text: [
           "Finish the approved launch checklist on the workstation.",
           "",
@@ -3833,6 +3835,87 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("offers an owned manual summary and ends the turn only after queue acknowledgement", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentContinueTaskSummary = vi.fn(
+      async (input: { inspectOnly?: boolean }) => ({
+        status: input.inspectOnly ? "available" : "queued",
+        sourceSubscriptionId: "original-subscription",
+        subscriptionId: input.inspectOnly
+          ? null
+          : "summary:original-subscription",
+        reasonCode: null,
+      })
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentContinueTaskSummary },
+      storage: await createStorageWithPendingContext(request),
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "openmeld_continue_task_summary"
+    );
+    const available = await executeTool(
+      tools,
+      "openmeld_continue_task_summary",
+      { sourceSubscriptionId: "original-subscription", inspectOnly: true }
+    );
+    expect(definition?.endsTurnAfter?.(available)).toBe(false);
+    const queued = await executeTool(tools, "openmeld_continue_task_summary", {
+      sourceSubscriptionId: "original-subscription",
+      inspectOnly: false,
+      replyLanguageTag: "zh-Hans",
+    });
+    expect(definition?.endsTurnAfter?.(queued)).toBe(true);
+    expect(centerAgentContinueTaskSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+        sourceSubscriptionId: "original-subscription",
+        replyLanguageTag: "zh-Hans",
+      })
+    );
+  });
+
+  it.each([
+    "cancelled",
+    "failed",
+    "completed",
+  ] as const)("does not end the turn to wait for a %s summary recovery", async (state) => {
+    const receipt = {
+      status: "unavailable",
+      sourceSubscriptionId: "original-subscription",
+      subscriptionId: "summary:original-subscription",
+      reasonCode: `task_summary_recovery.${state}`,
+      ...(state === "completed"
+        ? {
+            publishedResult: {
+              spaceId: "space-parent",
+              signalId: "summary-result",
+            },
+          }
+        : {}),
+    };
+    const rpc = vi.fn(() => Promise.resolve(receipt));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentContinueTaskSummary: rpc },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "openmeld_continue_task_summary"
+    );
+    const result = await executeTool(tools, "openmeld_continue_task_summary", {
+      sourceSubscriptionId: "original-subscription",
+      inspectOnly: false,
+    });
+    expect(result).toEqual(receipt);
+    expect(definition?.endsTurnAfter?.(result)).toBe(false);
+    expect(rpc).toHaveBeenCalledWith(
+      expect.objectContaining({ includePublishedResult: true })
+    );
+    expect(definition?.description).toContain(
+      "An unavailable recovery is not pending work"
+    );
+  });
+
   it("registers an exact task watch without polling or reducing it to an Agent Profile", async () => {
     const request = createSubmitTurnRequest();
     const centerAgentWatchAgentTask = vi.fn(async () => ({
@@ -3867,6 +3950,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     const watchResult = await executeTool(tools, "openmeld_watch_agent_task", {
       completionCondition: "terminal",
       instruction: "Continue the release after this exact task completes.",
+      replyLanguageTag: "zh-Hans",
       task: {
         deliveryId: "delivery-parallel-1",
         kind: "native_delivery",
@@ -3880,6 +3964,9 @@ describe("remote agent OpenMeld tool catalog", () => {
         kind: "native_delivery",
       },
     });
+    expect(centerAgentWatchAgentTask).toHaveBeenCalledWith(
+      expect.objectContaining({ replyLanguageTag: "zh-Hans" })
+    );
     expect(watchTool?.endsTurnAfter?.(watchResult)).toBe(true);
     expect(
       watchTool?.endsTurnAfter?.({

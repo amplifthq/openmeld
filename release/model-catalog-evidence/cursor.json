@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "cursor",
-  "observedAt": "2026-09-30T01:12:59.054Z",
-  "fingerprint": "ca5df831accaddb2f2119596b1a359d32af96d6497138f38afbcb7c5661e6e61",
+  "observedAt": "2026-10-02T01:10:44.931Z",
+  "fingerprint": "d4b1f835d238d8c08c5b682b1e615b2fa7231cf7d3dc320e86b7a94975488ffd",
   "sources": [
     {
       "url": "https://cursor.com/docs/cli/reference/parameters.md",
@@ -43,6 +43,34 @@
               "input": 272000,
               "output": 128000
             },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 0.45,
+                    "output": 3.6,
+                    "cache_read": 0.045
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.125,
+                    "output": 1,
+                    "cache_read": 0.0125
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
+            },
             "cost": {
               "input": 0.25,
               "output": 2,
@@ -77,6 +105,34 @@
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 2.5,
+                    "output": 20,
+                    "cache_read": 0.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.625,
+                    "output": 5,
+                    "cache_read": 0.0625
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 1.25,
@@ -113,6 +169,34 @@
               "input": 272000,
               "output": 128000
             },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 3.5,
+                    "output": 28,
+                    "cache_read": 0.35
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.875,
+                    "output": 7,
+                    "cache_read": 0.0875
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
+            },
             "cost": {
               "input": 1.75,
               "output": 14,
@@ -147,6 +231,22 @@
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 3.5,
+                    "output": 28,
+                    "cache_read": 0.35
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 1.75,
@@ -263,6 +363,18 @@
                       "service_tier": "priority"
                     }
                   }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.375,
+                    "output": 2.25,
+                    "cache_read": 0.0375
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
                 }
               }
             },
@@ -300,6 +412,22 @@
               "context": 400000,
               "input": 272000,
               "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "flex": {
+                  "cost": {
+                    "input": 0.1,
+                    "output": 0.625,
+                    "cache_read": 0.01
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                }
+              }
             },
             "cost": {
               "input": 0.2,
@@ -667,6 +795,19 @@
                       "reasoning": {
                         "mode": "pro"
                       }
+                    }
+                  }
+                },
+                "ultrafast": {
+                  "cost": {
+                    "input": 60,
+                    "output": 300,
+                    "cache_read": 6,
+                    "cache_write": 75
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "ultrafast"
                     }
                   }
                 }

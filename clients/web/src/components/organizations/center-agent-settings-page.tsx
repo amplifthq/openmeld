@@ -1,7 +1,4 @@
-import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
-import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
-
-("use client");
+"use client";
 
 import type {
 	CenterAgentUpdateProfileBody,
@@ -34,6 +31,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
+import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
+import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import {
 	AgentConfigurationCard,
@@ -64,6 +63,8 @@ import {
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
 import { organizationDocumentsQueryOptions } from "#/query/organizations/organization-documents";
+import { applySavedAgentAvatarProfile } from "#/query/profiles/agent-avatar";
+import { useAgentAvatarInvalidationScope } from "#/query/profiles/agent-avatar-context";
 import { CenterAgentAuditJournalPanel } from "./center-agent-audit-journal-panel";
 import { CenterAgentModelSection } from "./center-agent-model-section";
 import {
@@ -72,7 +73,6 @@ import {
 	resolveCenterAgentConnectionStatus,
 	resolveDesignatedCenterAgentProfile,
 } from "./center-agent-profile-presentation";
-import { CenterAgentUsageSection } from "./center-agent-usage-section";
 import { OrganizationMemoryPolicySection } from "./organization-memory-policy-section";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
@@ -187,6 +187,7 @@ export function CenterAgentSettingsContent(input: {
 	roleState: CenterAgentSettingsRoleState;
 }) {
 	const queryClient = useQueryClient();
+	const avatarInvalidationScope = useAgentAvatarInvalidationScope();
 	const navigate = useNavigate();
 	const [mutationError, setMutationError] = useState<string | null>(null);
 	const [auditOpen, setAuditOpen] = useState(false);
@@ -306,6 +307,13 @@ export function CenterAgentSettingsContent(input: {
 			setMutationError(null);
 		},
 		onSuccess: async (response, variables) => {
+			if (variables.avatarStyle) {
+				await applySavedAgentAvatarProfile(
+					queryClient,
+					response.profile,
+					avatarInvalidationScope
+				);
+			}
 			queryClient.setQueryData(
 				organizationQueryKeys.directory(input.organizationId),
 				(current: OrganizationDirectoryResponse | undefined) =>
@@ -319,7 +327,6 @@ export function CenterAgentSettingsContent(input: {
 												...profile,
 												profileHandle: response.profile.profileHandle,
 												profileName: response.profile.profileName,
-												avatarStyle: response.profile.avatarStyle,
 												updatedAt: response.profile.updatedAt,
 											}
 										: profile
@@ -363,8 +370,8 @@ export function CenterAgentSettingsContent(input: {
 				<AppPageHeader
 					description={
 						input.isPersonalWorkspace
-							? "Manage your coordinator’s identity and connection, review its usage, and see the actions it has taken."
-							: `Manage the identity and connection for ${input.organizationName}’s coordinator, review its usage, and see the actions it has taken.`
+							? "Manage your coordinator’s identity and connection, and see the actions it has taken."
+							: `Manage the identity and connection for ${input.organizationName}’s coordinator, and see the actions it has taken.`
 					}
 					eyebrow={
 						input.isPersonalWorkspace ? "Personal workspace" : "Organization"
@@ -493,12 +500,6 @@ export function CenterAgentSettingsContent(input: {
 					roleState={input.memoryRoleState}
 				/>
 			) : null}
-			{designationQuery.data && !designation ? (
-				<CenterAgentUsageSection
-					isPersonalWorkspace={input.isPersonalWorkspace}
-					organizationId={input.organizationId}
-				/>
-			) : null}
 			{isCenterAgentIdentityPending({
 				designationPending: designationQuery.isPending,
 				hasDesignation: designation !== null,
@@ -541,10 +542,6 @@ export function CenterAgentSettingsContent(input: {
 			) : null}
 			{designation && designatedProfile ? (
 				<>
-					<CenterAgentUsageSection
-						isPersonalWorkspace={input.isPersonalWorkspace}
-						organizationId={input.organizationId}
-					/>
 					<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
 						<h2>
 							<button

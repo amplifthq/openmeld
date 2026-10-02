@@ -23,6 +23,7 @@ import {
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerInputAttachmentsSchema,
+  remoteAgentWorkerReadAdmissionResponseSchema,
   remoteAgentWorkerReadUsageDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsRequestSchema,
   remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
@@ -59,6 +60,47 @@ const TEST_CENTER_AGENT_MODEL_ROUTE = {
 } as const;
 
 describe("Remote Agent worker contracts", () => {
+  it("requires a finalized replay ACK for admission lookup and keeps missing receipts unconfirmed", () => {
+    const receipt = {
+      v: 1,
+      status: "found",
+      ack: {
+        accepted: false,
+        createdAt: 1000,
+        status: "pending",
+        submissionId: "original-submission",
+        idempotencyKey: "original-operation",
+      },
+    };
+    expect(
+      remoteAgentWorkerReadAdmissionResponseSchema.safeParse(receipt).success
+    ).toBe(true);
+    for (const ack of [
+      { ...receipt.ack, accepted: true },
+      { ...receipt.ack, idempotencyKey: undefined },
+      { ...receipt.ack, submissionId: undefined },
+    ]) {
+      expect(
+        remoteAgentWorkerReadAdmissionResponseSchema.safeParse({
+          ...receipt,
+          ack,
+        }).success
+      ).toBe(false);
+    }
+    for (const status of ["not_found", "unconfirmed"]) {
+      expect(
+        remoteAgentWorkerReadAdmissionResponseSchema.parse({ v: 1, status })
+      ).toEqual({ v: 1, status });
+      expect(
+        remoteAgentWorkerReadAdmissionResponseSchema.safeParse({
+          v: 1,
+          status,
+          ack: receipt.ack,
+        }).success
+      ).toBe(false);
+    }
+  });
+
   it("isolates personal conversations by organization, Agent and Space and rejects mismatched routing", () => {
     const identity = {
       organizationId: "org_1",
@@ -428,6 +470,8 @@ describe("Remote Agent worker contracts", () => {
       "receiveExecutionInput",
       "readExecutionInput",
       "readExecutionState",
+      "readAdmission",
+      "readAdmissionStop",
       "reconcileExecution",
       "readRuntimeDiagnostics",
       "readUsageDiagnostics",

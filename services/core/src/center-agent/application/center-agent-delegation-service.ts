@@ -82,6 +82,7 @@ export async function prepareCenterAgentWakeDelegation(input: {
   childSpaceId: string;
   clientMessageId: string;
   completionMode: CenterAgentDelegationCompletionMode;
+  replyLanguageTag?: string;
   db: D1Database;
   destinationNeutralContinuations?: boolean;
   fallbackAgentProfileId?: string;
@@ -358,6 +359,7 @@ async function registerPreparedDelegationSubscriptions(input: {
             instruction:
               "Continue the original request after the delegated Agent task. Use the exact child outcome and published result; do not repeat work that already completed.",
             parentDelivery: input.parentDelivery,
+            replyLanguageTag: input.input.replyLanguageTag,
           })
         : null,
       db: input.db,
@@ -408,6 +410,7 @@ async function registerPreparedDelegationSubscriptions(input: {
           instruction:
             "Continue the original request after the delegated Agent tasks. Use the exact delegation outcomes and published results; do not repeat work that already completed.",
           parentDelivery: input.parentDelivery,
+          replyLanguageTag: input.input.replyLanguageTag,
         })
       : null,
     db: input.db,
@@ -428,11 +431,15 @@ function buildResumeParentContinuation(input: {
   destinationNeutralContinuations: boolean;
   instruction: string;
   parentDelivery: CenterAgentParentDelivery;
+  replyLanguageTag?: string;
 }) {
   const continuation = {
     delegationId: input.delegationId,
     instruction: input.instruction,
     kind: "resume_agent" as const,
+    ...(input.replyLanguageTag
+      ? { replyLanguageTag: input.replyLanguageTag }
+      : {}),
   };
   return input.destinationNeutralContinuations
     ? continuation

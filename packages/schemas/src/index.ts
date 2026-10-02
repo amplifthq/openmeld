@@ -17,6 +17,10 @@ export {
   accountSessionSchema,
 } from "./account-session";
 export {
+  type AgentAvatarInvalidation,
+  agentAvatarInvalidationSchema,
+} from "./agent-avatar-invalidation";
+export {
   AGENT_CONTEXT_ENVELOPE_VERSION,
   AGENT_CONTEXT_PROGRESSIVE_POLICY_VERSION,
   type AgentContextEnvelope,
@@ -233,6 +237,7 @@ export {
 } from "./plugin-connection-reply";
 export {
   buildHostedAgentRequestFailedPublicCopy,
+  buildTaskContinuationAdmissionExhaustedPublicCopy,
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
   CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
@@ -246,6 +251,9 @@ export {
   CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY,
   CODEX_UPGRADE_REQUIRED_REASON,
   DISPATCH_ERROR_SUMMARY_MAX_LENGTH,
+  formatPublicAgentFailureFacts,
+  formatPublicInterruptedTaskFailureFacts,
+  formatPublicRoutineFailureFacts,
   isProjectLocalConnectionFailureReasonCode,
   ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_PUBLIC_COPY,
   ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE,
@@ -253,6 +261,7 @@ export {
   type ProjectLocalConnectionFailureReasonCode,
   type PublicAgentAvailabilityCopy,
   type PublicAgentAvailabilityCopyContext,
+  type PublicAgentFailurePresentation,
   type PublicAgentFailureRecovery,
   type PublicAgentFailureRecoveryKind,
   type PublicAgentFailureRecoveryTarget,
@@ -266,6 +275,7 @@ export {
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,
+  resolveHostedAgentCallbackFailureReasonCode,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
   resolvePublicAgentFailureRecovery,
@@ -273,6 +283,7 @@ export {
   sanitizeDispatchErrorSummary,
   shouldPreferMappedPublicAgentFailureReason,
 } from "./public-agent-failure-reason";
+export * from "./remote-agent-execution-reconciliation";
 export {
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,

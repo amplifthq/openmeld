@@ -304,6 +304,17 @@ failures never mean model retirement. The brief lists uncataloged discovery
 candidates, exact automatic additions, source discrepancies and bounded official
 excerpts; full snapshots remain available for review. The repository formatter
 keeps unrelated catalog formatting out of the diff.
+
+A new draft requires a model addition, a newly observed discovery candidate or
+reasoning option, a new existing-model parameter/visibility discrepancy, or a
+changed retirement passage about a cataloged model. Compare these review facts
+with the last committed evidence snapshot. Repeated candidates and discrepancies,
+collection timestamps, harness releases, unrelated documentation and marketplace
+metadata changes do not create proposals. Every scan still preserves its raw
+evidence and review brief in the Actions artifact, including scans with no
+substantive changes. A changed or removed retirement passage requires review;
+the collector never treats it as an automatic retirement or withdrawal decision.
+
 Actions uses its existing token only for `api.github.com` requests to avoid
 shared anonymous rate limits. Local collectors may supply `GH_TOKEN`; the token
 is never sent to model discovery or vendor documentation hosts.
@@ -320,10 +331,15 @@ invocation without an Actions run context leaves the open PR untouched rather
 than authoring that bot marker under a human account. This refresh happens even when
 the scan has no deterministic additions, so the PR always exposes fresh evidence
 without rewriting reviewer-owned commits. A closed PR suppresses the same combined
-source fingerprint; materially changed facts may produce a new proposal. Merging
-the evidence snapshot acknowledges that revision, including when the reviewer
+review-facts fingerprint; unrelated source edits cannot reopen that proposal.
+New model facts may produce a new proposal. Individual evidence fingerprints
+still identify the raw source snapshots. Merging the evidence snapshot
+acknowledges that revision, including when the reviewer
 elects to make no product change. Collection timestamps alone do not trigger a
-new proposal after the prior PR is closed. There is no bot force-push or auto-merge.
+new proposal after the prior PR is closed. A pushed proposal whose PR request
+failed can be recovered after unrelated source edits when its review facts still
+match, without rewriting the original evidence. There is no bot force-push or
+auto-merge.
 
 The reviewing coding agent reads the captured evidence first, decides
 `creationDefaults`, presentation and adapter changes, and fills only actual
@@ -663,6 +679,19 @@ local inventory are not assumed usable by every member's account; a real
 OpenMeld Wake remains deployment acceptance evidence.
 For a client without a reported ACI model inventory, the new routes require
 at least the observed OpenCode 1.18.33 version.
+
+#### October 2 provider follow-up
+
+OpenCode 1.18.34's exact provider inventory adds
+`opencode/fledge-alpha-free` with `low`, `high`, and `max` variants. The observed
+version is a conservative compatibility floor, not a claim that earlier releases
+cannot expose the model through their live inventory. The same capture corrects
+`opencode-go/qwen3.8-max` to expose `low`, `medium`, and `xhigh`. Go subscription
+access remains a separate runtime requirement. The provider-shaped capture is
+retained in `packages/schemas/tests/fixtures/opencode-model-catalog-1.18.34.json`.
+These changes use the existing online catalog, model ID, and variant contracts;
+the offline snapshot, adapters, defaults, and local-component release remain
+unchanged.
 
 ---
 

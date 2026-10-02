@@ -1,0 +1,52 @@
+{
+  "capture": {
+    "commands": [
+      "opencode models opencode --verbose",
+      "opencode models opencode-go --verbose"
+    ],
+    "harnessVersion": "1.18.34",
+    "observedAt": "2026-10-02T02:15:29Z",
+    "providerRoutes": [
+      "OpenCode free route without a paid Zen credential",
+      "OpenCode Go API credential; active subscription not verified"
+    ]
+  },
+  "models": [
+    {
+      "id": "fledge-alpha-free",
+      "providerID": "opencode",
+      "name": "Fledge Alpha Free",
+      "api": {
+        "id": "fledge-alpha-free",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "options": {},
+      "release_date": "2026-10-01",
+      "variants": {
+        "low": { "reasoningEffort": "low" },
+        "high": { "reasoningEffort": "high" },
+        "max": { "reasoningEffort": "max" }
+      }
+    },
+    {
+      "id": "qwen3.8-max",
+      "providerID": "opencode-go",
+      "name": "Qwen3.8 Max",
+      "api": {
+        "id": "qwen3.8-max",
+        "url": "https://opencode.ai/zen/go/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "options": {},
+      "release_date": "2026-08-03",
+      "variants": {
+        "low": { "reasoningEffort": "low" },
+        "medium": { "reasoningEffort": "medium" },
+        "xhigh": { "reasoningEffort": "xhigh" }
+      }
+    }
+  ]
+}

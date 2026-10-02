@@ -266,6 +266,8 @@ function formatWakeProgressSummaryPart(
 ): string {
 	const agentCount = count === 1 ? "1 agent" : `${count} agents`;
 	switch (kind) {
+		case "confirmation_pending":
+			return `${agentCount} awaiting confirmation`;
 		case "needs_input":
 			return count === 1
 				? "1 agent needs your input"

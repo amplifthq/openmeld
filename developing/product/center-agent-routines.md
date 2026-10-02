@@ -97,6 +97,19 @@ separately from this product contract.
 
 ## Product Promise And Vocabulary
 
+Routine execution failures and expired admission-receipt recovery use the
+shared owner-supplied Agent failure facts. An expired receipt recovery does
+not prove that the Run never executed; its notice retains uncertainty and asks
+the member to check existing results before repeating work. Failure redrive
+retains that meaning even when the native delivery record is unavailable: the
+Run's unconfirmed-admission failure remains authoritative, and its Run locator
+is retained without inventing an execution receipt. These paths use
+the upstream Agent's semantic reply-language decision when the Run is a
+delegated or watched continuation carrying that fact. They use the Organization
+working-language preference as an explicit fallback when the task fact is absent,
+then English. Initial Run failures do not yet receive a task language fact;
+other pre-admission failure notices still use the legacy English presentation.
+
 A **Routine** is an organization-owned instruction that asks the designated
 Center Agent to do work once or on an explicit recurring schedule. A **Run** is one
 durable scheduling or execution record. It normally represents one occurrence;

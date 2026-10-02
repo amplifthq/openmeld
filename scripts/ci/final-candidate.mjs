@@ -24,6 +24,7 @@ import {
   executeCandidateChecks,
   FINAL_CANDIDATE_LABELS,
   formatCommand,
+  resolveCandidateDependencyScope,
   resolveFinalCandidateLabel,
 } from "./final-candidate-policy.mjs";
 import {
@@ -61,8 +62,8 @@ async function run() {
     printHelp();
     return;
   }
-  if (command === "plan") {
-    runPlan(options);
+  if (command === "plan" || command === "dependency-scope") {
+    runPlan(options, command);
     return;
   }
   if (command === "request") {
@@ -76,7 +77,7 @@ async function run() {
   throw new Error(`Unknown Final Candidate command: ${command}`);
 }
 
-function runPlan(options) {
+function runPlan(options, command) {
   const candidateRoot = path.resolve(options.candidateRoot ?? process.cwd());
   const headSha = resolveCommit(options.head ?? "HEAD", candidateRoot);
   const baseSha = resolveCommit(options.base ?? "origin/main", candidateRoot);
@@ -102,7 +103,11 @@ function runPlan(options) {
     planSourceSha: options.planSourceSha,
     treeSha,
   });
-  printPlan(plan, dirtyPaths);
+  if (command === "dependency-scope") {
+    process.stdout.write(`${resolveCandidateDependencyScope(plan)}\n`);
+  } else {
+    printPlan(plan, dirtyPaths);
+  }
 }
 
 function requestRemoteCandidate(options) {

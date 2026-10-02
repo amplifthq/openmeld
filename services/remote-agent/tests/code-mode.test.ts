@@ -13,6 +13,7 @@ import {
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { ConnectorActionOutcomeUnknownError } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentExecutionIdentity,
   initializeRemoteAgentExecutionState,
@@ -65,6 +66,103 @@ async function runCodeModeTool(
 }
 
 describe("Remote Agent Code Mode", () => {
+  it("marks only the uncertain write in a multi-write script as awaiting confirmation", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const definition = {
+      name: "github_create_issue_comment",
+      description: "Post an authorized comment.",
+      input: strictObject({ operationId: string() }),
+      execute: ({ operationId }) => {
+        if (operationId === "comment-2") {
+          return Promise.reject(
+            new ConnectorActionOutcomeUnknownError({
+              actionId: "github.create_issue_comment",
+              operationId,
+              cause: new Error("private provider transport detail"),
+              input: {
+                owner: "amplifthq",
+                repo: "openmeld",
+                issueNumber: 1397,
+              },
+            })
+          );
+        }
+        return Promise.resolve({ status: "completed", operationId });
+      },
+    } satisfies RemoteAgentToolDefinition;
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const results: unknown[] = [];
+        for (const operationId of ["comment-1", "comment-2", "comment-3"]) {
+          results.push(
+            await tools.github_create_issue_comment?.execute?.(
+              { operationId },
+              { ...TOOL_OPTIONS, toolCallId: operationId }
+            )
+          );
+        }
+        return { result: results };
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [definition],
+      coreWorker: { submitRemoteAgentStreamPart },
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+      submissionId: SUBMISSION_ID,
+    });
+    const output = await runCodeModeTool(tool, {
+      input: { code: "async () => null" },
+    });
+    expect(output).toMatchObject({
+      result: [
+        { status: "completed", operationId: "comment-1" },
+        {
+          status: "outcome_unknown",
+          operationId: "comment-2",
+          message: expect.stringContaining("Do not retry this write"),
+        },
+        { status: "completed", operationId: "comment-3" },
+      ],
+    });
+    const parts = submitRemoteAgentStreamPart.mock.calls.map(
+      ([body]) =>
+        body as unknown as {
+          part: {
+            state: string;
+            toolCallId: string;
+            work: { outcome?: string };
+          };
+        }
+    );
+    expect(parts.filter(({ part }) => part.state === "output-error")).toEqual(
+      []
+    );
+    expect(
+      parts
+        .filter(({ part }) => part.work.outcome === "outcome_unknown")
+        .map(({ part }) => part.toolCallId)
+    ).toEqual(["comment-2"]);
+    expect(
+      parts
+        .filter(({ part }) => part.state === "output-available")
+        .map(({ part }) => part.toolCallId)
+    ).toEqual(["comment-1", "comment-2", "comment-3"]);
+    expect(JSON.stringify(output)).not.toContain(
+      "private provider transport detail"
+    );
+  });
+
   it.each([
     "bash",
     "console",

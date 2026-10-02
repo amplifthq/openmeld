@@ -770,13 +770,21 @@ not resolve the recovery gate. The owner may skip the interrupted work; that
 action is idempotent and allows the oldest later Wake to continue.
 
 A hosted Center Agent task continuation that remains unacknowledged after all
-three admission attempts creates one urgent, action-required `system_issue`
-item for the represented member. Its stable source identity is the continuation
-Native Delivery plus `admission_retry_exhausted`, and its target opens the exact
-child-result Signal in the observer's original Space or thread. Queue redelivery
-and terminal-effect replay update the same item rather than creating duplicate
-alerts. Reading or Dismissing the item does not claim that the continuation ran;
-the member follows the linked result and retries from that context.
+three admission attempts creates one normal update `system_issue` item for the
+represented member. Without a supported recovery action, failure alone does not
+make an item urgent or action required. Its stable source identity is the
+continuation Native Delivery plus `admission_retry_exhausted`. Its target opens
+that delivery's own failure Signal, otherwise its original thread or Space.
+A watched child task's result Signal must never be paired with the observer's
+Space ID. Queue redelivery and terminal-effect replay update the same item
+rather than creating duplicate alerts. Reading or Dismissing the item does not
+claim that the continuation ran or resolve its underlying failure.
+Source-owner replay repairs only the retired producer's exact unresolved
+urgent/action projection, including its mismatched child Signal target. It keeps
+the same source identity, occurrence, read and removal state, and suppresses
+pending urgent email. Its Inbox resolution becomes `not_applicable`, not a
+claim that the underlying task succeeded. General source conflicts still fail
+closed; this is not an unbounded read-time migration.
 
 ## Delivery channels and preferences
 

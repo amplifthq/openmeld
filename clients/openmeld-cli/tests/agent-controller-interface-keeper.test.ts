@@ -581,6 +581,25 @@ describe("agent controller interface probe keeper", () => {
       });
       expect(proven.status).toBe("unavailable");
       expect(proven.message).toContain("no connected provider was reported");
+      const probeCount = createOpencodeClientMock.mock.calls.length;
+      const reused = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:opencode",
+        probePolicy: "background",
+        state,
+      });
+      expect(reused).toBe(proven);
+      expect(createOpencodeClientMock).toHaveBeenCalledTimes(probeCount);
+
+      // Signing in outside OpenMeld can be discovered immediately by an
+      // explicit check; the negative cache must not latch the account shut.
+      mockConnectedProvider();
+      const signedIn = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:opencode",
+        probePolicy: "fresh",
+        state,
+      });
+      expect(signedIn.auth.status).toBe("authenticated");
+      expect(signedIn.status).toBe("ready");
     } finally {
       await rm(home, { force: true, recursive: true });
     }
@@ -711,8 +730,23 @@ describe("agent controller interface re-probe orchestration", () => {
     expect(consumeArmedAgentControllerInterfaceReprobe()).toBe(false);
   });
 
-  it("does not retain an unauthenticated completed snapshot for reuse", () => {
+  it("reuses a completed signed-out check until the normal TTL expires", () => {
     const completedAt = "2026-07-03T10:00:00.000Z";
+    recordAgentControllerUsageLimitsObservation({
+      authSnapshot: AUTH_SNAPSHOT,
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      usageLimits: [
+        {
+          key: "claude-code:five-hour",
+          label: "5-hour usage limit",
+          observedAt: completedAt,
+          resetsAt: null,
+          status: "available",
+          usedPercent: 40,
+        },
+      ],
+    });
     recordAgentControllerInterfaceProbeSuccess({
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
@@ -721,7 +755,7 @@ describe("agent controller interface re-probe orchestration", () => {
         ...completedSnapshot(),
         auth: { status: "unauthenticated" },
         checkedAt: completedAt,
-        status: "error",
+        status: "unavailable",
       },
     });
 
@@ -731,6 +765,16 @@ describe("agent controller interface re-probe orchestration", () => {
         keeperKey,
         nowMs: 1001,
       })
+    ).toMatchObject({
+      auth: { status: "unauthenticated" },
+      checkedAt: completedAt,
+    });
+    expect(
+      readReusableAgentControllerInterfaceSnapshot({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+        nowMs: 1000 + KEEPER_TTL_MS,
+      })
     ).toBeNull();
     expect(
       readLastSuccessfulAgentControllerInterfaceCheckAt({
@@ -738,6 +782,15 @@ describe("agent controller interface re-probe orchestration", () => {
         keeperKey,
       })
     ).toBe(completedAt);
+    expect(consumeArmedAgentControllerInterfaceReprobe()).toBe(false);
+    // A later sign-in must not resurrect capacity observed before sign-out.
+    const signedInAgain = recordAgentControllerInterfaceProbeSuccess({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      nowMs: 1000 + KEEPER_TTL_MS,
+      snapshot: completedSnapshot(),
+    });
+    expect(signedInAgain.usageLimits).toBeUndefined();
   });
 
   it("merges passive provider usage evidence into the existing ACI snapshot", () => {
