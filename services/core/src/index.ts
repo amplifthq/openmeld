@@ -371,6 +371,7 @@ import type {
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  SpaceInputQueueResponse,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
@@ -1082,6 +1083,7 @@ import {
   rpcSpaceFilePins,
   rpcSpaceFileUpdateSettings,
   rpcSpaceFileUpload,
+  rpcSpaceInputQueue,
   rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
   rpcStreamSpaceFileContent,
@@ -1128,6 +1130,7 @@ import {
   type SpaceAccessModeStateResult,
   type SpaceFilePinsInput,
   type SpaceFileWriteInput,
+  type SpaceInputQueueInput,
   type SpaceMessagePinsInput,
   type SpacePasswordStateResult,
   type StageSpaceComposerUploadRpcInput,
@@ -2481,6 +2484,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return rpcSpaceMessagePins(this.env, input);
+  }
+
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return rpcSpaceInputQueue(this.env, input);
   }
 
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
@@ -4899,6 +4908,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return super.spaceMessagePins(input);
+  }
+
+  spaceInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    return super.spaceInputQueue(input);
   }
 
   listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {

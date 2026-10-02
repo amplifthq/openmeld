@@ -2393,6 +2393,10 @@ export {
   uploadSpaceFileResponseSchema,
 } from "./http/space-files";
 export {
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
+} from "./http/space-input-queue";
+export {
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   leaveSpaceResponseSchema,

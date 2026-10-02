@@ -132,6 +132,8 @@ import {
   spaceFilePinsResponseSchema,
   spaceFileUpdateSettingsCommandSchema,
   spaceHistoryNavigationQuerySchema,
+  spaceInputQueueMutationSchema,
+  spaceInputQueueResponseSchema,
   spaceInvitationAccessInputSchema,
   spaceInvitationGrantInputSchema,
   spaceInvitationRevokeInputSchema,
@@ -232,6 +234,7 @@ import type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
+  SpaceInputQueueResponse,
   SpaceLinkJoinPolicy,
   SpaceLiveInvalidationFrame,
   SpaceLiveSignalFrame,
@@ -440,6 +443,7 @@ import type {
   SetSpaceMessageReactionInput,
   SpaceAccessModeStateResult,
   SpaceFilePinsInput,
+  SpaceInputQueueInput,
   SpaceMessagePinsInput,
   SpacePasswordStateResult,
   StartUsageExhaustedContinuationInput,
@@ -685,10 +689,15 @@ import {
 } from "../../infrastructure/sql/space-cursor-repo";
 import { readSpaceDispatchRule } from "../../infrastructure/sql/space-dispatch-rule-repo";
 import {
+  claimQueuedSpaceExecutionInput,
+  deleteQueuedSpaceExecutionInput,
   insertSpaceExecutionInput,
   listDueSpaceExecutionInputs,
+  listQueuedSpaceExecutionInputs,
   readNextSpaceExecutionInputAlarm,
   readSpaceExecutionInput,
+  reorderQueuedSpaceExecutionInputs,
+  settleQueuedSpaceExecutionInput,
   updateSpaceExecutionInput,
 } from "../../infrastructure/sql/space-execution-input-repo";
 import { SpaceFileAuditRepository } from "../../infrastructure/sql/space-file-audit-repo";
@@ -7370,6 +7379,327 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcInputQueue(
+    input: SpaceInputQueueInput
+  ): Promise<SpaceInputQueueResponse> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/input-queue",
+        method: input.mutation ? "PATCH" : "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: ({ context }) => this.handleInputQueue(undefined, context),
+        PATCH: ({ context }) => this.handleInputQueue(input.mutation, context),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  private async handleInputQueue(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    // This first receiver deliberately keeps the existing native Center DM
+    // authority. Agent callers need an explicit frozen-authority contract.
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      context.actorContext.openMeldProfileId
+    );
+    if (
+      !member ||
+      context.actorContext.profileKind !== "human" ||
+      member.status !== "active" ||
+      member.profileKindSnapshot !== "human" ||
+      member.ownerUserIdSnapshot !== context.actorContext.ownerUserId
+    ) {
+      return Response.json(
+        { message: "Join this Space as yourself to manage queued messages." },
+        { status: 403 }
+      );
+    }
+    const read = () =>
+      spaceInputQueueResponseSchema.parse({
+        items: listQueuedSpaceExecutionInputs(this.ctx.storage.sql)
+          .filter((item) => item.request.authorProfileId === member.profileId)
+          .map((item) => ({
+            inputId: item.inputId,
+            target: item.signal.data.meta?.centerAgentExecutionInput,
+            authorProfileId: item.request.authorProfileId,
+            text: item.request.text,
+            state: item.state,
+            blocked: item.blocked,
+          })),
+      });
+    if (body === undefined) {
+      return Response.json(read());
+    }
+    const parsed = spaceInputQueueMutationSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        { message: "Invalid queued message request." },
+        { status: 400 }
+      );
+    }
+    const mutation = parsed.data;
+    try {
+      if (mutation.action === "enqueue") {
+        const signal = this.buildTextSignal(
+          {
+            kind: "human",
+            profileId: member.profileId,
+            profileName: member.profileNameSnapshot,
+          },
+          mutation.text,
+          {
+            meta: {
+              clientMessageId: mutation.inputId,
+              centerAgentExecutionInput: mutation.target,
+            },
+          }
+        );
+        await this.publishExecutionInput(
+          signal,
+          { authoringPolicy: "user_authored" },
+          true
+        );
+      } else if (mutation.action === "reorder") {
+        const ownIds = new Set(
+          read()
+            .items.filter((item) => item.state === "queued")
+            .map((item) => item.inputId)
+        );
+        if (
+          mutation.orderedIds.some((id) => !ownIds.has(id)) ||
+          !this.ctx.storage.transactionSync(() =>
+            reorderQueuedSpaceExecutionInputs(
+              this.ctx.storage.sql,
+              mutation.expectedIds,
+              mutation.orderedIds
+            )
+          )
+        ) {
+          return Response.json(
+            { message: "The queue changed. Refresh it and try again." },
+            { status: 409 }
+          );
+        }
+      } else {
+        const errorResponse = await this.mutateQueuedExecutionInput(
+          mutation,
+          member.profileId
+        );
+        if (errorResponse) {
+          return errorResponse;
+        }
+      }
+      return Response.json(read());
+    } catch (error) {
+      if (error instanceof SpaceSignalAuthoringError) {
+        return Response.json(
+          { code: error.code, message: error.message },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async mutateQueuedExecutionInput(
+    mutation: Extract<
+      import("@openmeld/schemas/types").SpaceInputQueueMutation,
+      { action: "delete" | "steer" }
+    >,
+    authorProfileId: string
+  ): Promise<Response | null> {
+    const item = listQueuedSpaceExecutionInputs(this.ctx.storage.sql).find(
+      (candidate) => candidate.inputId === mutation.inputId
+    );
+    if (!item || item.request.authorProfileId !== authorProfileId) {
+      return Response.json(
+        { message: "Queued message not found." },
+        { status: 404 }
+      );
+    }
+    if (mutation.action === "delete") {
+      if (
+        !deleteQueuedSpaceExecutionInput(
+          this.ctx.storage.sql,
+          mutation.inputId,
+          authorProfileId
+        )
+      ) {
+        return Response.json(
+          { message: "This message is already being delivered." },
+          { status: 409 }
+        );
+      }
+    } else {
+      const target = item.signal.data.meta?.centerAgentExecutionInput;
+      if (
+        target?.dispatchId !== mutation.target.dispatchId ||
+        target?.targetProfileId !== mutation.target.targetProfileId
+      ) {
+        return Response.json(
+          { message: "This message belongs to a different response." },
+          { status: 409 }
+        );
+      }
+      await this.steerQueuedExecutionInput(item.inputId);
+    }
+    return null;
+  }
+
+  private async steerQueuedExecutionInput(inputId: string): Promise<void> {
+    await armSpaceInboxProjectionRecoveryAlarm({
+      spaceId: this.spaceId,
+      storage: this.ctx.storage,
+    });
+    const item = listQueuedSpaceExecutionInputs(this.ctx.storage.sql).find(
+      (candidate) => candidate.inputId === inputId
+    );
+    if (item) {
+      this.assertQueuedInputMembers(item.signal);
+    }
+    if (
+      !(
+        item &&
+        claimQueuedSpaceExecutionInput(this.ctx.storage.sql, inputId, "steer")
+      )
+    ) {
+      return;
+    }
+    const worker = this.bindings.OPENMELD_REMOTE_AGENT_WORKER;
+    if (!(worker?.receiveExecutionInput && worker.readExecutionInput)) {
+      settleQueuedSpaceExecutionInput(
+        this.ctx.storage.sql,
+        inputId,
+        "steer",
+        "rejected"
+      );
+      return;
+    }
+    // Persist the claim before crossing the service boundary. A lost response
+    // may only be reconciled by readExecutionInput, never by another receive.
+    try {
+      const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
+        await worker.receiveExecutionInput(item.request)
+      );
+      this.applyQueuedExecutionInputReceipt(item, response);
+      updateSpaceExecutionInput(this.ctx.storage.sql, {
+        inputId,
+        response,
+        nextAttemptAtMs:
+          response.status === "received" || response.status === "not_found"
+            ? Date.now() + 1000
+            : null,
+      });
+    } catch (error) {
+      settleQueuedSpaceExecutionInput(
+        this.ctx.storage.sql,
+        inputId,
+        "steer",
+        "unconfirmed"
+      );
+      updateSpaceExecutionInput(this.ctx.storage.sql, {
+        inputId,
+        nextAttemptAtMs: Date.now() + 1000,
+      });
+      console.warn("[core.space.input_queue.receipt_unconfirmed]", {
+        spaceId: this.spaceId,
+        inputId,
+        error: formatUnknownErrorMessage(error),
+      });
+    }
+    await this.syncSpaceBackgroundAlarm();
+  }
+
+  private applyQueuedExecutionInputReceipt(
+    item: {
+      inputId: string;
+      request: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputRequest;
+      signal: SignalEnvelope;
+    },
+    response: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputResponse
+  ): void {
+    if (
+      "receipt" in response &&
+      (response.receipt.inputId !== item.inputId ||
+        response.receipt.target.submissionId !==
+          item.request.target.submissionId ||
+        response.receipt.target.idempotencyKey !==
+          item.request.target.idempotencyKey ||
+        response.receipt.target.spaceId !== item.request.target.spaceId ||
+        response.receipt.target.organizationId !==
+          item.request.target.organizationId ||
+        response.receipt.target.conversationId !==
+          item.request.target.conversationId)
+    ) {
+      throw new Error(
+        "Execution input receipt does not match its exact target."
+      );
+    }
+    if (response.status === "received" || response.status === "not_found") {
+      return;
+    }
+    const outcome = response.status;
+    const published = this.ctx.storage.transactionSync(() => {
+      const settled = settleQueuedSpaceExecutionInput(
+        this.ctx.storage.sql,
+        item.inputId,
+        "steer",
+        outcome
+      );
+      return (
+        settled &&
+        outcome === "applied" &&
+        this.persistSignalWithOptionalOutbox(item.signal, false, {
+          authoringPolicy: "user_authored",
+        }).persistedSignal
+      );
+    });
+    if (published) {
+      this.broadcastSignal(
+        item.signal,
+        { authoringPolicy: "user_authored" },
+        { persisted: true }
+      );
+      this.ctx.waitUntil(this.flushPendingSpaceInboxProjectionOutbox());
+      this.ctx.waitUntil(
+        this.recordOrganizationMemberHumanActivity(item.signal)
+      );
+    }
+  }
+
+  private assertQueuedInputMembers(signal: SignalEnvelope): void {
+    if (
+      readSpaceMemberRecord(this.ctx.storage.sql, signal.profile.profileId)
+        ?.status !== "active"
+    ) {
+      throw new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 403,
+        message: "Join this Space before sending queued messages.",
+      });
+    }
+    const targetProfileId =
+      signal.type === "signal.text"
+        ? signal.data.meta?.centerAgentExecutionInput?.targetProfileId
+        : undefined;
+    const target = targetProfileId
+      ? readSpaceMemberRecord(this.ctx.storage.sql, targetProfileId)
+      : null;
+    if (target?.status !== "active" || target.profileKindSnapshot !== "agent") {
+      throw new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 409,
+        message: "This Agent is no longer in the Space.",
+      });
+    }
   }
 
   async rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
@@ -22363,7 +22693,8 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async publishExecutionInput(
     signal: SignalEnvelope,
-    signalContext?: SignalPublishContext
+    signalContext?: SignalPublishContext,
+    queued = false
   ): Promise<void> {
     if (signal.type !== "signal.text") {
       return;
@@ -22391,6 +22722,7 @@ export class Space extends DurableObject<CoreBindings> {
     const existing = readSpaceExecutionInput(this.ctx.storage.sql, inputId);
     if (existing) {
       if (
+        existing.queued !== queued ||
         existing.request.authorProfileId !== signal.profile.profileId ||
         existing.request.text !== signal.data.text.trim() ||
         existing.signal.data.meta?.centerAgentExecutionInput?.dispatchId !==
@@ -22439,6 +22771,7 @@ export class Space extends DurableObject<CoreBindings> {
       const raced = readSpaceExecutionInput(this.ctx.storage.sql, inputId);
       if (raced) {
         if (
+          raced.queued !== queued ||
           raced.request.authorProfileId !== signal.profile.profileId ||
           raced.request.text !== signal.data.text.trim() ||
           raced.request.target.submissionId !== target.submissionId
@@ -22449,11 +22782,18 @@ export class Space extends DurableObject<CoreBindings> {
         }
         return false;
       }
-      const result = this.persistSignalWithOptionalOutbox(
-        signal,
-        false,
-        signalContext
-      );
+      if (queued) {
+        this.assertQueuedInputMembers(signal);
+      }
+      if (
+        queued &&
+        listQueuedSpaceExecutionInputs(this.ctx.storage.sql).length >= 50
+      ) {
+        throw invalid("Remove a queued message before adding another.");
+      }
+      const result = queued
+        ? { persistedSignal: true }
+        : this.persistSignalWithOptionalOutbox(signal, false, signalContext);
       if (!result.persistedSignal) {
         throw invalid("This message could not be saved as an update.");
       }
@@ -22467,9 +22807,13 @@ export class Space extends DurableObject<CoreBindings> {
         },
         signal,
         nowMs: Date.now(),
+        queued,
       });
       return true;
     });
+    if (queued) {
+      return;
+    }
     if (saved) {
       this.broadcastSignal(signal, signalContext, { persisted: true });
       this.ctx.waitUntil(this.recordOrganizationMemberHumanActivity(signal));
@@ -22487,6 +22831,37 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
+  private async reconcileQueuedExecutionInput(
+    item: ReturnType<typeof listDueSpaceExecutionInputs>[number]
+  ): Promise<void> {
+    const worker = this.bindings.OPENMELD_REMOTE_AGENT_WORKER;
+    if (!worker?.readExecutionInput) {
+      throw new Error("Execution input receipt reader is unavailable.");
+    }
+    const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
+      await worker.readExecutionInput({
+        inputId: item.inputId,
+        target: item.request.target,
+      })
+    );
+    if (response.status === "not_found" || response.status === "rejected") {
+      settleQueuedSpaceExecutionInput(
+        this.ctx.storage.sql,
+        item.inputId,
+        "steer",
+        "unconfirmed"
+      );
+    } else {
+      this.applyQueuedExecutionInputReceipt(item, response);
+    }
+    updateSpaceExecutionInput(this.ctx.storage.sql, {
+      inputId: item.inputId,
+      response,
+      nextAttemptAtMs:
+        response.status === "received" ? Date.now() + 1000 : null,
+    });
+  }
+
   private async flushPendingExecutionInputs(): Promise<void> {
     for (const item of listDueSpaceExecutionInputs(
       this.ctx.storage.sql,
@@ -22494,6 +22869,10 @@ export class Space extends DurableObject<CoreBindings> {
     )) {
       try {
         const worker = this.bindings.OPENMELD_REMOTE_AGENT_WORKER;
+        if (item.queueClaim === "steer") {
+          await this.reconcileQueuedExecutionInput(item);
+          continue;
+        }
         if (!worker?.receiveExecutionInput) {
           throw new Error("Execution input receiver is unavailable.");
         }
@@ -22533,6 +22912,14 @@ export class Space extends DurableObject<CoreBindings> {
           nextAttemptAtMs: pending ? Date.now() + 1000 : null,
         });
       } catch (error) {
+        if (item.queueClaim === "steer") {
+          settleQueuedSpaceExecutionInput(
+            this.ctx.storage.sql,
+            item.inputId,
+            "steer",
+            "unconfirmed"
+          );
+        }
         updateSpaceExecutionInput(this.ctx.storage.sql, {
           inputId: item.inputId,
           nextAttemptAtMs:

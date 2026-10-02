@@ -2,6 +2,7 @@ import { env, runInDurableObject } from "cloudflare:test";
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import type {
   RemoteAgentWorkerExecutionInputRequest,
+  RemoteAgentWorkerExecutionInputResponse,
   RemoteAgentWorkerSubmitTurnRequestV1,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
@@ -11,9 +12,14 @@ import {
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { upsertSpaceCreatorMember } from "../src/space/application/space-members-service";
+import type { CoreRpcContextInput } from "../src/rpc/methods";
+import {
+  upsertJoinedSpaceMember,
+  upsertSpaceCreatorMember,
+} from "../src/space/application/space-members-service";
 import type { SignalPublishContext } from "../src/space/application/types";
 import {
+  listQueuedSpaceExecutionInputs,
   readNextSpaceExecutionInputAlarm,
   readSpaceExecutionInput,
 } from "../src/space/infrastructure/sql/space-execution-input-repo";
@@ -25,8 +31,14 @@ type InputSpace = {
   spaceId: string;
   publishExecutionInput(
     signal: SignalEnvelope,
-    context: SignalPublishContext
+    context: SignalPublishContext,
+    queued?: boolean
   ): Promise<void>;
+  handleInputQueue(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response>;
+  steerQueuedExecutionInput(inputId: string): Promise<void>;
   flushPendingExecutionInputs(): Promise<void>;
   recordOrganizationMemberHumanActivity(): Promise<void>;
   flushPendingSpaceInboxProjectionOutbox(): Promise<void>;
@@ -39,6 +51,7 @@ async function fixture(
     state: DurableObjectState;
     signal: SignalEnvelope;
     request: RemoteAgentWorkerSubmitTurnRequestV1;
+    context: CoreRpcContextInput;
     post: (signal?: SignalEnvelope) => Promise<void>;
   }) => Promise<void>
 ) {
@@ -136,6 +149,17 @@ async function fixture(
       updatedAt: new Date().toISOString(),
     });
     upsertSpaceCreatorMember({ sql: state.storage.sql, spaceId, creator });
+    upsertJoinedSpaceMember({
+      sql: state.storage.sql,
+      spaceId,
+      ownerUserId: "owner",
+      profile: {
+        kind: "agent",
+        profileId: request.agentProfileId,
+        profileName: "Center",
+        agentControllerRef: "hosted:center-agent",
+      },
+    });
     vi.spyOn(
       instance,
       "recordOrganizationMemberHumanActivity"
@@ -170,6 +194,17 @@ async function fixture(
         state,
         signal,
         request,
+        context: {
+          activeOrganizationId: request.organizationId,
+          actorContext: {
+            requestId: crypto.randomUUID(),
+            openMeldProfileId: profile.profileId,
+            profileKind: "human",
+            profileName: "Morgan",
+            ownerUserId: "owner",
+            callerPrincipalId: "owner",
+          },
+        },
         post: (next = signal) =>
           instance.publishExecutionInput(next, {
             authoringPolicy: "user_authored",
@@ -183,6 +218,348 @@ async function fixture(
 }
 
 describe("Center Agent execution input in the Space owner", () => {
+  it.each([
+    "delete_first",
+    "steer_first",
+  ] as const)("linearizes delete versus native delivery when %s", async (order) => {
+    await fixture(async ({ instance, state, signal, context }) => {
+      await instance.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      if (signal.type !== "signal.text" || !signal.data.meta?.clientMessageId) {
+        throw new Error("Missing fixture input");
+      }
+      const inputId = signal.data.meta.clientMessageId;
+      const entered =
+        Promise.withResolvers<RemoteAgentWorkerExecutionInputRequest>();
+      const completed =
+        Promise.withResolvers<RemoteAgentWorkerExecutionInputResponse>();
+      const receive = vi.fn(
+        (request: RemoteAgentWorkerExecutionInputRequest) => {
+          entered.resolve(request);
+          return completed.promise;
+        }
+      );
+      instance.bindings = {
+        ...instance.bindings,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          receiveExecutionInput: receive,
+          readExecutionInput: () => Promise.resolve({ status: "not_found" }),
+        },
+      };
+      if (order === "delete_first") {
+        const deletion = await instance.handleInputQueue(
+          { action: "delete", inputId },
+          context
+        );
+        expect(deletion.status).toBe(200);
+        await instance.steerQueuedExecutionInput(inputId);
+        expect(receive).not.toHaveBeenCalled();
+      } else {
+        const delivery = instance.steerQueuedExecutionInput(inputId);
+        const request = await entered.promise;
+        expect(
+          (
+            await instance.handleInputQueue(
+              { action: "delete", inputId },
+              context
+            )
+          ).status
+        ).toBe(409);
+        expect(
+          (
+            await instance.handleInputQueue(
+              {
+                action: "reorder",
+                expectedIds: [inputId],
+                orderedIds: [inputId],
+              },
+              context
+            )
+          ).status
+        ).toBe(409);
+        completed.resolve({
+          status: "applied",
+          receipt: {
+            inputId,
+            target: request.target,
+            receivedAtMs: 1,
+            appliedAtMs: 2,
+          },
+        });
+        await delivery;
+        expect(receive).toHaveBeenCalledTimes(1);
+      }
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+      expect(
+        state.storage.sql.exec("SELECT id FROM space_signals").toArray()
+      ).toHaveLength(order === "steer_first" ? 1 : 0);
+    });
+  });
+
+  it.each([
+    "author",
+    "target",
+  ] as const)("rechecks %s membership before claiming a queued input", async (removed) => {
+    await fixture(async ({ instance, state, signal, request }) => {
+      await instance.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      if (signal.type !== "signal.text" || !signal.data.meta?.clientMessageId) {
+        throw new Error("Missing fixture input");
+      }
+      state.storage.sql.exec(
+        "UPDATE space_members SET status = 'removed' WHERE profile_id = ?",
+        removed === "author" ? signal.profile.profileId : request.agentProfileId
+      );
+      const receive = vi.fn(() =>
+        Promise.resolve({ status: "not_found" as const })
+      );
+      instance.bindings = {
+        ...instance.bindings,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          receiveExecutionInput: receive,
+          readExecutionInput: receive,
+        },
+      };
+      await expect(
+        instance.steerQueuedExecutionInput(signal.data.meta.clientMessageId)
+      ).rejects.toThrow(
+        removed === "author" ? "Join this Space" : "no longer in the Space"
+      );
+      expect(receive).not.toHaveBeenCalled();
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state).toBe(
+        "queued"
+      );
+    });
+  });
+
+  it.each([
+    "not_found",
+    "rejected",
+    "mismatched_receipt",
+  ] as const)("does not release an uncertain input after a %s receipt query", async (queryOutcome) => {
+    await fixture(async ({ instance, state, signal }) => {
+      await instance.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      if (signal.type !== "signal.text" || !signal.data.meta?.clientMessageId) {
+        throw new Error("Missing fixture input");
+      }
+      const inputId = signal.data.meta.clientMessageId;
+      const receive = vi.fn(() => Promise.reject(new Error("lost receipt")));
+      instance.bindings = {
+        ...instance.bindings,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          receiveExecutionInput: receive,
+          readExecutionInput: (
+            query
+          ): Promise<RemoteAgentWorkerExecutionInputResponse> => {
+            if (queryOutcome === "mismatched_receipt") {
+              return Promise.resolve({
+                status: "applied",
+                receipt: {
+                  ...query,
+                  target: {
+                    ...query.target,
+                    submissionId: "another-execution",
+                  },
+                  receivedAtMs: 1,
+                  appliedAtMs: 2,
+                },
+              });
+            }
+            if (queryOutcome === "rejected") {
+              return Promise.resolve({
+                status: "rejected",
+                reason: "input_conflict",
+              });
+            }
+            return Promise.resolve({ status: "not_found" });
+          },
+        },
+      };
+      await Promise.all([
+        instance.steerQueuedExecutionInput(inputId),
+        instance.steerQueuedExecutionInput(inputId),
+      ]);
+      vi.mocked(instance.flushPendingExecutionInputs).mockRestore();
+      state.storage.sql.exec(
+        "UPDATE space_execution_input_outbox SET queue_receipt_due_at_ms = 0"
+      );
+      await instance.flushPendingExecutionInputs();
+      await instance.steerQueuedExecutionInput(inputId);
+      expect(receive).toHaveBeenCalledTimes(1);
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state).toBe(
+        "unconfirmed"
+      );
+      expect(
+        state.storage.sql.exec("SELECT id FROM space_signals").toArray()
+      ).toHaveLength(0);
+    });
+  });
+
+  it("keeps queued input private to its author until explicit exact-target Steer and never resends an unknown receipt", async () => {
+    await fixture(async ({ instance, state, signal, context }) => {
+      if (signal.type !== "signal.text") {
+        throw new Error("Expected text fixture");
+      }
+      const inputId = signal.data.meta?.clientMessageId;
+      const target = signal.data.meta?.centerAgentExecutionInput;
+      if (!(inputId && target)) {
+        throw new Error("Missing fixture input target");
+      }
+      const mutation = {
+        action: "enqueue",
+        inputId,
+        text: signal.data.text,
+        target,
+      };
+      expect(
+        (
+          await instance.handleInputQueue(
+            { ...mutation, authorProfileId: "someone-else" },
+            context
+          )
+        ).status
+      ).toBe(400);
+      expect(
+        (
+          await instance.handleInputQueue(mutation, {
+            ...context,
+            actorContext: { ...context.actorContext, ownerUserId: "intruder" },
+          })
+        ).status
+      ).toBe(403);
+      expect((await instance.handleInputQueue(mutation, context)).status).toBe(
+        200
+      );
+      expect(
+        (
+          await instance.handleInputQueue(mutation, {
+            ...context,
+            actorContext: { ...context.actorContext, profileKind: "agent" },
+          })
+        ).status
+      ).toBe(403);
+      expect((await instance.handleInputQueue(mutation, context)).status).toBe(
+        200
+      );
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toHaveLength(1);
+      expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();
+      expect(
+        state.storage.sql.exec("SELECT id FROM space_signals").toArray()
+      ).toHaveLength(0);
+      const receive = vi.fn(
+        (_input: RemoteAgentWorkerExecutionInputRequest): Promise<never> => {
+          return Promise.reject(new Error("receipt lost after native intake"));
+        }
+      );
+      const read = vi.fn(
+        async (query: {
+          inputId: string;
+          target: RemoteAgentWorkerExecutionInputRequest["target"];
+        }) => ({
+          status: "applied" as const,
+          receipt: { ...query, receivedAtMs: 1, appliedAtMs: 2 },
+        })
+      );
+      instance.bindings = {
+        ...instance.bindings,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          receiveExecutionInput: receive,
+          readExecutionInput: read,
+        },
+      };
+      const steer = { action: "steer", inputId, target: mutation.target };
+      expect(
+        (
+          await instance.handleInputQueue(
+            {
+              ...steer,
+              target: { ...mutation.target, dispatchId: "different-execution" },
+            },
+            context
+          )
+        ).status
+      ).toBe(409);
+      expect(receive).not.toHaveBeenCalled();
+      await instance.handleInputQueue(steer, context);
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.state).toBe(
+        "unconfirmed"
+      );
+      await instance.handleInputQueue(steer, context);
+      expect(
+        (
+          await instance.handleInputQueue(
+            { action: "delete", inputId },
+            context
+          )
+        ).status
+      ).toBe(409);
+      vi.mocked(instance.flushPendingExecutionInputs).mockRestore();
+      state.storage.sql.exec(
+        "UPDATE space_execution_input_outbox SET queue_receipt_due_at_ms = 0"
+      );
+      await instance.flushPendingExecutionInputs();
+      expect(receive).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+      expect(
+        state.storage.sql
+          .exec("SELECT id FROM space_signals WHERE type = 'signal.text'")
+          .toArray()
+      ).toHaveLength(1);
+      expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();
+      expect((await instance.handleInputQueue(mutation, context)).status).toBe(
+        200
+      );
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+      expect(receive).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("retains ended or unsupported native targets without starting a replacement Wake", async () => {
+    await fixture(async ({ instance, state, signal }) => {
+      await instance.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      if (signal.type !== "signal.text") {
+        throw new Error("Expected text fixture");
+      }
+      const inputId = signal.data.meta?.clientMessageId;
+      if (!inputId) {
+        throw new Error("Missing fixture input id");
+      }
+      instance.bindings = {
+        ...instance.bindings,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          receiveExecutionInput: async () => ({
+            status: "rejected",
+            reason: "target_unavailable",
+          }),
+          readExecutionInput: async () => ({ status: "not_found" }),
+        },
+      };
+      await instance.steerQueuedExecutionInput(inputId);
+      expect(
+        listQueuedSpaceExecutionInputs(state.storage.sql)[0]
+      ).toMatchObject({ state: "queued", blocked: true });
+      expect(
+        state.storage.sql.exec("SELECT id FROM space_signals").toArray()
+      ).toHaveLength(0);
+      expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();
+    });
+  });
+
   it("shows one unconfirmed-input notice without claiming the original execution failed", async () => {
     await fixture(async ({ instance, state, request, post }) => {
       await post();

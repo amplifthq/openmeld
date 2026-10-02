@@ -8284,3 +8284,26 @@ Automatic updates require installable CLI and Service targets and use the
 projected source-specific CLI target. Skills-only drift cannot bootstrap an
 unavailable binary upgrade. Validate schema/report acceptance, source provenance,
 channel/platform/retained-Service matrices, safety floors and automatic dispatch.
+## Pending Space Input Receiver
+
+`spaceInputQueueMutationSchema` and `spaceInputQueueResponseSchema` define the
+additive Core-to-Space `spaceInputQueue` / `rpcInputQueue` contract. The receiver
+uses the existing Center input target and client message ID schemas. The caller
+never supplies an author or a native submission identity: authenticated context
+and the Space's active native-delivery lookup supply them. This initial receiver
+requires an active Human membership owned by the authenticated caller, and the
+original verified Human sender of a private Center DM for enqueue. Read and
+mutation results expose only that author's inputs. Steer also compares the
+requested dispatch and Profile with the stored target. It never retargets an
+existing row to a newer execution.
+
+No Gateway route, public API client, Agent tool, Service transport message, or
+Web composer calls this receiver yet. It is not a supported Queue/Steer MVP.
+Future public callers must deploy after the Core receiver and must complete a
+new authority and mixed-version audit. Existing setup, Wake, Space actions,
+diagnostics, and legacy Center input callers keep their current payloads and
+behavior. The additive schemas do not require a Service execution epoch change;
+shared schema and adapter sources still affect packaged local artifacts, so a
+future release must stamp and verify those artifacts instead of treating this as
+a cloud-only change. Rollback removes new callers first; pending Queue rows stay
+held and are invisible to the old outbox forwarding deadline query.

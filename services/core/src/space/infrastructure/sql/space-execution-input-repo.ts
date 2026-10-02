@@ -20,12 +20,35 @@ export function ensureSpaceExecutionInputOutbox(sql: SqlStorage): void {
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_execution_input_due ON space_execution_input_outbox(next_attempt_at_ms) WHERE next_attempt_at_ms IS NOT NULL"
   );
+  const columns = new Set(
+    sql
+      .exec<{ name: string }>("PRAGMA table_info(space_execution_input_outbox)")
+      .toArray()
+      .map((row) => row.name)
+  );
+  for (const [name, definition] of [
+    ["queue_state", "TEXT"],
+    ["queue_position", "INTEGER"],
+    ["queue_claim", "TEXT"],
+    ["queue_receipt_due_at_ms", "INTEGER"],
+    ["queue_blocked", "INTEGER NOT NULL DEFAULT 0"],
+  ] as const) {
+    if (!columns.has(name)) {
+      sql.exec(
+        `ALTER TABLE space_execution_input_outbox ADD COLUMN ${name} ${definition}`
+      );
+    }
+  }
 }
 
 export function readSpaceExecutionInput(sql: SqlStorage, inputId: string) {
   const row = sql
-    .exec<{ request_json: string; signal_json: string }>(
-      "SELECT request_json, signal_json FROM space_execution_input_outbox WHERE input_id = ?",
+    .exec<{
+      request_json: string;
+      signal_json: string;
+      queue_state: string | null;
+    }>(
+      "SELECT request_json, signal_json, queue_state FROM space_execution_input_outbox WHERE input_id = ?",
       inputId
     )
     .toArray()[0];
@@ -33,6 +56,7 @@ export function readSpaceExecutionInput(sql: SqlStorage, inputId: string) {
     return null;
   }
   return {
+    queued: row.queue_state !== null,
     request: remoteAgentWorkerExecutionInputRequestSchema.parse(
       JSON.parse(row.request_json)
     ),
@@ -46,15 +70,162 @@ export function insertSpaceExecutionInput(
     request: RemoteAgentWorkerExecutionInputRequest;
     signal: SignalEnvelope;
     nowMs: number;
+    queued?: boolean;
   }
 ): void {
+  if (
+    input.queued &&
+    (input.signal.type !== "signal.text" ||
+      !input.signal.data.meta?.centerAgentExecutionInput ||
+      input.request.target.spaceId !== input.signal.spaceId ||
+      input.request.authorProfileId !== input.signal.profile.profileId ||
+      input.request.sourceSignalId !== input.signal.id)
+  ) {
+    throw new Error("Queued execution input requires its exact Space target.");
+  }
   sql.exec(
-    `INSERT INTO space_execution_input_outbox (input_id, request_json, signal_json, next_attempt_at_ms)
-    VALUES (?, ?, ?, ?)`,
+    `INSERT INTO space_execution_input_outbox (input_id, request_json, signal_json, next_attempt_at_ms, queue_state, queue_position)
+    VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(queue_position), 0) + 1 FROM space_execution_input_outbox))`,
     input.request.inputId,
     JSON.stringify(input.request),
     JSON.stringify(input.signal),
-    input.nowMs
+    input.queued ? null : input.nowMs,
+    input.queued ? "queued" : null
+  );
+}
+
+type QueueClaim = "consume" | "steer";
+
+/** The outbox retains the one input record before and after native delivery. */
+export function listQueuedSpaceExecutionInputs(sql: SqlStorage) {
+  return sql
+    .exec<{
+      input_id: string;
+      request_json: string;
+      signal_json: string;
+      queue_state: "queued" | "claimed" | "unconfirmed";
+      queue_claim: QueueClaim | null;
+      queue_blocked: number;
+    }>(`SELECT input_id, request_json, signal_json, queue_state, queue_claim, queue_blocked
+    FROM space_execution_input_outbox
+    WHERE queue_state IN ('queued', 'claimed', 'unconfirmed')
+    ORDER BY queue_position`)
+    .toArray()
+    .map((row) => ({
+      inputId: row.input_id,
+      request: remoteAgentWorkerExecutionInputRequestSchema.parse(
+        JSON.parse(row.request_json)
+      ),
+      signal: signalTextEnvelopeSchema.parse(JSON.parse(row.signal_json)),
+      state: row.queue_state,
+      claim: row.queue_claim,
+      blocked: row.queue_blocked === 1,
+    }));
+}
+
+export function deleteQueuedSpaceExecutionInput(
+  sql: SqlStorage,
+  inputId: string,
+  authorProfileId: string
+): boolean {
+  return (
+    sql
+      .exec(
+        `UPDATE space_execution_input_outbox SET queue_state = 'deleted'
+    WHERE input_id = ? AND queue_state = 'queued'
+    AND json_extract(request_json, '$.authorProfileId') = ? RETURNING input_id`,
+        inputId,
+        authorProfileId
+      )
+      .toArray().length === 1
+  );
+}
+
+/** Run inside the Space storage transaction together with the caller's authorization. */
+export function reorderQueuedSpaceExecutionInputs(
+  sql: SqlStorage,
+  expectedIds: readonly string[],
+  orderedIds: readonly string[]
+): boolean {
+  const rows = sql
+    .exec<{ input_id: string; queue_position: number }>(
+      "SELECT input_id, queue_position FROM space_execution_input_outbox WHERE queue_state = 'queued' ORDER BY queue_position"
+    )
+    .toArray();
+  if (
+    rows.length !== expectedIds.length ||
+    rows.some((row, index) => row.input_id !== expectedIds[index]) ||
+    orderedIds.length !== rows.length ||
+    new Set(orderedIds).size !== rows.length ||
+    orderedIds.some((id) => !expectedIds.includes(id))
+  ) {
+    return false;
+  }
+  for (const [index, id] of orderedIds.entries()) {
+    const row = rows[index];
+    if (!row) {
+      throw new Error("Queue order changed during transaction.");
+    }
+    sql.exec(
+      "UPDATE space_execution_input_outbox SET queue_position = ? WHERE input_id = ? AND queue_state = 'queued'",
+      row.queue_position,
+      id
+    );
+  }
+  return true;
+}
+
+/** Claim before any await. Unknown delivery holds every later input for this target. */
+export function claimQueuedSpaceExecutionInput(
+  sql: SqlStorage,
+  inputId: string,
+  claim: QueueClaim
+): boolean {
+  return (
+    sql
+      .exec(
+        `UPDATE space_execution_input_outbox AS candidate
+    SET queue_state = 'claimed', queue_claim = ?, queue_receipt_due_at_ms = CASE WHEN ? = 'steer' THEN ? ELSE NULL END
+    WHERE input_id = ? AND queue_state = 'queued' AND queue_blocked = 0
+    AND NOT EXISTS (SELECT 1 FROM space_execution_input_outbox AS other
+      WHERE json_extract(other.signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId') = json_extract(candidate.signal_json, '$.data.meta.centerAgentExecutionInput.targetProfileId')
+      AND (other.queue_state IN ('claimed', 'unconfirmed') OR
+        (? = 'consume' AND other.queue_state = 'queued' AND other.queue_position < candidate.queue_position)))
+    RETURNING input_id`,
+        claim,
+        claim,
+        Date.now() + 1000,
+        inputId,
+        claim
+      )
+      .toArray().length === 1
+  );
+}
+
+export function settleQueuedSpaceExecutionInput(
+  sql: SqlStorage,
+  inputId: string,
+  claim: QueueClaim,
+  outcome: "applied" | "rejected" | "unconfirmed"
+): boolean {
+  const stateByOutcome = {
+    applied: "consumed",
+    rejected: "queued",
+    unconfirmed: "unconfirmed",
+  } as const;
+  return (
+    sql
+      .exec(
+        `UPDATE space_execution_input_outbox
+    SET queue_state = ?, queue_blocked = ?, queue_receipt_due_at_ms = NULL
+    WHERE input_id = ? AND queue_claim = ? AND queue_state IN ('claimed', 'unconfirmed')
+    RETURNING input_id`,
+        stateByOutcome[outcome],
+        outcome === "rejected" ? 1 : 0,
+        inputId,
+        claim
+      )
+      .toArray().length === 1
   );
 }
 
@@ -65,9 +236,13 @@ export function listDueSpaceExecutionInputs(sql: SqlStorage, nowMs: number) {
       request_json: string;
       signal_json: string;
       attempt_count: number;
+      queue_claim: QueueClaim | null;
     }>(
-      `SELECT input_id, request_json, signal_json, attempt_count FROM space_execution_input_outbox
-     WHERE next_attempt_at_ms IS NOT NULL AND next_attempt_at_ms <= ? ORDER BY rowid LIMIT 20`,
+      `SELECT input_id, request_json, signal_json, attempt_count, queue_claim FROM space_execution_input_outbox
+     WHERE (queue_state IS NULL AND next_attempt_at_ms <= ?)
+       OR (queue_claim = 'steer' AND queue_state IN ('claimed', 'unconfirmed') AND queue_receipt_due_at_ms <= ?)
+     ORDER BY rowid LIMIT 20`,
+      nowMs,
       nowMs
     )
     .toArray()
@@ -78,6 +253,7 @@ export function listDueSpaceExecutionInputs(sql: SqlStorage, nowMs: number) {
       ),
       signal: signalTextEnvelopeSchema.parse(JSON.parse(row.signal_json)),
       attemptCount: row.attempt_count,
+      queueClaim: row.queue_claim,
     }));
 }
 
@@ -90,7 +266,11 @@ export function updateSpaceExecutionInput(
   }
 ): void {
   sql.exec(
-    "UPDATE space_execution_input_outbox SET next_attempt_at_ms = ?, response_json = COALESCE(?, response_json), attempt_count = attempt_count + 1 WHERE input_id = ?",
+    `UPDATE space_execution_input_outbox
+      SET next_attempt_at_ms = CASE WHEN queue_state IS NULL THEN ? ELSE NULL END,
+          queue_receipt_due_at_ms = CASE WHEN queue_state IN ('claimed', 'unconfirmed') THEN ? ELSE NULL END,
+          response_json = COALESCE(?, response_json), attempt_count = attempt_count + 1 WHERE input_id = ?`,
+    input.nextAttemptAtMs,
     input.nextAttemptAtMs,
     input.response ? JSON.stringify(input.response) : null,
     input.inputId
@@ -103,7 +283,8 @@ export function readNextSpaceExecutionInputAlarm(
   return (
     sql
       .exec<{ due: number | null }>(
-        "SELECT MIN(next_attempt_at_ms) AS due FROM space_execution_input_outbox"
+        `SELECT MIN(CASE WHEN queue_state IS NULL THEN next_attempt_at_ms ELSE queue_receipt_due_at_ms END) AS due FROM space_execution_input_outbox
+         WHERE queue_state IS NULL OR (queue_claim = 'steer' AND queue_state IN ('claimed', 'unconfirmed'))`
       )
       .toArray()[0]?.due ?? null
   );

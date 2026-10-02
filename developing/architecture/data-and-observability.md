@@ -327,6 +327,31 @@ it only after the input is recorded there. Core retries pending forwarding
 through the existing Space alarm and retains terminal receipts for replay.
 Deleting the Space removes its input outbox with the rest of Space data.
 
+The pending-input receiver retains editable inputs in that same outbox, not a
+second browser queue. A queued row has no forwarding deadline. Its Space-owned
+position is also the ordinary-consumption claim order. Synchronous conditional
+claims fence delete, reorder, ordinary consumption, and explicit Steer; claimed
+or uncertain input cannot be claimed again. Reordering compares the complete
+pending order before changing it in one storage transaction. Deleted and consumed
+rows remain as idempotency records and cannot be resurrected by enqueue replay.
+These are input-delivery states, never execution states.
+
+The current internal `spaceInputQueue` receiver supports only the original Human
+Profile of one native Center DM execution. It does not grant another Space member
+or Agent the original execution's frozen authority. Queue Steer sends once, then
+uses the existing Remote receipt reader. A missing or rejected receipt query is
+not proof that an earlier send was rejected. Unknown application retains and
+holds the input; an explicit intake rejection retains it as blocked Queue work.
+Only exact-target application removes it and publishes its original Signal,
+atomically, without creating a Wake. Queue receipt deadlines use a separate
+column so an older Core's forwarding query cannot resend uncertain Queue input.
+Old outbox rows retain their existing forwarding behavior.
+
+The receiver has no Gateway, Web, or Agent tool caller yet. Ordinary consumption
+has an atomic claim primitive but no automatic promotion owner integration.
+Do not enable default Queue in a client until that integration and the complete
+visible pending-input flow are validated together.
+
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
