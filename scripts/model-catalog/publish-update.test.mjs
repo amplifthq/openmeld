@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { parseCodexModels, prepareUpdate } from "./catalog-update.mjs";
 import { combineUpdates } from "./collect-update.mjs";
 import { publishUpdate } from "./publish-update.mjs";
@@ -60,7 +69,27 @@ test("publication skips evidence-only scans and recovers meaningful proposals wi
       "scripts/model-catalog/sources.json",
       JSON.stringify({ codex: { verification: "Verify account access." } })
     );
-    await writeFile(".gitignore", "dev-tmp/\n");
+    await writeFile(".gitignore", "dev-tmp/\nnode_modules/\n");
+    await writeFile(
+      "package.json",
+      JSON.stringify({
+        name: "catalog-publisher-fixture",
+        private: true,
+        packageManager: "pnpm@10.30.0",
+      })
+    );
+    await copyFile(
+      new URL("../../biome.jsonc", import.meta.url),
+      "biome.jsonc"
+    );
+    await mkdir("node_modules");
+    for (const name of [".bin", "@biomejs", "ultracite"]) {
+      await symlink(
+        fileURLToPath(new URL(`../../node_modules/${name}`, import.meta.url)),
+        join(repo, "node_modules", name),
+        "junction"
+      );
+    }
     git("add", ".");
     git("commit", "-m", "test: establish catalog baseline");
     git("remote", "add", "origin", remote);
@@ -170,6 +199,17 @@ if (args[0] === 'pr' && args[1] === 'list') {
     await writeResult(result);
     await assert.rejects(() => publishUpdate(output));
     const pushed = git("rev-parse", "HEAD");
+    execFileSync(
+      "pnpm",
+      [
+        "exec",
+        "biome",
+        "format",
+        "release/model-catalog-evidence/codex.json",
+        "release/vendor-models.json",
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
     git("checkout", "main");
     const refreshed = prepareUpdate({
       catalog,

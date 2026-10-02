@@ -369,6 +369,14 @@ export async function publishUpdate(output) {
       "release/vendor-models.json"
     );
   }
+  command("pnpm", [
+    "exec",
+    "biome",
+    "format",
+    "--write",
+    ...evidencePaths,
+    "release/vendor-models.json",
+  ]);
   command("git", ["add", "--", ...evidencePaths, "release/vendor-models.json"]);
   command("git", [
     "-c",
