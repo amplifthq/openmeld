@@ -157,7 +157,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		expect(resolveOrbState(indicator)).toBe("connecting");
 	});
 
-	it("uses final-status waiting copy after forty-five seconds without new evidence", () => {
+	it("keeps the authoritative running state after forty-five seconds without visible progress", () => {
 		vi.setSystemTime(STARTED_AT_MS + 45_000);
 
 		render(
@@ -165,7 +165,6 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 				entries={[
 					createThinkingEntry({
 						elapsedStartedAtMs: STARTED_AT_MS,
-						lastEvidenceAtMs: STARTED_AT_MS,
 					}),
 				]}
 			/>
@@ -173,13 +172,13 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe("Still waiting for the final status.");
+		).toBe("Agent is working · 45s");
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBe("breathing");
+		).toBe("solving");
 	});
 
-	it("keeps showing active progress when recent evidence refreshed the Wake", () => {
+	it("keeps showing elapsed time after fifty seconds", () => {
 		vi.setSystemTime(STARTED_AT_MS + 50_000);
 
 		render(
@@ -187,7 +186,6 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 				entries={[
 					createThinkingEntry({
 						elapsedStartedAtMs: STARTED_AT_MS,
-						lastEvidenceAtMs: STARTED_AT_MS + 20_000,
 					}),
 				]}
 			/>
@@ -239,7 +237,6 @@ function createThinkingEntry(
 	const targetProfileId = input.targetProfileId ?? "agt_runner";
 	return {
 		elapsedStartedAtMs: input.elapsedStartedAtMs,
-		lastEvidenceAtMs: input.lastEvidenceAtMs ?? input.elapsedStartedAtMs,
 		key: input.key ?? `dispatch:${targetProfileId}`,
 		kind: input.kind ?? "progress",
 		phase: input.phase ?? (input.kind === "preview" ? "writing" : "running"),

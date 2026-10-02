@@ -691,6 +691,50 @@ describe("Remote Agent streaming", () => {
     });
   });
 
+  it.each([
+    "organization_shared",
+    "requester_private",
+    "externally_shared",
+    undefined,
+  ] as const)("streams continuations only for explicit Space audiences (%s)", (interactionEnvironment) => {
+    const request = createSubmitTurnRequest();
+    request.turnEnvelope.interactionEnvironment = interactionEnvironment;
+    request.turnEnvelope.trigger = {
+      source: "task_continuation",
+      subscriptionId: "subscription-1",
+      delegationId: "delegation-1",
+      watchedTask: { v: 1, kind: "native_delivery", deliveryId: "parent-1" },
+      outcome: {
+        status: "completed",
+        errorCode: null,
+        eventId: "completed-1",
+        occurredAtMs: TEST_NOW_MS,
+        publishedSignalId: "reply-1",
+      },
+    };
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    expect(isRemoteAgentStreamEligible(context)).toBe(
+      interactionEnvironment === "organization_shared" ||
+        interactionEnvironment === "requester_private"
+    );
+    expect(
+      isRemoteAgentStreamEligible({ ...context, callbackStatus: "completed" })
+    ).toBe(false);
+    expect(
+      isRemoteAgentStreamEligible({
+        ...context,
+        replyRecovery: {
+          originalDispatchId: "original",
+          operationId: "recovery",
+        },
+      })
+    ).toBe(false);
+  });
+
   it("streams Space conversations but excludes Slack result surfaces", () => {
     const spaceContext = createRemoteAgentCallbackContext({
       ack: ACK,
