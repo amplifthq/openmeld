@@ -3519,6 +3519,14 @@ Core-owned hosted readiness has exactly two product states in MVP:
 
 ### Free MVP with operator containment and usage visibility
 
+Remote inference usage records distinguish Flue's `agent`, `compaction`, and
+`compaction_prefix` purposes by joining the public turn-request observation to
+its exact model interceptor within the submission. No prompt content is stored
+by that join. Compaction remains part of the public `agent` purpose aggregate,
+so existing Usage clients can read totals unchanged; the ledger retains the
+detail for operator cost analysis. Core must accept the added record purposes
+before Remote Agent emits them. No local Service or CLI contract changes.
+
 - The Remote Agent is **free** in MVP. No billing build.
 - The retired **$50/org/day circuit breaker**, `resting` state, and
   **60 Remote Agent triggers/member/hour** limit are not active product
