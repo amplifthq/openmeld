@@ -2090,6 +2090,18 @@ OpenMeld configures compaction with two explicit budgets:
 - `keepRecentTokens = 8,000` preserves the latest verbatim conversation tail
   after older messages are summarized.
 
+Frozen model routes use the worker's reviewed exact-model prompt-price bands
+as well as the capacity reserve. The route's model, reasoning, modalities and
+physical window stay frozen; no live metadata lookup or model substitution is
+introduced during a task. Legacy metadata-resolved routes use the same threshold
+calculation with their provider-reported bands. The reviewed policy is in
+`flue-adapter/model-context-policy.ts`; unknown model IDs retain the capacity
+reserve and never inherit a price band from their vendor or family name.
+These are economic triggers, not provider admission limits. The final payload
+guard uses the physical window with its ordinary safety reserve, so a summary
+request can read history that crossed the cheaper band. Compaction and the
+subsequent cache rebuild both count toward actual task cost.
+
 These values are runtime policy, not another context store. The current turn
 envelope and authoritative system prompt continue to be rebuilt from their
 owning Core facts on every submission, so compaction does not have to preserve

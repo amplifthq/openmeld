@@ -570,6 +570,33 @@ describe("remote agent model routing", () => {
     }
   });
 
+  it.each([
+    ["openai/gpt-6.1-sol-pro", 1_050_000, 217_600],
+    ["openai/gpt-6.1-sol", 1_050_000, 217_600],
+    ["x-ai/grok-4.5", 500_000, 160_000],
+    ["openai/gpt-6.1-sol-pro", 100_000, 90_000],
+  ])("compacts the frozen %s route before its price band within a %i window", async (modelId, contextWindow, threshold) => {
+    const fetchModelMetadata = vi.fn();
+    const config = await resolveRemoteAgentModelRuntimeConfigForRegistration({
+      env: {},
+      fetchModelMetadata,
+      modelRoute: {
+        ...TEST_CENTER_AGENT_MODEL_ROUTE,
+        modelId,
+        contextWindow,
+      },
+    });
+    expect(config.contextWindow - config.compaction.reserveTokens).toBe(
+      threshold
+    );
+    expect(config.contextWindow).toBe(contextWindow);
+    expect(config.modelId).toBe(modelId);
+    expect(config.maxTokens).toBe(
+      TEST_CENTER_AGENT_MODEL_ROUTE.maxOutputTokens
+    );
+    expect(fetchModelMetadata).not.toHaveBeenCalled();
+  });
+
   it("uses the frozen per-turn DeepSeek route without reading mutable model metadata", async () => {
     const fetchModelMetadata = vi.fn();
 
