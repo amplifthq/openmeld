@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T07:22:50.798Z",
+  "updatedAt": "2026-10-02T09:02:07.431Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.234",
+      "packageVersion": "0.3.235",
       "updatePolicy": "available",
       "reason": "Existing setup, commands, dispatch-owned Space actions and diagnostics remain compatible; cloud receivers deploy first and both CLI floors are preserved."
     },
     "service": {
-      "bundleHash": "d77a481543619d9f64f5a019b013d4d3eb8bd50654a1d2e42ca3e2d850e6d5d4",
-      "portableBundleHash": "874c9e0ed248884880b115afc72e88dee877a7986ff184ff9e477259e52bcd21",
-      "bundleVersion": "0.3.234",
+      "bundleHash": "1e68f0fd81340c9e456f1b7e3f86ac3dd46d273d834a62b612790946fb0614eb",
+      "portableBundleHash": "d8515f1c674d8155a8c037b6c9666672ae8a49e3639d3ad19865c43de1adcbed",
+      "bundleVersion": "0.3.235",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Cloud receivers precede optional usage reporting; existing Wake, runtime transport and self-rescue remain compatible. P0 local Git isolation adds no new capability requirement; retain the existing Service floor."
+      "reason": "Only the shared reconciliation schema Zod import form changed. Its fields, validation behavior, transport contracts, Wake lifecycle and update floors remain unchanged; old cloud with new Service and new cloud with old Service remain compatible."
     },
     "skills": {
       "bundleHash": "2d2bc74e8aa66f6f78f469f6d4441467ebab07d5e6ccceb89c7b22a24b38746f",
