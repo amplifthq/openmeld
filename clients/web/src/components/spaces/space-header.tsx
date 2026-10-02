@@ -67,6 +67,8 @@ export function SpaceWindowHeader(input: {
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			data-has-leading-control={Boolean(input.leadingControl)}
+			data-slot="space-window-header"
 			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl || hasModuleSidebar ? (

@@ -136,6 +136,24 @@ html[data-sidebar-display="icons-only"] [data-slot="app-outer-rail"][data-presen
   --sidebar-border: var(--border);
 }
 
+/* A hidden sidebar toggle must not leave its grid gap before the title or tabs. */
+[data-slot="space-window-header"]:not([data-compact="true"]):not(:has(> [data-slot="space-window-header-leading"]:not(:empty)))
+  > [data-slot="space-window-header-title"],
+[data-slot="space-window-header"][data-compact="true"]:not(:has(> [data-slot="space-window-header-leading"]:not(:empty)))
+  [data-slot="space-window-header-navigation"] {
+  grid-column: 1 / 3;
+}
+
+/* The sidebar toggle is desktop-only; real leading controls still keep their column. */
+@media (width < 64rem) {
+  [data-slot="space-window-header"][data-has-leading-control="false"]:not([data-compact="true"])
+    > [data-slot="space-window-header-title"],
+  [data-slot="space-window-header"][data-has-leading-control="false"][data-compact="true"]
+    [data-slot="space-window-header-navigation"] {
+    grid-column: 1 / 3;
+  }
+}
+
 html[data-space-conversation-layout="centered"]
   [data-space-conversation-content-width] {
   width: 100%;
