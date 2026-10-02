@@ -34,10 +34,15 @@ import {
   createDispatchContinuationSpaceAccessContext,
 } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
+import {
+  recordAgentTaskTerminalOutcome,
+  registerAgentTaskCompletionSubscription,
+} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
 import { writeDispatchResult } from "../src/dispatch/application/dispatch-result-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
+  markRemoteAgentNativeDeliveryCompleted,
   markRemoteAgentPreAdmissionFailurePublished,
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
@@ -12656,6 +12661,171 @@ describe("OpenMeld Core", () => {
       await env.OPENMELD_DB.prepare(
         "ALTER TABLE openMeldDaemon_dispatch_results_offline RENAME TO openMeldDaemon_dispatch_results"
       ).run();
+    }
+  });
+
+  it.each([
+    "same Space",
+    "another Space",
+    "another Space with parent thread",
+  ])("keeps continuation progress on the parent request when its child finishes in %s", async (childLocation) => {
+    const parentSpaceId = await createSpace({ name: "synthetic-parent" });
+    const childSpaceId =
+      childLocation === "same Space"
+        ? parentSpaceId
+        : await createSpace({ name: "synthetic-child" });
+    let parentRequest = await postTextSignal(
+      parentSpaceId,
+      "Summarize the child task"
+    );
+    let threadId: string | null = null;
+    if (childLocation === "another Space with parent thread") {
+      const threadResponse = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${parentSpaceId}/threads`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            clientMutationId: randomUUID(),
+            rootSignalId: parentRequest.id,
+          }),
+        }
+      );
+      expect(threadResponse.status).toBe(200);
+      const thread = (await threadResponse.json()) as {
+        thread: { threadId: string };
+      };
+      threadId = thread.thread.threadId;
+      const requestResponse = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${parentSpaceId}/threads/${threadId}/signals`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            clientMessageId: randomUUID(),
+            text: "Summarize the child task in this thread",
+          }),
+        }
+      );
+      expect(requestResponse.status).toBe(200);
+      const payload = (await requestResponse.json()) as {
+        signal: SignalEnvelope;
+      };
+      if (!isTextSignalEnvelope(payload.signal)) {
+        throw new Error("Expected a thread request");
+      }
+      parentRequest = payload.signal;
+    }
+    const childResult = await postTextSignal(
+      childSpaceId,
+      "Child task complete"
+    );
+    const childAnchor = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${parentSpaceId}/signals?aroundSignalId=${childResult.id}&beforeCount=0&afterCount=0`
+    );
+    expect(childAnchor.status).toBe(childLocation === "same Space" ? 200 : 404);
+    const targetProfileId = "agt_00000000-0000-4000-8000-000000000001";
+    const nowMs = Date.now();
+    const watchedTask = {
+      v: 1 as const,
+      kind: "space_wake" as const,
+      spaceId: childSpaceId,
+      sourceClientMessageId: `child-${childResult.id}`,
+      targetProfileId,
+    };
+    const subscription = await registerAgentTaskCompletionSubscription({
+      db: env.OPENMELD_DB,
+      nowMs,
+      completionCondition: "terminal",
+      continuation: {
+        kind: "resume_agent",
+        delegationId: `delegation-${parentRequest.id}`,
+        instruction: "Summarize the child result",
+      },
+      observerTask: {
+        v: 1,
+        kind: "native_delivery",
+        deliveryId: `observer-${parentRequest.id}`,
+      },
+      watchedTask,
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      idempotencyKey: `subscription-${parentRequest.id}`,
+      subscriptionId: `subscription-${parentRequest.id}`,
+    });
+    await recordAgentTaskTerminalOutcome({
+      db: env.OPENMELD_DB,
+      nowMs,
+      task: watchedTask,
+      outcome: {
+        status: "succeeded",
+        errorCode: null,
+        eventId: `done-${childResult.id}`,
+        occurredAtMs: nowMs,
+        publishedSignalId: childResult.id,
+      },
+    });
+    const dispatchId = subscription.continuationIdempotencyKey;
+    if (!dispatchId) {
+      throw new Error("Expected a continuation dispatch identity");
+    }
+    await upsertRemoteAgentNativeDeliveryRecord({
+      db: env.OPENMELD_DB,
+      nowMs,
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      conversationKind: "space",
+      spaceId: parentSpaceId,
+      profileId: targetProfileId,
+      bindingId: "synthetic-binding",
+      triggerMessageId: parentRequest.id,
+      sourceClientMessageId: null,
+      dispatchId,
+      attemptId: null,
+      idempotencyKey: dispatchId,
+      status: "submitted",
+      onBehalfOfProfileId: DEFAULT_HUMAN_PROFILE_ID,
+    });
+    await markRemoteAgentNativeDeliveryAck({
+      db: env.OPENMELD_DB,
+      nowMs,
+      idempotencyKey: dispatchId,
+      submissionId: `submission-${parentRequest.id}`,
+      accepted: true,
+    });
+    for (const includeWakeStopEligibility of [false, true]) {
+      const response = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${parentSpaceId}/active-wake-progress?includeSourceContext=true&includeTiming=true&includeWakeStopEligibility=${includeWakeStopEligibility}`
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        items: Array<{
+          dispatchId: string;
+          sourceSignalId: string;
+          sourceContext: unknown;
+        }>;
+      };
+      const item = body.items.find((item) => item.dispatchId === dispatchId);
+      expect.soft(item?.sourceSignalId).toBe(parentRequest.id);
+      expect
+        .soft(item?.sourceContext)
+        .toMatchObject({ threadId, profileId: DEFAULT_HUMAN_PROFILE_ID });
+    }
+    await markRemoteAgentNativeDeliveryCompleted({
+      db: env.OPENMELD_DB,
+      nowMs: nowMs + 1,
+      submissionId: `submission-${parentRequest.id}`,
+      publishedSignalId: null,
+    });
+    for (const includeWakeStopEligibility of [false, true]) {
+      const response = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${parentSpaceId}/active-wake-progress?includeWakeStopEligibility=${includeWakeStopEligibility}`
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        items: Array<{ dispatchId: string }>;
+      };
+      expect(body.items.some((item) => item.dispatchId === dispatchId)).toBe(
+        false
+      );
     }
   });
 
