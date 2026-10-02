@@ -689,11 +689,14 @@ import {
 } from "../../infrastructure/sql/space-cursor-repo";
 import { readSpaceDispatchRule } from "../../infrastructure/sql/space-dispatch-rule-repo";
 import {
+  blockQueuedSpaceInput,
   claimQueuedSpaceExecutionInput,
+  completeQueuedSpaceInputHandoff,
   deleteQueuedSpaceExecutionInput,
   insertSpaceExecutionInput,
   listDueSpaceExecutionInputs,
   listQueuedSpaceExecutionInputs,
+  listReadySpaceInputIds,
   readNextSpaceExecutionInputAlarm,
   readSpaceExecutionInput,
   reorderQueuedSpaceExecutionInputs,
@@ -2707,6 +2710,9 @@ export class Space extends DurableObject<CoreBindings> {
     );
     await this.runIsolatedAlarmStep("execution_input_outbox", () =>
       this.flushPendingExecutionInputs()
+    );
+    await this.runIsolatedAlarmStep("queued_space_inputs", () =>
+      this.flushQueuedSpaceInputs()
     );
     await this.runIsolatedAlarmStep("deleted_member_liveness", () =>
       this.reconcileDeletedAgentProfileMemberLiveness()
@@ -6955,7 +6961,12 @@ export class Space extends DurableObject<CoreBindings> {
     const nextAlarmAtMs = minNullableTimestamp(
       minNullableTimestamp(
         nextNonStreamAlarmAtMs,
-        readNextSpaceExecutionInputAlarm(this.ctx.storage.sql)
+        minNullableTimestamp(
+          readNextSpaceExecutionInputAlarm(this.ctx.storage.sql),
+          listReadySpaceInputIds(this.ctx.storage.sql).length
+            ? Date.now()
+            : null
+        )
       ),
       minNullableTimestamp(
         nextAgentStreamAlarmAtMs,
@@ -7497,6 +7508,10 @@ export class Space extends DurableObject<CoreBindings> {
           return errorResponse;
         }
       }
+      await this.broadcastSpaceMetaChanged({
+        reason: "space.input_queue.updated",
+      });
+      await this.syncSpaceBackgroundAlarm();
       return Response.json(read());
     } catch (error) {
       if (error instanceof SpaceSignalAuthoringError) {
@@ -19044,6 +19059,24 @@ export class Space extends DurableObject<CoreBindings> {
       signalContext,
       callerContext
     );
+    const queuedHandoff = signalContext?.queuedInputHandoff;
+    if (
+      queuedHandoff &&
+      (callerContext?.relationship !== "internal" ||
+        preparedDispatchOutboxPlan.outboxRecords.length !== 1 ||
+        preparedDispatchOutboxPlan.outboxRecords[0]?.controllerSnapshot
+          .agentControllerRef !== "hosted:center-agent" ||
+        preparedDispatchOutboxPlan.outboxRecords[0]?.targetProfileId !==
+          (signal.type === "signal.text"
+            ? signal.data.messageEnvelope?.activationTargets[0]
+            : undefined))
+    ) {
+      throw new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 409,
+        message: "This message is still queued. Its Agent is not available.",
+      });
+    }
     const retentionResult = persistSignalWithRetention({
       insertSignal: () => {
         const result = runAgentReplyObservationGuardedTransaction({
@@ -19060,8 +19093,15 @@ export class Space extends DurableObject<CoreBindings> {
                     : signalContext.agentReplyObservation.sourceThreadId,
               }
             : null,
+          // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: claim, publication, outbox, and successor dependency must commit or roll back together.
           operation: () => {
+            if (!this.claimQueuedInputHandoff(queuedHandoff)) {
+              return;
+            }
             if (!this.admitSpaceTaskSignal(signal, signalContext)) {
+              if (queuedHandoff) {
+                throw new Error("Queued message admission was not persisted.");
+              }
               return;
             }
             const pluginContinuation = this.checkPluginContinuationInsertion(
@@ -19076,6 +19116,11 @@ export class Space extends DurableObject<CoreBindings> {
               insertResult.duplicateFinalReplyBlocked;
             persistedSignal = insertResult.persistedSignal;
             if (!persistedSignal) {
+              if (queuedHandoff) {
+                throw new Error(
+                  "Queued message already has a conflicting publication."
+                );
+              }
               return;
             }
             pluginContinuation?.repository.accept(
@@ -19099,6 +19144,17 @@ export class Space extends DurableObject<CoreBindings> {
               preparedDispatchOutboxPlan.outboxRecords,
               dispatchMessages
             );
+            if (queuedHandoff) {
+              const dispatch = dispatchMessages[0];
+              if (!dispatch || dispatchMessages.length !== 1) {
+                throw new Error("Queued message dispatch was not persisted.");
+              }
+              completeQueuedSpaceInputHandoff(
+                this.ctx.storage.sql,
+                queuedHandoff.inputId,
+                dispatch.dispatchId
+              );
+            }
           },
           storage: this.ctx.storage,
         });
@@ -22784,6 +22840,16 @@ export class Space extends DurableObject<CoreBindings> {
       }
       if (queued) {
         this.assertQueuedInputMembers(signal);
+        if (
+          readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+            dispatchId: selector.dispatchId,
+            profileId: selector.targetProfileId,
+          })
+        ) {
+          throw invalid(
+            "That response has ended. Your message has not been queued."
+          );
+        }
       }
       if (
         queued &&
@@ -22812,6 +22878,7 @@ export class Space extends DurableObject<CoreBindings> {
       return true;
     });
     if (queued) {
+      await this.syncSpaceBackgroundAlarm();
       return;
     }
     if (saved) {
@@ -22829,6 +22896,93 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
+  }
+
+  private async flushQueuedSpaceInputs(): Promise<void> {
+    for (const inputId of listReadySpaceInputIds(this.ctx.storage.sql)) {
+      const item = listQueuedSpaceExecutionInputs(this.ctx.storage.sql).find(
+        (row) => row.inputId === inputId
+      );
+      const target = item?.signal.data.meta?.centerAgentExecutionInput;
+      if (!(item && target)) {
+        continue;
+      }
+      const finalId = readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+        dispatchId: item.afterDispatchId,
+        profileId: target.targetProfileId,
+      });
+      const final = finalId ? this.readSignalById(finalId) : null;
+      const succeeded =
+        final &&
+        (classifyFinalReplyClaimOutcome(final) === "success" ||
+          (final.type === "signal.system_notice" &&
+            final.data.noticeType === "stay_silent"));
+      if (!succeeded) {
+        blockQueuedSpaceInput(this.ctx.storage.sql, inputId);
+        await this.broadcastSpaceMetaChanged({
+          reason: "space.input_queue.updated",
+        });
+        continue;
+      }
+      const signal = structuredClone(item.signal);
+      signal.data.meta = {
+        ...signal.data.meta,
+        centerAgentExecutionInput: undefined,
+      };
+      signal.ts = Date.now();
+      signal.data.messageEnvelope = {
+        text: signal.data.text,
+        activationTargets: [target.targetProfileId],
+        referenceTargets: [],
+      };
+      try {
+        this.assertQueuedInputMembers(item.signal);
+        await this.publishTextSignal(signal, {
+          authoringPolicy: "user_authored",
+          queuedInputHandoff: {
+            inputId,
+            afterDispatchId: item.afterDispatchId,
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof SpaceSignalAuthoringError)) {
+          throw error;
+        }
+        blockQueuedSpaceInput(this.ctx.storage.sql, inputId);
+        console.warn("[core.space.queue.handoff_blocked]", {
+          spaceId: this.spaceId,
+          inputId,
+          code: error.code,
+        });
+      }
+      await this.broadcastSpaceMetaChanged({
+        reason: "space.input_queue.updated",
+      });
+    }
+  }
+
+  private claimQueuedInputHandoff(
+    handoff: SignalPublishContext["queuedInputHandoff"]
+  ): boolean {
+    if (!handoff) {
+      return true;
+    }
+    const item = listQueuedSpaceExecutionInputs(this.ctx.storage.sql).find(
+      (row) => row.inputId === handoff.inputId
+    );
+    if (
+      !item ||
+      item.afterDispatchId !== handoff.afterDispatchId ||
+      !listReadySpaceInputIds(this.ctx.storage.sql).includes(item.inputId)
+    ) {
+      return false;
+    }
+    this.assertQueuedInputMembers(item.signal);
+    return claimQueuedSpaceExecutionInput(
+      this.ctx.storage.sql,
+      item.inputId,
+      "consume"
+    );
   }
 
   private async reconcileQueuedExecutionInput(
@@ -22859,6 +23013,9 @@ export class Space extends DurableObject<CoreBindings> {
       response,
       nextAttemptAtMs:
         response.status === "received" ? Date.now() + 1000 : null,
+    });
+    await this.broadcastSpaceMetaChanged({
+      reason: "space.input_queue.updated",
     });
   }
 

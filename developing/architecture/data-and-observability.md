@@ -336,7 +336,7 @@ pending order before changing it in one storage transaction. Deleted and consume
 rows remain as idempotency records and cannot be resurrected by enqueue replay.
 These are input-delivery states, never execution states.
 
-The current internal `spaceInputQueue` receiver supports only the original Human
+The current `spaceInputQueue` receiver supports only the original Human
 Profile of one native Center DM execution. It does not grant another Space member
 or Agent the original execution's frozen authority. Queue Steer sends once, then
 uses the existing Remote receipt reader. A missing or rejected receipt query is
@@ -347,10 +347,23 @@ atomically, without creating a Wake. Queue receipt deadlines use a separate
 column so an older Core's forwarding query cannot resend uncertain Queue input.
 Old outbox rows retain their existing forwarding behavior.
 
-The receiver has no Gateway, Web, or Agent tool caller yet. Ordinary consumption
-has an atomic claim primitive but no automatic promotion owner integration.
-Do not enable default Queue in a client until that integration and the complete
-visible pending-input flow are validated together.
+The Human/Center Web path uses the Gateway receiver and the same queue read
+projection. Ordinary consumption is driven by the existing persisted final reply
+claim for the preceding dispatch, not by client progress or elapsed time. The
+Space alarm promotes only the first eligible item after a successful reply or
+explicit silent outcome. Stop, failure, missing outcome content, revoked author,
+or an unavailable target retains blocked Queue work. Unknown Steer holds later
+claims as well.
+
+SQL schema 50 adds the preceding-dispatch dependency to the existing row. The
+normal publication owner prepares the usual current admission snapshot, then
+atomically claims the queued input, inserts its original Signal and single
+dispatch outbox record, retires the input, and moves remaining inputs behind
+that dispatch. A failed transaction leaves all inputs pending. After a crash,
+the existing durable dispatch outbox resumes the same identity; it does not
+claim or publish that queued input again. The dependency is input ordering,
+not a second execution state machine. Native execution and admission remain
+with Remote/Flue. Agent tools and Local Service callers remain unimplemented.
 
 OpenMeld separates durable truth from query projections.
 

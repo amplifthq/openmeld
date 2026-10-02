@@ -58,6 +58,7 @@ export { DesktopIcon } from "@phosphor-icons/react/Desktop";
 export { DesktopTowerIcon } from "@phosphor-icons/react/DesktopTower";
 export { DeviceMobileIcon } from "@phosphor-icons/react/DeviceMobile";
 export { DevicesIcon } from "@phosphor-icons/react/Devices";
+export { DotsSixVerticalIcon } from "@phosphor-icons/react/DotsSixVertical";
 export { DotsThreeIcon } from "@phosphor-icons/react/DotsThree";
 export { DownloadSimpleIcon } from "@phosphor-icons/react/DownloadSimple";
 export { EnvelopeIcon } from "@phosphor-icons/react/Envelope";

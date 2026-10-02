@@ -169,6 +169,7 @@ import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
+import { SpaceInputQueue } from "./space-input-queue";
 import {
 	hasSpaceMessageAttachments,
 	SpaceMessageAttachments,
@@ -2019,6 +2020,12 @@ function SpaceComposerSection(input: {
 				className="flex w-full flex-col gap-3 py-4"
 				data-space-conversation-content-width=""
 			>
+				{!panel.readOnly && panel.centerAgentProfileId && panel.spaceId ? (
+					<SpaceInputQueue
+						profileId={panel.selfProfileId}
+						spaceId={panel.spaceId}
+					/>
+				) : null}
 				<SpaceComposer
 					actions={{
 						onAddFiles: panel.onAddComposerFiles,

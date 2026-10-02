@@ -18,12 +18,14 @@ import {
   upsertSpaceCreatorMember,
 } from "../src/space/application/space-members-service";
 import type { SignalPublishContext } from "../src/space/application/types";
+import { createDispatchOutboxRecord } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import {
   listQueuedSpaceExecutionInputs,
   readNextSpaceExecutionInputAlarm,
   readSpaceExecutionInput,
 } from "../src/space/infrastructure/sql/space-execution-input-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
 
 type InputSpace = {
@@ -40,6 +42,18 @@ type InputSpace = {
   ): Promise<Response>;
   steerQueuedExecutionInput(inputId: string): Promise<void>;
   flushPendingExecutionInputs(): Promise<void>;
+  flushQueuedSpaceInputs(): Promise<void>;
+  flushPendingDispatchOutbox(): Promise<void>;
+  readSpaceCallerContext(): Promise<{
+    relationship: "internal" | "external";
+    spaceRole: "member";
+    audience: "organization";
+  }>;
+  prepareDispatchOutboxPlanForSignal(signal: SignalEnvelope): {
+    outboxRecords: ReturnType<typeof createDispatchOutboxRecord>[];
+    nonReadyDecisions: [];
+    plannerContext: null;
+  };
   recordOrganizationMemberHumanActivity(): Promise<void>;
   flushPendingSpaceInboxProjectionOutbox(): Promise<void>;
   syncSpaceBackgroundAlarm(): Promise<void>;
@@ -218,6 +232,200 @@ async function fixture(
 }
 
 describe("Center Agent execution input in the Space owner", () => {
+  it("atomically hands the first queued message to the normal outbox and replays without another dispatch", async () => {
+    await fixture(async ({ instance, state, signal, request }) => {
+      if (signal.type !== "signal.text") {
+        throw new Error("Expected a text input.");
+      }
+      await instance.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      const second = structuredClone(signal);
+      second.id = crypto.randomUUID();
+      second.data.meta = {
+        ...second.data.meta,
+        clientMessageId: crypto.randomUUID(),
+      };
+      await instance.publishExecutionInput(
+        second,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      vi.spyOn(instance, "flushPendingDispatchOutbox").mockResolvedValue();
+      vi.spyOn(instance, "readSpaceCallerContext").mockResolvedValue({
+        relationship: "internal",
+        spaceRole: "member",
+        audience: "organization",
+      });
+      vi.spyOn(
+        instance,
+        "prepareDispatchOutboxPlanForSignal"
+      ).mockImplementation((current) => ({
+        nonReadyDecisions: [],
+        plannerContext: null,
+        outboxRecords: [
+          createDispatchOutboxRecord({
+            bindingState: "bound",
+            bindingEnabled: true,
+            agentControllerRef: "hosted:center-agent",
+            dispatchPolicy: "mention_only",
+            ruleId: "queue-test",
+            ruleReason: "explicit target",
+            ruleSource: "system",
+            sourceSignalSnapshot: {
+              profileId: signal.profile.profileId,
+              profileKind: "human",
+              text:
+                current.type === "signal.text" ? current.data.text : "invalid",
+            },
+            senderProfileId: signal.profile.profileId,
+            spaceId: signal.spaceId,
+            sourceEventId: current.id,
+            targetProfileId: request.agentProfileId,
+            nowMs: Date.now(),
+          }),
+        ],
+      }));
+      await instance.flushQueuedSpaceInputs();
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toHaveLength(2);
+      insertSignalRecord(state.storage.sql, {
+        v: 1,
+        id: crypto.randomUUID(),
+        spaceId: signal.spaceId,
+        ts: Date.now(),
+        profile: {
+          kind: "agent",
+          profileId: request.agentProfileId,
+          profileName: "Center",
+        },
+        type: "signal.text",
+        data: {
+          text: "Done",
+          meta: {
+            purpose: "agent_reply_final",
+            dispatchId: request.dispatchId,
+            targetProfileId: request.agentProfileId,
+          },
+        },
+      });
+      // A database failure after claiming must roll back both the claim and message.
+      state.storage.sql.exec(
+        `CREATE TRIGGER fail_queue_handoff BEFORE INSERT ON openMeldDaemon_outbox BEGIN SELECT RAISE(ABORT, 'handoff unavailable'); END`
+      );
+      await expect(instance.flushQueuedSpaceInputs()).rejects.toThrow(
+        "handoff unavailable"
+      );
+      expect(
+        listQueuedSpaceExecutionInputs(state.storage.sql).map(
+          (row) => row.state
+        )
+      ).toEqual(["queued", "queued"]);
+      expect(
+        state.storage.sql
+          .exec("SELECT id FROM space_signals WHERE id = ?", signal.id)
+          .toArray()
+      ).toEqual([]);
+      state.storage.sql.exec("DROP TRIGGER fail_queue_handoff");
+      await instance.flushQueuedSpaceInputs();
+      await instance.flushQueuedSpaceInputs();
+      const dispatches = state.storage.sql
+        .exec<{ dispatch_id: string }>(
+          "SELECT dispatch_id FROM openMeldDaemon_outbox WHERE source_event_id = ?",
+          signal.id
+        )
+        .toArray();
+      expect(dispatches).toHaveLength(1);
+      const pending = listQueuedSpaceExecutionInputs(state.storage.sql);
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.signal.id).toBe(second.id);
+      expect(pending[0]?.afterDispatchId).toBe(dispatches[0]?.dispatch_id);
+      const rows = state.storage.sql
+        .exec("SELECT id FROM space_signals WHERE id = ?", signal.id)
+        .toArray();
+      expect(rows).toHaveLength(1);
+      const nextDispatch = dispatches[0];
+      if (!nextDispatch) {
+        throw new Error("Expected one dispatch.");
+      }
+      insertSignalRecord(state.storage.sql, {
+        v: 1,
+        id: crypto.randomUUID(),
+        spaceId: signal.spaceId,
+        ts: Date.now(),
+        profile: {
+          kind: "agent",
+          profileId: request.agentProfileId,
+          profileName: "Center",
+        },
+        type: "signal.text",
+        data: {
+          text: "Next done",
+          meta: {
+            purpose: "agent_reply_final",
+            dispatchId: nextDispatch.dispatch_id,
+            targetProfileId: request.agentProfileId,
+          },
+        },
+      });
+      vi.mocked(instance.readSpaceCallerContext).mockResolvedValue({
+        relationship: "external",
+        spaceRole: "member",
+        audience: "organization",
+      });
+      await instance.flushQueuedSpaceInputs();
+      expect(
+        listQueuedSpaceExecutionInputs(state.storage.sql)[0]?.blocked
+      ).toBe(true);
+      expect(
+        state.storage.sql
+          .exec("SELECT dispatch_id FROM openMeldDaemon_outbox")
+          .toArray()
+      ).toHaveLength(1);
+    });
+  });
+
+  it.each([
+    "wake_stopped",
+    "terminal_failure",
+  ] as const)("keeps pending messages after %s instead of starting another Wake", async (noticeType) => {
+    await fixture(async ({ instance, state, signal, request }) => {
+      await instance.publishExecutionInput(
+        signal,
+        { authoringPolicy: "user_authored" },
+        true
+      );
+      insertSignalRecord(state.storage.sql, {
+        v: 1,
+        id: crypto.randomUUID(),
+        spaceId: signal.spaceId,
+        ts: Date.now(),
+        profile: {
+          kind: "system",
+          profileId: "system",
+          profileName: "OpenMeld",
+        },
+        type: "signal.system_notice",
+        data: {
+          text: "Request ended",
+          noticeType,
+          generatedBy: "openmeld",
+          actorProfileId: request.agentProfileId,
+          dispatchId: request.dispatchId,
+        },
+      });
+      await instance.flushQueuedSpaceInputs();
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toMatchObject([
+        { state: "queued", blocked: true },
+      ]);
+      expect(
+        state.storage.sql
+          .exec("SELECT dispatch_id FROM openMeldDaemon_outbox")
+          .toArray()
+      ).toEqual([]);
+    });
+  });
   it.each([
     "delete_first",
     "steer_first",

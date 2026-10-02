@@ -8297,13 +8297,24 @@ mutation results expose only that author's inputs. Steer also compares the
 requested dispatch and Profile with the stored target. It never retargets an
 existing row to a newer execution.
 
-No Gateway route, public API client, Agent tool, Service transport message, or
-Web composer calls this receiver yet. It is not a supported Queue/Steer MVP.
-Future public callers must deploy after the Core receiver and must complete a
-new authority and mixed-version audit. Existing setup, Wake, Space actions,
-diagnostics, and legacy Center input callers keep their current payloads and
-behavior. The additive schemas do not require a Service execution epoch change;
-shared schema and adapter sources still affect packaged local artifacts, so a
-future release must stamp and verify those artifacts instead of treating this as
-a cloud-only change. Rollback removes new callers first; pending Queue rows stay
-held and are invisible to the old outbox forwarding deadline query.
+`GET/PATCH /v1/spaces/:spaceId/input-queue` and the shared API client expose this
+receiver to the Human/Center private-DM composer. Gateway derives the actor from
+authenticated context and rejects injected author fields. Existing Space access
+and active Human ownership checks still apply. The Web default for supported
+plain text during a confirmed response is Queue; only the explicit Steer action
+calls native execution input. Queue mutations use the existing
+`space.meta.changed` invalidation envelope, without message text or author data.
+The client rereads its authorized queue, including after reconnect.
+
+Contract Impact Audit: deploy Core before Gateway before the new Web caller;
+rollback callers before receivers. This is an additive public HTTP boundary,
+not a new Service transport or execution epoch. Old clients retain their existing
+behavior and cannot manage pending inputs; new clients fail on an old receiver
+without falling back to implicit Steer. Setup, ordinary Wake, Space actions,
+diagnostics, Skills, and Service wire formats are unchanged in both directions.
+Remote's existing exact-input receive/read contracts are unchanged. Shared
+schema and adapter sources still affect packaged local artifacts, so a future
+release must stamp and verify those artifacts; deferred feature verification is
+not permission to publish a stale bundle. Pending Queue rows remain invisible
+to old forwarding queries on rollback. Agent tools and Local Service queue
+callers are not implemented by this narrow path and need their own audit.
