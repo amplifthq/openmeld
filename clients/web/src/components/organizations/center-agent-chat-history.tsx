@@ -81,7 +81,7 @@ export function CenterAgentChatHistory({
 		<h1
 			className={cn(
 				buttonVariants({ variant: "ghost" }),
-				"group/chat-title relative h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full border-0 p-0 text-lg transition-none hover:shadow-sm",
+				"group/chat-title relative ml-[var(--space-title-control-inline-offset,0px)] h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full border-0 p-0 text-lg transition-none hover:shadow-sm",
 				open && "bg-muted shadow-sm"
 			)}
 		>
@@ -98,7 +98,7 @@ export function CenterAgentChatHistory({
 				<TooltipHint content={open ? undefined : "Open chat history"}>
 					<DropdownMenuTrigger
 						aria-label={`Open chat history: ${title}`}
-						className="flex min-w-0 items-center rounded-full py-1 pr-2 text-lg outline-none focus-visible:ring-1 focus-visible:ring-ring/50 disabled:opacity-50"
+						className="flex min-w-0 items-center rounded-full px-2 py-1 text-lg outline-none focus-visible:ring-1 focus-visible:ring-ring/50 disabled:opacity-50"
 						disabled={disabled}
 					>
 						<span className="truncate">{title}</span>
