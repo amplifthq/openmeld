@@ -783,29 +783,6 @@ selection is user intent and remains authoritative on resume and turn start.
 The Service must not inspect private Codex rollout files or global config to
 infer a substitute selection.
 
-The Codex adapter exposes optional, text-only exact-task steering through the
-active App Server session's native `turn/steer` method. It uses that session's
-accepted `threadId` and `expectedTurnId`; it must not resume a different thread,
-start a new turn, retarget a newer turn, or change execution policy. Stop and
-settled tasks reject further input. The caller's stable `inputId` is forwarded
-as `clientUserMessageId` for correlation, not as an idempotency guarantee.
-A matching native receipt means the input was admitted to that turn, not that
-the model finished acting on it. Native
-method/precondition rejection proves non-application; an internal error,
-missing acknowledgement, or mismatched receipt does not. A steering receipt
-timeout leaves the original execution running and never retries the input.
-Unconfirmed receipts retain a bounded diagnostic code and the native numeric
-error code when present, without forwarding provider error text as product copy.
-The native contract is documented in the
-[Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
-
-This adapter capability is not yet a public Service command or a Space Queue
-implementation. A future caller must authorize the exact RuntimeCoordinator
-execution before resolving its local task and must retain delivery uncertainty:
-an unconfirmed input cannot be automatically sent again or consumed as queued
-work. Existing RuntimeCoordinator execution and Stop ownership are unchanged;
-the adapter does not own a second execution or pending-message state machine.
-
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
 a connection-generation change, and a low-frequency recovery keepalive. Until

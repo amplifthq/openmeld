@@ -22,8 +22,6 @@ import type {
   AgentControllerPermissionMode,
   AgentControllerSessionTitle,
   AgentControllerUsageLimit,
-  AgentExecutionSteerRequest,
-  AgentExecutionSteerResponse,
   AgentInteractionRequest,
   AgentInteractionResponse,
   AiUsageObservation,
@@ -40,12 +38,6 @@ import type {
 import type { AgentControllerProcessSignalTarget } from "./agent-controller-process.js";
 import type { AdapterConversationBridgeSpec } from "./conversation-bridge.js";
 import type { AdapterDispatchSpaceTools } from "./dispatch-space-tools.js";
-
-export { agentExecutionSteerRequestSchema } from "@openmeld/schemas";
-export type {
-  AgentExecutionSteerRequest,
-  AgentExecutionSteerResponse,
-} from "@openmeld/schemas/types";
 
 export {
   type AdapterDispatchSpaceTool,
@@ -581,10 +573,6 @@ export type WaitForMs = (delayMs: number) => Promise<void>;
 
 export type RuntimeAdapter = {
   readonly adapterId: string;
-  /** A receipt of unknown outcome must never be retried or queued automatically. */
-  steer?(
-    input: AgentExecutionSteerRequest
-  ): Promise<AgentExecutionSteerResponse>;
   // TODO(adapter-control-e2e): Wire user-triggered control commands (CLI/Space)
   // through RuntimeTransport -> daemon session router -> runtime adapter.
   cancel?(input: AdapterCancelRequest): Promise<AdapterCancelResult>;
